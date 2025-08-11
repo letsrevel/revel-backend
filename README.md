@@ -118,7 +118,7 @@ The codebase is organized into a `src` directory with a clear separation of conc
 *   `src/events/`: The core logic for organizations, events, tickets, and memberships.
 *   `src/questionnaires/`: The questionnaire building, submission, and evaluation system.
 *   `src/geo/`: Geolocation features (cities, IP lookups).
-*   `src/telegram/`: Integration with the Telegram Bot API (note: this is a broke early prototype).
+*   `src/telegram/`: Integration with the Telegram Bot API (note: this is a broken early prototype).
 *   `src/api/`: Main API configuration, exception handlers, and global endpoints.
 
 Each app contains a `controllers/` directory for API endpoints and a `service/` directory for business logic.
