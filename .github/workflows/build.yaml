@@ -28,5 +28,5 @@ jobs:
           file: ./Dockerfile
           push: false
           tags: |
-            ghcr.io/biagiodistefano/revel:latest
-            ghcr.io/biagiodistefano/revel:${{ env.VERSION }}
+            ghcr.io/letsrevel/revel:latest
+            ghcr.io/letsrevel/revel:${{ env.VERSION }}

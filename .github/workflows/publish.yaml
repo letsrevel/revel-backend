@@ -28,5 +28,5 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ghcr.io/biagiodistefano/revel:latest
-            ghcr.io/biagiodistefano/revel:${{ github.event.release.tag_name }}
+            ghcr.io/letsrevel/revel:latest
+            ghcr.io/letsrevel/revel:${{ github.event.release.tag_name }}
