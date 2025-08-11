@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import BooleanField, Case, QuerySet, Value, When
 from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
 from ninja_jwt.authentication import JWTAuth
@@ -25,7 +25,19 @@ class PotluckController(UserAwareController):
     def list_potluck_items(self, event_id: UUID) -> QuerySet[PotluckItem]:
         """List potluck items for an event."""
         event = self.get_object_or_exception(self.get_event_queryset(), pk=event_id)
-        return PotluckItem.objects.filter(event=event).select_related("created_by", "assignee")
+        user_id = self.user().id
+        return PotluckItem.objects.filter(event=event).annotate(
+            is_assigned=Case(
+                When(assignee_id__isnull=False, then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
+            is_owned=Case(
+                When(assignee_id=user_id, then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
+        )
 
     @route.post(
         "/",
@@ -72,6 +84,18 @@ class PotluckController(UserAwareController):
         event = self.get_object_or_exception(self.get_event_queryset(), pk=event_id)
         potluck_item = get_object_or_404(PotluckItem, id=item_id, event=event)
         return potluck_service.claim_potluck_item(potluck_item, self.user())
+
+    @route.post(
+        "/{item_id}/unclaim",
+        url_name="unclaim_potluck_item",
+        response=schema.PotluckItemRetrieveSchema,
+        permissions=[PotluckItemPermission("claim_potluck_item")],
+    )
+    def unclaim_potluck_item(self, event_id: UUID, item_id: UUID) -> PotluckItem:
+        """Claim a potluck item."""
+        event = self.get_object_or_exception(self.get_event_queryset(), pk=event_id)
+        potluck_item = get_object_or_404(PotluckItem, id=item_id, event=event, assignee=self.user())
+        return potluck_service.unclaim_potluck_item(potluck_item)
 
     def get_event_queryset(self, include_past: bool = False) -> QuerySet[Event]:
         """Get the event queryset."""

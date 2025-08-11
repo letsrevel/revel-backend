@@ -79,6 +79,18 @@ class TestPotluckController:
         potluck_item.refresh_from_db()
         assert potluck_item.assignee == nonmember_user
 
+    def test_unclaim_potluck_item(self, nonmember_client: Client, event: Event, nonmember_user: RevelUser) -> None:
+        """Test that a user can unclaim a potluck item they previously claimed."""
+        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.Status.YES)
+        potluck_item = PotluckItem.objects.create(
+            event=event, name="Paper Towels", item_type="supplies", is_suggested=True, assignee=nonmember_user
+        )
+        url = reverse("api:unclaim_potluck_item", kwargs={"event_id": event.id, "item_id": potluck_item.id})
+        response = nonmember_client.post(url)
+        assert response.status_code == 200
+        potluck_item.refresh_from_db()
+        assert potluck_item.assignee is None
+
 
 class TestPotluckControllerPermissions:
     def test_update_potluck_item_by_owner(self, organization_owner_client: Client, event: Event) -> None:

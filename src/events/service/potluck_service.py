@@ -29,3 +29,10 @@ def claim_potluck_item(potluck_item: PotluckItem, user: RevelUser) -> PotluckIte
     potluck_item.assignee = user
     potluck_item.save()
     return potluck_item
+
+
+def unclaim_potluck_item(potluck_item: PotluckItem) -> PotluckItem:
+    """Claim a potluck item."""
+    potluck_item.assignee = None
+    potluck_item.save()
+    return potluck_item
