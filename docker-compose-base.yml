@@ -1,0 +1,90 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: shared_redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  minio:
+    image: docker.io/bitnami/minio:2024
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    volumes:
+      - 'minio_data:/data'
+    environment:
+      - MINIO_ROOT_USER=$AWS_ACCESS_KEY_ID
+      - MINIO_ROOT_PASSWORD=$AWS_SECRET_ACCESS_KEY
+      - MINIO_DEFAULT_BUCKETS=$AWS_STORAGE_BUCKET_NAME
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.13.3
+    container_name: meilisearch
+#    environment:
+#      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+    ports:
+      - "7700:7700"
+    volumes:
+      - ./meili_data:/meili_data
+    restart: unless-stopped
+
+  postgres:
+    image: 'postgis/postgis:15-3.3'  # newer versions dont support M* architecture yet
+    command: postgres -c max_connections=270 -c shared_buffers=1024MB -p 5432
+    environment:
+      SECRET_KEY: ${SECRET_KEY}
+      POSTGRES_USER: ${DB_USER}
+      PGUSER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${DB_NAME}
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -p 5432" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - type: tmpfs
+        target: /var/lib/postgresql/data
+
+  clamav:
+    image: mkodockx/docker-clamav:alpine
+    container_name: clamav
+    restart: unless-stopped
+    ports:
+      - "3310:3310"  # clamd TCP socket
+    mem_limit: 2g
+    memswap_limit: 3g
+    healthcheck:
+      test: [ "CMD-SHELL", "clamdscan --version || exit 1" ]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+    environment:
+      - CLAMD_CONF_MaxFileSize=25M  # bump if needed
+      - CLAMD_CONF_StreamMaxLength=25M
+    volumes:
+      - clamav_defs:/var/lib/clamav  # persist virus definitions
+
+
+volumes:
+  minio_data:
+    driver: local
+  clamav_defs:
+  redis_data:

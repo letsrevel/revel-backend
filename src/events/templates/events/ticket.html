@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Your Ticket for {{ event_name }}</title>
+    <style>
+        @page {
+            size: A4;
+            /* Reduced page margins to create more content area */
+            margin: 0.7cm;
+        }
+        body {
+            font-family: sans-serif;
+            color: #333;
+            /* Removed default body margin */
+            margin: 0;
+        }
+        .container {
+            /* Added a height and flexbox to better control element distribution */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 100%;
+            width: 100%;
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+            box-sizing: border-box;
+            /* Added a hint to the renderer to avoid breaking this container */
+            page-break-inside: avoid;
+        }
+        h1 {
+            color: #000;
+            /* Slightly reduced font size and margin */
+            font-size: 16px;
+            margin: 0 0 5px 0;
+        }
+        h2 {
+            /* Reduced font size and bottom margin */
+            font-size: 13px;
+            color: #555;
+            margin: 0 0 15px 0;
+            font-weight: normal;
+        }
+        .details {
+            text-align: left;
+            /* Reduced bottom margin */
+            margin-bottom: 15px;
+        }
+        .details p {
+            /* Reduced font size and vertical margin */
+            margin: 3px 0;
+            font-size: 11px;
+        }
+        .details strong {
+            display: inline-block;
+            width: 70px; /* Adjusted width */
+        }
+        .qr-code {
+            /* Removed unnecessary margin, flexbox will handle spacing */
+            margin: 0;
+        }
+        .footer {
+            /* Reduced top margin and font size */
+            margin-top: 15px;
+            font-size: 9px;
+            color: #777;
+        }
+        .footer p {
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Grouped header for better spacing control -->
+        <div class="header">
+            <h1>{{ event_name }}</h1>
+            <h2>Presented by {{ organization_name }}</h2>
+        </div>
+
+        <div class="details">
+            <p><strong>Attendee:</strong> {{ user_display_name }}</p>
+            <p><strong>Ticket:</strong> {{ tier_name }}</p>
+            <p><strong>Date:</strong> {{ start_datetime }}</p>
+            {% if address %}<p><strong>Location:</strong> {{ address }}{% endif %}</p>
+        </div>
+
+        <div class="qr-code">
+            <img src="data:image/png;base64,{{ qr_code_base64 }}" alt="Ticket QR Code" width="140" height="140">
+        </div>
+
+        <div class="footer">
+            <p>Please present this ticket at the event entrance for scanning.</p>
+            <p>Ticket ID: {{ ticket_id }}</p>
+        </div>
+    </div>
+</body>
+</html>

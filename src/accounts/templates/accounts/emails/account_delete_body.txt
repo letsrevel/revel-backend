@@ -1,0 +1,12 @@
+Confirm Account Deletion.
+
+You have received this email because you have requested to delete your account at {{ frontend_base_url }}.
+
+If you did not request this, please ignore this email.
+
+To confirm the deletion of your account, click the link below:
+
+{{ account_deletion_link }}
+
+Thank you,
+The Revel Team

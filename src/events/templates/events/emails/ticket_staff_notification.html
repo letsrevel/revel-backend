@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Ticket Issued: {{ event.name }}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+            color: white;
+            padding: 30px 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .notification-box {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #6c757d;
+            margin-bottom: 20px;
+        }
+        .ticket-details {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+            margin: 20px 0;
+        }
+        .detail-row {
+            display: flex;
+            margin: 10px 0;
+            align-items: center;
+        }
+        .detail-label {
+            font-weight: bold;
+            color: #495057;
+            min-width: 120px;
+        }
+        .user-info {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        .footer {
+            border-top: 1px solid #e9ecef;
+            padding-top: 20px;
+            margin-top: 30px;
+            font-size: 14px;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎫 New Ticket Issued</h1>
+        <p>Staff Notification</p>
+    </div>
+
+    <div class="notification-box">
+        <p>Hi {{ user.first_name|default:user.username }},</p>
+        <p>A new ticket has been {% if action == "activated" %}activated{% else %}issued{% endif %} for <strong>{{ event.name }}</strong>.</p>
+    </div>
+
+    <div class="user-info">
+        <h4>Ticket Holder</h4>
+        <div class="detail-row">
+            <span class="detail-label">Name:</span>
+            <span>{{ ticket_holder.first_name|default:ticket_holder.username }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Email:</span>
+            <span>{{ ticket_holder.email }}</span>
+        </div>
+    </div>
+
+    <div class="ticket-details">
+        <h4>Ticket Information</h4>
+        <div class="detail-row">
+            <span class="detail-label">Ticket Type:</span>
+            <span>{{ ticket.tier.name }}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Price:</span>
+            <span>{% if ticket.tier.price > 0 %}&dollar;{{ ticket.tier.price }}{% else %}Free{% endif %}</span>
+        </div>
+        <div class="detail-row">
+            <span class="detail-label">Status:</span>
+            <span>{{ ticket.get_status_display }}</span>
+        </div>
+
+        <h4 style="margin-top: 25px;">Event Details</h4>
+        <div class="detail-row">
+            <span class="detail-label">Event:</span>
+            <span>{{ event.name }}</span>
+        </div>
+        {% if event.start %}
+        <div class="detail-row">
+            <span class="detail-label">Date:</span>
+            <span>{{ event.start|date:"F j, Y \a\t g:i A" }}</span>
+        </div>
+        {% endif %}
+        {% if event.location_name %}
+        <div class="detail-row">
+            <span class="detail-label">Location:</span>
+            <span>{{ event.location_name }}</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="footer">
+        <p>You're receiving this notification as a staff member of <strong>{{ event.organization.name }}</strong>.</p>
+        <p><small>Revel Event Management System</small></p>
+    </div>
+</body>
+</html>

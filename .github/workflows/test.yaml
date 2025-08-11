@@ -1,0 +1,77 @@
+name: Test Revel Backend
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/test.yml
+      - src/**/*.py
+      - pyproject.toml
+      - uv.lock
+      - ./**/*.yml
+      - ./**/*.yaml
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install a specific version of uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.10"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Check uv.lock
+        run: |
+          if ! git diff --exit-code uv.lock > /dev/null; then
+            echo "❌ uv.lock is out of sync with pyproject.toml. Run 'uv sync' and commit the updated lockfile."
+            git diff uv.lock
+            exit 1
+          fi
+
+      - name: Install system deps
+        run: |
+          sudo apt update
+          sudo apt install -y curl gnupg software-properties-common jq unzip gdal-bin libgdal-dev
+
+      - name: Export GDAL path
+        run: |
+          echo "GDAL_LIBRARY_PATH=$(gdal-config --libs | grep -o '/[^ ]*libgdal[^ ]*\.so')" >> $GITHUB_ENV
+
+      - name: Recreate environment file
+        run: cp .env.example .env
+
+      - name: Add worldcities.csv  # we need this so migrations can run
+        working-directory: src
+        run: cp geo/data/worldcities.mini.csv geo/data/worldcities.csv
+
+      - name: Run ruff formatting check
+        run: uv run ruff check . --select F
+
+      - name: Run ruff linting check
+        run: uv run ruff check .
+
+      - name: Run mypy
+        run: uv run mypy --strict --extra-checks --warn-unreachable --warn-unused-ignores src
+
+      - name: Spin up docker
+        run: docker compose -f docker-compose-dev.yml up -d
+
+      - name: Check for missing migrations
+        working-directory: src
+        run: uv run manage.py makemigrations --check --dry-run
+
+      - name: Run unit tests
+        run: |
+          uv run pytest --cov=src --cov-report=term --cov-report=html --cov-branch --cov-fail-under=90 --junitxml=test-results/unit-tests.xml -v src
+
+      - name: Teardown docker
+        run: docker compose -f docker-compose-dev.yml down

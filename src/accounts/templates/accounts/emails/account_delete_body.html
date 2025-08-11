@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Confirm Account Deletion</title>
+</head>
+<body>
+    <h2>Confirm Account Deletion</h2>
+    <p>You have received this email because you have requested to delete your account at 
+        <a href="{{ frontend_base_url }}">Revel</a>.
+    </p>
+
+    <p>If you did not request this, please ignore this email.</p>
+
+    <p>To confirm the deletion of your account, click the link below:</p>
+
+    <p>
+        <a href="{{ account_deletion_link }}" style="display: inline-block; padding: 10px 20px; background-color: #dc3545; color: #ffffff; text-decoration: none; border-radius: 5px;">
+            Confirm Account Deletion
+        </a>
+    </p>
+
+    <p>Thank you,<br>The Revel Team</p>
+</body>
+</html>

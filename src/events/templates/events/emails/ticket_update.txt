@@ -1,0 +1,53 @@
+Hi {{ user.first_name|default:user.username }},
+
+{% if action == "free_ticket_created" %}
+🎫 Your free ticket for {{ event.name }} is ready!
+
+Your ticket has been confirmed and is attached to this email.
+{% elif action == "offline_payment_pending" %}
+💰 Payment Required: {{ event.name }}
+
+Your ticket reservation is confirmed, but payment is still needed.
+
+{% if ticket.tier.manual_payment_instructions %}
+Payment Instructions:
+{{ ticket.tier.manual_payment_instructions }}
+{% else %}
+Please contact the event organizers for payment instructions.
+{% endif %}
+{% elif action == "at_door_payment_pending" %}
+🚪 Pay at the Door: {{ event.name }}
+
+Your spot is reserved! Please bring payment to the event.
+
+{% if ticket.tier.manual_payment_instructions %}
+Payment Information:
+{{ ticket.tier.manual_payment_instructions }}
+{% else %}
+Please bring payment to the event. Contact the organizers if you have questions about payment methods.
+{% endif %}
+
+Please arrive with enough time to complete payment before the event starts.
+{% elif action == "ticket_activated" %}
+✅ Ticket Confirmed: {{ event.name }}
+
+Your ticket is now active and ready to use!
+{% endif %}
+
+Event Details:
+{{ event.name }}
+{% if event.start %}Date: {{ event.start|date:"F j, Y \a\t g:i A" }}{% endif %}
+{% if event.location_name %}Location: {{ event.location_name }}{% endif %}
+
+Ticket Information:
+Ticket Type: {{ ticket.tier.name }}
+{% if ticket.tier.price > 0 %}Price: ${{ ticket.tier.price }}{% else %}Price: Free{% endif %}
+
+{% if action in "free_ticket_created,at_door_payment_pending,ticket_activated" %}
+Please save this email and bring your ticket (attached as PDF) to the event.
+{% endif %}
+
+Looking forward to seeing you there!
+
+Best regards,
+{{ event.organization.name }} Team

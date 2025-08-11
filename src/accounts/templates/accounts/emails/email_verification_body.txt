@@ -1,0 +1,8 @@
+Verify your email.
+
+Please verify your email and finish setting up your account.
+
+{{ verification_link }}
+
+Thank you,
+The Revel Team

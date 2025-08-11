@@ -1,0 +1,225 @@
+[project]
+name = "revel"
+description = "Add your description here"
+dynamic = ["version"]
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiogram>=3.20.0.post0",
+    "celery>=5.5.3",
+    "django>=5.2.3",
+    "django-celery-beat>=2.8.1",
+    "django-celery-results>=2.6.0",
+    "django-cors-headers>=4.7.0",
+    "django-extension>=0.1.0",
+    "django-fernet-encrypted-fields>=0.3.0",
+    "django-google-sso>=8.0.0",
+    "django-money>=3.5.4",
+    "django-ninja>=1.4.3",
+    "django-ninja-extra>=0.30.1",
+    "django-ninja-jwt[crypto]>=5.3.7",
+    "django-silk>=5.4.0",
+    "django-simple-history>=3.8.0",
+    "django-solo>=2.4.0",
+    "django-storages>=1.14.6",
+    "django-structlog>=9.1.1",
+    "django-unfold>=0.60.0",
+    "faker>=37.4.0",
+    "flower>=2.0.1",
+    "freezegun>=1.5.2",
+    "gunicorn>=23.0.0",
+    "ics>=0.7.2",
+    "ip2location>=8.10.5",
+    "ninja-schema>=0.14.2",
+    "openai>=1.95.1",
+    "orjson>=3.10.18",
+    "piexif>=1.1.3",
+    "pillow>=11.2.1",
+    "psycopg[binary]>=3.2.9",
+    "pyclamd>=0.4.0",
+    "pydantic[email]>=2.11.7",
+    "pygments>=2.19.1",
+    "pyopenssl>=25.1.0",
+    "pyotp>=2.9.0",
+    "python-decouple>=3.8",
+    "python-magic>=0.4.27",
+    "qrcode>=8.2",
+    "redis>=6.2.0",
+    "stripe>=12.4.0",
+    "structlog>=25.4.0",
+    "tqdm>=4.67.1",
+    "types-tqdm>=4.67.0.20250516",
+    "uvicorn>=0.34.3",
+    "uvloop>=0.21.0",
+    "weasyprint>=66.0",
+    "whitenoise>=6.9.0",
+]
+
+[dependency-groups]
+dev = [
+    "celery-types>=0.23.0",
+    "coverage>=7.9.1",
+    "django-stubs[compatible-mypy]>=5.2.1",
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.6.14",
+    "mkdocs-minify-plugin>=0.8.0",
+    "mkdocs-redirects>=1.2.2",
+    "mypy>=1.16.1",
+    "pre-commit>=4.2.0",
+    "pydocstyle>=6.3.0",
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.0.0",
+    "pytest-celery>=1.2.0",
+    "pytest-cov>=6.2.1",
+    "pytest-django>=4.11.1",
+    "ruff>=0.12.0",
+    "types-qrcode>=8.2.0.20250506",
+    "types-stripe>=3.5.2.20240106",
+]
+
+[tool.setuptools.dynamic]
+version = { file = "version" }
+
+[tool.ruff]
+
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "dist",
+    "node_modules",
+    "venv",
+    "playground.py",
+    "*/migrations/*"
+]
+
+# Same as Black.
+line-length = 120
+
+target-version = "py312"
+
+[tool.ruff.lint]
+# Allow unused variables when underscore-prefixed.
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "EM", "ERA", "EXE", "FBT", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "TRY", "UP", "YTT"]
+select = ["E", "F", "I", "W", "D", "T201", "C"]
+extend-select = ["I", "W", "E", "D"]
+ignore = ["D100", "D101", "D104", "D105", "D106"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"**/migrations/*.py" = ["D"]
+"**/tests/*.py" = ["D"]
+"**/admin.py" = ["D102"]
+"conftest.py" = ["D"]
+
+[tool.ruff.lint.mccabe]
+# Unlike Flake8, default to a complexity level of 10.
+max-complexity = 10
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+
+# Like Black, use double quotes for strings.
+quote-style = "double"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+[tool.mypy]
+mypy_path = ["./src",]
+# ignore_missing_imports = true  # sympy is not and there are no stubs
+plugins = ["pydantic.mypy", "mypy_django_plugin.main"]
+exclude = ["./*/migrations/*", "playground.py"]
+
+[[tool.mypy.overrides]]
+module = "django_google_sso.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "django_celery_beat.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "simple_history.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "decouple.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "unfold.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pyclamd.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "IP2Location.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "encrypted_fields.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "piexif.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "ics.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "weasyprint.*"
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "revel.settings"
+disable_error_code = ["django-manager-missing"]
+
+[tool.pytest.ini_options]
+pythonpath = "src"
+DJANGO_SETTINGS_MODULE = "revel.settings"
+
+[tool.coverage.run]
+omit = [
+    "src/manage.py",
+    "src/revel/asgi.py",
+    "src/revel/wsgi.py",
+    "src/revel/settings/*.py",
+    "src/revel/settings.py",
+    "src/revel/admin_dashboard.py",
+    "src/*/admin.py",
+    "src/*/management/**",
+    "src/*/migrations/**",
+    "src/playground.py",
+    "functional_tests/*",
+    "src/telegram/**"
+]

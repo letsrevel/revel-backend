@@ -1,0 +1,6 @@
+A user data export has failed.
+
+User: {{ user.email }}
+Error: {{ error_message }}
+
+Please investigate this issue as soon as possible.

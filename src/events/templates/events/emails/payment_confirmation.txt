@@ -1,0 +1,16 @@
+Hi {{ user.preferred_name|default:user.first_name }},
+
+Your payment for the event "{{ ticket.event.name }}" was successful! Your ticket is now active.
+
+Here are your transaction details:
+- Event: {{ ticket.event.name }}
+- Ticket Tier: {{ ticket.tier.name|default:"General Admission" }}
+- Amount Paid: {{ payment.amount }} {{ payment.currency }}
+- Payment ID: {{ payment.id }}
+
+You can view your ticket and event details on the platform.
+
+See you at the event!
+
+Cheers,
+The Revel Team

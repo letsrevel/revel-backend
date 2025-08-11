@@ -1,0 +1,10 @@
+Hi {{ user.first_name }},
+
+Unfortunately, we were unable to generate your data export.
+
+We have been notified of this issue and are working to resolve it as soon as possible.
+
+We apologize for any inconvenience.
+
+Thanks,
+The Revel Team

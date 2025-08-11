@@ -1,0 +1,21 @@
+services:
+  redis:
+    extends:
+      service: redis
+      file: docker-compose-base.yml
+
+  postgres:
+    extends:
+      service: postgres
+      file: docker-compose-base.yml
+
+  clamav:
+    extends:
+      service: clamav
+      file: docker-compose-base.yml
+
+volumes:
+  minio_data:
+  postgres_data:
+  clamav_defs:
+  redis_data:

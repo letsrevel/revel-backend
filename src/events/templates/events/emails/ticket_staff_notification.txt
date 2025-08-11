@@ -1,0 +1,24 @@
+Hi {{ user.first_name|default:user.username }},
+
+A new ticket has been issued for {{ event.name }}:
+
+Ticket Holder: {{ ticket_holder.first_name|default:ticket_holder.username }} ({{ ticket_holder.email }})
+Ticket Type: {{ ticket.tier.name }}
+Price: {% if ticket.tier.price > 0 %}&dollar;{{ ticket.tier.price }}{% else %}Free{% endif %}
+Status: {{ ticket.get_status_display }}
+
+{% if action == "created" %}
+This ticket was just created.
+{% elif action == "activated" %}
+This ticket has been activated and is now ready for use.
+{% endif %}
+
+Event Details:
+{{ event.name }}
+{% if event.start %}Date: {{ event.start|date:"F j, Y \a\t g:i A" }}{% endif %}
+{% if event.location_name %}Location: {{ event.location_name }}{% endif %}
+
+You're receiving this notification as a staff member of {{ event.organization.name }}.
+
+Best regards,
+Revel Team

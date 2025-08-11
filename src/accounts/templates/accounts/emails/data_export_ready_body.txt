@@ -1,0 +1,11 @@
+Hi {{ user.username }},
+
+Your data export from Revel is ready to be downloaded.
+
+You can download your data by clicking the following link:
+{{ download_url }}
+
+This link is valid for a limited time. If you did not request this export, please ignore this email or contact support.
+
+Best,
+The Revel Team

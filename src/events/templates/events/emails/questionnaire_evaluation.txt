@@ -1,0 +1,41 @@
+Hi {{ user.first_name|default:user.username }},
+
+Your questionnaire submission for {{ event.name }} has been evaluated:
+
+{% if evaluation.status == "approved" %}
+🎉 APPROVED
+
+Congratulations! Your questionnaire submission has been approved.
+{% elif evaluation.status == "rejected" %}
+❌ REJECTED
+
+Unfortunately, your questionnaire submission was not approved.
+{% endif %}
+
+Event: {{ event.name }}
+Organization: {{ organization.name }}
+Questionnaire: {{ submission.questionnaire.name }}
+
+{% if evaluation.score %}
+Score: {{ evaluation.score }}/{{ submission.questionnaire.max_score|default:"N/A" }}
+{% endif %}
+
+{% if evaluation.comments %}
+Evaluator Comments:
+{{ evaluation.comments }}
+{% endif %}
+
+{% if evaluation.evaluator %}
+Evaluated by: {{ evaluation.evaluator.first_name|default:evaluation.evaluator.username }}
+{% endif %}
+
+{% if evaluation.status == "approved" %}
+You can now proceed with your event registration or participation as outlined in the event details.
+{% else %}
+If you have questions about this decision, please contact the event organizers.
+{% endif %}
+
+{% if event.start %}Event Date: {{ event.start|date:"F j, Y \a\t g:i A" }}{% endif %}
+
+Best regards,
+{{ organization.name }} Team

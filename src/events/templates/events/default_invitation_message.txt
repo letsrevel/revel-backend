@@ -1,0 +1,5 @@
+Hello {{ user.get_short_name|default:user.username }}!
+
+You have been invited to {{ event.name }}!
+
+{{ event.description|default:''}}
