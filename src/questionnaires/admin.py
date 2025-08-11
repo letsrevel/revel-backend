@@ -233,41 +233,250 @@ class QuestionnaireSubmissionAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[m
 
 @admin.register(models.QuestionnaireEvaluation)
 class QuestionnaireEvaluationAdmin(ModelAdmin):  # type: ignore[misc]
-    """Admin model for Questionnaire Evaluations."""
+    """Admin model for Questionnaire Evaluations with enhanced workflow."""
 
     list_display = [
         "__str__",
         "submission_user",
+        "questionnaire_name",
+        "status_display",
+        "proposed_status_display",
+        "score_display",
+        "automatically_evaluated_display",
+        "evaluator_link",
+        "created_at",
+    ]
+    list_filter = [
         "status",
         "proposed_status",
-        "score",
         "automatically_evaluated",
-        "evaluator_link",
+        "submission__questionnaire__name",
+        "submission__questionnaire__evaluation_mode",
+        "created_at",
     ]
-    list_filter = ["status", "proposed_status", "automatically_evaluated", "submission__questionnaire__name"]
-    search_fields = ["submission__user__username", "submission__questionnaire__name"]
+    search_fields = ["submission__user__username", "submission__questionnaire__name", "comments"]
     autocomplete_fields = ["submission", "evaluator"]
-    readonly_fields = ["score", "raw_evaluation_data_display", "evaluator_link"]
+    readonly_fields = [
+        "score",
+        "raw_evaluation_data_display",
+        "evaluator_link",
+        "created_at",
+        "updated_at",
+        "submission_link",
+        "evaluation_workflow_display",
+    ]
     date_hierarchy = "created_at"
+    ordering = ["-created_at"]
+
+    fieldsets = (
+        (
+            "Evaluation Details",
+            {
+                "fields": (
+                    "submission_link",
+                    ("status", "proposed_status"),
+                    ("score", "automatically_evaluated"),
+                    "evaluator_link",
+                    "comments",
+                )
+            },
+        ),
+        (
+            "Workflow Information",
+            {
+                "fields": (
+                    "evaluation_workflow_display",
+                    "raw_evaluation_data_display",
+                ),
+                "classes": ["collapse"],
+            },
+        ),
+        ("Timestamps", {"fields": ("created_at", "updated_at"), "classes": ["collapse"]}),
+    )
 
     def submission_user(self, obj: models.QuestionnaireEvaluation) -> str:
         url = reverse("admin:accounts_reveluser_change", args=[obj.submission.user.id])
         return format_html('<a href="{}">{}</a>', url, obj.submission.user.username)
 
     submission_user.short_description = "User"  # type: ignore[attr-defined]
+    submission_user.admin_order_field = "submission__user__username"  # type: ignore[attr-defined]
+
+    @admin.display(description="Questionnaire")
+    def questionnaire_name(self, obj: models.QuestionnaireEvaluation) -> str:
+        url = reverse("admin:questionnaires_questionnaire_change", args=[obj.submission.questionnaire.id])
+        return format_html('<a href="{}">{}</a>', url, obj.submission.questionnaire.name)
+
+    @admin.display(description="Status")
+    def status_display(self, obj: models.QuestionnaireEvaluation) -> str:
+        colors = {
+            models.QuestionnaireEvaluation.Status.APPROVED: "green",
+            models.QuestionnaireEvaluation.Status.REJECTED: "red",
+            models.QuestionnaireEvaluation.Status.PENDING_REVIEW: "orange",
+        }
+        color = colors.get(obj.status, "gray")  # type: ignore[call-overload]
+        return mark_safe(f'<span style="color: {color};">{obj.get_status_display()}</span>')
+
+    @admin.display(description="Proposed Status")
+    def proposed_status_display(self, obj: models.QuestionnaireEvaluation) -> str:
+        if not obj.proposed_status:
+            return "—"
+        colors = {
+            models.QuestionnaireEvaluation.Status.APPROVED: "green",
+            models.QuestionnaireEvaluation.Status.REJECTED: "red",
+            models.QuestionnaireEvaluation.Status.PENDING_REVIEW: "orange",
+        }
+        color = colors.get(obj.proposed_status, "gray")  # type: ignore[call-overload]
+        return mark_safe(f'<span style="color: {color};">{obj.get_proposed_status_display()}</span>')
+
+    @admin.display(description="Score")
+    def score_display(self, obj: models.QuestionnaireEvaluation) -> str:
+        if obj.score is not None:
+            min_score = obj.submission.questionnaire.min_score
+            color = "green" if obj.score >= min_score else "red"
+            return mark_safe(f'<span style="color: {color};">{obj.score:.1f} / 100</span>')
+        return "—"
+
+    @admin.display(description="Auto-Evaluated", boolean=True)
+    def automatically_evaluated_display(self, obj: models.QuestionnaireEvaluation) -> bool:
+        return obj.automatically_evaluated
 
     def evaluator_link(self, obj: models.QuestionnaireEvaluation) -> str | None:
         if not obj.evaluator:
-            return None
+            return "System" if obj.automatically_evaluated else "—"
         url = reverse("admin:accounts_reveluser_change", args=[obj.evaluator.id])
         return format_html('<a href="{}">{}</a>', url, obj.evaluator.username)
 
     evaluator_link.short_description = "Evaluator"  # type: ignore[attr-defined]
 
+    def submission_link(self, obj: models.QuestionnaireEvaluation) -> str:
+        url = reverse("admin:questionnaires_questionnairesubmission_change", args=[obj.submission.id])
+        return format_html('<a href="{}">{}</a>', url, f"Submission by {obj.submission.user.username}")
+
+    submission_link.short_description = "Submission"  # type: ignore[attr-defined]
+
+    def evaluation_workflow_display(self, obj: models.QuestionnaireEvaluation) -> str:
+        html = "<h4>Evaluation Workflow:</h4><ul>"
+
+        html += f"<li><strong>Questionnaire:</strong> {obj.submission.questionnaire.name}</li>"
+        html += (
+            f"<li><strong>Evaluation Mode:</strong> {obj.submission.questionnaire.get_evaluation_mode_display()}</li>"
+        )
+        html += f"<li><strong>Min Score Required:</strong> {obj.submission.questionnaire.min_score}</li>"
+
+        if obj.automatically_evaluated:
+            html += f"<li><strong>LLM Backend:</strong> {obj.submission.questionnaire.get_llm_backend_display()}</li>"
+
+        html += f"<li><strong>Created:</strong> {obj.created_at}</li>"
+        html += f"<li><strong>Last Updated:</strong> {obj.updated_at}</li>"
+
+        html += "</ul>"
+        return mark_safe(html)
+
+    evaluation_workflow_display.short_description = "Workflow Info"  # type: ignore[attr-defined]
+
     def raw_evaluation_data_display(self, obj: models.QuestionnaireEvaluation) -> str:
         if not obj.raw_evaluation_data:
             return "—"
         pretty_json = json.dumps(obj.raw_evaluation_data, indent=2)
-        return mark_safe(f"<pre>{pretty_json}</pre>")
+        return mark_safe(f"<pre style='background: #f8f9fa; padding: 10px; border-radius: 4px;'>{pretty_json}</pre>")
 
     raw_evaluation_data_display.short_description = "Raw Evaluation Data"  # type: ignore[attr-defined]
+
+
+# --- Additional Model Admins for Enhanced Questionnaire Management ---
+
+
+@admin.register(models.MultipleChoiceQuestion)
+class MultipleChoiceQuestionAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for Multiple Choice Questions."""
+
+    list_display = [
+        "question_short",
+        "questionnaire_link",
+        "section_link",
+        "is_mandatory",
+        "is_fatal",
+        "allow_multiple_answers",
+        "order",
+    ]
+    list_filter = ["questionnaire__name", "section__name", "is_mandatory", "is_fatal", "allow_multiple_answers"]
+    search_fields = ["question", "questionnaire__name", "section__name"]
+    autocomplete_fields = ["questionnaire", "section"]
+    ordering = ["questionnaire", "section", "order"]
+
+    inlines = [MultipleChoiceOptionInline]
+
+    @admin.display(description="Question")
+    def question_short(self, obj: models.MultipleChoiceQuestion) -> str:
+        return obj.question[:100] + "..." if len(obj.question) > 100 else obj.question
+
+    @admin.display(description="Questionnaire")
+    def questionnaire_link(self, obj: models.MultipleChoiceQuestion) -> str:
+        url = reverse("admin:questionnaires_questionnaire_change", args=[obj.questionnaire.id])
+        return format_html('<a href="{}">{}</a>', url, obj.questionnaire.name)
+
+    @admin.display(description="Section")
+    def section_link(self, obj: models.MultipleChoiceQuestion) -> str | None:
+        if not obj.section:
+            return "—"
+        return obj.section.name
+
+
+@admin.register(models.FreeTextQuestion)
+class FreeTextQuestionAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for Free Text Questions."""
+
+    list_display = [
+        "question_short",
+        "questionnaire_link",
+        "section_link",
+        "is_mandatory",
+        "is_fatal",
+        "has_llm_guidelines",
+        "order",
+    ]
+    list_filter = ["questionnaire__name", "section__name", "is_mandatory", "is_fatal"]
+    search_fields = ["question", "questionnaire__name", "section__name", "llm_guidelines"]
+    autocomplete_fields = ["questionnaire", "section"]
+    ordering = ["questionnaire", "section", "order"]
+
+    @admin.display(description="Question")
+    def question_short(self, obj: models.FreeTextQuestion) -> str:
+        return obj.question[:100] + "..." if len(obj.question) > 100 else obj.question
+
+    @admin.display(description="Questionnaire")
+    def questionnaire_link(self, obj: models.FreeTextQuestion) -> str:
+        url = reverse("admin:questionnaires_questionnaire_change", args=[obj.questionnaire.id])
+        return format_html('<a href="{}">{}</a>', url, obj.questionnaire.name)
+
+    @admin.display(description="Section")
+    def section_link(self, obj: models.FreeTextQuestion) -> str | None:
+        if not obj.section:
+            return "—"
+        return obj.section.name
+
+    @admin.display(description="Has LLM Guidelines", boolean=True)
+    def has_llm_guidelines(self, obj: models.FreeTextQuestion) -> bool:
+        return bool(obj.llm_guidelines)
+
+
+@admin.register(models.QuestionnaireSection)
+class QuestionnaireSectionAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for Questionnaire Sections."""
+
+    list_display = ["name", "questionnaire_link", "order", "question_count", "created_at"]
+    list_filter = ["questionnaire__name", "created_at"]
+    search_fields = ["name", "questionnaire__name"]
+    autocomplete_fields = ["questionnaire"]
+    ordering = ["questionnaire", "order"]
+
+    @admin.display(description="Questionnaire")
+    def questionnaire_link(self, obj: models.QuestionnaireSection) -> str:
+        url = reverse("admin:questionnaires_questionnaire_change", args=[obj.questionnaire.id])
+        return format_html('<a href="{}">{}</a>', url, obj.questionnaire.name)
+
+    @admin.display(description="Questions")
+    def question_count(self, obj: models.QuestionnaireSection) -> int:
+        mc_count = obj.multiplechoicequestion_questions.count()
+        ft_count = obj.freetextquestion_questions.count()
+        return mc_count + ft_count
