@@ -92,7 +92,7 @@ class PotluckController(UserAwareController):
         permissions=[PotluckItemPermission("claim_potluck_item")],
     )
     def unclaim_potluck_item(self, event_id: UUID, item_id: UUID) -> PotluckItem:
-        """Claim a potluck item."""
+        """Unclaim a potluck item."""
         event = self.get_object_or_exception(self.get_event_queryset(), pk=event_id)
         potluck_item = get_object_or_404(PotluckItem, id=item_id, event=event, assignee=self.user())
         return potluck_service.unclaim_potluck_item(potluck_item)
