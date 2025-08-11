@@ -401,18 +401,20 @@ class OrganizationMembershipRequestRetrieve(ModelSchema):
 
 
 class PotluckItemCreateSchema(ModelSchema):
+    item_type: models.PotluckItem.ItemTypes
+
     class Meta:
         model = models.PotluckItem
         fields = ["name", "item_type", "quantity", "note"]
 
 
 class PotluckItemRetrieveSchema(ModelSchema):
-    created_by: MinimalRevelUserSchema | None = None
-    assignee: MinimalRevelUserSchema | None = None
+    is_assigned: bool = False
+    is_owned: bool = False
 
     class Meta:
         model = models.PotluckItem
-        fields = ["id", "name", "item_type", "quantity", "note", "created_by", "assignee"]
+        fields = ["id", "name", "item_type", "quantity", "note"]
 
 
 # ---- Additional Resources ----
