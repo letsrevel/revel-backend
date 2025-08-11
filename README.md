@@ -2,10 +2,21 @@
 
 **An open-source, community-focused event management platform.**
 
+<!-- Status -->
 [![Status](https://img.shields.io/badge/status-Beta-orange?style=for-the-badge)](https://github.com/letsrevel/revel)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](./LICENSE)
+![Django](https://img.shields.io/badge/django-5.2+-092E20.svg?logo=django&logoColor=white&style=for-the-badge)
+
+<!-- Tooling / meta -->
+![Python](https://img.shields.io/badge/python-3.13%2B-3776AB.svg?logo=python&logoColor=white)
+![Ruff](https://img.shields.io/badge/lint-ruff-46aef7?logo=ruff&logoColor=white)
+![mypy strict](https://img.shields.io/badge/types-mypy-informational.svg)
+
+<!-- CI -->
 [![Test](https://github.com/letsrevel/revel-backend/actions/workflows/test.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/test.yaml)
 [![Build](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/tests.yaml)
+
+
 
 Revel is an event management and ticketing platform designed with community at its heart. Initially created to serve the specific needs of queer, LGBTQ+, and sex-positive communities, it is built to be event-agnostic, scalable, and a powerful tool for any group that values privacy, control, and transparency.
 
