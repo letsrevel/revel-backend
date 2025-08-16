@@ -24,6 +24,8 @@ from .mixins import (
 )
 from .organization import Organization, OrganizationMember
 
+import bleach
+
 
 class EventQuerySet(models.QuerySet["Event"]):
     def with_tags(self) -> t.Self:
@@ -125,6 +127,11 @@ class EventManager(models.Manager["Event"]):
         """Get the queryset based on the user."""
         return self.get_queryset().for_user(user, include_past=include_past, allowed_ids=allowed_ids)
 
+    def create(self, **kwargs: t.Any):  # noqa: D102
+        if "description" in kwargs:
+            kwargs["description"] = bleach.clean(kwargs["description"])
+        return super().create(**kwargs)
+
 
 class Event(
     SlugFromNameMixin, TimeStampedModel, VisibilityMixin, LocationMixin, LogoCoverValidationMixin, TaggableMixin
@@ -198,6 +205,8 @@ class Event(
         """Override save to set default end date if not provided."""
         if self.start and not self.end:
             self.end = self.start + timedelta(days=1)
+        if self.description:
+            self.description = bleach.clean(self.description)
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
