@@ -3,11 +3,13 @@
 import typing as t
 
 import structlog
+from django.conf import settings
 from django_google_sso.models import GoogleSSOUser
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_jwt.controller import TokenObtainPairController
 from ninja_jwt.schema import TokenObtainPairInputSchema, TokenObtainPairOutputSchema
+from ninja_jwt.tokens import RefreshToken
 
 from accounts import schema
 from accounts.service import auth as auth_service
@@ -33,6 +35,28 @@ class AuthController(TokenObtainPairController):
             token = auth_service.get_temporary_otp_jwt(user)
             return schema.TempToken(token=token)
         return t.cast(TokenObtainPairOutputSchema, user_token.to_response_schema())  # type: ignore[no-untyped-call]
+
+    if settings.DEMO_MODE:
+
+        @route.post("/demo/token/pair", response=TokenObtainPairOutputSchema, url_name="demo_token_obtain_pair")
+        def demo_obtain_token(self, user_token: schema.DemoLoginSchema) -> TokenObtainPairOutputSchema:
+            """Obtain a token pair for a demo user, provided their email ends with @example.com."""
+            user, _ = RevelUser.objects.get_or_create(
+                username=user_token.username,
+                defaults={
+                    "email": user_token.username,
+                    "is_active": True,
+                    "email_verified": True,
+                },
+            )
+            user.set_password(user_token.password)
+            user.save()
+            token = RefreshToken.for_user(user)
+            return TokenObtainPairOutputSchema(
+                username=user.username,
+                access=str(token.access_token),  # type: ignore[attr-defined]
+                refresh=str(token),
+            )
 
     @route.post("/token/pair/otp", response=TokenObtainPairOutputSchema, url_name="token_obtain_pair_otp")
     def obtain_token_with_otp(self, payload: schema.TempTokenWithTOTP) -> TokenObtainPairOutputSchema:
