@@ -25,6 +25,7 @@ SALT_KEY = config("SALT_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", default=False, cast=bool)
+DEMO_MODE = config("DEMO_MODE", default=DEBUG, cast=bool)
 
 ALLOWED_HOSTS: list[str] = config("ALLOWED_HOSTS", cast=Csv(), default="localhost,127.0.0.1")
 

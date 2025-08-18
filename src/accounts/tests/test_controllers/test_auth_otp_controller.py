@@ -151,3 +151,33 @@ def test_disable_otp_success(mock_verify: MagicMock, auth_client: Client, user: 
     assert response.status_code == 200
     user.refresh_from_db()
     assert user.totp_active is False
+
+
+# --- Demo endpoints ---
+
+
+def test_demo_obtain_token_pair_success(client: Client) -> None:
+    """Test successful token acquisition for a non-TOTP user."""
+
+    demo_email = "test@example.com"
+    assert RevelUser.objects.filter(email=demo_email).count() == 0
+    payload = {"username": demo_email, "password": "strong-password-123!"}
+    url = reverse("api:demo_token_obtain_pair")
+    response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "access" in data
+    assert "refresh" in data
+    assert RevelUser.objects.filter(email=demo_email).count() == 1
+
+
+def test_demo_obtain_token_pair_fail(client: Client) -> None:
+    """Test successful token acquisition for a non-TOTP user."""
+
+    demo_email = "test@gmail.com"
+    assert RevelUser.objects.filter(email=demo_email).count() == 0
+    payload = {"username": demo_email, "password": "strong-password-123!"}
+    url = reverse("api:demo_token_obtain_pair")
+    response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
+    assert response.status_code == 422
