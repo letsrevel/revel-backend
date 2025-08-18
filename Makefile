@@ -194,3 +194,8 @@ tree:
 .PHONY: dump-openapi
 dump-openapi:
 	.venv/bin/python src/manage.py dump_openapi
+
+
+.PHONY: dump-issues
+dump-issues:
+	gh issue list --state open --limit 1000 --json number,title,labels,body,url --jq '.[] | "## \(.title) (#\(.number))\n\n- URL: \(.url)\n- Labels: \(.labels | map(.name) | join(", "))\n\n\(.body)\n\n---\n"' > issues.md
