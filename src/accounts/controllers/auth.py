@@ -45,7 +45,6 @@ class AuthController(TokenObtainPairController):
                 username=user_token.username,
                 defaults={
                     "email": user_token.username,
-                    "username": user_token.username,
                     "is_active": True,
                     "email_verified": True,
                 },
