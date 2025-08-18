@@ -173,7 +173,7 @@ def test_demo_obtain_token_pair_success(client: Client) -> None:
 
 
 def test_demo_obtain_token_pair_fail(client: Client) -> None:
-    """Test successful token acquisition for a non-TOTP user."""
+    """Test that token acquisition fails with a 422 for a non-allowed demo user."""
 
     demo_email = "test@gmail.com"
     assert RevelUser.objects.filter(email=demo_email).count() == 0
