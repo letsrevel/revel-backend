@@ -194,7 +194,7 @@ class DemoLoginSchema(Schema):
     password: str
 
     @model_validator(mode="after")
-    def validate_example_email(self, value: t.Any) -> t.Self:
+    def validate_example_email(self) -> t.Self:
         """Validate the email is an example email."""
         if not self.username.endswith("@example.com"):
             raise ValueError("Email must end with '@example.com'")
