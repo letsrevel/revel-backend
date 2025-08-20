@@ -10,11 +10,11 @@ class UserDefaultThrottle(UserRateThrottle):
 
 
 class AuthThrottle(AnonRateThrottle):
-    rate = "5/min"
+    rate = "100/min"
 
 
 class WriteThrottle(UserRateThrottle):
-    rate = "50/min"
+    rate = "100/min"
 
 
 class GeoThrottle(AnonRateThrottle):
@@ -22,12 +22,12 @@ class GeoThrottle(AnonRateThrottle):
 
 
 class QuestionnaireSubmissionThrottle(UserRateThrottle):
-    rate = "5/min"
+    rate = "100/min"
 
 
 class UserRequestThrottle(UserRateThrottle):
-    rate = "5/min"
+    rate = "100/min"
 
 
 class UserDataExportThrottle(UserRateThrottle):
-    rate = "3/day"
+    rate = "30/day"
