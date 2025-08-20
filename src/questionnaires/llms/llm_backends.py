@@ -2,8 +2,11 @@
 
 import re
 from textwrap import dedent
+from typing import Any, Literal
 
+from django.conf import settings
 from jinja2 import Template
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
 
 from .llm_helpers import call_openai
 from .llm_interfaces import (
@@ -236,5 +239,77 @@ class SanitizingChatGPTEvaluator(BetterChatGPTEvaluator):
         sanitized_items = self._sanitize_answers(questions_to_evaluate)
         return super().evaluate(
             questions_to_evaluate=sanitized_items,
+            questionnaire_guidelines=questionnaire_guidelines,
+        )
+
+
+SENTINEL_MODEL_PATH = settings.BASE_DIR / "questionnaires" / "llms" / "sentinel"
+
+# Global sentinel pipeline cache
+_sentinel_pipeline: Any = None
+
+
+def _get_sentinel_pipeline() -> Any:
+    """Load and cache the sentinel model pipeline for reuse."""
+    global _sentinel_pipeline
+    if _sentinel_pipeline is None:
+        if not SENTINEL_MODEL_PATH.exists():
+            msg = (
+                f"Sentinel model not found at {SENTINEL_MODEL_PATH}. "
+                "Please run 'python manage.py download_sentinel_model' first."
+            )
+            raise FileNotFoundError(msg)
+
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(str(SENTINEL_MODEL_PATH))  # type: ignore[no-untyped-call]
+            model = AutoModelForSequenceClassification.from_pretrained(str(SENTINEL_MODEL_PATH))
+            _sentinel_pipeline = pipeline("text-classification", model=model, tokenizer=tokenizer)
+        except Exception as e:
+            msg = f"Failed to load sentinel model: {e}"
+            raise RuntimeError(msg) from e
+
+    return _sentinel_pipeline
+
+
+class SentinelChatGPTEvaluator(BetterChatGPTEvaluator):
+    """ChatGPT evaluator with prompt injection detection using the Sentinel model."""
+
+    def _check_prompt_injection(self, text: str) -> Literal["benign", "jailbreak"]:
+        """Check for prompt injection using the sentinel model.
+
+        Returns 'benign' if safe, 'jailbreak' if prompt injection detected.
+        """
+        sentinel = _get_sentinel_pipeline()
+        result = sentinel(text)
+
+        # The expected benign result format
+        if result and isinstance(result, list) and len(result) > 0 and result[0].get("label") == "benign":
+            return "benign"
+        return "jailbreak"
+
+    def evaluate(
+        self,
+        *,
+        questions_to_evaluate: list[AnswerToEvaluate],
+        questionnaire_guidelines: str | None,
+    ) -> EvaluationResponse:
+        """Evaluate via ChatGPT with prompt injection detection."""
+        results = []
+
+        for item in questions_to_evaluate:
+            if self._check_prompt_injection(item.answer_text) == "jailbreak":
+                results.append(
+                    EvaluationResult(
+                        question_id=item.question_id,
+                        is_passing=False,
+                        explanation="Answer failed due to prompt injection attempt detected.",
+                    )
+                )
+
+        if results:
+            return EvaluationResponse(evaluations=results)
+
+        return super().evaluate(
+            questions_to_evaluate=questions_to_evaluate,
             questionnaire_guidelines=questionnaire_guidelines,
         )

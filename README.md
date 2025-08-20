@@ -127,7 +127,7 @@ The codebase is organized into a `src` directory with a clear separation of conc
 *   `src/revel/`: The core Django project settings.
 *   `src/accounts/`: User authentication, registration, and profile management.
 *   `src/events/`: The core logic for organizations, events, tickets, and memberships.
-*   `src/questionnaires/`: The questionnaire building, submission, and evaluation system.
+*   `src/questionnaires/`: The questionnaire building, submission, and evaluation system. [📖 Read more](src/questionnaires/README.md)
 *   `src/geo/`: Geolocation features (cities, IP lookups).
 *   `src/telegram/`: Integration with the Telegram Bot API (note: this is a broken early prototype).
 *   `src/api/`: Main API configuration, exception handlers, and global endpoints.
