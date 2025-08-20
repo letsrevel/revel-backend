@@ -1,5 +1,6 @@
 # ruff: noqa: E501, W293
 
+import re
 from textwrap import dedent
 
 from jinja2 import Template
@@ -178,4 +179,62 @@ class BetterChatGPTEvaluator(FreeTextEvaluator):
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             output_schema=EvaluationResponse,
+        )
+
+
+# SANITIZING CLASS
+
+
+# Capture ONLY the tag name (letters first), ignore attributes.
+# This makes </tag> match <tag ...> regardless of attributes.
+def _strip_tags_and_content(text: str) -> str:
+    """Sanitizes a string by removing XML-like tags and their content.
+
+    This function uses regular expressions to find and remove patterns
+    that look like <tag>content</tag>, including cases with spaces in the
+    tag, missing closing slashes, and typos in the closing tag.
+
+    Args:
+      text: The input string to be sanitized.
+
+    Returns:
+      The sanitized string with tags and their content removed.
+    """
+    # This regex looks for a pattern that starts with a '<',
+    # followed by any characters except '>', then a '>',
+    # then any characters (non-greedy), and finally a closing tag.
+    # The closing tag part is broad to account for typos and missing slashes.
+    sanitized_text = re.sub(r"<[^>]*>.*?<[^>]*>", "", text, flags=re.DOTALL)
+    sanitized_text = re.sub(r"\s+", " ", sanitized_text)
+    return sanitized_text.strip()
+
+
+class SanitizingChatGPTEvaluator(BetterChatGPTEvaluator):
+    """Sanitizes user input by removing any tag-like markup before evaluation."""
+
+    @staticmethod
+    def _sanitize_answers(items: list[AnswerToEvaluate]) -> list[AnswerToEvaluate]:
+        sanitized: list[AnswerToEvaluate] = []
+        for item in items:
+            sanitized.append(
+                AnswerToEvaluate(
+                    question_id=item.question_id,
+                    question_text=item.question_text,
+                    answer_text=_strip_tags_and_content(item.answer_text),
+                    guidelines=item.guidelines,
+                )
+            )
+        return sanitized
+
+    def evaluate(
+        self,
+        *,
+        questions_to_evaluate: list[AnswerToEvaluate],
+        questionnaire_guidelines: str | None,
+    ) -> EvaluationResponse:
+        """Evaluates a batch of free-text answers against provided guidelines, sanitizing the input first."""
+        sanitized_items = self._sanitize_answers(questions_to_evaluate)
+        return super().evaluate(
+            questions_to_evaluate=sanitized_items,
+            questionnaire_guidelines=questionnaire_guidelines,
         )
