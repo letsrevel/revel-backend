@@ -59,6 +59,7 @@ class Questionnaire(TimeStampedModel):
         MOCK = "questionnaires.llms.MockEvaluator", "Mock Evaluator"
         VULNERABLE = "questionnaires.llms.VulnerableChatGPTEvaluator", "Vulnerable ChatGPTEvaluator"
         BETTER = "questionnaires.llms.BetterChatGPTEvaluator", "Better ChatGPTEvaluator"
+        SANITIZING = "questionnaires.llms.SanitizingChatGPTEvaluator", "Sanitizing ChatGPTEvaluator"
 
     name = models.CharField(max_length=255, db_index=True)
     min_score = models.DecimalField(
