@@ -3,7 +3,7 @@
 setup:
 	python3.13 -m venv .venv; \
 	.venv/bin/pip install --upgrade pip "uv<0.7.0"; \
-	.venv/bin/uv sync --group dev \
+	.venv/bin/uv sync --group dev; \
 	cp .env.example .env; \
 	docker compose -f docker-compose-dev.yml down -v; \
 	docker compose -f docker-compose-dev.yml up -d; \
