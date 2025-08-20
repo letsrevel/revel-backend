@@ -41,3 +41,7 @@ class SubmissionInDraftError(QuestionnaireException):
 
 class SubmissionDoesNotExistError(QuestionnaireException):
     """Raised when a submission does not exist."""
+
+
+class PromptInjectionDetectedError(QuestionnaireException):
+    """Raised when prompt injection is detected by the sentinel model."""

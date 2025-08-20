@@ -47,7 +47,9 @@ dependencies = [
     "redis>=6.2.0",
     "stripe>=12.4.0",
     "structlog>=25.4.0",
+    "torch>=2.8.0",
     "tqdm>=4.67.1",
+    "transformers>=4.55.2",
     "types-tqdm>=4.67.0.20250516",
     "uvicorn>=0.34.3",
     "uvloop>=0.21.0",
@@ -198,6 +200,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "weasyprint.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "transformers.*"
 ignore_missing_imports = true
 
 [tool.django-stubs]
