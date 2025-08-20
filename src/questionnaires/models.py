@@ -60,6 +60,7 @@ class Questionnaire(TimeStampedModel):
         VULNERABLE = "questionnaires.llms.VulnerableChatGPTEvaluator", "Vulnerable ChatGPTEvaluator"
         BETTER = "questionnaires.llms.BetterChatGPTEvaluator", "Better ChatGPTEvaluator"
         SANITIZING = "questionnaires.llms.SanitizingChatGPTEvaluator", "Sanitizing ChatGPTEvaluator"
+        SENTINEL = "questionnaires.llms.SentinelChatGPTEvaluator", "Sentinel ChatGPTEvaluator"
 
     name = models.CharField(max_length=255, db_index=True)
     min_score = models.DecimalField(
