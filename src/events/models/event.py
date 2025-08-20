@@ -230,7 +230,7 @@ class Event(
                     "event_series": "Event series must belong to the same organization as the event.",
                 }
             )
-        if self.end < self.start:
+        if self.end and self.end < self.start:
             raise DjangoValidationError({"end": "End date must be after start date."})
 
         # Validate check-in window
