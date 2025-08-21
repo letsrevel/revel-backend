@@ -3,7 +3,7 @@
 setup:
 	python3.13 -m venv .venv; \
 	.venv/bin/pip install --upgrade pip "uv<0.7.0"; \
-	.venv/bin/uv sync --group dev --group test; \
+	.venv/bin/uv sync --group dev; \
 	cp .env.example .env; \
 	docker compose -f docker-compose-dev.yml down -v; \
 	docker compose -f docker-compose-dev.yml up -d; \
@@ -194,3 +194,8 @@ tree:
 .PHONY: dump-openapi
 dump-openapi:
 	.venv/bin/python src/manage.py dump_openapi
+
+
+.PHONY: dump-issues
+dump-issues:
+	gh issue list --state open --limit 1000 --json number,title,labels,body,url --jq '.[] | "## \(.title) (#\(.number))\n\n- URL: \(.url)\n- Labels: \(.labels | map(.name) | join(", "))\n\n\(.body)\n\n---\n"' > issues.md
