@@ -3,7 +3,7 @@ import typing as t
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.gis.db import models
 from django.db.models import Prefetch
-
+import bleach
 from accounts.models import RevelUser
 from common.models import TagAssignment, TaggableMixin, TimeStampedModel
 
@@ -58,6 +58,11 @@ class EventSeriesManager(models.Manager["EventSeries"]):
         """Get the queryset based on the user."""
         return self.get_queryset().for_user(user)
 
+    def create(self, **kwargs: t.Any):  # noqa: D102
+        if "description" in kwargs:
+            kwargs["description"] = bleach.clean(kwargs["description"])
+        return super().create(**kwargs)
+
 
 class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin, TaggableMixin):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="event_series")
@@ -72,3 +77,8 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
             models.UniqueConstraint(fields=["organization", "name"], name="unique_event_series_name"),
             models.UniqueConstraint(fields=["organization", "slug"], name="unique_event_series_slug"),
         ]
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:  # noqa: D102
+        if self.description:
+            self.description = bleach.clean(self.description)
+        return super().save(*args, **kwargs)
