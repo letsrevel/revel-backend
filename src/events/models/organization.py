@@ -22,6 +22,7 @@ from .mixins import (
     UserRequestMixin,
     VisibilityMixin,
 )
+import bleach
 
 
 class OrganizationQuerySet(models.QuerySet["Organization"]):
@@ -84,6 +85,11 @@ class OrganizationManager(models.Manager["Organization"]):
         """Get queryset for user."""
         return self.get_queryset().for_user(user)
 
+    def create(self, **kwargs: t.Any):  # noqa: D102
+        if "description" in kwargs:
+            kwargs["description"] = bleach.clean(kwargs["description"])
+        return super().create(**kwargs)
+
 
 class Organization(
     TaggableMixin, SlugFromNameMixin, TimeStampedModel, VisibilityMixin, LocationMixin, LogoCoverValidationMixin
@@ -143,6 +149,11 @@ class Organization(
     def is_stripe_connected(self) -> bool:
         """Check if the organization has a Stripe account connected."""
         return self.stripe_account_id is not None and self.stripe_charges_enabled and self.stripe_details_submitted
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:  # noqa: D102
+        if self.description:
+            self.description = bleach.clean(self.description)
+        return super().save(*args, **kwargs)
 
 
 class PermissionMap(BaseModel):
