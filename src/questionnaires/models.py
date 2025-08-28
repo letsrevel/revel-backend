@@ -58,6 +58,7 @@ class Questionnaire(TimeStampedModel):
     class LLMBackend(models.TextChoices):
         MOCK = "questionnaires.llms.MockEvaluator", "Mock Evaluator"
         VULNERABLE = "questionnaires.llms.VulnerableChatGPTEvaluator", "Vulnerable ChatGPTEvaluator"
+        INTERMEDIATE = "questionnaires.llms.IntermediateChatGPTEvaluator", "Intermediate ChatGPTEvaluator"
         BETTER = "questionnaires.llms.BetterChatGPTEvaluator", "Better ChatGPTEvaluator"
         SANITIZING = "questionnaires.llms.SanitizingChatGPTEvaluator", "Sanitizing ChatGPTEvaluator"
         SENTINEL = "questionnaires.llms.SentinelChatGPTEvaluator", "Sentinel ChatGPTEvaluator"
