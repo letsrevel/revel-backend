@@ -1,5 +1,6 @@
 from .llm_backends import (
     BetterChatGPTEvaluator,
+    IntermediateChatGPTEvaluator,
     MockEvaluator,
     SanitizingChatGPTEvaluator,
     SentinelChatGPTEvaluator,
@@ -9,6 +10,7 @@ from .llm_backends import (
 __all__ = [
     "MockEvaluator",
     "VulnerableChatGPTEvaluator",
+    "IntermediateChatGPTEvaluator",
     "BetterChatGPTEvaluator",
     "SanitizingChatGPTEvaluator",
     "SentinelChatGPTEvaluator",
