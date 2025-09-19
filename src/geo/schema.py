@@ -6,4 +6,4 @@ from geo.models import City
 class CitySchema(ModelSchema):
     class Meta:
         model = City
-        fields = ["name", "country", "admin_name"]
+        fields = ["id", "name", "country", "admin_name"]

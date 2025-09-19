@@ -95,6 +95,7 @@ class EventEditSchema(CityEditMixin):
     name: OneToOneFiftyString | None = None
     description: StrippedString | None = None
     event_type: Event.Types | None = None
+    status: Event.Status = Event.Status.DRAFT
     visibility: Event.Visibility | None = None
     invitation_message: StrippedString | None = Field(None, description="Invitation message")
     max_attendees: int = 0
