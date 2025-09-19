@@ -108,7 +108,7 @@ class OrganizationAdminController(UserAwareController):
         permissions=[OrganizationPermission("create_event_series")],
     )
     def create_event_series(self, slug: str, payload: schema.EventSeriesEditSchema) -> models.EventSeries:
-        """Create a new event."""
+        """Create a new event series."""
         organization = self.get_one(slug)
         return models.EventSeries.objects.create(organization=organization, **payload.model_dump())
 
