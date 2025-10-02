@@ -31,7 +31,12 @@ class AccountController(ControllerBase):
         throttle=UserDataExportThrottle(),
     )
     def export_data(self) -> ResponseMessage:
-        """Request an export of all personal data."""
+        """Request a GDPR-compliant export of all personal data.
+
+        Initiates an asynchronous export of all user data including profile, events, tickets,
+        and submissions. The export will be emailed to the user when ready. Rate-limited to
+        prevent abuse.
+        """
         tasks.generate_user_data_export.delay(str(self.user().pk))
         return ResponseMessage(message="Your data export has been initiated.")
 
@@ -42,7 +47,11 @@ class AccountController(ControllerBase):
         auth=JWTAuth(),
     )
     def me(self) -> RevelUser:
-        """Get the user for this request."""
+        """Retrieve the authenticated user's profile information.
+
+        Returns complete user profile including email, name, location preferences, and 2FA status.
+        Use this to display user info in the UI or verify authentication status.
+        """
         return t.cast(RevelUser, self.context.request.user)  # type: ignore[union-attr]
 
     @route.put(
@@ -52,7 +61,11 @@ class AccountController(ControllerBase):
         auth=JWTAuth(),
     )
     def update_profile(self, payload: ProfileUpdateSchema) -> RevelUser:
-        """Update user profile information."""
+        """Update the authenticated user's profile information.
+
+        Allows updating name, location preferences, and other profile fields. Only provided
+        fields are updated. Returns the updated user profile.
+        """
         user = self.user()
         for key, value in payload.dict().items():
             setattr(user, key, value)
@@ -66,7 +79,13 @@ class AccountController(ControllerBase):
         url_name="register-account",
     )
     def register(self, payload: schema.RegisterUserSchema) -> tuple[int, RevelUser]:
-        """Register a new user."""
+        """Create a new user account with email and password.
+
+        Creates a new account and sends a verification email. The account is created but not
+        fully active until email is verified via POST /account/verify. If an unverified account
+        with the same email exists, resends the verification email. Returns 400 if a verified
+        account already exists.
+        """
         user, _ = account_service.register_user(payload)
         return status.HTTP_201_CREATED, user
 
@@ -77,7 +96,12 @@ class AccountController(ControllerBase):
         url_name="verify-email",
     )
     def verify_email(self, payload: schema.VerifyEmailSchema) -> schema.VerifyEmailResponseSchema:
-        """Verify a user's email."""
+        """Verify email address using the token from the verification email.
+
+        Call this with the token received via email after registration. On success, activates
+        the account and returns the verified user profile along with JWT tokens for immediate login.
+        The verification token is single-use and expires after a set period.
+        """
         user = account_service.verify_email(payload.token)
         token = get_token_pair_for_user(user)
         return schema.VerifyEmailResponseSchema(user=RevelUserSchema.from_orm(user), token=token)
@@ -90,7 +114,11 @@ class AccountController(ControllerBase):
         auth=JWTAuth(),
     )
     def resend_verification_email(self) -> tuple[int, ResponseMessage]:
-        """Resend the verification email."""
+        """Resend the email verification link to the authenticated user.
+
+        Use this if the original verification email was lost or expired. Returns 400 if the
+        email is already verified. Requires authentication with the unverified account's JWT.
+        """
         user = self.user()
         if user.email_verified:
             return status.HTTP_400_BAD_REQUEST, ResponseMessage(message="Email already verified.")
@@ -105,7 +133,12 @@ class AccountController(ControllerBase):
         auth=JWTAuth(),
     )
     def delete_account_request(self) -> ResponseMessage:
-        """Request account deletion by sending a confirmation email with token."""
+        """Initiate GDPR-compliant account deletion by sending confirmation email.
+
+        Sends an email with a deletion confirmation link. The account is not deleted until
+        the user confirms via POST /account/delete-confirm with the token from the email.
+        This two-step process prevents accidental deletions.
+        """
         account_service.request_account_deletion(self.user())
         return ResponseMessage(message="An email has been sent.")
 
@@ -116,7 +149,12 @@ class AccountController(ControllerBase):
         url_name="delete-account-confirm",
     )
     def delete_account_confirm(self, payload: schema.DeleteAccountConfirmSchema) -> ResponseMessage:
-        """Delete the account using the token from the email."""
+        """Permanently delete the account using the confirmation token from email.
+
+        Call this with the token received via email after POST /account/delete-request.
+        This action is irreversible and deletes all user data. The deletion token is
+        single-use and expires after a set period.
+        """
         account_service.confirm_account_deletion(payload.token)
         return ResponseMessage(message="Account deleted successfully.")
 
@@ -127,7 +165,12 @@ class AccountController(ControllerBase):
         url_name="reset-password-request",
     )
     def reset_password_request(self, payload: schema.PasswordResetRequestSchema) -> ResponseMessage:
-        """Request a password reset."""
+        """Request a password reset by email.
+
+        Sends a password reset link to the provided email if an account exists. Always returns
+        a success message to prevent user enumeration attacks. Google SSO users cannot use this
+        endpoint. After receiving the email, use POST /account/password/reset with the token.
+        """
         account_service.request_password_reset(payload.email)
         return ResponseMessage(message="A password reset link will be sent.")
 
@@ -138,6 +181,11 @@ class AccountController(ControllerBase):
         url_name="reset-password",
     )
     def reset_password(self, payload: schema.PasswordResetSchema) -> ResponseMessage:
-        """Reset a user's password."""
+        """Reset password using the token from the password reset email.
+
+        Call this with the token received via email after POST /account/password/reset-request.
+        The new password must meet security requirements. The reset token is single-use and
+        expires after a set period. After reset, the user must login again with the new password.
+        """
         account_service.reset_password(payload.token, payload.password1)
         return ResponseMessage(message="Password reset successfully.")

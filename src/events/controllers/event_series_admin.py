@@ -40,7 +40,11 @@ class EventSeriesAdminController(UserAwareController):
         response={200: schema.EventSeriesRetrieveSchema, 400: ValidationErrorResponse},
     )
     def update_event_series(self, series_id: UUID, payload: schema.EventSeriesEditSchema) -> models.EventSeries:
-        """Update an existing event series."""
+        """Update event series details (admin only).
+
+        Modify series name, description, or settings. Requires 'edit_event_series' permission
+        (organization staff/owners). Changes apply to the series but not individual events.
+        """
         series = self.get_one(series_id)
         return update_db_instance(series, payload)
 
@@ -51,7 +55,11 @@ class EventSeriesAdminController(UserAwareController):
         permissions=[EventSeriesPermission("delete_event_series")],
     )
     def delete_event_series(self, series_id: UUID) -> tuple[int, None]:
-        """Delete an event series."""
+        """Permanently delete an event series (admin only).
+
+        Removes the series. Events in the series are not deleted but become standalone.
+        Requires 'delete_event_series' permission (typically organization owners only).
+        """
         series = self.get_one(series_id)
         series.delete()
         return 204, None
@@ -62,7 +70,11 @@ class EventSeriesAdminController(UserAwareController):
         response=schema.EventSeriesRetrieveSchema,
     )
     def upload_logo(self, series_id: UUID, logo: File[UploadedFile]) -> models.EventSeries:
-        """Upload logo to event series."""
+        """Upload a logo image for the event series (admin only).
+
+        Replaces the existing logo. File is scanned for malware before saving. Requires
+        'edit_event_series' permission.
+        """
         series = self.get_one(series_id)
         series = safe_save_uploaded_file(instance=series, field="logo", file=logo, uploader=self.user())
         return series
@@ -73,7 +85,11 @@ class EventSeriesAdminController(UserAwareController):
         response=schema.EventSeriesRetrieveSchema,
     )
     def upload_cover_art(self, series_id: UUID, cover_art: File[UploadedFile]) -> models.EventSeries:
-        """Upload cover art to event series."""
+        """Upload cover art/banner image for the event series (admin only).
+
+        Replaces the existing cover art. File is scanned for malware before saving. Requires
+        'edit_event_series' permission.
+        """
         series = self.get_one(series_id)
         series = safe_save_uploaded_file(instance=series, field="cover_art", file=cover_art, uploader=self.user())
         return series
@@ -84,7 +100,11 @@ class EventSeriesAdminController(UserAwareController):
         response=list[TagSchema],
     )
     def add_tags(self, series_id: UUID, payload: schema.TagUpdateSchema) -> list[Tag]:
-        """Add one or more tags to the organization."""
+        """Add tags to categorize the event series (admin only).
+
+        Tags help users discover series through filtering and search. Returns the updated tag list.
+        Requires 'edit_event_series' permission.
+        """
         event_series = self.get_one(series_id)
         event_series.tags_manager.add(*payload.tags)
         return event_series.tags_manager.all()
@@ -95,7 +115,10 @@ class EventSeriesAdminController(UserAwareController):
         response={204: None},
     )
     def clear_tags(self, series_id: UUID) -> tuple[int, None]:
-        """Remove one or more tags from the organization."""
+        """Remove all tags from the event series (admin only).
+
+        Clears all categorization tags. Requires 'edit_event_series' permission.
+        """
         event_series = self.get_one(series_id)
         event_series.tags_manager.clear()
         return 204, None
@@ -106,7 +129,11 @@ class EventSeriesAdminController(UserAwareController):
         response=list[TagSchema],
     )
     def remove_tags(self, series_id: UUID, payload: schema.TagUpdateSchema) -> list[Tag]:
-        """Remove one or more tags from the organization."""
+        """Remove specific tags from the event series (admin only).
+
+        Removes only the specified tags, keeping others. Returns the updated tag list. Requires
+        'edit_event_series' permission.
+        """
         event_series = self.get_one(series_id)
         event_series.tags_manager.remove(*payload.tags)
         return event_series.tags_manager.all()

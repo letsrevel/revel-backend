@@ -24,9 +24,12 @@ logger = structlog.get_logger(__name__)
 class AuthController(TokenObtainPairController):
     @route.post("/token/pair", response=TokenObtainPairOutputSchema | schema.TempToken, url_name="token_obtain_pair")
     def obtain_token(self, user_token: TokenObtainPairInputSchema) -> TokenObtainPairOutputSchema | schema.TempToken:
-        """Obtain a token pair for the user.
+        """Authenticate with email and password to obtain JWT access/refresh tokens.
 
-        If the user has TOTP enabled, return a temporary token to be used with the OTP.
+        For users without 2FA: Returns standard JWT token pair for immediate access.
+        For users with TOTP enabled: Returns a temporary token that must be exchanged for
+        a full token pair via POST /auth/token/pair/otp along with the TOTP code.
+        Users registered via Google SSO must use POST /auth/google/login instead.
         """
         user: RevelUser = t.cast(RevelUser, user_token._user)
         if GoogleSSOUser.objects.filter(user=user).exists():
@@ -40,7 +43,12 @@ class AuthController(TokenObtainPairController):
 
         @route.post("/demo/token/pair", response=TokenObtainPairOutputSchema, url_name="demo_token_obtain_pair")
         def demo_obtain_token(self, user_token: schema.DemoLoginSchema) -> TokenObtainPairOutputSchema:
-            """Obtain a token pair for a demo user, provided their email ends with @example.com."""
+            """Create and authenticate a demo user account (demo mode only).
+
+            Automatically creates a user account with the provided credentials if it doesn't exist,
+            then returns JWT tokens. Only available when DEMO_MODE is enabled in settings.
+            Email must end with @example.com.
+            """
             user, _ = RevelUser.objects.get_or_create(
                 username=user_token.username,
                 defaults={
@@ -60,9 +68,11 @@ class AuthController(TokenObtainPairController):
 
     @route.post("/token/pair/otp", response=TokenObtainPairOutputSchema, url_name="token_obtain_pair_otp")
     def obtain_token_with_otp(self, payload: schema.TempTokenWithTOTP) -> TokenObtainPairOutputSchema:
-        """Obtain a token pair for the user with OTP.
+        """Complete 2FA authentication by exchanging temporary token and TOTP code for JWT tokens.
 
-        Takes as input the temporary token from the endpoint above and the OTP code.
+        Call this after POST /auth/token/pair returns a temporary token for a 2FA-enabled user.
+        Validates the TOTP code from the user's authenticator app and returns a standard JWT token
+        pair on success. Returns 401 if the TOTP code is invalid.
         """
         user, verified = auth_service.verify_otp_jwt(payload.token, payload.otp)
         if not verified:
@@ -71,5 +81,10 @@ class AuthController(TokenObtainPairController):
 
     @route.post("/google/login", response=TokenObtainPairOutputSchema, url_name="google_sso_login")
     def google_login(self, payload: schema.GoogleIDTokenSchema) -> TokenObtainPairOutputSchema:
-        """Log in or register a user using Google SSO."""
+        """Authenticate or register via Google SSO using a Google ID token.
+
+        Verifies the Google ID token, creates a new user if needed, and returns JWT tokens.
+        For existing Google SSO users, this is the only valid login method - they cannot
+        use password-based authentication.
+        """
         return auth_service.google_login(payload.id_token)
