@@ -18,6 +18,6 @@ __all__ = [
 
 # Conditionally import SentinelChatGPTEvaluator only if transformers is available
 if TRANSFORMERS_AVAILABLE:
-    from .llm_backends import SentinelChatGPTEvaluator
+    from .llm_backends import SentinelChatGPTEvaluator as SentinelChatGPTEvaluator  # noqa: F401
 
     __all__.append("SentinelChatGPTEvaluator")

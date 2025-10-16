@@ -294,10 +294,7 @@ _sentinel_pipeline: Any = None
 def _get_sentinel_pipeline() -> Any:
     """Load and cache the sentinel model pipeline for reuse."""
     if not TRANSFORMERS_AVAILABLE:
-        msg = (
-            "Transformers library is not installed. "
-            "Please install it with: uv sync --group sentinel"
-        )
+        msg = "Transformers library is not installed. Please install it with: uv sync --group sentinel"
         raise ImportError(msg)
 
     global _sentinel_pipeline
@@ -310,7 +307,7 @@ def _get_sentinel_pipeline() -> Any:
             raise FileNotFoundError(msg)
 
         try:
-            tokenizer = AutoTokenizer.from_pretrained(str(SENTINEL_MODEL_PATH))  # type: ignore[no-untyped-call]
+            tokenizer = AutoTokenizer.from_pretrained(str(SENTINEL_MODEL_PATH))
             model = AutoModelForSequenceClassification.from_pretrained(str(SENTINEL_MODEL_PATH))
             _sentinel_pipeline = pipeline("text-classification", model=model, tokenizer=tokenizer)
         except Exception as e:

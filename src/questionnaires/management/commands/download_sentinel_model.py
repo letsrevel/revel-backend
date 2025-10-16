@@ -47,7 +47,7 @@ class Command(BaseCommand):
         try:
             # Download and save tokenizer
             self.stdout.write("Downloading tokenizer...")
-            tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)  # type: ignore[no-untyped-call]
+            tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
             tokenizer.save_pretrained(str(save_directory))
             self.stdout.write("Tokenizer saved successfully.", self.style.SUCCESS)
 
