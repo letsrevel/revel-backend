@@ -88,7 +88,16 @@ class Questionnaire(TimeStampedModel):
         if not module_path:
             raise ImportError(f"No module part in '{self.llm_backend}'")
         module = importlib.import_module(module_path)
-        return t.cast(FreeTextEvaluator, getattr(module, class_name)())
+        try:
+            return t.cast(FreeTextEvaluator, getattr(module, class_name)())
+        except AttributeError as e:
+            if class_name == "SentinelChatGPTEvaluator":
+                msg = (
+                    f"The {class_name} backend requires the 'transformers' library which is not installed. "
+                    "Please install it with: uv sync --group sentinel"
+                )
+                raise ImportError(msg) from e
+            raise
 
 
 # ---- QuestionnaireSubmission ----

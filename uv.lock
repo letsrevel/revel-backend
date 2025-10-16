@@ -2527,9 +2527,7 @@ dependencies = [
     { name = "redis" },
     { name = "stripe" },
     { name = "structlog" },
-    { name = "torch" },
     { name = "tqdm" },
-    { name = "transformers" },
     { name = "types-tqdm" },
     { name = "uvicorn" },
     { name = "uvloop" },
@@ -2557,6 +2555,10 @@ dev = [
     { name = "ruff" },
     { name = "types-qrcode" },
     { name = "types-stripe" },
+]
+sentinel = [
+    { name = "torch" },
+    { name = "transformers" },
 ]
 
 [package.metadata]
@@ -2603,9 +2605,7 @@ requires-dist = [
     { name = "redis", specifier = ">=6.2.0" },
     { name = "stripe", specifier = ">=12.4.0" },
     { name = "structlog", specifier = ">=25.4.0" },
-    { name = "torch", specifier = ">=2.8.0" },
     { name = "tqdm", specifier = ">=4.67.1" },
-    { name = "transformers", specifier = ">=4.55.2" },
     { name = "types-tqdm", specifier = ">=4.67.0.20250516" },
     { name = "uvicorn", specifier = ">=0.34.3" },
     { name = "uvloop", specifier = ">=0.21.0" },
@@ -2633,6 +2633,10 @@ dev = [
     { name = "ruff", specifier = ">=0.12.0" },
     { name = "types-qrcode", specifier = ">=8.2.0.20250506" },
     { name = "types-stripe", specifier = ">=3.5.2.20240106" },
+]
+sentinel = [
+    { name = "torch", specifier = ">=2.8.0" },
+    { name = "transformers", specifier = ">=4.55.2" },
 ]
 
 [[package]]

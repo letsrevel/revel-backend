@@ -6,7 +6,13 @@ from pathlib import Path
 from decouple import config
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+try:
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
 
 
 class Command(BaseCommand):
@@ -14,6 +20,13 @@ class Command(BaseCommand):
 
     def handle(self, *args: t.Any, **kwargs: t.Any) -> None:
         """Download the sentinel model and tokenizer to local storage."""
+        if not TRANSFORMERS_AVAILABLE:
+            self.stdout.write(
+                "Transformers library is not installed. Please install it first with: uv sync --group sentinel",
+                self.style.ERROR,
+            )
+            return
+
         self.stdout.write("Downloading prompt injection sentinel model...")
 
         try:
@@ -34,7 +47,7 @@ class Command(BaseCommand):
         try:
             # Download and save tokenizer
             self.stdout.write("Downloading tokenizer...")
-            tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)  # type: ignore[no-untyped-call]
+            tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
             tokenizer.save_pretrained(str(save_directory))
             self.stdout.write("Tokenizer saved successfully.", self.style.SUCCESS)
 

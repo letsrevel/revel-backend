@@ -6,7 +6,6 @@ from typing import Any, Literal
 
 from django.conf import settings
 from jinja2 import Template
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
 
 from .llm_helpers import call_openai
 from .llm_interfaces import (
@@ -15,6 +14,14 @@ from .llm_interfaces import (
     EvaluationResult,
     FreeTextEvaluator,
 )
+
+# Try to import transformers - it's optional
+try:
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
+
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
 
 
 class MockEvaluator(FreeTextEvaluator):
@@ -286,6 +293,10 @@ _sentinel_pipeline: Any = None
 
 def _get_sentinel_pipeline() -> Any:
     """Load and cache the sentinel model pipeline for reuse."""
+    if not TRANSFORMERS_AVAILABLE:
+        msg = "Transformers library is not installed. Please install it with: uv sync --group sentinel"
+        raise ImportError(msg)
+
     global _sentinel_pipeline
     if _sentinel_pipeline is None:
         if not SENTINEL_MODEL_PATH.exists():
@@ -296,7 +307,7 @@ def _get_sentinel_pipeline() -> Any:
             raise FileNotFoundError(msg)
 
         try:
-            tokenizer = AutoTokenizer.from_pretrained(str(SENTINEL_MODEL_PATH))  # type: ignore[no-untyped-call]
+            tokenizer = AutoTokenizer.from_pretrained(str(SENTINEL_MODEL_PATH))
             model = AutoModelForSequenceClassification.from_pretrained(str(SENTINEL_MODEL_PATH))
             _sentinel_pipeline = pipeline("text-classification", model=model, tokenizer=tokenizer)
         except Exception as e:
