@@ -47,7 +47,11 @@ class QuestionnaireController(UserAwareController):
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["questionnaire__name", "events__name", "event_series__name"])
     def list_org_questionnaires(self) -> QuerySet[event_models.OrganizationQuestionnaire]:
-        """List all organizations."""
+        """Browse questionnaires you have permission to view or manage.
+
+        Returns questionnaires from organizations where you have staff/owner access. Use this to
+        find questionnaires to attach to events or review submissions.
+        """
         return self.get_queryset()
 
     @route.post(
@@ -60,7 +64,12 @@ class QuestionnaireController(UserAwareController):
     def create_org_questionnaire(
         self, organization_id: UUID, payload: questionnaire_schema.QuestionnaireCreateSchema
     ) -> event_models.OrganizationQuestionnaire:
-        """Create a new event."""
+        """Create a new admission questionnaire for an organization (admin only).
+
+        Sets up an empty questionnaire structure. After creation, add sections and questions via
+        POST /questionnaires/{id}/sections and /multiple-choice-questions endpoints. Requires
+        'create_questionnaire' permission (organization staff/owners).
+        """
         organization = t.cast(
             event_models.Organization,
             self.get_object_or_exception(self.get_organization_queryset(), pk=organization_id),
@@ -77,7 +86,11 @@ class QuestionnaireController(UserAwareController):
         throttle=UserDefaultThrottle(),
     )
     def get_org_questionnaire(self, org_questionnaire_id: UUID) -> event_models.OrganizationQuestionnaire:
-        """Get organization by slug."""
+        """Retrieve a questionnaire's details and structure (admin only).
+
+        Returns the questionnaire with all sections, questions, and settings. Use this to view or
+        edit an existing questionnaire. Requires permission to manage the organization's questionnaires.
+        """
         return t.cast(
             event_models.OrganizationQuestionnaire,
             self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id),
@@ -92,7 +105,11 @@ class QuestionnaireController(UserAwareController):
     def create_section(
         self, org_questionnaire_id: UUID, payload: questionnaire_schema.SectionCreateSchema
     ) -> questionnaires_models.QuestionnaireSection:
-        """Create a multiple choice question."""
+        """Add a section to organize questions in the questionnaire (admin only).
+
+        Sections group related questions. Specify section name and display order. Requires
+        'edit_questionnaire' permission.
+        """
         org_questionnaire = self.get_object_or_exception(
             event_models.OrganizationQuestionnaire, pk=org_questionnaire_id
         )
@@ -108,7 +125,10 @@ class QuestionnaireController(UserAwareController):
     def update_section(
         self, org_questionnaire_id: UUID, section_id: UUID, payload: questionnaire_schema.SectionUpdateSchema
     ) -> questionnaires_models.QuestionnaireSection:
-        """Create a multiple choice question."""
+        """Update a questionnaire section's details (admin only).
+
+        Modify section name or display order. Requires 'edit_questionnaire' permission.
+        """
         org_questionnaire = self.get_object_or_exception(
             event_models.OrganizationQuestionnaire, pk=org_questionnaire_id
         )
@@ -129,7 +149,12 @@ class QuestionnaireController(UserAwareController):
     def create_mc_question(
         self, org_questionnaire_id: UUID, payload: questionnaire_schema.MultipleChoiceQuestionCreateSchema
     ) -> questionnaires_models.MultipleChoiceQuestion:
-        """Create a multiple choice question."""
+        """Add a multiple-choice question to the questionnaire (admin only).
+
+        Create a question with predefined answer options. After creation, add options via
+        POST /questionnaires/{id}/multiple-choice-questions/{question_id}/options. Requires
+        'edit_questionnaire' permission.
+        """
         org_questionnaire = self.get_object_or_exception(
             event_models.OrganizationQuestionnaire, pk=org_questionnaire_id
         )
@@ -213,7 +238,11 @@ class QuestionnaireController(UserAwareController):
     def create_ft_question(
         self, org_questionnaire_id: UUID, payload: questionnaire_schema.FreeTextQuestionCreateSchema
     ) -> questionnaires_models.FreeTextQuestion:
-        """Create a multiple choice question."""
+        """Add a free-text question to the questionnaire (admin only).
+
+        Create an open-ended question for text responses. Can be auto-evaluated by LLM based on
+        scoring criteria. Requires 'edit_questionnaire' permission.
+        """
         org_questionnaire = self.get_object_or_exception(
             event_models.OrganizationQuestionnaire, pk=org_questionnaire_id
         )
@@ -249,7 +278,11 @@ class QuestionnaireController(UserAwareController):
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["user__email", "user__first_name", "user__last_name"])
     def list_submissions(self, org_questionnaire_id: UUID) -> QuerySet[questionnaires_models.QuestionnaireSubmission]:
-        """List questionnaire submissions for organization staff."""
+        """View user submissions for this questionnaire (admin only).
+
+        Returns submitted questionnaires ready for review. Use this to see who has applied for
+        event access and their responses. Requires 'evaluate_questionnaire' permission.
+        """
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
         service = QuestionnaireService(org_questionnaire.questionnaire_id)
         return service.get_submissions_queryset().filter(
@@ -266,7 +299,12 @@ class QuestionnaireController(UserAwareController):
     def get_submission_detail(
         self, org_questionnaire_id: UUID, submission_id: UUID
     ) -> questionnaire_schema.SubmissionDetailSchema:
-        """Get detailed view of a specific submission."""
+        """View detailed answers for a specific submission (admin only).
+
+        Returns all questions and the user's answers, plus automatic evaluation results if available.
+        Use this to review a submission before manual approval/rejection. Requires
+        'evaluate_questionnaire' permission.
+        """
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
         qs = (
             questionnaires_models.QuestionnaireSubmission.objects.select_related("user", "questionnaire")
@@ -340,7 +378,12 @@ class QuestionnaireController(UserAwareController):
         submission_id: UUID,
         payload: questionnaire_schema.EvaluationCreateSchema,
     ) -> questionnaires_models.QuestionnaireEvaluation:
-        """Manually evaluate (approve/reject) a submission."""
+        """Manually approve or reject a questionnaire submission (admin only).
+
+        Overrides automatic evaluation or provides decision for manual-review questionnaires.
+        Approved users can then RSVP or purchase tickets for the event. Requires
+        'evaluate_questionnaire' permission.
+        """
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
         service = QuestionnaireService(org_questionnaire.questionnaire_id)
         return service.evaluate_submission(submission_id, payload, self.user())

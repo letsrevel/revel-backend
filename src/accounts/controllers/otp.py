@@ -36,7 +36,12 @@ class OtpController(ControllerBase):
     def setup_otp(
         self,
     ) -> schema.TOTPProvisioningUriSchema:
-        """Give the provisioning URI to the user to set up TOTP app."""
+        """Get the TOTP provisioning URI to configure an authenticator app.
+
+        Returns a URI (often as QR code) to scan with authenticator apps like Google Authenticator
+        or Authy. Returns 400 if 2FA is already enabled. After scanning, verify the setup with
+        POST /otp/verify to activate 2FA.
+        """
         user = self.user()
         if user.totp_active:
             raise HttpError(400, "OTP is already enabled.")
@@ -52,7 +57,12 @@ class OtpController(ControllerBase):
         url_name="enable-otp",
     )
     def enable_otp(self, payload: schema.OTPVerifySchema) -> RevelUser:
-        """Verify a user's otp to confirm it works."""
+        """Activate 2FA by verifying the TOTP code from the authenticator app.
+
+        Call this after GET /otp/setup with a code from your authenticator app to confirm
+        it's configured correctly. On success, activates 2FA for the account. Future logins
+        will require the TOTP code via POST /auth/token/pair/otp. Returns 403 if code is invalid.
+        """
         user = self.user()
         totp = pyotp.TOTP(user.totp_secret)
         if not totp.verify(payload.otp):
@@ -67,7 +77,12 @@ class OtpController(ControllerBase):
         url_name="disable-otp",
     )
     def disable_otp(self, request: HttpRequest, payload: schema.OTPVerifySchema) -> RevelUser:
-        """Disable the user's OTP."""
+        """Deactivate 2FA after verifying the current TOTP code.
+
+        Requires the current TOTP code to prevent unauthorized disabling. After disabling,
+        login will only require email and password via POST /auth/token/pair. Returns 403
+        if the TOTP code is invalid.
+        """
         user = self.user()
         totp = pyotp.TOTP(user.totp_secret)
         if not totp.verify(payload.otp):

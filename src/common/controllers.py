@@ -15,9 +15,10 @@ class TagController(UserAwareController):
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["name", "description"])
     def list_tags(self) -> QuerySet[Tag]:
-        """List and search for existing tags.
+        """Browse and search all available tags in the system.
 
-        Supports autocomplete by using the `search` query parameter.
-        Example: `/api/tags/?search=comm`
+        Tags are used to categorize organizations, events, and series. Supports autocomplete via
+        the 'search' query parameter (e.g., /api/tags/?search=tech). Use this to populate tag
+        selection dropdowns or filters.
         """
         return Tag.objects.all()

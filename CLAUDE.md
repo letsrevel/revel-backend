@@ -127,6 +127,7 @@ When writing tests:
 - Controllers should inherit from `UserAwareController` for consistent user handling
 - Business logic belongs in service modules, not controllers or models
 - Use Django Ninja's automatic OpenAPI documentation features
+- Use the context7 MCP to look up documentation
 
 ## Note to claude
 - Do not run tests. Let the user run the tests.

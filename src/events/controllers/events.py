@@ -85,7 +85,14 @@ class EventController(UserAwareController):
         order_by: t.Literal["start", "-start", "distance"] = "distance",
         include_past: bool = False,
     ) -> QuerySet[models.Event]:
-        """List all organizations."""
+        """Browse and search events visible to the current user.
+
+        Results are filtered by visibility rules (public/private), event status, and user permissions.
+        By default shows only upcoming events; set include_past=true to see past events.
+        Ordering: 'distance' (default) shows nearest events based on user location, 'start' shows
+        soonest first, '-start' shows latest first. Supports filtering by organization, series,
+        tags, and text search.
+        """
         qs = params.filter(self.get_queryset(include_past=include_past or params.past_events is True))
         if order_by == "distance":
             return event_service.order_by_distance(self.user_location(), qs)
@@ -99,7 +106,12 @@ class EventController(UserAwareController):
         throttle=WriteThrottle(),
     )
     def claim_invitation(self, token: str) -> tuple[int, models.Event | ResponseMessage]:
-        """Request an invitation to an event."""
+        """Accept an event invitation using a token from an invitation link or email.
+
+        Creates an EventInvitation record for the user, granting access to the event.
+        Invitations can bypass certain eligibility requirements like membership, capacity limits,
+        and RSVP deadlines. Returns the event on success, or 400 if the token is invalid/expired.
+        """
         if invitation := event_service.claim_invitation(self.user(), token):
             return 200, invitation.event
         return 400, ResponseMessage(message="The token is invalid or expired.")
@@ -112,7 +124,12 @@ class EventController(UserAwareController):
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     def get_event_attendees(self, event_id: UUID) -> QuerySet[RevelUser]:
-        """Get the attendees for this event."""
+        """Get the list of confirmed attendees for this event.
+
+        Returns users who have RSVPed 'yes' or have active tickets. Visibility is controlled by
+        event settings - attendee lists may be hidden from regular attendees. Organization staff
+        and event creators always have access.
+        """
         event = self.get_one(event_id)
         return event.attendees(self.user())
 
@@ -123,7 +140,14 @@ class EventController(UserAwareController):
         auth=JWTAuth(),
     )
     def get_my_event_status(self, event_id: UUID) -> schema.EventUserStatusSchema | EventUserEligibility:
-        """Return the user's status for a specific event."""
+        """Check the authenticated user's current status and eligibility for an event.
+
+        Returns either the user's RSVP/ticket status if they've already joined, or an eligibility
+        check result explaining what steps are needed to attend. The eligibility check validates:
+        event status, RSVP deadline, invitations, organization membership, required questionnaires,
+        capacity limits, and ticket availability. Use this to determine which action to show users
+        (RSVP button, buy ticket, fill questionnaire, etc.).
+        """
         event = self.get_one(event_id)
         if (
             ticket := models.Ticket.objects.select_related("tier").filter(event=event, user_id=self.user().id).first()
@@ -143,7 +167,13 @@ class EventController(UserAwareController):
     def request_invitation(
         self, event_id: UUID, payload: schema.EventInvitationRequestCreateSchema
     ) -> tuple[int, models.EventInvitationRequest | ResponseMessage]:
-        """Request an invitation to an event."""
+        """Submit a request to be invited to a private or invite-only event.
+
+        Creates an invitation request that event organizers can approve or reject. Include an
+        optional message explaining why you want to attend. Returns 400 if you've already
+        submitted a request for this event. Check GET /{event_id}/my-status to see if you
+        need an invitation.
+        """
         event = self.get_one(event_id)
         invitation_request, created = models.EventInvitationRequest.objects.get_or_create(
             event=event,
@@ -166,7 +196,12 @@ class EventController(UserAwareController):
         event_id: UUID,
         params: filters.ResourceFilterSchema = Query(...),  # type: ignore[type-arg]
     ) -> QuerySet[models.AdditionalResource]:
-        """List all visible resources for a specific event."""
+        """Get supplementary resources attached to this event.
+
+        Returns resources like documents, links, or media files provided by event organizers.
+        Resources may be public or restricted to attendees only. Supports filtering by type
+        (file, link, etc.) and text search.
+        """
         event = self.get_one(event_id)
         qs = models.AdditionalResource.objects.for_user(self.maybe_user()).filter(events=event)
         return params.filter(qs)
@@ -179,7 +214,12 @@ class EventController(UserAwareController):
         throttle=WriteThrottle(),
     )
     def delete_invitation_request(self, request_id: UUID) -> tuple[int, None]:
-        """Delete an invitation request."""
+        """Cancel a pending invitation request.
+
+        Withdraws your invitation request for an event. Only works for your own requests
+        that haven't been decided yet. Returns 404 if the request doesn't exist or doesn't
+        belong to you.
+        """
         invitation_request = get_object_or_404(models.EventInvitationRequest, pk=request_id, user_id=self.user().id)
         invitation_request.delete()
         return 204, None
@@ -197,7 +237,12 @@ class EventController(UserAwareController):
         event_id: UUID | None = None,
         status: models.EventInvitationRequest.Status = models.EventInvitationRequest.Status.PENDING,
     ) -> QuerySet[models.EventInvitationRequest]:
-        """List all pending invitation requests for the current user."""
+        """View your invitation requests across all events.
+
+        Returns your invitation requests with their current status (pending/approved/rejected).
+        Filter by event_id to see requests for a specific event, or by status to see approved/
+        rejected requests. Use this to track which events you've requested access to.
+        """
         qs = models.EventInvitationRequest.objects.select_related("event").filter(user=self.user(), status=status)
         if event_id:
             qs = qs.filter(event_id=event_id)
@@ -205,7 +250,11 @@ class EventController(UserAwareController):
 
     @route.get("/{org_slug}/{event_slug}", url_name="get_event_by_slug", response=schema.EventDetailSchema)
     def get_event_by_slugs(self, org_slug: str, event_slug: str) -> models.Event:
-        """Get event by ID."""
+        """Retrieve event details using human-readable organization and event slugs.
+
+        Use this for clean URLs like /events/tech-meetup/monthly-session. Returns 404 if
+        the event doesn't exist or you don't have permission to view it.
+        """
         return t.cast(
             models.Event,
             self.get_object_or_exception(self.get_queryset(), slug=event_slug, organization__slug=org_slug),
@@ -213,7 +262,11 @@ class EventController(UserAwareController):
 
     @route.get("/{event_id}", url_name="get_event", response=schema.EventDetailSchema)
     def get_event(self, event_id: UUID) -> models.Event:
-        """Get event by ID."""
+        """Retrieve full event details by ID.
+
+        Returns comprehensive event information including description, location, times, organization,
+        ticket tiers, and visibility settings. Use this to display the event detail page.
+        """
         return self.get_one(event_id)
 
     @route.post(
@@ -224,7 +277,14 @@ class EventController(UserAwareController):
         throttle=WriteThrottle(),
     )
     def rsvp_event(self, event_id: UUID, answer: models.EventRSVP.Status) -> models.EventRSVP:
-        """RSVP event by ID."""
+        """RSVP to a non-ticketed event (answer: 'yes', 'no', or 'maybe').
+
+        Only works for events where requires_ticket=false. Runs full eligibility check including
+        event status, RSVP deadline, invitations, membership requirements, required questionnaires,
+        and capacity limits. Returns RSVP record on success. On failure, returns eligibility details
+        explaining what's blocking you and what next_step to take (e.g., complete questionnaire,
+        request invitation).
+        """
         event = self.get_one(event_id)
         manager = EventManager(self.user(), event)
         return manager.rsvp(answer)
@@ -235,14 +295,19 @@ class EventController(UserAwareController):
         response={200: list[schema.TierSchema]},
     )
     def list_tiers(self, event_id: UUID) -> models.event.TicketTierQuerySet:
-        """List all available tickets for a specific event."""
+        """Get all ticket tiers available for purchase at this event.
+
+        Returns ticket types with pricing, availability, and sales windows. Filters tiers based
+        on user eligibility - you'll only see tiers you're allowed to purchase. Check visibility
+        settings and sales_start_at/sales_end_at to determine which are currently on sale.
+        """
         event = self.get_one(event_id)
         return models.TicketTier.objects.for_user(self.user()).filter(event=event)
 
     @route.post(
         "/{event_id}/tickets/{tier_id}/checkout",
         url_name="ticket_checkout",
-        response={200: schema.StripeCheckoutSessionSchema | schema.EventTicketSchema},
+        response={200: schema.StripeCheckoutSessionSchema | schema.EventTicketSchema, 400: EventUserEligibility},
         auth=JWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
@@ -252,7 +317,15 @@ class EventController(UserAwareController):
         event_id: UUID,
         tier_id: UUID,
     ) -> schema.StripeCheckoutSessionSchema | schema.EventTicketSchema:
-        """Create a Stripe checkout session for purchasing a ticket."""
+        """Purchase a fixed-price event ticket.
+
+        Runs eligibility checks before allowing purchase. For online payment: returns Stripe
+        checkout URL to redirect user for payment. For free/offline/at-the-door tickets: creates
+        ticket immediately and returns it. Cannot be used for pay-what-you-can (PWYC) tiers -
+        use POST /{event_id}/tickets/{tier_id}/checkout/pwyc instead. On eligibility failure,
+        returns 400 with eligibility details explaining what's blocking you and what next_step
+        to take (e.g., complete questionnaire, request invitation, wait for tickets to go on sale).
+        """
         # Note: calling get one will cause to call Event.for_user();
         # then TicketTier.for_user() will call Event.for_user() as well.
         # This is convenient from a code flow perspective but maybe not the best performance wise
@@ -273,7 +346,7 @@ class EventController(UserAwareController):
     @route.post(
         "/{event_id}/tickets/{tier_id}/checkout/pwyc",
         url_name="ticket_pwyc_checkout",
-        response={200: schema.StripeCheckoutSessionSchema | schema.EventTicketSchema},
+        response={200: schema.StripeCheckoutSessionSchema | schema.EventTicketSchema, 400: EventUserEligibility},
         auth=JWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
@@ -284,7 +357,14 @@ class EventController(UserAwareController):
         tier_id: UUID,
         payload: schema.PWYCCheckoutPayloadSchema,
     ) -> schema.StripeCheckoutSessionSchema | schema.EventTicketSchema:
-        """Create a Stripe checkout session for purchasing a pay-what-you-can ticket."""
+        """Purchase a pay-what-you-can (PWYC) ticket with a user-specified amount.
+
+        Only works for ticket tiers with price_type=PWYC. Validates the amount is within the
+        tier's min/max bounds. Returns Stripe checkout URL for online payment, or creates ticket
+        immediately for free/offline payment methods. Returns 400 for non-PWYC tiers, if amount
+        is out of bounds, or on eligibility failure (with eligibility details explaining what's
+        blocking you and what next_step to take).
+        """
         event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
         tier = get_object_or_404(
             models.TicketTier.objects.for_user(self.user()),
@@ -313,7 +393,12 @@ class EventController(UserAwareController):
         "/{event_id}/questionnaire/{questionnaire_id}", url_name="get_questionnaire", response=QuestionnaireSchema
     )
     def get_questionnaire(self, event_id: UUID, questionnaire_id: UUID) -> QuestionnaireSchema:
-        """Get questionnaire and build it."""
+        """Retrieve a questionnaire required for event admission.
+
+        Returns the questionnaire structure with all sections and questions. Questions may be
+        shuffled based on questionnaire settings. Use this to display the form that users must
+        complete before accessing the event.
+        """
         self.get_one(event_id)
         # todo: verify that the questionnaire belongs to the event
         questionnaire_service = self.get_questionnaire_service(questionnaire_id)
@@ -329,7 +414,13 @@ class EventController(UserAwareController):
     def submit_questionnaire(
         self, event_id: UUID, questionnaire_id: UUID, submission: QuestionnaireSubmissionSchema
     ) -> QuestionnaireSubmissionOrEvaluationSchema:
-        """Submit questionnaire."""
+        """Submit answers to an event admission questionnaire.
+
+        Validates all required questions are answered. If submission status is 'ready', triggers
+        automatic evaluation (may use LLM for free-text answers). Depending on the questionnaire's
+        evaluation_mode (automatic/manual/hybrid), results may be immediate or pending staff review.
+        Passing the questionnaire may be required before you can RSVP or purchase tickets.
+        """
         self.get_one(event_id)
         questionnaire_service = self.get_questionnaire_service(questionnaire_id)
         db_submission = questionnaire_service.submit(self.user(), submission)

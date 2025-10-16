@@ -11,7 +11,11 @@ from events.service import stripe_service
 class StripeWebhookController:
     @route.post("/webhook", response={200: None})
     def handle_webhook(self, request: HttpRequest) -> tuple[int, None]:
-        """Handle incoming Stripe webhooks."""
+        """Process Stripe webhook events for payment processing.
+
+        Handles payment confirmations, failures, and refunds. Verifies webhook signature for
+        security. This endpoint is called by Stripe, not by clients directly.
+        """
         payload = request.body
         sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
         if not sig_header:

@@ -33,7 +33,11 @@ class EventSeriesController(UserAwareController):
         self,
         params: filters.EventSeriesFilterSchema = Query(...),  # type: ignore[type-arg]
     ) -> QuerySet[models.EventSeries]:
-        """List all visible event series."""
+        """Browse event series (recurring event collections) visible to the current user.
+
+        Event series group related recurring events (e.g., "Monthly Tech Meetup"). Results are
+        filtered by visibility and permissions. Supports filtering by organization and text search.
+        """
         qs = self.get_queryset()
         return params.filter(qs)
 
@@ -43,7 +47,11 @@ class EventSeriesController(UserAwareController):
         response=schema.EventSeriesRetrieveSchema,
     )
     def get_event_series_by_slugs(self, org_slug: str, series_slug: str) -> models.EventSeries:
-        """Get event series by slugs."""
+        """Retrieve event series details using human-readable organization and series slugs.
+
+        Use this for clean URLs like /event-series/tech-meetup/monthly-sessions. Returns 404
+        if the series doesn't exist or you don't have permission to view it.
+        """
         return t.cast(
             models.EventSeries,
             self.get_object_or_exception(self.get_queryset(), slug=series_slug, organization__slug=org_slug),
@@ -51,7 +59,11 @@ class EventSeriesController(UserAwareController):
 
     @route.get("/{series_id}", url_name="get_event_series", response=schema.EventSeriesRetrieveSchema)
     def get_event_series(self, series_id: UUID) -> models.EventSeries:
-        """Retrieve a single event series by its ID."""
+        """Retrieve full event series details by ID.
+
+        Returns series information including description, organization, and settings. Use this
+        to display the series profile page and list related events.
+        """
         return t.cast(models.EventSeries, self.get_object_or_exception(self.get_queryset(), pk=series_id))
 
     @route.get(
@@ -66,7 +78,12 @@ class EventSeriesController(UserAwareController):
         series_id: UUID,
         params: filters.ResourceFilterSchema = Query(...),  # type: ignore[type-arg]
     ) -> QuerySet[models.AdditionalResource]:
-        """List all visible resources for a specific event series."""
+        """Get resources attached to this event series.
+
+        Returns documents, links, or media files that apply to all events in the series.
+        Resources may be public or restricted based on visibility settings. Supports filtering
+        by type and text search.
+        """
         series = self.get_object_or_exception(self.get_queryset(), pk=series_id)
         qs = models.AdditionalResource.objects.for_user(self.maybe_user()).filter(event_series=series)
         return params.filter(qs)

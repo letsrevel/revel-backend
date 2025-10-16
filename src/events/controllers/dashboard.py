@@ -50,7 +50,12 @@ class DashboardController(UserAwareController):
         self,
         params: filters.DashboardOrganizationsFiltersSchema = Query(...),  # type: ignore[type-arg]
     ) -> QuerySet[models.Organization]:
-        """List all organizations relevant to the user's dashboard, using a high-performance intersection."""
+        """View organizations for your dashboard filtered by your relationship to them.
+
+        Filter by: organizations you own, are staff of, are a member of, or have pending requests to.
+        Shows only organizations you have permission to view. Use this to display "My Organizations"
+        sections in the UI.
+        """
         user = self.user()
 
         # 1. Get IDs of all orgs user is AUTHORIZED to see.
@@ -83,7 +88,12 @@ class DashboardController(UserAwareController):
         params: filters.DashboardEventsFiltersSchema = Query(...),  # type: ignore[type-arg]
         order_by: t.Literal["start", "-start"] = "start",
     ) -> QuerySet[models.Event]:
-        """List all events relevant to the user's dashboard, based on selected filters."""
+        """View upcoming events for your dashboard filtered by your relationship to them.
+
+        Filter by: events you're organizing, attending (RSVP'd or have tickets), invited to, or have
+        requested invitations to. Only shows future events you have permission to view. Use this to
+        display "My Events" sections in the UI.
+        """
         user = self.user()
 
         # 1. Get IDs of all events the user is AUTHORIZED to see.
@@ -119,7 +129,11 @@ class DashboardController(UserAwareController):
         self,
         params: filters.DashboardEventSeriesFiltersSchema = Query(...),  # type: ignore[type-arg]
     ) -> QuerySet[models.EventSeries]:
-        """List all organizations."""
+        """View event series for your dashboard filtered by your relationship to them.
+
+        Filter by: series you're organizing or series you're attending events in. Shows only
+        series you have permission to view. Use this to display "My Series" sections in the UI.
+        """
         qs = self.get_event_series_queryset()
         return qs.filter(params.to_query(self.user().id))
 
@@ -133,5 +147,9 @@ class DashboardController(UserAwareController):
     def dashboard_invitations(
         self,
     ) -> QuerySet[models.EventInvitation]:
-        """List all organizations."""
+        """View your pending event invitations.
+
+        Returns invitations you've received but not yet acted on, sorted by event date (soonest first).
+        Use this to display a "Pending Invitations" section prompting users to RSVP or purchase tickets.
+        """
         return self.get_invitations_queryset()
