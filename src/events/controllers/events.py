@@ -307,7 +307,7 @@ class EventController(UserAwareController):
     @route.post(
         "/{event_id}/tickets/{tier_id}/checkout",
         url_name="ticket_checkout",
-        response={200: schema.StripeCheckoutSessionSchema | schema.EventTicketSchema},
+        response={200: schema.StripeCheckoutSessionSchema | schema.EventTicketSchema, 400: EventUserEligibility},
         auth=JWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
@@ -322,7 +322,9 @@ class EventController(UserAwareController):
         Runs eligibility checks before allowing purchase. For online payment: returns Stripe
         checkout URL to redirect user for payment. For free/offline/at-the-door tickets: creates
         ticket immediately and returns it. Cannot be used for pay-what-you-can (PWYC) tiers -
-        use POST /{event_id}/tickets/{tier_id}/checkout/pwyc instead.
+        use POST /{event_id}/tickets/{tier_id}/checkout/pwyc instead. On eligibility failure,
+        returns 400 with eligibility details explaining what's blocking you and what next_step
+        to take (e.g., complete questionnaire, request invitation, wait for tickets to go on sale).
         """
         # Note: calling get one will cause to call Event.for_user();
         # then TicketTier.for_user() will call Event.for_user() as well.
@@ -344,7 +346,7 @@ class EventController(UserAwareController):
     @route.post(
         "/{event_id}/tickets/{tier_id}/checkout/pwyc",
         url_name="ticket_pwyc_checkout",
-        response={200: schema.StripeCheckoutSessionSchema | schema.EventTicketSchema},
+        response={200: schema.StripeCheckoutSessionSchema | schema.EventTicketSchema, 400: EventUserEligibility},
         auth=JWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
@@ -359,8 +361,9 @@ class EventController(UserAwareController):
 
         Only works for ticket tiers with price_type=PWYC. Validates the amount is within the
         tier's min/max bounds. Returns Stripe checkout URL for online payment, or creates ticket
-        immediately for free/offline payment methods. Returns 400 for non-PWYC tiers or if
-        amount is out of bounds.
+        immediately for free/offline payment methods. Returns 400 for non-PWYC tiers, if amount
+        is out of bounds, or on eligibility failure (with eligibility details explaining what's
+        blocking you and what next_step to take).
         """
         event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
         tier = get_object_or_404(
