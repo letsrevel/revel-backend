@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 
 from accounts.models import RevelUser
+from common.fields import MarkdownField
 from common.models import TagAssignment, TaggableMixin, TimeStampedModel
 
 from .mixins import (
@@ -90,7 +91,7 @@ class Organization(
 ):
     name = models.CharField(max_length=255, unique=True)
     slug = models.SlugField(max_length=255, unique=True)
-    description = models.TextField(null=True, blank=True)
+    description = MarkdownField(null=True, blank=True)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,

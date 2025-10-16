@@ -93,7 +93,7 @@ API endpoints are organized in controller classes:
 
 ### Development Environment
 - Python 3.13+ required
-- UV for dependency management
+- **UV for dependency management** (use `uv add`/`uv remove` - NEVER use pip directly)
 - Docker for services (PostgreSQL, Redis, MinIO)
 - Virtual environment automatically created in `.venv/`
 
@@ -129,5 +129,63 @@ When writing tests:
 - Use Django Ninja's automatic OpenAPI documentation features
 - Use the context7 MCP to look up documentation
 
+## Dependency Management
+
+**IMPORTANT:** This project uses UV for dependency management. NEVER use pip directly.
+
+### Adding Dependencies
+- **Production dependencies:** `uv add <package>`
+- **Development dependencies:** `uv add --dev <package>` or `uv add --group dev <package>`
+- **Optional dependencies:** `uv add --optional <group> <package>`
+
+### Removing Dependencies
+- `uv remove <package>`
+
+### Syncing Environment
+- `uv sync` - Install all dependencies from lockfile
+- `uv sync --dev` - Include development dependencies
+
+### Why UV?
+- Faster than pip
+- Deterministic dependency resolution
+- Automatic virtual environment management
+- Better conflict detection
+
+## Implementation Workflow
+
+When working on issues or new features, follow this collaborative workflow:
+
+### 1. Investigation & Analysis Phase
+- Read the issue description thoroughly
+- Explore relevant code sections using Read/Grep/Glob tools
+- Identify all affected files, models, and components
+- Map out dependencies and relationships
+
+### 2. Discussion Phase (Required)
+- Present findings to the user
+- Propose multiple approaches with pros/cons when applicable
+- Discuss implementation details, edge cases, and trade-offs
+- Ask clarifying questions about:
+  - Desired behavior and user experience
+  - Technical preferences (library choices, patterns to follow)
+  - Migration strategies and backward compatibility
+  - API design decisions
+  - Testing requirements
+- Create a detailed implementation plan with clear phases
+- Get explicit approval before proceeding to implementation
+
+### 3. Implementation Phase
+- Use TodoWrite to track progress through implementation phases
+- Update todos as each phase completes
+- Follow the agreed-upon plan from the discussion phase
+- Raise concerns immediately if issues are discovered during implementation
+
+### 4. Key Principles
+- **No surprises**: Discuss before implementing, especially for architectural decisions
+- **Be thorough**: Consider migration paths, backward compatibility, and data safety
+- **Document decisions**: Explain reasoning in comments and docstrings
+- **Iterative refinement**: It's better to ask questions than make assumptions
+
 ## Note to claude
 - Do not run tests. Let the user run the tests.
+- Always discuss implementation approach before writing code for non-trivial changes.

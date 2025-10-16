@@ -70,6 +70,7 @@ class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin):
     name: str
     slug: str
     description: str | None = ""
+    description_html: str = ""
     logo: str | None = None
     cover_art: str | None = None
     visibility: Organization.Visibility
@@ -81,6 +82,7 @@ class EventSeriesRetrieveSchema(TaggableSchemaMixin):
     organization: OrganizationRetrieveSchema
     name: str
     description: str | None = None
+    description_html: str = ""
     slug: str
     logo: str | None = None
     cover_art: str | None = None
@@ -127,6 +129,9 @@ class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
     name: str
     slug: str
     description: str | None = None
+    description_html: str = ""
+    invitation_message: str | None = None
+    invitation_message_html: str = ""
     max_attendees: int = 0
     waitlist_open: bool | None = None
     start: datetime
@@ -163,6 +168,7 @@ class TierSchema(ModelSchema):
     price: Decimal
     currency: str
     total_available: int | None
+    description_html: str = ""
 
     class Meta:
         model = TicketTier
@@ -412,6 +418,7 @@ class PotluckItemCreateSchema(ModelSchema):
 class PotluckItemRetrieveSchema(ModelSchema):
     is_assigned: bool = False
     is_owned: bool = False
+    note_html: str = ""
 
     class Meta:
         model = models.PotluckItem
@@ -422,6 +429,9 @@ class PotluckItemRetrieveSchema(ModelSchema):
 
 
 class AdditionalResourceSchema(ModelSchema):
+    description_html: str = ""
+    text_html: str = ""
+
     class Meta:
         model = AdditionalResource
         fields = [

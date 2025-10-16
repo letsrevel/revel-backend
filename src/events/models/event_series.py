@@ -5,6 +5,7 @@ from django.contrib.gis.db import models
 from django.db.models import Prefetch
 
 from accounts.models import RevelUser
+from common.fields import MarkdownField
 from common.models import TagAssignment, TaggableMixin, TimeStampedModel
 
 from .mixins import LogoCoverValidationMixin, SlugFromNameMixin
@@ -61,7 +62,7 @@ class EventSeriesManager(models.Manager["EventSeries"]):
 
 class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin, TaggableMixin):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="event_series")
-    description = models.TextField(null=True, blank=True, db_index=True)
+    description = MarkdownField(null=True, blank=True, db_index=True)
     name = models.CharField(max_length=255, db_index=True)
     slug = models.SlugField(max_length=255, db_index=True)
 
