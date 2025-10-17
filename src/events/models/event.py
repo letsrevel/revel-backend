@@ -11,6 +11,7 @@ from django.db.models import Prefetch, Q
 from django.utils import timezone
 
 from accounts.models import RevelUser
+from common.fields import MarkdownField
 from common.models import TagAssignment, TaggableMixin, TimeStampedModel
 
 from .event_series import EventSeries
@@ -144,8 +145,8 @@ class Event(
     status = models.CharField(choices=Status.choices, max_length=10, default=Status.DRAFT)
     name = models.CharField(max_length=255, db_index=True)
     slug = models.SlugField(max_length=255, db_index=True)
-    description = models.TextField(blank=True, null=True)
-    invitation_message = models.TextField(
+    description = MarkdownField(blank=True, null=True)
+    invitation_message = MarkdownField(
         blank=True,
         null=True,
         help_text="Invitation message to override the one automatically generated using name and description.",
@@ -401,7 +402,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     purchasable_by = models.CharField(
         choices=PurchasableBy.choices, max_length=20, db_index=True, default=PurchasableBy.PUBLIC
     )
-    description = models.TextField(null=True, blank=True)
+    description = MarkdownField(null=True, blank=True)
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0, validators=[MinValueValidator(0)])
     price_type = models.CharField(
         choices=PriceType.choices,
@@ -715,7 +716,7 @@ class PotluckItem(TimeStampedModel):
     name = models.CharField(max_length=100, db_index=True)
     quantity = models.CharField(max_length=20, blank=True, null=True)
     item_type = models.CharField(choices=ItemTypes.choices, max_length=20, db_index=True)
-    note = models.TextField(null=True, blank=True)
+    note = MarkdownField(null=True, blank=True)
     is_suggested = models.BooleanField(default=False, help_text="For host-created items awaiting volunteers")
     assignee = models.ForeignKey(
         RevelUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="potluck_items"
