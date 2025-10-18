@@ -32,7 +32,7 @@ def set_preferences(
     overwrite_children: bool = False,
 ) -> T:
     """Update preferences and optionally propagate to children."""
-    updated_instance = update_db_instance(instance, payload)
+    updated_instance = update_db_instance(instance, payload, exclude_unset=False, exclude_defaults=False)
     visibility_changed = False
 
     if payload and "show_me_on_attendee_list" in payload.model_fields_set:
