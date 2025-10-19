@@ -69,6 +69,14 @@ run:
 	.venv/bin/python src/manage.py generate_test_jwts; \
 	.venv/bin/python src/manage.py runserver
 
+.PHONY: jwt
+jwt:
+	@if [ -z "$(EMAIL)" ]; then \
+		echo "Usage: make jwt EMAIL=user@example.com"; \
+		exit 1; \
+	fi
+	.venv/bin/python src/manage.py get_jwt $(EMAIL)
+
 
 .PHONY: run-celery
 run-celery:

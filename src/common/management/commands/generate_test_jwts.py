@@ -23,13 +23,3 @@ class Command(BaseCommand):
 
         self.stdout.write(f"Superuser Access: {str(refresh.access_token)}", self.style.SUCCESS)  # type: ignore[attr-defined]
         self.stdout.write(f"Superuser Refresh: {str(refresh)}", self.style.SUCCESS)
-
-        org_alpha_owner = User.objects.get(username="org-alpha-owner@example.com")
-        refresh = RefreshToken.for_user(org_alpha_owner)
-        self.stdout.write(f"Org Alpha Owner: {str(refresh.access_token)}", self.style.SUCCESS)  # type: ignore[attr-defined]
-        self.stdout.write(f"Org Alpha Refresh: {str(refresh)}", self.style.SUCCESS)
-
-        random_user = User.objects.get(username="random-user@example.com")
-        refresh = RefreshToken.for_user(random_user)
-        self.stdout.write(f"Random User: {str(refresh.access_token)}", self.style.SUCCESS)  # type: ignore[attr-defined]
-        self.stdout.write(f"Random User Refresh: {str(refresh)}", self.style.SUCCESS)

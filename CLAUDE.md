@@ -9,6 +9,7 @@ This project uses a comprehensive Makefile for development tasks:
 ### Primary Development Commands
 - `make setup` - Complete one-time setup: creates venv, installs dependencies, sets up Docker services, and starts the server
 - `make run` - Start Django development server (generates test JWTs first)
+- `make jwt EMAIL=user@example.com` - Get JWT access and refresh tokens for a specific user
 - `make check` - Run all code quality checks (format, lint, mypy)
 - `make test` - Run pytest test suite with coverage reporting
 - `make test-failed` - Re-run only failed tests
