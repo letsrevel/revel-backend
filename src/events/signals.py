@@ -2,7 +2,9 @@
 
 import logging
 import typing as t
+from uuid import UUID
 
+from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -28,6 +30,43 @@ from events.tasks import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def unclaim_user_potluck_items(event_id: UUID, user_id: UUID, notify: bool = True) -> int:
+    """Unclaim all potluck items for a user at an event.
+
+    This function is called when a user's participation status changes to a non-confirmed
+    state (RSVP NO/MAYBE, ticket cancelled, or participation deleted). It removes the user
+    as the assignee from all potluck items they had claimed for this event.
+
+    Args:
+        event_id: UUID of the event
+        user_id: UUID of the user whose items should be unclaimed
+        notify: Whether to send notifications about the unclaimed items (default: True)
+
+    Returns:
+        The number of items that were unclaimed
+    """
+    unclaimed_count = PotluckItem.objects.filter(event_id=event_id, assignee=user_id).update(assignee=None)
+
+    if notify and unclaimed_count > 0:
+        logger.info(
+            f"Auto-unclaimed {unclaimed_count} potluck item(s) for user {user_id} at event {event_id} "
+            f"due to participation status change"
+        )
+        # Schedule notification task to run after the current transaction commits
+        # This ensures the database changes are committed before we send notifications
+        # Note: We pass a placeholder item ID since the notification system expects it,
+        # but in the future this could be enhanced to support bulk notifications
+        transaction.on_commit(
+            lambda: notify_potluck_item_update.delay(
+                potluck_item_id=str(event_id),  # Use event_id as placeholder for bulk unclaim
+                action="auto_unclaimed",
+                changed_by_user_id=str(user_id),
+            )
+        )
+
+    return unclaimed_count
 
 
 @receiver(post_save, sender=Event)
@@ -85,26 +124,53 @@ def handle_user_creation(sender: type[RevelUser], instance: RevelUser, created: 
 
 @receiver(post_save, sender=EventRSVP)
 def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, **kwargs: t.Any) -> None:
-    """Trigger visibility task after RSVP is changed or created."""
+    """Trigger visibility task and unclaim potluck items after RSVP is changed or created.
+
+    When a user's RSVP status changes to anything other than YES (i.e., NO or MAYBE),
+    we automatically unclaim all potluck items they had previously claimed, since they
+    are no longer confirmed to attend.
+    """
     build_attendee_visibility_flags.delay(str(instance.event_id))
+
+    # Unclaim potluck items if RSVP is not a definite YES
+    if instance.status in [EventRSVP.Status.NO, EventRSVP.Status.MAYBE]:
+        unclaim_user_potluck_items(instance.event_id, instance.user_id)
 
 
 @receiver(post_delete, sender=EventRSVP)
 def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwargs: t.Any) -> None:
-    """Trigger visibility task after RSVP is deleted."""
+    """Trigger visibility task and unclaim potluck items after RSVP is deleted.
+
+    When a user deletes their RSVP entirely, we unclaim all potluck items they had claimed.
+    """
     build_attendee_visibility_flags.delay(str(instance.event_id))
+    # Unclaim items when RSVP is deleted entirely
+    unclaim_user_potluck_items(instance.event_id, instance.user_id)
 
 
 @receiver(post_save, sender=Ticket)
 def handle_ticket_save(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
-    """Trigger visibility task after Ticket is changed or created."""
+    """Trigger visibility task and unclaim potluck items after Ticket is changed or created.
+
+    When a user's ticket status changes to CANCELLED, we automatically unclaim all potluck
+    items they had previously claimed, since they are no longer attending.
+    """
     build_attendee_visibility_flags.delay(str(instance.event_id))
+
+    # Unclaim potluck items if ticket is cancelled
+    if instance.status == Ticket.Status.CANCELLED:
+        unclaim_user_potluck_items(instance.event_id, instance.user_id)
 
 
 @receiver(post_delete, sender=Ticket)
 def handle_ticket_delete(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
-    """Trigger visibility task after Ticket is deleted."""
+    """Trigger visibility task and unclaim potluck items after Ticket is deleted.
+
+    When a user's ticket is deleted entirely, we unclaim all potluck items they had claimed.
+    """
     build_attendee_visibility_flags.delay(str(instance.event_id))
+    # Unclaim items when ticket is deleted
+    unclaim_user_potluck_items(instance.event_id, instance.user_id)
 
 
 @receiver(post_save, sender=EventInvitation)
