@@ -16,6 +16,7 @@ from common.schema import ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models as event_models
 from events import schema as event_schema
+from events.service import update_organization_questionnaire
 from questionnaires import models as questionnaires_models
 from questionnaires import schema as questionnaire_schema
 from questionnaires.service import QuestionnaireService
@@ -387,3 +388,249 @@ class QuestionnaireController(UserAwareController):
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
         service = QuestionnaireService(org_questionnaire.questionnaire_id)
         return service.evaluate_submission(submission_id, payload, self.user())
+
+    # ===== CRUD: UPDATE & DELETE =====
+
+    @route.put(
+        "/{org_questionnaire_id}",
+        url_name="update_org_questionnaire",
+        response=event_schema.OrganizationQuestionnaireSchema,
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def update_org_questionnaire(
+        self, org_questionnaire_id: UUID, payload: event_schema.OrganizationQuestionnaireUpdateSchema
+    ) -> event_models.OrganizationQuestionnaire:
+        """Update organization questionnaire and underlying questionnaire settings (admin only).
+
+        Allows updating both OrganizationQuestionnaire wrapper fields (max_submission_age,
+        questionnaire_type) and the underlying Questionnaire fields (name, min_score, llm_guidelines,
+        shuffle_questions, shuffle_sections, evaluation_mode, can_retake_after, max_attempts).
+        Requires 'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        return t.cast(
+            event_models.OrganizationQuestionnaire, update_organization_questionnaire(org_questionnaire, payload)
+        )
+
+    @route.delete(
+        "/{org_questionnaire_id}",
+        url_name="delete_org_questionnaire",
+        response={204: None},
+        permissions=[QuestionnairePermission("delete_questionnaire")],
+    )
+    def delete_org_questionnaire(self, org_questionnaire_id: UUID) -> tuple[int, None]:
+        """Delete an organization questionnaire (admin only).
+
+        Permanently removes the questionnaire. Requires 'delete_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        org_questionnaire.delete()
+        return 204, None
+
+    @route.delete(
+        "/{org_questionnaire_id}/sections/{section_id}",
+        url_name="delete_section",
+        response={204: None},
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def delete_section(self, org_questionnaire_id: UUID, section_id: UUID) -> tuple[int, None]:
+        """Delete a questionnaire section (admin only).
+
+        Removes the section and all questions within it. Requires 'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        section = get_object_or_404(
+            questionnaires_models.QuestionnaireSection,
+            pk=section_id,
+            questionnaire_id=org_questionnaire.questionnaire_id,
+        )
+        section.delete()
+        return 204, None
+
+    @route.delete(
+        "/{org_questionnaire_id}/multiple-choice-questions/{question_id}",
+        url_name="delete_mc_question",
+        response={204: None},
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def delete_mc_question(self, org_questionnaire_id: UUID, question_id: UUID) -> tuple[int, None]:
+        """Delete a multiple choice question (admin only).
+
+        Removes the question and all its options. Requires 'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        question = get_object_or_404(
+            questionnaires_models.MultipleChoiceQuestion,
+            pk=question_id,
+            questionnaire_id=org_questionnaire.questionnaire_id,
+        )
+        question.delete()
+        return 204, None
+
+    @route.delete(
+        "/{org_questionnaire_id}/multiple-choice-options/{option_id}",
+        url_name="delete_mc_option",
+        response={204: None},
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def delete_mc_option(self, org_questionnaire_id: UUID, option_id: UUID) -> tuple[int, None]:
+        """Delete a multiple choice option (admin only).
+
+        Removes the option from a question. Requires 'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        option = get_object_or_404(
+            questionnaires_models.MultipleChoiceOption,
+            pk=option_id,
+            question__questionnaire_id=org_questionnaire.questionnaire_id,
+        )
+        option.delete()
+        return 204, None
+
+    @route.delete(
+        "/{org_questionnaire_id}/free-text-questions/{question_id}",
+        url_name="delete_ft_question",
+        response={204: None},
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def delete_ft_question(self, org_questionnaire_id: UUID, question_id: UUID) -> tuple[int, None]:
+        """Delete a free text question (admin only).
+
+        Removes the question. Requires 'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        question = get_object_or_404(
+            questionnaires_models.FreeTextQuestion,
+            pk=question_id,
+            questionnaire_id=org_questionnaire.questionnaire_id,
+        )
+        question.delete()
+        return 204, None
+
+    # ===== EVENT & EVENT SERIES ASSIGNMENT =====
+
+    @route.put(
+        "/{org_questionnaire_id}/events",
+        url_name="replace_questionnaire_events",
+        response=event_schema.OrganizationQuestionnaireSchema,
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def replace_events(
+        self, org_questionnaire_id: UUID, payload: event_schema.EventAssignmentSchema
+    ) -> event_models.OrganizationQuestionnaire:
+        """Replace all assigned events for this questionnaire (admin only).
+
+        Batch operation to set exactly which events require this questionnaire. Validates that
+        events belong to the same organization. Requires 'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+
+        # Validate events belong to the organization
+        events = event_models.Event.objects.filter(
+            pk__in=payload.event_ids, organization=org_questionnaire.organization
+        )
+        if events.count() != len(payload.event_ids):
+            from ninja.errors import HttpError
+
+            raise HttpError(400, "One or more events do not exist or belong to this organization.")
+
+        org_questionnaire.events.set(events)
+        return t.cast(event_models.OrganizationQuestionnaire, org_questionnaire)
+
+    @route.post(
+        "/{org_questionnaire_id}/events/{event_id}",
+        url_name="assign_questionnaire_event",
+        response=event_schema.OrganizationQuestionnaireSchema,
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def assign_event(self, org_questionnaire_id: UUID, event_id: UUID) -> event_models.OrganizationQuestionnaire:
+        """Assign a single event to this questionnaire (admin only).
+
+        Adds one event that will require completion of this questionnaire. Requires
+        'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        event = get_object_or_404(event_models.Event, pk=event_id, organization=org_questionnaire.organization)
+        org_questionnaire.events.add(event)
+        return t.cast(event_models.OrganizationQuestionnaire, org_questionnaire)
+
+    @route.delete(
+        "/{org_questionnaire_id}/events/{event_id}",
+        url_name="unassign_questionnaire_event",
+        response={204: None},
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def unassign_event(self, org_questionnaire_id: UUID, event_id: UUID) -> tuple[int, None]:
+        """Unassign a single event from this questionnaire (admin only).
+
+        Removes requirement for this questionnaire from one event. Requires 'edit_questionnaire'
+        permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        event = get_object_or_404(event_models.Event, pk=event_id)
+        org_questionnaire.events.remove(event)
+        return 204, None
+
+    @route.put(
+        "/{org_questionnaire_id}/event-series",
+        url_name="replace_questionnaire_event_series",
+        response=event_schema.OrganizationQuestionnaireSchema,
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def replace_event_series(
+        self, org_questionnaire_id: UUID, payload: event_schema.EventSeriesAssignmentSchema
+    ) -> event_models.OrganizationQuestionnaire:
+        """Replace all assigned event series for this questionnaire (admin only).
+
+        Batch operation to set exactly which event series require this questionnaire. Validates that
+        series belong to the same organization. Requires 'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+
+        # Validate event series belong to the organization
+        series = event_models.EventSeries.objects.filter(
+            pk__in=payload.event_series_ids, organization=org_questionnaire.organization
+        )
+        if series.count() != len(payload.event_series_ids):
+            from ninja.errors import HttpError
+
+            raise HttpError(400, "One or more event series do not exist or belong to this organization.")
+
+        org_questionnaire.event_series.set(series)
+        return t.cast(event_models.OrganizationQuestionnaire, org_questionnaire)
+
+    @route.post(
+        "/{org_questionnaire_id}/event-series/{series_id}",
+        url_name="assign_questionnaire_event_series",
+        response=event_schema.OrganizationQuestionnaireSchema,
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def assign_event_series(
+        self, org_questionnaire_id: UUID, series_id: UUID
+    ) -> event_models.OrganizationQuestionnaire:
+        """Assign a single event series to this questionnaire (admin only).
+
+        Adds one event series that will require completion of this questionnaire. Requires
+        'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        series = get_object_or_404(event_models.EventSeries, pk=series_id, organization=org_questionnaire.organization)
+        org_questionnaire.event_series.add(series)
+        return t.cast(event_models.OrganizationQuestionnaire, org_questionnaire)
+
+    @route.delete(
+        "/{org_questionnaire_id}/event-series/{series_id}",
+        url_name="unassign_questionnaire_event_series",
+        response={204: None},
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def unassign_event_series(self, org_questionnaire_id: UUID, series_id: UUID) -> tuple[int, None]:
+        """Unassign a single event series from this questionnaire (admin only).
+
+        Removes requirement for this questionnaire from one event series. Requires 'edit_questionnaire'
+        permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        series = get_object_or_404(event_models.EventSeries, pk=series_id)
+        org_questionnaire.event_series.remove(series)
+        return 204, None

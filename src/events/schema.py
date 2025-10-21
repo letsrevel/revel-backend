@@ -1,10 +1,10 @@
 import typing as t
-from datetime import datetime
+from datetime import datetime, time
 from decimal import Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, EmailStr, Field, field_serializer, field_validator, model_validator
 
 from accounts.schema import MemberUserSchema, MinimalRevelUserSchema
 from common.schema import OneToOneFiftyString, OneToSixtyFourString, StrippedString
@@ -15,6 +15,7 @@ from events.models import (
     EventRSVP,
     Organization,
     OrganizationMembershipRequest,
+    OrganizationQuestionnaire,
     PermissionsSchema,
     Ticket,
     TicketTier,
@@ -22,6 +23,7 @@ from events.models import (
 from geo.models import City
 from geo.schema import CitySchema
 from questionnaires import schema as questionnaires_schema
+from questionnaires.models import Questionnaire
 
 
 def ensure_url(value: str) -> str:
@@ -62,7 +64,6 @@ class TaggableSchemaMixin(Schema):
 class OrganizationEditSchema(CityEditMixin):
     description: StrippedString = ""
     visibility: Organization.Visibility
-    platform_fee_percent: Decimal | None = Field(None, ge=0, le=100)
 
 
 class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin):
@@ -75,6 +76,7 @@ class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin):
     cover_art: str | None = None
     visibility: Organization.Visibility
     is_stripe_connected: bool
+    platform_fee_percent: Decimal | None = Field(None, ge=0, le=100)
 
 
 class EventSeriesRetrieveSchema(TaggableSchemaMixin):
@@ -101,12 +103,12 @@ class EventEditSchema(CityEditMixin):
     visibility: Event.Visibility | None = None
     invitation_message: StrippedString | None = Field(None, description="Invitation message")
     max_attendees: int = 0
-    waitlist_open: bool | None = None
-    start: datetime | None = None
-    end: datetime | None = None
-    rsvp_before: datetime | None = Field(None, description="RSVP deadline for events that do not require tickets")
-    check_in_starts_at: datetime | None = Field(None, description="When check-in opens for this event")
-    check_in_ends_at: datetime | None = Field(None, description="When check-in closes for this event")
+    waitlist_open: bool = False
+    start: AwareDatetime | None = None
+    end: AwareDatetime | None = None
+    rsvp_before: AwareDatetime | None = Field(None, description="RSVP deadline for events that do not require tickets")
+    check_in_starts_at: AwareDatetime | None = Field(None, description="When check-in opens for this event")
+    check_in_ends_at: AwareDatetime | None = Field(None, description="When check-in closes for this event")
     event_series_id: UUID | None = None
     free_for_members: bool = False
     free_for_staff: bool = True
@@ -116,7 +118,7 @@ class EventEditSchema(CityEditMixin):
 
 class EventCreateSchema(EventEditSchema):
     name: OneToOneFiftyString
-    start: datetime
+    start: AwareDatetime
 
 
 class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
@@ -324,7 +326,17 @@ class BaseOrganizationQuestionnaireSchema(Schema):
     id: UUID
     events: list[MinimalEventSchema] = Field(default_factory=list)
     event_series: list[EventSeriesRetrieveSchema] = Field(default_factory=list)
-    max_submission_age: int | None = None
+    max_submission_age: time | int | None = None
+    questionnaire_type: OrganizationQuestionnaire.Types
+
+    @field_serializer("max_submission_age")
+    def serialize_max_submission_age(self, value: time | int | None) -> int | None:
+        """Convert time to seconds since midnight for serialization."""
+        if value is None:
+            return None
+        if isinstance(value, time):
+            return value.hour * 3600 + value.minute * 60 + value.second
+        return value
 
 
 class OrganizationQuestionnaireInListSchema(BaseOrganizationQuestionnaireSchema):
@@ -333,6 +345,36 @@ class OrganizationQuestionnaireInListSchema(BaseOrganizationQuestionnaireSchema)
 
 class OrganizationQuestionnaireSchema(BaseOrganizationQuestionnaireSchema):
     questionnaire: questionnaires_schema.QuestionnaireCreateSchema
+
+
+class OrganizationQuestionnaireUpdateSchema(Schema):
+    """Schema for updating OrganizationQuestionnaire and its underlying Questionnaire.
+
+    Includes fields from both OrganizationQuestionnaire (wrapper) and Questionnaire (the actual questionnaire).
+    All fields are optional to allow partial updates.
+    """
+
+    # Questionnaire fields (from QuestionnaireBaseSchema + additional)
+    name: str | None = None
+    min_score: Decimal | None = Field(None, ge=0, le=100)
+    shuffle_questions: bool | None = None
+    shuffle_sections: bool | None = None
+    evaluation_mode: Questionnaire.EvaluationMode | None = None
+    llm_guidelines: str | None = None
+    can_retake_after: int | None = None  # Duration in seconds
+    max_attempts: int | None = Field(None, ge=0)
+
+    # OrganizationQuestionnaire wrapper fields
+    max_submission_age: time | None = None  # Time field (accepts time strings like "HH:MM:SS")
+    questionnaire_type: OrganizationQuestionnaire.Types | None = None
+
+
+class EventAssignmentSchema(Schema):
+    event_ids: list[UUID]
+
+
+class EventSeriesAssignmentSchema(Schema):
+    event_series_ids: list[UUID]
 
 
 class EventJWTInvitationTier(BaseModel):
@@ -375,7 +417,7 @@ class EventTokenCreateSchema(EventTokenBaseSchema):
 
 
 class EventTokenUpdateSchema(EventTokenBaseSchema):
-    expires_at: datetime | None = None
+    expires_at: AwareDatetime | None = None
 
 
 class OrganizationTokenSchema(ModelSchema):
@@ -396,7 +438,7 @@ class OrganizationTokenCreateSchema(OrganizationTokenBaseSchema):
 
 
 class OrganizationTokenUpdateSchema(OrganizationTokenBaseSchema):
-    expires_at: datetime | None = None
+    expires_at: AwareDatetime | None = None
 
 
 class OrganizationMembershipRequestRetrieve(ModelSchema):
@@ -431,6 +473,24 @@ class PotluckItemRetrieveSchema(ModelSchema):
 class AdditionalResourceSchema(ModelSchema):
     description_html: str = ""
     text_html: str = ""
+    event_ids: list[UUID] = Field(default_factory=list)
+    event_series_ids: list[UUID] = Field(default_factory=list)
+
+    @staticmethod
+    def resolve_event_ids(obj: AdditionalResource) -> list[UUID]:
+        """Return list of event UUIDs this resource is linked to.
+
+        Uses values_list to fetch only IDs, avoiding loading full Event objects.
+        """
+        return list(obj.events.values_list("pk", flat=True))
+
+    @staticmethod
+    def resolve_event_series_ids(obj: AdditionalResource) -> list[UUID]:
+        """Return list of event series UUIDs this resource is linked to.
+
+        Uses values_list to fetch only IDs, avoiding loading full EventSeries objects.
+        """
+        return list(obj.event_series.values_list("pk", flat=True))
 
     class Meta:
         model = AdditionalResource
@@ -460,15 +520,34 @@ class AdditionalResourceCreateSchema(Schema):
 
     @model_validator(mode="after")
     def validate_resource_content(self) -> "AdditionalResourceCreateSchema":
-        """Ensure exactly one content field is provided and it matches the resource_type."""
+        """Ensure content fields match the resource_type.
+
+        For FILE type: link and text must be None (file is passed separately as multipart).
+        For LINK or TEXT type: exactly one of link or text must be provided and match resource_type.
+        """
         content_fields = {"link": self.link, "text": self.text}
         provided_fields = [field for field, value in content_fields.items() if value]
 
-        if len(provided_fields) != 1:
-            raise ValueError("Exactly one of 'file', 'link', or 'text' must be provided.")
+        if self.resource_type == AdditionalResource.ResourceTypes.FILE:
+            # For FILE type, link and text must not be provided (file comes separately)
+            if provided_fields:
+                raise ValueError(
+                    f"When resource_type is 'file', 'link' and 'text' must not be provided. "
+                    f"Found: {', '.join(provided_fields)}"
+                )
+        else:
+            # For LINK or TEXT type, exactly one must be provided and match the type
+            if len(provided_fields) != 1:
+                raise ValueError(
+                    f"For resource_type '{self.resource_type}', exactly one of 'link' or 'text' must be provided. "
+                    f"Found: {len(provided_fields)}"
+                )
 
-        if provided_fields[0] != self.resource_type:
-            raise ValueError(f"The provided content field '{provided_fields[0]}' does not match the resource_type.")
+            if provided_fields[0] != self.resource_type:
+                raise ValueError(
+                    f"The provided content field '{provided_fields[0]}' does not match "
+                    f"the resource_type '{self.resource_type}'."
+                )
 
         return self
 
@@ -614,8 +693,8 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     pwyc_max: Decimal | None = Field(None, ge=1)
 
     currency: str = Field(default="USD", max_length=3)
-    sales_start_at: datetime | None = None
-    sales_end_at: datetime | None = None
+    sales_start_at: AwareDatetime | None = None
+    sales_end_at: AwareDatetime | None = None
     total_quantity: int | None = None
 
     @model_validator(mode="after")
@@ -636,8 +715,8 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     pwyc_min: Decimal | None = Field(None, ge=1)
     pwyc_max: Decimal | None = Field(None, ge=1)
     currency: str | None = Field(None, max_length=3)
-    sales_start_at: datetime | None = None
-    sales_end_at: datetime | None = None
+    sales_start_at: AwareDatetime | None = None
+    sales_end_at: AwareDatetime | None = None
     total_quantity: int | None = None
 
     @model_validator(mode="after")

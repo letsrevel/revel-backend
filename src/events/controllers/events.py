@@ -203,7 +203,7 @@ class EventController(UserAwareController):
         (file, link, etc.) and text search.
         """
         event = self.get_one(event_id)
-        qs = models.AdditionalResource.objects.for_user(self.maybe_user()).filter(events=event)
+        qs = models.AdditionalResource.objects.for_user(self.maybe_user()).filter(events=event).with_related()
         return params.filter(qs)
 
     @route.delete(

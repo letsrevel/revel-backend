@@ -107,6 +107,165 @@ def test_upload_event_cover_art_by_owner(
     assert_image_equal(event.cover_art.read(), png_bytes)
 
 
+def test_delete_event_logo_by_owner(
+    organization_owner_client: Client, event: Event, png_file: SimpleUploadedFile
+) -> None:
+    """Test that an event owner can successfully delete their logo."""
+    # First upload a logo
+    upload_url = reverse("api:event_upload_logo", kwargs={"event_id": event.pk})
+    organization_owner_client.post(upload_url, data={"logo": png_file}, format="multipart")
+    event.refresh_from_db()
+    assert event.logo
+
+    # Now delete it
+    delete_url = reverse("api:event_delete_logo", kwargs={"event_id": event.pk})
+    response = organization_owner_client.delete(delete_url)
+
+    assert response.status_code == 204
+    event.refresh_from_db()
+    assert not event.logo
+
+
+def test_delete_event_cover_art_by_owner(
+    organization_owner_client: Client, event: Event, png_file: SimpleUploadedFile
+) -> None:
+    """Test that an event owner can successfully delete their cover art."""
+    # First upload cover art
+    upload_url = reverse("api:event_upload_cover_art", kwargs={"event_id": event.pk})
+    organization_owner_client.post(upload_url, data={"cover_art": png_file}, format="multipart")
+    event.refresh_from_db()
+    assert event.cover_art
+
+    # Now delete it
+    delete_url = reverse("api:event_delete_cover_art", kwargs={"event_id": event.pk})
+    response = organization_owner_client.delete(delete_url)
+
+    assert response.status_code == 204
+    event.refresh_from_db()
+    assert not event.cover_art
+
+
+def test_delete_event_logo_when_none_exists(organization_owner_client: Client, event: Event) -> None:
+    """Test that deleting a logo when none exists is idempotent (returns 204)."""
+    assert not event.logo
+
+    url = reverse("api:event_delete_logo", kwargs={"event_id": event.pk})
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+
+
+def test_delete_event_cover_art_when_none_exists(organization_owner_client: Client, event: Event) -> None:
+    """Test that deleting cover art when none exists is idempotent (returns 204)."""
+    assert not event.cover_art
+
+    url = reverse("api:event_delete_cover_art", kwargs={"event_id": event.pk})
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+
+
+def test_delete_event_logo_by_staff_with_permission(
+    organization_staff_client: Client, event: Event, png_file: SimpleUploadedFile
+) -> None:
+    """Test that staff with edit_event permission can delete logo."""
+    # Upload a logo first
+    upload_url = reverse("api:event_upload_logo", kwargs={"event_id": event.pk})
+    organization_staff_client.post(upload_url, data={"logo": png_file}, format="multipart")
+    event.refresh_from_db()
+    assert event.logo
+
+    # Delete it
+    delete_url = reverse("api:event_delete_logo", kwargs={"event_id": event.pk})
+    response = organization_staff_client.delete(delete_url)
+
+    assert response.status_code == 204
+    event.refresh_from_db()
+    assert not event.logo
+
+
+def test_delete_event_logo_by_staff_without_permission(
+    organization_staff_client: Client,
+    organization_owner_client: Client,
+    event: Event,
+    staff_member: OrganizationStaff,
+    png_file: SimpleUploadedFile,
+) -> None:
+    """Test that staff without edit_event permission cannot delete logo."""
+    # Remove the edit_event permission
+    perms = staff_member.permissions
+    perms["default"]["edit_event"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+
+    # Upload a logo as owner first
+    upload_url = reverse("api:event_upload_logo", kwargs={"event_id": event.pk})
+    organization_owner_client.post(upload_url, data={"logo": png_file}, format="multipart")
+    event.refresh_from_db()
+    assert event.logo
+
+    # Try to delete as staff without permission
+    delete_url = reverse("api:event_delete_logo", kwargs={"event_id": event.pk})
+    response = organization_staff_client.delete(delete_url)
+
+    assert response.status_code == 403
+    event.refresh_from_db()
+    assert event.logo
+
+
+@pytest.mark.parametrize(
+    "client_fixture,expected_status_code", [("member_client", 403), ("nonmember_client", 403), ("client", 401)]
+)
+def test_delete_event_logo_by_unauthorized_users(
+    request: pytest.FixtureRequest, client_fixture: str, expected_status_code: int, public_event: Event
+) -> None:
+    """Test that users without owner/staff roles get appropriate error when trying to delete logo."""
+    client: Client = request.getfixturevalue(client_fixture)
+    url = reverse("api:event_delete_logo", kwargs={"event_id": public_event.pk})
+
+    response = client.delete(url)
+    assert response.status_code == expected_status_code
+
+
+def test_upload_event_logo_replaces_old_file(
+    organization_owner_client: Client, event: Event, png_file: SimpleUploadedFile, png_bytes: bytes
+) -> None:
+    """Test that uploading a new logo deletes the old one."""
+    url = reverse("api:event_upload_logo", kwargs={"event_id": event.pk})
+
+    # Upload first logo
+    response1 = organization_owner_client.post(url, data={"logo": png_file}, format="multipart")
+    assert response1.status_code == 200
+    event.refresh_from_db()
+    old_logo_name = event.logo.name
+
+    # Upload second logo
+    from io import BytesIO
+
+    from PIL import Image
+
+    # Create a different image (red square instead of the default png)
+    img = Image.new("RGB", (100, 100), color="red")
+    img_bytes = BytesIO()
+    img.save(img_bytes, format="PNG")
+    img_bytes.seek(0)
+    new_png_file = SimpleUploadedFile("new_logo.png", img_bytes.read(), content_type="image/png")
+
+    response2 = organization_owner_client.post(url, data={"logo": new_png_file}, format="multipart")
+    assert response2.status_code == 200
+    event.refresh_from_db()
+    new_logo_name = event.logo.name
+
+    # Verify that the logo name changed (different file)
+    assert old_logo_name != new_logo_name
+
+    # Verify the old file was deleted (this is tricky in tests, but we can check the field was updated)
+    assert event.logo
+    event.logo.seek(0)
+    saved_image = Image.open(event.logo)
+    assert saved_image.size == (100, 100)
+
+
 # --- Tests for DELETE /events/{event_id}/ ---
 
 

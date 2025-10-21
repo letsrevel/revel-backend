@@ -94,6 +94,36 @@ class EventSeriesAdminController(UserAwareController):
         series = safe_save_uploaded_file(instance=series, field="cover_art", file=cover_art, uploader=self.user())
         return series
 
+    @route.delete(
+        "/delete-logo",
+        url_name="event_series_delete_logo",
+        response={204: None},
+    )
+    def delete_logo(self, series_id: UUID) -> tuple[int, None]:
+        """Delete logo from event series (admin only).
+
+        Removes the logo image. Requires 'edit_event_series' permission.
+        """
+        series = self.get_one(series_id)
+        if series.logo:
+            series.logo.delete(save=True)
+        return 204, None
+
+    @route.delete(
+        "/delete-cover-art",
+        url_name="event_series_delete_cover_art",
+        response={204: None},
+    )
+    def delete_cover_art(self, series_id: UUID) -> tuple[int, None]:
+        """Delete cover art from event series (admin only).
+
+        Removes the cover art image. Requires 'edit_event_series' permission.
+        """
+        series = self.get_one(series_id)
+        if series.cover_art:
+            series.cover_art.delete(save=True)
+        return 204, None
+
     @route.post(
         "/tags",
         url_name="add_event_series_tags",

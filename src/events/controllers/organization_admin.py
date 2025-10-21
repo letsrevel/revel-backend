@@ -1,8 +1,9 @@
+import logging
 from uuid import UUID
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
-from ninja import File, Query
+from ninja import File, Form, Query
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
 from ninja_extra import (
@@ -24,6 +25,8 @@ from events.service import organization_service, resource_service, stripe_servic
 
 from .permissions import IsOrganizationOwner, OrganizationPermission
 from .user_aware_controller import UserAwareController
+
+logger = logging.getLogger(__name__)
 
 
 @api_controller("/organization-admin/{slug}", auth=JWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
@@ -100,6 +103,32 @@ class OrganizationAdminController(UserAwareController):
             instance=organization, field="cover_art", file=cover_art, uploader=self.user()
         )
         return organization
+
+    @route.delete(
+        "/delete-logo",
+        url_name="org_delete_logo",
+        response={204: None},
+        permissions=[OrganizationPermission("edit_organization")],
+    )
+    def delete_logo(self, slug: str) -> tuple[int, None]:
+        """Delete logo from organization."""
+        organization = self.get_one(slug)
+        if organization.logo:
+            organization.logo.delete(save=True)
+        return 204, None
+
+    @route.delete(
+        "/delete-cover-art",
+        url_name="org_delete_cover_art",
+        response={204: None},
+        permissions=[OrganizationPermission("edit_organization")],
+    )
+    def delete_cover_art(self, slug: str) -> tuple[int, None]:
+        """Delete cover art from organization."""
+        organization = self.get_one(slug)
+        if organization.cover_art:
+            organization.cover_art.delete(save=True)
+        return 204, None
 
     @route.post(
         "/create-event-series",
@@ -238,7 +267,7 @@ class OrganizationAdminController(UserAwareController):
     ) -> QuerySet[models.AdditionalResource]:
         """List all resources for a specific organization."""
         organization = self.get_one(slug)
-        return params.filter(organization.additional_resources.all())
+        return params.filter(organization.additional_resources.with_related())
 
     @route.post(
         "/resources",
@@ -247,11 +276,20 @@ class OrganizationAdminController(UserAwareController):
         permissions=[OrganizationPermission("edit_organization")],
     )
     def create_resource(
-        self, slug: str, payload: schema.AdditionalResourceCreateSchema, file: File[UploadedFile] | None = None
+        self, slug: str, payload: Form[schema.AdditionalResourceCreateSchema]
     ) -> models.AdditionalResource:
-        """Create a new resource for the organization."""
+        """Create a new resource for the organization.
+
+        Accepts multipart/form-data with individual form fields for each schema property.
+        For FILE type resources, include the file parameter.
+        """
         organization = self.get_one(slug)
-        return resource_service.create_resource(organization, payload, file=file)
+
+        # Extract file from request.FILES if present
+        # Django Ninja doesn't populate the File parameter when using Form[Schema]
+        file = self.context.request.FILES.get("file") if self.context.request else None  # type: ignore[union-attr]
+
+        return resource_service.create_resource(organization, payload, file=file)  # type: ignore[arg-type]
 
     @route.get(
         "/resources/{resource_id}",

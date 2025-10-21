@@ -2,6 +2,7 @@ import typing as t
 
 import orjson
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
 from django.utils import timezone
@@ -161,9 +162,9 @@ class TestAdminResourceEndpoints:
     ) -> None:
         """Test that an admin can create a resource with M2M links."""
         url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
-        response = organization_owner_client.post(
-            url, data=orjson.dumps(create_payload), content_type="application/json"
-        )
+
+        # Send as individual form fields
+        response = organization_owner_client.post(url, data=create_payload, format="multipart")
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == "Admin Created Resource"
@@ -187,9 +188,8 @@ class TestAdminResourceEndpoints:
         )
         url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
         create_payload["event_ids"] = [str(another_event.id)]  # Invalid event
-        response = organization_owner_client.post(
-            url, data=orjson.dumps(create_payload), content_type="application/json"
-        )
+
+        response = organization_owner_client.post(url, data=create_payload, format="multipart")
         assert response.status_code == 400
         assert "events do not exist or belong to this organization" in response.json()["detail"]
 
@@ -229,5 +229,108 @@ class TestAdminResourceEndpoints:
     ) -> None:
         """Test that a non-admin (e.g., a member) receives a 403 trying to access admin endpoints."""
         url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
-        response = member_client.post(url, data=orjson.dumps(create_payload), content_type="application/json")
+
+        response = member_client.post(url, data=create_payload, format="multipart")
         assert response.status_code == 403
+
+    def test_create_file_resource_with_file(
+        self, organization_owner_client: Client, organization: models.Organization
+    ) -> None:
+        """Test creating a FILE resource with an actual file."""
+        url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
+
+        # Create a simple text file
+        test_file = SimpleUploadedFile("test_document.txt", b"Test file content", content_type="text/plain")
+
+        payload = {
+            "name": "Test File Resource",
+            "description": "A file resource",
+            "resource_type": "file",
+            "visibility": "public",
+            "file": test_file,
+        }
+
+        response = organization_owner_client.post(url, data=payload, format="multipart")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "Test File Resource"
+        assert data["resource_type"] == "file"
+
+        resource = models.AdditionalResource.objects.get(id=data["id"])
+        assert resource.file
+        assert resource.link is None
+        assert resource.text is None
+
+    def test_create_file_resource_without_file_fails(
+        self, organization_owner_client: Client, organization: models.Organization
+    ) -> None:
+        """Test that creating a FILE resource without a file fails."""
+        url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
+
+        payload = {
+            "name": "Invalid File Resource",
+            "description": "Missing file",
+            "resource_type": "file",
+            "visibility": "public",
+        }
+
+        response = organization_owner_client.post(url, data=payload, format="multipart")
+
+        assert response.status_code == 400
+        assert "file must be provided" in response.json()["detail"].lower()
+
+    def test_create_file_resource_with_link_fails(
+        self, organization_owner_client: Client, organization: models.Organization
+    ) -> None:
+        """Test that creating a FILE resource with link/text fields fails validation."""
+        url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
+
+        test_file = SimpleUploadedFile("test.txt", b"content", content_type="text/plain")
+
+        payload = {
+            "name": "Invalid File Resource",
+            "resource_type": "file",
+            "link": "https://example.com",  # Should not be provided for FILE type
+            "visibility": "public",
+            "file": test_file,
+        }
+
+        response = organization_owner_client.post(url, data=payload, format="multipart")
+
+        assert response.status_code == 422  # Validation error
+        assert "link" in str(response.json()).lower()
+
+    def test_create_link_resource_without_link_fails(
+        self, organization_owner_client: Client, organization: models.Organization
+    ) -> None:
+        """Test that creating a LINK resource without a link fails."""
+        url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
+
+        payload = {
+            "name": "Invalid Link Resource",
+            "resource_type": "link",
+            "visibility": "public",
+        }
+
+        response = organization_owner_client.post(url, data=payload, format="multipart")
+
+        assert response.status_code == 422  # Validation error
+
+    def test_create_text_resource_with_link_fails(
+        self, organization_owner_client: Client, organization: models.Organization
+    ) -> None:
+        """Test that creating a TEXT resource with a link (instead of text) fails."""
+        url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
+
+        payload = {
+            "name": "Invalid Text Resource",
+            "resource_type": "text",
+            "link": "https://example.com",  # Wrong field for TEXT type
+            "visibility": "public",
+        }
+
+        response = organization_owner_client.post(url, data=payload, format="multipart")
+
+        assert response.status_code == 422  # Validation error
+        assert "does not match" in str(response.json()).lower()

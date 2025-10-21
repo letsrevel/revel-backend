@@ -70,9 +70,18 @@ def safe_save_uploaded_file(
     file: File,  # type: ignore[type-arg]
     uploader: AbstractUser,
 ) -> T:
-    """Safely save an uploaded file passing it to malware scan."""
+    """Safely save an uploaded file passing it to malware scan.
+
+    Deletes the old file if one exists before saving the new file.
+    """
     app = instance._meta.app_label
     model = t.cast(str, instance._meta.model_name)
+
+    # Delete old file if it exists
+    old_file = getattr(instance, field)
+    if old_file:
+        old_file.delete(save=False)
+
     setattr(instance, field, file)
     instance.save()
     file_field = getattr(instance, field)

@@ -88,8 +88,10 @@ class OrganizationController(UserAwareController):
         be public or restricted to members only. Supports filtering by type and text search.
         """
         organization = self.get_one(slug)
-        qs = models.AdditionalResource.objects.for_user(self.maybe_user()).filter(
-            organization=organization, display_on_organization_page=True
+        qs = (
+            models.AdditionalResource.objects.for_user(self.maybe_user())
+            .filter(organization=organization, display_on_organization_page=True)
+            .with_related()
         )
         return params.filter(qs)
 

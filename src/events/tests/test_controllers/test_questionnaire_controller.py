@@ -1,5 +1,6 @@
 """test_questionnaire_controller.py: Unit tests for the QuestionnaireController."""
 
+from datetime import timedelta
 from decimal import Decimal
 
 import orjson
@@ -8,7 +9,7 @@ from django.test import Client
 from django.urls import reverse
 
 from accounts.models import RevelUser
-from events.models import Organization, OrganizationQuestionnaire
+from events.models import Event, EventSeries, Organization, OrganizationQuestionnaire
 from questionnaires.models import (
     FreeTextAnswer,
     FreeTextQuestion,
@@ -847,5 +848,681 @@ def test_update_ft_question_not_found(organization: Organization, organization_o
         "api:update_ft_question", kwargs={"org_questionnaire_id": org_questionnaire.id, "question_id": uuid4()}
     )
     response = organization_owner_client.put(url, data=payload.model_dump_json(), content_type="application/json")
+
+    assert response.status_code == 404
+
+
+# ===== CRUD: UPDATE & DELETE TESTS =====
+
+
+def test_update_org_questionnaire_success(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that an organization questionnaire can be updated."""
+    from datetime import time
+
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        max_submission_age=time(hour=0, minute=30),
+        questionnaire_type=OrganizationQuestionnaire.Types.ADMISSION,
+    )
+
+    payload = {"max_submission_age": "01:00:00", "questionnaire_type": OrganizationQuestionnaire.Types.FEEDBACK}
+
+    url = reverse("api:update_org_questionnaire", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["questionnaire_type"] == OrganizationQuestionnaire.Types.FEEDBACK
+
+    # Verify questionnaire was updated
+    org_questionnaire.refresh_from_db()
+    assert org_questionnaire.max_submission_age == time(hour=1, minute=0)
+    assert org_questionnaire.questionnaire_type == OrganizationQuestionnaire.Types.FEEDBACK
+
+
+def test_update_org_questionnaire_underlying_questionnaire(
+    organization: Organization, organization_owner_client: Client
+) -> None:
+    """Test that the underlying questionnaire fields can be updated."""
+    questionnaire = Questionnaire.objects.create(
+        name="Original Name",
+        min_score=Decimal("50.0"),
+        shuffle_questions=False,
+        shuffle_sections=False,
+        evaluation_mode=Questionnaire.EvaluationMode.MANUAL,
+    )
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    payload = {
+        "name": "Updated Name",
+        "min_score": "75.0",
+        "shuffle_questions": True,
+        "shuffle_sections": True,
+        "evaluation_mode": Questionnaire.EvaluationMode.AUTOMATIC,
+        "llm_guidelines": "Be strict in evaluation",
+        "can_retake_after": 3600,  # 1 hour in seconds
+        "max_attempts": 3,
+    }
+
+    url = reverse("api:update_org_questionnaire", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["questionnaire"]["name"] == "Updated Name"
+    assert data["questionnaire"]["min_score"] == "75.00"
+    assert data["questionnaire"]["shuffle_questions"] is True
+    assert data["questionnaire"]["shuffle_sections"] is True
+    assert data["questionnaire"]["evaluation_mode"] == Questionnaire.EvaluationMode.AUTOMATIC
+
+    # Verify underlying questionnaire was updated
+    questionnaire.refresh_from_db()
+    assert questionnaire.name == "Updated Name"
+    assert questionnaire.min_score == Decimal("75.00")
+    assert questionnaire.shuffle_questions is True
+    assert questionnaire.shuffle_sections is True
+    assert questionnaire.evaluation_mode == Questionnaire.EvaluationMode.AUTOMATIC
+    assert questionnaire.llm_guidelines == "Be strict in evaluation"
+    assert questionnaire.can_retake_after is not None
+    assert questionnaire.can_retake_after.total_seconds() == 3600
+    assert questionnaire.max_attempts == 3
+
+
+def test_update_org_questionnaire_partial(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that an organization questionnaire can be partially updated."""
+    from datetime import time
+
+    questionnaire = Questionnaire.objects.create(
+        name="Test Questionnaire", min_score=Decimal("50.0"), evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+    )
+    org_questionnaire = OrganizationQuestionnaire.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        max_submission_age=time(hour=0, minute=30),
+        questionnaire_type=OrganizationQuestionnaire.Types.ADMISSION,
+    )
+
+    # Only update one field
+    payload = {"llm_guidelines": "New guidelines"}
+
+    url = reverse("api:update_org_questionnaire", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["questionnaire_type"] == OrganizationQuestionnaire.Types.ADMISSION  # Unchanged
+    assert data["questionnaire"]["name"] == "Test Questionnaire"  # Unchanged
+
+    # Verify only llm_guidelines was updated
+    questionnaire.refresh_from_db()
+    assert questionnaire.llm_guidelines == "New guidelines"
+    assert questionnaire.name == "Test Questionnaire"
+
+
+def test_update_org_questionnaire_permission_denied(organization: Organization, nonmember_client: Client) -> None:
+    """Test that non-members cannot update organization questionnaires."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    payload = {"max_submission_age": 60}
+
+    url = reverse("api:update_org_questionnaire", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = nonmember_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 404
+
+
+def test_delete_org_questionnaire_success(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that an organization questionnaire can be deleted."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse("api:delete_org_questionnaire", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+    assert not OrganizationQuestionnaire.objects.filter(id=org_questionnaire.id).exists()
+
+
+def test_delete_org_questionnaire_not_found(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that deleting a non-existent questionnaire returns 404."""
+    from uuid import uuid4
+
+    url = reverse("api:delete_org_questionnaire", kwargs={"org_questionnaire_id": uuid4()})
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 404
+
+
+def test_delete_org_questionnaire_permission_denied(organization: Organization, nonmember_client: Client) -> None:
+    """Test that non-members cannot delete organization questionnaires."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse("api:delete_org_questionnaire", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = nonmember_client.delete(url)
+
+    assert response.status_code == 404
+
+
+def test_delete_section_success(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that a section can be deleted."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+    section = QuestionnaireSection.objects.create(questionnaire=questionnaire, name="Test Section", order=1)
+
+    url = reverse("api:delete_section", kwargs={"org_questionnaire_id": org_questionnaire.id, "section_id": section.id})
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+    assert not QuestionnaireSection.objects.filter(id=section.id).exists()
+
+
+def test_delete_section_not_found(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that deleting a non-existent section returns 404."""
+    from uuid import uuid4
+
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse("api:delete_section", kwargs={"org_questionnaire_id": org_questionnaire.id, "section_id": uuid4()})
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 404
+
+
+def test_delete_section_permission_denied(organization: Organization, nonmember_client: Client) -> None:
+    """Test that non-members cannot delete sections."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+    section = QuestionnaireSection.objects.create(questionnaire=questionnaire, name="Test Section", order=1)
+
+    url = reverse("api:delete_section", kwargs={"org_questionnaire_id": org_questionnaire.id, "section_id": section.id})
+    response = nonmember_client.delete(url)
+
+    assert response.status_code == 404
+
+
+def test_delete_mc_question_success(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that a multiple choice question can be deleted."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+    question = MultipleChoiceQuestion.objects.create(questionnaire=questionnaire, question="Test Question", order=1)
+
+    url = reverse(
+        "api:delete_mc_question", kwargs={"org_questionnaire_id": org_questionnaire.id, "question_id": question.id}
+    )
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+    assert not MultipleChoiceQuestion.objects.filter(id=question.id).exists()
+
+
+def test_delete_mc_question_not_found(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that deleting a non-existent MC question returns 404."""
+    from uuid import uuid4
+
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse(
+        "api:delete_mc_question", kwargs={"org_questionnaire_id": org_questionnaire.id, "question_id": uuid4()}
+    )
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 404
+
+
+def test_delete_mc_question_permission_denied(organization: Organization, nonmember_client: Client) -> None:
+    """Test that non-members cannot delete MC questions."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+    question = MultipleChoiceQuestion.objects.create(questionnaire=questionnaire, question="Test Question", order=1)
+
+    url = reverse(
+        "api:delete_mc_question", kwargs={"org_questionnaire_id": org_questionnaire.id, "question_id": question.id}
+    )
+    response = nonmember_client.delete(url)
+
+    assert response.status_code == 404
+
+
+def test_delete_mc_option_success(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that a multiple choice option can be deleted."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+    question = MultipleChoiceQuestion.objects.create(questionnaire=questionnaire, question="Test Question", order=1)
+    option = MultipleChoiceOption.objects.create(question=question, option="Test Option", is_correct=True, order=1)
+
+    url = reverse("api:delete_mc_option", kwargs={"org_questionnaire_id": org_questionnaire.id, "option_id": option.id})
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+    assert not MultipleChoiceOption.objects.filter(id=option.id).exists()
+
+
+def test_delete_mc_option_not_found(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that deleting a non-existent MC option returns 404."""
+    from uuid import uuid4
+
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse("api:delete_mc_option", kwargs={"org_questionnaire_id": org_questionnaire.id, "option_id": uuid4()})
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 404
+
+
+def test_delete_mc_option_permission_denied(organization: Organization, nonmember_client: Client) -> None:
+    """Test that non-members cannot delete MC options."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+    question = MultipleChoiceQuestion.objects.create(questionnaire=questionnaire, question="Test Question", order=1)
+    option = MultipleChoiceOption.objects.create(question=question, option="Test Option", is_correct=True, order=1)
+
+    url = reverse("api:delete_mc_option", kwargs={"org_questionnaire_id": org_questionnaire.id, "option_id": option.id})
+    response = nonmember_client.delete(url)
+
+    assert response.status_code == 404
+
+
+def test_delete_ft_question_success(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that a free text question can be deleted."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+    question = FreeTextQuestion.objects.create(
+        questionnaire=questionnaire, question="Test Question", order=1, positive_weight=Decimal("1.0")
+    )
+
+    url = reverse(
+        "api:delete_ft_question", kwargs={"org_questionnaire_id": org_questionnaire.id, "question_id": question.id}
+    )
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+    assert not FreeTextQuestion.objects.filter(id=question.id).exists()
+
+
+def test_delete_ft_question_not_found(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that deleting a non-existent FT question returns 404."""
+    from uuid import uuid4
+
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse(
+        "api:delete_ft_question", kwargs={"org_questionnaire_id": org_questionnaire.id, "question_id": uuid4()}
+    )
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 404
+
+
+def test_delete_ft_question_permission_denied(organization: Organization, nonmember_client: Client) -> None:
+    """Test that non-members cannot delete FT questions."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+    question = FreeTextQuestion.objects.create(
+        questionnaire=questionnaire, question="Test Question", order=1, positive_weight=Decimal("1.0")
+    )
+
+    url = reverse(
+        "api:delete_ft_question", kwargs={"org_questionnaire_id": org_questionnaire.id, "question_id": question.id}
+    )
+    response = nonmember_client.delete(url)
+
+    assert response.status_code == 404
+
+
+# ===== EVENT ASSIGNMENT TESTS =====
+
+
+def test_replace_events_success(
+    organization: Organization, organization_owner_client: Client, event: Event, public_event: Event
+) -> None:
+    """Test that events can be batch replaced for a questionnaire."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    # Initially assign one event
+    org_questionnaire.events.add(event)
+
+    # Replace with two events
+    payload = {"event_ids": [str(event.id), str(public_event.id)]}
+
+    url = reverse("api:replace_questionnaire_events", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+
+    # Verify events were replaced
+    org_questionnaire.refresh_from_db()
+    event_ids = list(org_questionnaire.events.values_list("id", flat=True))
+    assert len(event_ids) == 2
+    assert event.id in event_ids
+    assert public_event.id in event_ids
+
+
+def test_replace_events_invalid_event(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that replacing events with invalid event ID returns 400."""
+    from uuid import uuid4
+
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    payload = {"event_ids": [str(uuid4())]}
+
+    url = reverse("api:replace_questionnaire_events", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+
+
+def test_replace_events_wrong_organization(
+    organization: Organization, organization_owner_client: Client, organization_owner_user: RevelUser
+) -> None:
+    """Test that events from another organization cannot be assigned."""
+    from django.utils import timezone
+
+    # Create another organization with an event
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+    other_event = Event.objects.create(
+        organization=other_org,
+        name="Other Event",
+        slug="other-event",
+        event_type=Event.Types.PUBLIC,
+        status="open",
+        start=timezone.now(),
+        end=timezone.now() + timedelta(hours=2),
+    )
+
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    payload = {"event_ids": [str(other_event.id)]}
+
+    url = reverse("api:replace_questionnaire_events", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+
+
+def test_replace_events_permission_denied(organization: Organization, nonmember_client: Client) -> None:
+    """Test that non-members cannot replace events."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    payload: dict[str, list[str]] = {"event_ids": []}
+
+    url = reverse("api:replace_questionnaire_events", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = nonmember_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 404
+
+
+def test_assign_event_success(organization: Organization, organization_owner_client: Client, event: Event) -> None:
+    """Test that a single event can be assigned to a questionnaire."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse(
+        "api:assign_questionnaire_event", kwargs={"org_questionnaire_id": org_questionnaire.id, "event_id": event.id}
+    )
+    response = organization_owner_client.post(url)
+
+    assert response.status_code == 200
+
+    # Verify event was assigned
+    org_questionnaire.refresh_from_db()
+    assert event in org_questionnaire.events.all()
+
+
+def test_assign_event_wrong_organization(
+    organization: Organization, organization_owner_client: Client, organization_owner_user: RevelUser
+) -> None:
+    """Test that event from another organization cannot be assigned."""
+    from django.utils import timezone
+
+    # Create another organization with an event
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+    other_event = Event.objects.create(
+        organization=other_org,
+        name="Other Event",
+        slug="other-event",
+        event_type=Event.Types.PUBLIC,
+        status="open",
+        start=timezone.now(),
+        end=timezone.now() + timedelta(hours=2),
+    )
+
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse(
+        "api:assign_questionnaire_event",
+        kwargs={"org_questionnaire_id": org_questionnaire.id, "event_id": other_event.id},
+    )
+    response = organization_owner_client.post(url)
+
+    assert response.status_code == 404
+
+
+def test_assign_event_permission_denied(organization: Organization, nonmember_client: Client, event: Event) -> None:
+    """Test that non-members cannot assign events."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse(
+        "api:assign_questionnaire_event", kwargs={"org_questionnaire_id": org_questionnaire.id, "event_id": event.id}
+    )
+    response = nonmember_client.post(url)
+
+    assert response.status_code == 404
+
+
+def test_unassign_event_success(organization: Organization, organization_owner_client: Client, event: Event) -> None:
+    """Test that a single event can be unassigned from a questionnaire."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+    org_questionnaire.events.add(event)
+
+    url = reverse(
+        "api:unassign_questionnaire_event", kwargs={"org_questionnaire_id": org_questionnaire.id, "event_id": event.id}
+    )
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+
+    # Verify event was unassigned
+    org_questionnaire.refresh_from_db()
+    assert event not in org_questionnaire.events.all()
+
+
+def test_unassign_event_permission_denied(organization: Organization, nonmember_client: Client, event: Event) -> None:
+    """Test that non-members cannot unassign events."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+    org_questionnaire.events.add(event)
+
+    url = reverse(
+        "api:unassign_questionnaire_event", kwargs={"org_questionnaire_id": org_questionnaire.id, "event_id": event.id}
+    )
+    response = nonmember_client.delete(url)
+
+    assert response.status_code == 404
+
+
+# ===== EVENT SERIES ASSIGNMENT TESTS =====
+
+
+def test_replace_event_series_success(
+    organization: Organization, organization_owner_client: Client, event_series: EventSeries
+) -> None:
+    """Test that event series can be batch replaced for a questionnaire."""
+    # Create another event series
+    other_series = EventSeries.objects.create(organization=organization, name="Other Series", slug="other-series")
+
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    # Initially assign one series
+    org_questionnaire.event_series.add(event_series)
+
+    # Replace with two series
+    payload = {"event_series_ids": [str(event_series.id), str(other_series.id)]}
+
+    url = reverse("api:replace_questionnaire_event_series", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+
+    # Verify series were replaced
+    org_questionnaire.refresh_from_db()
+    series_ids = list(org_questionnaire.event_series.values_list("id", flat=True))
+    assert len(series_ids) == 2
+    assert event_series.id in series_ids
+    assert other_series.id in series_ids
+
+
+def test_replace_event_series_invalid_series(organization: Organization, organization_owner_client: Client) -> None:
+    """Test that replacing event series with invalid ID returns 400."""
+    from uuid import uuid4
+
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    payload = {"event_series_ids": [str(uuid4())]}
+
+    url = reverse("api:replace_questionnaire_event_series", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+
+
+def test_replace_event_series_wrong_organization(
+    organization: Organization, organization_owner_client: Client, organization_owner_user: RevelUser
+) -> None:
+    """Test that event series from another organization cannot be assigned."""
+    # Create another organization with a series
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+    other_series = EventSeries.objects.create(organization=other_org, name="Other Series", slug="other-series")
+
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    payload = {"event_series_ids": [str(other_series.id)]}
+
+    url = reverse("api:replace_questionnaire_event_series", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+
+
+def test_replace_event_series_permission_denied(organization: Organization, nonmember_client: Client) -> None:
+    """Test that non-members cannot replace event series."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    payload: dict[str, list[str]] = {"event_series_ids": []}
+
+    url = reverse("api:replace_questionnaire_event_series", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = nonmember_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 404
+
+
+def test_assign_event_series_success(
+    organization: Organization, organization_owner_client: Client, event_series: EventSeries
+) -> None:
+    """Test that a single event series can be assigned to a questionnaire."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse(
+        "api:assign_questionnaire_event_series",
+        kwargs={"org_questionnaire_id": org_questionnaire.id, "series_id": event_series.id},
+    )
+    response = organization_owner_client.post(url)
+
+    assert response.status_code == 200
+
+    # Verify series was assigned
+    org_questionnaire.refresh_from_db()
+    assert event_series in org_questionnaire.event_series.all()
+
+
+def test_assign_event_series_wrong_organization(
+    organization: Organization, organization_owner_client: Client, organization_owner_user: RevelUser
+) -> None:
+    """Test that event series from another organization cannot be assigned."""
+    # Create another organization with a series
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+    other_series = EventSeries.objects.create(organization=other_org, name="Other Series", slug="other-series")
+
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse(
+        "api:assign_questionnaire_event_series",
+        kwargs={"org_questionnaire_id": org_questionnaire.id, "series_id": other_series.id},
+    )
+    response = organization_owner_client.post(url)
+
+    assert response.status_code == 404
+
+
+def test_assign_event_series_permission_denied(
+    organization: Organization, nonmember_client: Client, event_series: EventSeries
+) -> None:
+    """Test that non-members cannot assign event series."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse(
+        "api:assign_questionnaire_event_series",
+        kwargs={"org_questionnaire_id": org_questionnaire.id, "series_id": event_series.id},
+    )
+    response = nonmember_client.post(url)
+
+    assert response.status_code == 404
+
+
+def test_unassign_event_series_success(
+    organization: Organization, organization_owner_client: Client, event_series: EventSeries
+) -> None:
+    """Test that a single event series can be unassigned from a questionnaire."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+    org_questionnaire.event_series.add(event_series)
+
+    url = reverse(
+        "api:unassign_questionnaire_event_series",
+        kwargs={"org_questionnaire_id": org_questionnaire.id, "series_id": event_series.id},
+    )
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+
+    # Verify series was unassigned
+    org_questionnaire.refresh_from_db()
+    assert event_series not in org_questionnaire.event_series.all()
+
+
+def test_unassign_event_series_permission_denied(
+    organization: Organization, nonmember_client: Client, event_series: EventSeries
+) -> None:
+    """Test that non-members cannot unassign event series."""
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+    org_questionnaire.event_series.add(event_series)
+
+    url = reverse(
+        "api:unassign_questionnaire_event_series",
+        kwargs={"org_questionnaire_id": org_questionnaire.id, "series_id": event_series.id},
+    )
+    response = nonmember_client.delete(url)
 
     assert response.status_code == 404

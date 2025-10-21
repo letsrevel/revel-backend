@@ -63,6 +63,169 @@ def test_upload_organization_cover_art_by_owner(
     assert_image_equal(organization.cover_art.read(), png_bytes)
 
 
+def test_delete_organization_logo_by_owner(
+    organization_owner_client: Client, organization: Organization, png_file: SimpleUploadedFile
+) -> None:
+    """Test that an organization owner can successfully delete their logo."""
+    # First upload a logo
+    upload_url = reverse("api:org_upload_logo", kwargs={"slug": organization.slug})
+    organization_owner_client.post(upload_url, data={"logo": png_file}, format="multipart")
+    organization.refresh_from_db()
+    assert organization.logo
+
+    # Now delete it
+    delete_url = reverse("api:org_delete_logo", kwargs={"slug": organization.slug})
+    response = organization_owner_client.delete(delete_url)
+
+    assert response.status_code == 204
+    organization.refresh_from_db()
+    assert not organization.logo
+
+
+def test_delete_organization_cover_art_by_owner(
+    organization_owner_client: Client, organization: Organization, png_file: SimpleUploadedFile
+) -> None:
+    """Test that an organization owner can successfully delete their cover art."""
+    # First upload cover art
+    upload_url = reverse("api:org_upload_cover_art", kwargs={"slug": organization.slug})
+    organization_owner_client.post(upload_url, data={"cover_art": png_file}, format="multipart")
+    organization.refresh_from_db()
+    assert organization.cover_art
+
+    # Now delete it
+    delete_url = reverse("api:org_delete_cover_art", kwargs={"slug": organization.slug})
+    response = organization_owner_client.delete(delete_url)
+
+    assert response.status_code == 204
+    organization.refresh_from_db()
+    assert not organization.cover_art
+
+
+def test_delete_organization_logo_when_none_exists(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """Test that deleting a logo when none exists is idempotent (returns 204)."""
+    assert not organization.logo
+
+    url = reverse("api:org_delete_logo", kwargs={"slug": organization.slug})
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+
+
+def test_delete_organization_logo_by_staff_with_permission(
+    organization_staff_client: Client,
+    organization: Organization,
+    staff_member: OrganizationStaff,
+    png_file: SimpleUploadedFile,
+) -> None:
+    """Test that staff with edit_organization permission can delete logo."""
+    # Grant permission
+    perms = staff_member.permissions
+    perms["default"]["edit_organization"] = True
+    staff_member.permissions = perms
+    staff_member.save()
+
+    # Upload a logo first
+    upload_url = reverse("api:org_upload_logo", kwargs={"slug": organization.slug})
+    organization_staff_client.post(upload_url, data={"logo": png_file}, format="multipart")
+    organization.refresh_from_db()
+    assert organization.logo
+
+    # Delete it
+    delete_url = reverse("api:org_delete_logo", kwargs={"slug": organization.slug})
+    response = organization_staff_client.delete(delete_url)
+
+    assert response.status_code == 204
+    organization.refresh_from_db()
+    assert not organization.logo
+
+
+def test_delete_organization_logo_by_staff_without_permission(
+    organization_staff_client: Client,
+    organization_owner_client: Client,
+    organization: Organization,
+    staff_member: OrganizationStaff,
+    png_file: SimpleUploadedFile,
+) -> None:
+    """Test that staff without edit_organization permission cannot delete logo."""
+    # Ensure permission is False
+    perms = staff_member.permissions
+    perms["default"]["edit_organization"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+
+    # Upload a logo as owner first
+    upload_url = reverse("api:org_upload_logo", kwargs={"slug": organization.slug})
+    organization_owner_client.post(upload_url, data={"logo": png_file}, format="multipart")
+    organization.refresh_from_db()
+    assert organization.logo
+
+    # Try to delete as staff without permission
+    delete_url = reverse("api:org_delete_logo", kwargs={"slug": organization.slug})
+    response = organization_staff_client.delete(delete_url)
+
+    assert response.status_code == 403
+    organization.refresh_from_db()
+    assert organization.logo
+
+
+@pytest.mark.parametrize(
+    "client_fixture,expected_status_code",
+    [("member_client", 403), ("nonmember_client", 403), ("client", 401)],
+)
+def test_delete_organization_logo_by_unauthorized_users(
+    request: pytest.FixtureRequest, client_fixture: str, expected_status_code: int, organization: Organization
+) -> None:
+    """Test that users without owner/staff roles get appropriate error when trying to delete logo."""
+    organization.visibility = "public"
+    organization.save()
+    client: Client = request.getfixturevalue(client_fixture)
+    url = reverse("api:org_delete_logo", kwargs={"slug": organization.slug})
+
+    response = client.delete(url)
+    assert response.status_code == expected_status_code
+
+
+def test_upload_organization_logo_replaces_old_file(
+    organization_owner_client: Client, organization: Organization, png_file: SimpleUploadedFile
+) -> None:
+    """Test that uploading a new logo deletes the old one."""
+    url = reverse("api:org_upload_logo", kwargs={"slug": organization.slug})
+
+    # Upload first logo
+    response1 = organization_owner_client.post(url, data={"logo": png_file}, format="multipart")
+    assert response1.status_code == 200
+    organization.refresh_from_db()
+    old_logo_name = organization.logo.name
+
+    # Upload second logo
+    from io import BytesIO
+
+    from PIL import Image
+
+    # Create a different image (blue square)
+    img = Image.new("RGB", (150, 150), color="blue")
+    img_bytes = BytesIO()
+    img.save(img_bytes, format="PNG")
+    img_bytes.seek(0)
+    new_png_file = SimpleUploadedFile("new_logo.png", img_bytes.read(), content_type="image/png")
+
+    response2 = organization_owner_client.post(url, data={"logo": new_png_file}, format="multipart")
+    assert response2.status_code == 200
+    organization.refresh_from_db()
+    new_logo_name = organization.logo.name
+
+    # Verify that the logo name changed (different file)
+    assert old_logo_name != new_logo_name
+
+    # Verify the new file is saved correctly
+    assert organization.logo
+    organization.logo.seek(0)
+    saved_image = Image.open(organization.logo)
+    assert saved_image.size == (150, 150)
+
+
 def test_update_organization_by_staff_with_permission(
     organization_staff_client: Client, organization: Organization, staff_member: OrganizationStaff
 ) -> None:

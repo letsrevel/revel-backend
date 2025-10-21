@@ -121,7 +121,7 @@ class DashboardController(UserAwareController):
     @route.get(
         "/event_series",
         url_name="dashboard_event_series",
-        response=PaginatedResponseSchema[schema.OrganizationRetrieveSchema],
+        response=PaginatedResponseSchema[schema.EventSeriesRetrieveSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["name", "description"])
@@ -134,8 +134,19 @@ class DashboardController(UserAwareController):
         Filter by: series you're organizing or series you're attending events in. Shows only
         series you have permission to view. Use this to display "My Series" sections in the UI.
         """
-        qs = self.get_event_series_queryset()
-        return qs.filter(params.to_query(self.user().id))
+        user = self.user()
+
+        # 1. Get IDs of all event series the user is AUTHORIZED to see.
+        authorized_series_ids = self.get_event_series_queryset().values("id")
+
+        # 2. Get IDs of all event series that match the dashboard's relationship filters.
+        relationship_series_ids = params.get_event_series_queryset(user.id).values("id")
+
+        # 3. Find the INTERSECTION of the two sets of IDs.
+        final_series_ids = authorized_series_ids.intersection(relationship_series_ids)
+
+        # 4. Fetch the final, full EventSeries objects based on the correct IDs.
+        return models.EventSeries.objects.filter(id__in=final_series_ids)
 
     @route.get(
         "/invitations",

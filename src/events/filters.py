@@ -1,7 +1,6 @@
 # src/events/filters.py
 
 from functools import reduce
-from operator import or_
 from uuid import UUID
 
 from django.db import models
@@ -9,7 +8,7 @@ from django.db.models import Q
 from django.utils import timezone
 from ninja import Field, FilterSchema, Schema
 
-from events.models import AdditionalResource, Event, Organization
+from events.models import AdditionalResource, Event, EventSeries, Organization
 
 
 class CityFilterMixin(FilterSchema):
@@ -215,13 +214,36 @@ class DashboardEventSeriesFiltersSchema(Schema):
     member: bool = True
     subscriber: bool = True
 
-    def to_query(self, user_id: UUID) -> Q:
-        """Transform the schema into a Q object."""
-        filters = {
-            "owner": Q(organization__owner_id=user_id),
-            "staff": Q(organization__staff_members__id=user_id),
-            "member": Q(organization__members__id=user_id),
-            "subscriber": Q(subscriptions__user_id=user_id),
-        }
-        active_filters = [q_obj for field, q_obj in filters.items() if getattr(self, field)]
-        return reduce(or_, active_filters) if active_filters else Q(pk__in=[])
+    def get_event_series_queryset(self, user_id: UUID) -> models.QuerySet["EventSeries"]:
+        """High-performance query builder for event series dashboard using UNION strategy.
+
+        This gathers IDs from different sources using UNION to avoid expensive JOINs,
+        consistent with the pattern used for organizations and events.
+        """
+        from events.models import EventSeries
+
+        series_id_querysets = []
+
+        if self.owner:
+            owner_series = EventSeries.objects.filter(organization__owner_id=user_id).values("id")
+            series_id_querysets.append(owner_series)
+        if self.staff:
+            staff_series = EventSeries.objects.filter(organization__staff_members__id=user_id).values("id")
+            series_id_querysets.append(staff_series)
+        if self.member:
+            member_series = EventSeries.objects.filter(organization__members__id=user_id).values("id")
+            series_id_querysets.append(member_series)
+        if self.subscriber:
+            sub_series = EventSeries.objects.filter(
+                user_preferences__user_id=user_id, user_preferences__is_subscribed=True
+            ).values("id")
+            series_id_querysets.append(sub_series)
+
+        if not series_id_querysets:
+            return EventSeries.objects.none()
+
+        # Combine all querysets using UNION. This is highly efficient and removes duplicates.
+        combined_ids_qs = reduce(lambda a, b: a.union(b), series_id_querysets)
+
+        # Return the final, filtered queryset of full EventSeries objects.
+        return EventSeries.objects.filter(id__in=combined_ids_qs)

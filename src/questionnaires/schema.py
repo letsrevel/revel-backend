@@ -1,11 +1,11 @@
 import typing as t
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import Field, model_validator
+from pydantic import Field, field_serializer, model_validator
 from pydantic_core import PydanticCustomError
 
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
@@ -224,7 +224,16 @@ class QuestionnaireInListSchema(QuestionnaireBaseSchema):
 class QuestionnaireAdminSchema(QuestionnaireInListSchema):
     id: UUID
     llm_guidelines: str | None = None
-    can_retake_after: int | None
+    can_retake_after: timedelta | int | None
+
+    @field_serializer("can_retake_after")
+    def serialize_can_retake_after(self, value: timedelta | int | None) -> int | None:
+        """Convert timedelta to seconds for serialization."""
+        if value is None:
+            return None
+        if isinstance(value, timedelta):
+            return int(value.total_seconds())
+        return value
 
 
 class FreeTextQuestionCreateSchema(Schema):
@@ -305,7 +314,16 @@ class QuestionnaireCreateSchema(QuestionnaireBaseSchema):
     multiplechoicequestion_questions: list[MultipleChoiceQuestionCreateSchema] = Field(default_factory=list)
     freetextquestion_questions: list[FreeTextQuestionCreateSchema] = Field(default_factory=list)
     llm_guidelines: str | None = None
-    can_retake_after: int | None = None
+    can_retake_after: timedelta | int | None = None
+
+    @field_serializer("can_retake_after")
+    def serialize_can_retake_after(self, value: timedelta | int | None) -> int | None:
+        """Convert timedelta to seconds for serialization."""
+        if value is None:
+            return None
+        if isinstance(value, timedelta):
+            return int(value.total_seconds())
+        return value
 
     @model_validator(mode="after")
     def check_llm_guidelines_for_auto_evaluation(self) -> "QuestionnaireCreateSchema":

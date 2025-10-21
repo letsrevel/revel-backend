@@ -85,5 +85,5 @@ class EventSeriesController(UserAwareController):
         by type and text search.
         """
         series = self.get_object_or_exception(self.get_queryset(), pk=series_id)
-        qs = models.AdditionalResource.objects.for_user(self.maybe_user()).filter(event_series=series)
+        qs = models.AdditionalResource.objects.for_user(self.maybe_user()).filter(event_series=series).with_related()
         return params.filter(qs)

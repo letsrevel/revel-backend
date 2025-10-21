@@ -19,7 +19,12 @@ def create_resource(
     """Creates an AdditionalResource and links it to events and event series.
 
     Ensures all linked items belong to the same organization.
+    Validates that a file is provided when resource_type is FILE.
     """
+    # Validate that file is provided for FILE type resources
+    if payload.resource_type == models.AdditionalResource.ResourceTypes.FILE and not file:
+        raise HttpError(400, "A file must be provided when resource_type is 'file'.")
+
     m2m_data = _validate_and_prepare_m2m(organization, payload)
     create_data = payload.model_dump(exclude={"event_series_ids", "event_ids"})
 

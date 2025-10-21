@@ -199,6 +199,32 @@ class EventAdminController(UserAwareController):
         event = safe_save_uploaded_file(instance=event, field="cover_art", file=cover_art, uploader=self.user())
         return event
 
+    @route.delete(
+        "/delete-logo",
+        url_name="event_delete_logo",
+        response={204: None},
+        permissions=[EventPermission("edit_event")],
+    )
+    def delete_logo(self, event_id: UUID) -> tuple[int, None]:
+        """Delete logo from event."""
+        event = self.get_one(event_id)
+        if event.logo:
+            event.logo.delete(save=True)
+        return 204, None
+
+    @route.delete(
+        "/delete-cover-art",
+        url_name="event_delete_cover_art",
+        response={204: None},
+        permissions=[EventPermission("edit_event")],
+    )
+    def delete_cover_art(self, event_id: UUID) -> tuple[int, None]:
+        """Delete cover art from event."""
+        event = self.get_one(event_id)
+        if event.cover_art:
+            event.cover_art.delete(save=True)
+        return 204, None
+
     @route.post(
         "/tags",
         url_name="add_event_tags",

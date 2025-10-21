@@ -125,3 +125,149 @@ def test_upload_event_series_cover_art_by_owner(
     event_series.refresh_from_db()
     event_series.cover_art.seek(0)
     assert_image_equal(event_series.cover_art.read(), png_bytes)
+
+
+def test_delete_event_series_logo_by_owner(
+    organization_owner_client: Client, event_series: EventSeries, png_file: SimpleUploadedFile
+) -> None:
+    """Test that an event series owner can successfully delete their logo."""
+    # First upload a logo
+    upload_url = reverse("api:event_series_upload_logo", kwargs={"series_id": event_series.pk})
+    organization_owner_client.post(upload_url, data={"logo": png_file}, format="multipart")
+    event_series.refresh_from_db()
+    assert event_series.logo
+
+    # Now delete it
+    delete_url = reverse("api:event_series_delete_logo", kwargs={"series_id": event_series.pk})
+    response = organization_owner_client.delete(delete_url)
+
+    assert response.status_code == 204
+    event_series.refresh_from_db()
+    assert not event_series.logo
+
+
+def test_delete_event_series_cover_art_by_owner(
+    organization_owner_client: Client, event_series: EventSeries, png_file: SimpleUploadedFile
+) -> None:
+    """Test that an event series owner can successfully delete their cover art."""
+    # First upload cover art
+    upload_url = reverse("api:event_series_upload_cover_art", kwargs={"series_id": event_series.pk})
+    organization_owner_client.post(upload_url, data={"cover_art": png_file}, format="multipart")
+    event_series.refresh_from_db()
+    assert event_series.cover_art
+
+    # Now delete it
+    delete_url = reverse("api:event_series_delete_cover_art", kwargs={"series_id": event_series.pk})
+    response = organization_owner_client.delete(delete_url)
+
+    assert response.status_code == 204
+    event_series.refresh_from_db()
+    assert not event_series.cover_art
+
+
+def test_delete_event_series_logo_when_none_exists(
+    organization_owner_client: Client, event_series: EventSeries
+) -> None:
+    """Test that deleting a logo when none exists is idempotent (returns 204)."""
+    assert not event_series.logo
+
+    url = reverse("api:event_series_delete_logo", kwargs={"series_id": event_series.pk})
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+
+
+def test_delete_event_series_logo_by_staff_with_permission(
+    organization_staff_client: Client,
+    event_series: EventSeries,
+    staff_member: OrganizationStaff,
+    png_file: SimpleUploadedFile,
+) -> None:
+    """Test that staff with edit_event_series permission can delete logo."""
+    # Grant permission
+    perms = staff_member.permissions
+    perms["default"]["edit_event_series"] = True
+    staff_member.permissions = perms
+    staff_member.save()
+
+    # Upload a logo first
+    upload_url = reverse("api:event_series_upload_logo", kwargs={"series_id": event_series.pk})
+    organization_staff_client.post(upload_url, data={"logo": png_file}, format="multipart")
+    event_series.refresh_from_db()
+    assert event_series.logo
+
+    # Delete it
+    delete_url = reverse("api:event_series_delete_logo", kwargs={"series_id": event_series.pk})
+    response = organization_staff_client.delete(delete_url)
+
+    assert response.status_code == 204
+    event_series.refresh_from_db()
+    assert not event_series.logo
+
+
+def test_delete_event_series_logo_by_staff_without_permission(
+    organization_staff_client: Client,
+    organization_owner_client: Client,
+    event_series: EventSeries,
+    staff_member: OrganizationStaff,
+    png_file: SimpleUploadedFile,
+) -> None:
+    """Test that staff without edit_event_series permission cannot delete logo."""
+    # Ensure permission is False
+    perms = staff_member.permissions
+    perms["default"]["edit_event_series"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+
+    # Upload a logo as owner first
+    upload_url = reverse("api:event_series_upload_logo", kwargs={"series_id": event_series.pk})
+    organization_owner_client.post(upload_url, data={"logo": png_file}, format="multipart")
+    event_series.refresh_from_db()
+    assert event_series.logo
+
+    # Try to delete as staff without permission
+    delete_url = reverse("api:event_series_delete_logo", kwargs={"series_id": event_series.pk})
+    response = organization_staff_client.delete(delete_url)
+
+    assert response.status_code == 403
+    event_series.refresh_from_db()
+    assert event_series.logo
+
+
+def test_upload_event_series_logo_replaces_old_file(
+    organization_owner_client: Client, event_series: EventSeries, png_file: SimpleUploadedFile
+) -> None:
+    """Test that uploading a new logo deletes the old one."""
+    url = reverse("api:event_series_upload_logo", kwargs={"series_id": event_series.pk})
+
+    # Upload first logo
+    response1 = organization_owner_client.post(url, data={"logo": png_file}, format="multipart")
+    assert response1.status_code == 200
+    event_series.refresh_from_db()
+    old_logo_name = event_series.logo.name
+
+    # Upload second logo
+    from io import BytesIO
+
+    from PIL import Image
+
+    # Create a different image (green square)
+    img = Image.new("RGB", (200, 200), color="green")
+    img_bytes = BytesIO()
+    img.save(img_bytes, format="PNG")
+    img_bytes.seek(0)
+    new_png_file = SimpleUploadedFile("new_logo.png", img_bytes.read(), content_type="image/png")
+
+    response2 = organization_owner_client.post(url, data={"logo": new_png_file}, format="multipart")
+    assert response2.status_code == 200
+    event_series.refresh_from_db()
+    new_logo_name = event_series.logo.name
+
+    # Verify that the logo name changed (different file)
+    assert old_logo_name != new_logo_name
+
+    # Verify the new file is saved correctly
+    assert event_series.logo
+    event_series.logo.seek(0)
+    saved_image = Image.open(event_series.logo)
+    assert saved_image.size == (200, 200)

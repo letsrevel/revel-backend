@@ -16,6 +16,7 @@ Including another URLconf
 """
 
 from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
 from django.http import HttpRequest, HttpResponseRedirect
 from django.shortcuts import redirect, reverse  # type: ignore[attr-defined]
@@ -43,6 +44,8 @@ if settings.ADMIN_URL:  # pragma: no cover
 
 if settings.DEBUG:
     urlpatterns.insert(1, path("", redirect_to_docs, name="redirect_to_docs"))  # type: ignore[arg-type]
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)  # type: ignore[arg-type]
+
 
 if settings.SILK_PROFILER:
     urlpatterns += [path("silk/", include("silk.urls", namespace="silk"))]
