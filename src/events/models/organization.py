@@ -147,6 +147,7 @@ class Organization(
 
 
 class PermissionMap(BaseModel):
+    view_organization_details: bool = True
     create_event: bool = False
     create_event_series: bool = False
     edit_event_series: bool = False

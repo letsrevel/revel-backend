@@ -112,6 +112,11 @@ restart:
 	fi
 
 
+.PHONY: reset-db
+reset-db:
+	.venv/bin/python src/manage.py reset_db
+
+
 .PHONY: nuke-db
 nuke-db:
 	@read -p "Are you sure you want to nuke the database? This action cannot be undone. Type 'yes' to continue: " confirm && if [ "$$confirm" = "yes" ]; then \

@@ -33,4 +33,5 @@ class Command(BaseCommand):
 
         # Invoke the generate_example_data command
         call_command("bootstrap_events")
+        call_command("bootstrap_test_events")
         call_command("generate_test_jwts")

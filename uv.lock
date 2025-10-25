@@ -594,6 +594,18 @@ wheels = [
 ]
 
 [[package]]
+name = "django-extensions"
+version = "4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6d/b3/ed0f54ed706ec0b54fd251cc0364a249c6cd6c6ec97f04dc34be5e929eac/django_extensions-4.1.tar.gz", hash = "sha256:7b70a4d28e9b840f44694e3f7feb54f55d495f8b3fa6c5c0e5e12bcb2aa3cdeb", size = 283078 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/96/d967ca440d6a8e3861120f51985d8e5aec79b9a8bdda16041206adfe7adc/django_extensions-4.1-py3-none-any.whl", hash = "sha256:0699a7af28f2523bf8db309a80278519362cd4b6e1fd0a8cd4bf063e1e023336", size = 232980 },
+]
+
+[[package]]
 name = "django-fernet-encrypted-fields"
 version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2505,6 +2517,7 @@ dependencies = [
     { name = "django-celery-results" },
     { name = "django-cors-headers" },
     { name = "django-extension" },
+    { name = "django-extensions" },
     { name = "django-fernet-encrypted-fields" },
     { name = "django-google-sso" },
     { name = "django-money" },
@@ -2553,6 +2566,7 @@ dependencies = [
 dev = [
     { name = "celery-types" },
     { name = "coverage" },
+    { name = "django-extensions" },
     { name = "django-stubs", extra = ["compatible-mypy"] },
     { name = "mkdocs" },
     { name = "mkdocs-material" },
@@ -2587,6 +2601,7 @@ requires-dist = [
     { name = "django-celery-results", specifier = ">=2.6.0" },
     { name = "django-cors-headers", specifier = ">=4.7.0" },
     { name = "django-extension", specifier = ">=0.1.0" },
+    { name = "django-extensions", specifier = ">=4.1" },
     { name = "django-fernet-encrypted-fields", specifier = ">=0.3.0" },
     { name = "django-google-sso", specifier = ">=8.0.0" },
     { name = "django-money", specifier = ">=3.5.4" },
@@ -2635,6 +2650,7 @@ requires-dist = [
 dev = [
     { name = "celery-types", specifier = ">=0.23.0" },
     { name = "coverage", specifier = ">=7.9.1" },
+    { name = "django-extensions", specifier = ">=4.1" },
     { name = "django-stubs", extras = ["compatible-mypy"], specifier = ">=5.2.1" },
     { name = "mkdocs", specifier = ">=1.6.1" },
     { name = "mkdocs-material", specifier = ">=9.6.14" },

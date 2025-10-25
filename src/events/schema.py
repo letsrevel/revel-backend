@@ -1,5 +1,5 @@
 import typing as t
-from datetime import datetime, time
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -77,6 +77,25 @@ class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin):
     visibility: Organization.Visibility
     is_stripe_connected: bool
     platform_fee_percent: Decimal | None = Field(None, ge=0, le=100)
+
+
+class OrganizationAdminDetailSchema(CityRetrieveMixin, TaggableSchemaMixin):
+    """Comprehensive organization schema for admin use with all fields including platform fees and Stripe details."""
+
+    id: UUID
+    name: str
+    slug: str
+    description: str | None = ""
+    description_html: str = ""
+    logo: str | None = None
+    cover_art: str | None = None
+    visibility: Organization.Visibility
+    platform_fee_percent: Decimal
+    platform_fee_fixed: Decimal
+    is_stripe_connected: bool
+    stripe_account_id: str | None = None
+    stripe_charges_enabled: bool
+    stripe_details_submitted: bool
 
 
 class EventSeriesRetrieveSchema(TaggableSchemaMixin):
@@ -165,7 +184,39 @@ class EventRSVPSchema(ModelSchema):
         fields = ["status"]
 
 
+# RSVP Admin Schemas
+
+
+class RSVPDetailSchema(ModelSchema):
+    """Schema for RSVP details in admin views."""
+
+    id: UUID
+    event_id: UUID
+    user: MinimalRevelUserSchema
+    status: EventRSVP.Status
+    created_at: datetime
+    updated_at: datetime
+
+    class Meta:
+        model = EventRSVP
+        fields = ["id", "status", "created_at", "updated_at"]
+
+
+class RSVPCreateSchema(Schema):
+    """Schema for creating an RSVP on behalf of a user."""
+
+    user_id: UUID
+    status: EventRSVP.Status
+
+
+class RSVPUpdateSchema(Schema):
+    """Schema for updating an RSVP."""
+
+    status: EventRSVP.Status
+
+
 class TierSchema(ModelSchema):
+    id: UUID
     event_id: UUID
     price: Decimal
     currency: str
@@ -175,6 +226,7 @@ class TierSchema(ModelSchema):
     class Meta:
         model = TicketTier
         fields = [
+            "id",
             "name",
             "description",
             "price",
@@ -192,6 +244,7 @@ class TierSchema(ModelSchema):
 class EventTicketSchema(ModelSchema):
     event_id: UUID | None
     tier: TierSchema | None = None
+    status: Ticket.Status
 
     class Meta:
         model = Ticket
@@ -326,25 +379,45 @@ class BaseOrganizationQuestionnaireSchema(Schema):
     id: UUID
     events: list[MinimalEventSchema] = Field(default_factory=list)
     event_series: list[EventSeriesRetrieveSchema] = Field(default_factory=list)
-    max_submission_age: time | int | None = None
+    max_submission_age: timedelta | int | None = None
     questionnaire_type: OrganizationQuestionnaire.Types
 
     @field_serializer("max_submission_age")
-    def serialize_max_submission_age(self, value: time | int | None) -> int | None:
-        """Convert time to seconds since midnight for serialization."""
+    def serialize_max_submission_age(self, value: timedelta | int | None) -> int | None:
+        """Convert timedelta to seconds for serialization."""
         if value is None:
             return None
-        if isinstance(value, time):
-            return value.hour * 3600 + value.minute * 60 + value.second
+        if isinstance(value, timedelta):
+            return int(value.total_seconds())
         return value
 
 
 class OrganizationQuestionnaireInListSchema(BaseOrganizationQuestionnaireSchema):
     questionnaire: questionnaires_schema.QuestionnaireInListSchema
+    pending_evaluations_count: int = 0
 
 
 class OrganizationQuestionnaireSchema(BaseOrganizationQuestionnaireSchema):
     questionnaire: questionnaires_schema.QuestionnaireCreateSchema
+
+
+class OrganizationQuestionnaireFieldsMixin(Schema):
+    """Mixin for OrganizationQuestionnaire-specific fields (max_submission_age, questionnaire_type)."""
+
+    max_submission_age: timedelta | None = None
+    questionnaire_type: OrganizationQuestionnaire.Types = OrganizationQuestionnaire.Types.ADMISSION
+
+
+class OrganizationQuestionnaireCreateSchema(
+    questionnaires_schema.QuestionnaireCreateSchema, OrganizationQuestionnaireFieldsMixin
+):
+    """Schema for creating OrganizationQuestionnaire with its underlying Questionnaire.
+
+    Combines Questionnaire creation fields (name, sections, questions, etc.) with
+    OrganizationQuestionnaire wrapper fields (max_submission_age, questionnaire_type).
+    """
+
+    pass
 
 
 class OrganizationQuestionnaireUpdateSchema(Schema):
@@ -361,11 +434,11 @@ class OrganizationQuestionnaireUpdateSchema(Schema):
     shuffle_sections: bool | None = None
     evaluation_mode: Questionnaire.EvaluationMode | None = None
     llm_guidelines: str | None = None
-    can_retake_after: int | None = None  # Duration in seconds
-    max_attempts: int | None = Field(None, ge=0)
+    can_retake_after: timedelta | None = None
+    max_attempts: int = Field(0, ge=0)
 
     # OrganizationQuestionnaire wrapper fields
-    max_submission_age: time | None = None  # Time field (accepts time strings like "HH:MM:SS")
+    max_submission_age: timedelta | None = None
     questionnaire_type: OrganizationQuestionnaire.Types | None = None
 
 
@@ -683,6 +756,61 @@ class TicketTierPriceValidationMixin(Schema):
         return self
 
 
+Currencies = t.Literal[
+    "EUR",  # Euro
+    "USD",  # US Dollar
+    "GBP",  # British Pound Sterling
+    "JPY",  # Japanese Yen
+    "AUD",  # Australian Dollar
+    "CAD",  # Canadian Dollar
+    "CHF",  # Swiss Franc
+    "CNY",  # Chinese Yuan Renminbi
+    "HKD",  # Hong Kong Dollar
+    "NZD",  # New Zealand Dollar
+    "SEK",  # Swedish Krona
+    "KRW",  # South Korean Won
+    "SGD",  # Singapore Dollar
+    "NOK",  # Norwegian Krone
+    "MXN",  # Mexican Peso
+    "INR",  # Indian Rupee
+    "RUB",  # Russian Ruble
+    "ZAR",  # South African Rand
+    "TRY",  # Turkish Lira
+    "BRL",  # Brazilian Real
+    "TWD",  # New Taiwan Dollar
+    "DKK",  # Danish Krone
+    "PLN",  # Polish Zloty
+    "THB",  # Thai Baht
+    "IDR",  # Indonesian Rupiah
+    "HUF",  # Hungarian Forint
+    "CZK",  # Czech Koruna
+    "ILS",  # Israeli Shekel
+    "AED",  # UAE Dirham
+    "SAR",  # Saudi Riyal
+    "MYR",  # Malaysian Ringgit
+    "PHP",  # Philippine Peso
+    "CLP",  # Chilean Peso
+    "COP",  # Colombian Peso
+    "PKR",  # Pakistani Rupee
+    "EGP",  # Egyptian Pound
+    "NGN",  # Nigerian Naira
+    "VND",  # Vietnamese Dong
+    "BDT",  # Bangladeshi Taka
+    "ARS",  # Argentine Peso
+    "QAR",  # Qatari Riyal
+    "KWD",  # Kuwaiti Dinar
+    "BHD",  # Bahraini Dinar
+    "OMR",  # Omani Rial
+    "MAD",  # Moroccan Dirham
+    "KES",  # Kenyan Shilling
+    "UAH",  # Ukrainian Hryvnia
+    "RON",  # Romanian Leu
+    "BGN",  # Bulgarian Lev
+    "HRK",  # Croatian Kuna (still valid for legacy data)
+    "ISK",  # Icelandic Krona
+]
+
+
 class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     name: OneToOneFiftyString
     description: StrippedString | None = None
@@ -692,7 +820,7 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     pwyc_min: Decimal = Field(default=Decimal("1"), ge=1)
     pwyc_max: Decimal | None = Field(None, ge=1)
 
-    currency: str = Field(default="USD", max_length=3)
+    currency: Currencies = Field(default="EUR", max_length=3)
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
     total_quantity: int | None = None

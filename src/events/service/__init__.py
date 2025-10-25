@@ -1,8 +1,9 @@
 import typing as t
-from datetime import timedelta
 
 from django.db import models, transaction
 from pydantic import BaseModel
+
+from events.schema import OrganizationQuestionnaireUpdateSchema
 
 T = t.TypeVar("T", bound=models.Model)
 
@@ -29,7 +30,7 @@ def update_db_instance(
 @transaction.atomic
 def update_organization_questionnaire(
     org_questionnaire: "models.Model",  # OrganizationQuestionnaire
-    payload: BaseModel,  # OrganizationQuestionnaireUpdateSchema
+    payload: OrganizationQuestionnaireUpdateSchema,
 ) -> "models.Model":
     """Update organization questionnaire and its underlying questionnaire.
 
@@ -57,14 +58,11 @@ def update_organization_questionnaire(
         "evaluation_mode",
         "llm_guidelines",
         "max_attempts",
+        "can_retake_after",
     }
     for field_name in questionnaire_field_names:
         if field_name in payload_dict:
             questionnaire_kwargs[field_name] = payload_dict[field_name]
-
-    # Handle can_retake_after with timedelta conversion
-    if "can_retake_after" in payload_dict:
-        questionnaire_kwargs["can_retake_after"] = timedelta(seconds=payload_dict["can_retake_after"])
 
     # Update the underlying Questionnaire if there are changes
     if questionnaire_kwargs:

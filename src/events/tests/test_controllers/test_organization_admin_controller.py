@@ -603,3 +603,104 @@ class TestManageMembersAndStaff:
         payload = {"default": {"manage_members": True}}
         response = organization_staff_client.put(url, data=orjson.dumps(payload), content_type="application/json")
         assert response.status_code == 403
+
+
+class TestGetOrganizationAdmin:
+    """Tests for the GET organization admin endpoint."""
+
+    def test_get_organization_by_owner(self, organization_owner_client: Client, organization: Organization) -> None:
+        """Test that an organization owner can get comprehensive organization details."""
+        # Set some platform fee and stripe fields to test they are returned
+        organization.platform_fee_fixed = 2.50
+        organization.stripe_account_id = "acct_test123"
+        organization.stripe_charges_enabled = True
+        organization.stripe_details_submitted = True
+        organization.save()
+
+        url = reverse("api:get_organization_admin", kwargs={"slug": organization.slug})
+        response = organization_owner_client.get(url)
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify basic fields
+        assert data["id"] == str(organization.id)
+        assert data["name"] == organization.name
+        assert data["slug"] == organization.slug
+        assert data["visibility"] == organization.visibility
+
+        # Verify platform fee fields
+        assert data["platform_fee_percent"] is not None
+        assert data["platform_fee_fixed"] == "2.50"
+
+        # Verify Stripe fields
+        assert data["stripe_account_id"] == "acct_test123"
+        assert data["stripe_charges_enabled"] is True
+        assert data["stripe_details_submitted"] is True
+        assert data["is_stripe_connected"] is True
+
+    def test_get_organization_by_staff_with_permission(
+        self, organization_staff_client: Client, organization: Organization, staff_member: OrganizationStaff
+    ) -> None:
+        """Test that staff with view_organization permission can get organization details."""
+        # Grant permission
+        perms = staff_member.permissions
+        perms["default"]["view_organization"] = True
+        staff_member.permissions = perms
+        staff_member.save()
+
+        url = reverse("api:get_organization_admin", kwargs={"slug": organization.slug})
+        response = organization_staff_client.get(url)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["slug"] == organization.slug
+
+    def test_get_organization_by_staff_without_permission(
+        self, organization_staff_client: Client, organization: Organization, staff_member: OrganizationStaff
+    ) -> None:
+        """Test that staff without view_organization permission gets a 403."""
+        # Ensure permission is False
+        perms = staff_member.permissions
+        perms["default"]["view_organization"] = False
+        staff_member.permissions = perms
+        staff_member.save()
+
+        url = reverse("api:get_organization_admin", kwargs={"slug": organization.slug})
+        response = organization_staff_client.get(url)
+
+        assert response.status_code == 403
+
+    @pytest.mark.parametrize(
+        "client_fixture,expected_status_code",
+        [("member_client", 403), ("nonmember_client", 404), ("client", 401)],
+    )
+    def test_get_organization_by_unauthorized_users(
+        self, request: pytest.FixtureRequest, client_fixture: str, expected_status_code: int, organization: Organization
+    ) -> None:
+        """Test that users without owner/staff roles get appropriate error when trying to get organization details."""
+        client: Client = request.getfixturevalue(client_fixture)
+        url = reverse("api:get_organization_admin", kwargs={"slug": organization.slug})
+
+        response = client.get(url)
+        assert response.status_code == expected_status_code
+
+    def test_get_organization_without_stripe_connection(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        """Test that organization details are correctly returned when Stripe is not connected."""
+        # Ensure Stripe is not connected
+        organization.stripe_account_id = None
+        organization.stripe_charges_enabled = False
+        organization.stripe_details_submitted = False
+        organization.save()
+
+        url = reverse("api:get_organization_admin", kwargs={"slug": organization.slug})
+        response = organization_owner_client.get(url)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["stripe_account_id"] is None
+        assert data["stripe_charges_enabled"] is False
+        assert data["stripe_details_submitted"] is False
+        assert data["is_stripe_connected"] is False

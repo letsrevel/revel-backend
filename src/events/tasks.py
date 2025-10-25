@@ -271,8 +271,11 @@ def notify_potluck_item_update(
     eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_UPDATE)
     staff_and_owners = get_organization_staff_and_owners(event.organization)
 
-    # Combine and deduplicate
-    all_users = (eligible_users | staff_and_owners).distinct()
+    # Combine and deduplicate using IDs to avoid queryset combination issues
+    eligible_user_ids = set(eligible_users.values_list("id", flat=True))
+    staff_and_owner_ids = set(staff_and_owners.values_list("id", flat=True))
+    all_user_ids = eligible_user_ids | staff_and_owner_ids
+    all_users = RevelUser.objects.filter(id__in=all_user_ids)
 
     # Get the user who made the change (to avoid self-notification)
     changed_by = None

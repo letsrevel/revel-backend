@@ -10,3 +10,5 @@ STRIPE_PUBLISHABLE_KEY = config("STRIPE_PUBLISHABLE_KEY", default="pk_test_...")
 STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET", default="whsec_...")
 # Note: minimum 30 minutes
 PAYMENT_DEFAULT_EXPIRY_MINUTES = config("PAYMENT_DEFAULT_EXPIRY_MINUTES", cast=int, default=45)
+# Test Stripe Connect account ID for bootstrap data
+CONNECTED_TEST_STRIPE_ID = config("CONNECTED_TEST_STRIPE_ID", default=None)

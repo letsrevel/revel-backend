@@ -5,6 +5,7 @@ import typing as t
 from datetime import timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from faker import Faker
@@ -151,7 +152,7 @@ class Command(BaseCommand):
             ("eve.staff@example.com", "Eve Staff", "org_beta_staff"),
             ("frank.member@example.com", "Frank Member", "org_beta_member"),
             # Regular attendees
-            (" v", "George Attendee", "attendee_1"),
+            ("george.attendee@example.com", "George Attendee", "attendee_1"),
             ("hannah.attendee@example.com", "Hannah Attendee", "attendee_2"),
             ("ivan.attendee@example.com", "Ivan Attendee", "attendee_3"),
             ("julia.attendee@example.com", "Julia Attendee", "attendee_4"),
@@ -183,7 +184,7 @@ class Command(BaseCommand):
         """Create multiple organizations with varied configurations."""
         logger.info("Creating organizations...")
 
-        # Organization Alpha - Public organization
+        # Organization Alpha - Public organization with Stripe Connect
         org_alpha = events_models.Organization.objects.create(
             name="Revel Events Collective",
             slug="revel-events-collective",
@@ -206,6 +207,9 @@ that bring communities together.
 - Private gatherings
 """,
             city=self.cities["new_york"],
+            stripe_account_id=getattr(settings, "CONNECTED_TEST_STRIPE_ID", None),
+            stripe_charges_enabled=True,
+            stripe_details_submitted=True,
         )
         org_alpha.staff_members.add(self.users["org_alpha_staff"])
         org_alpha.members.add(self.users["org_alpha_member"], self.users["multi_org_user"])

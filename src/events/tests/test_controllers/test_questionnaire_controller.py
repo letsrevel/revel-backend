@@ -10,6 +10,7 @@ from django.urls import reverse
 
 from accounts.models import RevelUser
 from events.models import Event, EventSeries, Organization, OrganizationQuestionnaire
+from events.schema import OrganizationQuestionnaireCreateSchema
 from questionnaires.models import (
     FreeTextAnswer,
     FreeTextQuestion,
@@ -28,7 +29,6 @@ from questionnaires.schema import (
     MultipleChoiceOptionUpdateSchema,
     MultipleChoiceQuestionCreateSchema,
     MultipleChoiceQuestionUpdateSchema,
-    QuestionnaireCreateSchema,
     SectionCreateSchema,
     SectionUpdateSchema,
 )
@@ -37,11 +37,13 @@ pytestmark = pytest.mark.django_db
 
 
 def test_create_org_questionnaire(organization: Organization, organization_owner_client: Client) -> None:
-    """Test that an organization questionnaire can be created."""
-    payload = QuestionnaireCreateSchema(
+    """Test that an organization questionnaire can be created with defaults."""
+
+    payload = OrganizationQuestionnaireCreateSchema(
         name="New Questionnaire",
         min_score=Decimal("0.0"),
         evaluation_mode=Questionnaire.EvaluationMode.AUTOMATIC,
+        # Using defaults: questionnaire_type=ADMISSION, max_submission_age=None
     )
     response = organization_owner_client.post(
         reverse("api:create_questionnaire", kwargs={"organization_id": organization.id}),
@@ -49,7 +51,33 @@ def test_create_org_questionnaire(organization: Organization, organization_owner
         content_type="application/json",
     )
     assert response.status_code == 200
-    assert response.json()["questionnaire"]["name"] == "New Questionnaire"
+    data = response.json()
+    assert data["questionnaire"]["name"] == "New Questionnaire"
+    assert data["questionnaire_type"] == OrganizationQuestionnaire.Types.ADMISSION
+    assert data["max_submission_age"] is None
+
+
+def test_create_org_questionnaire_with_custom_fields(
+    organization: Organization, organization_owner_client: Client
+) -> None:
+    """Test that an organization questionnaire can be created with custom type and max_submission_age."""
+    payload = OrganizationQuestionnaireCreateSchema(
+        name="Feedback Questionnaire",
+        min_score=Decimal("50.0"),
+        evaluation_mode=Questionnaire.EvaluationMode.MANUAL,
+        questionnaire_type=OrganizationQuestionnaire.Types.FEEDBACK,
+        max_submission_age=timedelta(hours=2, minutes=30),  # 2.5 hours
+    )
+    response = organization_owner_client.post(
+        reverse("api:create_questionnaire", kwargs={"organization_id": organization.id}),
+        data=payload.model_dump_json(),
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["questionnaire"]["name"] == "Feedback Questionnaire"
+    assert data["questionnaire_type"] == OrganizationQuestionnaire.Types.FEEDBACK
+    assert data["max_submission_age"] == 2.5 * 3600  # 2.5 hours in seconds (float)
 
 
 def test_list_submissions_success(
@@ -131,6 +159,160 @@ def test_list_submissions_permission_denied(organization: Organization, nonmembe
     assert response.status_code == 404
 
 
+def test_list_submissions_filter_by_evaluation_status(
+    organization: Organization, organization_owner_client: Client, member_user: RevelUser
+) -> None:
+    """Test that submissions can be filtered by evaluation status."""
+    # Create questionnaire
+    questionnaire = Questionnaire.objects.create(
+        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+    )
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    # Create users for different submissions
+    user1 = RevelUser.objects.create_user(username="user1", email="user1@example.com", password="pass")
+    user2 = RevelUser.objects.create_user(username="user2", email="user2@example.com", password="pass")
+    user3 = RevelUser.objects.create_user(username="user3", email="user3@example.com", password="pass")
+
+    # Create submissions with different evaluation statuses
+    submission_approved = QuestionnaireSubmission.objects.create(
+        user=user1, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+    )
+    QuestionnaireEvaluation.objects.create(
+        submission=submission_approved,
+        status=QuestionnaireEvaluation.Status.APPROVED,
+        evaluator=organization.owner,
+    )
+
+    submission_rejected = QuestionnaireSubmission.objects.create(
+        user=user2, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+    )
+    QuestionnaireEvaluation.objects.create(
+        submission=submission_rejected,
+        status=QuestionnaireEvaluation.Status.REJECTED,
+        evaluator=organization.owner,
+    )
+
+    submission_pending = QuestionnaireSubmission.objects.create(
+        user=user3, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+    )
+    QuestionnaireEvaluation.objects.create(
+        submission=submission_pending,
+        status=QuestionnaireEvaluation.Status.PENDING_REVIEW,
+        evaluator=organization.owner,
+    )
+
+    # Create submission without evaluation
+    submission_no_eval = QuestionnaireSubmission.objects.create(
+        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+    )
+
+    url = reverse("api:list_submissions", kwargs={"org_questionnaire_id": org_questionnaire.id})
+
+    # Test filter by approved
+    response = organization_owner_client.get(url, {"evaluation_status": "approved"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(submission_approved.id)
+
+    # Test filter by rejected
+    response = organization_owner_client.get(url, {"evaluation_status": "rejected"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(submission_rejected.id)
+
+    # Test filter by pending review
+    response = organization_owner_client.get(url, {"evaluation_status": "pending review"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(submission_pending.id)
+
+    # Test filter by no_evaluation
+    response = organization_owner_client.get(url, {"evaluation_status": "no_evaluation"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(submission_no_eval.id)
+
+    # Test no filter (should return all)
+    response = organization_owner_client.get(url)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 4
+
+
+def test_list_submissions_ordering(
+    organization: Organization, organization_owner_client: Client, member_user: RevelUser
+) -> None:
+    """Test that submissions can be ordered by submission time."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    # Create questionnaire
+    questionnaire = Questionnaire.objects.create(
+        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+    )
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    # Create users
+    user1 = RevelUser.objects.create_user(username="user1", email="user1@example.com", password="pass")
+    user2 = RevelUser.objects.create_user(username="user2", email="user2@example.com", password="pass")
+    user3 = RevelUser.objects.create_user(username="user3", email="user3@example.com", password="pass")
+
+    # Create submissions with different submission times
+    now = timezone.now()
+    submission1 = QuestionnaireSubmission.objects.create(
+        user=user1, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+    )
+    submission1.submitted_at = now - timedelta(days=2)
+    submission1.save()
+
+    submission2 = QuestionnaireSubmission.objects.create(
+        user=user2, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+    )
+    submission2.submitted_at = now - timedelta(days=1)
+    submission2.save()
+
+    submission3 = QuestionnaireSubmission.objects.create(
+        user=user3, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+    )
+    submission3.submitted_at = now
+    submission3.save()
+
+    url = reverse("api:list_submissions", kwargs={"org_questionnaire_id": org_questionnaire.id})
+
+    # Test default ordering (-submitted_at, newest first)
+    response = organization_owner_client.get(url)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 3
+    assert data["results"][0]["id"] == str(submission3.id)  # Newest
+    assert data["results"][1]["id"] == str(submission2.id)
+    assert data["results"][2]["id"] == str(submission1.id)  # Oldest
+
+    # Test ordering by submitted_at (oldest first)
+    response = organization_owner_client.get(url, {"order_by": "submitted_at"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 3
+    assert data["results"][0]["id"] == str(submission1.id)  # Oldest
+    assert data["results"][1]["id"] == str(submission2.id)
+    assert data["results"][2]["id"] == str(submission3.id)  # Newest
+
+    # Test ordering by -submitted_at (newest first, explicitly)
+    response = organization_owner_client.get(url, {"order_by": "-submitted_at"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 3
+    assert data["results"][0]["id"] == str(submission3.id)  # Newest
+    assert data["results"][1]["id"] == str(submission2.id)
+    assert data["results"][2]["id"] == str(submission1.id)  # Oldest
+
+
 def test_get_submission_detail_success(
     organization: Organization, organization_owner_client: Client, member_user: RevelUser
 ) -> None:
@@ -188,12 +370,76 @@ def test_get_submission_detail_success(
 
     mc_answer_data = next(a for a in data["answers"] if a["question_type"] == "multiple_choice")
     assert mc_answer_data["question_id"] == str(mc_question.id)
-    assert mc_answer_data["answer_content"]["option_id"] == str(mc_option.id)
-    assert mc_answer_data["answer_content"]["option_text"] == "Blue"
+    assert isinstance(mc_answer_data["answer_content"], list)
+    assert len(mc_answer_data["answer_content"]) == 1
+    assert mc_answer_data["answer_content"][0]["option_id"] == str(mc_option.id)
+    assert mc_answer_data["answer_content"][0]["option_text"] == "Blue"
+    assert mc_answer_data["answer_content"][0]["is_correct"] is True
 
     ft_answer_data = next(a for a in data["answers"] if a["question_type"] == "free_text")
     assert ft_answer_data["question_id"] == str(ft_question.id)
-    assert ft_answer_data["answer_content"]["answer"] == "This is my detailed answer."
+    assert isinstance(ft_answer_data["answer_content"], list)
+    assert len(ft_answer_data["answer_content"]) == 1
+    assert ft_answer_data["answer_content"][0]["answer"] == "This is my detailed answer."
+    assert "is_correct" not in ft_answer_data["answer_content"][0]
+
+
+def test_get_submission_detail_with_multiple_selections(
+    organization: Organization, organization_owner_client: Client, member_user: RevelUser
+) -> None:
+    """Test getting detailed submission with multiple answers to a single question."""
+    # Create questionnaire with a multiple-selection question
+    questionnaire = Questionnaire.objects.create(
+        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+    )
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    # Create a multiple choice question that allows multiple answers
+    mc_question = MultipleChoiceQuestion.objects.create(
+        questionnaire=questionnaire, question="Which colors do you like?", order=1, allow_multiple_answers=True
+    )
+    mc_option_1 = MultipleChoiceOption.objects.create(question=mc_question, option="Blue", is_correct=True, order=1)
+    MultipleChoiceOption.objects.create(question=mc_question, option="Red", is_correct=True, order=2)
+    mc_option_3 = MultipleChoiceOption.objects.create(question=mc_question, option="Green", is_correct=False, order=3)
+
+    # Create submission with multiple answers to the same question
+    submission = QuestionnaireSubmission.objects.create(
+        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+    )
+
+    MultipleChoiceAnswer.objects.create(submission=submission, question=mc_question, option=mc_option_1)
+    MultipleChoiceAnswer.objects.create(submission=submission, question=mc_question, option=mc_option_3)
+
+    url = reverse(
+        "api:get_submission_detail",
+        kwargs={"org_questionnaire_id": org_questionnaire.id, "submission_id": submission.id},
+    )
+    response = organization_owner_client.get(url)
+
+    assert response.status_code == 200
+    data = response.json()
+
+    # Check answers - should have ONE answer object for the question with TWO options
+    assert len(data["answers"]) == 1
+
+    mc_answer_data = data["answers"][0]
+    assert mc_answer_data["question_id"] == str(mc_question.id)
+    assert mc_answer_data["question_text"] == "Which colors do you like?"
+    assert mc_answer_data["question_type"] == "multiple_choice"
+    assert isinstance(mc_answer_data["answer_content"], list)
+    assert len(mc_answer_data["answer_content"]) == 2
+
+    # Check that both selected options are present
+    option_ids = {opt["option_id"] for opt in mc_answer_data["answer_content"]}
+    assert str(mc_option_1.id) in option_ids
+    assert str(mc_option_3.id) in option_ids
+
+    # Check is_correct flags
+    blue_option = next(opt for opt in mc_answer_data["answer_content"] if opt["option_text"] == "Blue")
+    assert blue_option["is_correct"] is True
+
+    green_option = next(opt for opt in mc_answer_data["answer_content"] if opt["option_text"] == "Green")
+    assert green_option["is_correct"] is False
 
 
 def test_get_submission_detail_not_found(organization: Organization, organization_owner_client: Client) -> None:
@@ -430,6 +676,222 @@ def test_list_org_questionnaires_nonmember_access(organization: Organization, no
     assert response.status_code == 200
     data = response.json()
     assert data["count"] == 0
+
+
+def test_list_org_questionnaires_filter_by_event(
+    organization: Organization, organization_owner_client: Client, event: Event, public_event: Event
+) -> None:
+    """Test that organization questionnaires can be filtered by event_id."""
+    # Create questionnaires
+    questionnaire1 = Questionnaire.objects.create(name="Event Questionnaire 1")
+    questionnaire2 = Questionnaire.objects.create(name="Event Questionnaire 2")
+    questionnaire3 = Questionnaire.objects.create(name="Unrelated Questionnaire")
+
+    org_q1 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire1)
+    org_q2 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire2)
+    org_q3 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire3)
+
+    # Assign questionnaires to events
+    org_q1.events.add(event)
+    org_q2.events.add(event, public_event)
+    # org_q3 is not assigned to any event
+
+    url = reverse("api:list_org_questionnaires")
+    response = organization_owner_client.get(url, {"event_id": str(event.id)})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 2
+
+    questionnaire_ids = {item["id"] for item in data["results"]}
+    assert str(org_q1.id) in questionnaire_ids
+    assert str(org_q2.id) in questionnaire_ids
+    assert str(org_q3.id) not in questionnaire_ids
+
+
+def test_list_org_questionnaires_filter_by_event_series(
+    organization: Organization, organization_owner_client: Client, event_series: EventSeries
+) -> None:
+    """Test that organization questionnaires can be filtered by event_series_id."""
+    # Create another event series
+    other_series = EventSeries.objects.create(organization=organization, name="Other Series", slug="other-series")
+
+    # Create questionnaires
+    questionnaire1 = Questionnaire.objects.create(name="Series Questionnaire 1")
+    questionnaire2 = Questionnaire.objects.create(name="Series Questionnaire 2")
+    questionnaire3 = Questionnaire.objects.create(name="Unrelated Questionnaire")
+
+    org_q1 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire1)
+    org_q2 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire2)
+    org_q3 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire3)
+
+    # Assign questionnaires to event series
+    org_q1.event_series.add(event_series)
+    org_q2.event_series.add(event_series, other_series)
+    # org_q3 is not assigned to any event series
+
+    url = reverse("api:list_org_questionnaires")
+    response = organization_owner_client.get(url, {"event_series_id": str(event_series.id)})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 2
+
+    questionnaire_ids = {item["id"] for item in data["results"]}
+    assert str(org_q1.id) in questionnaire_ids
+    assert str(org_q2.id) in questionnaire_ids
+    assert str(org_q3.id) not in questionnaire_ids
+
+
+def test_list_org_questionnaires_filter_by_both_event_and_series(
+    organization: Organization, organization_owner_client: Client, event: Event, event_series: EventSeries
+) -> None:
+    """Test filtering by both event_id and event_series_id returns intersection."""
+    # Create questionnaires
+    questionnaire1 = Questionnaire.objects.create(name="Both Questionnaire")
+    questionnaire2 = Questionnaire.objects.create(name="Event Only Questionnaire")
+    questionnaire3 = Questionnaire.objects.create(name="Series Only Questionnaire")
+
+    org_q1 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire1)
+    org_q2 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire2)
+    org_q3 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire3)
+
+    # Assign questionnaires
+    org_q1.events.add(event)
+    org_q1.event_series.add(event_series)
+    org_q2.events.add(event)
+    org_q3.event_series.add(event_series)
+
+    url = reverse("api:list_org_questionnaires")
+    response = organization_owner_client.get(url, {"event_id": str(event.id), "event_series_id": str(event_series.id)})
+
+    assert response.status_code == 200
+    data = response.json()
+    # Only org_q1 matches both filters
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(org_q1.id)
+
+
+def test_list_org_questionnaires_filter_no_results(
+    organization: Organization, organization_owner_client: Client
+) -> None:
+    """Test that filtering with non-existent IDs returns empty results."""
+    from uuid import uuid4
+
+    # Create a questionnaire without any event assignment
+    questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
+    OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    url = reverse("api:list_org_questionnaires")
+    response = organization_owner_client.get(url, {"event_id": str(uuid4())})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 0
+
+
+def test_list_org_questionnaires_filter_combined_with_search(
+    organization: Organization, organization_owner_client: Client, event: Event
+) -> None:
+    """Test that filters work correctly when combined with search."""
+    # Create questionnaires
+    questionnaire1 = Questionnaire.objects.create(name="Python Workshop Questionnaire")
+    questionnaire2 = Questionnaire.objects.create(name="JavaScript Quiz Questionnaire")
+    questionnaire3 = Questionnaire.objects.create(name="Python Advanced Questionnaire")
+
+    org_q1 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire1)
+    org_q2 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire2)
+    org_q3 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire3)
+
+    # Assign to event
+    org_q1.events.add(event)
+    org_q2.events.add(event)
+    org_q3.events.add(event)
+
+    url = reverse("api:list_org_questionnaires")
+    response = organization_owner_client.get(url, {"event_id": str(event.id), "search": "Python"})
+
+    assert response.status_code == 200
+    data = response.json()
+    # Should return only Python questionnaires assigned to the event
+    assert data["count"] == 2
+
+    questionnaire_names = {item["questionnaire"]["name"] for item in data["results"]}
+    assert "Python Workshop Questionnaire" in questionnaire_names
+    assert "Python Advanced Questionnaire" in questionnaire_names
+    assert "JavaScript Quiz Questionnaire" not in questionnaire_names
+
+
+def test_list_org_questionnaires_with_pending_evaluations_count(
+    organization: Organization, organization_owner_client: Client, member_user: RevelUser
+) -> None:
+    """Test that pending evaluations count is correctly included in the response."""
+    # Create two questionnaires
+    questionnaire1 = Questionnaire.objects.create(
+        name="Questionnaire 1", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+    )
+    questionnaire2 = Questionnaire.objects.create(
+        name="Questionnaire 2", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+    )
+    org_q1 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire1)
+    org_q2 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire2)
+
+    # Create users for submissions
+    user1 = RevelUser.objects.create_user(username="user1", email="user1@example.com", password="pass")
+    user2 = RevelUser.objects.create_user(username="user2", email="user2@example.com", password="pass")
+    user3 = RevelUser.objects.create_user(username="user3", email="user3@example.com", password="pass")
+    user4 = RevelUser.objects.create_user(username="user4", email="user4@example.com", password="pass")
+
+    # For questionnaire 1: Create submissions with different evaluation statuses
+    # 1. Submission with no evaluation (pending)
+    QuestionnaireSubmission.objects.create(
+        user=user1, questionnaire=questionnaire1, status=QuestionnaireSubmission.Status.READY
+    )
+
+    # 2. Submission with pending review evaluation (pending)
+    submission1_pending = QuestionnaireSubmission.objects.create(
+        user=user2, questionnaire=questionnaire1, status=QuestionnaireSubmission.Status.READY
+    )
+    QuestionnaireEvaluation.objects.create(
+        submission=submission1_pending,
+        status=QuestionnaireEvaluation.Status.PENDING_REVIEW,
+        evaluator=organization.owner,
+    )
+
+    # 3. Submission with approved evaluation (NOT pending)
+    submission1_approved = QuestionnaireSubmission.objects.create(
+        user=user3, questionnaire=questionnaire1, status=QuestionnaireSubmission.Status.READY
+    )
+    QuestionnaireEvaluation.objects.create(
+        submission=submission1_approved,
+        status=QuestionnaireEvaluation.Status.APPROVED,
+        evaluator=organization.owner,
+    )
+
+    # 4. Draft submission (should NOT be counted)
+    QuestionnaireSubmission.objects.create(
+        user=user4, questionnaire=questionnaire1, status=QuestionnaireSubmission.Status.DRAFT
+    )
+
+    # For questionnaire 2: Create one submission with no evaluation
+    QuestionnaireSubmission.objects.create(
+        user=member_user, questionnaire=questionnaire2, status=QuestionnaireSubmission.Status.READY
+    )
+
+    url = reverse("api:list_org_questionnaires")
+    response = organization_owner_client.get(url)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 2
+
+    # Find questionnaire1 in results
+    q1_result = next(item for item in data["results"] if item["id"] == str(org_q1.id))
+    assert q1_result["pending_evaluations_count"] == 2  # submission1_no_eval + submission1_pending
+
+    # Find questionnaire2 in results
+    q2_result = next(item for item in data["results"] if item["id"] == str(org_q2.id))
+    assert q2_result["pending_evaluations_count"] == 1  # submission2_no_eval
 
 
 # --- Test for GET /{org_questionnaire_id} (get_org_questionnaire) ---
@@ -857,17 +1319,15 @@ def test_update_ft_question_not_found(organization: Organization, organization_o
 
 def test_update_org_questionnaire_success(organization: Organization, organization_owner_client: Client) -> None:
     """Test that an organization questionnaire can be updated."""
-    from datetime import time
-
     questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
     org_questionnaire = OrganizationQuestionnaire.objects.create(
         organization=organization,
         questionnaire=questionnaire,
-        max_submission_age=time(hour=0, minute=30),
+        max_submission_age=timedelta(minutes=30),
         questionnaire_type=OrganizationQuestionnaire.Types.ADMISSION,
     )
 
-    payload = {"max_submission_age": "01:00:00", "questionnaire_type": OrganizationQuestionnaire.Types.FEEDBACK}
+    payload = {"max_submission_age": 3600, "questionnaire_type": OrganizationQuestionnaire.Types.FEEDBACK}  # 1 hour
 
     url = reverse("api:update_org_questionnaire", kwargs={"org_questionnaire_id": org_questionnaire.id})
     response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
@@ -878,7 +1338,7 @@ def test_update_org_questionnaire_success(organization: Organization, organizati
 
     # Verify questionnaire was updated
     org_questionnaire.refresh_from_db()
-    assert org_questionnaire.max_submission_age == time(hour=1, minute=0)
+    assert org_questionnaire.max_submission_age == timedelta(hours=1)
     assert org_questionnaire.questionnaire_type == OrganizationQuestionnaire.Types.FEEDBACK
 
 
@@ -932,15 +1392,13 @@ def test_update_org_questionnaire_underlying_questionnaire(
 
 def test_update_org_questionnaire_partial(organization: Organization, organization_owner_client: Client) -> None:
     """Test that an organization questionnaire can be partially updated."""
-    from datetime import time
-
     questionnaire = Questionnaire.objects.create(
         name="Test Questionnaire", min_score=Decimal("50.0"), evaluation_mode=Questionnaire.EvaluationMode.MANUAL
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(
         organization=organization,
         questionnaire=questionnaire,
-        max_submission_age=time(hour=0, minute=30),
+        max_submission_age=timedelta(minutes=30),
         questionnaire_type=OrganizationQuestionnaire.Types.ADMISSION,
     )
 
