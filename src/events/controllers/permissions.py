@@ -111,6 +111,28 @@ class IsOrganizationOwner(RootPermission):
         raise PermissionDenied("You must be the owner of this organization.")
 
 
+class IsOrganizationStaff(RootPermission):
+    def __init__(self) -> None:
+        """Override init."""
+        super().__init__(action="is_staff")
+
+    def has_object_permission(
+        self,
+        request: HttpRequest,
+        controller: ControllerBase,
+        obj: models.Organization,
+    ) -> bool:
+        """Can edit organization."""
+        if obj.owner_id == request.user.id:
+            return True
+        if models.OrganizationStaff.objects.filter(
+            organization=obj,
+            user_id=request.user.id,
+        ).exists():
+            return True
+        raise PermissionDenied("You must be the owner of this organization.")
+
+
 class ManagePotluckPermission(RootPermission):
     def __init__(self) -> None:
         """Init PotluckPermission."""

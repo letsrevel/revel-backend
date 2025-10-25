@@ -47,6 +47,7 @@ class SectionSchema(QuestionContainerSchema):
 
 class QuestionnaireSchema(QuestionContainerSchema):
     sections: list[SectionSchema] = Field(default_factory=list)
+    evaluation_mode: Questionnaire.EvaluationMode
 
 
 # --- Questionnaire Submission ---
@@ -158,13 +159,21 @@ class SubmissionListItemSchema(ModelSchema):
 
 
 class QuestionAnswerDetailSchema(Schema):
-    """Schema for question and answer details."""
+    """Schema for question and answer details.
+
+    For multiple choice questions, answer_content is a list of dicts containing:
+    - option_id: UUID of the selected option
+    - option_text: Text of the selected option
+    - is_correct: Boolean indicating if this option is correct
+
+    For free text questions, answer_content is a list with a single dict containing:
+    - answer: The free text answer string
+    """
 
     question_id: UUID
     question_text: str
     question_type: str  # "multiple_choice" or "free_text"
-    # Store answer content directly as JSON for flexibility
-    answer_content: dict[str, t.Any]
+    answer_content: list[dict[str, t.Any]]
 
 
 class EvaluationCreateSchema(Schema):
@@ -211,6 +220,7 @@ class SubmissionDetailSchema(Schema):
 
 class QuestionnaireBaseSchema(Schema):
     name: str
+    status: Questionnaire.Status
     min_score: Decimal = Field(ge=0, le=100)
     shuffle_questions: bool = False
     shuffle_sections: bool = False
@@ -310,6 +320,7 @@ class SectionUpdateSchema(SectionCreateSchema):
 class QuestionnaireCreateSchema(QuestionnaireBaseSchema):
     """Schema for creating a new Questionnaire with its sections and questions."""
 
+    status: Questionnaire.Status = Questionnaire.Status.DRAFT  # Override to add default
     sections: list[SectionCreateSchema] = Field(default_factory=list)
     multiplechoicequestion_questions: list[MultipleChoiceQuestionCreateSchema] = Field(default_factory=list)
     freetextquestion_questions: list[FreeTextQuestionCreateSchema] = Field(default_factory=list)

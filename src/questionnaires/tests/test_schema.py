@@ -127,17 +127,20 @@ def test_question_answer_detail_schema_multiple_choice() -> None:
     """Test that QuestionAnswerDetailSchema works for multiple choice questions."""
     import uuid
 
+    option_id = uuid.uuid4()
     schema = QuestionAnswerDetailSchema(
         question_id=uuid.uuid4(),
         question_text="What is your favorite color?",
         question_type="multiple_choice",
-        answer_content={"option_id": uuid.uuid4(), "option_text": "Blue"},
+        answer_content=[{"option_id": option_id, "option_text": "Blue", "is_correct": True}],
     )
 
     assert schema.question_type == "multiple_choice"
-    assert "option_id" in schema.answer_content
-    assert "option_text" in schema.answer_content
-    assert schema.answer_content["option_text"] == "Blue"
+    assert isinstance(schema.answer_content, list)
+    assert len(schema.answer_content) == 1
+    assert schema.answer_content[0]["option_id"] == option_id
+    assert schema.answer_content[0]["option_text"] == "Blue"
+    assert schema.answer_content[0]["is_correct"] is True
 
 
 def test_question_answer_detail_schema_free_text() -> None:
@@ -148,12 +151,14 @@ def test_question_answer_detail_schema_free_text() -> None:
         question_id=uuid.uuid4(),
         question_text="Explain your reasoning.",
         question_type="free_text",
-        answer_content={"answer": "This is my detailed explanation."},
+        answer_content=[{"answer": "This is my detailed explanation."}],
     )
 
     assert schema.question_type == "free_text"
-    assert "answer" in schema.answer_content
-    assert schema.answer_content["answer"] == "This is my detailed explanation."
+    assert isinstance(schema.answer_content, list)
+    assert len(schema.answer_content) == 1
+    assert schema.answer_content[0]["answer"] == "This is my detailed explanation."
+    assert "is_correct" not in schema.answer_content[0]
 
 
 def test_evaluation_create_schema_valid() -> None:

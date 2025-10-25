@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "ninja_jwt",
     "ninja_jwt.token_blacklist",
     "ninja_extra",
+    "django_extensions",
     # custom
     "api",
     "accounts",

@@ -105,7 +105,7 @@ class QuestionnaireService:
                 _ftqs = [obj for kind, obj in combined if kind == 1]  # type: ignore[misc]
             else:
                 _mcqs.sort(key=lambda x: x.order)
-                ftqs.sort(key=lambda x: x.order)
+                _ftqs.sort(key=lambda x: x.order)
 
             return (
                 [build_mc_question(mcq) for mcq in mcqs],
@@ -146,6 +146,7 @@ class QuestionnaireService:
             multiple_choice_questions=mcq_schemas,
             free_text_questions=ftq_schemas,
             sections=section_schemas,
+            evaluation_mode=q.evaluation_mode,  # type: ignore[arg-type]
         )
 
     @transaction.atomic
@@ -244,7 +245,13 @@ class QuestionnaireService:
     def create_questionnaire(cls, payload: QuestionnaireCreateSchema) -> Questionnaire:
         """Creates a complete Questionnaire, its sections, questions, and options from a Pydantic schema."""
         questionnaire_data = payload.model_dump(
-            exclude={"sections", "multiplechoicequestion_questions", "freetextquestion_questions"}
+            exclude={
+                "sections",
+                "multiplechoicequestion_questions",
+                "freetextquestion_questions",
+                "max_submission_age",
+                "questionnaire_type",
+            }
         )
         questionnaire = Questionnaire.objects.create(**questionnaire_data)
         service = cls(questionnaire.id)

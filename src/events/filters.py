@@ -9,6 +9,7 @@ from django.utils import timezone
 from ninja import Field, FilterSchema, Schema
 
 from events.models import AdditionalResource, Event, EventSeries, Organization
+from questionnaires.models import QuestionnaireEvaluation
 
 
 class CityFilterMixin(FilterSchema):
@@ -102,6 +103,28 @@ class OrganizationTokenFilterSchema(FilterSchema):
         if is_active:
             return Q(expires_at__gte=timezone.now())
         return Q()
+
+
+class RSVPFilterSchema(FilterSchema):
+    """Filter schema for event RSVPs."""
+
+    status: str | None = None
+    user_id: UUID | None = Field(None, q="user_id")  # type: ignore[call-overload]
+
+    def filter_status(self, status: str | None) -> Q:
+        """Filter RSVPs by status."""
+        if not status:
+            return Q()
+
+        # Import here to avoid circular dependency
+        from events.models import EventRSVP
+
+        # Validate the status value
+        valid_statuses = [choice.value for choice in EventRSVP.Status]
+        if status not in valid_statuses:
+            return Q()
+
+        return Q(status=status)
 
 
 class DashboardOrganizationsFiltersSchema(Schema):
@@ -247,3 +270,36 @@ class DashboardEventSeriesFiltersSchema(Schema):
 
         # Return the final, filtered queryset of full EventSeries objects.
         return EventSeries.objects.filter(id__in=combined_ids_qs)
+
+
+class QuestionnaireFilterSchema(FilterSchema):
+    organization_id: UUID | None = Field(None, q="organization__id")  # type: ignore[call-overload]
+    event_id: UUID | None = Field(None, q="events__id")  # type: ignore[call-overload]
+    event_series_id: UUID | None = Field(None, q="event_series__id")  # type: ignore[call-overload]
+
+
+class SubmissionFilterSchema(FilterSchema):
+    """Filter schema for questionnaire submissions."""
+
+    evaluation_status: str | None = None
+
+    def filter_evaluation_status(self, evaluation_status: str | None) -> Q:
+        """Filter submissions by evaluation status.
+
+        Supported values:
+        - "approved", "rejected", "pending review": Filter by specific evaluation status
+        - "no_evaluation": Filter submissions without any evaluation
+        """
+        if evaluation_status is None:
+            return Q()
+
+        # Handle special case for no evaluation
+        if evaluation_status == "no_evaluation":
+            return Q(evaluation__isnull=True)
+
+        # Validate the status value
+        valid_statuses = [choice.value for choice in QuestionnaireEvaluation.Status]
+        if evaluation_status not in valid_statuses:
+            return Q()
+
+        return Q(evaluation__status=evaluation_status)

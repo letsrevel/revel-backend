@@ -23,7 +23,7 @@ from events import filters, models, schema
 from events.models import OrganizationMembershipRequest
 from events.service import organization_service, resource_service, stripe_service, update_db_instance
 
-from .permissions import IsOrganizationOwner, OrganizationPermission
+from .permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
 from .user_aware_controller import UserAwareController
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,17 @@ class OrganizationAdminController(UserAwareController):
     def get_one(self, slug: str) -> models.Organization:
         """Get one organization."""
         return self.get_object_or_exception(self.get_queryset(), slug=slug)  # type: ignore[no-any-return]
+
+    @route.get(
+        "",
+        url_name="get_organization_admin",
+        response=schema.OrganizationAdminDetailSchema,
+        permissions=[IsOrganizationStaff()],
+        throttle=UserDefaultThrottle(),
+    )
+    def get_organization(self, slug: str) -> models.Organization:
+        """Get comprehensive organization details including all platform fee and Stripe fields."""
+        return self.get_one(slug)
 
     @route.put(
         "",

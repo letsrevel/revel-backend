@@ -99,7 +99,7 @@ def resolve_notification_preference(  # noqa: C901  # todo: refactor
     preference_defaults = {
         "silence_all_notifications": False,
         "is_subscribed": False,
-        "notify_on_new_events": True,
+        "notify_on_new_events": False,
         "notify_on_potluck_updates": False,
         "event_reminders": True,
     }
@@ -130,7 +130,7 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
 
     # Users with series-specific preferences
     if event.event_series:
-        potential_users_q |= Q(usereventseries_preferences__event_series=event.event_series)
+        potential_users_q |= Q(usereventseriespreferences_preferences__event_series=event.event_series)
 
     # Users with organization-specific preferences
     potential_users_q |= Q(userorganizationpreferences_preferences__organization=event.organization)

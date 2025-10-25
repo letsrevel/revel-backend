@@ -1,8 +1,11 @@
 import typing as t
+from collections import defaultdict
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db import transaction
+from django.db.models import Count, Q, QuerySet
 from django.shortcuts import get_object_or_404
+from ninja import Query
 from ninja_extra import (
     api_controller,
     route,
@@ -14,6 +17,7 @@ from ninja_jwt.authentication import JWTAuth
 from accounts.models import RevelUser
 from common.schema import ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
+from events import filters
 from events import models as event_models
 from events import schema as event_schema
 from events.service import update_organization_questionnaire
@@ -47,13 +51,39 @@ class QuestionnaireController(UserAwareController):
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["questionnaire__name", "events__name", "event_series__name"])
-    def list_org_questionnaires(self) -> QuerySet[event_models.OrganizationQuestionnaire]:
+    def list_org_questionnaires(
+        self,
+        params: filters.QuestionnaireFilterSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[event_models.OrganizationQuestionnaire]:
         """Browse questionnaires you have permission to view or manage.
 
         Returns questionnaires from organizations where you have staff/owner access. Use this to
-        find questionnaires to attach to events or review submissions.
+        find questionnaires to attach to events or review submissions. Supports filtering by
+        event_id or event_series_id to find questionnaires assigned to specific events or series.
+
+        Each questionnaire includes a count of pending evaluations (submissions with no evaluation
+        or evaluations with "pending review" status).
         """
-        return self.get_queryset()
+        qs = self.get_queryset()
+
+        # Annotate with pending evaluations count
+        # Pending = no evaluation OR evaluation status is "pending review"
+        qs = qs.annotate(
+            pending_evaluations_count=Count(
+                "questionnaire__questionnaire_submissions",
+                filter=Q(
+                    questionnaire__questionnaire_submissions__status=questionnaires_models.QuestionnaireSubmission.Status.READY
+                )
+                & (
+                    Q(questionnaire__questionnaire_submissions__evaluation__isnull=True)
+                    | Q(
+                        questionnaire__questionnaire_submissions__evaluation__status=questionnaires_models.QuestionnaireEvaluation.Status.PENDING_REVIEW
+                    )
+                ),
+            )
+        )
+
+        return params.filter(qs)
 
     @route.post(
         "/{organization_id}/create-questionnaire",
@@ -63,11 +93,12 @@ class QuestionnaireController(UserAwareController):
         permissions=[OrganizationPermission("create_questionnaire")],
     )
     def create_org_questionnaire(
-        self, organization_id: UUID, payload: questionnaire_schema.QuestionnaireCreateSchema
+        self, organization_id: UUID, payload: event_schema.OrganizationQuestionnaireCreateSchema
     ) -> event_models.OrganizationQuestionnaire:
-        """Create a new admission questionnaire for an organization (admin only).
+        """Create a new questionnaire for an organization (admin only).
 
-        Sets up an empty questionnaire structure. After creation, add sections and questions via
+        Creates a questionnaire with specified type (admission, membership, feedback, or generic)
+        and optional max_submission_age. After creation, add sections and questions via
         POST /questionnaires/{id}/sections and /multiple-choice-questions endpoints. Requires
         'create_questionnaire' permission (organization staff/owners).
         """
@@ -75,10 +106,14 @@ class QuestionnaireController(UserAwareController):
             event_models.Organization,
             self.get_object_or_exception(self.get_organization_queryset(), pk=organization_id),
         )
-        questionnaire = QuestionnaireService.create_questionnaire(payload)
-        return event_models.OrganizationQuestionnaire.objects.create(
-            organization=organization, questionnaire=questionnaire
-        )
+        with transaction.atomic():
+            questionnaire = QuestionnaireService.create_questionnaire(payload)
+            return event_models.OrganizationQuestionnaire.objects.create(
+                organization=organization,
+                questionnaire=questionnaire,
+                max_submission_age=payload.max_submission_age,
+                questionnaire_type=payload.questionnaire_type,
+            )
 
     @route.get(
         "/{org_questionnaire_id}",
@@ -278,17 +313,31 @@ class QuestionnaireController(UserAwareController):
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["user__email", "user__first_name", "user__last_name"])
-    def list_submissions(self, org_questionnaire_id: UUID) -> QuerySet[questionnaires_models.QuestionnaireSubmission]:
+    def list_submissions(
+        self,
+        org_questionnaire_id: UUID,
+        params: filters.SubmissionFilterSchema = Query(...),  # type: ignore[type-arg]
+        order_by: t.Literal["submitted_at", "-submitted_at"] = "-submitted_at",
+    ) -> QuerySet[questionnaires_models.QuestionnaireSubmission]:
         """View user submissions for this questionnaire (admin only).
 
         Returns submitted questionnaires ready for review. Use this to see who has applied for
         event access and their responses. Requires 'evaluate_questionnaire' permission.
+
+        Filtering:
+        - evaluation_status: Filter by evaluation status (approved/rejected/pending review/no_evaluation)
+
+        Ordering:
+        - submitted_at: Oldest submissions first
+        - -submitted_at: Newest submissions first (default)
         """
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
         service = QuestionnaireService(org_questionnaire.questionnaire_id)
-        return service.get_submissions_queryset().filter(
+        qs = service.get_submissions_queryset().filter(
             status=questionnaires_models.QuestionnaireSubmission.Status.READY
         )
+        qs = params.filter(qs)
+        return qs.order_by(order_by)
 
     @route.get(
         "/{org_questionnaire_id}/submissions/{submission_id}",
@@ -320,24 +369,46 @@ class QuestionnaireController(UserAwareController):
         submission = get_object_or_404(qs, pk=submission_id)
 
         # Transform answers to the schema format
-        answers = []
+        # Group multiple choice answers by question (to handle multiple selections)
+        mc_answers_by_question: dict[UUID, list[dict[str, t.Any]]] = defaultdict(list)
+        mc_question_details: dict[UUID, tuple[str, str]] = {}
+
         for mc_answer in submission.multiplechoiceanswer_answers.all():
+            question_id = mc_answer.question.id
+            mc_answers_by_question[question_id].append(
+                {
+                    "option_id": mc_answer.option.id,
+                    "option_text": mc_answer.option.option,
+                    "is_correct": mc_answer.option.is_correct,
+                }
+            )
+            # Store question details (will be the same for all answers to this question)
+            if question_id not in mc_question_details:
+                mc_question_details[question_id] = (mc_answer.question.question, "multiple_choice")
+
+        # Build the answers list
+        answers = []
+
+        # Add grouped multiple choice answers
+        for question_id, options_list in mc_answers_by_question.items():
+            question_text, question_type = mc_question_details[question_id]
             answers.append(
                 questionnaire_schema.QuestionAnswerDetailSchema(
-                    question_id=mc_answer.question.id,
-                    question_text=mc_answer.question.question,
-                    question_type="multiple_choice",
-                    answer_content={"option_id": mc_answer.option.id, "option_text": mc_answer.option.option},
+                    question_id=question_id,
+                    question_text=question_text,
+                    question_type=question_type,
+                    answer_content=options_list,
                 )
             )
 
+        # Add free text answers (wrapped in list)
         for ft_answer in submission.freetextanswer_answers.all():
             answers.append(
                 questionnaire_schema.QuestionAnswerDetailSchema(
                     question_id=ft_answer.question.id,
                     question_text=ft_answer.question.question,
                     question_type="free_text",
-                    answer_content={"answer": ft_answer.answer},
+                    answer_content=[{"answer": ft_answer.answer}],
                 )
             )
 
@@ -349,6 +420,7 @@ class QuestionnaireController(UserAwareController):
             questionnaire=questionnaire_schema.QuestionnaireInListSchema(
                 id=submission.questionnaire.id,
                 name=submission.questionnaire.name,
+                status=submission.questionnaire.status,  # type: ignore[arg-type]
                 min_score=submission.questionnaire.min_score,
                 shuffle_questions=submission.questionnaire.shuffle_questions,
                 shuffle_sections=submission.questionnaire.shuffle_sections,
@@ -411,6 +483,30 @@ class QuestionnaireController(UserAwareController):
         return t.cast(
             event_models.OrganizationQuestionnaire, update_organization_questionnaire(org_questionnaire, payload)
         )
+
+    @route.post(
+        "/{org_questionnaire_id}/status/{status}",
+        url_name="update_questionnaire_status",
+        response=event_schema.OrganizationQuestionnaireSchema,
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def update_questionnaire_status(
+        self, org_questionnaire_id: UUID, status: questionnaires_models.Questionnaire.Status
+    ) -> event_models.OrganizationQuestionnaire:
+        """Update the status of a questionnaire (admin only).
+
+        Changes the questionnaire status between DRAFT, READY, and PUBLISHED.
+        - DRAFT: Questionnaire is being created/edited
+        - READY: Questionnaire is complete but not yet published
+        - PUBLISHED: Questionnaire is live and can be taken by users
+
+        Requires 'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        org_questionnaire.questionnaire.status = status
+        org_questionnaire.questionnaire.save(update_fields=["status"])
+        org_questionnaire.refresh_from_db()
+        return t.cast(event_models.OrganizationQuestionnaire, org_questionnaire)
 
     @route.delete(
         "/{org_questionnaire_id}",

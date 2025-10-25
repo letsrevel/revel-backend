@@ -31,8 +31,8 @@ def create_connect_account(organization: Organization) -> str:
 
 def create_account_link(account_id: str, organization: Organization) -> str:
     """Create a one-time onboarding link for a Stripe Connect account."""
-    refresh_url = f"{settings.FRONTEND_BASE_URL}/dashboard/org/{organization.slug}/settings?stripe_refresh=true"
-    return_url = f"{settings.FRONTEND_BASE_URL}/dashboard/org/{organization.slug}/settings?stripe_success=true"
+    refresh_url = f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/admin/settings?stripe_refresh=true"
+    return_url = f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/admin/settings?stripe_success=true"
     account_link = stripe.AccountLink.create(
         account=account_id,
         refresh_url=refresh_url,
@@ -128,10 +128,8 @@ def create_checkout_session(
             cancel_url=f"{settings.FRONTEND_BASE_URL}/events/{event.organization.slug}/{event.slug}?payment_cancelled=true",
             payment_intent_data={
                 "application_fee_amount": application_fee_amount,
-                "transfer_data": {
-                    "destination": event.organization.stripe_account_id,  # type: ignore[typeddict-item]
-                },
             },
+            stripe_account=event.organization.stripe_account_id,
             metadata={
                 "ticket_id": str(ticket.id),
                 "event_id": str(event.id),
@@ -209,3 +207,32 @@ class StripeEventHandler:
         # Send payment confirmation email (includes PDF and ICS attachments)
         send_payment_confirmation_email.delay(str(payment.id))
         logger.info(f"Successfully processed checkout.session.completed for Payment ID: {payment.id}")
+
+    @transaction.atomic
+    def handle_account_updated(self, event: stripe.Event) -> None:
+        """Handle updates to connected Stripe accounts.
+
+        This webhook fires when account details change, including when
+        charges_enabled and details_submitted status change during onboarding.
+        Automatically syncs the organization's Stripe connection status.
+        """
+        account_data = event.data.object
+        account_id = account_data["id"]
+
+        # Find the organization with this Stripe account
+        try:
+            organization = Organization.objects.get(stripe_account_id=account_id)
+        except Organization.DoesNotExist:
+            logger.warning(f"Received account.updated for unknown Stripe account: {account_id}")
+            return
+
+        # Update the organization's Stripe status
+        organization.stripe_charges_enabled = account_data.get("charges_enabled", False)
+        organization.stripe_details_submitted = account_data.get("details_submitted", False)
+        organization.save(update_fields=["stripe_charges_enabled", "stripe_details_submitted"])
+
+        logger.info(
+            f"Updated Stripe status for organization {organization.slug}: "
+            f"charges_enabled={organization.stripe_charges_enabled}, "
+            f"details_submitted={organization.stripe_details_submitted}"
+        )

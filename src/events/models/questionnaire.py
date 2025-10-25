@@ -69,7 +69,7 @@ class OrganizationQuestionnaire(TimeStampedModel):
     event_series = models.ManyToManyField(EventSeries, related_name="org_questionnaires", blank=True)
     events = models.ManyToManyField(Event, related_name="org_questionnaires", blank=True)
     questionnaire_type = models.CharField(choices=Types.choices, default=Types.ADMISSION, max_length=20, db_index=True)
-    max_submission_age = models.TimeField(null=True, blank=True, db_index=True)
+    max_submission_age = models.DurationField(null=True, blank=True, db_index=True)
 
     objects = OrganizationQuestionnaireManager()
 
