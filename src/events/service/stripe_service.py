@@ -128,10 +128,8 @@ def create_checkout_session(
             cancel_url=f"{settings.FRONTEND_BASE_URL}/events/{event.organization.slug}/{event.slug}?payment_cancelled=true",
             payment_intent_data={
                 "application_fee_amount": application_fee_amount,
-                "transfer_data": {
-                    "destination": event.organization.stripe_account_id,  # type: ignore[typeddict-item]
-                },
             },
+            stripe_account=event.organization.stripe_account_id,
             metadata={
                 "ticket_id": str(ticket.id),
                 "event_id": str(event.id),

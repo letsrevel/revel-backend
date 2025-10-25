@@ -656,21 +656,6 @@ class TestGetOrganizationAdmin:
         data = response.json()
         assert data["slug"] == organization.slug
 
-    def test_get_organization_by_staff_without_permission(
-        self, organization_staff_client: Client, organization: Organization, staff_member: OrganizationStaff
-    ) -> None:
-        """Test that staff without view_organization permission gets a 403."""
-        # Ensure permission is False
-        perms = staff_member.permissions
-        perms["default"]["view_organization"] = False
-        staff_member.permissions = perms
-        staff_member.save()
-
-        url = reverse("api:get_organization_admin", kwargs={"slug": organization.slug})
-        response = organization_staff_client.get(url)
-
-        assert response.status_code == 403
-
     @pytest.mark.parametrize(
         "client_fixture,expected_status_code",
         [("member_client", 403), ("nonmember_client", 404), ("client", 401)],

@@ -82,11 +82,9 @@ class TestCreateAccountLink:
 
         # Assert
         expected_refresh_url = (
-            f"{settings.FRONTEND_BASE_URL}/dashboard/org/{organization.slug}/settings?stripe_refresh=true"
+            f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/admin/settings?stripe_refresh=true"
         )
-        expected_return_url = (
-            f"{settings.FRONTEND_BASE_URL}/dashboard/org/{organization.slug}/settings?stripe_success=true"
-        )
+        expected_return_url = f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/admin/settings?stripe_success=true"
 
         mock_stripe_create.assert_called_once_with(
             account=account_id,
@@ -349,7 +347,7 @@ class TestCreateCheckoutSession:
         assert call_args[1]["line_items"][0]["price_data"]["unit_amount"] == 2500  # 25.00 * 100
         assert call_args[1]["line_items"][0]["price_data"]["currency"] == "eur"
         assert call_args[1]["payment_intent_data"]["application_fee_amount"] == expected_application_fee_amount
-        assert call_args[1]["payment_intent_data"]["transfer_data"]["destination"] == "acct_test123"
+        assert call_args[1]["stripe_account"] == "acct_test123"
 
         # Verify URLs
         expected_success_url = (
