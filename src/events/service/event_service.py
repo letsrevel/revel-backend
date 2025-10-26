@@ -7,6 +7,7 @@ from django.contrib.gis.geos import Point
 from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.utils import timezone
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import (
@@ -91,6 +92,35 @@ def claim_invitation(user: RevelUser, token: str) -> EventInvitation | None:
     return invitation
 
 
+def create_invitation_request(event: Event, user: RevelUser, message: str | None = None) -> EventInvitationRequest:
+    """Create an invitation request.
+
+    Args:
+        event: The event to request an invitation for.
+        user: The user requesting the invitation.
+        message: Optional message from the user explaining why they want to attend.
+
+    Returns:
+        The created EventInvitationRequest.
+
+    Raises:
+        HttpError: If the event does not accept invitation requests, the user is already invited,
+                  or a pending request already exists.
+    """
+    if not event.accept_invitation_requests:
+        raise HttpError(400, "This event does not accept invitation requests.")
+
+    if EventInvitation.objects.filter(event=event, user=user).exists():
+        raise HttpError(400, "You are already invited to this event.")
+
+    if EventInvitationRequest.objects.filter(
+        event=event, user=user, status=EventInvitationRequest.Status.PENDING
+    ).exists():
+        raise HttpError(400, "You have already requested an invitation to this event.")
+
+    return EventInvitationRequest.objects.create(event=event, user=user, message=message)
+
+
 @transaction.atomic
 def approve_invitation_request(
     invitation_request: EventInvitationRequest, decided_by: RevelUser, tier: TicketTier | None = None
@@ -98,7 +128,7 @@ def approve_invitation_request(
     """Approve an invitation request."""
     invitation_request.status = EventInvitationRequest.Status.APPROVED
     invitation_request.decided_by = decided_by
-    invitation_request.save(update_fields=["status"])
+    invitation_request.save(update_fields=["status", "decided_by"])
     EventInvitation.objects.create(event=invitation_request.event, user=invitation_request.user, tier=tier)
     return invitation_request
 

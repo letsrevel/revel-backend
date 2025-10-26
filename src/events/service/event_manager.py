@@ -123,7 +123,7 @@ class InvitationGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.REQUIRES_INVITATION),
-                next_step=NextStep.REQUEST_INVITATION,
+                next_step=NextStep.REQUEST_INVITATION if self.event.accept_invitation_requests else None,
             )
         return None
 
@@ -137,7 +137,10 @@ class MembershipGate(BaseEligibilityGate):
             return None
         if self.event.event_type == models.Event.Types.MEMBERS_ONLY and self.user.id not in self.handler.member_ids:
             return EventUserEligibility(
-                allowed=False, event_id=self.event.id, reason=_(Reasons.MEMBERS_ONLY), next_step=NextStep.BECOME_MEMBER
+                allowed=False,
+                event_id=self.event.id,
+                reason=_(Reasons.MEMBERS_ONLY),
+                next_step=NextStep.BECOME_MEMBER if self.event.organization.accept_membership_requests else None,
             )
         return None
 

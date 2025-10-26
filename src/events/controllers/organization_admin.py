@@ -231,12 +231,18 @@ class OrganizationAdminController(UserAwareController):
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    def list_membership_requests(self, slug: str) -> QuerySet[OrganizationMembershipRequest]:
-        """List all membership requests for an organization."""
+    def list_membership_requests(
+        self,
+        slug: str,
+        params: filters.MembershipRequestFilterSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[OrganizationMembershipRequest]:
+        """List all membership requests for an organization.
+
+        By default shows all requests. Use ?status=pending to filter by status.
+        """
         organization = self.get_one(slug)
-        return OrganizationMembershipRequest.objects.filter(
-            organization=organization, status=OrganizationMembershipRequest.Status.PENDING
-        ).select_related("user")
+        qs = OrganizationMembershipRequest.objects.filter(organization=organization).select_related("user")
+        return params.filter(qs)
 
     @route.post(
         "/membership-requests/{request_id}/approve",

@@ -8,7 +8,17 @@ from django.db.models import Q
 from django.utils import timezone
 from ninja import Field, FilterSchema, Schema
 
-from events.models import AdditionalResource, Event, EventSeries, Organization
+from events.models import (
+    AdditionalResource,
+    Event,
+    EventInvitationRequest,
+    EventRSVP,
+    EventSeries,
+    Organization,
+    OrganizationMembershipRequest,
+    Ticket,
+    TicketTier,
+)
 from questionnaires.models import QuestionnaireEvaluation
 
 
@@ -108,23 +118,15 @@ class OrganizationTokenFilterSchema(FilterSchema):
 class RSVPFilterSchema(FilterSchema):
     """Filter schema for event RSVPs."""
 
-    status: str | None = None
+    status: EventRSVP.Status | None = None
     user_id: UUID | None = Field(None, q="user_id")  # type: ignore[call-overload]
 
-    def filter_status(self, status: str | None) -> Q:
-        """Filter RSVPs by status."""
-        if not status:
-            return Q()
 
-        # Import here to avoid circular dependency
-        from events.models import EventRSVP
+class TicketFilterSchema(FilterSchema):
+    """Filter schema for tickets."""
 
-        # Validate the status value
-        valid_statuses = [choice.value for choice in EventRSVP.Status]
-        if status not in valid_statuses:
-            return Q()
-
-        return Q(status=status)
+    status: Ticket.Status | None = None
+    tier__payment_method: TicketTier.PaymentMethod | None = Field(None, q="tier__payment_method")  # type: ignore[call-overload]
 
 
 class DashboardOrganizationsFiltersSchema(Schema):
@@ -276,6 +278,18 @@ class QuestionnaireFilterSchema(FilterSchema):
     organization_id: UUID | None = Field(None, q="organization__id")  # type: ignore[call-overload]
     event_id: UUID | None = Field(None, q="events__id")  # type: ignore[call-overload]
     event_series_id: UUID | None = Field(None, q="event_series__id")  # type: ignore[call-overload]
+
+
+class MembershipRequestFilterSchema(FilterSchema):
+    """Filter schema for organization membership requests."""
+
+    status: OrganizationMembershipRequest.Status | None = None
+
+
+class InvitationRequestFilterSchema(FilterSchema):
+    """Filter schema for event invitation requests."""
+
+    status: EventInvitationRequest.Status | None = None
 
 
 class SubmissionFilterSchema(FilterSchema):

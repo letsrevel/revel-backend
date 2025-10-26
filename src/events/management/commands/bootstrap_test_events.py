@@ -133,13 +133,11 @@ and access control scenario in the Revel platform. Perfect for frontend testing!
         Tag.objects.get_or_create(name="test", defaults={"color": "#FF6B6B"})
         self.org.add_tags("tech", "test")
 
-        # Create organization settings
-        events_models.OrganizationSettings.objects.filter(organization=self.org).update(
-            accept_new_members=True,
-            contact_email="test@eligibility.example.com",
-            contact_email_verified=True,
-            membership_requests_methods=["email", "webform"],
-        )
+        # Update organization settings
+        self.org.accept_membership_requests = True
+        self.org.contact_email = "test@eligibility.example.com"
+        self.org.contact_email_verified = True
+        self.org.save()
 
         logger.info(f"Created organization: {self.org.name}")
 

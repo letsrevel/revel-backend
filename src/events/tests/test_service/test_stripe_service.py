@@ -519,6 +519,7 @@ class TestStripeEventHandler:
         mock_session_data = {
             "id": "cs_test123",
             "payment_status": "paid",
+            "payment_intent": "pi_test123",
         }
 
         # Create a dictionary representing the full event for the test
@@ -535,6 +536,7 @@ class TestStripeEventHandler:
         # Assert
         completed_payment.refresh_from_db()
         assert completed_payment.status == Payment.Status.SUCCEEDED
+        assert completed_payment.stripe_payment_intent_id == "pi_test123"
         # The assertion now works because handler.event is iterable
         assert completed_payment.raw_response == dict(handler.event)
 
@@ -597,3 +599,177 @@ class TestStripeEventHandler:
         # Act & Assert
         with pytest.raises(Http404):
             handler.handle_checkout_session_completed(handler.event)
+
+    def test_handle_charge_refunded_success(
+        self,
+        handler: stripe_service.StripeEventHandler,
+        completed_payment: Payment,
+    ) -> None:
+        """Test successful refund processing."""
+        # Arrange
+        completed_payment.status = Payment.Status.SUCCEEDED
+        completed_payment.stripe_payment_intent_id = "pi_test123"
+        completed_payment.save()
+
+        ticket = completed_payment.ticket
+        ticket.status = Ticket.Status.ACTIVE
+        ticket.save()
+
+        tier = ticket.tier
+        tier.quantity_sold = 5
+        tier.save()
+
+        mock_charge_data = {
+            "id": "ch_test123",
+            "payment_intent": "pi_test123",
+        }
+
+        event_dict_data = {"type": "charge.refunded", "data": {"object": mock_charge_data}}
+        handler.event.type = event_dict_data["type"]
+        handler.event.data.object = event_dict_data["data"]["object"]  # type: ignore[index]
+        handler.event.__iter__.return_value = iter(event_dict_data.items())  # type: ignore[attr-defined]
+
+        # Act
+        handler.handle_charge_refunded(handler.event)
+
+        # Assert
+        completed_payment.refresh_from_db()
+        assert completed_payment.status == Payment.Status.REFUNDED
+        assert completed_payment.raw_response == dict(handler.event)
+
+        ticket.refresh_from_db()
+        assert ticket.status == Ticket.Status.CANCELLED
+
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 4  # Restored from 5 to 4
+
+    def test_handle_charge_refunded_idempotent(
+        self,
+        handler: stripe_service.StripeEventHandler,
+        completed_payment: Payment,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test that duplicate refund webhooks are handled idempotently."""
+        # Arrange
+        completed_payment.status = Payment.Status.REFUNDED
+        completed_payment.stripe_payment_intent_id = "pi_test123"
+        completed_payment.save()
+
+        mock_charge_data = {
+            "id": "ch_test123",
+            "payment_intent": "pi_test123",
+        }
+        handler.event.data.object = mock_charge_data
+
+        # Act
+        handler.handle_charge_refunded(handler.event)
+
+        # Assert
+        assert "already refunded payment" in caplog.text
+
+    def test_handle_charge_refunded_unknown_payment(
+        self,
+        handler: stripe_service.StripeEventHandler,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test refund webhook for unknown payment is logged."""
+        # Arrange
+        mock_charge_data = {
+            "id": "ch_test123",
+            "payment_intent": "pi_unknown",
+        }
+        handler.event.data.object = mock_charge_data
+
+        # Act
+        handler.handle_charge_refunded(handler.event)
+
+        # Assert
+        assert "unknown payment_intent" in caplog.text
+
+    def test_handle_payment_intent_canceled_success(
+        self,
+        handler: stripe_service.StripeEventHandler,
+        completed_payment: Payment,
+    ) -> None:
+        """Test successful payment intent cancellation processing."""
+        # Arrange
+        completed_payment.status = Payment.Status.PENDING
+        completed_payment.stripe_payment_intent_id = "pi_test123"
+        completed_payment.save()
+
+        ticket = completed_payment.ticket
+        ticket.status = Ticket.Status.PENDING
+        ticket.save()
+
+        tier = ticket.tier
+        tier.quantity_sold = 5
+        tier.save()
+
+        mock_payment_intent_data = {
+            "id": "pi_test123",
+            "status": "canceled",
+        }
+
+        event_dict_data = {"type": "payment_intent.canceled", "data": {"object": mock_payment_intent_data}}
+        handler.event.type = event_dict_data["type"]
+        handler.event.data.object = event_dict_data["data"]["object"]  # type: ignore[index]
+        handler.event.__iter__.return_value = iter(event_dict_data.items())  # type: ignore[attr-defined]
+
+        # Act
+        handler.handle_payment_intent_canceled(handler.event)
+
+        # Assert
+        completed_payment.refresh_from_db()
+        assert completed_payment.status == Payment.Status.FAILED
+        assert completed_payment.raw_response == dict(handler.event)
+
+        ticket.refresh_from_db()
+        assert ticket.status == Ticket.Status.CANCELLED
+
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 4  # Restored from 5 to 4
+
+    def test_handle_payment_intent_canceled_non_pending_ignored(
+        self,
+        handler: stripe_service.StripeEventHandler,
+        completed_payment: Payment,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test that payment_intent.canceled for non-pending payment is ignored."""
+        # Arrange
+        completed_payment.status = Payment.Status.SUCCEEDED
+        completed_payment.stripe_payment_intent_id = "pi_test123"
+        completed_payment.save()
+
+        mock_payment_intent_data = {
+            "id": "pi_test123",
+            "status": "canceled",
+        }
+        handler.event.data.object = mock_payment_intent_data
+
+        # Act
+        handler.handle_payment_intent_canceled(handler.event)
+
+        # Assert
+        assert "non-pending payment" in caplog.text
+        completed_payment.refresh_from_db()
+        assert completed_payment.status == Payment.Status.SUCCEEDED  # Unchanged
+
+    def test_handle_payment_intent_canceled_unknown_payment(
+        self,
+        handler: stripe_service.StripeEventHandler,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test payment_intent.canceled for unknown payment is logged as debug."""
+        # Arrange
+        mock_payment_intent_data = {
+            "id": "pi_unknown",
+            "status": "canceled",
+        }
+        handler.event.data.object = mock_payment_intent_data
+
+        # Act
+        handler.handle_payment_intent_canceled(handler.event)
+
+        # Assert - No error raised, just logged at debug level
+        # Note: caplog won't capture debug logs by default, but we're just checking it doesn't crash

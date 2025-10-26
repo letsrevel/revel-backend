@@ -636,12 +636,12 @@ def test_submit_questionnaire_anonymous_fails(
     assert response.status_code == 401
 
 
-# --- Tests for POST /events/{event_id}/request-invitation ---
+# --- Tests for POST /events/{event_id}/invitation-requests ---
 
 
 def test_request_invitation_success(nonmember_client: Client, public_event: Event) -> None:
     """Test that a user can successfully request an invitation to a private event."""
-    url = reverse("api:request_invitation", kwargs={"event_id": public_event.pk})
+    url = reverse("api:create_invitation_request", kwargs={"event_id": public_event.pk})
     payload = {"message": "Please let me in!"}
     response = nonmember_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
@@ -658,16 +658,16 @@ def test_request_invitation_duplicate_fails(
     # First request
     models.EventInvitationRequest.objects.create(event=public_event, user=nonmember_user, message="First try")
 
-    url = reverse("api:request_invitation", kwargs={"event_id": public_event.pk})
+    url = reverse("api:create_invitation_request", kwargs={"event_id": public_event.pk})
     payload = {"message": "Second try"}
     response = nonmember_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 400
-    assert "You have already requested an invitation to this event" in response.json()["message"]
+    assert "You have already requested an invitation to this event" in response.json()["detail"]
     assert models.EventInvitationRequest.objects.count() == 1
 
 
-# --- Tests for GET /events/me/pending_invitation_requests ---
+# --- Tests for GET /events/me/pending-invitation-requests ---
 
 
 def test_get_my_pending_invitation_requests_success(

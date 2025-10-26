@@ -15,8 +15,6 @@ from events.models import (
     EventInvitation,
     EventRSVP,
     GeneralUserPreferences,
-    Organization,
-    OrganizationSettings,
     PendingEventInvitation,
     PotluckItem,
     Ticket,
@@ -79,16 +77,6 @@ def handle_event_save(sender: type[Event], instance: Event, created: bool, **kwa
     # Send notification when event status changes to OPEN
     # Note: For now, we'll rely on manual triggering or a separate management command
     # TODO: Implement proper status change detection using django-model-utils or custom tracking
-
-
-@receiver(post_save, sender=Organization)
-def handle_organization_creation(
-    sender: type[Organization], instance: Organization, created: bool, **kwargs: t.Any
-) -> None:
-    """Creates OrganizationSettings when a new Organization is created."""
-    if created:
-        logger.info(f"New Organization created (ID: {instance.id}). Creating settings.")
-        OrganizationSettings.objects.create(organization=instance)
 
 
 @receiver(post_save, sender=RevelUser)

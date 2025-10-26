@@ -214,15 +214,14 @@ that bring communities together.
         org_alpha.staff_members.add(self.users["org_alpha_staff"])
         org_alpha.members.add(self.users["org_alpha_member"], self.users["multi_org_user"])
         org_alpha.add_tags("community", "music", "arts")
-        self.orgs["alpha"] = org_alpha
 
-        # Create settings for org alpha
-        events_models.OrganizationSettings.objects.filter(organization=org_alpha).update(
-            accept_new_members=True,
-            contact_email="hello@revelcollective.example.com",
-            contact_email_verified=True,
-            membership_requests_methods=["email", "webform"],
-        )
+        # Update organization settings
+        org_alpha.accept_membership_requests = True
+        org_alpha.contact_email = "hello@revelcollective.example.com"
+        org_alpha.contact_email_verified = True
+        org_alpha.save()
+
+        self.orgs["alpha"] = org_alpha
 
         # Organization Beta - Members-only organization
         org_beta = events_models.Organization.objects.create(
@@ -254,15 +253,14 @@ who want to shape the future.
             self.users["attendee_1"],
         )
         org_beta.add_tags("tech", "professional", "networking")
-        self.orgs["beta"] = org_beta
 
-        # Create settings for org beta
-        events_models.OrganizationSettings.objects.filter(organization=org_beta).update(
-            accept_new_members=True,
-            contact_email="info@techinnovators.example.com",
-            contact_email_verified=True,
-            membership_requests_methods=["email"],
-        )
+        # Update organization settings
+        org_beta.accept_membership_requests = True
+        org_beta.contact_email = "info@techinnovators.example.com"
+        org_beta.contact_email_verified = True
+        org_beta.save()
+
+        self.orgs["beta"] = org_beta
 
         logger.info(f"Created {len(self.orgs)} organizations")
 
