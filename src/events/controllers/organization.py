@@ -102,7 +102,9 @@ class OrganizationController(UserAwareController):
         auth=JWTAuth(),
         throttle=UserRequestThrottle(),
     )
-    def create_membership_request(self, slug: str) -> models.OrganizationMembershipRequest:
+    def create_membership_request(
+        self, slug: str, payload: schema.OrganizationMembershipRequestCreateSchema
+    ) -> models.OrganizationMembershipRequest:
         """Submit a request to become a member of this organization.
 
         Creates a membership request that organization admins can approve or reject. Being a
@@ -110,7 +112,7 @@ class OrganizationController(UserAwareController):
         request for tracking status.
         """
         organization = self.get_one(slug)
-        return organization_service.create_membership_request(organization, self.user())
+        return organization_service.create_membership_request(organization, self.user(), message=payload.message)
 
     @route.post(
         "/claim-invitation/{token}",

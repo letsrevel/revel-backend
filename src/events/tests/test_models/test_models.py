@@ -14,7 +14,7 @@ from events.models import (
     Organization,
     OrganizationStaff,
 )
-from events.models.organization import _validate_membership_request_methods, _validate_permissions
+from events.models.organization import _validate_permissions
 
 
 @pytest.mark.django_db
@@ -95,12 +95,6 @@ def test_event_resource_missing_required_field(event: Event) -> None:
 def test_validate_permissions() -> None:
     with pytest.raises(ValidationError):
         _validate_permissions({"foo": "bar"})
-
-
-def test_validate_membership_request_methods() -> None:
-    _validate_membership_request_methods(["telegram"])  # doesn't raise
-    with pytest.raises(ValidationError):
-        _validate_membership_request_methods(["foo"])
 
 
 @pytest.mark.django_db

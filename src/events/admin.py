@@ -7,7 +7,7 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
-from unfold.admin import ModelAdmin, StackedInline, TabularInline
+from unfold.admin import ModelAdmin, TabularInline
 from unfold.widgets import CHECKBOX_CLASSES
 
 from . import models
@@ -90,20 +90,6 @@ class OrganizationStaffForm(forms.ModelForm):  # type: ignore[type-arg]
         return t.cast(models.OrganizationStaff, super().save(commit))
 
 
-class OrganizationSettingsForm(forms.ModelForm):  # type: ignore[type-arg]
-    """Custom form to provide choices for the JSONField."""
-
-    membership_requests_methods = forms.MultipleChoiceField(
-        choices=[(v, v) for v in models.ALLOWED_MEMBERSHIP_REQUEST_METHODS],
-        widget=forms.CheckboxSelectMultiple,
-        required=False,
-    )
-
-    class Meta:
-        model = models.OrganizationSettings
-        fields = "__all__"
-
-
 # --- Inlines ---
 class OrganizationStaffInline(TabularInline):  # type: ignore[misc]
     model = models.OrganizationStaff
@@ -117,11 +103,6 @@ class OrganizationMemberInline(TabularInline):  # type: ignore[misc]
     model = models.OrganizationMember
     extra = 1
     autocomplete_fields = ["user"]
-
-
-class OrganizationSettingsInline(StackedInline):  # type: ignore[misc]
-    model = models.OrganizationSettings
-    form = OrganizationSettingsForm
 
 
 class EventSeriesInline(TabularInline):  # type: ignore[misc]
@@ -202,7 +183,6 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     ]
 
     inlines = [
-        OrganizationSettingsInline,
         OrganizationStaffInline,
         OrganizationMemberInline,
         EventSeriesInline,
@@ -256,6 +236,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
                     ("max_attendees",),
                     ("free_for_members", "free_for_staff", "waitlist_open", "potluck_open"),
                     "requires_ticket",
+                    ("check_in_starts_at", "check_in_ends_at"),
                 )
             },
         ),

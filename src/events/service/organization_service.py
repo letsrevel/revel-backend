@@ -4,6 +4,7 @@ from django.db import transaction
 from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events import models
@@ -19,8 +20,13 @@ from events.models import (
 from events.models.organization import _get_default_permissions
 
 
-def create_membership_request(organization: Organization, user: RevelUser) -> OrganizationMembershipRequest:
+def create_membership_request(
+    organization: Organization, user: RevelUser, message: str | None = None
+) -> OrganizationMembershipRequest:
     """Create a membership request."""
+    if not organization.accept_membership_requests:
+        raise HttpError(400, "The organization does not accept new members.")
+
     if models.OrganizationMember.objects.filter(organization=organization, user=user).exists():
         raise AlreadyMemberError
 
@@ -29,7 +35,7 @@ def create_membership_request(organization: Organization, user: RevelUser) -> Or
     ).exists():
         raise PendingMembershipRequestExistsError
 
-    return OrganizationMembershipRequest.objects.create(organization=organization, user=user)
+    return OrganizationMembershipRequest.objects.create(organization=organization, user=user, message=message)
 
 
 @transaction.atomic

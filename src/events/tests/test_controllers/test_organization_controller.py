@@ -172,8 +172,8 @@ class TestCreateMembershipRequest:
         organization.visibility = Organization.Visibility.PUBLIC
         organization.save()
         url = reverse("api:create_membership_request", kwargs={"slug": organization.slug})
-        response = nonmember_client.post(url)
-        assert response.status_code == 200
+        response = nonmember_client.post(url, content_type="application/json")
+        assert response.status_code == 200, response.json()
         assert OrganizationMembershipRequest.objects.filter(organization=organization, user=nonmember_user).exists()
 
     def test_create_membership_request_unauthorized(self, client: Client, organization: Organization) -> None:

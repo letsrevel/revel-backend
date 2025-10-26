@@ -175,6 +175,7 @@ class Event(
     free_for_staff = models.BooleanField(default=True)
     requires_ticket = models.BooleanField(default=True)  # If False, managed via RSVPs
     potluck_open = models.BooleanField(default=False)
+    accept_invitation_requests = models.BooleanField(default=False)
 
     attendee_count = models.PositiveIntegerField(default=0, editable=False)
 
@@ -247,12 +248,7 @@ class Event(
         if not self.status == self.Status.OPEN:
             return False
 
-        # If check-in window is explicitly defined, use it
-        if self.check_in_starts_at and self.check_in_ends_at:
-            return self.check_in_starts_at <= now <= self.check_in_ends_at
-
-        # If no check-in window is defined, default to event start/end times
-        return self.start <= now <= self.end
+        return (self.check_in_starts_at or self.start) <= now <= (self.check_in_ends_at or self.end)
 
     def ics(self) -> bytes:
         """Generates an iCalendar (.ics) file for this event.
@@ -540,6 +536,9 @@ class Payment(TimeStampedModel):
     ticket = models.OneToOneField(Ticket, on_delete=models.PROTECT, related_name="payment")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="payments")
     stripe_session_id = models.CharField(max_length=255, unique=True, db_index=True)
+    stripe_payment_intent_id = models.CharField(
+        max_length=255, null=True, blank=True, db_index=True, help_text="Stripe PaymentIntent ID for refund processing"
+    )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     platform_fee = models.DecimalField(max_digits=10, decimal_places=2)

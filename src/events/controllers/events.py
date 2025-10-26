@@ -158,15 +158,15 @@ class EventController(UserAwareController):
         return EventManager(self.user(), event).check_eligibility()
 
     @route.post(
-        "/{event_id}/request-invitation",
-        url_name="request_invitation",
-        response={201: schema.EventInvitationRequestSchema, 400: ResponseMessage},
+        "/{event_id}/invitation-requests",
+        url_name="create_invitation_request",
+        response={201: schema.EventInvitationRequestSchema},
         auth=JWTAuth(),
         throttle=WriteThrottle(),
     )
-    def request_invitation(
+    def create_invitation_request(
         self, event_id: UUID, payload: schema.EventInvitationRequestCreateSchema
-    ) -> tuple[int, models.EventInvitationRequest | ResponseMessage]:
+    ) -> tuple[int, models.EventInvitationRequest]:
         """Submit a request to be invited to a private or invite-only event.
 
         Creates an invitation request that event organizers can approve or reject. Include an
@@ -175,14 +175,7 @@ class EventController(UserAwareController):
         need an invitation.
         """
         event = self.get_one(event_id)
-        invitation_request, created = models.EventInvitationRequest.objects.get_or_create(
-            event=event,
-            user=self.user(),
-            defaults=payload.model_dump(),
-        )
-        if not created:
-            return 400, ResponseMessage(message="You have already requested an invitation to this event.")
-        return 201, invitation_request
+        return 201, event_service.create_invitation_request(event, self.user(), message=payload.message)
 
     @route.get(
         "/{event_id}/resources",
@@ -207,7 +200,7 @@ class EventController(UserAwareController):
         return params.filter(qs)
 
     @route.delete(
-        "/invitation-request/{request_id}",
+        "/invitation-requests/{request_id}",
         url_name="delete_invitation_request",
         response={204: None},
         auth=JWTAuth(),
@@ -225,7 +218,7 @@ class EventController(UserAwareController):
         return 204, None
 
     @route.get(
-        "/me/pending_invitation_requests",
+        "/me/pending-invitation-requests",
         url_name="list_user_invitation_requests",
         response=PaginatedResponseSchema[schema.EventInvitationRequestSchema],
         auth=JWTAuth(),

@@ -242,4 +242,7 @@ class PermissionController(UserAwareController):
         }
         staff_perms = {str(perm.organization.id): perm.permissions for perm in perms}
         permissions = {**staff_perms, **owner_perms}
-        return schema.OrganizationPermissionsSchema(organization_permissions=permissions)
+        memberships = list(
+            models.OrganizationMember.objects.filter(user=user).values_list("organization_id", flat=True)
+        )
+        return schema.OrganizationPermissionsSchema(organization_permissions=permissions, memberships=memberships)

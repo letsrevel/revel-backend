@@ -40,7 +40,7 @@ class MinimalRevelUserSchema(ModelSchema):
 class MemberUserSchema(ModelSchema):
     class Meta:
         model = RevelUser
-        fields = ["email", "phone_number", "preferred_name", "pronouns", "first_name", "last_name"]
+        fields = ["id", "email", "phone_number", "preferred_name", "pronouns", "first_name", "last_name"]
 
 
 class TOTPProvisioningUriSchema(Schema):

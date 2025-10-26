@@ -197,8 +197,9 @@ class StripeEventHandler:
             return  # Webhook already processed, idempotent
 
         payment.status = Payment.Status.SUCCEEDED
+        payment.stripe_payment_intent_id = session.get("payment_intent")
         payment.raw_response = dict(event)
-        payment.save(update_fields=["status", "raw_response"])
+        payment.save(update_fields=["status", "stripe_payment_intent_id", "raw_response"])
 
         ticket = payment.ticket
         ticket.status = Ticket.Status.ACTIVE
@@ -235,4 +236,105 @@ class StripeEventHandler:
             f"Updated Stripe status for organization {organization.slug}: "
             f"charges_enabled={organization.stripe_charges_enabled}, "
             f"details_submitted={organization.stripe_details_submitted}"
+        )
+
+    @transaction.atomic
+    def handle_charge_refunded(self, event: stripe.Event) -> None:
+        """Handle refund events from Stripe.
+
+        When a connected account issues a refund (via Dashboard or API),
+        this webhook updates the payment and ticket status.
+        Stripe automatically refunds application fees proportionally.
+        """
+        charge_data = event.data.object
+        payment_intent_id = charge_data.get("payment_intent")
+
+        if not payment_intent_id:
+            logger.warning(f"Received charge.refunded without payment_intent: {charge_data.get('id')}")
+            return
+
+        # Find the payment by payment_intent_id
+        try:
+            payment = Payment.objects.select_related("ticket", "ticket__tier").get(
+                stripe_payment_intent_id=payment_intent_id
+            )
+        except Payment.DoesNotExist:
+            logger.warning(f"Received charge.refunded for unknown payment_intent: {payment_intent_id}")
+            return
+
+        # Idempotency check
+        if payment.status == Payment.Status.REFUNDED:
+            logger.warning(f"Webhook for already refunded payment {payment.id} received. Ignoring.")
+            return
+
+        # Update payment status
+        payment.status = Payment.Status.REFUNDED
+        payment.raw_response = dict(event)
+        payment.save(update_fields=["status", "raw_response"])
+
+        # Cancel the ticket
+        ticket = payment.ticket
+        ticket.status = Ticket.Status.CANCELLED
+        ticket.save(update_fields=["status"])
+
+        # Restore ticket quantity
+        from django.db.models import F
+
+        TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
+
+        logger.info(
+            f"Processed refund for Payment {payment.id}: "
+            f"Payment set to REFUNDED, Ticket {ticket.id} set to CANCELLED, quantity restored"
+        )
+
+    @transaction.atomic
+    def handle_payment_intent_canceled(self, event: stripe.Event) -> None:
+        """Handle canceled payment intents.
+
+        This fires when a payment is canceled before being captured.
+        For example, when a checkout session expires without payment.
+        """
+        payment_intent_data = event.data.object
+        payment_intent_id = payment_intent_data.get("id")
+
+        if not payment_intent_id:
+            logger.warning("Received payment_intent.canceled without id")
+            return
+
+        # Find the payment by payment_intent_id
+        try:
+            payment = Payment.objects.select_related("ticket", "ticket__tier").get(
+                stripe_payment_intent_id=payment_intent_id
+            )
+        except Payment.DoesNotExist:
+            # This is expected for sessions that expire naturally before payment
+            logger.debug(f"Received payment_intent.canceled for unknown payment_intent: {payment_intent_id}")
+            return
+
+        # Only update if payment is still pending
+        if payment.status != Payment.Status.PENDING:
+            logger.info(
+                f"Received payment_intent.canceled for non-pending payment {payment.id} "
+                f"(status: {payment.status}). Ignoring."
+            )
+            return
+
+        # Update payment status to failed (canceled before capture)
+        payment.status = Payment.Status.FAILED
+        payment.raw_response = dict(event)
+        payment.save(update_fields=["status", "raw_response"])
+
+        # Cancel the ticket
+        ticket = payment.ticket
+        ticket.status = Ticket.Status.CANCELLED
+        ticket.save(update_fields=["status"])
+
+        # Restore ticket quantity
+        from django.db.models import F
+
+        TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
+
+        logger.info(
+            f"Processed payment_intent.canceled for Payment {payment.id}: "
+            f"Payment set to FAILED, Ticket {ticket.id} set to CANCELLED, quantity restored"
         )

@@ -4,7 +4,16 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import AwareDatetime, BaseModel, EmailStr, Field, field_serializer, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    EmailStr,
+    Field,
+    StringConstraints,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 from accounts.schema import MemberUserSchema, MinimalRevelUserSchema
 from common.schema import OneToOneFiftyString, OneToSixtyFourString, StrippedString
@@ -16,6 +25,7 @@ from events.models import (
     Organization,
     OrganizationMembershipRequest,
     OrganizationQuestionnaire,
+    Payment,
     PermissionsSchema,
     Ticket,
     TicketTier,
@@ -64,6 +74,8 @@ class TaggableSchemaMixin(Schema):
 class OrganizationEditSchema(CityEditMixin):
     description: StrippedString = ""
     visibility: Organization.Visibility
+    accept_membership_requests: bool = False
+    contact_email: EmailStr | None = None
 
 
 class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin):
@@ -77,6 +89,9 @@ class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin):
     visibility: Organization.Visibility
     is_stripe_connected: bool
     platform_fee_percent: Decimal | None = Field(None, ge=0, le=100)
+    accept_membership_requests: bool
+    contact_email: str | None = None
+    contact_email_verified: bool
 
 
 class OrganizationAdminDetailSchema(CityRetrieveMixin, TaggableSchemaMixin):
@@ -96,6 +111,9 @@ class OrganizationAdminDetailSchema(CityRetrieveMixin, TaggableSchemaMixin):
     stripe_account_id: str | None = None
     stripe_charges_enabled: bool
     stripe_details_submitted: bool
+    accept_membership_requests: bool
+    contact_email: str | None = None
+    contact_email_verified: bool
 
 
 class EventSeriesRetrieveSchema(TaggableSchemaMixin):
@@ -131,8 +149,9 @@ class EventEditSchema(CityEditMixin):
     event_series_id: UUID | None = None
     free_for_members: bool = False
     free_for_staff: bool = True
-    requires_ticket: bool = False
+    # requires_ticket: bool = False
     potluck_open: bool = False
+    accept_invitation_requests: bool = False
 
 
 class EventCreateSchema(EventEditSchema):
@@ -165,6 +184,7 @@ class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
     requires_ticket: bool
     potluck_open: bool
     attendee_count: int
+    accept_invitation_requests: bool
 
 
 class EventInListSchema(EventBaseSchema):
@@ -241,6 +261,72 @@ class TierSchema(ModelSchema):
         ]
 
 
+Currencies = t.Literal[
+    "EUR",  # Euro
+    "USD",  # US Dollar
+    "GBP",  # British Pound Sterling
+    "JPY",  # Japanese Yen
+    "AUD",  # Australian Dollar
+    "CAD",  # Canadian Dollar
+    "CHF",  # Swiss Franc
+    "CNY",  # Chinese Yuan Renminbi
+    "HKD",  # Hong Kong Dollar
+    "NZD",  # New Zealand Dollar
+    "SEK",  # Swedish Krona
+    "KRW",  # South Korean Won
+    "SGD",  # Singapore Dollar
+    "NOK",  # Norwegian Krone
+    "MXN",  # Mexican Peso
+    "INR",  # Indian Rupee
+    "RUB",  # Russian Ruble
+    "ZAR",  # South African Rand
+    "TRY",  # Turkish Lira
+    "BRL",  # Brazilian Real
+    "TWD",  # New Taiwan Dollar
+    "DKK",  # Danish Krone
+    "PLN",  # Polish Zloty
+    "THB",  # Thai Baht
+    "IDR",  # Indonesian Rupiah
+    "HUF",  # Hungarian Forint
+    "CZK",  # Czech Koruna
+    "ILS",  # Israeli Shekel
+    "AED",  # UAE Dirham
+    "SAR",  # Saudi Riyal
+    "MYR",  # Malaysian Ringgit
+    "PHP",  # Philippine Peso
+    "CLP",  # Chilean Peso
+    "COP",  # Colombian Peso
+    "PKR",  # Pakistani Rupee
+    "EGP",  # Egyptian Pound
+    "NGN",  # Nigerian Naira
+    "VND",  # Vietnamese Dong
+    "BDT",  # Bangladeshi Taka
+    "ARS",  # Argentine Peso
+    "QAR",  # Qatari Riyal
+    "KWD",  # Kuwaiti Dinar
+    "BHD",  # Bahraini Dinar
+    "OMR",  # Omani Rial
+    "MAD",  # Moroccan Dirham
+    "KES",  # Kenyan Shilling
+    "UAH",  # Ukrainian Hryvnia
+    "RON",  # Romanian Leu
+    "BGN",  # Bulgarian Lev
+    "HRK",  # Croatian Kuna (still valid for legacy data)
+    "ISK",  # Icelandic Krona
+]
+
+
+class PaymentSchema(ModelSchema):
+    """Public representation of a Payment record."""
+
+    status: Payment.Status
+    currency: Currencies
+
+    class Meta:
+        model = Payment
+        exclude = ["user", "ticket", "raw_response"]
+
+
 class EventTicketSchema(ModelSchema):
     event_id: UUID | None
     tier: TierSchema | None = None
@@ -251,11 +337,12 @@ class EventTicketSchema(ModelSchema):
         fields = ["id", "status", "tier", "checked_in_at"]
 
 
-class PendingTicketSchema(ModelSchema):
+class AdminTicketSchema(ModelSchema):
     """Schema for pending tickets in admin interface."""
 
     user: MemberUserSchema
     tier: TierSchema
+    payment: PaymentSchema | None = None
 
     class Meta:
         model = Ticket
@@ -280,6 +367,7 @@ class CheckInResponseSchema(ModelSchema):
 
 
 class OrganizationPermissionsSchema(Schema):
+    memberships: list[UUID] = Field(default_factory=list)
     organization_permissions: dict[str, PermissionsSchema | t.Literal["owner"]] | None = None
 
 
@@ -514,12 +602,16 @@ class OrganizationTokenUpdateSchema(OrganizationTokenBaseSchema):
     expires_at: AwareDatetime | None = None
 
 
+class OrganizationMembershipRequestCreateSchema(Schema):
+    message: t.Annotated[str, StringConstraints(max_length=500, strip_whitespace=True)] | None = None
+
+
 class OrganizationMembershipRequestRetrieve(ModelSchema):
     user: MinimalRevelUserSchema
 
     class Meta:
         model = OrganizationMembershipRequest
-        fields = ["id", "status", "created_at", "user"]
+        fields = ["id", "status", "message", "created_at", "user"]
 
 
 class PotluckItemCreateSchema(ModelSchema):
@@ -754,61 +846,6 @@ class TicketTierPriceValidationMixin(Schema):
         if self.payment_method == TicketTier.PaymentMethod.ONLINE and self.price < Decimal("1"):
             raise ValueError("Minimum price for ONLINE payments should be at least 1.")
         return self
-
-
-Currencies = t.Literal[
-    "EUR",  # Euro
-    "USD",  # US Dollar
-    "GBP",  # British Pound Sterling
-    "JPY",  # Japanese Yen
-    "AUD",  # Australian Dollar
-    "CAD",  # Canadian Dollar
-    "CHF",  # Swiss Franc
-    "CNY",  # Chinese Yuan Renminbi
-    "HKD",  # Hong Kong Dollar
-    "NZD",  # New Zealand Dollar
-    "SEK",  # Swedish Krona
-    "KRW",  # South Korean Won
-    "SGD",  # Singapore Dollar
-    "NOK",  # Norwegian Krone
-    "MXN",  # Mexican Peso
-    "INR",  # Indian Rupee
-    "RUB",  # Russian Ruble
-    "ZAR",  # South African Rand
-    "TRY",  # Turkish Lira
-    "BRL",  # Brazilian Real
-    "TWD",  # New Taiwan Dollar
-    "DKK",  # Danish Krone
-    "PLN",  # Polish Zloty
-    "THB",  # Thai Baht
-    "IDR",  # Indonesian Rupiah
-    "HUF",  # Hungarian Forint
-    "CZK",  # Czech Koruna
-    "ILS",  # Israeli Shekel
-    "AED",  # UAE Dirham
-    "SAR",  # Saudi Riyal
-    "MYR",  # Malaysian Ringgit
-    "PHP",  # Philippine Peso
-    "CLP",  # Chilean Peso
-    "COP",  # Colombian Peso
-    "PKR",  # Pakistani Rupee
-    "EGP",  # Egyptian Pound
-    "NGN",  # Nigerian Naira
-    "VND",  # Vietnamese Dong
-    "BDT",  # Bangladeshi Taka
-    "ARS",  # Argentine Peso
-    "QAR",  # Qatari Riyal
-    "KWD",  # Kuwaiti Dinar
-    "BHD",  # Bahraini Dinar
-    "OMR",  # Omani Rial
-    "MAD",  # Moroccan Dirham
-    "KES",  # Kenyan Shilling
-    "UAH",  # Ukrainian Hryvnia
-    "RON",  # Romanian Leu
-    "BGN",  # Bulgarian Lev
-    "HRK",  # Croatian Kuna (still valid for legacy data)
-    "ISK",  # Icelandic Krona
-]
 
 
 class TicketTierCreateSchema(TicketTierPriceValidationMixin):

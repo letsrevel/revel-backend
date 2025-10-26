@@ -84,7 +84,7 @@ def check_in_ticket(event: Event, ticket_id: UUID, checked_in_by: RevelUser) -> 
     if ticket.status != Ticket.Status.ACTIVE:
         if not (
             ticket.status == Ticket.Status.PENDING
-            and ticket.tier.payment_method == TicketTier.PaymentMethod.AT_THE_DOOR
+            and ticket.tier.payment_method in (TicketTier.PaymentMethod.AT_THE_DOOR, TicketTier.PaymentMethod.OFFLINE)
         ):
             raise HttpError(400, err_msg.get(ticket.status, f"Invalid ticket status: {ticket.status}"))  # type: ignore[call-overload]
 

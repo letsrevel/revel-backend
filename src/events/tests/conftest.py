@@ -47,7 +47,7 @@ def nonmember_user(django_user_model: t.Type[RevelUser]) -> RevelUser:
 
 @pytest.fixture
 def organization(organization_owner_user: RevelUser) -> Organization:
-    return Organization.objects.create(name="Org", slug="org", owner=organization_owner_user)
+    return Organization.objects.create(name="Org", slug="org", owner=organization_owner_user, accept_membership_requests=True)
 
 
 @pytest.fixture
@@ -118,6 +118,7 @@ def public_event(organization: Organization, next_week: datetime) -> Event:
         status="open",
         start=next_week,
         end=next_week + timedelta(days=1),
+        accept_invitation_requests=True,
     )
 
 
@@ -134,6 +135,7 @@ def private_event(organization: Organization, next_week: datetime) -> Event:
         status="open",
         start=next_week,
         end=next_week + timedelta(days=1),
+        accept_invitation_requests=True,
     )
 
 

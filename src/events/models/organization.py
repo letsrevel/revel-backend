@@ -24,6 +24,12 @@ from .mixins import (
     VisibilityMixin,
 )
 
+ALLOWED_MEMBERSHIP_REQUEST_METHODS = ["telegram", "email", "webform"]  # kept for backwards compatibility
+
+
+def _validate_membership_request_methods(value: list[str]) -> None:
+    pass  # kept for backwards compatibility
+
 
 class OrganizationQuerySet(models.QuerySet["Organization"]):
     def with_tags(self) -> t.Self:
@@ -134,6 +140,9 @@ class Organization(
         default=False,
     )
     stripe_details_submitted = models.BooleanField(default=False)
+    accept_membership_requests = models.BooleanField(default=False)
+    contact_email = models.EmailField(blank=True, null=True)
+    contact_email_verified = models.BooleanField(default=False)
 
     objects = OrganizationManager()
 
@@ -167,7 +176,6 @@ class PermissionMap(BaseModel):
     edit_questionnaire: bool = False
     delete_questionnaire: bool = False
     evaluate_questionnaire: bool = True
-    manage_membership: bool = False
 
 
 class PermissionsSchema(BaseModel):
@@ -227,39 +235,6 @@ class OrganizationMember(TimeStampedModel):
         on_delete=models.CASCADE,
         related_name="organization_memberships",
     )
-
-
-ALLOWED_MEMBERSHIP_REQUEST_METHODS = ["telegram", "email", "webform"]
-
-
-def _validate_membership_request_methods(value: list[str]) -> None:
-    error_msg = f"Must be a list containing {ALLOWED_MEMBERSHIP_REQUEST_METHODS!r}"
-    if not isinstance(value, list) or not all(v in ALLOWED_MEMBERSHIP_REQUEST_METHODS for v in value):
-        raise DjangoValidationError(
-            {
-                "membership_requests_methods": error_msg,
-            }
-        )
-
-
-class OrganizationSettings(TimeStampedModel):
-    organization = models.OneToOneField(
-        Organization,
-        on_delete=models.CASCADE,
-    )
-    accept_new_members = models.BooleanField(default=False)
-    contact_email = models.EmailField(blank=True, null=True)
-    contact_email_verified = models.BooleanField(default=False)
-    webform_override_url = models.URLField(blank=True, null=True, help_text="If provided, overrides the built-in form.")
-
-    membership_requests_methods = models.JSONField(
-        default=list,
-        blank=True,
-        validators=[_validate_membership_request_methods],
-    )
-
-    class Meta:
-        verbose_name_plural = "organization settings"
 
 
 class OrganizationToken(TokenMixin):

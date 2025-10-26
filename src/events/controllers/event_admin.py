@@ -1,7 +1,8 @@
 import typing as t
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db import transaction
+from django.db.models import F, QuerySet
 from django.shortcuts import get_object_or_404
 from ninja import File, Query, Schema
 from ninja.errors import HttpError
@@ -55,7 +56,7 @@ class EventAdminController(UserAwareController):
         return t.cast(models.Event, self.get_object_or_exception(self.get_queryset(), pk=event_id))
 
     @route.put(
-        "/token/{token_id}",
+        "/tokens/{token_id}",
         url_name="edit_event_token",
         response=schema.EventTokenSchema,
     )
@@ -70,7 +71,7 @@ class EventAdminController(UserAwareController):
         return update_db_instance(token, payload)
 
     @route.delete(
-        "/token/{token_id}",
+        "/tokens/{token_id}",
         url_name="delete_event_token",
         response={204: None},
     )
@@ -99,7 +100,7 @@ class EventAdminController(UserAwareController):
         return params.filter(models.EventToken.objects.filter(event_id=event_id))
 
     @route.post(
-        "/token",
+        "/tokens",
         url_name="create_event_token",
         response=schema.EventTokenSchema,
     )
@@ -112,39 +113,50 @@ class EventAdminController(UserAwareController):
             event=event, issuer=self.user(), **payload.model_dump(exclude={"tier_id"})
         )
 
-    @route.post(
-        "/invitation-request/{request_id}/{decision}",
-        url_name="decide_invitation_request",
-        response=schema.EventInvitationRequestSchema,
-    )
-    def decide_invitation_request(
-        self, event_id: UUID, request_id: UUID, decision: t.Literal["approve", "reject"]
-    ) -> EventInvitationRequest:
-        """Request an invitation to an event."""
-        self.get_one(event_id)
-        invitation_request = get_object_or_404(EventInvitationRequest, pk=request_id)
-        if decision == "approve":
-            return event_service.approve_invitation_request(invitation_request, decided_by=self.user())
-        return event_service.reject_invitation_request(invitation_request, decided_by=self.user())
-
     @route.get(
-        "/invitation_requests",
-        url_name="list_event_invitation_requests",
+        "/invitation-requests",
+        url_name="list_invitation_requests",
         response=PaginatedResponseSchema[schema.EventInvitationRequestInternalSchema],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["event__name", "event__description", "message"])
-    def list_event_invitation_requests(
+    def list_invitation_requests(
         self,
         event_id: UUID,
-        status: models.EventInvitationRequest.Status = models.EventInvitationRequest.Status.PENDING,
+        params: filters.InvitationRequestFilterSchema = Query(...),  # type: ignore[type-arg]
     ) -> QuerySet[models.EventInvitationRequest]:
-        """List all pending invitation requests for the current user."""
-        self.get_object_or_exception(models.Event, pk=event_id)
-        return models.EventInvitationRequest.objects.select_related("user", "event").filter(
-            event_id=event_id, status=status
-        )
+        """List all invitation requests for an event.
+
+        By default shows all requests. Use ?status=pending to filter by status.
+        """
+        self.get_one(event_id)
+        qs = models.EventInvitationRequest.objects.select_related("user", "event").filter(event_id=event_id)
+        return params.filter(qs)
+
+    @route.post(
+        "/invitation-requests/{request_id}/approve",
+        url_name="approve_invitation_request",
+        response={204: None},
+    )
+    def approve_invitation_request(self, event_id: UUID, request_id: UUID) -> tuple[int, None]:
+        """Approve an invitation request."""
+        event = self.get_one(event_id)
+        invitation_request = get_object_or_404(EventInvitationRequest, pk=request_id, event=event)
+        event_service.approve_invitation_request(invitation_request, decided_by=self.user())
+        return 204, None
+
+    @route.post(
+        "/invitation-requests/{request_id}/reject",
+        url_name="reject_invitation_request",
+        response={204: None},
+    )
+    def reject_invitation_request(self, event_id: UUID, request_id: UUID) -> tuple[int, None]:
+        """Reject an invitation request."""
+        event = self.get_one(event_id)
+        invitation_request = get_object_or_404(EventInvitationRequest, pk=request_id, event=event)
+        event_service.reject_invitation_request(invitation_request, decided_by=self.user())
+        return 204, None
 
     @route.put(
         "",
@@ -326,25 +338,43 @@ class EventAdminController(UserAwareController):
         return 204, None
 
     @route.get(
-        "/pending-tickets",
-        url_name="list_pending_tickets",
-        response=PaginatedResponseSchema[schema.PendingTicketSchema],
+        "/tickets",
+        url_name="list_tickets",
+        response=PaginatedResponseSchema[schema.AdminTicketSchema],
         permissions=[EventPermission("manage_tickets")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["user__email", "user__first_name", "user__last_name", "tier__name"])
-    def list_pending_tickets(self, event_id: UUID) -> QuerySet[models.Ticket]:
-        """List all pending tickets for offline and at-the-door payment methods."""
+    @searching(
+        Searching,
+        search_fields=["user__email", "user__first_name", "user__last_name", "tier__name", "user__preferred_name"],
+    )
+    def list_tickets(
+        self,
+        event_id: UUID,
+        params: filters.TicketFilterSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[models.Ticket]:
+        """List tickets for an event with optional filters.
+
+        Supports filtering by:
+        - status: Filter by ticket status (PENDING, ACTIVE, CANCELLED, CHECKED_IN)
+        - tier__payment_method: Filter by payment method (ONLINE, OFFLINE, AT_THE_DOOR, FREE)
+        """
         event = self.get_one(event_id)
-        return models.Ticket.objects.select_related("user", "tier").filter(
-            event=event,
-            status=models.Ticket.Status.PENDING,
-            tier__payment_method__in=[
-                models.TicketTier.PaymentMethod.OFFLINE,
-                models.TicketTier.PaymentMethod.AT_THE_DOOR,
-            ],
-        )
+        qs = models.Ticket.objects.select_related("user", "tier", "payment").filter(event=event)
+        return params.filter(qs)
+
+    @route.get(
+        "/tickets/{ticket_id}",
+        url_name="get_ticket",
+        response={200: schema.AdminTicketSchema},
+        permissions=[EventPermission("manage_tickets")],
+        throttle=UserDefaultThrottle(),
+    )
+    def get_ticket(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
+        """Get a ticket by its ID."""
+        event = self.get_one(event_id)
+        return get_object_or_404(models.Ticket, pk=ticket_id, event=event)
 
     @route.post(
         "/tickets/{ticket_id}/confirm-payment",
@@ -359,7 +389,6 @@ class EventAdminController(UserAwareController):
             models.Ticket,
             pk=ticket_id,
             event=event,
-            status=models.Ticket.Status.PENDING,
             tier__payment_method__in=[
                 models.TicketTier.PaymentMethod.OFFLINE,
                 models.TicketTier.PaymentMethod.AT_THE_DOOR,
@@ -375,15 +404,98 @@ class EventAdminController(UserAwareController):
         return ticket
 
     @route.post(
-        "/check-in",
+        "/tickets/{ticket_id}/mark-refunded",
+        url_name="mark_ticket_refunded",
+        response={200: schema.EventTicketSchema},
+        permissions=[EventPermission("manage_tickets")],
+    )
+    def mark_ticket_refunded(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
+        """Mark a manual payment ticket as refunded and cancel it.
+
+        This endpoint is for offline/at-the-door tickets only.
+        Online tickets (Stripe) are automatically managed via webhooks.
+        """
+        event = self.get_one(event_id)
+        ticket = get_object_or_404(
+            models.Ticket,
+            pk=ticket_id,
+            event=event,
+            tier__payment_method__in=[
+                models.TicketTier.PaymentMethod.OFFLINE,
+                models.TicketTier.PaymentMethod.AT_THE_DOOR,
+            ],
+        )
+
+        old_status = ticket.status
+
+        # Restore ticket quantity and cancel the ticket
+        with transaction.atomic():
+            models.TicketTier.objects.select_for_update().filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
+                quantity_sold=F("quantity_sold") - 1
+            )
+            ticket.status = models.Ticket.Status.CANCELLED
+            ticket.save(update_fields=["status"])
+
+            # Mark the associated payment as refunded if it exists
+            if hasattr(ticket, "payment"):
+                ticket.payment.status = models.Payment.Status.REFUNDED
+                ticket.payment.save(update_fields=["status"])
+
+        # Send notification
+        notify_ticket_status_change(str(ticket.id), old_status)
+
+        return ticket
+
+    @route.post(
+        "/tickets/{ticket_id}/cancel",
+        url_name="cancel_ticket",
+        response={200: schema.EventTicketSchema},
+        permissions=[EventPermission("manage_tickets")],
+    )
+    def cancel_ticket(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
+        """Cancel a manual payment ticket.
+
+        This endpoint is for offline/at-the-door tickets only.
+        Online tickets (Stripe) should be refunded via Stripe Dashboard.
+        """
+        event = self.get_one(event_id)
+        ticket = get_object_or_404(
+            models.Ticket,
+            pk=ticket_id,
+            event=event,
+            tier__payment_method__in=[
+                models.TicketTier.PaymentMethod.OFFLINE,
+                models.TicketTier.PaymentMethod.AT_THE_DOOR,
+            ],
+        )
+
+        if ticket.status == models.Ticket.Status.CANCELLED:
+            raise HttpError(400, "Ticket already cancelled")
+
+        old_status = ticket.status
+
+        # Restore ticket quantity and cancel the ticket
+        with transaction.atomic():
+            models.TicketTier.objects.select_for_update().filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
+                quantity_sold=F("quantity_sold") - 1
+            )
+            ticket.status = models.Ticket.Status.CANCELLED
+            ticket.save(update_fields=["status"])
+
+        # Send notification
+        notify_ticket_status_change(str(ticket.id), old_status)
+        return ticket
+
+    @route.post(
+        "/tickets/{ticket_id}/check-in",
         url_name="check_in_ticket",
         response={200: schema.CheckInResponseSchema, 400: ValidationErrorResponse},
         permissions=[EventPermission("check_in_attendees")],
     )
-    def check_in_ticket(self, event_id: UUID, payload: schema.CheckInRequestSchema) -> models.Ticket:
+    def check_in_ticket(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
         """Check in an attendee by scanning their ticket."""
         event = self.get_one(event_id)
-        return check_in_ticket(event, payload.ticket_id, self.user())
+        return check_in_ticket(event, ticket_id, self.user())
 
     @route.post(
         "/invitations",
@@ -453,7 +565,7 @@ class EventAdminController(UserAwareController):
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["user__email", "user__first_name", "user__last_name"])
+    @searching(Searching, search_fields=["user__email", "user__first_name", "user__last_name", "user__preferred_name"])
     def list_rsvps(
         self,
         event_id: UUID,
