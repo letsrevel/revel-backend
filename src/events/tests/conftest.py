@@ -47,7 +47,9 @@ def nonmember_user(django_user_model: t.Type[RevelUser]) -> RevelUser:
 
 @pytest.fixture
 def organization(organization_owner_user: RevelUser) -> Organization:
-    return Organization.objects.create(name="Org", slug="org", owner=organization_owner_user, accept_membership_requests=True)
+    return Organization.objects.create(
+        name="Org", slug="org", owner=organization_owner_user, accept_membership_requests=True
+    )
 
 
 @pytest.fixture

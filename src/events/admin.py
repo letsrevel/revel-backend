@@ -234,7 +234,13 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
                     ("start", "end"),
                     "event_series",
                     ("max_attendees",),
-                    ("free_for_members", "free_for_staff", "waitlist_open", "potluck_open"),
+                    (
+                        "free_for_members",
+                        "free_for_staff",
+                        "waitlist_open",
+                        "potluck_open",
+                        "accept_invitation_requests",
+                    ),
                     "requires_ticket",
                     ("check_in_starts_at", "check_in_ends_at"),
                 )
