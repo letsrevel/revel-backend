@@ -45,7 +45,7 @@ class DashboardController(UserAwareController):
         response=PaginatedResponseSchema[schema.OrganizationRetrieveSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["name", "description"])
+    @searching(Searching, search_fields=["name", "description", "tags__tag__name"])
     def dashboard_organizations(
         self,
         params: filters.DashboardOrganizationsFiltersSchema = Query(...),  # type: ignore[type-arg]
@@ -81,6 +81,7 @@ class DashboardController(UserAwareController):
             "event_series__description",
             "organization__name",
             "organization__description",
+            "tags__tag__name",
         ],
     )
     def dashboard_events(
@@ -124,7 +125,7 @@ class DashboardController(UserAwareController):
         response=PaginatedResponseSchema[schema.EventSeriesRetrieveSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["name", "description"])
+    @searching(Searching, search_fields=["name", "description", "tags__tag__name"])
     def dashboard_event_series(
         self,
         params: filters.DashboardEventSeriesFiltersSchema = Query(...),  # type: ignore[type-arg]

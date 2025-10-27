@@ -44,7 +44,7 @@ class OrganizationController(UserAwareController):
 
     @route.get("/", url_name="list_organizations", response=PaginatedResponseSchema[schema.OrganizationRetrieveSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["name", "description"])
+    @searching(Searching, search_fields=["name", "description", "tags__tag__name"])
     def list_organizations(
         self,
         params: filters.OrganizationFilterSchema = Query(...),  # type: ignore[type-arg]

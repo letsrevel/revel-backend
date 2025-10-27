@@ -77,6 +77,7 @@ class EventController(UserAwareController):
             "event_series__description",
             "organization__name",
             "organization__description",
+            "tags__tag__name",
         ],
     )
     def list_events(

@@ -1,4 +1,5 @@
 import pytest
+from django.contrib.gis.geos import Point
 from django.core.cache import cache
 
 from accounts.models import RevelUser
@@ -221,7 +222,7 @@ class TestSetPreferences:
             iso2="C1",
             iso3="CY1",
             city_id=11111,
-            location="POINT(10.0 20.0)",
+            location=Point(10.0, 20.0),
             population=1000000,
         )
         city2 = City.objects.create(
@@ -231,7 +232,7 @@ class TestSetPreferences:
             iso2="C2",
             iso3="CY2",
             city_id=22222,
-            location="POINT(30.0 40.0)",
+            location=Point(30.0, 40.0),
             population=2000000,
         )
 
@@ -261,7 +262,7 @@ class TestSetPreferences:
             iso2="TC",
             iso3="TST",
             city_id=33333,
-            location="POINT(50.0 60.0)",
+            location=Point(50.0, 60.0),
             population=500000,
         )
 
@@ -291,7 +292,7 @@ class TestSetPreferences:
             iso2="RC",
             iso3="RMC",
             city_id=44444,
-            location="POINT(70.0 80.0)",
+            location=Point(70.0, 80.0),
             population=300000,
         )
         member_user.general_preferences.city = city

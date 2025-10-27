@@ -151,6 +151,7 @@ class TestGetCachedUserLocation:
         # Second call should still return cached location (old city)
         location2 = get_cached_user_location(user_with_city)
         assert location1 == location2
+        assert location2 is not None
         assert location2.x == city.location.x  # Still the old city
         assert location2.y == city.location.y
 
@@ -217,6 +218,7 @@ class TestCacheInvalidationIntegration:
 
         # First call - caches old city
         location1 = get_cached_user_location(user_with_city)
+        assert location1 is not None
         assert location1.x == city.location.x
         assert location1.y == city.location.y
 
@@ -237,6 +239,7 @@ class TestCacheInvalidationIntegration:
 
         # Without invalidation, still returns cached old city
         location2 = get_cached_user_location(user_with_city)
+        assert location2 is not None
         assert location2.x == city.location.x  # Still old
 
         # Invalidate cache
@@ -244,5 +247,6 @@ class TestCacheInvalidationIntegration:
 
         # Now should return new city
         location3 = get_cached_user_location(user_with_city)
+        assert location3 is not None
         assert location3.x == new_city.location.x
         assert location3.y == new_city.location.y

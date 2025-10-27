@@ -28,7 +28,7 @@ class EventSeriesController(UserAwareController):
         response=PaginatedResponseSchema[schema.EventSeriesRetrieveSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["name", "description", "organization__name"])
+    @searching(Searching, search_fields=["name", "description", "organization__name", "tags__tag__name"])
     def list_event_series(
         self,
         params: filters.EventSeriesFilterSchema = Query(...),  # type: ignore[type-arg]

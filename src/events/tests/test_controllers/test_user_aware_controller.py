@@ -114,7 +114,7 @@ class TestUserLocationMethod:
 
         # Create mock request with anonymous user
         request = t.cast(HttpRequest, request_factory.get("/"))
-        request.user = AnonymousUser()
+        request.user = AnonymousUser()  # type: ignore[assignment]
         request.user_location = Mock()
         request.user_location.get = Mock(return_value=ip_location)
 
@@ -182,6 +182,7 @@ class TestUserLocationMethod:
 
         # Second call - should use cache (old city)
         location2 = controller.user_location()
+        assert location2 is not None
         assert location2.x == city.location.x  # Still old city from cache
 
     def test_returns_none_when_no_location_available(
