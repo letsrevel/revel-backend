@@ -6,7 +6,6 @@ from decimal import ROUND_HALF_UP, Decimal
 import stripe
 from django.conf import settings
 from django.db import transaction
-from common.models import SiteSettings
 from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -14,6 +13,7 @@ from ninja.errors import HttpError
 from stripe.checkout import Session
 
 from accounts.models import RevelUser
+from common.models import SiteSettings
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.tasks import send_payment_confirmation_email
 
