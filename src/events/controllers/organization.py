@@ -44,7 +44,7 @@ class OrganizationController(UserAwareController):
 
     @route.get("/", url_name="list_organizations", response=PaginatedResponseSchema[schema.OrganizationRetrieveSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["name", "description"])
+    @searching(Searching, search_fields=["name", "description", "tags__tag__name"])
     def list_organizations(
         self,
         params: filters.OrganizationFilterSchema = Query(...),  # type: ignore[type-arg]
@@ -56,7 +56,7 @@ class OrganizationController(UserAwareController):
         'distance' (nearest first based on user location). Can also sort alphabetically by 'name'
         or reverse with '-name'. Supports text search and filtering.
         """
-        qs = params.filter(self.get_queryset())
+        qs = params.filter(self.get_queryset()).distinct()
         if order_by == "distance":
             return order_by_distance(self.user_location(), qs)
         return qs.order_by(order_by)
@@ -93,7 +93,7 @@ class OrganizationController(UserAwareController):
             .filter(organization=organization, display_on_organization_page=True)
             .with_related()
         )
-        return params.filter(qs)
+        return params.filter(qs).distinct()
 
     @route.post(
         "/{slug}/membership-requests",

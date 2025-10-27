@@ -122,3 +122,18 @@ def _notify_user_data_export_ready(data_export: UserDataExport) -> None:
         "accounts/emails/data_export_ready_body.html", {"download_url": download_url, "user": data_export.user}
     )
     send_email(to=data_export.user.email, subject=subject, body=body, html_body=html_body)
+
+
+@shared_task
+def delete_user_account(user_id: str) -> None:
+    """Delete a user account and all associated data in the background.
+
+    This task is designed to handle heavy deletion operations that may involve
+    many database relationships. The deletion is performed in a transaction
+    to ensure data consistency.
+
+    Args:
+        user_id: The UUID of the user to delete.
+    """
+    user = RevelUser.objects.get(id=user_id)
+    user.delete()

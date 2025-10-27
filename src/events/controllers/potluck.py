@@ -31,17 +31,21 @@ class PotluckController(UserAwareController):
         """
         event = self.get_object_or_exception(self.get_event_queryset(), pk=event_id)
         user_id = self.user().id
-        return PotluckItem.objects.filter(event=event).annotate(
-            is_assigned=Case(
-                When(assignee_id__isnull=False, then=Value(True)),
-                default=Value(False),
-                output_field=BooleanField(),
-            ),
-            is_owned=Case(
-                When(assignee_id=user_id, then=Value(True)),
-                default=Value(False),
-                output_field=BooleanField(),
-            ),
+        return (
+            PotluckItem.objects.filter(event=event)
+            .annotate(
+                is_assigned=Case(
+                    When(assignee_id__isnull=False, then=Value(True)),
+                    default=Value(False),
+                    output_field=BooleanField(),
+                ),
+                is_owned=Case(
+                    When(assignee_id=user_id, then=Value(True)),
+                    default=Value(False),
+                    output_field=BooleanField(),
+                ),
+            )
+            .distinct()
         )
 
     @route.post(

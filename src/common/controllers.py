@@ -1,5 +1,5 @@
 # src/api/controllers/tags.py (a new file)
-from django.db.models import QuerySet
+from django.db.models import Count, QuerySet
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
@@ -19,6 +19,6 @@ class TagController(UserAwareController):
 
         Tags are used to categorize organizations, events, and series. Supports autocomplete via
         the 'search' query parameter (e.g., /api/tags/?search=tech). Use this to populate tag
-        selection dropdowns or filters.
+        selection dropdowns or filters. Results are ordered by popularity (most used first).
         """
-        return Tag.objects.all()
+        return Tag.objects.annotate(usage_count=Count("assignments")).order_by("-usage_count", "name")

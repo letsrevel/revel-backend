@@ -533,8 +533,11 @@ class Payment(TimeStampedModel):
         FAILED = "failed"
         REFUNDED = "refunded"
 
-    ticket = models.OneToOneField(Ticket, on_delete=models.PROTECT, related_name="payment")
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="payments")
+    # note: we cascade on ticket and user deletion because stripe holds financial records for us/the org
+    # this is not THE BEST solution, but it's the simplest to keep local GDPR compliance.
+    # In the future, a more complex solution will be proposed
+    ticket = models.OneToOneField(Ticket, on_delete=models.CASCADE, related_name="payment")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="payments")
     stripe_session_id = models.CharField(max_length=255, unique=True, db_index=True)
     stripe_payment_intent_id = models.CharField(
         max_length=255, null=True, blank=True, db_index=True, help_text="Stripe PaymentIntent ID for refund processing"

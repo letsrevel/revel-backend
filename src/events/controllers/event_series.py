@@ -28,7 +28,7 @@ class EventSeriesController(UserAwareController):
         response=PaginatedResponseSchema[schema.EventSeriesRetrieveSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["name", "description", "organization__name"])
+    @searching(Searching, search_fields=["name", "description", "organization__name", "tags__tag__name"])
     def list_event_series(
         self,
         params: filters.EventSeriesFilterSchema = Query(...),  # type: ignore[type-arg]
@@ -39,7 +39,7 @@ class EventSeriesController(UserAwareController):
         filtered by visibility and permissions. Supports filtering by organization and text search.
         """
         qs = self.get_queryset()
-        return params.filter(qs)
+        return params.filter(qs).distinct()
 
     @route.get(
         "/{org_slug}/{series_slug}",
@@ -86,4 +86,4 @@ class EventSeriesController(UserAwareController):
         """
         series = self.get_object_or_exception(self.get_queryset(), pk=series_id)
         qs = models.AdditionalResource.objects.for_user(self.maybe_user()).filter(event_series=series).with_related()
-        return params.filter(qs)
+        return params.filter(qs).distinct()

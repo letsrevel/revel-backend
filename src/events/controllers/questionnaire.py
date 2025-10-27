@@ -83,7 +83,7 @@ class QuestionnaireController(UserAwareController):
             )
         )
 
-        return params.filter(qs)
+        return params.filter(qs).distinct()
 
     @route.post(
         "/{organization_id}/create-questionnaire",
@@ -337,7 +337,7 @@ class QuestionnaireController(UserAwareController):
             status=questionnaires_models.QuestionnaireSubmission.Status.READY
         )
         qs = params.filter(qs)
-        return qs.order_by(order_by)
+        return qs.distinct().order_by(order_by)
 
     @route.get(
         "/{org_questionnaire_id}/submissions/{submission_id}",
