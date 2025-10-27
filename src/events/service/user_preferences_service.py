@@ -18,6 +18,7 @@ from events.models import (
     UserOrganizationPreferences,
 )
 from events.service import update_db_instance
+from events.service.location_service import invalidate_user_location_cache
 from events.tasks import build_attendee_visibility_flags
 
 AnyPref = GeneralUserPreferences | UserEventPreferences | UserEventSeriesPreferences | UserOrganizationPreferences
@@ -32,6 +33,11 @@ def set_preferences(
     overwrite_children: bool = False,
 ) -> T:
     """Update preferences and optionally propagate to children."""
+    # Track old city_id before update (for location cache invalidation)
+    old_city_id = None
+    if isinstance(instance, GeneralUserPreferences):
+        old_city_id = getattr(instance, "city_id", None)
+
     updated_instance = update_db_instance(instance, payload, exclude_unset=False, exclude_defaults=False)
     visibility_changed = False
 
@@ -39,6 +45,12 @@ def set_preferences(
         old_value = getattr(instance, "show_me_on_attendee_list", None)
         new_value = getattr(updated_instance, "show_me_on_attendee_list", None)
         visibility_changed = old_value != new_value
+
+    # Invalidate location cache if city_id changed and was explicitly set in payload
+    if isinstance(updated_instance, GeneralUserPreferences) and payload and "city_id" in payload.model_fields_set:
+        new_city_id = getattr(updated_instance, "city_id", None)
+        if old_city_id != new_city_id:
+            invalidate_user_location_cache(updated_instance.user_id)
 
     if not overwrite_children or isinstance(updated_instance, UserEventPreferences):
         if visibility_changed:

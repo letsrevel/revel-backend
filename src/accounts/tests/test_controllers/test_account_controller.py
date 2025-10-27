@@ -109,7 +109,7 @@ def test_delete_account_confirm(mock_confirm_delete: MagicMock, client: Client) 
     response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 200
-    assert response.json()["message"] == "Account deleted successfully."
+    assert response.json()["message"] == "Your account deletion has been initiated and will be processed shortly."
     mock_confirm_delete.assert_called_once_with("valid.deletion.token")
 
 

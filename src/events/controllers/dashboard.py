@@ -68,7 +68,7 @@ class DashboardController(UserAwareController):
         final_org_ids = authorized_org_ids.intersection(relationship_org_ids)
 
         # 4. Fetch the final, full Organization objects. The decorators will handle pagination.
-        return models.Organization.objects.filter(id__in=final_org_ids)
+        return models.Organization.objects.filter(id__in=final_org_ids).distinct()
 
     @route.get("/events", url_name="dashboard_events", response=PaginatedResponseSchema[schema.EventInListSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -116,7 +116,7 @@ class DashboardController(UserAwareController):
         if not user.is_staff:
             qs = qs.exclude(status=models.Event.Status.DRAFT)
 
-        return qs.order_by(order_by)
+        return qs.distinct().order_by(order_by)
 
     @route.get(
         "/event_series",
@@ -146,7 +146,7 @@ class DashboardController(UserAwareController):
         final_series_ids = authorized_series_ids.intersection(relationship_series_ids)
 
         # 4. Fetch the final, full EventSeries objects based on the correct IDs.
-        return models.EventSeries.objects.filter(id__in=final_series_ids)
+        return models.EventSeries.objects.filter(id__in=final_series_ids).distinct()
 
     @route.get(
         "/invitations",
@@ -163,4 +163,4 @@ class DashboardController(UserAwareController):
         Returns invitations you've received but not yet acted on, sorted by event date (soonest first).
         Use this to display a "Pending Invitations" section prompting users to RSVP or purchase tickets.
         """
-        return self.get_invitations_queryset()
+        return self.get_invitations_queryset().distinct()

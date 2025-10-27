@@ -93,7 +93,7 @@ class EventController(UserAwareController):
         soonest first, '-start' shows latest first. Supports filtering by organization, series,
         tags, and text search.
         """
-        qs = params.filter(self.get_queryset(include_past=include_past or params.past_events is True))
+        qs = params.filter(self.get_queryset(include_past=include_past or params.past_events is True)).distinct()
         if order_by == "distance":
             return event_service.order_by_distance(self.user_location(), qs)
         return qs.order_by(order_by)
@@ -131,7 +131,7 @@ class EventController(UserAwareController):
         and event creators always have access.
         """
         event = self.get_one(event_id)
-        return event.attendees(self.user())
+        return event.attendees(self.user()).distinct()
 
     @route.get(
         "/{event_id}/my-status",
@@ -197,7 +197,7 @@ class EventController(UserAwareController):
         """
         event = self.get_one(event_id)
         qs = models.AdditionalResource.objects.for_user(self.maybe_user()).filter(events=event).with_related()
-        return params.filter(qs)
+        return params.filter(qs).distinct()
 
     @route.delete(
         "/invitation-requests/{request_id}",
@@ -239,7 +239,7 @@ class EventController(UserAwareController):
         qs = models.EventInvitationRequest.objects.select_related("event").filter(user=self.user(), status=status)
         if event_id:
             qs = qs.filter(event_id=event_id)
-        return qs
+        return qs.distinct()
 
     @route.get("/{org_slug}/{event_slug}", url_name="get_event_by_slug", response=schema.EventDetailSchema)
     def get_event_by_slugs(self, org_slug: str, event_slug: str) -> models.Event:
@@ -295,7 +295,7 @@ class EventController(UserAwareController):
         settings and sales_start_at/sales_end_at to determine which are currently on sale.
         """
         event = self.get_one(event_id)
-        return models.TicketTier.objects.for_user(self.user()).filter(event=event)
+        return models.TicketTier.objects.for_user(self.user()).filter(event=event).distinct()
 
     @route.post(
         "/{event_id}/tickets/{tier_id}/checkout",

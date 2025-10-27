@@ -179,7 +179,7 @@ class OrganizationAdminController(UserAwareController):
     ) -> QuerySet[models.OrganizationToken]:
         """List all tokens for an organization that the user has admin rights for."""
         organization = self.get_one(slug)
-        return params.filter(models.OrganizationToken.objects.filter(organization=organization))
+        return params.filter(models.OrganizationToken.objects.filter(organization=organization)).distinct()
 
     @route.post(
         "/token",
@@ -242,7 +242,7 @@ class OrganizationAdminController(UserAwareController):
         """
         organization = self.get_one(slug)
         qs = OrganizationMembershipRequest.objects.filter(organization=organization).select_related("user")
-        return params.filter(qs)
+        return params.filter(qs).distinct()
 
     @route.post(
         "/membership-requests/{request_id}/approve",
@@ -284,7 +284,7 @@ class OrganizationAdminController(UserAwareController):
     ) -> QuerySet[models.AdditionalResource]:
         """List all resources for a specific organization."""
         organization = self.get_one(slug)
-        return params.filter(organization.additional_resources.with_related())
+        return params.filter(organization.additional_resources.with_related()).distinct()
 
     @route.post(
         "/resources",
@@ -357,7 +357,7 @@ class OrganizationAdminController(UserAwareController):
     def list_members(self, slug: str) -> QuerySet[models.OrganizationMember]:
         """List all members of an organization."""
         organization = self.get_one(slug)
-        return models.OrganizationMember.objects.filter(organization=organization).select_related("user")
+        return models.OrganizationMember.objects.filter(organization=organization).select_related("user").distinct()
 
     @route.delete(
         "/members/{user_id}",
@@ -384,7 +384,7 @@ class OrganizationAdminController(UserAwareController):
     def list_staff(self, slug: str) -> QuerySet[models.OrganizationStaff]:
         """List all staff of an organization."""
         organization = self.get_one(slug)
-        return models.OrganizationStaff.objects.filter(organization=organization).select_related("user")
+        return models.OrganizationStaff.objects.filter(organization=organization).select_related("user").distinct()
 
     @route.delete(
         "/staff/{user_id}",

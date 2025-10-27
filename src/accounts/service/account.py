@@ -142,17 +142,31 @@ def reset_password(token: str, new_password: str) -> RevelUser:
 def confirm_account_deletion(token: str) -> None:
     """Confirm and execute account deletion.
 
+    This function validates the deletion token and enqueues a background task
+    to delete the user account. The actual deletion is handled asynchronously
+    via Celery to avoid blocking the request for users with many relationships.
+
     Args:
         token (str): The account deletion token.
 
-    Returns:
-        RevelUser: The deleted user (for reference).
+    Raises:
+        HttpError: If the user owns organizations (requires manual intervention).
     """
     payload = token_to_payload(token, schema.DeleteAccountJWTPayloadSchema)
     check_blacklist(payload.jti)
     user = get_object_or_404(RevelUser, id=payload.user_id)
+
+    # Check if user owns any organizations - this would block deletion
+    if user.owned_organizations.exists():
+        raise HttpError(
+            400,
+            "You cannot delete your account while you own organizations. "
+            "Please contact support to transfer ownership or delete the organizations first.",
+        )
+
     blacklist_token(token)
-    user.delete()
+    # Enqueue the deletion as a background task to handle heavy operations
+    tasks.delete_user_account.delay(str(user.id))
 
 
 T = t.TypeVar("T", bound=Schema)

@@ -97,7 +97,7 @@ class EventAdminController(UserAwareController):
     ) -> QuerySet[models.EventToken]:
         """List all event tokens."""
         self.get_one(event_id)
-        return params.filter(models.EventToken.objects.filter(event_id=event_id))
+        return params.filter(models.EventToken.objects.filter(event_id=event_id)).distinct()
 
     @route.post(
         "/tokens",
@@ -132,7 +132,7 @@ class EventAdminController(UserAwareController):
         """
         self.get_one(event_id)
         qs = models.EventInvitationRequest.objects.select_related("user", "event").filter(event_id=event_id)
-        return params.filter(qs)
+        return params.filter(qs).distinct()
 
     @route.post(
         "/invitation-requests/{request_id}/approve",
@@ -284,7 +284,7 @@ class EventAdminController(UserAwareController):
     def list_ticket_tiers(self, event_id: UUID) -> QuerySet[models.TicketTier]:
         """List all ticket tiers for an event."""
         self.get_one(event_id)
-        return models.TicketTier.objects.filter(event_id=event_id).order_by("price", "name")
+        return models.TicketTier.objects.filter(event_id=event_id).distinct().order_by("price", "name")
 
     @route.post(
         "/ticket-tier",
@@ -362,7 +362,7 @@ class EventAdminController(UserAwareController):
         """
         event = self.get_one(event_id)
         qs = models.Ticket.objects.select_related("user", "tier", "payment").filter(event=event)
-        return params.filter(qs)
+        return params.filter(qs).distinct()
 
     @route.get(
         "/tickets/{ticket_id}",
@@ -520,7 +520,7 @@ class EventAdminController(UserAwareController):
     def list_invitations(self, event_id: UUID) -> QuerySet[models.EventInvitation]:
         """List all invitations for registered users."""
         event = self.get_one(event_id)
-        return models.EventInvitation.objects.filter(event=event)
+        return models.EventInvitation.objects.filter(event=event).distinct()
 
     @route.get(
         "/pending-invitations",
@@ -537,7 +537,7 @@ class EventAdminController(UserAwareController):
     ) -> QuerySet[models.PendingEventInvitation]:
         """List all pending invitations for unregistered users."""
         event = self.get_one(event_id)
-        return models.PendingEventInvitation.objects.filter(event=event)
+        return models.PendingEventInvitation.objects.filter(event=event).distinct()
 
     @route.delete(
         "/invitations/{invitation_type}/{invitation_id}",
@@ -579,7 +579,7 @@ class EventAdminController(UserAwareController):
         """
         event = self.get_one(event_id)
         qs = models.EventRSVP.objects.select_related("user").filter(event=event).order_by("-created_at")
-        return params.filter(qs)
+        return params.filter(qs).distinct()
 
     @route.get(
         "/rsvps/{rsvp_id}",

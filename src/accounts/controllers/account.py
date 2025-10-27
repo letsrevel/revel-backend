@@ -152,11 +152,12 @@ class AccountController(ControllerBase):
         """Permanently delete the account using the confirmation token from email.
 
         Call this with the token received via email after POST /account/delete-request.
-        This action is irreversible and deletes all user data. The deletion token is
-        single-use and expires after a set period.
+        This action is irreversible and deletes all user data. The deletion is processed
+        asynchronously in the background. The deletion token is single-use and expires
+        after a set period.
         """
         account_service.confirm_account_deletion(payload.token)
-        return ResponseMessage(message="Account deleted successfully.")
+        return ResponseMessage(message="Your account deletion has been initiated and will be processed shortly.")
 
     @route.post(
         "/password/reset-request",

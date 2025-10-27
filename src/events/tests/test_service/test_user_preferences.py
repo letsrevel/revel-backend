@@ -1,11 +1,14 @@
 import pytest
+from django.core.cache import cache
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
 from events import models
 from events.models import OrganizationMember, OrganizationStaff
-from events.schema import BaseUserPreferencesSchema
+from events.schema import BaseUserPreferencesSchema, GeneralUserPreferencesUpdateSchema
+from events.service.location_service import get_user_location_cache_key
 from events.service.user_preferences_service import resolve_visibility, set_preferences
+from geo.models import City
 
 pytestmark = pytest.mark.django_db
 
@@ -207,3 +210,101 @@ class TestSetPreferences:
         assert ser_prefs.silence_all_notifications is True
         evt_prefs.refresh_from_db()
         assert evt_prefs.silence_all_notifications is True
+
+    def test_invalidates_location_cache_when_city_changes(self, member_user: RevelUser) -> None:
+        """Test that location cache is invalidated when city preference changes."""
+        # Create test cities
+        city1 = City.objects.create(
+            name="City One",
+            ascii_name="City One",
+            country="Country",
+            iso2="C1",
+            iso3="CY1",
+            city_id=11111,
+            location="POINT(10.0 20.0)",
+            population=1000000,
+        )
+        city2 = City.objects.create(
+            name="City Two",
+            ascii_name="City Two",
+            country="Country",
+            iso2="C2",
+            iso3="CY2",
+            city_id=22222,
+            location="POINT(30.0 40.0)",
+            population=2000000,
+        )
+
+        # Set initial city
+        member_user.general_preferences.city = city1
+        member_user.general_preferences.save()
+
+        # Set cache
+        cache_key = get_user_location_cache_key(member_user.id)
+        cache.set(cache_key, "some_cached_location", timeout=3600)
+        assert cache.get(cache_key) is not None
+
+        # Update city via set_preferences
+        payload = GeneralUserPreferencesUpdateSchema(city_id=city2.id)
+        set_preferences(member_user.general_preferences, payload, overwrite_children=False)
+
+        # Cache should be invalidated
+        assert cache.get(cache_key) is None
+
+    def test_does_not_invalidate_cache_when_city_unchanged(self, member_user: RevelUser) -> None:
+        """Test that location cache is NOT invalidated when city doesn't change."""
+        # Create city
+        city = City.objects.create(
+            name="Test City",
+            ascii_name="Test City",
+            country="Test Country",
+            iso2="TC",
+            iso3="TST",
+            city_id=33333,
+            location="POINT(50.0 60.0)",
+            population=500000,
+        )
+
+        # Set city
+        member_user.general_preferences.city = city
+        member_user.general_preferences.save()
+
+        # Set cache
+        cache_key = get_user_location_cache_key(member_user.id)
+        cache.set(cache_key, "some_cached_location", timeout=3600)
+        assert cache.get(cache_key) is not None
+
+        # Update other preference (not city)
+        payload = GeneralUserPreferencesUpdateSchema(silence_all_notifications=True)
+        set_preferences(member_user.general_preferences, payload, overwrite_children=False)
+
+        # Cache should still exist
+        assert cache.get(cache_key) is not None
+
+    def test_invalidates_cache_when_city_set_to_null(self, member_user: RevelUser) -> None:
+        """Test that location cache is invalidated when city is removed."""
+        # Create and set city
+        city = City.objects.create(
+            name="Remove City",
+            ascii_name="Remove City",
+            country="Test",
+            iso2="RC",
+            iso3="RMC",
+            city_id=44444,
+            location="POINT(70.0 80.0)",
+            population=300000,
+        )
+        member_user.general_preferences.city = city
+        member_user.general_preferences.save()
+
+        # Set cache
+        cache_key = get_user_location_cache_key(member_user.id)
+        cache.set(cache_key, "some_cached_location", timeout=3600)
+        assert cache.get(cache_key) is not None
+
+        # Remove city
+        payload = GeneralUserPreferencesUpdateSchema(city_id=None)
+        set_preferences(member_user.general_preferences, payload, overwrite_children=False)
+
+        # Cache should be invalidated
+        assert cache.get(cache_key) is None
