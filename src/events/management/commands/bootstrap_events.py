@@ -5,7 +5,7 @@ import typing as t
 from datetime import timedelta
 from decimal import Decimal
 
-from django.conf import settings
+from decouple import config
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from faker import Faker
@@ -207,7 +207,7 @@ that bring communities together.
 - Private gatherings
 """,
             city=self.cities["vienna"],
-            stripe_account_id=getattr(settings, "CONNECTED_TEST_STRIPE_ID", None),
+            stripe_account_id=config("CONNECTED_TEST_STRIPE_ID", default=None),
             stripe_charges_enabled=True,
             stripe_details_submitted=True,
         )
