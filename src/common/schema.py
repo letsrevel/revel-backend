@@ -16,6 +16,7 @@ OneToOneFiftyString = t.Annotated[str, StringConstraints(min_length=1, max_lengt
 
 class VersionResponse(Schema):
     version: str
+    demo: bool = False
 
 
 class ResponseOk(Schema):

@@ -24,9 +24,15 @@ Unlike monolithic, corporate platforms that treat events as transactions, Revel 
 
 ---
 
-### ✨ Live Demo (Pre-Alpha)
+### ✨ Live Demo (Alpha)
 
-Soon you'll be able to explore a live, alpha version of the Revel platform.
+You can try out an early version of Revel yourself at https://demo.letsrevel.io
+
+The api lives at https://demo-api.letsrevel.io/api/docs
+
+**NOTE:** Emails are dry, and the data is reset every day at 00:00 CET.
+
+More info on what's available [here](./src/events/management/commands/README.md).
 
 ---
 
