@@ -2,13 +2,26 @@
 
 This document describes the comprehensive test data created by the `bootstrap_events.py` management command. This dataset is designed to support frontend development and testing with realistic, varied scenarios.
 
-## Running the Command
+## Running the Commands
 
+### Bootstrap Events
 ```bash
 python manage.py bootstrap_events
 ```
 
 **⚠️ Warning:** This command creates data. Run it on a clean database or be prepared for duplicate/conflicting data.
+
+### Reset Events (Demo Mode Only)
+```bash
+python manage.py reset_events
+```
+
+**⚠️ Warning:** This command **deletes ALL organizations and users with @example.com emails**, then runs `bootstrap_events` again. Only works when `DEMO_MODE=True`.
+
+Use `--no-input` flag to skip confirmation (useful for periodic tasks):
+```bash
+python manage.py reset_events --no-input
+```
 
 ## Overview
 
@@ -74,7 +87,7 @@ All users have the password: `password123`
 - **Slug:** `revel-events-collective`
 - **Owner:** Alice Owner
 - **Visibility:** Public
-- **Location:** New York, NY
+- **Location:** Vienna, Austria
 - **Members:** Charlie Member, Karen Multi
 - **Staff:** Bob Staff
 - **Settings:**
@@ -122,7 +135,7 @@ All users have the password: `password123`
 - **Organization:** Revel Events Collective
 - **Type:** Public
 - **Status:** Open
-- **Location:** New York, NY
+- **Location:** Vienna, Austria (Donauinsel)
 - **Start:** +45 days from now
 - **Duration:** 8 hours
 - **Requires Ticket:** Yes
@@ -144,13 +157,14 @@ All users have the password: `password123`
 - **Type:** Private
 - **Status:** Open
 - **Visibility:** Private
-- **Location:** New York, NY
+- **Location:** Vienna, Austria (Steirereck Restaurant)
 - **Start:** +30 days from now
 - **Duration:** 4 hours
 - **Requires Ticket:** Yes
 - **Max Attendees:** 40
 - **Free for Members:** Yes
 - **Tags:** food, formal, social
+- **Featured Wines:** Austrian wines from Wachau Valley and Burgenland regions
 - **Ticket Tiers:**
   - Exclusive Seating ($200) - Invitation only - 8/40 sold
 - **User Relationships:**
@@ -178,7 +192,7 @@ All users have the password: `password123`
 - **Type:** Public
 - **Status:** Open
 - **Series:** Seasonal Community Gatherings
-- **Location:** New York, NY
+- **Location:** Vienna, Austria (Augarten)
 - **Start:** +15 days from now
 - **Duration:** 5 hours
 - **Requires Ticket:** No (RSVP)
@@ -261,7 +275,7 @@ All users have the password: `password123`
 - **Organization:** Revel Events Collective
 - **Type:** Public
 - **Status:** Closed
-- **Location:** New York, NY
+- **Location:** Vienna, Austria (Palais Ferstel)
 - **Start:** -90 days ago
 - **Duration:** 1 day
 - **Requires Ticket:** Yes
@@ -588,12 +602,22 @@ Relationships
 
 ## Cleaning Up
 
-To remove all bootstrap data, you'll need to delete:
-- All events from both organizations
-- Both organizations
-- All users (or use a fresh database)
+### Option 1: Use reset_events Command (Recommended for Demo Mode)
+```bash
+python manage.py reset_events
+```
+This will automatically delete all organizations and @example.com users, then re-bootstrap fresh data.
 
-Or simply reset your database and run migrations again.
+**Requirements:** Only works when `DEMO_MODE=True` in settings.
+
+### Option 2: Manual Cleanup
+To remove all bootstrap data manually:
+- Delete all events from both organizations
+- Delete both organizations
+- Delete all users with @example.com emails
+
+### Option 3: Fresh Database
+Simply reset your database and run migrations again.
 
 ---
 

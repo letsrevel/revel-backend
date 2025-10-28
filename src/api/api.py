@@ -69,7 +69,7 @@ def version(request: HttpRequest) -> tuple[int, VersionResponse]:
     Returns:
         The response status code and message.
     """
-    return 200, VersionResponse(version=settings.VERSION)
+    return 200, VersionResponse(version=settings.VERSION, demo=settings.DEMO_MODE)
 
 
 @api.get("/healthcheck", tags=["Healthcheck"], response={200: ResponseOk})

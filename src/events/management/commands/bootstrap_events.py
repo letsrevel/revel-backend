@@ -206,7 +206,7 @@ that bring communities together.
 - Seasonal celebrations
 - Private gatherings
 """,
-            city=self.cities["new_york"],
+            city=self.cities["vienna"],
             stripe_account_id=getattr(settings, "CONNECTED_TEST_STRIPE_ID", None),
             stripe_charges_enabled=True,
             stripe_details_submitted=True,
@@ -228,7 +228,7 @@ that bring communities together.
             name="Tech Innovators Network",
             slug="tech-innovators-network",
             owner=self.users["org_beta_owner"],
-            visibility=events_models.Organization.Visibility.MEMBERS_ONLY,
+            visibility=events_models.Organization.Visibility.PUBLIC,
             description="""# Tech Innovators Network
 
 An exclusive community for tech professionals, entrepreneurs, and innovators. Join us for
@@ -321,7 +321,7 @@ Bring a dish to share and join us for an evening of connection and celebration!
             event_type=events_models.Event.Types.PUBLIC,
             visibility=events_models.Event.Visibility.PUBLIC,
             status=events_models.Event.Status.OPEN,
-            city=self.cities["new_york"],
+            city=self.cities["vienna"],
             requires_ticket=True,
             start=now + timedelta(days=45),
             end=now + timedelta(days=45, hours=8),
@@ -360,12 +360,12 @@ performances from local and touring artists as the sun sets over the city.
 - Good vibes and dancing shoes!
 
 ## Venue Info
-Brooklyn Waterfront Park - Stunning views, accessible via subway (L/G trains to Bedford Ave)
-or ferry. Limited on-site parking available.
+Donauinsel - Stunning views along the Danube, accessible via U1 (Donauinsel station).
+Limited parking available at Copa Cagrana.
 
 **Rain or Shine Event** - Event will proceed in light rain. Covered areas available.
 """,
-            address="Brooklyn Waterfront Park, 123 River Street, Brooklyn, NY 11249",
+            address="Donauinsel, 1220 Vienna, Austria",
             check_in_starts_at=now + timedelta(days=45, hours=-1),
             check_in_ends_at=now + timedelta(days=45, hours=7),
         )
@@ -380,7 +380,7 @@ or ferry. Limited on-site parking available.
             event_type=events_models.Event.Types.PRIVATE,
             visibility=events_models.Event.Visibility.PRIVATE,
             status=events_models.Event.Status.OPEN,
-            city=self.cities["new_york"],
+            city=self.cities["vienna"],
             requires_ticket=True,
             start=now + timedelta(days=30),
             end=now + timedelta(days=30, hours=4),
@@ -391,15 +391,15 @@ An intimate evening curated for wine enthusiasts. Join acclaimed sommelier Marcu
 for a journey through rare vintages paired with a five-course tasting menu by Chef Elena Martinez.
 
 ## Wine Selection
-**Featured Regions:** Bordeaux, Tuscany, Napa Valley, Mendoza
+**Featured Regions:** Bordeaux, Tuscany, Wachau Valley, Burgenland
 
 Each course features carefully selected wines paired with seasonal ingredients:
 
-1. **Amuse-Bouche** - Champagne Brut Nature
-2. **First Course** - White Burgundy with Seared Scallops
-3. **Second Course** - Pinot Noir with Duck Confit
+1. **Amuse-Bouche** - Austrian Sekt Brut Nature
+2. **First Course** - Grüner Veltliner with Seared Scallops
+3. **Second Course** - Blaufränkisch with Duck Confit
 4. **Main Course** - Super Tuscan with Herb-Crusted Lamb
-5. **Dessert** - Port with Chocolate Torte
+5. **Dessert** - Eiswein with Chocolate Torte
 
 ## Your Sommelier
 Marcus Rodriguez brings 20 years of experience from Michelin-starred restaurants. His passion
@@ -416,7 +416,7 @@ Smart casual to business casual
 
 *Limited to 40 guests for an intimate experience*
 """,
-            address="Sommeliers Private Dining Room, 456 Madison Avenue, New York, NY 10022",
+            address="Steirereck, Am Heumarkt 2A, 1030 Vienna, Austria",
             free_for_members=True,
         )
         wine_tasting.add_tags("food", "formal", "social")
@@ -486,7 +486,7 @@ consultant for Fortune 500 companies.
             visibility=events_models.Event.Visibility.PUBLIC,
             status=events_models.Event.Status.OPEN,
             event_series=self.event_series["potlucks"],
-            city=self.cities["new_york"],
+            city=self.cities["vienna"],
             requires_ticket=False,
             potluck_open=True,
             start=now + timedelta(days=15),
@@ -501,7 +501,7 @@ to share and enjoy an afternoon of food, games, and connection in the garden.
 ## Event Activities
 - 🍽️ **Potluck Feast** - International dishes from our diverse community
 - 🎵 **Live Music** - Acoustic performances throughout the afternoon
-- 🎮 **Lawn Games** - Cornhole, frisbee, badminton
+- 🎮 **Lawn Games** - Kubb, frisbee, badminton
 - 👶 **Kids Corner** - Face painting, crafts, and activities
 - 🌱 **Plant Swap** - Bring cuttings to share!
 
@@ -522,14 +522,14 @@ Sign up for what you'll bring using the potluck signup below.
 - Outdoor games welcome!
 
 ## Accessibility
-The garden is wheelchair accessible. Restrooms and covered seating available.
+The park is wheelchair accessible. Restrooms and covered seating available.
 Service animals welcome.
 
 **Family-Friendly** - All ages welcome! Alcohol-free event.
 
 *RSVP required for headcount planning*
 """,
-            address="Community Garden at Central Park West, New York, NY 10024",
+            address="Augarten, Obere Augartenstraße, 1020 Vienna, Austria",
         )
         spring_potluck.add_tags("food", "community", "casual")
         self.events["spring_potluck"] = spring_potluck
@@ -669,7 +669,7 @@ and deep relaxation in the beautiful Austrian countryside.
 
 **Space is limited to 25 participants** for an intimate experience.
 """,
-            address="Serenity Mountain Lodge, Wachau Valley, Lower Austria",
+            address="Wachau Valley Retreat Center, Dürnstein, 3601 Lower Austria",
             free_for_members=True,
         )
         wellness_retreat.add_tags("wellness", "casual", "social")
@@ -786,7 +786,7 @@ The gallery is fully wheelchair accessible. ASL interpreter available upon reque
             event_type=events_models.Event.Types.PUBLIC,
             visibility=events_models.Event.Visibility.PUBLIC,
             status=events_models.Event.Status.CLOSED,
-            city=self.cities["new_york"],
+            city=self.cities["vienna"],
             requires_ticket=True,
             start=now - timedelta(days=90),
             end=now - timedelta(days=89),
@@ -797,7 +797,7 @@ A magical night to remember! Ring in the new year with elegance, entertainment, 
 
 Thank you to everyone who joined us for this unforgettable evening!
 """,
-            address="Grand Ballroom, Plaza Hotel, New York, NY",
+            address="Palais Ferstel, Strauchgasse 4, 1010 Vienna, Austria",
         )
         past_event.add_tags("social", "formal")
         self.events["past_event"] = past_event

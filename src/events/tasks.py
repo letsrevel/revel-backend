@@ -5,6 +5,7 @@ from uuid import UUID
 from celery import shared_task
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
+from django.core.management import call_command
 from django.db import transaction
 from django.db.models import F, Q
 from django.template.loader import render_to_string
@@ -662,3 +663,19 @@ def notify_questionnaire_evaluation_result(questionnaire_evaluation_id: str) -> 
     )
 
     return stats
+
+
+@shared_task(name="events.reset_demo_data")
+def reset_demo_data() -> dict[str, str]:
+    """Reset demo data by deleting organizations and example.com users, then re-bootstrapping.
+
+    This task invokes the reset_events management command with --no-input flag.
+    Only runs when DEMO_MODE is enabled.
+
+    Returns:
+        Dictionary with status information.
+    """
+    logger.info("Starting demo data reset task...")
+    call_command("reset_events", "--no-input")
+    logger.info("Demo data reset completed successfully")
+    return {"status": "success", "message": "Demo data has been reset"}
