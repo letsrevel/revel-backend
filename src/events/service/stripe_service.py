@@ -13,6 +13,7 @@ from ninja.errors import HttpError
 from stripe.checkout import Session
 
 from accounts.models import RevelUser
+from common.models import SiteSettings
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.tasks import send_payment_confirmation_email
 
@@ -31,8 +32,9 @@ def create_connect_account(organization: Organization) -> str:
 
 def create_account_link(account_id: str, organization: Organization) -> str:
     """Create a one-time onboarding link for a Stripe Connect account."""
-    refresh_url = f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/admin/settings?stripe_refresh=true"
-    return_url = f"{settings.FRONTEND_BASE_URL}/org/{organization.slug}/admin/settings?stripe_success=true"
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    refresh_url = f"{frontend_base_url}/org/{organization.slug}/admin/settings?stripe_refresh=true"
+    return_url = f"{frontend_base_url}/org/{organization.slug}/admin/settings?stripe_success=true"
     account_link = stripe.AccountLink.create(
         account=account_id,
         refresh_url=refresh_url,
@@ -108,6 +110,7 @@ def create_checkout_session(
     fixed_fee = event.organization.platform_fee_fixed
     application_fee_amount = int((platform_fee + fixed_fee) * 100)
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
     try:
         session = Session.create(
             customer_email=user.email,
@@ -124,8 +127,8 @@ def create_checkout_session(
                 }
             ],
             mode="payment",
-            success_url=f"{settings.FRONTEND_BASE_URL}/events/{event.organization.slug}/{event.slug}?payment_success=true",
-            cancel_url=f"{settings.FRONTEND_BASE_URL}/events/{event.organization.slug}/{event.slug}?payment_cancelled=true",
+            success_url=f"{frontend_base_url}/events/{event.organization.slug}/{event.slug}?payment_success=true",
+            cancel_url=f"{frontend_base_url}/events/{event.organization.slug}/{event.slug}?payment_cancelled=true",
             payment_intent_data={
                 "application_fee_amount": application_fee_amount,
             },
