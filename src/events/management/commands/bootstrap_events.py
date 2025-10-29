@@ -378,13 +378,14 @@ Limited parking available at Copa Cagrana.
             name="Exclusive Wine Tasting & Pairing Dinner",
             slug="exclusive-wine-tasting-dinner",
             event_type=events_models.Event.Types.PRIVATE,
-            visibility=events_models.Event.Visibility.PRIVATE,
+            visibility=events_models.Event.Visibility.PUBLIC,
             status=events_models.Event.Status.OPEN,
             city=self.cities["vienna"],
             requires_ticket=True,
             start=now + timedelta(days=30),
             end=now + timedelta(days=30, hours=4),
             max_attendees=40,
+            accept_invitation_requests=True,
             description="""# Exclusive Wine Tasting & Pairing Dinner
 
 An intimate evening curated for wine enthusiasts. Join acclaimed sommelier Marcus Rodriguez
@@ -681,7 +682,7 @@ and deep relaxation in the beautiful Austrian countryside.
             name="Tech Founders Networking Happy Hour",
             slug="tech-founders-happy-hour",
             event_type=events_models.Event.Types.MEMBERS_ONLY,
-            visibility=events_models.Event.Visibility.MEMBERS_ONLY,
+            visibility=events_models.Event.Visibility.PUBLIC,
             status=events_models.Event.Status.OPEN,
             city=self.cities["berlin"],
             requires_ticket=False,
