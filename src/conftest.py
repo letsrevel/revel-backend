@@ -125,13 +125,3 @@ def next_week() -> datetime:
         datetime.combine(same_time_next_week.date(), noon),
         timezone.get_current_timezone(),
     )
-
-
-@pytest.fixture(scope="session")
-def django_db_setup(django_db_setup, django_db_blocker):  # type: ignore[no-untyped-def]
-    """
-    Customize database setup for parallel testing.
-    Each xdist worker gets its own database with suffix.
-    """
-    # pytest-django handles this automatically, but you can customize here
-    pass
