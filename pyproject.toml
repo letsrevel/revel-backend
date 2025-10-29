@@ -76,6 +76,7 @@ dev = [
     "pytest-celery>=1.2.0",
     "pytest-cov>=6.2.1",
     "pytest-django>=4.11.1",
+    "pytest-xdist>=3.8.0",
     "ruff>=0.12.0",
     "types-bleach>=6.2.0.20250809",
     "types-markdown>=3.9.0.20250906",
@@ -221,6 +222,21 @@ disable_error_code = ["django-manager-missing"]
 [tool.pytest.ini_options]
 pythonpath = "src"
 DJANGO_SETTINGS_MODULE = "revel.settings"
+testpaths = ["src"]
+addopts = "-n auto"  # Automatically use all CPU cores
+norecursedirs = [
+    ".*",
+    "build",
+    "dist",
+    "CVS",
+    "_darcs",
+    "{arch}",
+    "*.egg",
+    "venv",
+    ".venv",
+    "node_modules",
+]
+
 
 [tool.coverage.run]
 omit = [
