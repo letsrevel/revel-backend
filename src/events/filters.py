@@ -127,6 +127,17 @@ class TicketFilterSchema(FilterSchema):
 
     status: Ticket.Status | None = None
     tier__payment_method: TicketTier.PaymentMethod | None = Field(None, q="tier__payment_method")  # type: ignore[call-overload]
+    include_past: bool = False
+
+    def filter_include_past(self, include_past: bool) -> Q:
+        """Filter for upcoming events only by default.
+
+        When include_past=False (default), only shows tickets for events
+        that haven't ended yet (event.end > now).
+        """
+        if not include_past:
+            return Q(event__end__gt=timezone.now())
+        return Q()
 
 
 class DashboardOrganizationsFiltersSchema(Schema):

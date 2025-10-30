@@ -487,7 +487,8 @@ class MinimalEventSchema(Schema):
     id: UUID
     slug: str
     name: str
-    start: datetime | None = None
+    start: datetime
+    end: datetime
     logo: str | None = None
 
 

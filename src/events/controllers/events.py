@@ -194,6 +194,85 @@ class EventController(UserAwareController):
         return 400, ResponseMessage(message="The token is invalid or expired.")
 
     @route.get(
+        "/me/invitation-requests",
+        url_name="list_my_invitation_requests",
+        response=PaginatedResponseSchema[schema.EventInvitationRequestSchema],
+        auth=JWTAuth(),
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(Searching, search_fields=["event__name", "event__description", "message"])
+    def list_my_invitation_requests(
+        self,
+        event_id: UUID | None = None,
+        params: filters.InvitationRequestFilterSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[models.EventInvitationRequest]:
+        """View your invitation requests across all events.
+
+        Returns your invitation requests with their current status. By default shows only pending
+        requests; use ?status=approved or ?status=rejected to see decided requests, or omit the
+        status parameter to see all requests. Filter by event_id to see requests for a specific
+        event. Use this to track which events you've requested access to.
+        """
+        qs = models.EventInvitationRequest.objects.select_related("event").filter(user=self.user())
+        if event_id:
+            qs = qs.filter(event_id=event_id)
+        return params.filter(qs).distinct()
+
+    @route.get(
+        "/me/my-invitations",
+        url_name="list_my_invitations",
+        response=PaginatedResponseSchema[schema.MyEventInvitationSchema],
+        auth=JWTAuth(),
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(Searching, search_fields=["event__name", "event__description", "custom_message"])
+    def list_my_invitations(
+        self,
+        event_id: UUID | None = None,
+        include_past: bool = False,
+    ) -> QuerySet[models.EventInvitation]:
+        """View your event invitations across all events.
+
+        Returns invitations you've received with event details and any special privileges granted
+        (tier assignment, waived requirements, etc.). By default shows only invitations for upcoming
+        events; set include_past=true to include past events. An event is considered past if its end
+        time has passed. Filter by event_id to see invitations for a specific event.
+        """
+        qs = models.EventInvitation.objects.select_related("event", "tier").filter(user=self.user())
+
+        if event_id:
+            qs = qs.filter(event_id=event_id)
+
+        if not include_past:
+            # Filter for upcoming events: end > now
+            qs = qs.filter(event__end__gt=timezone.now())
+
+        return qs.distinct().order_by("-created_at")
+
+    @route.get(
+        "/me/my-tickets",
+        url_name="list_user_tickets",
+        response=PaginatedResponseSchema[schema.UserTicketSchema],
+        auth=JWTAuth(),
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(Searching, search_fields=["event__name", "event__description", "tier__name"])
+    def list_user_tickets(
+        self,
+        params: filters.TicketFilterSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[models.Ticket]:
+        """View your tickets across all events.
+
+        Returns all your tickets with their current status and event details.
+        By default, shows only tickets for upcoming events; set include_past=true
+        to include past events. An event is considered past if its end time has passed.
+        Supports filtering by status (pending/active/cancelled/checked_in) and
+        payment method. Results are ordered by newest first.
+        """
+        qs = models.Ticket.objects.select_related("event", "tier").filter(user=self.user()).order_by("-created_at")
+        return params.filter(qs).distinct()
+
+    @route.get(
         "/{event_id}/attendee-list",
         url_name="event_attendee_list",
         response=PaginatedResponseSchema[schema.AttendeeSchema],
@@ -293,83 +372,6 @@ class EventController(UserAwareController):
         invitation_request = get_object_or_404(models.EventInvitationRequest, pk=request_id, user_id=self.user().id)
         invitation_request.delete()
         return 204, None
-
-    @route.get(
-        "/me/invitation-requests",
-        url_name="list_my_invitation_requests",
-        response=PaginatedResponseSchema[schema.EventInvitationRequestSchema],
-        auth=JWTAuth(),
-    )
-    @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["event__name", "event__description", "message"])
-    def list_my_invitation_requests(
-        self,
-        event_id: UUID | None = None,
-        params: filters.InvitationRequestFilterSchema = Query(...),  # type: ignore[type-arg]
-    ) -> QuerySet[models.EventInvitationRequest]:
-        """View your invitation requests across all events.
-
-        Returns your invitation requests with their current status. By default shows only pending
-        requests; use ?status=approved or ?status=rejected to see decided requests, or omit the
-        status parameter to see all requests. Filter by event_id to see requests for a specific
-        event. Use this to track which events you've requested access to.
-        """
-        qs = models.EventInvitationRequest.objects.select_related("event").filter(user=self.user())
-        if event_id:
-            qs = qs.filter(event_id=event_id)
-        return params.filter(qs).distinct()
-
-    @route.get(
-        "/me/my-invitations",
-        url_name="list_my_invitations",
-        response=PaginatedResponseSchema[schema.MyEventInvitationSchema],
-        auth=JWTAuth(),
-    )
-    @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["event__name", "event__description", "custom_message"])
-    def list_my_invitations(
-        self,
-        event_id: UUID | None = None,
-        include_past: bool = False,
-    ) -> QuerySet[models.EventInvitation]:
-        """View your event invitations across all events.
-
-        Returns invitations you've received with event details and any special privileges granted
-        (tier assignment, waived requirements, etc.). By default shows only invitations for upcoming
-        events; set include_past=true to include past events. An event is considered past if its end
-        time has passed. Filter by event_id to see invitations for a specific event.
-        """
-        qs = models.EventInvitation.objects.select_related("event", "tier").filter(user=self.user())
-
-        if event_id:
-            qs = qs.filter(event_id=event_id)
-
-        if not include_past:
-            # Filter for upcoming events: end > now
-            qs = qs.filter(event__end__gt=timezone.now())
-
-        return qs.distinct().order_by("-created_at")
-
-    @route.get(
-        "/me/my-tickets",
-        url_name="list_user_tickets",
-        response=PaginatedResponseSchema[schema.UserTicketSchema],
-        auth=JWTAuth(),
-    )
-    @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["event__name", "event__description", "tier__name"])
-    def list_user_tickets(
-        self,
-        params: filters.TicketFilterSchema = Query(...),  # type: ignore[type-arg]
-    ) -> QuerySet[models.Ticket]:
-        """View your tickets across all events.
-
-        Returns all your tickets with their current status and event details.
-        Supports filtering by status (pending/active/cancelled/checked_in) and
-        payment method. Results are ordered by newest first.
-        """
-        qs = models.Ticket.objects.select_related("event", "tier").filter(user=self.user()).order_by("-created_at")
-        return params.filter(qs).distinct()
 
     @route.get("/{org_slug}/{event_slug}", url_name="get_event_by_slug", response=schema.EventDetailSchema)
     def get_event_by_slugs(self, org_slug: str, event_slug: str) -> models.Event:

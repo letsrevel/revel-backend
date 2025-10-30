@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import requests
 from celery import shared_task
 
