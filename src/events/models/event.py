@@ -272,7 +272,7 @@ class Event(
         c.events.add(e)
 
         # The ics library returns a string, so we encode it to bytes
-        return str(c).encode("utf-8")
+        return t.cast(bytes, c.serialize().encode("utf-8"))
 
 
 class EventWaitList(TimeStampedModel):
@@ -516,6 +516,7 @@ class Ticket(TimeStampedModel):
                 name="unique_ticket_event_user_tier",
             )
         ]
+        ordering = ["-created_at"]
 
     def __str__(self) -> str:  # pragma: no cover
         tier_str = f" | {self.tier.name!r}" if self.tier else ""
@@ -609,6 +610,7 @@ class EventInvitation(AbstractEventInvitation):
                 name="unique_event_invitation_event_user",
             )
         ]
+        ordering = ["-created_at"]
 
 
 class PendingEventInvitation(AbstractEventInvitation):
@@ -624,6 +626,7 @@ class PendingEventInvitation(AbstractEventInvitation):
                 name="unique_pending_event_invitation_event_email",
             )
         ]
+        ordering = ["-created_at"]
 
     def __str__(self) -> str:
         return f"Pending invitation for {self.email} to {self.event.name}"
@@ -651,10 +654,19 @@ class EventRSVP(TimeStampedModel):
 class EventToken(TokenMixin):
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="tokens")
     grants_invitation = models.BooleanField(default=True)
-    invitation_tier = models.ForeignKey(TicketTier, on_delete=models.SET_NULL, null=True, blank=True)
+    ticket_tier = models.ForeignKey(TicketTier, on_delete=models.CASCADE, null=True, blank=True)
     invitation_payload = models.JSONField(
         null=True, blank=True, help_text="If provided, the token will we viable to claim invitations."
     )
+
+    class Meta:
+        indexes = [
+            # For listing active tokens by event
+            models.Index(fields=["event", "expires_at"], name="eventtoken_event_expires"),
+            # For listing tokens by event ordered by creation
+            models.Index(fields=["event", "-created_at"], name="eventtoken_event_created"),
+        ]
+        ordering = ["-created_at"]
 
 
 class AttendeeVisibilityFlag(TimeStampedModel):

@@ -77,3 +77,4 @@ class OrganizationQuestionnaire(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(fields=["organization", "questionnaire"], name="unique_organizationquestionnaire")
         ]
+        ordering = ["-created_at"]

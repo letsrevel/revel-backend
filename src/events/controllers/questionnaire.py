@@ -83,7 +83,7 @@ class QuestionnaireController(UserAwareController):
             )
         )
 
-        return params.filter(qs).distinct()
+        return params.filter(qs).distinct().order_by("-created_at")
 
     @route.post(
         "/{organization_id}/create-questionnaire",

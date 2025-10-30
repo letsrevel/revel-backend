@@ -123,7 +123,7 @@ def blacklist(
         audience or settings.JWT_AUDIENCE
     )  # Note: we are using the Django JWT audience here instead of the Auth0 audience
     algorithms = algorithms or [settings.JWT_ALGORITHM]
-    payload = jwt.decode(token, key=key, audience=audience, algorithms=algorithms, verify=False)
+    payload = jwt.decode(token, key=key, audience=audience, algorithms=algorithms, options={"verify_signature": False})
     jti = payload["jti"]
     exp = payload["exp"]
 

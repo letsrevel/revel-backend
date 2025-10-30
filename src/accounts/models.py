@@ -37,6 +37,9 @@ class RevelUser(AbstractUser):
 
     objects = RevelUserManager()  # type: ignore[misc]
 
+    class Meta:
+        ordering = ["username"]
+
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
         """Override save method to call clean()."""
         if self.phone_number:

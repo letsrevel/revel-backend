@@ -138,3 +138,6 @@ class AdditionalResource(TimeStampedModel, VisibilityMixin):
                 errors[field] = f"Must not be set for resource type {self.resource_type!r}"
         if errors:
             raise exceptions.InvalidResourceStateError(errors)
+
+    class Meta:
+        ordering = ["-created_at"]

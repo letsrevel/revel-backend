@@ -456,10 +456,10 @@ def test_list_event_invitation_requests(
 # --- Tests for POST /event-admin/{event_id}/token ---
 
 
-def test_create_event_token(organization_owner_client: Client, event: Event) -> None:
+def test_create_event_token(organization_owner_client: Client, event: Event, event_ticket_tier: TicketTier) -> None:
     """Test creating an event token."""
     url = reverse("api:create_event_token", kwargs={"event_id": event.pk})
-    payload = {"name": "Test Token", "max_uses": 10}
+    payload = {"name": "Test Token", "max_uses": 10, "ticket_tier_id": str(event_ticket_tier.id)}
     response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
     assert response.status_code == 200
     data = response.json()

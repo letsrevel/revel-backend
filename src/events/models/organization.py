@@ -89,7 +89,7 @@ class OrganizationManager(models.Manager["Organization"]):
 
     def for_user(self, user: RevelUser | AnonymousUser, allowed_ids: list[UUID] | None = None) -> OrganizationQuerySet:
         """Get queryset for user."""
-        return self.get_queryset().for_user(user)
+        return self.get_queryset().for_user(user, allowed_ids)
 
 
 class Organization(
@@ -145,6 +145,9 @@ class Organization(
     contact_email_verified = models.BooleanField(default=False)
 
     objects = OrganizationManager()
+
+    class Meta:
+        ordering = ["name"]
 
     def __str__(self) -> str:
         return self.name
@@ -214,6 +217,7 @@ class OrganizationStaff(TimeStampedModel):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["organization", "user"], name="unique_organization_staff")]
+        ordering = ["-created_at"]
 
     def has_permission(self, permission: str, event_id: str | None = None) -> bool:
         """Verify if a user has permission to perform this action."""
@@ -236,11 +240,23 @@ class OrganizationMember(TimeStampedModel):
         related_name="organization_memberships",
     )
 
+    class Meta:
+        ordering = ["-created_at"]
+
 
 class OrganizationToken(TokenMixin):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="tokens")
     grants_membership = models.BooleanField(default=True)
     grants_staff_status = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [
+            # For listing active tokens by organization
+            models.Index(fields=["organization", "expires_at"], name="orgtoken_org_expires"),
+            # For listing tokens by organization ordered by creation
+            models.Index(fields=["organization", "-created_at"], name="orgtoken_org_created"),
+        ]
+        ordering = ["-created_at"]
 
 
 class OrganizationMembershipRequest(UserRequestMixin):

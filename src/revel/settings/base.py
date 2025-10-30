@@ -230,6 +230,20 @@ SITE_NAME = config("SITE_NAME", default="Revel")
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+    # Custom headers for token-based access
+    "x-event-token",
+    "x-organization-token",
+]
 _proto = "http" if DEBUG else "https"
 CSRF_TRUSTED_ORIGINS = [f"{_proto}://{SITE_DOMAIN}"]
 SERVICE_URL = CSRF_TRUSTED_ORIGINS[0]

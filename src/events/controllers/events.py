@@ -4,6 +4,7 @@ from uuid import UUID
 from django.db.models import QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from ninja import Query
 from ninja.errors import HttpError
 from ninja_extra import (
@@ -15,7 +16,6 @@ from ninja_extra.searching import Searching, searching
 from ninja_jwt.authentication import JWTAuth
 
 from accounts.models import RevelUser
-from accounts.schema import MinimalRevelUserSchema
 from common.authentication import OptionalAuth
 from common.schema import ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle
@@ -53,9 +53,17 @@ class EventController(UserAwareController):
         )
 
     def get_event_token(self) -> models.EventToken | None:
-        """Get an event token if exists."""
-        if et := self.context.request.GET.get("et"):  # type: ignore[union-attr]
-            return event_service.get_event_token(et)
+        """Get an event token from X-Event-Token header or et query param (legacy).
+
+        Preferred: X-Event-Token header
+        Legacy: ?et= query parameter (for backwards compatibility)
+        """
+        token = (
+            self.context.request.META.get("HTTP_X_EVENT_TOKEN")  # type: ignore[union-attr]
+            or self.context.request.GET.get("et")  # type: ignore[union-attr]
+        )
+        if token:
+            return event_service.get_event_token(token)
         return None
 
     def get_questionnaire_service(self, questionnaire_id: UUID) -> QuestionnaireService:
@@ -99,6 +107,74 @@ class EventController(UserAwareController):
             return event_service.order_by_distance(self.user_location(), qs)
         return qs.order_by(order_by)
 
+    @route.get(
+        "/tokens/{token_id}",
+        url_name="get_event_token",
+        response={200: schema.EventTokenSchema, 404: ResponseMessage},
+    )
+    def get_event_token_details(self, token_id: str) -> tuple[int, models.EventToken | ResponseMessage]:
+        """Preview an event token to see what access it grants.
+
+        This endpoint allows users to see token details before deciding whether to claim it.
+        No authentication required - tokens are meant to be shareable.
+
+        **Primary Use Case: Visibility via Token Header**
+        The main purpose of event tokens is to grant temporary visibility to events.
+        Frontend extracts tokens from shareable URLs like `/events/{event_id}?et={token_id}`
+        and passes them to the API via the `X-Event-Token` header.
+
+        **Returns:**
+        - `id`: The token code (for use in URLs as `?et=` query param)
+        - `event`: The event this token grants access to
+        - `name`: Display name (e.g., "Instagram Followers Link")
+        - `expires_at`: When the token stops working (null = never expires)
+        - `max_uses`: Maximum number of claims (0 = unlimited)
+        - `uses`: Current number of claims
+        - `grants_invitation`: Whether users can claim invitations with this token
+        - `ticket_tier`: Which ticket tier users get when claiming (null if no invitation)
+        - `invitation_payload`: Custom invitation metadata (null if no invitation)
+
+        **Frontend Usage:**
+        ```javascript
+        // When user visits /events/123?et=abc123, extract and use the token:
+        const urlParams = new URLSearchParams(window.location.search);
+        const eventToken = urlParams.get('et');
+
+        // Preview the token first
+        const token = await fetch(`/api/events/tokens/${eventToken}`).then(r => r.json());
+
+        // Then access the event with token in header
+        const event = await fetch(`/api/events/123`, {
+          headers: { 'X-Event-Token': eventToken }
+        }).then(r => r.json());
+
+        if (token.grants_invitation) {
+          // This token can be claimed for an invitation
+          showClaimButton(`You can join: ${event.name}`);
+        } else {
+          // This is a read-only token for viewing only
+          showMessage(`View access to: ${event.name}`);
+        }
+        ```
+
+        **Token Types:**
+        1. **Read-Only Tokens** (`grants_invitation=False`, `invitation_payload=null`)
+           - Share event link with non-members
+           - Users can VIEW the event but cannot automatically join
+           - Example: Share in group chat so members can see event details
+
+        2. **Invitation Tokens** (`grants_invitation=True` with `invitation_payload`)
+           - Users can both VIEW and CLAIM an invitation
+           - Creates EventInvitation when claimed via POST `/events/claim-invitation/{token}`
+           - Optional ticket tier auto-assignment
+
+        **Error Cases:**
+        - 404: Token doesn't exist or has been deleted
+        """
+        if token := event_service.get_event_token(token_id):
+            return 200, token
+        return 404, ResponseMessage(message="Token not found or expired.")
+
     @route.post(
         "/claim-invitation/{token}",
         url_name="event_claim_invitation",
@@ -120,7 +196,7 @@ class EventController(UserAwareController):
     @route.get(
         "/{event_id}/attendee-list",
         url_name="event_attendee_list",
-        response=PaginatedResponseSchema[MinimalRevelUserSchema],
+        response=PaginatedResponseSchema[schema.AttendeeSchema],
         auth=JWTAuth(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -219,28 +295,81 @@ class EventController(UserAwareController):
         return 204, None
 
     @route.get(
-        "/me/pending-invitation-requests",
-        url_name="list_user_invitation_requests",
+        "/invitation-requests",
+        url_name="list_my_invitation_requests",
         response=PaginatedResponseSchema[schema.EventInvitationRequestSchema],
         auth=JWTAuth(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["event__name", "event__description", "message"])
-    def list_user_invitation_requests(
+    def list_my_invitation_requests(
         self,
         event_id: UUID | None = None,
-        status: models.EventInvitationRequest.Status = models.EventInvitationRequest.Status.PENDING,
+        params: filters.InvitationRequestFilterSchema = Query(...),  # type: ignore[type-arg]
     ) -> QuerySet[models.EventInvitationRequest]:
         """View your invitation requests across all events.
 
-        Returns your invitation requests with their current status (pending/approved/rejected).
-        Filter by event_id to see requests for a specific event, or by status to see approved/
-        rejected requests. Use this to track which events you've requested access to.
+        Returns your invitation requests with their current status. By default shows only pending
+        requests; use ?status=approved or ?status=rejected to see decided requests, or omit the
+        status parameter to see all requests. Filter by event_id to see requests for a specific
+        event. Use this to track which events you've requested access to.
         """
-        qs = models.EventInvitationRequest.objects.select_related("event").filter(user=self.user(), status=status)
+        qs = models.EventInvitationRequest.objects.select_related("event").filter(user=self.user())
         if event_id:
             qs = qs.filter(event_id=event_id)
-        return qs.distinct()
+        return params.filter(qs).distinct()
+
+    @route.get(
+        "/me/my-invitations",
+        url_name="list_my_invitations",
+        response=PaginatedResponseSchema[schema.MyEventInvitationSchema],
+        auth=JWTAuth(),
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(Searching, search_fields=["event__name", "event__description", "custom_message"])
+    def list_my_invitations(
+        self,
+        event_id: UUID | None = None,
+        include_past: bool = False,
+    ) -> QuerySet[models.EventInvitation]:
+        """View your event invitations across all events.
+
+        Returns invitations you've received with event details and any special privileges granted
+        (tier assignment, waived requirements, etc.). By default shows only invitations for upcoming
+        events; set include_past=true to include past events. An event is considered past if its end
+        time has passed. Filter by event_id to see invitations for a specific event.
+        """
+        qs = models.EventInvitation.objects.select_related("event", "tier").filter(user=self.user())
+
+        if event_id:
+            qs = qs.filter(event_id=event_id)
+
+        if not include_past:
+            # Filter for upcoming events: end > now
+            qs = qs.filter(event__end__gt=timezone.now())
+
+        return qs.distinct().order_by("-created_at")
+
+    @route.get(
+        "/me/my-tickets",
+        url_name="list_user_tickets",
+        response=PaginatedResponseSchema[schema.UserTicketSchema],
+        auth=JWTAuth(),
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(Searching, search_fields=["event__name", "event__description", "tier__name"])
+    def list_user_tickets(
+        self,
+        params: filters.TicketFilterSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[models.Ticket]:
+        """View your tickets across all events.
+
+        Returns all your tickets with their current status and event details.
+        Supports filtering by status (pending/active/cancelled/checked_in) and
+        payment method. Results are ordered by newest first.
+        """
+        qs = models.Ticket.objects.select_related("event", "tier").filter(user=self.user()).order_by("-created_at")
+        return params.filter(qs).distinct()
 
     @route.get("/{org_slug}/{event_slug}", url_name="get_event_by_slug", response=schema.EventDetailSchema)
     def get_event_by_slugs(self, org_slug: str, event_slug: str) -> models.Event:
