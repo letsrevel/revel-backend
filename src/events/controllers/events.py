@@ -295,7 +295,7 @@ class EventController(UserAwareController):
         return 204, None
 
     @route.get(
-        "/invitation-requests",
+        "/me/invitation-requests",
         url_name="list_my_invitation_requests",
         response=PaginatedResponseSchema[schema.EventInvitationRequestSchema],
         auth=JWTAuth(),
