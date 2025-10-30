@@ -68,7 +68,8 @@ class TaggableSchemaMixin(Schema):
     @staticmethod
     def resolve_tags(obj: models.Event) -> list[str]:
         """Flattify tags."""
-        # obj.tags is a RelatedManager of TagAssignment
+        if hasattr(obj, "prefetched_tagassignments"):
+            return [ta.tag.name for ta in obj.prefetched_tagassignments]
         return [ta.tag.name for ta in obj.tags.all()]
 
 
@@ -170,9 +171,9 @@ class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
     name: str
     slug: str
     description: str | None = None
-    description_html: str = ""
+    # description_html: str = ""
     invitation_message: str | None = None
-    invitation_message_html: str = ""
+    # invitation_message_html: str = ""
     max_attendees: int = 0
     waitlist_open: bool | None = None
     start: datetime
@@ -193,7 +194,8 @@ class EventInListSchema(EventBaseSchema):
 
 
 class EventDetailSchema(EventBaseSchema):
-    pass
+    description_html: str = ""
+    invitation_message_html: str = ""
 
 
 class EventRSVPSchema(ModelSchema):
