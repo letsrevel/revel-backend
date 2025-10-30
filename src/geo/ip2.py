@@ -4,13 +4,25 @@ from IP2Location import IP2Location
 from geo import conf
 
 _DB: IP2Location | None = None
+_DB_MTIME: float | None = None
 
 
 def get_ip2location() -> IP2Location:
-    """Initializes and returns the IP2Location database object."""
-    global _DB
-    if _DB is None:
+    """Initializes and returns the IP2Location database object.
+
+    Uses file modification time to detect when a new database has been downloaded
+    and automatically reloads it.
+    """
+    global _DB, _DB_MTIME
+
+    # Get current file modification time
+    current_mtime = conf.IP2LOCATION_DB_PATH.stat().st_mtime
+
+    # Reload if database hasn't been loaded or file has changed
+    if _DB is None or _DB_MTIME is None or current_mtime != _DB_MTIME:
         _DB = IP2Location(conf.IP2LOCATION_DB_PATH)
+        _DB_MTIME = current_mtime
+
     return _DB
 
 

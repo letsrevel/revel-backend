@@ -266,3 +266,5 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 5 * 1024 * 1024  # 5MB
 
 CLAMAV_HOST = config("CLAMAV_HOST", default="localhost")
 CLAMAV_PORT = config("CLAMAV_PORT", default=3310, cast=int)
+
+IP2LOCATION_TOKEN = config("IP2LOCATION_TOKEN", default=None)
