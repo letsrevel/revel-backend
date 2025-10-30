@@ -285,7 +285,7 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[mi
 
 @admin.register(models.EventInvitation)
 class EventInvitationAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
-    list_display = ["user_link", "event_link", "tier_name", "waives_questionnaire", "waives_purchase"]
+    list_display = ["__str__", "user_link", "event_link", "tier_name", "waives_questionnaire", "waives_purchase"]
     list_filter = ["event__name", "tier__name"]
     search_fields = ["user__username", "event__name"]
     autocomplete_fields = ["user", "event", "tier"]
@@ -297,7 +297,7 @@ class EventInvitationAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: 
 
 @admin.register(models.EventRSVP)
 class EventRSVPAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
-    list_display = ["user_link", "event_link", "status"]
+    list_display = ["__str__", "user_link", "event_link", "status"]
     list_filter = ["status", "event__name"]
     search_fields = ["user__username", "event__name"]
     autocomplete_fields = ["user", "event"]
@@ -407,7 +407,7 @@ class PotluckItemAdmin(ModelAdmin, EventLinkMixin):  # type: ignore[misc]
 class EventWaitListAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
     """Admin for EventWaitList model."""
 
-    list_display = ["user_link", "event_link", "position_display", "created_at"]
+    list_display = ["__str__", "user_link", "event_link", "position_display", "created_at"]
     list_filter = ["event__organization", "event__name", "created_at"]
     search_fields = ["user__username", "user__email", "event__name"]
     autocomplete_fields = ["user", "event"]
@@ -443,10 +443,10 @@ class PendingEventInvitationAdmin(ModelAdmin, EventLinkMixin):  # type: ignore[m
 class EventTokenAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
     """Admin for EventToken model."""
 
-    list_display = ["name", "event_link", "issuer_link", "uses_display", "expires_at", "created_at"]
+    list_display = ["__str__", "name", "event_link", "issuer_link", "uses_display", "expires_at", "created_at"]
     list_filter = ["event__organization", "expires_at", "created_at"]
     search_fields = ["name", "event__name", "issuer__username"]
-    autocomplete_fields = ["event", "issuer", "invitation_tier"]
+    autocomplete_fields = ["event", "issuer", "ticket_tier"]
     readonly_fields = ["id", "created_at", "updated_at"]
     date_hierarchy = "created_at"
 
@@ -466,7 +466,7 @@ class EventTokenAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignor
 class EventInvitationRequestAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
     """Admin for EventInvitationRequest model."""
 
-    list_display = ["user_link", "event_link", "status_display", "decided_by_link", "created_at"]
+    list_display = ["__str__", "user_link", "event_link", "status_display", "decided_by_link", "created_at"]
     list_filter = ["status", "event__organization", "created_at"]
     search_fields = ["user__username", "user__email", "event__name", "message"]
     autocomplete_fields = ["user", "event", "decided_by"]
@@ -495,7 +495,7 @@ class EventInvitationRequestAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  #
 class OrganizationStaffAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for OrganizationStaff model."""
 
-    list_display = ["user_link", "organization_link", "permissions_summary", "created_at"]
+    list_display = ["__str__", "user_link", "organization_link", "permissions_summary", "created_at"]
     list_filter = ["organization__name", "created_at"]
     search_fields = ["user__username", "user__email", "organization__name"]
     autocomplete_fields = ["user", "organization"]
@@ -515,7 +515,7 @@ class OrganizationStaffAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin): 
 class OrganizationMemberAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for OrganizationMember model."""
 
-    list_display = ["user_link", "organization_link", "created_at"]
+    list_display = ["__str__", "user_link", "organization_link", "created_at"]
     list_filter = ["organization__name", "created_at"]
     search_fields = ["user__username", "user__email", "organization__name"]
     autocomplete_fields = ["user", "organization"]
@@ -527,7 +527,7 @@ class OrganizationMemberAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):
 class OrganizationMembershipRequestAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for OrganizationMembershipRequest model."""
 
-    list_display = ["user_link", "organization_link", "status_display", "decided_by_link", "created_at"]
+    list_display = ["__str__", "user_link", "organization_link", "status_display", "decided_by_link", "created_at"]
     list_filter = ["status", "organization__name", "created_at"]
     search_fields = ["user__username", "user__email", "organization__name", "message"]
     autocomplete_fields = ["user", "organization", "decided_by"]
@@ -583,6 +583,7 @@ class GeneralUserPreferencesAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for GeneralUserPreferences."""
 
     list_display = [
+        "__str__",
         "user_link",
         "city_link",
         "silence_all_notifications",
@@ -611,6 +612,7 @@ class UserOrganizationPreferencesAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for UserOrganizationPreferences."""
 
     list_display = [
+        "__str__",
         "user_link",
         "organization_link",
         "is_subscribed",
@@ -637,6 +639,7 @@ class UserEventPreferencesAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for UserEventPreferences."""
 
     list_display = [
+        "__str__",
         "user_link",
         "event_link",
         "is_subscribed",
@@ -668,6 +671,7 @@ class UserEventSeriesPreferencesAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for UserEventSeriesPreferences."""
 
     list_display = [
+        "__str__",
         "user_link",
         "event_series_link",
         "is_subscribed",
@@ -698,7 +702,7 @@ class UserEventSeriesPreferencesAdmin(ModelAdmin):  # type: ignore[misc]
 class AttendeeVisibilityFlagAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for AttendeeVisibilityFlag model."""
 
-    list_display = ["user_link", "target_link", "event_link", "is_visible"]
+    list_display = ["__str__", "user_link", "target_link", "event_link", "is_visible"]
     list_filter = ["is_visible", "event__organization__name"]
     search_fields = ["user__username", "target__username", "event__name"]
     autocomplete_fields = ["user", "target", "event"]

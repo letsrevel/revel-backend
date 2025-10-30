@@ -662,20 +662,20 @@ wheels = [
 
 [[package]]
 name = "django-ninja"
-version = "1.4.3"
+version = "1.4.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cd/1a/f0d051f54375cfd2310f803925993fdc4172e41e627d63ece48194b07892/django_ninja-1.4.3.tar.gz", hash = "sha256:e46d477ca60c228d2a5eb3cc912094928ea830d364501f966661eeada67cb038", size = 3709571 }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/9a/558489e0e25173772fbd826306b7d1777e80285b02d69e0e1aaec41e3eec/django_ninja-1.4.5.tar.gz", hash = "sha256:aa1a2ee2b22c5f1c2f4bfbc004386be7074cbfaf133680c2b359a31221965503", size = 3710511 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/08/ec/0cfa9b817f048cdec354354ae0569d7c0fd63907e5b1f927a7ee04a18635/django_ninja-1.4.3-py3-none-any.whl", hash = "sha256:f3204137a059437b95677049474220611f1cf9efedba9213556474b75168fa01", size = 2426185 },
+    { url = "https://files.pythonhosted.org/packages/49/e3/168274a8def4b9a2fb2540319a68914e8e4e529cd7f7b5f1ba8939d011bc/django_ninja-1.4.5-py3-none-any.whl", hash = "sha256:d779702ddc6e17b10739049ddb075a6a1e6c6270bdc04e0b0429f6adbf670373", size = 2426449 },
 ]
 
 [[package]]
 name = "django-ninja-extra"
-version = "0.30.1"
+version = "0.30.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
@@ -684,9 +684,9 @@ dependencies = [
     { name = "django-ninja" },
     { name = "injector" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9a/39/f04d538a3de88ffc31870e012c26ae4b03146fbbddae732363d49dd4aba2/django_ninja_extra-0.30.1.tar.gz", hash = "sha256:e7f452fdcd15738661ee9f4fc7376dd33545eb944c92e58efe5c0c008b2e9d54", size = 56460 }
+sdist = { url = "https://files.pythonhosted.org/packages/45/b3/2c4b3761e993857e819b23ffafa010f571e61c295474f7212803b20a5104/django_ninja_extra-0.30.2.tar.gz", hash = "sha256:f47928e6be4cabd2e81e8aeba886e1a5de113701af1647dd8cec6a5cc3ccac6a", size = 56098 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/91/13/3fab25e603bc5d5f8fabe17ff455bcd03cb0583023713262a62b35333d41/django_ninja_extra-0.30.1-py3-none-any.whl", hash = "sha256:286241bd1a14b3257114014ec349f2a992f42dab76bfdf678d55029130ad7fbd", size = 76502 },
+    { url = "https://files.pythonhosted.org/packages/8c/42/f05f0b8c6c3f3f5a1309f96f4ea3adfb980daf0b4373ee5602779c56f46d/django_ninja_extra-0.30.2-py3-none-any.whl", hash = "sha256:4e39b31d5fc1357d2baae8a53bf32983202b1f19de4ae55249f5d80339cfb9c8", size = 75784 },
 ]
 
 [[package]]
@@ -2628,8 +2628,8 @@ requires-dist = [
     { name = "django-fernet-encrypted-fields", specifier = ">=0.3.0" },
     { name = "django-google-sso", specifier = ">=8.0.0" },
     { name = "django-money", specifier = ">=3.5.4" },
-    { name = "django-ninja", specifier = ">=1.4.3" },
-    { name = "django-ninja-extra", specifier = ">=0.30.1" },
+    { name = "django-ninja", specifier = "==1.4.5" },
+    { name = "django-ninja-extra", specifier = "==0.30.2" },
     { name = "django-ninja-jwt", extras = ["crypto"], specifier = ">=5.3.7" },
     { name = "django-silk", specifier = ">=5.4.0" },
     { name = "django-simple-history", specifier = ">=3.8.0" },

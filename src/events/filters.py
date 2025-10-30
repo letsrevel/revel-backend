@@ -289,7 +289,7 @@ class MembershipRequestFilterSchema(FilterSchema):
 class InvitationRequestFilterSchema(FilterSchema):
     """Filter schema for event invitation requests."""
 
-    status: EventInvitationRequest.Status | None = None
+    status: EventInvitationRequest.Status | None = EventInvitationRequest.Status.PENDING
 
 
 class SubmissionFilterSchema(FilterSchema):

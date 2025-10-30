@@ -65,11 +65,11 @@ def test_create_event_token_with_invitation(
 
     # Act
     token = event_service.create_event_token(
-        event=event, issuer=organization_owner_user, invitation=invitation, invitation_tier_id=vip_tier.id
+        event=event, issuer=organization_owner_user, invitation=invitation, ticket_tier_id=vip_tier.id
     )
 
     assert token.invitation_payload is not None
-    assert token.invitation_tier == vip_tier
+    assert token.ticket_tier == vip_tier
 
 
 def test_get_event_token_returns_token(event: Event, organization_owner_user: RevelUser) -> None:

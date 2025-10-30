@@ -667,7 +667,7 @@ def test_request_invitation_duplicate_fails(
     assert models.EventInvitationRequest.objects.count() == 1
 
 
-# --- Tests for GET /events/me/pending-invitation-requests ---
+# --- Tests for GET /events/invitation-requests ---
 
 
 def test_get_my_pending_invitation_requests_success(
@@ -682,7 +682,7 @@ def test_get_my_pending_invitation_requests_success(
     other_user = RevelUser.objects.create_user("otheruser")
     models.EventInvitationRequest.objects.create(event=private_event, user=other_user, message="Other user req")
 
-    url = reverse("api:list_user_invitation_requests")
+    url = reverse("api:list_my_invitation_requests")
     response = nonmember_client.get(url)
 
     assert response.status_code == 200
@@ -702,7 +702,7 @@ def test_get_my_pending_invitation_requests_search_and_filter(
     models.EventInvitationRequest.objects.create(event=private_event, user=nonmember_user, message="Looking for tech")
     models.EventInvitationRequest.objects.create(event=public_event, user=nonmember_user, message="Looking for art")
 
-    url = reverse("api:list_user_invitation_requests")
+    url = reverse("api:list_my_invitation_requests")
 
     # Filter by event_id
     response = nonmember_client.get(url, {"event_id": str(private_event.pk)})
@@ -725,9 +725,250 @@ def test_get_my_pending_invitation_requests_search_and_filter(
 
 def test_get_my_pending_invitation_requests_anonymous_fails(client: Client) -> None:
     """Test that an anonymous user cannot retrieve pending requests."""
-    url = reverse("api:list_user_invitation_requests")
+    url = reverse("api:list_my_invitation_requests")
     response = client.get(url)
     assert response.status_code == 401
+
+
+def test_get_my_invitation_requests_status_filtering(
+    nonmember_client: Client,
+    nonmember_user: RevelUser,
+    private_event: Event,
+    public_event: Event,
+    members_only_event: Event,
+) -> None:
+    """Test that status filtering defaults to pending but can show all statuses."""
+    # Create requests with different statuses
+    pending_req = models.EventInvitationRequest.objects.create(
+        event=private_event, user=nonmember_user, message="Pending", status=models.EventInvitationRequest.Status.PENDING
+    )
+    approved_req = models.EventInvitationRequest.objects.create(
+        event=public_event,
+        user=nonmember_user,
+        message="Approved",
+        status=models.EventInvitationRequest.Status.APPROVED,
+    )
+    rejected_req = models.EventInvitationRequest.objects.create(
+        event=members_only_event,
+        user=nonmember_user,
+        message="Rejected",
+        status=models.EventInvitationRequest.Status.REJECTED,
+    )
+
+    url = reverse("api:list_my_invitation_requests")
+
+    # Default should show only pending
+    response = nonmember_client.get(url)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(pending_req.id)
+    assert data["results"][0]["status"] == "pending"
+
+    # Filter by approved
+    response = nonmember_client.get(url, {"status": "approved"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(approved_req.id)
+    assert data["results"][0]["status"] == "approved"
+
+    # Filter by rejected
+    response = nonmember_client.get(url, {"status": "rejected"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(rejected_req.id)
+    assert data["results"][0]["status"] == "rejected"
+
+
+# --- Tests for GET /events/me/my-invitations ---
+
+
+def test_list_my_invitations_success(
+    nonmember_client: Client, nonmember_user: RevelUser, private_event: Event, public_event: Event
+) -> None:
+    """Test that a user can retrieve their own invitations."""
+    # Create invitations for the user
+    invitation1 = EventInvitation.objects.create(event=private_event, user=nonmember_user, custom_message="Welcome!")
+    invitation2 = EventInvitation.objects.create(event=public_event, user=nonmember_user)
+
+    # Create an invitation for another user to ensure it's not included
+    other_user = RevelUser.objects.create_user("otheruser")
+    EventInvitation.objects.create(event=private_event, user=other_user)
+
+    url = reverse("api:list_my_invitations")
+    response = nonmember_client.get(url)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 2
+    results = data["results"]
+    assert {r["id"] for r in results} == {str(invitation1.id), str(invitation2.id)}
+    # Verify event information is included
+    assert results[0]["event"]["id"] in {str(private_event.id), str(public_event.id)}
+    assert results[0]["event"]["name"] in {private_event.name, public_event.name}
+
+
+def test_list_my_invitations_filter_by_upcoming(
+    nonmember_client: Client, nonmember_user: RevelUser, organization: Organization
+) -> None:
+    """Test that by default only upcoming event invitations are shown."""
+    # Create past event (ended 2 days ago)
+    past_event = Event.objects.create(
+        organization=organization,
+        name="Past Event",
+        slug="past-event",
+        status="open",
+        start=timezone.now() - timedelta(days=3),
+        end=timezone.now() - timedelta(days=2),
+    )
+
+    # Create upcoming event (starts in 1 week)
+    upcoming_event = Event.objects.create(
+        organization=organization,
+        name="Upcoming Event",
+        slug="upcoming-event",
+        status="open",
+        start=timezone.now() + timedelta(days=7),
+        end=timezone.now() + timedelta(days=8),
+    )
+
+    # Create another past event (ended 1 hour ago)
+    another_past_event = Event.objects.create(
+        organization=organization,
+        name="Another Past Event",
+        slug="another-past-event",
+        status="open",
+        start=timezone.now() - timedelta(hours=2),
+        end=timezone.now() - timedelta(hours=1),
+    )
+
+    # Create invitations for all events
+    EventInvitation.objects.create(event=past_event, user=nonmember_user)
+    upcoming_invitation = EventInvitation.objects.create(event=upcoming_event, user=nonmember_user)
+    EventInvitation.objects.create(event=another_past_event, user=nonmember_user)
+
+    url = reverse("api:list_my_invitations")
+
+    # Default should show only upcoming
+    response = nonmember_client.get(url)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    result_ids = {r["id"] for r in data["results"]}
+    assert result_ids == {str(upcoming_invitation.id)}
+
+    # With include_past=true should show all
+    response = nonmember_client.get(url, {"include_past": "true"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 3
+
+
+def test_list_my_invitations_filter_by_event(
+    nonmember_client: Client, nonmember_user: RevelUser, private_event: Event, public_event: Event
+) -> None:
+    """Test filtering invitations by event_id."""
+    invitation1 = EventInvitation.objects.create(event=private_event, user=nonmember_user)
+    EventInvitation.objects.create(event=public_event, user=nonmember_user)
+
+    url = reverse("api:list_my_invitations")
+
+    # Filter by private_event
+    response = nonmember_client.get(url, {"event_id": str(private_event.id)})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(invitation1.id)
+    assert data["results"][0]["event"]["id"] == str(private_event.id)
+
+
+def test_list_my_invitations_search(
+    nonmember_client: Client, nonmember_user: RevelUser, organization: Organization
+) -> None:
+    """Test searching invitations by event name/description and custom message."""
+    event1 = Event.objects.create(
+        organization=organization, name="Tech Meetup", slug="tech-meetup", status="open", start=timezone.now()
+    )
+    event2 = Event.objects.create(
+        organization=organization,
+        name="Art Gallery",
+        slug="art-gallery",
+        status="open",
+        start=timezone.now(),
+        description="Beautiful art show",
+    )
+
+    invitation1 = EventInvitation.objects.create(event=event1, user=nonmember_user, custom_message="Tech enthusiast")
+    invitation2 = EventInvitation.objects.create(event=event2, user=nonmember_user)
+
+    url = reverse("api:list_my_invitations")
+
+    # Search by event name
+    response = nonmember_client.get(url, {"search": "Tech"})
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert response.json()["results"][0]["id"] == str(invitation1.id)
+
+    # Search by custom message
+    response = nonmember_client.get(url, {"search": "enthusiast"})
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert response.json()["results"][0]["id"] == str(invitation1.id)
+
+    # Search by event description
+    response = nonmember_client.get(url, {"search": "Beautiful"})
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert response.json()["results"][0]["id"] == str(invitation2.id)
+
+
+def test_list_my_invitations_anonymous_fails(client: Client) -> None:
+    """Test that an anonymous user cannot retrieve invitations."""
+    url = reverse("api:list_my_invitations")
+    response = client.get(url)
+    assert response.status_code == 401
+
+
+def test_list_user_tickets(
+    nonmember_client: Client,
+    nonmember_user: RevelUser,
+    public_event: Event,
+    private_event: Event,
+) -> None:
+    """Test listing user's own tickets with filtering and search."""
+    # Create tickets with different statuses
+    tier1 = public_event.ticket_tiers.first()
+    tier2 = private_event.ticket_tiers.first()
+    assert tier1 is not None
+    assert tier2 is not None
+
+    ticket1 = Ticket.objects.create(event=public_event, user=nonmember_user, tier=tier1, status=Ticket.Status.ACTIVE)
+    ticket2 = Ticket.objects.create(event=private_event, user=nonmember_user, tier=tier2, status=Ticket.Status.PENDING)
+
+    url = reverse("api:list_user_tickets")
+
+    # Get all tickets (no filter)
+    response = nonmember_client.get(url)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 2
+
+    # Filter by status
+    response = nonmember_client.get(url, {"status": "pending"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(ticket2.id)
+    assert data["results"][0]["event"]["name"] == private_event.name
+
+    # Search by event name
+    response = nonmember_client.get(url, {"search": public_event.name})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(ticket1.id)
 
 
 class TestClaimInvitation:

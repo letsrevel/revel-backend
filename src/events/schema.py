@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 
+from accounts.models import RevelUser
 from accounts.schema import MemberUserSchema, MinimalRevelUserSchema
 from common.schema import OneToOneFiftyString, OneToSixtyFourString, StrippedString
 from events import models
@@ -349,6 +350,18 @@ class AdminTicketSchema(ModelSchema):
         fields = ["id", "status", "tier", "created_at"]
 
 
+class UserTicketSchema(ModelSchema):
+    """Schema for user's own tickets with event details."""
+
+    event: "MinimalEventSchema"
+    tier: TierSchema
+    status: Ticket.Status
+
+    class Meta:
+        model = Ticket
+        fields = ["id", "status", "tier", "created_at", "checked_in_at"]
+
+
 class CheckInRequestSchema(Schema):
     """Schema for ticket check-in requests."""
 
@@ -410,6 +423,21 @@ class EventInvitationListSchema(Schema):
 
     id: UUID
     user: MinimalRevelUserSchema
+    tier: TierSchema | None = None
+    waives_questionnaire: bool
+    waives_purchase: bool
+    overrides_max_attendees: bool
+    waives_membership_required: bool
+    waives_rsvp_deadline: bool
+    custom_message: str | None = None
+    created_at: datetime
+
+
+class MyEventInvitationSchema(Schema):
+    """Schema for listing user's own EventInvitation objects with event details."""
+
+    id: UUID
+    event: "EventInListSchema"
     tier: TierSchema | None = None
     waives_questionnaire: bool
     waives_purchase: bool
@@ -570,7 +598,7 @@ class EventTokenBaseSchema(Schema):
     name: OneToOneFiftyString | None = None
     max_uses: int = 1
     invitation: InvitationBaseSchema | None = None
-    invitation_tier_id: UUID | None = None
+    ticket_tier_id: UUID | None = None
 
 
 class EventTokenCreateSchema(EventTokenBaseSchema):
@@ -919,3 +947,9 @@ class TicketTierDetailSchema(ModelSchema):
             "quantity_sold",
             "manual_payment_instructions",
         ]
+
+
+class AttendeeSchema(ModelSchema):
+    class Meta:
+        model = RevelUser
+        fields = ["preferred_name", "pronouns", "first_name", "last_name"]

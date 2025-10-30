@@ -6,9 +6,8 @@ from aiogram.types import BufferedInputFile
 
 from telegram.utils import generate_qr_code, send_telegram_message
 
-pytestmark = pytest.mark.asyncio
 
-
+@pytest.mark.asyncio
 async def test_send_telegram_message() -> None:
     """Test the send_telegram_message utility function."""
     with patch("telegram.bot.get_bot") as mock_get_bot:

@@ -39,7 +39,7 @@ def create_event_token(
     issuer: RevelUser,
     duration: timedelta | int = 60,
     invitation: InvitationBaseSchema | None = None,
-    invitation_tier_id: UUID | None = None,
+    ticket_tier_id: UUID | None = None,
     name: str | None = None,
     max_uses: int = 0,
 ) -> EventToken:
@@ -54,7 +54,7 @@ def create_event_token(
         event=event,
         expires_at=timezone.now() + duration,
         max_uses=max_uses,
-        invitation_tier_id=invitation_tier_id,
+        ticket_tier_id=ticket_tier_id,
         invitation_payload=invitation.model_dump(mode="json") if invitation is not None else None,
     )
 
@@ -83,7 +83,7 @@ def claim_invitation(user: RevelUser, token: str) -> EventInvitation | None:
         event=event_token.event,
         user=user,
         defaults={
-            "tier": event_token.invitation_tier,
+            "tier_id": event_token.ticket_tier_id,
             **(event_token.invitation_payload or {}),
         },
     )
