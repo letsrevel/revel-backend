@@ -119,7 +119,19 @@ class RSVPFilterSchema(FilterSchema):
     """Filter schema for event RSVPs."""
 
     status: EventRSVP.Status | None = None
-    user_id: UUID | None = Field(None, q="user_id")  # type: ignore[call-overload]
+    user_id: UUID | None = None
+    include_past: bool = False
+
+    def filter_include_past(self, include_past: bool) -> Q:
+        """Filter for upcoming events only by default.
+
+        When include_past=False (default), only shows RSVPs for events
+        whose end date is in the future. When True, shows all RSVPs.
+        """
+        if not include_past:
+            today = timezone.now()
+            return Q(event__end__gt=today)
+        return Q()
 
 
 class TicketFilterSchema(FilterSchema):
@@ -300,7 +312,7 @@ class MembershipRequestFilterSchema(FilterSchema):
 class InvitationRequestFilterSchema(FilterSchema):
     """Filter schema for event invitation requests."""
 
-    status: EventInvitationRequest.Status | None = EventInvitationRequest.Status.PENDING
+    status: EventInvitationRequest.Status | None = None
 
 
 class SubmissionFilterSchema(FilterSchema):

@@ -302,6 +302,17 @@ class RSVPUpdateSchema(Schema):
     status: EventRSVP.Status
 
 
+class UserRSVPSchema(ModelSchema):
+    """Schema for user's own RSVPs with event details."""
+
+    event: "MinimalEventSchema"
+    status: EventRSVP.Status
+
+    class Meta:
+        model = EventRSVP
+        fields = ["id", "status", "created_at", "updated_at"]
+
+
 class TierSchema(ModelSchema):
     id: UUID
     event_id: UUID
