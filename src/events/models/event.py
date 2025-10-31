@@ -399,7 +399,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     )
     payment_method = models.CharField(
         choices=PaymentMethod.choices,
-        default=PaymentMethod.ONLINE,
+        default=PaymentMethod.OFFLINE,
         max_length=20,
         db_index=True,
     )

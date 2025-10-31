@@ -165,7 +165,9 @@ def vip_tier(public_event: Event) -> TicketTier:
 @pytest.fixture
 def event_ticket_tier(event: Event) -> TicketTier:
     """A ticket tier for the generic event fixture."""
-    return TicketTier.objects.create(event=event, name="General", price=10.00)
+    return TicketTier.objects.create(
+        event=event, name="General", price=10.00, payment_method=TicketTier.PaymentMethod.ONLINE
+    )
 
 
 @pytest.fixture

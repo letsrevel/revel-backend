@@ -336,6 +336,7 @@ class TierSchema(ModelSchema):
             "sales_end_at",
             "purchasable_by",
             "payment_method",
+            "manual_payment_instructions",
         ]
 
 
