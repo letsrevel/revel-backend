@@ -80,6 +80,42 @@ class OrganizationEditSchema(CityEditMixin):
     contact_email: EmailStr | None = None
 
 
+class MinimalOrganizationSchema(Schema):
+    """Lightweight organization schema for use in event lists - excludes city and tags to avoid N+1 queries."""
+
+    id: UUID
+    name: str
+    slug: str
+    description: str | None = ""
+    description_html: str = ""
+    logo: str | None = None
+    cover_art: str | None = None
+    visibility: Organization.Visibility
+    is_stripe_connected: bool
+    platform_fee_percent: Decimal | None = Field(None, ge=0, le=100)
+    accept_membership_requests: bool
+    contact_email: str | None = None
+    contact_email_verified: bool
+
+
+class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin):
+    """Schema for organization list endpoints - includes city and tags with proper prefetching."""
+
+    id: UUID
+    name: str
+    slug: str
+    description: str | None = ""
+    description_html: str = ""
+    logo: str | None = None
+    cover_art: str | None = None
+    visibility: Organization.Visibility
+    is_stripe_connected: bool
+    platform_fee_percent: Decimal | None = Field(None, ge=0, le=100)
+    accept_membership_requests: bool
+    contact_email: str | None = None
+    contact_email_verified: bool
+
+
 class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin):
     id: UUID
     name: str
@@ -118,9 +154,37 @@ class OrganizationAdminDetailSchema(CityRetrieveMixin, TaggableSchemaMixin):
     contact_email_verified: bool
 
 
-class EventSeriesRetrieveSchema(TaggableSchemaMixin):
+class MinimalEventSeriesSchema(Schema):
+    """Lightweight event series schema for use in event lists - excludes tags and uses minimal organization."""
+
     id: UUID
-    organization: OrganizationRetrieveSchema
+    organization: MinimalOrganizationSchema
+    name: str
+    description: str | None = None
+    description_html: str = ""
+    slug: str
+    logo: str | None = None
+    cover_art: str | None = None
+
+
+class EventSeriesInListSchema(TaggableSchemaMixin):
+    """Schema for event series list endpoints - includes tags with proper prefetching."""
+
+    id: UUID
+    organization: MinimalOrganizationSchema
+    name: str
+    description: str | None = None
+    description_html: str = ""
+    slug: str
+    logo: str | None = None
+    cover_art: str | None = None
+
+
+class EventSeriesRetrieveSchema(TaggableSchemaMixin):
+    """Full event series schema for detail views - uses minimal organization to prevent cascading queries."""
+
+    id: UUID
+    organization: MinimalOrganizationSchema
     name: str
     description: str | None = None
     description_html: str = ""
@@ -165,9 +229,9 @@ class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
     id: UUID
     event_type: Event.Types
     visibility: Event.Visibility
-    organization: OrganizationRetrieveSchema
+    organization: MinimalOrganizationSchema
     status: Event.Status
-    event_series: EventSeriesRetrieveSchema | None = None
+    event_series: MinimalEventSeriesSchema | None = None
     name: str
     slug: str
     description: str | None = None
@@ -497,7 +561,7 @@ class MinimalEventSchema(Schema):
 class BaseOrganizationQuestionnaireSchema(Schema):
     id: UUID
     events: list[MinimalEventSchema] = Field(default_factory=list)
-    event_series: list[EventSeriesRetrieveSchema] = Field(default_factory=list)
+    event_series: list[MinimalEventSeriesSchema] = Field(default_factory=list)
     max_submission_age: timedelta | int | None = None
     questionnaire_type: OrganizationQuestionnaire.Types
 

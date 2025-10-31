@@ -18,14 +18,16 @@ from .user_aware_controller import UserAwareController
 
 @api_controller("/event-series", auth=OptionalAuth(), tags=["Event Series"])
 class EventSeriesController(UserAwareController):
-    def get_queryset(self) -> QuerySet[models.EventSeries]:
+    def get_queryset(self, full: bool = True) -> QuerySet[models.EventSeries]:
         """Get the queryset of event series visible to the current user."""
-        return models.EventSeries.objects.for_user(self.maybe_user())
+        if not full:
+            return models.EventSeries.objects.for_user(self.maybe_user())
+        return models.EventSeries.objects.full().for_user(self.maybe_user())
 
     @route.get(
         "/",
         url_name="list_event_series",
-        response=PaginatedResponseSchema[schema.EventSeriesRetrieveSchema],
+        response=PaginatedResponseSchema[schema.EventSeriesInListSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["name", "description", "organization__name", "tags__tag__name"])

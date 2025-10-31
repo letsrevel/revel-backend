@@ -25,12 +25,14 @@ from .user_aware_controller import UserAwareController
 
 @api_controller("/organizations", auth=OptionalAuth(), tags=["Organization"])
 class OrganizationController(UserAwareController):
-    def get_queryset(self) -> QuerySet[models.Organization]:
+    def get_queryset(self, full: bool = True) -> QuerySet[models.Organization]:
         """Get the queryset based on the user."""
         allowed_ids: list[UUID] = []
         if ot := self.get_organization_token():
             allowed_ids = [ot.organization_id]
-        return models.Organization.objects.for_user(self.maybe_user(), allowed_ids=allowed_ids)
+        if not full:
+            return models.Organization.objects.for_user(self.maybe_user(), allowed_ids=allowed_ids)
+        return models.Organization.objects.full().for_user(self.maybe_user(), allowed_ids=allowed_ids)
 
     def get_organization_token(self) -> models.OrganizationToken | None:
         """Get an organization token from X-Organization-Token header or ot query param (legacy).
@@ -50,7 +52,7 @@ class OrganizationController(UserAwareController):
         """Get one organization."""
         return self.get_object_or_exception(self.get_queryset(), slug=slug)  # type: ignore[no-any-return]
 
-    @route.get("/", url_name="list_organizations", response=PaginatedResponseSchema[schema.OrganizationRetrieveSchema])
+    @route.get("/", url_name="list_organizations", response=PaginatedResponseSchema[schema.OrganizationInListSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["name", "description", "tags__tag__name"])
     def list_organizations(

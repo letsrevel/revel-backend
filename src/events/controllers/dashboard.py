@@ -37,7 +37,7 @@ class DashboardController(UserAwareController):
 
     def get_invitations_queryset(self) -> QuerySet[models.EventInvitation]:
         """Get the pending invitations queryset, sorted by event date (sooner first)."""
-        return models.EventInvitation.objects.for_user(self.user())
+        return models.EventInvitation.objects.with_event_details().for_user(self.user())
 
     @route.get(
         "/organizations",
@@ -68,7 +68,7 @@ class DashboardController(UserAwareController):
         final_org_ids = authorized_org_ids.intersection(relationship_org_ids)
 
         # 4. Fetch the final, full Organization objects. The decorators will handle pagination.
-        return models.Organization.objects.filter(id__in=final_org_ids).distinct()
+        return models.Organization.objects.full().filter(id__in=final_org_ids).distinct()
 
     @route.get("/events", url_name="dashboard_events", response=PaginatedResponseSchema[schema.EventInListSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -107,10 +107,8 @@ class DashboardController(UserAwareController):
         final_event_ids = authorized_event_ids.intersection(relationship_event_ids)
 
         # 4. Fetch the final, full Event objects based on the correct IDs.
-        qs = models.Event.objects.filter(id__in=final_event_ids)
+        qs = models.Event.objects.full().filter(id__in=final_event_ids)
 
-        # 5. Apply any remaining display logic.
-        qs = qs.select_related("organization", "event_series")
         today = timezone.now().date()
         qs = qs.filter(Q(start__date__gte=today) | Q(start__isnull=True))
 
@@ -147,7 +145,7 @@ class DashboardController(UserAwareController):
         final_series_ids = authorized_series_ids.intersection(relationship_series_ids)
 
         # 4. Fetch the final, full EventSeries objects based on the correct IDs.
-        return models.EventSeries.objects.filter(id__in=final_series_ids).distinct()
+        return models.EventSeries.objects.full().filter(id__in=final_series_ids).distinct()
 
     @route.get(
         "/invitations",

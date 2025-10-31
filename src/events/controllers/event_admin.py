@@ -694,7 +694,7 @@ class EventAdminController(UserAwareController):
     def list_invitations(self, event_id: UUID) -> QuerySet[models.EventInvitation]:
         """List all invitations for registered users."""
         event = self.get_one(event_id)
-        return models.EventInvitation.objects.filter(event=event).distinct()
+        return models.EventInvitation.objects.with_related().filter(event=event).distinct()
 
     @route.get(
         "/pending-invitations",

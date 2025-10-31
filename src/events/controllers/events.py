@@ -38,12 +38,17 @@ from .user_aware_controller import UserAwareController
 
 @api_controller("/events", auth=OptionalAuth(), tags=["Events"])
 class EventController(UserAwareController):
-    def get_queryset(self, include_past: bool = False) -> models.event.EventQuerySet:
+    def get_queryset(self, include_past: bool = False, full: bool = True) -> models.event.EventQuerySet:
         """Get the queryset based on the user."""
         allowed_ids: list[UUID] = []
         if et := self.get_event_token():
             allowed_ids = [et.event_id]
-        return models.Event.objects.for_user(self.maybe_user(), include_past=include_past, allowed_ids=allowed_ids)
+        qs = models.Event.objects.for_user(self.maybe_user(), include_past=include_past, allowed_ids=allowed_ids)
+        if not full:
+            return qs
+        return models.Event.objects.full().for_user(
+            self.maybe_user(), include_past=include_past, allowed_ids=allowed_ids
+        )
 
     def get_one(self, event_id: UUID) -> models.Event:
         """Wrapper helper."""
