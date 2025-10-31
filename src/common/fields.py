@@ -298,9 +298,19 @@ else:
             html_property_name = f"{name}_html"
 
             def get_html(instance: models.Model) -> str:
-                """Get the rendered HTML for this field."""
+                """Get the rendered HTML for this field (cached per instance)."""
+                # Cache the rendered HTML on the instance to avoid re-rendering
+                cache_attr = f"_cached_{html_property_name}"
+
+                # Check if we've already rendered this
+                if hasattr(instance, cache_attr):
+                    return getattr(instance, cache_attr)
+
+                # Render and cache
                 value = getattr(instance, name)
-                return render_markdown(value)
+                rendered = render_markdown(value)
+                setattr(instance, cache_attr, rendered)
+                return rendered
 
             # Add the property to the model class
             setattr(cls, html_property_name, property(get_html))

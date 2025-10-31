@@ -1,5 +1,6 @@
 # src/events/controllers/dashboard.py
 import typing as t
+from uuid import UUID
 
 from django.db.models import Q, QuerySet
 from django.utils import timezone
@@ -35,10 +36,6 @@ class DashboardController(UserAwareController):
         """Get the organization queryset."""
         return models.Organization.objects.for_user(self.user())
 
-    def get_invitations_queryset(self) -> QuerySet[models.EventInvitation]:
-        """Get the pending invitations queryset, sorted by event date (sooner first)."""
-        return models.EventInvitation.objects.for_user(self.user())
-
     @route.get(
         "/organizations",
         url_name="dashboard_organizations",
@@ -68,7 +65,7 @@ class DashboardController(UserAwareController):
         final_org_ids = authorized_org_ids.intersection(relationship_org_ids)
 
         # 4. Fetch the final, full Organization objects. The decorators will handle pagination.
-        return models.Organization.objects.filter(id__in=final_org_ids).distinct()
+        return models.Organization.objects.full().filter(id__in=final_org_ids).distinct()
 
     @route.get("/events", url_name="dashboard_events", response=PaginatedResponseSchema[schema.EventInListSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -107,10 +104,8 @@ class DashboardController(UserAwareController):
         final_event_ids = authorized_event_ids.intersection(relationship_event_ids)
 
         # 4. Fetch the final, full Event objects based on the correct IDs.
-        qs = models.Event.objects.filter(id__in=final_event_ids)
+        qs = models.Event.objects.full().filter(id__in=final_event_ids)
 
-        # 5. Apply any remaining display logic.
-        qs = qs.select_related("organization", "event_series")
         today = timezone.now().date()
         qs = qs.filter(Q(start__date__gte=today) | Q(start__isnull=True))
 
@@ -147,21 +142,101 @@ class DashboardController(UserAwareController):
         final_series_ids = authorized_series_ids.intersection(relationship_series_ids)
 
         # 4. Fetch the final, full EventSeries objects based on the correct IDs.
-        return models.EventSeries.objects.filter(id__in=final_series_ids).distinct()
+        return models.EventSeries.objects.full().filter(id__in=final_series_ids).distinct()
 
     @route.get(
         "/invitations",
         url_name="dashboard_invitations",
-        response=PaginatedResponseSchema[schema.InvitationSchema],
+        response=PaginatedResponseSchema[schema.MyEventInvitationSchema],
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(Searching, search_fields=["event__name", "event__description", "custom_message"])
+    def dashboard_invitations(
+        self,
+        event_id: UUID | None = None,
+        include_past: bool = False,
+    ) -> QuerySet[models.EventInvitation]:
+        """View your event invitations across all events.
+
+        Returns invitations you've received with event details and any special privileges granted
+        (tier assignment, waived requirements, etc.). By default shows only invitations for upcoming
+        events; set include_past=true to include past events. An event is considered past if its end
+        time has passed. Filter by event_id to see invitations for a specific event.
+        """
+        qs = models.EventInvitation.objects.with_event_details().filter(user=self.user())
+
+        if event_id:
+            qs = qs.filter(event_id=event_id)
+
+        if not include_past:
+            # Filter for upcoming events: end > now
+            qs = qs.filter(event__end__gt=timezone.now())
+
+        return qs.distinct().order_by("-created_at")
+
+    @route.get(
+        "/tickets",
+        url_name="dashboard_tickets",
+        response=PaginatedResponseSchema[schema.UserTicketSchema],
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(Searching, search_fields=["event__name", "event__description", "tier__name"])
+    def dashboard_tickets(
+        self,
+        params: filters.TicketFilterSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[models.Ticket]:
+        """View your tickets across all events.
+
+        Returns all your tickets with their current status and event details.
+        By default, shows only tickets for upcoming events; set include_past=true
+        to include past events. An event is considered past if its end time has passed.
+        Supports filtering by status (pending/active/cancelled/checked_in) and
+        payment method. Results are ordered by newest first.
+        """
+        qs = models.Ticket.objects.select_related("event", "tier").filter(user=self.user()).order_by("-created_at")
+        return params.filter(qs).distinct()
+
+    @route.get(
+        "/invitation-requests",
+        url_name="dashboard_invitation_requests",
+        response=PaginatedResponseSchema[schema.EventInvitationRequestSchema],
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(Searching, search_fields=["event__name", "event__description", "message"])
+    def dashboard_invitation_requests(
+        self,
+        event_id: UUID | None = None,
+        params: filters.InvitationRequestFilterSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[models.EventInvitationRequest]:
+        """View your invitation requests across all events.
+
+        Returns your invitation requests with their current status. By default shows only pending
+        requests; use ?status=approved or ?status=rejected to see decided requests, or omit the
+        status parameter to see all requests. Filter by event_id to see requests for a specific
+        event. Use this to track which events you've requested access to.
+        """
+        qs = models.EventInvitationRequest.objects.select_related("event").filter(user=self.user())
+        if event_id:
+            qs = qs.filter(event_id=event_id)
+        return params.filter(qs).distinct()
+
+    @route.get(
+        "/rsvps",
+        url_name="dashboard_rsvps",
+        response=PaginatedResponseSchema[schema.UserRSVPSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["event__name", "event__description"])
-    def dashboard_invitations(
+    def dashboard_rsvps(
         self,
-    ) -> QuerySet[models.EventInvitation]:
-        """View your pending event invitations.
+        params: filters.RSVPFilterSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[models.EventRSVP]:
+        """View your RSVPs across all events.
 
-        Returns invitations you've received but not yet acted on, sorted by event date (soonest first).
-        Use this to display a "Pending Invitations" section prompting users to RSVP or purchase tickets.
+        Returns all your RSVPs with their current status and event details.
+        By default, shows only RSVPs for upcoming events; set include_past=true
+        to include past events. An event is considered past if its end time has passed.
+        Supports filtering by status (yes/no/maybe). Results are ordered by newest first.
         """
-        return self.get_invitations_queryset().distinct()
+        qs = models.EventRSVP.objects.select_related("event").filter(user=self.user()).order_by("-created_at")
+        return params.filter(qs).distinct()

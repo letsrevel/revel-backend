@@ -53,11 +53,23 @@ class EventSeriesQuerySet(models.QuerySet["EventSeries"]):
 class EventSeriesManager(models.Manager["EventSeries"]):
     def get_queryset(self) -> EventSeriesQuerySet:
         """Get the base queryset for the eventseries."""
-        return EventSeriesQuerySet(self.model, using=self._db).with_tags().with_organization()
+        return EventSeriesQuerySet(self.model, using=self._db)
 
     def for_user(self, user: RevelUser | AnonymousUser) -> EventSeriesQuerySet:
         """Get the queryset based on the user."""
         return self.get_queryset().for_user(user)
+
+    def with_tags(self) -> EventSeriesQuerySet:
+        """Returns a queryset prefetching tags."""
+        return self.get_queryset().with_tags()
+
+    def with_organization(self) -> EventSeriesQuerySet:
+        """Returns a queryset with organization."""
+        return self.get_queryset().with_organization()
+
+    def full(self) -> EventSeriesQuerySet:
+        """Returns a queryset prefetching the full event series."""
+        return self.get_queryset().with_organization().with_tags()
 
 
 class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin, TaggableMixin):

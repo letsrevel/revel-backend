@@ -49,7 +49,7 @@ class EventQuerySet(models.QuerySet["Event"]):
         self, user: RevelUser | AnonymousUser, include_past: bool = False, allowed_ids: list[UUID] | None = None
     ) -> t.Self:
         """Get the queryset based on the user, using an efficient subquery strategy."""
-        base_qs = self.select_related("organization", "event_series", "city")
+        base_qs = self.select_related("organization", "event_series")
 
         is_allowed_special = Q(id__in=allowed_ids) if allowed_ids else Q()
 
@@ -110,7 +110,7 @@ class EventQuerySet(models.QuerySet["Event"]):
 class EventManager(models.Manager["Event"]):
     def get_queryset(self) -> EventQuerySet:
         """Get base queryset for events."""
-        return EventQuerySet(self.model, using=self._db).with_tags()
+        return EventQuerySet(self.model, using=self._db)
 
     def with_organization(self) -> EventQuerySet:
         """Returns a queryset prefetching an organization and its members."""
@@ -119,6 +119,14 @@ class EventManager(models.Manager["Event"]):
     def with_city(self) -> EventQuerySet:
         """Returns a queryset selecting the related city for the events."""
         return self.get_queryset().with_city()
+
+    def with_tags(self) -> EventQuerySet:
+        """Returns a queryset prefetching the tags."""
+        return self.get_queryset().with_tags()
+
+    def full(self) -> EventQuerySet:
+        """Returns a queryset prefetching the full events."""
+        return self.get_queryset().with_organization().with_city().with_tags()
 
     def for_user(
         self, user: RevelUser | AnonymousUser, include_past: bool = False, allowed_ids: list[UUID] | None = None
@@ -559,9 +567,26 @@ class Payment(TimeStampedModel):
 
 
 class EventInvitationQueryset(models.QuerySet["EventInvitation"]):
-    def get_queryset(self) -> t.Self:
-        """Get the base invitation queryset."""
+    def with_related(self) -> t.Self:
+        """Prefetch related objects for invitations."""
         return self.select_related("event", "user", "tier")
+
+    def with_event_details(self) -> t.Self:
+        """Prefetch event with its nested relations for list views."""
+        return self.select_related(
+            "event",
+            "event__organization",
+            "event__event_series",
+            "event__city",
+            "user",
+            "tier",
+        ).prefetch_related(
+            Prefetch(
+                "event__tags",
+                queryset=TagAssignment.objects.select_related("tag"),
+                to_attr="prefetched_tagassignments",
+            )
+        )
 
     def for_user(self, user: RevelUser) -> t.Self:
         """Get the base invitation qs for a user."""
@@ -571,12 +596,20 @@ class EventInvitationQueryset(models.QuerySet["EventInvitation"]):
 
 class EventInvitationManager(models.Manager["EventInvitation"]):
     def get_queryset(self) -> EventInvitationQueryset:
-        """Get base queryset for events."""
+        """Get base queryset for invitations."""
         return EventInvitationQueryset(self.model, using=self._db)
 
     def for_user(self, user: RevelUser) -> EventInvitationQueryset:
         """Get the base invitation qs for a user."""
         return self.get_queryset().for_user(user)
+
+    def with_related(self) -> EventInvitationQueryset:
+        """Returns a queryset with related objects."""
+        return self.get_queryset().with_related()
+
+    def with_event_details(self) -> EventInvitationQueryset:
+        """Returns a queryset with event and nested relations."""
+        return self.get_queryset().with_event_details()
 
 
 class AbstractEventInvitation(TimeStampedModel):

@@ -42,6 +42,10 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
             )
         )
 
+    def with_city(self) -> t.Self:
+        """Select the city as well."""
+        return self.select_related("city")
+
     def for_user(self, user: RevelUser | AnonymousUser, allowed_ids: list[UUID] | None = None) -> t.Self:
         """Get queryset for user using a high-performance UNION-based strategy.
 
@@ -85,11 +89,23 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
 class OrganizationManager(models.Manager["Organization"]):
     def get_queryset(self) -> OrganizationQuerySet:
         """Get base queryset."""
-        return OrganizationQuerySet(self.model, using=self._db).with_tags()
+        return OrganizationQuerySet(self.model, using=self._db)
 
     def for_user(self, user: RevelUser | AnonymousUser, allowed_ids: list[UUID] | None = None) -> OrganizationQuerySet:
         """Get queryset for user."""
         return self.get_queryset().for_user(user, allowed_ids)
+
+    def with_tags(self) -> OrganizationQuerySet:
+        """Returns a queryset prefetching tags."""
+        return self.get_queryset().with_tags()
+
+    def with_city(self) -> OrganizationQuerySet:
+        """Returns a queryset with city."""
+        return self.get_queryset().with_city()
+
+    def full(self) -> OrganizationQuerySet:
+        """Returns a queryset prefetching the full organizations."""
+        return self.get_queryset().with_city().with_tags()
 
 
 class Organization(

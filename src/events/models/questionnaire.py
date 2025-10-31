@@ -36,9 +36,12 @@ class OrganizationQuestionnaireQueryset(models.QuerySet["OrganizationQuestionnai
             .order_by("-is_future", "time_diff")  # True > False, so future first
         )
 
+        # Prefetch event_series with organization to avoid N+1 queries
+        event_series_qs = EventSeries.objects.select_related("organization")
+
         return self.select_related("organization", "questionnaire").prefetch_related(
             models.Prefetch("events", queryset=event_qs),
-            "event_series",
+            models.Prefetch("event_series", queryset=event_series_qs),
         )
 
     def for_user(self, user: RevelUser | AnonymousUser) -> t.Self:
