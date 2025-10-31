@@ -8,6 +8,7 @@ import pytest
 from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
 from django.utils import timezone
+from ninja.errors import HttpError
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
@@ -55,6 +56,7 @@ class TestEventStripeCheckout:
         gat = public_event.ticket_tiers.first()
         assert gat is not None
         gat.price = Decimal("25.00")
+        gat.payment_method = TicketTier.PaymentMethod.ONLINE
         gat.save()
         return gat
 
@@ -178,7 +180,6 @@ class TestEventStripeCheckout:
     ) -> None:
         """Test checkout when stripe service raises an error."""
         # Arrange
-        from ninja.errors import HttpError
 
         mock_create_checkout.side_effect = HttpError(400, "Organization not configured for payments")
 
@@ -242,9 +243,8 @@ class TestEventStripeCheckout:
             name="Free Tier",
             price=Decimal("0.00"),
             currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
         )
-
-        from ninja.errors import HttpError
 
         mock_create_checkout.side_effect = HttpError(400, "This ticket tier cannot be purchased.")
 
@@ -282,9 +282,8 @@ class TestEventStripeCheckout:
             name="Paid Tier",
             price=Decimal("25.00"),
             currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
         )
-
-        from ninja.errors import HttpError
 
         mock_create_checkout.side_effect = HttpError(400, "This organization is not configured to accept payments.")
 
@@ -336,6 +335,7 @@ class TestStripeCheckoutRateLimit:
         gat = public_event.ticket_tiers.first()
         assert gat is not None
         gat.price = Decimal("25.00")
+        gat.payment_method = TicketTier.PaymentMethod.ONLINE
         gat.save()
         return gat
 
