@@ -70,6 +70,15 @@ jobs:
         working-directory: src
         run: uv run manage.py makemigrations --check --dry-run
 
+      - name: Check i18n compiled messages
+        run: |
+          uv run python src/manage.py compilemessages
+          if ! git diff --exit-code src/locale/ > /dev/null; then
+            echo "❌ Translation files (.mo) are out of sync with .po files. Run 'make compilemessages' and commit the updated .mo files."
+            git diff src/locale/
+            exit 1
+          fi
+
       - name: Run unit tests
         run: |
           uv run pytest --cov=src --cov-report=term --cov-report=html --cov-branch --cov-fail-under=90 --junitxml=test-results/unit-tests.xml -v src

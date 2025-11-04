@@ -1,9 +1,10 @@
+{% load i18n %}
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Questionnaire Evaluation Result: {{ event.name }}</title>
+    <title>{% blocktrans %}Questionnaire Evaluation Result: {{ event_name }}{% endblocktrans %}</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -84,77 +85,77 @@
 </head>
 <body>
     <div class="header">
-        <h1>📋 Questionnaire Evaluation</h1>
+        <h1>{% trans "📋 Questionnaire Evaluation" %}</h1>
         <p>{{ event.name }}</p>
     </div>
 
     <div class="result-box">
         {% if evaluation.status == "approved" %}
         <div class="result-icon">🎉</div>
-        <h2 style="color: #28a745; margin: 0;">APPROVED</h2>
-        <p>Congratulations! Your questionnaire submission has been approved.</p>
+        <h2 style="color: #28a745; margin: 0;">{% trans "APPROVED" %}</h2>
+        <p>{% trans "Congratulations! Your questionnaire submission has been approved." %}</p>
         {% else %}
         <div class="result-icon">❌</div>
-        <h2 style="color: #dc3545; margin: 0;">NOT APPROVED</h2>
-        <p>Your questionnaire submission was not approved at this time.</p>
+        <h2 style="color: #dc3545; margin: 0;">{% trans "NOT APPROVED" %}</h2>
+        <p>{% trans "Your questionnaire submission was not approved at this time." %}</p>
         {% endif %}
     </div>
 
     <div class="details-card">
-        <h4>Submission Details</h4>
+        <h4>{% trans "Submission Details" %}</h4>
         <div class="detail-row">
-            <span class="detail-label">Event:</span>
+            <span class="detail-label">{% trans "Event:" %}</span>
             <span>{{ event.name }}</span>
         </div>
         <div class="detail-row">
-            <span class="detail-label">Organization:</span>
+            <span class="detail-label">{% trans "Organization:" %}</span>
             <span>{{ organization.name }}</span>
         </div>
         <div class="detail-row">
-            <span class="detail-label">Questionnaire:</span>
+            <span class="detail-label">{% trans "Questionnaire:" %}</span>
             <span>{{ submission.questionnaire.name }}</span>
         </div>
         {% if evaluation.score %}
         <div class="detail-row">
-            <span class="detail-label">Score:</span>
+            <span class="detail-label">{% trans "Score:" %}</span>
             <span>{{ evaluation.score }}/{{ submission.questionnaire.max_score|default:"N/A" }}</span>
         </div>
         {% endif %}
         {% if evaluation.evaluator %}
         <div class="detail-row">
-            <span class="detail-label">Evaluated by:</span>
+            <span class="detail-label">{% trans "Evaluated by:" %}</span>
             <span>{{ evaluation.evaluator.first_name|default:evaluation.evaluator.username }}</span>
         </div>
         {% endif %}
         <div class="detail-row">
-            <span class="detail-label">Evaluation Date:</span>
+            <span class="detail-label">{% trans "Evaluation Date:" %}</span>
             <span>{{ evaluation.updated_at|date:"F j, Y \a\t g:i A" }}</span>
         </div>
     </div>
 
     {% if evaluation.comments %}
     <div class="comments-section">
-        <h4>Evaluator Comments</h4>
+        <h4>{% trans "Evaluator Comments" %}</h4>
         <p>{{ evaluation.comments|linebreaks }}</p>
     </div>
     {% endif %}
 
     <div class="next-steps">
-        <h4>{% if evaluation.status == "approved" %}✅ What's Next?{% else %}ℹ️ What's Next?{% endif %}</h4>
+        <h4>{% if evaluation.status == "approved" %}{% trans "✅ What's Next?" %}{% else %}{% trans "ℹ️ What's Next?" %}{% endif %}</h4>
         {% if evaluation.status == "approved" %}
-        <p>Your questionnaire submission has been approved! You can now proceed with your event registration or participation as outlined in the event details.</p>
+        <p>{% trans "Your questionnaire submission has been approved! You can now proceed with your event registration or participation as outlined in the event details." %}</p>
         {% else %}
-        <p>If you have questions about this evaluation or would like to understand what you can do differently, please contact the event organizers directly.</p>
+        <p>{% trans "If you have questions about this evaluation or would like to understand what you can do differently, please contact the event organizers directly." %}</p>
         {% endif %}
-        
+
         {% if event.start %}
-        <p><strong>Event Date:</strong> {{ event.start|date:"F j, Y \a\t g:i A" }}</p>
+        <p><strong>{% trans "Event Date:" %}</strong> {{ event.start|date:"F j, Y \a\t g:i A" }}</p>
         {% endif %}
     </div>
 
     <div class="footer">
         <p><strong>{{ organization.name }}</strong></p>
-        <p>This evaluation was conducted as part of the application process for {{ event.name }}.</p>
+        <p>{% blocktrans %}This evaluation was conducted as part of the application process for {{ event_name }}.{% endblocktrans %}</p>
     </div>
 </body>
 </html>

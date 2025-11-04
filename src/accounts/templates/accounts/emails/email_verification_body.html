@@ -1,17 +1,17 @@
-<!DOCTYPE html>
+{% load i18n %}<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Verify Your Email</title>
+    <title>{% trans "Verify Your Email" %}</title>
 </head>
 <body>
-    <h2>Verify your email</h2>
-    <p>Please verify your email and finish setting up your account.</p>
+    <h2>{% trans "Verify your email" %}</h2>
+    <p>{% blocktrans %}Please verify your email and finish setting up your account.{% endblocktrans %}</p>
     <p>
         <a href="{{ verification_link }}" style="display: inline-block; padding: 10px 20px; background-color: #007bff; color: #ffffff; text-decoration: none; border-radius: 5px;">
-            Verify Email
+            {% trans "Verify Email" %}
         </a>
     </p>
-    <p>Thank you,<br>The Revel Team</p>
+    <p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
 </body>
 </html>

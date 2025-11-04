@@ -2,8 +2,8 @@
 
 import typing as t
 
+from django.utils.translation import gettext_lazy as _
 from ninja_extra import ControllerBase, api_controller, route, status
-from ninja_jwt.authentication import JWTAuth
 
 from accounts import schema, tasks
 from accounts.models import RevelUser
@@ -13,6 +13,7 @@ from accounts.schema import (
 )
 from accounts.service import account as account_service
 from accounts.service.auth import get_token_pair_for_user
+from common.authentication import I18nJWTAuth
 from common.schema import ResponseMessage
 from common.throttling import AuthThrottle, UserDataExportThrottle
 
@@ -27,7 +28,7 @@ class AccountController(ControllerBase):
         "/export-data",
         response={200: ResponseMessage},
         url_name="export-data",
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
         throttle=UserDataExportThrottle(),
     )
     def export_data(self) -> ResponseMessage:
@@ -38,13 +39,13 @@ class AccountController(ControllerBase):
         prevent abuse.
         """
         tasks.generate_user_data_export.delay(str(self.user().pk))
-        return ResponseMessage(message="Your data export has been initiated.")
+        return ResponseMessage(message=str(_("Your data export has been initiated.")))
 
     @route.get(
         "/me",
         response=RevelUserSchema,
         url_name="me",
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
     )
     def me(self) -> RevelUser:
         """Retrieve the authenticated user's profile information.
@@ -58,7 +59,7 @@ class AccountController(ControllerBase):
         "/me",
         response=RevelUserSchema,
         url_name="update-profile",
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
     )
     def update_profile(self, payload: ProfileUpdateSchema) -> RevelUser:
         """Update the authenticated user's profile information.
@@ -111,7 +112,7 @@ class AccountController(ControllerBase):
         tags=["Account"],
         response={200: ResponseMessage, 400: ResponseMessage},
         url_name="resend-verification-email",
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
     )
     def resend_verification_email(self) -> tuple[int, ResponseMessage]:
         """Resend the email verification link to the authenticated user.
@@ -121,16 +122,16 @@ class AccountController(ControllerBase):
         """
         user = self.user()
         if user.email_verified:
-            return status.HTTP_400_BAD_REQUEST, ResponseMessage(message="Email already verified.")
+            return status.HTTP_400_BAD_REQUEST, ResponseMessage(message=str(_("Email already verified.")))
         account_service.send_verification_email_for_user(user)
-        return status.HTTP_200_OK, ResponseMessage(message="Verification email sent.")
+        return status.HTTP_200_OK, ResponseMessage(message=str(_("Verification email sent.")))
 
     @route.post(
         "/delete-request",
         tags=["Account"],
         response=ResponseMessage,
         url_name="delete-account-request",
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
     )
     def delete_account_request(self) -> ResponseMessage:
         """Initiate GDPR-compliant account deletion by sending confirmation email.
@@ -140,7 +141,7 @@ class AccountController(ControllerBase):
         This two-step process prevents accidental deletions.
         """
         account_service.request_account_deletion(self.user())
-        return ResponseMessage(message="An email has been sent.")
+        return ResponseMessage(message=str(_("An email has been sent.")))
 
     @route.post(
         "/delete-confirm",
@@ -157,7 +158,9 @@ class AccountController(ControllerBase):
         after a set period.
         """
         account_service.confirm_account_deletion(payload.token)
-        return ResponseMessage(message="Your account deletion has been initiated and will be processed shortly.")
+        return ResponseMessage(
+            message=str(_("Your account deletion has been initiated and will be processed shortly."))
+        )
 
     @route.post(
         "/password/reset-request",
@@ -173,7 +176,7 @@ class AccountController(ControllerBase):
         endpoint. After receiving the email, use POST /account/password/reset with the token.
         """
         account_service.request_password_reset(payload.email)
-        return ResponseMessage(message="A password reset link will be sent.")
+        return ResponseMessage(message=str(_("A password reset link will be sent.")))
 
     @route.post(
         "/password/reset",
@@ -189,4 +192,4 @@ class AccountController(ControllerBase):
         expires after a set period. After reset, the user must login again with the new password.
         """
         account_service.reset_password(payload.token, payload.password1)
-        return ResponseMessage(message="Password reset successfully.")
+        return ResponseMessage(message=str(_("Password reset successfully.")))

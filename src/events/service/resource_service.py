@@ -2,6 +2,7 @@ import typing as t
 
 from django.db import transaction
 from django.db.models import QuerySet
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
 
@@ -23,7 +24,7 @@ def create_resource(
     """
     # Validate that file is provided for FILE type resources
     if payload.resource_type == models.AdditionalResource.ResourceTypes.FILE and not file:
-        raise HttpError(400, "A file must be provided when resource_type is 'file'.")
+        raise HttpError(400, str(_("A file must be provided when resource_type is 'file'.")))
 
     m2m_data = _validate_and_prepare_m2m(organization, payload)
     create_data = payload.model_dump(exclude={"event_series_ids", "event_ids"})
@@ -79,13 +80,13 @@ def _validate_and_prepare_m2m(
     if event_ids is not None:
         events = models.Event.objects.filter(pk__in=event_ids, organization=organization)
         if events.count() != len(event_ids):
-            raise HttpError(400, "One or more events do not exist or belong to this organization.")
+            raise HttpError(400, str(_("One or more events do not exist or belong to this organization.")))
         validated_data["events"] = events
 
     if series_ids is not None:
         series = models.EventSeries.objects.filter(pk__in=series_ids, organization=organization)
         if series.count() != len(series_ids):
-            raise HttpError(400, "One or more event series do not exist or belong to this organization.")
+            raise HttpError(400, str(_("One or more event series do not exist or belong to this organization.")))
         validated_data["event_series"] = series
 
     return validated_data

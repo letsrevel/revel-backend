@@ -1,19 +1,19 @@
-<!DOCTYPE html>
+{% load i18n %}<!DOCTYPE html>
 <html>
 <head>
-    <title>Your Data Export is Ready</title>
+    <title>{% trans "Your Data Export is Ready" %}</title>
 </head>
 <body>
-    <p>Hi {{ user.username }},</p>
-    <p>Your data export from Revel is ready to be downloaded.</p>
+    <p>{% blocktrans %}Hi {{ user.username }},{% endblocktrans %}</p>
+    <p>{% blocktrans %}Your data export from Revel is ready to be downloaded.{% endblocktrans %}</p>
     <p>
-        You can download your data by clicking the following link:
-        <a href="{{ download_url }}">Download Your Data</a>
+        {% blocktrans %}You can download your data by clicking the following link:{% endblocktrans %}
+        <a href="{{ download_url }}">{% trans "Download Your Data" %}</a>
     </p>
-    <p>This link is valid for a limited time. If you did not request this export, please ignore this email or contact support.</p>
+    <p>{% blocktrans %}This link is valid for a limited time. If you did not request this export, please ignore this email or contact support.{% endblocktrans %}</p>
     <p>
-        Best,<br>
-        The Revel Team
+        {% blocktrans %}Best,<br>
+        The Revel Team{% endblocktrans %}
     </p>
 </body>
 </html>

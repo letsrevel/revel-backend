@@ -7,6 +7,7 @@ import pyotp
 from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
 from django_google_sso.models import GoogleSSOUser
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport.requests import Request
@@ -46,7 +47,7 @@ def verify_otp_jwt(token: str, otp: str) -> tuple[RevelUser, bool]:
     )
     check_blacklist(validated_token.jti)
     if validated_token.type != "totp-access":
-        raise HttpError(401, "Invalid token type.")
+        raise HttpError(401, str(_("Invalid token type.")))
     blacklist_token(token)
     user = get_object_or_404(RevelUser, id=validated_token.user_id)
     totp = pyotp.TOTP(user.totp_secret)
@@ -75,6 +76,16 @@ def get_token_pair_for_user(user: RevelUser) -> TokenObtainPairOutputSchema:
 def google_login(id_token: str) -> TokenObtainPairOutputSchema:
     """Log in or register a user using Google SSO."""
     id_info = verify_oauth2_token(id_token)
+
+    # Extract language from Google locale (e.g., "en-US" -> "en", "de-DE" -> "de")
+    language = settings.LANGUAGE_CODE  # Default
+    if id_info.locale:
+        locale_lang = id_info.locale.split("-")[0]
+        # Check if it's a supported language
+        supported_languages = [lang[0] for lang in settings.LANGUAGES]
+        if locale_lang in supported_languages:
+            language = locale_lang
+
     defaults = {
         "email": id_info.email,
         "first_name": id_info.given_name,
@@ -83,6 +94,7 @@ def google_login(id_token: str) -> TokenObtainPairOutputSchema:
         "is_superuser": id_info.email in settings.GOOGLE_SSO_SUPERUSER_LIST,
         "is_active": True,
         "email_verified": True,
+        "language": language,
     }
     if settings.GOOGLE_SSO_ALWAYS_UPDATE_USER_DATA:
         user, created = RevelUser.objects.update_or_create(
@@ -115,4 +127,4 @@ def verify_oauth2_token(id_token: str) -> schema.GoogleIDInfo:
         )
         return schema.GoogleIDInfo.model_validate(id_info)
     except GoogleAuthError as e:
-        raise HttpError(401, "Invalid Google ID Token.") from e
+        raise HttpError(401, str(_("Invalid Google ID Token."))) from e

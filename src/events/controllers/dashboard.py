@@ -11,14 +11,14 @@ from ninja_extra import (
 )
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
-from ninja_jwt.authentication import JWTAuth
 
 from accounts.models import RevelUser
+from common.authentication import I18nJWTAuth
 from events import filters, models, schema
 from events.controllers.user_aware_controller import UserAwareController
 
 
-@api_controller("/dashboard", auth=JWTAuth())
+@api_controller("/dashboard", auth=I18nJWTAuth())
 class DashboardController(UserAwareController):
     def user(self) -> RevelUser:
         """Get the user for this request."""

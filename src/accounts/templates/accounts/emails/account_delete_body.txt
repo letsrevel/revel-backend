@@ -1,12 +1,12 @@
-Confirm Account Deletion.
+{% load i18n %}{% trans "Confirm Account Deletion." %}
 
-You have received this email because you have requested to delete your account at {{ frontend_base_url }}.
+{% blocktrans %}You have received this email because you have requested to delete your account at {{ frontend_base_url }}.{% endblocktrans %}
 
-If you did not request this, please ignore this email.
+{% blocktrans %}If you did not request this, please ignore this email.{% endblocktrans %}
 
-To confirm the deletion of your account, click the link below:
+{% blocktrans %}To confirm the deletion of your account, click the link below:{% endblocktrans %}
 
 {{ account_deletion_link }}
 
-Thank you,
-The Revel Team
+{% blocktrans %}Thank you,
+The Revel Team{% endblocktrans %}

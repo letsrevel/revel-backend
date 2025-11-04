@@ -1,10 +1,10 @@
-Hi {{ user.first_name }},
+{% load i18n %}{% blocktrans %}Hi {{ user.first_name }},{% endblocktrans %}
 
-Unfortunately, we were unable to generate your data export.
+{% blocktrans %}Unfortunately, we were unable to generate your data export.{% endblocktrans %}
 
-We have been notified of this issue and are working to resolve it as soon as possible.
+{% blocktrans %}We have been notified of this issue and are working to resolve it as soon as possible.{% endblocktrans %}
 
-We apologize for any inconvenience.
+{% blocktrans %}We apologize for any inconvenience.{% endblocktrans %}
 
-Thanks,
-The Revel Team
+{% blocktrans %}Thanks,
+The Revel Team{% endblocktrans %}

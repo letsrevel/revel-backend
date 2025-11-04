@@ -4,6 +4,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import F, QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
 from ninja import File, Query, Schema
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
@@ -13,9 +14,9 @@ from ninja_extra import (
 )
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
-from ninja_jwt.authentication import JWTAuth
 
 from accounts.models import RevelUser
+from common.authentication import I18nJWTAuth
 from common.models import Tag
 from common.schema import TagSchema, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -41,7 +42,7 @@ class All(Schema):
 
 @api_controller(
     "/event-admin/{event_id}",
-    auth=JWTAuth(),
+    auth=I18nJWTAuth(),
     permissions=[EventPermission("invite_to_event")],
     tags=["Event Admin"],
     throttle=WriteThrottle(),
@@ -282,7 +283,7 @@ class EventAdminController(UserAwareController):
         event = self.get_one(event_id)
         # Validate ticket_tier_id is required for ticketed events
         if event.requires_ticket and not payload.ticket_tier_id:
-            raise HttpError(400, "ticket_tier_id is required for events that require tickets.")
+            raise HttpError(400, str(_("ticket_tier_id is required for events that require tickets.")))
         if payload.ticket_tier_id:
             get_object_or_404(models.TicketTier, pk=payload.ticket_tier_id, event=event)
         return event_service.create_event_token(event=event, issuer=self.user(), **payload.model_dump())
@@ -473,7 +474,7 @@ class EventAdminController(UserAwareController):
             payload.payment_method == models.TicketTier.PaymentMethod.ONLINE
             and not event.organization.is_stripe_connected
         ):
-            raise HttpError(400, "You must connect to Stripe first.")
+            raise HttpError(400, str(_("You must connect to Stripe first.")))
         return models.TicketTier.objects.create(event=event, **payload.model_dump())
 
     @route.put(
@@ -491,7 +492,7 @@ class EventAdminController(UserAwareController):
             payload.payment_method == models.TicketTier.PaymentMethod.ONLINE
             and not event.organization.is_stripe_connected
         ):
-            raise HttpError(400, "You must connect to Stripe first.")
+            raise HttpError(400, str(_("You must connect to Stripe first.")))
         tier = get_object_or_404(models.TicketTier, pk=tier_id, event=event)
         return update_db_instance(tier, payload)
 
@@ -644,7 +645,7 @@ class EventAdminController(UserAwareController):
         )
 
         if ticket.status == models.Ticket.Status.CANCELLED:
-            raise HttpError(400, "Ticket already cancelled")
+            raise HttpError(400, str(_("Ticket already cancelled")))
 
         old_status = ticket.status
 
@@ -727,7 +728,7 @@ class EventAdminController(UserAwareController):
 
         if delete_invitation(event, invitation_id, invitation_type):
             return 204, None
-        raise HttpError(404, "Invitation not found.")
+        raise HttpError(404, str(_("Invitation not found.")))
 
     # RSVP Admin Endpoints
 

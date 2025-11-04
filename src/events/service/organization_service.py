@@ -4,6 +4,7 @@ from django.db import transaction
 from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
@@ -25,7 +26,7 @@ def create_membership_request(
 ) -> OrganizationMembershipRequest:
     """Create a membership request."""
     if not organization.accept_membership_requests:
-        raise HttpError(400, "The organization does not accept new members.")
+        raise HttpError(400, str(_("The organization does not accept new members.")))
 
     if models.OrganizationMember.objects.filter(organization=organization, user=user).exists():
         raise AlreadyMemberError
@@ -114,7 +115,7 @@ def claim_invitation(user: RevelUser, token: str) -> Organization | None:
 def add_member(organization: Organization, user: RevelUser) -> OrganizationMember:
     """Add a member to an organization."""
     if OrganizationMember.objects.filter(organization=organization, user=user).exists():
-        raise AlreadyMemberError("User is already a member of this organization.")
+        raise AlreadyMemberError(str(_("User is already a member of this organization.")))
     return OrganizationMember.objects.create(organization=organization, user=user)
 
 
@@ -129,7 +130,7 @@ def add_staff(
 ) -> OrganizationStaff:
     """Add a staff member to an organization."""
     if OrganizationStaff.objects.filter(organization=organization, user=user).exists():
-        raise AlreadyMemberError("User is already a staff member of this organization.")
+        raise AlreadyMemberError(str(_("User is already a staff member of this organization.")))
 
     permission_data = permissions.model_dump(mode="json") if permissions else _get_default_permissions()
 

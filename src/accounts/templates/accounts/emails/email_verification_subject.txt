@@ -1,1 +1,1 @@
-Verify your email
+{% load i18n %}{% trans "Verify your email" %}

@@ -3,8 +3,8 @@ from uuid import UUID
 from django.db.models import BooleanField, Case, QuerySet, Value, When
 from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
-from ninja_jwt.authentication import JWTAuth
 
+from common.authentication import I18nJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import schema
 from events.models import Event, PotluckItem
@@ -14,7 +14,7 @@ from .permissions import ManagePotluckPermission, PotluckItemPermission
 from .user_aware_controller import UserAwareController
 
 
-@api_controller("/events/{event_id}/potluck", auth=JWTAuth(), tags=["Potluck"], throttle=WriteThrottle())
+@api_controller("/events/{event_id}/potluck", auth=I18nJWTAuth(), tags=["Potluck"], throttle=WriteThrottle())
 class PotluckController(UserAwareController):
     @route.get(
         "/",

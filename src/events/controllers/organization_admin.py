@@ -3,6 +3,7 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
 from ninja import File, Form, Query
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
@@ -12,9 +13,9 @@ from ninja_extra import (
 )
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
-from ninja_jwt.authentication import JWTAuth
 
 from accounts.models import RevelUser
+from common.authentication import I18nJWTAuth
 from common.models import Tag
 from common.schema import TagSchema, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -29,7 +30,7 @@ from .user_aware_controller import UserAwareController
 logger = logging.getLogger(__name__)
 
 
-@api_controller("/organization-admin/{slug}", auth=JWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
+@api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
 class OrganizationAdminController(UserAwareController):
     def get_queryset(self) -> QuerySet[models.Organization]:
         """Get the queryset based on the user."""
@@ -728,7 +729,7 @@ class OrganizationAdminController(UserAwareController):
         """Add a staff member to an organization."""
         organization = self.get_one(slug)
         if organization.owner != self.user():
-            raise HttpError(403, "Only the organization owner can create staff members.")
+            raise HttpError(403, str(_("Only the organization owner can create staff members.")))
         users_to_add = get_object_or_404(RevelUser, id=user_id)
         return 201, organization_service.add_staff(organization, users_to_add, permissions=payload)
 
@@ -745,7 +746,7 @@ class OrganizationAdminController(UserAwareController):
         organization = self.get_one(slug)
         # Check if current user is the owner
         if organization.owner != self.user():
-            raise HttpError(403, "Only the organization owner can change staff permissions.")
+            raise HttpError(403, str(_("Only the organization owner can change staff permissions.")))
 
         staff_member = get_object_or_404(models.OrganizationStaff, organization=organization, user_id=user_id)
         return organization_service.update_staff_permissions(staff_member, payload)

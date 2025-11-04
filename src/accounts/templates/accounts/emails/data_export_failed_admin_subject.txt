@@ -1,1 +1,1 @@
-User Data Export Failed
+{% load i18n %}{% trans "User Data Export Failed" %}

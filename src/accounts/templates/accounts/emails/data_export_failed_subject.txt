@@ -1,1 +1,1 @@
-Your Revel Data Export has Failed
+{% load i18n %}{% trans "Your Revel Data Export has Failed" %}
