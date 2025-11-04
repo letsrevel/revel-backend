@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% blocktrans %}New Ticket Issued: {{ event_name }}{% endblocktrans %}</title>
+    <title>{% blocktrans with event_name=event.name %}New Ticket Issued: {{ event_name }}{% endblocktrans %}</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -71,9 +71,9 @@
         <p>{% blocktrans %}Hi {{ user_name }},{% endblocktrans %}</p>
         <p>
             {% if action == "activated" %}
-                {% blocktrans %}A new ticket has been activated for <strong>{{ event_name }}</strong>.{% endblocktrans %}
+                {% blocktrans with event_name=event.name %}A new ticket has been activated for <strong>{{ event_name }}</strong>.{% endblocktrans %}
             {% else %}
-                {% blocktrans %}A new ticket has been issued for <strong>{{ event_name }}</strong>.{% endblocktrans %}
+                {% blocktrans with event_name=event.name %}A new ticket has been issued for <strong>{{ event_name }}</strong>.{% endblocktrans %}
             {% endif %}
         </p>
     </div>
@@ -125,7 +125,7 @@
     </div>
 
     <div class="footer">
-        <p>{% blocktrans %}You're receiving this notification as a staff member of <strong>{{ organization_name }}</strong>.{% endblocktrans %}</p>
+        <p>{% blocktrans with organization_name=event.organization.name %}You're receiving this notification as a staff member of <strong>{{ organization_name }}</strong>.{% endblocktrans %}</p>
         <p><small>{% trans "Revel Event Management System" %}</small></p>
     </div>
 </body>

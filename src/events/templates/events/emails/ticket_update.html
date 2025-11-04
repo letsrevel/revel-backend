@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% blocktrans %}Ticket Update: {{ event_name }}{% endblocktrans %}</title>
+    <title>{% blocktrans with event_name=event.name %}Ticket Update: {{ event_name }}{% endblocktrans %}</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -99,7 +99,7 @@
         <p>{% blocktrans %}Hi {{ user_name }},{% endblocktrans %}</p>
 
         {% if action == "free_ticket_created" %}
-        <p><strong>{% trans "Great news!" %}</strong> {% blocktrans %}Your free ticket for {{ event_name }} is ready. Your ticket is attached to this email as a PDF.{% endblocktrans %}</p>
+        <p><strong>{% trans "Great news!" %}</strong> {% blocktrans with event_name=event.name %}Your free ticket for {{ event_name }} is ready. Your ticket is attached to this email as a PDF.{% endblocktrans %}</p>
         {% elif action == "offline_payment_pending" %}
         <p><strong>{% trans "Your ticket reservation is confirmed" %}</strong>, {% trans "but payment is still needed to complete your registration." %}</p>
         {% elif action == "at_door_payment_pending" %}

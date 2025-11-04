@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% blocktrans %}New Event: {{ event_name }}{% endblocktrans %}</title>
+    <title>{% blocktrans with event_name=event.name %}New Event: {{ event_name }}{% endblocktrans %}</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -76,7 +76,7 @@
 <body>
     <div class="header">
         <h1 class="event-title">{% trans "🎉 New Event Available!" %}</h1>
-        <p>{% blocktrans %}Hi {{ user_name }}, {{ organization_name }} has a new event for you{% endblocktrans %}</p>
+        <p>{% blocktrans with organization_name=organization.name %}Hi {{ user_name }}, {{ organization_name }} has a new event for you{% endblocktrans %}</p>
     </div>
 
     <div class="event-details">
@@ -123,7 +123,7 @@
 
     <div class="footer">
         <p><strong>{{ organization.name }}</strong></p>
-        <p>{% blocktrans %}You're receiving this notification because you're subscribed to updates from {{ organization_name }}.{% endblocktrans %}</p>
+        <p>{% blocktrans with organization_name=organization.name %}You're receiving this notification because you're subscribed to updates from {{ organization_name }}.{% endblocktrans %}</p>
         <p><small>{% trans "To manage your notification preferences, please visit your account settings." %}</small></p>
     </div>
 </body>

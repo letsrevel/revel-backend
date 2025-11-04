@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% blocktrans %}Potluck Update: {{ event_name }}{% endblocktrans %}</title>
+    <title>{% blocktrans with event_name=event.name %}Potluck Update: {{ event_name }}{% endblocktrans %}</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -147,7 +147,7 @@
     </div>
 
     {% if changed_by %}
-    <p><small><em>{% blocktrans %}Updated by {{ changed_by_name }}{% endblocktrans %}</em></small></p>
+    <p><small><em>{% blocktrans with changed_by_name=changed_by %}Updated by {{ changed_by_name }}{% endblocktrans %}</em></small></p>
     {% endif %}
 
     <div class="footer">
