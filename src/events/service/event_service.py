@@ -7,6 +7,7 @@ from django.contrib.gis.geos import Point
 from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
@@ -108,15 +109,15 @@ def create_invitation_request(event: Event, user: RevelUser, message: str | None
                   or a pending request already exists.
     """
     if not event.accept_invitation_requests:
-        raise HttpError(400, "This event does not accept invitation requests.")
+        raise HttpError(400, str(_("This event does not accept invitation requests.")))
 
     if EventInvitation.objects.filter(event=event, user=user).exists():
-        raise HttpError(400, "You are already invited to this event.")
+        raise HttpError(400, str(_("You are already invited to this event.")))
 
     if EventInvitationRequest.objects.filter(
         event=event, user=user, status=EventInvitationRequest.Status.PENDING
     ).exists():
-        raise HttpError(400, "You have already requested an invitation to this event.")
+        raise HttpError(400, str(_("You have already requested an invitation to this event.")))
 
     return EventInvitationRequest.objects.create(event=event, user=user, message=message)
 

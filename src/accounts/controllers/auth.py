@@ -3,6 +3,7 @@
 import typing as t
 
 import structlog
+from django.utils.translation import gettext_lazy as _
 from django_google_sso.models import GoogleSSOUser
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
@@ -31,7 +32,7 @@ class AuthController(TokenObtainPairController):
         """
         user: RevelUser = t.cast(RevelUser, user_token._user)
         if GoogleSSOUser.objects.filter(user=user).exists():
-            raise HttpError(401, "Login via SSO.")
+            raise HttpError(401, str(_("Login via SSO.")))
         if user and user.totp_active:
             token = auth_service.get_temporary_otp_jwt(user)
             return schema.TempToken(token=token)
@@ -47,7 +48,7 @@ class AuthController(TokenObtainPairController):
         """
         user, verified = auth_service.verify_otp_jwt(payload.token, payload.otp)
         if not verified:
-            raise HttpError(401, "Invalid OTP.")
+            raise HttpError(401, str(_("Invalid OTP.")))
         return auth_service.get_token_pair_for_user(user)
 
     @route.post("/google/login", response=TokenObtainPairOutputSchema, url_name="google_sso_login")

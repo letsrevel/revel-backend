@@ -1,1 +1,1 @@
-Confirm Account Deletion
+{% load i18n %}{% trans "Confirm Account Deletion" %}

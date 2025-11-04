@@ -59,6 +59,7 @@ Consistency is key. We follow these standards to maintain a clean and readable c
     *   Do not use `# type: ignore[no-untyped-def]`. All function signatures must be typed.
     *   Use string forward references for type hints where necessary (e.g., `-> 'MyModel'`).
 *   **Docstrings:** Use Google-style docstrings for all public modules, classes, functions, and methods.
+*   **Internationalization (i18n):** All user-facing strings must be wrapped with Django's translation utilities. See [i18n.md](i18n.md) for detailed guidelines on adding translatable strings and supporting new languages.
 
 ## Issue Tracking
 

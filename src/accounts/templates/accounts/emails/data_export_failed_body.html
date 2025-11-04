@@ -1,5 +1,5 @@
-<p>Hi {{ user.first_name }},</p>
-<p>Unfortunately, we were unable to generate your data export.</p>
-<p>We have been notified of this issue and are working to resolve it as soon as possible.</p>
-<p>We apologize for any inconvenience.</p>
-<p>Thanks,<br>The Revel Team</p>
+{% load i18n %}<p>{% blocktrans %}Hi {{ user.first_name }},{% endblocktrans %}</p>
+<p>{% blocktrans %}Unfortunately, we were unable to generate your data export.{% endblocktrans %}</p>
+<p>{% blocktrans %}We have been notified of this issue and are working to resolve it as soon as possible.{% endblocktrans %}</p>
+<p>{% blocktrans %}We apologize for any inconvenience.{% endblocktrans %}</p>
+<p>{% blocktrans %}Thanks,<br>The Revel Team{% endblocktrans %}</p>

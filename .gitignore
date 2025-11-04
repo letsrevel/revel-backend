@@ -52,7 +52,8 @@ coverage.xml
 cover/
 
 # Translations
-*.mo
+# Note: We commit *.mo files for reproducibility (similar to uv.lock)
+# This ensures consistent translations across all environments and Docker builds
 *.pot
 
 # Django stuff:

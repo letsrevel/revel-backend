@@ -83,10 +83,12 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.locale.LocaleMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "common.middleware.UserLanguageMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "geo.middleware.GeoPointMiddleware",
@@ -126,8 +128,9 @@ _postgres_db = {
     "PASSWORD": config("DB_PASSWORD", "revel-password"),
     "HOST": config("DB_HOST", "localhost"),
     "PORT": config("DB_PORT", "5432"),
-    "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", cast=int, default=300),
+    "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", cast=int, default=60),
     "CONN_HEALTH_CHECKS": config("DB_CONN_HEALTH_CHECKS", cast=bool, default=True),
+    "ATOMIC_REQUESTS": True,
     "OPTIONS": {
         "connect_timeout": 5,
     },
@@ -166,7 +169,17 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = "en-us"
+LANGUAGE_CODE = "en"
+
+LANGUAGES = [
+    ("en", "English"),
+    ("de", "Deutsch"),
+    ("it", "Italiano"),
+]
+
+LOCALE_PATHS = [
+    BASE_DIR / "locale",
+]
 
 TIME_ZONE = "Europe/Vienna"
 

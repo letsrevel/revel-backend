@@ -5,6 +5,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
 from ninja import Query
 from ninja_extra import (
     api_controller,
@@ -12,9 +13,9 @@ from ninja_extra import (
 )
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
-from ninja_jwt.authentication import JWTAuth
 
 from accounts.models import RevelUser
+from common.authentication import I18nJWTAuth
 from common.schema import ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters
@@ -29,7 +30,7 @@ from .permissions import OrganizationPermission, QuestionnairePermission
 from .user_aware_controller import UserAwareController
 
 
-@api_controller("/questionnaires", auth=JWTAuth(), tags=["Questionnaires"], throttle=WriteThrottle())
+@api_controller("/questionnaires", auth=I18nJWTAuth(), tags=["Questionnaires"], throttle=WriteThrottle())
 class QuestionnaireController(UserAwareController):
     def get_queryset(self) -> QuerySet[event_models.OrganizationQuestionnaire]:
         """Get the queryset based on the user."""
@@ -89,7 +90,7 @@ class QuestionnaireController(UserAwareController):
         "/{organization_id}/create-questionnaire",
         url_name="create_questionnaire",
         response={200: event_schema.OrganizationQuestionnaireSchema, 400: ValidationErrorResponse},
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
         permissions=[OrganizationPermission("create_questionnaire")],
     )
     def create_org_questionnaire(
@@ -628,7 +629,7 @@ class QuestionnaireController(UserAwareController):
         if events.count() != len(payload.event_ids):
             from ninja.errors import HttpError
 
-            raise HttpError(400, "One or more events do not exist or belong to this organization.")
+            raise HttpError(400, str(_("One or more events do not exist or belong to this organization.")))
 
         org_questionnaire.events.set(events)
         return t.cast(event_models.OrganizationQuestionnaire, org_questionnaire)
@@ -690,7 +691,7 @@ class QuestionnaireController(UserAwareController):
         if series.count() != len(payload.event_series_ids):
             from ninja.errors import HttpError
 
-            raise HttpError(400, "One or more event series do not exist or belong to this organization.")
+            raise HttpError(400, str(_("One or more event series do not exist or belong to this organization.")))
 
         org_questionnaire.event_series.set(series)
         return t.cast(event_models.OrganizationQuestionnaire, org_questionnaire)

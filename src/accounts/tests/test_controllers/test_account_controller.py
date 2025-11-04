@@ -157,11 +157,12 @@ def test_update_profile_success(auth_client: Client, user: RevelUser) -> None:
         "pronouns": "they/them",
         "first_name": "Alexander",
         "last_name": "Smith Jr.",
+        "language": "en",
     }
 
     response = auth_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.content
     data = response.json()
     assert data["preferred_name"] == "Alex Smith"
     assert data["pronouns"] == "they/them"

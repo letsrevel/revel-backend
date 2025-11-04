@@ -9,9 +9,8 @@ from ninja_extra import (
 )
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
-from ninja_jwt.authentication import JWTAuth
 
-from common.authentication import OptionalAuth
+from common.authentication import I18nJWTAuth, OptionalAuth
 from common.schema import ResponseMessage
 from common.throttling import (
     UserRequestThrottle,
@@ -109,7 +108,7 @@ class OrganizationController(UserAwareController):
         "/{slug}/membership-requests",
         url_name="create_membership_request",
         response=schema.OrganizationMembershipRequestRetrieve,
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
         throttle=UserRequestThrottle(),
     )
     def create_membership_request(
@@ -200,7 +199,7 @@ class OrganizationController(UserAwareController):
         "/claim-invitation/{token}",
         url_name="organization_claim_invitation",
         response={200: schema.OrganizationRetrieveSchema, 400: ResponseMessage},
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
     )
     def claim_invitation(self, token: str) -> tuple[int, models.Organization | ResponseMessage]:
         """Accept an organization membership invitation using a token from invitation link.

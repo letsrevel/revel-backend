@@ -1,9 +1,10 @@
+{% load i18n %}
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Potluck Update: {{ event.name }}</title>
+    <title>{% blocktrans with event_name=event.name %}Potluck Update: {{ event_name }}{% endblocktrans %}</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -66,7 +67,7 @@
 </head>
 <body>
     <div class="header">
-        <h1>🥘 Potluck Update</h1>
+        <h1>{% trans "🥘 Potluck Update" %}</h1>
         <p>{{ event.name }}</p>
     </div>
 
@@ -74,51 +75,51 @@
         <div style="display: flex; align-items: center; margin-bottom: 15px;">
             {% if action == "created" %}
                 <span class="action-icon">📝</span>
-                <h3 style="margin: 0;">New Item Added</h3>
+                <h3 style="margin: 0;">{% trans "New Item Added" %}</h3>
             {% elif action == "assigned" %}
                 <span class="action-icon">✅</span>
-                <h3 style="margin: 0;">Item Claimed</h3>
+                <h3 style="margin: 0;">{% trans "Item Claimed" %}</h3>
             {% elif action == "unassigned" %}
                 <span class="action-icon">🔄</span>
-                <h3 style="margin: 0;">Item Available Again</h3>
+                <h3 style="margin: 0;">{% trans "Item Available Again" %}</h3>
             {% elif action == "deleted" %}
                 <span class="action-icon">❌</span>
-                <h3 style="margin: 0;">Item Removed</h3>
+                <h3 style="margin: 0;">{% trans "Item Removed" %}</h3>
             {% endif %}
         </div>
 
         <div class="item-details">
             <h4>{{ potluck_item.name }}</h4>
-            
+
             {% if potluck_item.description %}
             <div class="detail-row">
-                <span class="detail-label">Description:</span>
+                <span class="detail-label">{% trans "Description:" %}</span>
                 <span>{{ potluck_item.description }}</span>
             </div>
             {% endif %}
 
             <div class="detail-row">
-                <span class="detail-label">Type:</span>
+                <span class="detail-label">{% trans "Type:" %}</span>
                 <span>{{ potluck_item.get_item_type_display }}</span>
             </div>
 
             {% if potluck_item.quantity %}
             <div class="detail-row">
-                <span class="detail-label">Quantity:</span>
+                <span class="detail-label">{% trans "Quantity:" %}</span>
                 <span>{{ potluck_item.quantity }}</span>
             </div>
             {% endif %}
 
             {% if action == "assigned" and potluck_item.assignee %}
             <div class="detail-row">
-                <span class="detail-label">Claimed by:</span>
+                <span class="detail-label">{% trans "Claimed by:" %}</span>
                 <span>{{ potluck_item.assignee.first_name|default:potluck_item.assignee.username }}</span>
             </div>
             {% endif %}
 
             {% if potluck_item.note %}
             <div class="detail-row">
-                <span class="detail-label">Note:</span>
+                <span class="detail-label">{% trans "Note:" %}</span>
                 <span>{{ potluck_item.note }}</span>
             </div>
             {% endif %}
@@ -126,32 +127,32 @@
     </div>
 
     <div class="event-info">
-        <h4>Event Information</h4>
+        <h4>{% trans "Event Information" %}</h4>
         <div class="detail-row">
-            <span class="detail-label">Event:</span>
+            <span class="detail-label">{% trans "Event:" %}</span>
             <span>{{ event.name }}</span>
         </div>
         {% if event.start %}
         <div class="detail-row">
-            <span class="detail-label">Date:</span>
+            <span class="detail-label">{% trans "Date:" %}</span>
             <span>{{ event.start|date:"F j, Y \a\t g:i A" }}</span>
         </div>
         {% endif %}
         {% if event.location_name %}
         <div class="detail-row">
-            <span class="detail-label">Location:</span>
+            <span class="detail-label">{% trans "Location:" %}</span>
             <span>{{ event.location_name }}</span>
         </div>
         {% endif %}
     </div>
 
     {% if changed_by %}
-    <p><small><em>Updated by {{ changed_by.first_name|default:changed_by.username }}</em></small></p>
+    <p><small><em>{% blocktrans with changed_by_name=changed_by %}Updated by {{ changed_by_name }}{% endblocktrans %}</em></small></p>
     {% endif %}
 
     <div class="footer">
         <p><strong>{{ event.organization.name }}</strong></p>
-        <p>You're receiving this notification because you have potluck updates enabled.</p>
+        <p>{% trans "You're receiving this notification because you have potluck updates enabled." %}</p>
     </div>
 </body>
 </html>

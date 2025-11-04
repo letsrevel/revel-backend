@@ -2,15 +2,15 @@ from uuid import UUID
 
 from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
-from ninja_jwt.authentication import JWTAuth
 
+from common.authentication import I18nJWTAuth
 from events import models, schema
 from events.service.user_preferences_service import set_preferences
 
 from .user_aware_controller import UserAwareController
 
 
-@api_controller("/preferences", auth=JWTAuth(), tags=["User Preferences"])
+@api_controller("/preferences", auth=I18nJWTAuth(), tags=["User Preferences"])
 class UserPreferencesController(UserAwareController):
     """Controller for managing user preferences at different levels."""
 

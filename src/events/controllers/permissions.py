@@ -8,9 +8,9 @@ from ninja_extra import (
 )
 from ninja_extra.exceptions import PermissionDenied
 from ninja_extra.permissions import BasePermission
-from ninja_jwt.authentication import JWTAuth
 
 from accounts.models import RevelUser
+from common.authentication import I18nJWTAuth
 from events import models, schema
 from events.controllers.user_aware_controller import UserAwareController
 
@@ -225,7 +225,7 @@ class CanPurchaseTicket(RootPermission):
         raise PermissionDenied(f"The ticket can be purchased by {obj.get_purchasable_by_display()}")
 
 
-@api_controller("/permissions", auth=JWTAuth(), tags=["Permissions"])
+@api_controller("/permissions", auth=I18nJWTAuth(), tags=["Permissions"])
 class PermissionController(UserAwareController):
     @route.get(
         "/my-permissions",

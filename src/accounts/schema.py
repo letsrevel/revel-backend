@@ -25,10 +25,11 @@ class RevelUserSchema(ModelSchema):
     first_name: str
     last_name: str
     totp_active: bool
+    language: str
 
     class Meta:
         model = RevelUser
-        fields = ["email", "email_verified", "is_active", "first_name", "last_name", "totp_active"]
+        fields = ["email", "email_verified", "is_active", "first_name", "last_name", "totp_active", "language"]
 
 
 class MinimalRevelUserSchema(ModelSchema):
@@ -182,6 +183,19 @@ class ProfileUpdateSchema(Schema):
     pronouns: str = Field(..., max_length=10, description="User's pronouns")
     first_name: str = Field(..., max_length=30, description="User's first name")
     last_name: str = Field(..., max_length=150, description="User's last name")
+    language: t.Literal["en", "de", "it"] | None = Field(
+        None, max_length=7, description="User's preferred language (en, de, it)"
+    )
+
+    @model_validator(mode="after")
+    def validate_language(self) -> t.Self:
+        """Validate language code is supported."""
+        from django.conf import settings
+
+        supported_languages = [lang[0] for lang in settings.LANGUAGES]
+        if self.language not in supported_languages:
+            raise ValueError(f"Language must be one of: {', '.join(supported_languages)}")
+        return self
 
 
 class VerifyEmailResponseSchema(Schema):

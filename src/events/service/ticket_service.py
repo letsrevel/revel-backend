@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models import F
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
@@ -26,7 +27,7 @@ class TicketService:
             Ticket.objects.filter(event=self.event, tier=self.tier, user=self.user).exists()
             and self.tier.payment_method != TicketTier.PaymentMethod.ONLINE
         ):
-            raise HttpError(400, "You already have a ticket.")
+            raise HttpError(400, str(_("You already have a ticket.")))
         match self.tier.payment_method:
             case TicketTier.PaymentMethod.ONLINE:
                 return self._stripe_checkout(price_override=price_override)
@@ -37,7 +38,7 @@ class TicketService:
             case TicketTier.PaymentMethod.FREE:
                 return self._free_checkout()
             case _:
-                raise HttpError(400, "Unknown payment method.")
+                raise HttpError(400, str(_("Unknown payment method.")))
 
     def _stripe_checkout(self, price_override: Decimal | None = None) -> str:
         checkout_url, _ = stripe_service.create_checkout_session(
@@ -76,21 +77,25 @@ def check_in_ticket(event: Event, ticket_id: UUID, checked_in_by: RevelUser) -> 
     )
 
     # Check if ticket status is valid for check-in
-    err_msg = {
-        Ticket.Status.CHECKED_IN: "This ticket has already been checked in.",
-        Ticket.Status.CANCELLED: "This ticket has been cancelled.",
-        Ticket.Status.PENDING: "This ticket is pending payment confirmation.",
-    }
     if ticket.status != Ticket.Status.ACTIVE:
         if not (
             ticket.status == Ticket.Status.PENDING
             and ticket.tier.payment_method in (TicketTier.PaymentMethod.AT_THE_DOOR, TicketTier.PaymentMethod.OFFLINE)
         ):
-            raise HttpError(400, err_msg.get(ticket.status, f"Invalid ticket status: {ticket.status}"))  # type: ignore[call-overload]
+            # Determine appropriate error message based on ticket status
+            if ticket.status == Ticket.Status.CHECKED_IN:
+                error_message = str(_("This ticket has already been checked in."))
+            elif ticket.status == Ticket.Status.CANCELLED:
+                error_message = str(_("This ticket has been cancelled."))
+            elif ticket.status == Ticket.Status.PENDING:
+                error_message = str(_("This ticket is pending payment confirmation."))
+            else:
+                error_message = str(_("Invalid ticket status: {status}")).format(status=ticket.status)
+            raise HttpError(400, error_message)
 
     # Check if check-in window is open
     if not event.is_check_in_open():
-        raise HttpError(400, "Check-in is not currently open for this event.")
+        raise HttpError(400, str(_("Check-in is not currently open for this event.")))
 
     # Update ticket status
     ticket.status = Ticket.Status.CHECKED_IN

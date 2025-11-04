@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from django_google_sso.models import GoogleSSOUser
 from ninja import Schema
 from ninja.errors import HttpError
@@ -30,7 +31,7 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
     if existing_user := RevelUser.objects.filter(username=payload.email).first():
         if not existing_user.email_verified:  # pragma: no branch
             send_verification_email_for_user(existing_user)
-        raise HttpError(400, "A user with this email already exists.")
+        raise HttpError(400, str(_("A user with this email already exists.")))
     new_user = RevelUser.objects.create_user(
         username=payload.email,
         email=payload.email,
@@ -71,7 +72,7 @@ def verify_email(token: str) -> RevelUser:
         user.is_active = user.email_verified = True
         user.save()
         return user
-    raise HttpError(400, "A user with this email no longer exists.")
+    raise HttpError(400, str(_("A user with this email no longer exists.")))
 
 
 def request_password_reset(email: str) -> str | None:
@@ -130,7 +131,7 @@ def reset_password(token: str, new_password: str) -> RevelUser:
     check_blacklist(payload.jti)
     user = get_object_or_404(RevelUser, id=payload.user_id)
     if GoogleSSOUser.objects.filter(user=user).exists():
-        raise HttpError(400, "Cannot reset password for Google SSO users.")
+        raise HttpError(400, str(_("Cannot reset password for Google SSO users.")))
     validate_password(new_password, user=user)
     user.set_password(new_password)
     user.save()
@@ -160,8 +161,12 @@ def confirm_account_deletion(token: str) -> None:
     if user.owned_organizations.exists():
         raise HttpError(
             400,
-            "You cannot delete your account while you own organizations. "
-            "Please contact support to transfer ownership or delete the organizations first.",
+            str(
+                _(
+                    "You cannot delete your account while you own organizations. "
+                    "Please contact support to transfer ownership or delete the organizations first."
+                )
+            ),
         )
 
     blacklist_token(token)
@@ -188,6 +193,6 @@ def token_to_payload(token: str, schema_class: t.Type[T]) -> T:
         )
         return schema_class.model_validate(_payload)
     except jwt.ExpiredSignatureError:
-        raise HttpError(400, "Token has expired.")
+        raise HttpError(400, str(_("Token has expired.")))
     except Exception as e:
-        raise HttpError(400, f"Invalid token: {e}")
+        raise HttpError(400, str(_("Invalid token: {error}")).format(error=e))

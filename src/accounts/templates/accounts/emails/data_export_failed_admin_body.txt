@@ -1,6 +1,6 @@
-A user data export has failed.
+{% load i18n %}{% trans "A user data export has failed." %}
 
-User: {{ user.email }}
-Error: {{ error_message }}
+{% blocktrans %}User: {{ user.email }}{% endblocktrans %}
+{% blocktrans %}Error: {{ error_message }}{% endblocktrans %}
 
-Please investigate this issue as soon as possible.
+{% blocktrans %}Please investigate this issue as soon as possible.{% endblocktrans %}

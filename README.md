@@ -146,6 +146,10 @@ Each app contains a `controllers/` directory for API endpoints and a `service/` 
 
 We welcome contributions! Please read our **[CONTRIBUTING.md](CONTRIBUTING.md)** to learn how you can get involved, from reporting bugs to submitting code.
 
+### Internationalization
+
+Revel supports multiple languages (currently English, German, and Italian). See **[i18n.md](i18n.md)** for details on how the translation system works and how to add new languages.
+
 ---
 
 ## 📜 License

@@ -9,6 +9,7 @@ from django.db import transaction
 from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from stripe.checkout import Session
 
@@ -52,7 +53,7 @@ def get_account_details(account_id: str) -> stripe.Account:
 def stripe_verify_account(organization: Organization) -> Organization:
     """Verify a Stripe Connect account."""
     if organization.stripe_account_id is None:
-        raise HttpError(400, "You must connect your Stripe account first.")
+        raise HttpError(400, str(_("You must connect your Stripe account first.")))
     account = get_account_details(organization.stripe_account_id)
     organization.stripe_charges_enabled = account.charges_enabled
     organization.stripe_details_submitted = account.details_submitted
@@ -66,19 +67,19 @@ def create_checkout_session(
 ) -> tuple[str, Payment]:
     """Create a Stripe Checkout Session for a ticket purchase."""
     if not event.organization.is_stripe_connected:
-        raise HttpError(400, "This organization is not configured to accept payments.")
+        raise HttpError(400, str(_("This organization is not configured to accept payments.")))
 
     # Use price_override for PWYC, otherwise use tier.price
     effective_price = price_override if price_override is not None else tier.price
 
     if effective_price <= 0:
-        raise HttpError(400, "This ticket tier cannot be purchased.")
+        raise HttpError(400, str(_("This ticket tier cannot be purchased.")))
 
     # Lock the tier for the entire transaction to safely check and update quantity
     locked_tier = TicketTier.objects.select_for_update().get(pk=tier.pk)
 
     if Ticket.objects.filter(~Q(status=Ticket.Status.PENDING), event=event, tier=locked_tier, user=user).exists():
-        raise HttpError(400, "You already have a ticket")
+        raise HttpError(400, str(_("You already have a ticket")))
 
     # Check if a pending ticket already exists for this user/tier combination
     existing_ticket = (
@@ -101,7 +102,7 @@ def create_checkout_session(
 
     # Availability Check (after any potential cleanup)
     if locked_tier.total_quantity is not None and locked_tier.quantity_sold >= locked_tier.total_quantity:
-        raise HttpError(429, "This ticket tier is sold out.")
+        raise HttpError(429, str(_("This ticket tier is sold out.")))
 
     # Create a new pending ticket
     ticket = Ticket.objects.create(event=event, tier=locked_tier, user=user, status=Ticket.Status.PENDING)
@@ -142,7 +143,7 @@ def create_checkout_session(
         )
     except Exception as e:
         ticket.delete()
-        raise HttpError(500, f"Stripe API error: {e}")
+        raise HttpError(500, str(_("Stripe API error: {error}")).format(error=e))
 
     # application_fee_amount is in cents.
     db_platform_fee = (Decimal(application_fee_amount) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

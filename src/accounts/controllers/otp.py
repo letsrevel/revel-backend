@@ -12,17 +12,17 @@ from ninja_extra import (
     route,
     status,
 )
-from ninja_jwt.authentication import JWTAuth
 
 from accounts import schema
 from accounts.models import RevelUser
+from common.authentication import I18nJWTAuth
 from common.throttling import AuthThrottle
 from common.types import HttpRequest
 
 logger = structlog.get_logger(__name__)
 
 
-@api_controller("/otp", tags=["OTP"], auth=JWTAuth(), throttle=AuthThrottle())
+@api_controller("/otp", tags=["OTP"], auth=I18nJWTAuth(), throttle=AuthThrottle())
 class OtpController(ControllerBase):
     def user(self) -> RevelUser:
         """Get the user for this request."""

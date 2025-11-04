@@ -1,7 +1,4 @@
-"""The JWT module.
-
-Read about JWT here: https://auth0.com/docs/secure/tokens/json-web-tokens/json-web-token-claims
-"""
+"""The JWT module."""
 
 import typing as t
 from datetime import datetime
@@ -118,10 +115,8 @@ def blacklist(
     algorithms: list[str] | None = None,
 ) -> BlacklistedToken:
     """Ensures this token is included in the outstanding token list and adds it to the blacklist."""
-    key = key or settings.SECRET_KEY  # Note: we are using the Django secret key here instead of the Auth0 secret
-    audience = (
-        audience or settings.JWT_AUDIENCE
-    )  # Note: we are using the Django JWT audience here instead of the Auth0 audience
+    key = key or settings.SECRET_KEY
+    audience = audience or settings.JWT_AUDIENCE
     algorithms = algorithms or [settings.JWT_ALGORITHM]
     payload = jwt.decode(token, key=key, audience=audience, algorithms=algorithms, options={"verify_signature": False})
     jti = payload["jti"]

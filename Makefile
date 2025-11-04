@@ -44,9 +44,9 @@ test-functional-failed:
 	.venv/bin/pytest --cov=functional_tests --cov-report=term --cov-report=html:functional_tests/htmlcov --cov-branch -v --last-failed functional_tests/ && coverage html --skip-covered
 
 
-# Combined command: Runs format, lint, and mypy in sequence
+# Combined command: Runs format, lint, mypy, and i18n-check in sequence
 .PHONY: check
-check: format lint mypy
+check: format lint mypy i18n-check
 
 .PHONY: db-diagram
 db-diagram:
@@ -148,6 +148,28 @@ migrations:
 .PHONY: migrate
 migrate:
 	python src/manage.py migrate
+
+
+.PHONY: makemessages
+makemessages:
+	cd src && ../.venv/bin/python manage.py makemessages -l de -l it --no-location --no-obsolete
+
+.PHONY: compilemessages
+compilemessages:
+	cd src && ../.venv/bin/python manage.py compilemessages
+
+.PHONY: i18n-check
+i18n-check:
+	@echo "Checking if translation files are up to date..."
+	@cd src && ../.venv/bin/python manage.py compilemessages > /dev/null 2>&1; \
+	if ! git diff --exit-code locale/ > /dev/null 2>&1; then \
+		echo "❌ Translation files (.mo) are out of sync with .po files."; \
+		echo "   Run 'make compilemessages' and commit the updated .mo files."; \
+		git diff locale/; \
+		exit 1; \
+	else \
+		echo "✅ Translation files are up to date."; \
+	fi
 
 
 .PHONY: check-version

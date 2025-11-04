@@ -34,6 +34,13 @@ class RevelUser(AbstractUser):
     email_verified = models.BooleanField(default=False, db_index=True)
     totp_secret = EncryptedTextField(default=pyotp.random_base32, editable=False)
     totp_active = models.BooleanField(default=False, db_index=True)
+    language = models.CharField(
+        max_length=7,
+        choices=settings.LANGUAGES,
+        default=settings.LANGUAGE_CODE,
+        db_index=True,
+        help_text="User's preferred language",
+    )
 
     objects = RevelUserManager()  # type: ignore[misc]
 

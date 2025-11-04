@@ -4,6 +4,7 @@ from uuid import UUID
 from django.db.models import QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
 from ninja import Query
 from ninja.errors import HttpError
 from ninja_extra import (
@@ -12,10 +13,9 @@ from ninja_extra import (
 )
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
-from ninja_jwt.authentication import JWTAuth
 
 from accounts.models import RevelUser
-from common.authentication import OptionalAuth
+from common.authentication import I18nJWTAuth, OptionalAuth
 from common.schema import ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle
 from events import filters, models, schema
@@ -177,13 +177,13 @@ class EventController(UserAwareController):
         """
         if token := event_service.get_event_token(token_id):
             return 200, token
-        return 404, ResponseMessage(message="Token not found or expired.")
+        return 404, ResponseMessage(message=str(_("Token not found or expired.")))
 
     @route.post(
         "/claim-invitation/{token}",
         url_name="event_claim_invitation",
         response={200: schema.MinimalEventSchema, 400: ResponseMessage},
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
     def claim_invitation(self, token: str) -> tuple[int, models.Event | ResponseMessage]:
@@ -195,13 +195,13 @@ class EventController(UserAwareController):
         """
         if invitation := event_service.claim_invitation(self.user(), token):
             return 200, invitation.event
-        return 400, ResponseMessage(message="The token is invalid or expired.")
+        return 400, ResponseMessage(message=str(_("The token is invalid or expired.")))
 
     @route.get(
         "/{event_id}/attendee-list",
         url_name="event_attendee_list",
         response=PaginatedResponseSchema[schema.AttendeeSchema],
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     def get_event_attendees(self, event_id: UUID) -> QuerySet[RevelUser]:
@@ -218,7 +218,7 @@ class EventController(UserAwareController):
         "/{event_id}/my-status",
         url_name="get_my_event_status",
         response=schema.EventUserStatusSchema | EventUserEligibility,
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
     )
     def get_my_event_status(self, event_id: UUID) -> schema.EventUserStatusSchema | EventUserEligibility:
         """Check the authenticated user's current status and eligibility for an event.
@@ -242,7 +242,7 @@ class EventController(UserAwareController):
         "/{event_id}/invitation-requests",
         url_name="create_invitation_request",
         response={201: schema.EventInvitationRequestSchema},
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
     def create_invitation_request(
@@ -284,7 +284,7 @@ class EventController(UserAwareController):
         "/invitation-requests/{request_id}",
         url_name="delete_invitation_request",
         response={204: None},
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
     def delete_invitation_request(self, request_id: UUID) -> tuple[int, None]:
@@ -323,7 +323,7 @@ class EventController(UserAwareController):
         "/{event_id}/rsvp/{answer}",
         url_name="rsvp_event",
         response={200: schema.EventRSVPSchema, 400: EventUserEligibility},
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
     def rsvp_event(self, event_id: UUID, answer: models.EventRSVP.Status) -> models.EventRSVP:
@@ -358,7 +358,7 @@ class EventController(UserAwareController):
         "/{event_id}/tickets/{tier_id}/checkout",
         url_name="ticket_checkout",
         response={200: schema.StripeCheckoutSessionSchema | schema.EventTicketSchema, 400: EventUserEligibility},
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
     )
@@ -386,7 +386,7 @@ class EventController(UserAwareController):
             event=event,
         )
         if tier.price_type == models.TicketTier.PriceType.PWYC:
-            raise HttpError(400, "Ticket price type PWYC")
+            raise HttpError(400, str(_("Ticket price type PWYC")))
         manager = EventManager(self.user(), event)
         ticket_or_url = manager.create_ticket(tier)
         if isinstance(ticket_or_url, models.Ticket):
@@ -397,7 +397,7 @@ class EventController(UserAwareController):
         "/{event_id}/tickets/{tier_id}/checkout/pwyc",
         url_name="ticket_pwyc_checkout",
         response={200: schema.StripeCheckoutSessionSchema | schema.EventTicketSchema, 400: EventUserEligibility},
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
     )
@@ -424,14 +424,14 @@ class EventController(UserAwareController):
 
         # Validate that this tier is actually PWYC
         if tier.price_type != models.TicketTier.PriceType.PWYC:
-            raise HttpError(400, "This endpoint is only for pay-what-you-can tickets")
+            raise HttpError(400, str(_("This endpoint is only for pay-what-you-can tickets")))
 
         # Validate PWYC amount is within bounds
         if payload.pwyc < tier.pwyc_min:
-            raise HttpError(400, f"PWYC amount must be at least {tier.pwyc_min}")
+            raise HttpError(400, str(_("PWYC amount must be at least {min_amount}")).format(min_amount=tier.pwyc_min))
 
         if tier.pwyc_max and payload.pwyc > tier.pwyc_max:
-            raise HttpError(400, f"PWYC amount must be at most {tier.pwyc_max}")
+            raise HttpError(400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max))
 
         manager = EventManager(self.user(), event)
         ticket_or_url = manager.create_ticket(tier, price_override=payload.pwyc)
@@ -458,7 +458,7 @@ class EventController(UserAwareController):
         "/{event_id}/questionnaire/{questionnaire_id}/submit",
         url_name="submit_questionnaire",
         response={200: QuestionnaireSubmissionOrEvaluationSchema, 400: ResponseMessage},
-        auth=JWTAuth(),
+        auth=I18nJWTAuth(),
         throttle=QuestionnaireSubmissionThrottle(),
     )
     def submit_questionnaire(

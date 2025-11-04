@@ -41,7 +41,7 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt update
-          sudo apt install -y curl gnupg software-properties-common jq unzip gdal-bin libgdal-dev
+          sudo apt install -y curl gnupg software-properties-common jq unzip gdal-bin libgdal-dev gettext
 
       - name: Export GDAL path
         run: |
@@ -69,6 +69,15 @@ jobs:
       - name: Check for missing migrations
         working-directory: src
         run: uv run manage.py makemigrations --check --dry-run
+
+      - name: Check i18n compiled messages
+        run: |
+          uv run python src/manage.py compilemessages
+          if ! git diff --exit-code src/locale/ > /dev/null; then
+            echo "❌ Translation files (.mo) are out of sync with .po files. Run 'make compilemessages' and commit the updated .mo files."
+            git diff src/locale/
+            exit 1
+          fi
 
       - name: Run unit tests
         run: |

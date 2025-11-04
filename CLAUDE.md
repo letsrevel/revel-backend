@@ -10,7 +10,7 @@ This project uses a comprehensive Makefile for development tasks:
 - `make setup` - Complete one-time setup: creates venv, installs dependencies, sets up Docker services, and starts the server
 - `make run` - Start Django development server (generates test JWTs first)
 - `make jwt EMAIL=user@example.com` - Get JWT access and refresh tokens for a specific user
-- `make check` - Run all code quality checks (format, lint, mypy)
+- `make check` - Run all code quality checks (format, lint, mypy, i18n-check)
 - `make test` - Run pytest test suite with coverage reporting
 - `make test-failed` - Re-run only failed tests
 
@@ -18,6 +18,12 @@ This project uses a comprehensive Makefile for development tasks:
 - `make format` - Auto-format code with ruff
 - `make lint` - Run linting with ruff (auto-fixes issues)
 - `make mypy` - Run strict type checking with mypy
+- `make i18n-check` - Verify translation files are compiled and up-to-date
+
+### Internationalization (i18n)
+- `make makemessages` - Extract translatable strings and update .po files
+- `make compilemessages` - Compile .po files into .mo binaries (commit after running!)
+- `make i18n-check` - Verify .mo files are up-to-date with .po files
 
 ### Database Management
 - `make migrations` - Create new Django migrations

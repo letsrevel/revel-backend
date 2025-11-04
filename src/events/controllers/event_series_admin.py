@@ -5,8 +5,8 @@ from django.db.models import QuerySet
 from ninja import File
 from ninja.files import UploadedFile
 from ninja_extra import api_controller, route
-from ninja_jwt.authentication import JWTAuth
 
+from common.authentication import I18nJWTAuth
 from common.models import Tag
 from common.schema import TagSchema, ValidationErrorResponse
 from common.throttling import WriteThrottle
@@ -20,7 +20,7 @@ from .user_aware_controller import UserAwareController
 
 @api_controller(
     "/event-series-admin/{series_id}",
-    auth=JWTAuth(),
+    auth=I18nJWTAuth(),
     permissions=[EventSeriesPermission("edit_event_series")],
     tags=["Event Series Admin"],
     throttle=WriteThrottle(),

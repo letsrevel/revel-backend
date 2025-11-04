@@ -10,6 +10,7 @@ import structlog
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.http import HttpRequest
+from django.utils.translation import gettext_lazy as _
 from ninja.responses import Response
 
 from events.exceptions import (
@@ -41,7 +42,7 @@ def handle_general_exception(request: HttpRequest, exc: Exception | t.Type[Excep
         The response.
     """
     logger.exception("INTERNAL_SERVER_ERROR", exc_info=True, stack_info=True)
-    data = {"detail": "Internal Server Error."}
+    data = {"detail": str(_("Internal Server Error."))}
     tb_str = traceback.format_exc()
     is_staff = getattr(request, "user", None) and request.user.is_staff
     encoded_payload = base64.b64encode(request.body).decode("utf-8") if request.body else None
@@ -99,14 +100,14 @@ def handle_cross_questionnaire_submission_error(
     request: HttpRequest, exc: CrossQuestionnaireSubmissionError | t.Type[CrossQuestionnaireSubmissionError]
 ) -> Response:
     """Handle a cross-questionnaire submission error."""
-    return Response(status=400, data={"detail": "You submitted answers refer to a different questionnaire."})
+    return Response(status=400, data={"detail": str(_("You submitted answers refer to a different questionnaire."))})
 
 
 def handle_missing_mandatory_answers_submission_error(
     request: HttpRequest, exc: MissingMandatoryAnswerError | t.Type[MissingMandatoryAnswerError]
 ) -> Response:
     """Handle a cross-questionnaire submission error."""
-    return Response(status=400, data={"detail": "You are missing mandatory answers."})
+    return Response(status=400, data={"detail": str(_("You are missing mandatory answers."))})
 
 
 def handle_section_integrity_error(
@@ -125,19 +126,19 @@ def handle_question_integrity_error(
 
 def handle_too_many_items_error(request: HttpRequest, exc: TooManyItemsError | t.Type[TooManyItemsError]) -> Response:
     """Handle a too many items error."""
-    return Response(status=400, data={"detail": "You have created too many items."})
+    return Response(status=400, data={"detail": str(_("You have created too many items."))})
 
 
 def handle_already_member_error(request: HttpRequest, exc: AlreadyMemberError | t.Type[AlreadyMemberError]) -> Response:
     """Handle an already member error."""
-    return Response(status=400, data={"detail": "You are already a member of this organization."})
+    return Response(status=400, data={"detail": str(_("You are already a member of this organization."))})
 
 
 def handle_pending_membership_request_exists_error(
     request: HttpRequest, exc: PendingMembershipRequestExistsError | t.Type[PendingMembershipRequestExistsError]
 ) -> Response:
     """Handle a pending membership request exists error."""
-    return Response(status=400, data={"detail": "You have a pending membership request for this organization."})
+    return Response(status=400, data={"detail": str(_("You have a pending membership request for this organization."))})
 
 
 SENSITIVE_KEYS = {"password", "token", "x-api-key", "authorization", "authentication"}
