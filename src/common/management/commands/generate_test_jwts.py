@@ -17,9 +17,10 @@ class Command(BaseCommand):
         User = get_user_model()
         superuser = User.objects.filter(is_superuser=True).first()
         if not superuser:
-            self.stdout.write("No superuser found", self.style.WARNING)
+            self.stdout.write("No superuser found - skipping JWT generation", self.style.WARNING)
+            return
 
-        refresh = RefreshToken.for_user(superuser)  # type: ignore[arg-type]
+        refresh = RefreshToken.for_user(superuser)
 
         self.stdout.write(f"Superuser Access: {str(refresh.access_token)}", self.style.SUCCESS)  # type: ignore[attr-defined]
         self.stdout.write(f"Superuser Refresh: {str(refresh)}", self.style.SUCCESS)

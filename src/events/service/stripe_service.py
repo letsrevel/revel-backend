@@ -1,9 +1,9 @@
-import logging
 import typing as t
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 import stripe
+import structlog
 from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Q
@@ -18,7 +18,7 @@ from common.models import SiteSettings
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.tasks import send_payment_confirmation_email
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
@@ -178,7 +178,7 @@ class StripeEventHandler:
 
     def handle_unknown_event(self, event: stripe.Event) -> None:
         """Log unhandled event types for future development."""
-        logger.info(f"Unhandled Stripe event type received: {event.type}")
+        logger.info("stripe_webhook_unhandled_event", event_type=event.type, event_id=event.id)
 
     @transaction.atomic
     def handle_checkout_session_completed(self, event: stripe.Event) -> None:
@@ -192,12 +192,14 @@ class StripeEventHandler:
 
         if session["payment_status"] not in {"paid", "no_payment_required"}:
             logger.warning(
-                f"Session {session_id} completed with unresolved payment_status: {session['payment_status']}. Skipping."
+                "stripe_session_unresolved_payment",
+                session_id=session_id,
+                payment_status=session["payment_status"],
             )
             return
 
         if payment.status == Payment.Status.SUCCEEDED:
-            logger.warning(f"Webhook for already succeeded payment {payment.id} received. Ignoring.")
+            logger.warning("stripe_webhook_duplicate_payment_success", payment_id=str(payment.id))
             return  # Webhook already processed, idempotent
 
         payment.status = Payment.Status.SUCCEEDED
@@ -211,7 +213,13 @@ class StripeEventHandler:
 
         # Send payment confirmation email (includes PDF and ICS attachments)
         send_payment_confirmation_email.delay(str(payment.id))
-        logger.info(f"Successfully processed checkout.session.completed for Payment ID: {payment.id}")
+        logger.info(
+            "stripe_payment_success",
+            payment_id=str(payment.id),
+            ticket_id=str(ticket.id),
+            amount=float(payment.amount),
+            currency=payment.currency,
+        )
 
     @transaction.atomic
     def handle_account_updated(self, event: stripe.Event) -> None:
@@ -228,7 +236,7 @@ class StripeEventHandler:
         try:
             organization = Organization.objects.get(stripe_account_id=account_id)
         except Organization.DoesNotExist:
-            logger.warning(f"Received account.updated for unknown Stripe account: {account_id}")
+            logger.warning("stripe_account_updated_unknown", account_id=account_id)
             return
 
         # Update the organization's Stripe status
@@ -237,9 +245,11 @@ class StripeEventHandler:
         organization.save(update_fields=["stripe_charges_enabled", "stripe_details_submitted"])
 
         logger.info(
-            f"Updated Stripe status for organization {organization.slug}: "
-            f"charges_enabled={organization.stripe_charges_enabled}, "
-            f"details_submitted={organization.stripe_details_submitted}"
+            "stripe_account_updated",
+            organization_slug=organization.slug,
+            account_id=account_id,
+            charges_enabled=organization.stripe_charges_enabled,
+            details_submitted=organization.stripe_details_submitted,
         )
 
     @transaction.atomic
@@ -254,7 +264,7 @@ class StripeEventHandler:
         payment_intent_id = charge_data.get("payment_intent")
 
         if not payment_intent_id:
-            logger.warning(f"Received charge.refunded without payment_intent: {charge_data.get('id')}")
+            logger.warning("stripe_refund_missing_intent", charge_id=charge_data.get("id"))
             return
 
         # Find the payment by payment_intent_id
@@ -263,12 +273,12 @@ class StripeEventHandler:
                 stripe_payment_intent_id=payment_intent_id
             )
         except Payment.DoesNotExist:
-            logger.warning(f"Received charge.refunded for unknown payment_intent: {payment_intent_id}")
+            logger.warning("stripe_refund_unknown_intent", payment_intent_id=payment_intent_id)
             return
 
         # Idempotency check
         if payment.status == Payment.Status.REFUNDED:
-            logger.warning(f"Webhook for already refunded payment {payment.id} received. Ignoring.")
+            logger.warning("stripe_webhook_duplicate_refund", payment_id=str(payment.id))
             return
 
         # Update payment status
@@ -287,8 +297,11 @@ class StripeEventHandler:
         TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
 
         logger.info(
-            f"Processed refund for Payment {payment.id}: "
-            f"Payment set to REFUNDED, Ticket {ticket.id} set to CANCELLED, quantity restored"
+            "stripe_refund_processed",
+            payment_id=str(payment.id),
+            ticket_id=str(ticket.id),
+            amount=float(payment.amount),
+            currency=payment.currency,
         )
 
     @transaction.atomic
@@ -302,7 +315,7 @@ class StripeEventHandler:
         payment_intent_id = payment_intent_data.get("id")
 
         if not payment_intent_id:
-            logger.warning("Received payment_intent.canceled without id")
+            logger.warning("stripe_payment_intent_canceled_missing_id")
             return
 
         # Find the payment by payment_intent_id
@@ -312,14 +325,15 @@ class StripeEventHandler:
             )
         except Payment.DoesNotExist:
             # This is expected for sessions that expire naturally before payment
-            logger.debug(f"Received payment_intent.canceled for unknown payment_intent: {payment_intent_id}")
+            logger.debug("stripe_payment_intent_canceled_unknown", payment_intent_id=payment_intent_id)
             return
 
         # Only update if payment is still pending
         if payment.status != Payment.Status.PENDING:
             logger.info(
-                f"Received payment_intent.canceled for non-pending payment {payment.id} "
-                f"(status: {payment.status}). Ignoring."
+                "stripe_payment_intent_canceled_non_pending",
+                payment_id=str(payment.id),
+                status=payment.status,
             )
             return
 
@@ -339,6 +353,7 @@ class StripeEventHandler:
         TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
 
         logger.info(
-            f"Processed payment_intent.canceled for Payment {payment.id}: "
-            f"Payment set to FAILED, Ticket {ticket.id} set to CANCELLED, quantity restored"
+            "stripe_payment_intent_canceled_processed",
+            payment_id=str(payment.id),
+            ticket_id=str(ticket.id),
         )

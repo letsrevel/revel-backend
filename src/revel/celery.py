@@ -1,8 +1,11 @@
-"""Celery setup for FHIR Engine."""
+"""Celery setup for Revel."""
 
 import os
+import typing as t
 
+import structlog
 from celery import Celery
+from celery.signals import task_postrun, task_prerun
 
 # Set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "revel.settings")
@@ -17,6 +20,55 @@ app.config_from_object("django.conf:settings", namespace="CELERY")
 
 # Load task modules from all registered Django apps.
 app.autodiscover_tasks()
+
+
+# Observability: Celery task context enrichment
+
+
+@task_prerun.connect
+def celery_task_prerun(task_id: str, task: t.Any, *args: t.Any, **kwargs: t.Any) -> None:
+    """Bind Celery task context to structlog before task execution.
+
+    Args:
+        task_id: Unique ID of the Celery task
+        task: The Celery task instance
+        args: Task positional arguments
+        kwargs: Task keyword arguments
+    """
+    from django.conf import settings
+
+    if not settings.ENABLE_OBSERVABILITY:
+        return
+
+    # Clear any previous context
+    structlog.contextvars.clear_contextvars()
+
+    # Bind task context
+    structlog.contextvars.bind_contextvars(
+        task_id=task_id,
+        task_name=task.name,
+        queue=task.request.delivery_info.get("routing_key", "default")
+        if hasattr(task.request, "delivery_info")
+        else "default",
+        retries=task.request.retries if hasattr(task.request, "retries") else 0,
+    )
+
+
+@task_postrun.connect
+def celery_task_postrun(*args: t.Any, **kwargs: t.Any) -> None:
+    """Clear structlog context after task execution.
+
+    Args:
+        args: Signal arguments
+        kwargs: Signal keyword arguments
+    """
+    from django.conf import settings
+
+    if not settings.ENABLE_OBSERVABILITY:
+        return
+
+    # Clear context after task completes
+    structlog.contextvars.clear_contextvars()
 
 
 # run:

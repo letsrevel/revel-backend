@@ -106,6 +106,101 @@ Get a local development environment running in minutes. You'll need `make`, `Doc
 
 ---
 
+## 📊 Observability
+
+Revel includes a comprehensive observability stack built on the LGTM (Loki, Grafana, Tempo, Mimir) framework plus Pyroscope for continuous profiling.
+
+### Available Services
+
+Once you run `make setup` or start the Docker services, the following observability tools are available:
+
+| Service | Purpose | URL | Credentials |
+|---------|---------|-----|-------------|
+| **Grafana** | Unified dashboard for logs, traces, metrics, and profiles | [http://localhost:3000](http://localhost:3000) | admin / admin |
+| **Prometheus** | Metrics collection and querying | [http://localhost:9090](http://localhost:9090) | - |
+| **Pyroscope** | Continuous profiling with flamegraphs 🔥 | [http://localhost:4040](http://localhost:4040) | - |
+| **Loki** | Log aggregation | [http://localhost:3100](http://localhost:3100) | - |
+| **Tempo** | Distributed tracing | [http://localhost:3200](http://localhost:3200) | - |
+| **Django Metrics** | Application metrics endpoint | [http://localhost:8000/metrics](http://localhost:8000/metrics) | - |
+
+### Features
+
+- **Structured Logging**: All logs in JSON format with automatic context (request_id, user_id, task_id, etc.)
+- **Distributed Tracing**: Automatic tracing of HTTP requests, database queries, Redis operations, and Celery tasks
+- **Metrics**: Django, PostgreSQL, Redis, and Celery metrics automatically collected
+- **Flamegraphs**: Continuous profiling for CPU and memory performance analysis
+- **PII Scrubbing**: Automatic redaction of sensitive data (passwords, card numbers, emails, etc.)
+- **Trace-to-Log Correlation**: Jump from traces to related logs and vice versa in Grafana
+- **Grafana Alerting**: Production-ready alerts for errors, payments, auth failures, and more (no DB overhead)
+
+### Quick Start
+
+1. **View logs in Grafana**: Go to `http://localhost:3000` → Explore → Select "Loki" datasource
+   ```logql
+   {service="revel"} | json | level="error"
+   ```
+
+2. **View traces in Grafana**: Explore → Select "Tempo" datasource → Search by service or endpoint
+
+3. **View metrics in Prometheus**: Go to `http://localhost:9090` → Graph
+   ```promql
+   rate(django_http_requests_total[5m])
+   ```
+
+4. **View flamegraphs in Pyroscope**: Go to `http://localhost:4040` → Select `revel.development`
+
+5. **Set up alerts**: Configure Grafana alert rules for production monitoring
+   - See [GRAFANA_ALERTING.md](GRAFANA_ALERTING.md) for 10+ ready-to-use alert examples
+   - Supports Email, Slack, Discord, PagerDuty notifications
+
+### Configuration
+
+Observability can be configured via environment variables in `.env`:
+
+```bash
+ENABLE_OBSERVABILITY=True          # Enable/disable all observability features
+TRACING_SAMPLE_RATE=1.0            # 100% sampling (use 0.1 for 10% in production)
+PYROSCOPE_SERVER_ADDRESS=http://localhost:4040
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+### Verifying Observability Setup
+
+After starting the Django application with `make run`, verify the setup:
+
+1. **Check startup logs**: Look for initialization messages:
+   ```
+   OpenTelemetry tracing initialized: service=revel, sample_rate=1.0, endpoint=http://localhost:4318
+   Pyroscope profiling initialized: app=revel.development, server=http://localhost:4040
+   ```
+
+2. **Check metrics endpoint**: Visit [http://localhost:8000/metrics](http://localhost:8000/metrics) - should show Prometheus metrics
+
+3. **Generate some traffic**: Make API requests to create traces and logs
+   ```bash
+   # Visit the API docs to generate requests
+   curl http://localhost:8000/api/docs
+   # Or make a few test API calls
+   curl http://localhost:8000/api/health  # if you have a health endpoint
+   ```
+
+4. **Check Grafana**: Go to [http://localhost:3000](http://localhost:3000) → Explore → Select datasource
+   - **Loki** for logs: `{service="revel"} | json`
+   - **Tempo** for traces: Search by service name "revel"
+   - **Prometheus** for metrics: `rate(django_http_requests_total[5m])`
+
+5. **Check Pyroscope**: Visit [http://localhost:4040](http://localhost:4040) → Select `revel.development`
+   - Note: Pyroscope may take 10-15 seconds to start showing data
+   - Make sure you're generating CPU activity (API requests, database queries, etc.)
+
+For detailed documentation, see:
+- [OBSERVABILITY_SPEC.md](OBSERVABILITY_SPEC.md) - Full specification and implementation plan
+- [OBSERVABILITY_IMPLEMENTATION.md](OBSERVABILITY_IMPLEMENTATION.md) - What's implemented and how to use it
+- [GRAFANA_ALERTING.md](GRAFANA_ALERTING.md) - Production-ready alert rules and notification setup
+- [ASYNC_LOGGING.md](ASYNC_LOGGING.md) - Async logging architecture (50-100x faster)
+
+---
+
 ## 🛠️ Development Commands
 
 The project uses a `Makefile` to streamline common development tasks.

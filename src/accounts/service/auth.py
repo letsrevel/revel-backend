@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pyotp
+import structlog
 from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -21,12 +22,15 @@ from accounts.jwt import TOTPJWTPayload, check_blacklist, create_token, validate
 from accounts.jwt import blacklist as blacklist_token
 from accounts.models import RevelUser
 
+logger = structlog.get_logger(__name__)
+
 
 def get_temporary_otp_jwt(user: RevelUser) -> str:
     """Get a temporary JWT.
 
     This will need to be used by a user in combination with their OTP code to obtain a valid JWT.
     """
+    logger.info("otp_jwt_generated", user_id=str(user.id), email=user.email)
     payload = TOTPJWTPayload(
         sub=str(user.id),
         aud=settings.JWT_AUDIENCE,
@@ -47,15 +51,22 @@ def verify_otp_jwt(token: str, otp: str) -> tuple[RevelUser, bool]:
     )
     check_blacklist(validated_token.jti)
     if validated_token.type != "totp-access":
+        logger.warning("otp_verification_invalid_token_type", token_type=validated_token.type)  # type: ignore[unreachable]
         raise HttpError(401, str(_("Invalid token type.")))
     blacklist_token(token)
     user = get_object_or_404(RevelUser, id=validated_token.user_id)
     totp = pyotp.TOTP(user.totp_secret)
-    return user, totp.verify(otp)
+    is_valid = totp.verify(otp)
+    logging_method, result = (
+        (logger.info, "otp_verification_success") if is_valid else (logger.warning, "otp_verification_failure")
+    )
+    logging_method(result, user_id=str(user.id), email=user.email)
+    return user, is_valid
 
 
 def get_token_pair_for_user(user: RevelUser) -> TokenObtainPairOutputSchema:
     """Get a token pair for the user."""
+    logger.info("token_pair_generated", user_id=str(user.id), email=user.email)
     token = RefreshToken.for_user(user)
     token.payload.update(schema.RevelUserSchema.from_orm(user).model_dump(mode="json"))
     token.payload.update(
@@ -108,12 +119,15 @@ def google_login(id_token: str) -> TokenObtainPairOutputSchema:
             defaults=defaults,
         )
     if created:
+        logger.info("google_sso_user_created", user_id=str(user.id), email=user.email, google_id=id_info.sub)
         GoogleSSOUser.objects.create(
             user=user,
             google_id=id_info.sub,
             picture_url=id_info.picture,
             locale=id_info.locale,
         )
+    else:
+        logger.info("google_sso_login", user_id=str(user.id), email=user.email)
     return get_token_pair_for_user(user)
 
 
@@ -125,6 +139,9 @@ def verify_oauth2_token(id_token: str) -> schema.GoogleIDInfo:
             Request(),  # type: ignore[no-untyped-call]
             settings.GOOGLE_SSO_CLIENT_ID,
         )
-        return schema.GoogleIDInfo.model_validate(id_info)
+        validated_info = schema.GoogleIDInfo.model_validate(id_info)
+        logger.info("google_token_verified", email=validated_info.email)
+        return validated_info
     except GoogleAuthError as e:
+        logger.warning("google_token_verification_failed", error=str(e))
         raise HttpError(401, str(_("Invalid Google ID Token."))) from e

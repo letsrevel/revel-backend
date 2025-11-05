@@ -1,0 +1,73 @@
+// Grafana Alloy configuration for eBPF-based profiling
+// Profiles Python processes on the host without requiring SDK integration
+
+// Logging configuration
+logging {
+  level = "info"
+  format = "json"
+}
+
+// Discover all processes on the system
+discovery.process "all" {
+}
+
+// Filter to keep only Python processes related to Django/Revel
+discovery.relabel "python_processes" {
+  targets = discovery.process.all.targets
+
+  // Keep only Python processes
+  rule {
+    source_labels = ["__meta_process_exe"]
+    regex = ".*python.*"
+    action = "keep"
+  }
+
+  // Add service name label
+  rule {
+    replacement = "revel.development"
+    target_label = "service_name"
+  }
+
+  // Add environment label
+  rule {
+    replacement = "development"
+    target_label = "environment"
+  }
+
+  // Add version label
+  rule {
+    replacement = "0.8.0"
+    target_label = "version"
+  }
+}
+
+// Profile Python processes using eBPF
+pyroscope.ebpf "instance" {
+  forward_to = [pyroscope.write.pyroscope_server.receiver]
+  targets = discovery.relabel.python_processes.output
+
+  // Collect profiles every 15 seconds
+  collect_interval = "15s"
+
+  // Sample stack traces 97 times per second
+  sample_rate = 97
+
+  // Only profile Python
+  python_enabled = true
+  ruby_enabled = false
+  php_enabled = false
+  hotspot_enabled = false
+  v8_enabled = false
+  dotnet_enabled = false
+  perl_enabled = false
+
+  // Disable C++ demangling for performance
+  demangle = "none"
+}
+
+// Write to Pyroscope server
+pyroscope.write "pyroscope_server" {
+  endpoint {
+    url = "http://pyroscope:4040"
+  }
+}
