@@ -1,73 +1,42 @@
-// Grafana Alloy configuration for eBPF-based profiling
-// Profiles Python processes on the host without requiring SDK integration
+// Grafana Alloy configuration for eBPF-based continuous profiling
+// This configuration enables Python profiling for Docker containers
 
-// Logging configuration
-logging {
-  level = "info"
-  format = "json"
-}
+// Discover local Docker containers
+discovery.docker "local_containers" {
+  host = "unix:///var/run/docker.sock"
 
-// Discover all processes on the system
-discovery.process "all" {
-}
-
-// Filter to keep only Python processes related to Django/Revel
-discovery.relabel "python_processes" {
-  targets = discovery.process.all.targets
-
-  // Keep only Python processes
-  rule {
-    source_labels = ["__meta_process_exe"]
-    regex = ".*python.*"
-    action = "keep"
-  }
-
-  // Add service name label
-  rule {
-    replacement = "revel.development"
-    target_label = "service_name"
-  }
-
-  // Add environment label
-  rule {
-    replacement = "development"
-    target_label = "environment"
-  }
-
-  // Add version label
-  rule {
-    replacement = "0.8.0"
-    target_label = "version"
+  // Filter to only profile specific containers
+  filter {
+    name = "name"
+    values = ["revel_web", "revel_celery_default", "revel_beat"]
   }
 }
 
-// Profile Python processes using eBPF
+// eBPF profiling component
 pyroscope.ebpf "instance" {
-  forward_to = [pyroscope.write.pyroscope_server.receiver]
-  targets = discovery.relabel.python_processes.output
+  forward_to = [pyroscope.write.endpoint.receiver]
+  targets    = discovery.docker.local_containers.targets
 
-  // Collect profiles every 15 seconds
-  collect_interval = "15s"
-
-  // Sample stack traces 97 times per second
-  sample_rate = 97
-
-  // Only profile Python
+  // Language-specific profiling (Python enabled by default)
   python_enabled = true
-  ruby_enabled = false
-  php_enabled = false
-  hotspot_enabled = false
-  v8_enabled = false
-  dotnet_enabled = false
-  perl_enabled = false
 
-  // Disable C++ demangling for performance
-  demangle = "none"
+  // Profiling configuration
+  collect_interval = "15s"  // How often to collect profiles
+  sample_rate      = 97     // Stack traces per second (prime number for better distribution)
+
+  // Demangle C++ symbols (useful for native extensions)
+  demangle = "simplified"
 }
 
-// Write to Pyroscope server
-pyroscope.write "pyroscope_server" {
+// Send profiles to Pyroscope server
+pyroscope.write "endpoint" {
   endpoint {
     url = "http://pyroscope:4040"
+  }
+
+  external_labels = {
+    "environment" = env("DEPLOYMENT_ENVIRONMENT"),
+    "service"     = "revel",
+    "instance"    = env("HOSTNAME"),
   }
 }

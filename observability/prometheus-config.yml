@@ -58,3 +58,8 @@ scrape_configs:
   - job_name: 'pyroscope'
     static_configs:
       - targets: ['pyroscope:4040']
+
+  # Grafana Alloy metrics
+  - job_name: 'alloy'
+    static_configs:
+      - targets: ['alloy:12345']
