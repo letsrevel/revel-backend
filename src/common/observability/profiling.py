@@ -1,16 +1,28 @@
-"""Pyroscope continuous profiling setup.
+"""Pyroscope continuous profiling setup via Grafana Alloy eBPF.
 
-DISABLED: Pyroscope profiling is currently disabled due to SDK incompatibility.
+Continuous profiling is handled by Grafana Alloy using eBPF (Extended Berkeley Packet Filter).
+This approach requires ZERO code changes - profiling happens at the kernel level.
 
-The pyroscope-io Python SDK (v0.8.11) is incompatible with Grafana Pyroscope server v1.6+.
-The legacy SDK uses a different protocol than the new Grafana Pyroscope architecture (v1.0+).
+Architecture:
+1. Grafana Alloy runs as a privileged container with eBPF enabled
+2. It discovers Python processes via Docker labels/container names
+3. Profiles are collected at ~97 Hz (samples/second) with ~1% overhead
+4. Data is sent to Pyroscope for storage and visualization in Grafana
 
-Alternative options for profiling:
-1. Use py-spy manually: `sudo .venv/bin/py-spy record -o flamegraph.svg --pid <PID>`
-2. Wait for Grafana to release an updated Python SDK
-3. Downgrade Pyroscope server to pre-1.0 version (pyroscope/pyroscope:0.37.2)
+Platform Support:
+- Linux: ✅ Full support (eBPF works)
+- macOS: ❌ Not supported (Docker Desktop doesn't support eBPF)
+- Windows: ❌ Not supported
 
-See OBSERVABILITY_SPEC.md for more details.
+Configuration:
+- observability/alloy-config.alloy: eBPF profiling configuration
+- docker-compose.yaml: Pyroscope + Alloy services (production)
+- docker-compose-dev.yml: Profiling disabled by default (macOS)
+
+Manual Profiling (development alternative):
+- Use py-spy: `sudo .venv/bin/py-spy record -o flamegraph.svg --pid <PID>`
+
+See OBSERVABILITY_SPEC.md and observability/PROFILING_SETUP.md for details.
 """
 
 import logging
@@ -23,12 +35,16 @@ logger = logging.getLogger(__name__)
 def init_profiling() -> None:
     """Initialize Pyroscope continuous profiling.
 
-    Currently disabled - see module docstring for details.
+    Profiling is handled externally by Grafana Alloy (eBPF) - no Python code needed.
+    This function exists for logging and future extensibility.
     """
     if not settings.ENABLE_OBSERVABILITY:
+        logger.debug("Observability disabled - profiling will not be active")
         return
 
     logger.info(
-        "Pyroscope profiling is DISABLED (SDK incompatibility with Grafana Pyroscope 1.6+). "
-        "Use py-spy manually for ad-hoc profiling."
+        "Continuous profiling is handled by Grafana Alloy (eBPF). "
+        "Profiles are automatically collected from running Python processes and sent to Pyroscope. "
+        "View flamegraphs at: %s",
+        settings.GRAFANA_URL if hasattr(settings, "GRAFANA_URL") else "http://localhost:3000",
     )
