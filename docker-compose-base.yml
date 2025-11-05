@@ -186,11 +186,8 @@ services:
       - pyroscope_data:/var/lib/pyroscope
     environment:
       - PYROSCOPE_LOG_LEVEL=info
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4040/ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    # Note: Pyroscope 1.9.0 image doesn't include wget/curl, so no healthcheck
+    # Service starts quickly (~20s) and logs show when ready
     mem_limit: 2g
     cpus: 2.0
 
@@ -219,7 +216,7 @@ services:
       - --server.http.listen-addr=0.0.0.0:12345
     depends_on:
       pyroscope:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:12345/ready"]
       interval: 10s
@@ -250,7 +247,8 @@ services:
         condition: service_healthy
       prometheus:
         condition: service_healthy
-      # Note: pyroscope dependency added in docker-compose-dev.yml when enabled
+      pyroscope:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
       interval: 10s
