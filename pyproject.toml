@@ -20,6 +20,7 @@ dependencies = [
     "django-ninja==1.4.5",
     "django-ninja-extra==0.30.2",
     "django-ninja-jwt[crypto]>=5.3.7",
+    "django-prometheus>=2.4.1",
     "django-silk>=5.4.0",
     "django-simple-history>=3.8.0",
     "django-solo>=2.4.0",
@@ -35,9 +36,17 @@ dependencies = [
     "markdown>=3.8.1",
     "ninja-schema>=0.14.2",
     "openai>=1.95.1",
+    "opentelemetry-api>=1.38.0",
+    "opentelemetry-exporter-otlp>=1.38.0",
+    "opentelemetry-instrumentation-celery>=0.59b0",
+    "opentelemetry-instrumentation-django>=0.59b0",
+    "opentelemetry-instrumentation-psycopg>=0.59b0",
+    "opentelemetry-instrumentation-redis>=0.59b0",
+    "opentelemetry-sdk>=1.38.0",
     "orjson>=3.10.18",
     "piexif>=1.1.3",
     "pillow>=11.2.1",
+    "prometheus-client>=0.22.1",
     "psycopg[binary]>=3.2.9",
     "pyclamd>=0.4.0",
     "pydantic[email]>=2.11.7",
@@ -45,6 +54,8 @@ dependencies = [
     "pyopenssl>=25.1.0",
     "pyotp>=2.9.0",
     "python-decouple>=3.8",
+    "python-json-logger>=4.0.0",
+    "python-logging-loki>=0.3.1",
     "python-magic>=0.4.27",
     "qrcode>=8.2",
     "redis>=6.2.0",
@@ -70,6 +81,7 @@ dev = [
     "mkdocs-redirects>=1.2.2",
     "mypy>=1.16.1",
     "pre-commit>=4.2.0",
+    "py-spy>=0.4.1",
     "pydocstyle>=6.3.0",
     "pytest>=8.4.1",
     "pytest-asyncio>=1.0.0",
@@ -213,6 +225,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "transformers.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "logging_loki.*"
 ignore_missing_imports = true
 
 [tool.django-stubs]

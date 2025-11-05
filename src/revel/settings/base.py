@@ -27,7 +27,7 @@ SALT_KEY = config("SALT_KEY")
 DEBUG = config("DEBUG", default=False, cast=bool)
 DEMO_MODE = config("DEMO_MODE", default=DEBUG, cast=bool)
 
-ALLOWED_HOSTS: list[str] = config("ALLOWED_HOSTS", cast=Csv(), default="localhost,127.0.0.1")
+ALLOWED_HOSTS: list[str] = config("ALLOWED_HOSTS", cast=Csv(), default="localhost,127.0.0.1,host.docker.internal")
 
 SILK_PROFILER = config("SILK_PROFILER", default=False, cast=bool)
 
@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "django.contrib.sites",
     "django.contrib.gis",
     # third party
+    "django_prometheus",  # Observability: Prometheus metrics
     "corsheaders",
     "solo",
     "simple_history",
@@ -80,6 +81,7 @@ FRONTEND_BASE_URL = config("FRONTEND_BASE_URL", default="http://localhost:3000")
 
 
 MIDDLEWARE = [
+    "django_prometheus.middleware.PrometheusBeforeMiddleware",  # Observability: Prometheus metrics (must be first)
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -89,9 +91,11 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "common.middleware.UserLanguageMiddleware",
+    "common.middleware.StructlogContextMiddleware",  # Observability: request context enrichment
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "geo.middleware.GeoPointMiddleware",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",  # Observability: Prometheus metrics (must be last)
 ]
 
 if SILK_PROFILER:
@@ -122,7 +126,7 @@ ASGI_APPLICATION = "revel.asgi.application"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 _postgres_db = {
-    "ENGINE": "django.contrib.gis.db.backends.postgis",
+    "ENGINE": "django_prometheus.db.backends.postgis",  # Instrumented PostGIS backend for metrics
     "NAME": config("DB_NAME", "revel"),
     "USER": config("DB_USER", "revel"),
     "PASSWORD": config("DB_PASSWORD", "revel-password"),

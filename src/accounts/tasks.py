@@ -2,6 +2,7 @@
 
 import traceback
 
+import structlog
 from celery import shared_task
 from django.conf import settings
 from django.contrib.sites.models import Site
@@ -16,10 +17,13 @@ from common.models import SiteSettings
 from common.tasks import send_email
 from events.models import EventToken
 
+logger = structlog.get_logger(__name__)
+
 
 @shared_task
 def send_verification_email(email: str, token: str) -> None:
     """Send a verification email."""
+    logger.info("verification_email_sending", email=email)
     subject = str(render_to_string("accounts/emails/email_verification_subject.txt"))
     verification_link = SiteSettings.get_solo().frontend_base_url + f"/login/confirm-email?token={token}"
     body = render_to_string("accounts/emails/email_verification_body.txt", {"verification_link": verification_link})
@@ -27,11 +31,13 @@ def send_verification_email(email: str, token: str) -> None:
         "accounts/emails/email_verification_body.html", {"verification_link": verification_link}
     )
     send_email(to=email, subject=subject, body=body, html_body=html_body)
+    logger.info("verification_email_sent", email=email)
 
 
 @shared_task
 def send_password_reset_link(email: str, token: str) -> None:
     """Send a password reset email."""
+    logger.info("password_reset_email_sending", email=email)
     subject = str(render_to_string("accounts/emails/password_reset_subject.txt"))
     password_reset_link = SiteSettings.get_solo().frontend_base_url + f"/login/reset-password?token={token}"
     body = render_to_string("accounts/emails/password_reset_body.txt", {"password_reset_link": password_reset_link})
@@ -39,11 +45,13 @@ def send_password_reset_link(email: str, token: str) -> None:
         "accounts/emails/password_reset_body.html", {"password_reset_link": password_reset_link}
     )
     send_email(to=email, subject=subject, body=body, html_body=html_body)
+    logger.info("password_reset_email_sent", email=email)
 
 
 @shared_task
 def send_account_deletion_link(email: str, token: str) -> None:
     """Send an account deletion confirmation email."""
+    logger.info("account_deletion_email_sending", email=email)
     site = Site.objects.get_current()
     subject = str(render_to_string("accounts/emails/account_delete_subject.txt", {"site_name": site.name}))
     site_settings = SiteSettings.get_solo()
@@ -57,6 +65,7 @@ def send_account_deletion_link(email: str, token: str) -> None:
         {"account_deletion_link": account_deletion_link, "frontend_base_url": site_settings.frontend_base_url},
     )
     send_email(to=email, subject=subject, body=body, html_body=html_body)
+    logger.info("account_deletion_email_sent", email=email)
 
 
 @shared_task
@@ -65,27 +74,33 @@ def flush_expired_tokens() -> None:
 
     This task is designed to be run periodically to clean up expired tokens.
     """
+    logger.info("token_cleanup_started")
     # Get the current time in UTC
     current_time = aware_utcnow()
 
     # Delete expired tokens
-    OutstandingToken.objects.filter(expires_at__lte=current_time).delete()
-    EventToken.objects.filter(expires_at__lte=current_time).delete()
+    jwt_deleted, _ = OutstandingToken.objects.filter(expires_at__lte=current_time).delete()
+    event_deleted, _ = EventToken.objects.filter(expires_at__lte=current_time).delete()
+    logger.info("token_cleanup_completed", jwt_tokens_deleted=jwt_deleted, event_tokens_deleted=event_deleted)
 
 
 @shared_task
 def generate_user_data_export(user_id: str) -> None:
     """Generate a data export for a user."""
+    logger.info("gdpr_export_task_started", user_id=user_id)
     user = RevelUser.objects.get(id=user_id)
     try:
         data_export = gdpr.generate_user_data_export(user)
-    except Exception:
+    except Exception as e:
+        logger.error("gdpr_export_task_failed", user_id=user_id, error=str(e), exc_info=True)
         _notify_data_export_failed(user, traceback.format_exc())
         return
+    logger.info("gdpr_export_task_completed", user_id=user_id, export_id=str(data_export.id))
     _notify_user_data_export_ready(data_export)
 
 
 def _notify_data_export_failed(user: RevelUser, error: str) -> None:
+    logger.info("gdpr_export_notification_failed", user_id=str(user.id), email=user.email)
     data_export, _ = UserDataExport.objects.get_or_create(user=user)
     data_export.status = UserDataExport.Status.FAILED
     data_export.error_message = error
@@ -100,6 +115,8 @@ def _notify_data_export_failed(user: RevelUser, error: str) -> None:
     # Notify admins
     subject = str(render_to_string("accounts/emails/data_export_failed_admin_subject.txt"))
     admins = RevelUser.objects.filter(Q(is_superuser=True) | Q(is_staff=True))
+    admin_count = admins.count()
+    logger.info("gdpr_export_admin_notification_sending", user_id=str(user.id), admin_count=admin_count)
     for admin in admins:
         body = render_to_string(
             "accounts/emails/data_export_failed_admin_body.txt",
@@ -113,6 +130,12 @@ def _notify_data_export_failed(user: RevelUser, error: str) -> None:
 
 
 def _notify_user_data_export_ready(data_export: UserDataExport) -> None:
+    logger.info(
+        "gdpr_export_notification_ready",
+        user_id=str(data_export.user.id),
+        email=data_export.user.email,
+        export_id=str(data_export.id),
+    )
     download_url = settings.BASE_URL + data_export.file.url
     subject = "Your Revel Data Export is Ready"
     body = render_to_string(
@@ -136,4 +159,10 @@ def delete_user_account(user_id: str) -> None:
         user_id: The UUID of the user to delete.
     """
     user = RevelUser.objects.get(id=user_id)
-    user.delete()
+    logger.info("account_deletion_started", user_id=str(user.id), email=user.email)
+    try:
+        user.delete()
+        logger.info("account_deletion_completed", user_id=user_id)
+    except Exception as e:
+        logger.error("account_deletion_failed", user_id=user_id, error=str(e), exc_info=True)
+        raise

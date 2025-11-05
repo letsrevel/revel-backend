@@ -466,12 +466,14 @@ class TestStripeEventHandler:
         """Test that unknown events are logged but don't raise exceptions."""
         # Arrange
         handler.event.type = "unknown.event.type"
+        handler.event.id = "evt_test123"
 
         # Act
         handler.handle_unknown_event(handler.event)
 
         # Assert
-        assert "Unhandled Stripe event type received: unknown.event.type" in caplog.text
+        assert "stripe_webhook_unhandled_event" in caplog.text
+        assert "unknown.event.type" in caplog.text
 
     @pytest.fixture
     def completed_payment(
@@ -584,7 +586,7 @@ class TestStripeEventHandler:
         handler.handle_checkout_session_completed(handler.event)
 
         # Assert
-        assert "already succeeded payment" in caplog.text
+        assert "stripe_webhook_duplicate_payment_success" in caplog.text
         mock_email_task.assert_not_called()
 
     def test_handle_checkout_session_completed_payment_not_found(
@@ -665,7 +667,7 @@ class TestStripeEventHandler:
         handler.handle_charge_refunded(handler.event)
 
         # Assert
-        assert "already refunded payment" in caplog.text
+        assert "stripe_webhook_duplicate_refund" in caplog.text
 
     def test_handle_charge_refunded_unknown_payment(
         self,
@@ -684,7 +686,7 @@ class TestStripeEventHandler:
         handler.handle_charge_refunded(handler.event)
 
         # Assert
-        assert "unknown payment_intent" in caplog.text
+        assert "stripe_refund_unknown_intent" in caplog.text
 
     def test_handle_payment_intent_canceled_success(
         self,
@@ -751,7 +753,7 @@ class TestStripeEventHandler:
         handler.handle_payment_intent_canceled(handler.event)
 
         # Assert
-        assert "non-pending payment" in caplog.text
+        assert "stripe_payment_intent_canceled_non_pending" in caplog.text
         completed_payment.refresh_from_db()
         assert completed_payment.status == Payment.Status.SUCCEEDED  # Unchanged
 

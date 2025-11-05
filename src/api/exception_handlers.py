@@ -1,6 +1,5 @@
 """Exception handlers for the API."""
 
-import base64
 import traceback
 import typing as t
 from copy import deepcopy
@@ -26,13 +25,14 @@ from questionnaires.exceptions import (
     SectionIntegrityError,
 )
 
-from .tasks import track_internal_error
-
 logger = structlog.get_logger(__name__)
 
 
 def handle_general_exception(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
     """Handle a general exception.
+
+    Logs the exception to the observability stack (Loki) with full context.
+    Alerts should be configured in Grafana based on error rates and patterns.
 
     Args:
         request: The incoming HTTP request.
@@ -41,39 +41,36 @@ def handle_general_exception(request: HttpRequest, exc: Exception | t.Type[Excep
     Returns:
         The response.
     """
-    logger.exception("INTERNAL_SERVER_ERROR", exc_info=True, stack_info=True)
-    data = {"detail": str(_("Internal Server Error."))}
-    tb_str = traceback.format_exc()
     is_staff = getattr(request, "user", None) and request.user.is_staff
-    encoded_payload = base64.b64encode(request.body).decode("utf-8") if request.body else None
-    metadata = {
-        "headers": obfuscate(dict(request.headers)),
-        "method": request.method,
-        "path": request.path,
-        "GET": obfuscate(request.GET.dict()),
-        "POST": obfuscate(request.POST.dict() if request.method == "POST" else {}),
-        # note: we can do request.user because we set the user in the auth flow
-        # otherwise it should be await request.auser()
-        "user": str(request.user) if getattr(request, "user", None) else None,
-    }
+
+    # Parse JSON payload if present (for better debugging context)
+    json_payload = None
     if request.method in ("POST", "PUT", "PATCH") and request.headers.get("Content-Type") == "application/json":
         try:
             json_payload = obfuscate(orjson.loads(request.body))
-            encoded_payload = None  # No reason to store an encoded payload if we have the json already
         except Exception:  # pragma: no cover
             json_payload = None
-    else:
-        json_payload = None
-    if settings.DEBUG or is_staff:  # pragma: no cover
-        data["traceback"] = tb_str
-    path = f"{request.method} {request.path}"
-    track_internal_error.delay(
-        path=path,
-        traceback_str=tb_str,
-        encoded_payload=encoded_payload,
+
+    # Log to observability stack with full context
+    logger.error(
+        "unhandled_exception",
+        exc_info=True,
+        method=request.method,
+        path=request.path,
+        user=str(request.user) if getattr(request, "user", None) else None,
+        user_id=str(request.user.id) if getattr(request, "user", None) and hasattr(request.user, "id") else None,
+        headers=obfuscate(dict(request.headers)),
+        query_params=obfuscate(request.GET.dict()),
+        post_params=obfuscate(request.POST.dict() if request.method == "POST" else {}),
         json_payload=json_payload,
-        metadata=metadata,
+        exception_type=type(exc).__name__,
     )
+
+    # Return response
+    data = {"detail": str(_("Internal Server Error."))}
+    if settings.DEBUG or is_staff:  # pragma: no cover
+        data["traceback"] = traceback.format_exc()
+
     return Response(status=500, data=data)
 
 
@@ -84,8 +81,14 @@ def handle_django_validation_error(request: HttpRequest, exc: ValidationError | 
         request: The incoming HTTP request.
         exc: The exception.
     """
-    logger.error("VALIDATION_ERROR", exc_info=True, stack_info=True)
     error_dict = {k: [ee for e in v for ee in e] for k, v in exc.error_dict.items()}
+    logger.warning(
+        "validation_error",
+        method=request.method,
+        path=request.path,
+        user_id=str(request.user.id) if getattr(request, "user", None) and hasattr(request.user, "id") else None,
+        errors=error_dict,
+    )
     return Response(status=400, data={"errors": error_dict})
 
 

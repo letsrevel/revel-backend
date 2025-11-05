@@ -14,8 +14,57 @@ services:
       service: clamav
       file: docker-compose-base.yml
 
+  # Observability Stack
+  loki:
+    extends:
+      service: loki
+      file: docker-compose-base.yml
+
+  tempo:
+    extends:
+      service: tempo
+      file: docker-compose-base.yml
+
+  prometheus:
+    extends:
+      service: prometheus
+      file: docker-compose-base.yml
+
+  postgres-exporter:
+    extends:
+      service: postgres-exporter
+      file: docker-compose-base.yml
+
+  redis-exporter:
+    extends:
+      service: redis-exporter
+      file: docker-compose-base.yml
+
+  # DISABLED: Pyroscope profiling (see docker-compose-base.yml for details)
+  # pyroscope:
+  #   extends:
+  #     service: pyroscope
+  #     file: docker-compose-base.yml
+
+  # DISABLED: Grafana Alloy (see docker-compose-base.yml for details)
+  # alloy:
+  #   extends:
+  #     service: alloy
+  #     file: docker-compose-base.yml
+
+  grafana:
+    extends:
+      service: grafana
+      file: docker-compose-base.yml
+
 volumes:
   minio_data:
   postgres_data:
   clamav_defs:
   redis_data:
+  loki_data:
+  tempo_data:
+  prometheus_data:
+  # pyroscope_data:  # DISABLED
+  # alloy_data:  # DISABLED
+  grafana_data:

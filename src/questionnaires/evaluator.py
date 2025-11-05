@@ -3,6 +3,7 @@
 from decimal import Decimal
 from uuid import UUID
 
+import structlog
 from django.db import transaction
 from django.db.models import Prefetch
 
@@ -16,6 +17,8 @@ from .models import (
     QuestionnaireEvaluation,
     QuestionnaireSubmission,
 )
+
+logger = structlog.get_logger(__name__)
 
 # ---- The Evaluation Service Class ----
 
@@ -61,6 +64,12 @@ class SubmissionEvaluator:
 
         This method is atomic to ensure the evaluation is an all-or-nothing operation.
         """
+        logger.info(
+            "questionnaire_evaluation_started",
+            submission_id=str(self.submission.id),
+            questionnaire_id=str(self.questionnaire.id),
+            user_id=str(self.submission.user_id),
+        )
         # NEW: First, check for a hard failure condition: unanswered mandatory questions.
         self._check_for_missing_mandatory_answers()
 
@@ -68,7 +77,15 @@ class SubmissionEvaluator:
         # but the final result will be overridden if a mandatory question was missed.
         self._evaluate_mc_answers()
         self._evaluate_ft_answers_in_batch()
-        return self._create_or_update_evaluation()
+        evaluation = self._create_or_update_evaluation()
+        logger.info(
+            "questionnaire_evaluation_completed",
+            submission_id=str(self.submission.id),
+            evaluation_id=str(evaluation.id),
+            score=float(evaluation.score or 0),
+            status=evaluation.status,
+        )
+        return evaluation
 
     # NEW: A new private method to check for unanswered mandatory questions.
     def _check_for_missing_mandatory_answers(self) -> None:
@@ -90,6 +107,11 @@ class SubmissionEvaluator:
         missing_mandatory_ftq = mandatory_ftq_ids - answered_ftq_ids
         if missing_mandatory_ftq or missing_mandatory_mcq:
             self.missing_mandatory = list(missing_mandatory_mcq) + list(missing_mandatory_ftq)
+            logger.warning(
+                "questionnaire_missing_mandatory_questions",
+                submission_id=str(self.submission.id),
+                missing_count=len(self.missing_mandatory),
+            )
 
     def _evaluate_mc_answers(self) -> None:
         """Scores all multiple-choice answers in the submission."""
@@ -132,9 +154,19 @@ class SubmissionEvaluator:
             for answer in answers_to_evaluate
         ]
 
+        logger.info(
+            "questionnaire_llm_evaluation_started",
+            submission_id=str(self.submission.id),
+            question_count=len(questions_for_llm),
+            llm_backend=self.llm_evaluator.__class__.__name__,
+        )
         self.llm_batch_response = self.llm_evaluator.evaluate(
             questions_to_evaluate=questions_for_llm,
             questionnaire_guidelines=self.questionnaire.llm_guidelines,
+        )
+        logger.info(
+            "questionnaire_llm_evaluation_completed",
+            submission_id=str(self.submission.id),
         )
 
         results_map = {result.question_id: result for result in self.llm_batch_response.evaluations}
