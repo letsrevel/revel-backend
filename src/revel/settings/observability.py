@@ -51,7 +51,8 @@ def scrub_pii(logger: t.Any, method_name: str, event_dict: dict[str, t.Any]) -> 
     # Fields to completely redact
     sensitive_keys = [
         "password",
-        "password2password_confirmation",
+        "password2",
+        "password_confirmation",
         "old_password",
         "new_password",
         "card_number",
