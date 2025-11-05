@@ -46,5 +46,5 @@ def init_profiling() -> None:
         "Continuous profiling is handled by Grafana Alloy (eBPF). "
         "Profiles are automatically collected from running Python processes and sent to Pyroscope. "
         "View flamegraphs at: %s",
-        settings.GRAFANA_URL if hasattr(settings, "GRAFANA_URL") else "http://localhost:3000",
+        getattr(settings, "GRAFANA_URL", "http://localhost:3000"),
     )
