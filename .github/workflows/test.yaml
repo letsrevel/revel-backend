@@ -50,6 +50,12 @@ jobs:
       - name: Recreate environment file
         run: cp .env.example .env
 
+      - name: Disable observability for tests
+        run: |
+          # Disable observability in CI - no Loki/Tempo/Prometheus services running
+          echo "ENABLE_OBSERVABILITY=False" >> .env
+          echo "Observability disabled for CI tests"
+
       - name: Add worldcities.csv  # we need this so migrations can run
         working-directory: src
         run: cp geo/data/worldcities.mini.csv geo/data/worldcities.csv
