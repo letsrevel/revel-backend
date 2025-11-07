@@ -299,6 +299,22 @@ class EventController(UserAwareController):
         invitation_request.delete()
         return 204, None
 
+    @route.post(
+        "/guest-actions/confirm",
+        url_name="confirm_guest_action",
+        response={200: schema.EventRSVPSchema | schema.EventTicketSchema, 400: ResponseMessage},
+    )
+    def confirm_guest_action(
+        self, payload: schema.GuestActionConfirmSchema
+    ) -> schema.EventRSVPSchema | schema.EventTicketSchema:
+        """Confirm a guest action (RSVP or ticket purchase) via JWT token from email.
+
+        Validates the token, executes the action (creates RSVP or ticket), and blacklists the token
+        to prevent reuse. Returns the created RSVP or ticket on success. Returns 400 if token is
+        invalid, expired, already used, or if eligibility checks fail (e.g., event became full).
+        """
+        return guest_service.confirm_guest_action(payload.token)
+
     @route.get("/{org_slug}/{event_slug}", url_name="get_event_by_slug", response=schema.EventDetailSchema)
     def get_event_by_slugs(self, org_slug: str, event_slug: str) -> models.Event:
         """Retrieve event details using human-readable organization and event slugs.
@@ -562,19 +578,3 @@ class EventController(UserAwareController):
         return guest_service.handle_guest_ticket_checkout(
             event, tier, payload.email, payload.first_name, payload.last_name, pwyc_amount=payload.pwyc
         )
-
-    @route.post(
-        "/guest-actions/confirm",
-        url_name="confirm_guest_action",
-        response={200: schema.EventRSVPSchema | schema.EventTicketSchema, 400: ResponseMessage},
-    )
-    def confirm_guest_action(
-        self, payload: schema.GuestActionConfirmSchema
-    ) -> schema.EventRSVPSchema | schema.EventTicketSchema:
-        """Confirm a guest action (RSVP or ticket purchase) via JWT token from email.
-
-        Validates the token, executes the action (creates RSVP or ticket), and blacklists the token
-        to prevent reuse. Returns the created RSVP or ticket on success. Returns 400 if token is
-        invalid, expired, already used, or if eligibility checks fail (e.g., event became full).
-        """
-        return guest_service.confirm_guest_action(payload.token)
