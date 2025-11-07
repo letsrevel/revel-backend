@@ -303,6 +303,7 @@ class EventController(UserAwareController):
         "/guest-actions/confirm",
         url_name="confirm_guest_action",
         response={200: schema.EventRSVPSchema | schema.EventTicketSchema, 400: ResponseMessage},
+        throttle=WriteThrottle(),
     )
     def confirm_guest_action(
         self, payload: schema.GuestActionConfirmSchema
@@ -369,7 +370,7 @@ class EventController(UserAwareController):
         settings and sales_start_at/sales_end_at to determine which are currently on sale.
         """
         event = self.get_one(event_id)
-        return models.TicketTier.objects.for_user(self.user()).filter(event=event).distinct()
+        return models.TicketTier.objects.for_user(self.maybe_user()).filter(event=event).distinct()
 
     @route.post(
         "/{event_id}/tickets/{tier_id}/checkout",
@@ -513,8 +514,7 @@ class EventController(UserAwareController):
         Returns 400 if event doesn't allow guest access or if a non-guest account exists with
         the provided email.
         """
-        if self.maybe_user().is_authenticated:
-            raise HttpError(400, str(_("You cannot use this endpoint while authenticated.")))
+        self.ensure_not_authenticated()
         event = self.get_one(event_id)
         return guest_service.handle_guest_rsvp(event, answer, payload.email, payload.first_name, payload.last_name)
 
@@ -534,11 +534,10 @@ class EventController(UserAwareController):
         event.can_attend_without_login=True. Returns 400 if event doesn't allow guest access, if a
         non-guest account exists with the email, or for PWYC tiers (use /pwyc endpoint instead).
         """
-        if self.maybe_user().is_authenticated:
-            raise HttpError(400, str(_("You cannot use this endpoint while authenticated.")))
+        self.ensure_not_authenticated()
         event = self.get_one(event_id)
         tier = get_object_or_404(
-            models.TicketTier.objects.for_user(self.user()),
+            models.TicketTier.objects.for_user(self.maybe_user()),
             pk=tier_id,
             event=event,
         )
@@ -564,15 +563,13 @@ class EventController(UserAwareController):
         is within tier bounds. Requires event.can_attend_without_login=True. Returns 400 if event
         doesn't allow guest access, if a non-guest account exists, or if PWYC amount is invalid.
         """
-        if self.maybe_user().is_authenticated:
-            raise HttpError(400, str(_("You cannot use this endpoint while authenticated.")))
+        self.ensure_not_authenticated()
         event = self.get_one(event_id)
         tier = get_object_or_404(
-            models.TicketTier.objects.for_user(self.user()),
+            models.TicketTier.objects.for_user(self.maybe_user()),
             pk=tier_id,
             event=event,
         )
-        event = self.get_one(event_id)
         if tier.price_type != models.TicketTier.PriceType.PWYC:
             raise HttpError(400, str(_("This endpoint is only for pay-what-you-can tickets")))
         return guest_service.handle_guest_ticket_checkout(

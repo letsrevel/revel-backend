@@ -60,7 +60,7 @@ def increase_rate_limit(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr("common.throttling.AuthThrottle.rate", "1000/min")
 
 
-@pytest.fixture(autouse=True, scope="session")
+@pytest.fixture(autouse=True)
 def flush_redis() -> None:
     """Flush Redis before each test to ensure clean state.
 

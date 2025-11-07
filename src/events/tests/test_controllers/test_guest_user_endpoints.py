@@ -1141,19 +1141,18 @@ class TestGuestUserEdgeCases:
         assert response.status_code == 422, response.content
 
     def test_email_normalization(self, guest_event: Event) -> None:
-        """Test that email is handled consistently (case sensitivity, etc.)."""
-        # Create user with lowercase email
+        """Test that email is normalized to lowercase for case-insensitive matching."""
+        # Create user with uppercase email
         user1 = guest_service.get_or_create_guest_user("test@EXAMPLE.com", "Test", "User")
 
-        # Try to create with different case
+        # Try to create with different case - should return same user
         user2 = guest_service.get_or_create_guest_user("test@example.com", "Test", "User")
 
-        # Django's default email field is case-sensitive, so these would be different
-        # But for guest users, we want consistent behavior
-        # This test documents current behavior
-        assert user1.email == "test@EXAMPLE.com"
+        # Email should be normalized to lowercase
+        assert user1.email == "test@example.com"
         assert user2.email == "test@example.com"
-        assert user1.id != user2.id
+        # Should be the same user (case-insensitive match)
+        assert user1.id == user2.id
 
     def test_token_expiration_edge_case(self, guest_event: Event, existing_guest_user: RevelUser) -> None:
         """Test token that expires exactly at current time."""

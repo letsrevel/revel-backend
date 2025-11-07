@@ -9,7 +9,7 @@ import jwt
 import structlog
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -39,8 +39,11 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
     Raises:
         HttpError: If a non-guest user with this email already exists
     """
-    # Check if user exists
-    existing_user = RevelUser.objects.filter(email=email).first()
+    # Normalize email to lowercase for case-insensitive matching
+    email = email.lower()
+
+    # Check if user exists (case-insensitive)
+    existing_user = RevelUser.objects.filter(email__iexact=email).first()
 
     if existing_user is None:
         user = RevelUser.objects.create(

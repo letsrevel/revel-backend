@@ -2,6 +2,8 @@ import typing as t
 
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.gis.geos import Point
+from django.utils.translation import gettext_lazy as _
+from ninja.errors import HttpError
 from ninja_extra import ControllerBase
 
 from accounts.models import RevelUser
@@ -37,3 +39,12 @@ class UserAwareController(ControllerBase):
 
         # Get cached location (preference or fallback)
         return get_cached_user_location(user, fallback_location)
+
+    def ensure_not_authenticated(self) -> None:
+        """Ensure the current user is not authenticated.
+
+        Raises:
+            HttpError: If user is authenticated (for guest-only endpoints)
+        """
+        if self.maybe_user().is_authenticated:
+            raise HttpError(400, str(_("You cannot use this endpoint while authenticated.")))

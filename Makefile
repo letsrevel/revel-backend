@@ -23,32 +23,29 @@ lint:
 mypy:
 	.venv/bin/mypy --strict --extra-checks --warn-unreachable --warn-unused-ignores src
 
-# Set PARALLEL=1 to run tests in parallel (e.g., make test PARALLEL=1)
-ifneq ($(PARALLEL),)
-	PYTEST_PARALLEL_ARGS := -n auto
-else
-	PYTEST_PARALLEL_ARGS :=
-endif
-
 .PHONY: test
 test:
-	.venv/bin/pytest $(PYTEST_PARALLEL_ARGS) --cov=src --cov-report=term --cov-report=html --cov-branch -v src/ && coverage html --skip-covered
+	.venv/bin/pytest --cov=src --cov-report=term --cov-report=html --cov-branch -v src/ && coverage html --skip-covered
+
+.PHONY: test-parallel
+test-parallel:
+	.venv/bin/pytest -n auto --cov=src --cov-report=term --cov-report=html --cov-branch -v src/ && coverage html --skip-covered
 
 .PHONY: test-failed
 test-failed:
-	.venv/bin/pytest $(PYTEST_PARALLEL_ARGS) --cov=src --cov-report=term --cov-report=html --cov-branch -v --last-failed src/ && coverage html --skip-covered
+	.venv/bin/pytest --cov=src --cov-report=term --cov-report=html --cov-branch -v --last-failed src/ && coverage html --skip-covered
 
 .PHONY: test-pipeline
 test-pipeline:
-	pytest $(PYTEST_PARALLEL_ARGS) --cov=src --cov-report=term --cov-report=html --cov-branch --cov-fail-under=100 -v src
+	pytest --cov=src --cov-report=term --cov-report=html --cov-branch --cov-fail-under=100 -v src
 
 .PHONY: test-functional
 test-functional:
-	.venv/bin/pytest $(PYTEST_PARALLEL_ARGS) --cov=functional_tests --cov-report=term --cov-report=html:functional_tests/htmlcov --cov-branch -v functional_tests/ && coverage html --skip-covered
+	.venv/bin/pytest --cov=functional_tests --cov-report=term --cov-report=html:functional_tests/htmlcov --cov-branch -v functional_tests/ && coverage html --skip-covered
 
 .PHONY: test-functional-failed
 test-functional-failed:
-	.venv/bin/pytest $(PYTEST_PARALLEL_ARGS) --cov=functional_tests --cov-report=term --cov-report=html:functional_tests/htmlcov --cov-branch -v --last-failed functional_tests/ && coverage html --skip-covered
+	.venv/bin/pytest --cov=functional_tests --cov-report=term --cov-report=html:functional_tests/htmlcov --cov-branch -v --last-failed functional_tests/ && coverage html --skip-covered
 
 
 # Combined command: Runs format, lint, mypy, and i18n-check in sequence
