@@ -150,7 +150,16 @@ def reset_password(token: str, new_password: str) -> RevelUser:
         raise HttpError(400, str(_("Cannot reset password for Google SSO users.")))
     validate_password(new_password, user=user)
     user.set_password(new_password)
-    user.save()
+
+    # Convert guest user to full user when setting password
+    if user.guest:
+        user.guest = False
+        user.email_verified = True
+        user.save(update_fields=["password", "guest", "email_verified"])
+        logger.info("guest_user_converted_to_full_user", user_id=str(user.id), email=user.email)
+    else:
+        user.save(update_fields=["password"])
+
     blacklist_token(token)
     logger.info("password_reset_completed", user_id=str(user.id), email=user.email)
     return user

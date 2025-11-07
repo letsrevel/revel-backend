@@ -1,7 +1,7 @@
-import logging
 from collections import Counter
 from uuid import UUID
 
+import structlog
 from celery import shared_task
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
@@ -10,10 +10,11 @@ from django.db import transaction
 from django.db.models import F, Q
 from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
 from common.models import EmailLog, SiteSettings
-from common.tasks import to_safe_email_address
+from common.tasks import send_email, to_safe_email_address
 from events.service import update_db_instance
 from events.utils import create_ticket_pdf
 
@@ -35,7 +36,7 @@ from .service.notification_service import (
     should_notify_user_for_questionnaire,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @shared_task
@@ -679,3 +680,49 @@ def reset_demo_data() -> dict[str, str]:
     call_command("reset_events", "--no-input")
     logger.info("Demo data reset completed successfully")
     return {"status": "success", "message": "Demo data has been reset"}
+
+
+# ---- Guest User Email Tasks ----
+
+
+@shared_task
+def send_guest_rsvp_confirmation(email: str, token: str, event_name: str) -> None:
+    """Send RSVP confirmation email to guest user.
+
+    Args:
+        email: Guest user's email
+        token: JWT confirmation token
+        event_name: Name of the event
+    """
+    logger.info("guest_rsvp_confirmation_sending", email=email, event_name=event_name)
+    subject = _("Confirm your RSVP to %(event_name)s") % {"event_name": event_name}
+    confirmation_link = SiteSettings.get_solo().frontend_base_url + f"/events/confirm-action?token={token}"
+    body = render_to_string(
+        "events/emails/guest_rsvp_confirmation_body.txt",
+        {"confirmation_link": confirmation_link, "event_name": event_name},
+    )
+    send_email(to=email, subject=subject, body=body)
+    logger.info("guest_rsvp_confirmation_sent", email=email)
+
+
+@shared_task
+def send_guest_ticket_confirmation(email: str, token: str, event_name: str, tier_name: str) -> None:
+    """Send ticket purchase confirmation email to guest user.
+
+    Only sent for non-online-payment tickets (free/offline/at-the-door).
+
+    Args:
+        email: Guest user's email
+        token: JWT confirmation token
+        event_name: Name of the event
+        tier_name: Name of the ticket tier
+    """
+    logger.info("guest_ticket_confirmation_sending", email=email, event_name=event_name, tier_name=tier_name)
+    subject = _("Confirm your ticket for %(event_name)s") % {"event_name": event_name}
+    confirmation_link = SiteSettings.get_solo().frontend_base_url + f"/events/confirm-action?token={token}"
+    body = render_to_string(
+        "events/emails/guest_ticket_confirmation_body.txt",
+        {"confirmation_link": confirmation_link, "event_name": event_name, "tier_name": tier_name},
+    )
+    send_email(to=email, subject=subject, body=body)
+    logger.info("guest_ticket_confirmation_sent", email=email)

@@ -184,6 +184,9 @@ class Event(
     requires_ticket = models.BooleanField(default=True)  # If False, managed via RSVPs
     potluck_open = models.BooleanField(default=False)
     accept_invitation_requests = models.BooleanField(default=False)
+    can_attend_without_login = models.BooleanField(
+        default=True, help_text="Allow users to RSVP or purchase tickets without creating an account"
+    )
 
     attendee_count = models.PositiveIntegerField(default=0, editable=False)
 

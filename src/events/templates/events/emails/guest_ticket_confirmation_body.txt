@@ -1,0 +1,14 @@
+{% load i18n %}{% trans "Hello!" %}
+
+{% blocktrans with event_name=event_name tier_name=tier_name %}You've requested to get a ticket for {{ event_name }} ({{ tier_name }}).{% endblocktrans %}
+
+{% trans "To confirm your ticket purchase, please click the link below:" %}
+
+{{ confirmation_link }}
+
+{% trans "This link will expire in 1 hour." %}
+
+{% trans "If you didn't request this, you can safely ignore this email." %}
+
+{% trans "Thanks," %}
+{% trans "The Revel Team" %}
