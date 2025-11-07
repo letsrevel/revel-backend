@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-11-03 10:19+0100\n"
+"POT-Creation-Date: 2025-11-07 15:03+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -31,7 +31,8 @@ msgid "An email has been sent."
 msgstr "È stata inviata un'email."
 
 msgid "Your account deletion has been initiated and will be processed shortly."
-msgstr "La cancellazione del tuo account è stata avviata e verrà elaborata a breve."
+msgstr ""
+"La cancellazione del tuo account è stata avviata e verrà elaborata a breve."
 
 msgid "A password reset link will be sent."
 msgstr "Ti sarà inviato un link per reimpostare la password."
@@ -57,7 +58,8 @@ msgstr "La password deve contenere almeno una cifra."
 msgid ""
 "Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>)."
 msgstr ""
-"La password deve contenere almeno un carattere speciale (!@#$%^&*(),.?\":{}|<>)."
+"La password deve contenere almeno un carattere speciale (!@#$%^&*(),.?\":{}|"
+"<>)."
 
 msgid ""
 "contain at least one uppercase letter, one lowercase letter, one digit, and "
@@ -79,8 +81,9 @@ msgid ""
 "You cannot delete your account while you own organizations. Please contact "
 "support to transfer ownership or delete the organizations first."
 msgstr ""
-"Non puoi eliminare il tuo account mentre sei proprietario di organizzazioni. Contatta "
-"l'assistenza per trasferire la proprietà o eliminare prima le organizzazioni."
+"Non puoi eliminare il tuo account mentre sei proprietario di organizzazioni. "
+"Contatta l'assistenza per trasferire la proprietà o eliminare prima le "
+"organizzazioni."
 
 msgid "Token has expired."
 msgstr "Il token è scaduto."
@@ -104,15 +107,16 @@ msgid ""
 "account at\n"
 "        <a href=\"%(frontend_base_url)s\">Revel</a>."
 msgstr ""
-"Hai ricevuto questa email perché hai richiesto di eliminare il tuo "
-"account su\n"
+"Hai ricevuto questa email perché hai richiesto di eliminare il tuo account "
+"su\n"
 "        <a href=\"%(frontend_base_url)s\">Revel</a>."
 
 msgid "If you did not request this, please ignore this email."
 msgstr "Se non hai richiesto questa operazione, ignora questa email."
 
 msgid "To confirm the deletion of your account, click the link below:"
-msgstr "Per confermare la cancellazione del tuo account, clicca il link qui sotto:"
+msgstr ""
+"Per confermare la cancellazione del tuo account, clicca il link qui sotto:"
 
 msgid "Thank you,<br>The Revel Team"
 msgstr "Grazie,<br>Il Team di Revel"
@@ -125,8 +129,8 @@ msgid ""
 "You have received this email because you have requested to delete your "
 "account at %(frontend_base_url)s."
 msgstr ""
-"Hai ricevuto questa email perché hai richiesto di eliminare il tuo "
-"account su %(frontend_base_url)s."
+"Hai ricevuto questa email perché hai richiesto di eliminare il tuo account "
+"su %(frontend_base_url)s."
 
 msgid ""
 "Thank you,\n"
@@ -169,8 +173,8 @@ msgid ""
 "We have been notified of this issue and are working to resolve it as soon as "
 "possible."
 msgstr ""
-"Siamo stati informati di questo problema e stiamo lavorando per risolverlo il prima "
-"possibile."
+"Siamo stati informati di questo problema e stiamo lavorando per risolverlo "
+"il prima possibile."
 
 msgid "We apologize for any inconvenience."
 msgstr "Ci scusiamo per l'inconveniente."
@@ -208,8 +212,8 @@ msgid ""
 "This link is valid for a limited time. If you did not request this export, "
 "please ignore this email or contact support."
 msgstr ""
-"Questo link è valido per un periodo di tempo limitato. Se non hai richiesto questa esportazione, "
-"ignora questa email o contatta l'assistenza."
+"Questo link è valido per un periodo di tempo limitato. Se non hai richiesto "
+"questa esportazione, ignora questa email o contatta l'assistenza."
 
 msgid ""
 "Best,<br>\n"
@@ -316,8 +320,8 @@ msgid ""
 "We have detected malware in a file you recently uploaded. The file has been "
 "quarantined and our staff has been notified."
 msgstr ""
-"Abbiamo rilevato un malware in un file che hai caricato di recente. Il file è stato "
-"messo in quarantena e il nostro staff è stato notificato."
+"Abbiamo rilevato un malware in un file che hai caricato di recente. Il file "
+"è stato messo in quarantena e il nostro staff è stato notificato."
 
 msgid "We will investigate the issue and get back to you as soon as possible."
 msgstr "Investigheremo il problema e ti contatteremo al più presto."
@@ -354,20 +358,37 @@ msgstr "L'importo PWYC deve essere almeno {min_amount}"
 msgid "PWYC amount must be at most {max_amount}"
 msgstr "L'importo PWYC deve essere al massimo {max_amount}"
 
+msgid "You cannot use this endpoint while authenticated."
+msgstr ""
+
+#, fuzzy
+#| msgid "This endpoint is only for pay-what-you-can tickets"
+msgid "Use /pwyc endpoint for pay-what-you-can tickets"
+msgstr "Questo endpoint è solo per biglietti a offerta libera"
+
 msgid "Only the organization owner can create staff members."
-msgstr "Solo il proprietario dell'organizzazione può creare membri dello staff."
+msgstr ""
+"Solo il proprietario dell'organizzazione può creare membri dello staff."
 
 msgid "Only the organization owner can change staff permissions."
-msgstr "Solo il proprietario dell'organizzazione può modificare i permessi dello staff."
+msgstr ""
+"Solo il proprietario dell'organizzazione può modificare i permessi dello "
+"staff."
 
 msgid "One or more events do not exist or belong to this organization."
-msgstr "Uno o più eventi non esistono o non appartengono a questa organizzazione."
+msgstr ""
+"Uno o più eventi non esistono o non appartengono a questa organizzazione."
 
 msgid "One or more event series do not exist or belong to this organization."
-msgstr "Una o più serie di eventi non esistono o non appartengono a questa organizzazione."
+msgstr ""
+"Una o più serie di eventi non esistono o non appartengono a questa "
+"organizzazione."
 
 msgid "Invalid Stripe signature"
 msgstr "Firma Stripe non valida"
+
+msgid "You are not eligible."
+msgstr ""
 
 msgid "This event does not accept invitation requests."
 msgstr "Questo evento non accetta richieste di invito."
@@ -377,6 +398,38 @@ msgstr "Sei già invitato a questo evento."
 
 msgid "You have already requested an invitation to this event."
 msgstr "Hai già richiesto un invito per questo evento."
+
+#, fuzzy
+#| msgid "A user with this email already exists."
+msgid "An account with this email already exists. Please log in."
+msgstr "Esiste già un utente con questa email."
+
+#, fuzzy, python-brace-format
+#| msgid "Invalid token: {error}"
+msgid "Invalid token payload: {error}"
+msgstr "Token non valido: {error}"
+
+msgid "This event requires login to RSVP."
+msgstr ""
+
+msgid "Please check your email to confirm your RSVP"
+msgstr ""
+
+#, fuzzy
+#| msgid "This endpoint is only for pay-what-you-can tickets"
+msgid "This event requires login to purchase tickets."
+msgstr "Questo endpoint è solo per biglietti a offerta libera"
+
+msgid "Unexpected response from ticket creation"
+msgstr ""
+
+msgid "Please check your email to confirm your ticket purchase"
+msgstr ""
+
+#, fuzzy
+#| msgid "Invalid token type."
+msgid "Invalid token type"
+msgstr "Tipo di token non valido."
 
 msgid "The organization does not accept new members."
 msgstr "L'organizzazione non accetta nuovi membri."
@@ -432,6 +485,15 @@ msgid "Check-in is not currently open for this event."
 msgstr "Il check-in non è attualmente aperto per questo evento."
 
 #, python-format
+msgid "Confirm your RSVP to %(event_name)s"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Ticket Update: %(event_name)s"
+msgid "Confirm your ticket for %(event_name)s"
+msgstr "Aggiornamento biglietto: %(event_name)s"
+
+#, python-format
 msgid "New Event: %(event_name)s"
 msgstr "Nuovo evento: %(event_name)s"
 
@@ -452,7 +514,8 @@ msgid "🎫 Tickets:"
 msgstr "🎫 Biglietti:"
 
 msgid "Required - Register soon as spots may be limited"
-msgstr "Richiesto - Registrati presto perché i posti potrebbero essere limitati"
+msgstr ""
+"Richiesto - Registrati presto perché i posti potrebbero essere limitati"
 
 msgid "✅ RSVP:"
 msgstr "✅ RSVP:"
@@ -483,7 +546,45 @@ msgstr ""
 msgid ""
 "To manage your notification preferences, please visit your account settings."
 msgstr ""
-"Per gestire le tue preferenze di notifica, visita le impostazioni del tuo account."
+"Per gestire le tue preferenze di notifica, visita le impostazioni del tuo "
+"account."
+
+msgid "Hello!"
+msgstr ""
+
+#, python-format
+msgid "You've requested to RSVP to %(event_name)s."
+msgstr ""
+
+#, fuzzy
+#| msgid "To confirm the deletion of your account, click the link below:"
+msgid "To confirm your RSVP, please click the link below:"
+msgstr ""
+"Per confermare la cancellazione del tuo account, clicca il link qui sotto:"
+
+msgid "This link will expire in 1 hour."
+msgstr ""
+
+#, fuzzy
+#| msgid "If you did not request this, please ignore this email."
+msgid "If you didn't request this, you can safely ignore this email."
+msgstr "Se non hai richiesto questa operazione, ignora questa email."
+
+msgid "Thanks,"
+msgstr ""
+
+msgid "The Revel Team"
+msgstr "Il Team di Revel"
+
+#, python-format
+msgid "You've requested to get a ticket for %(event_name)s (%(tier_name)s)."
+msgstr ""
+
+#, fuzzy
+#| msgid "To confirm the deletion of your account, click the link below:"
+msgid "To confirm your ticket purchase, please click the link below:"
+msgstr ""
+"Per confermare la cancellazione del tuo account, clicca il link qui sotto:"
 
 msgid "Payment Confirmation"
 msgstr "Conferma pagamento"
@@ -500,8 +601,8 @@ msgid ""
 "Your payment for <strong>%(event_name)s</strong> was successful and your "
 "ticket is now active!"
 msgstr ""
-"Il tuo pagamento per <strong>%(event_name)s</strong> è andato a buon fine e il tuo "
-"biglietto è ora attivo!"
+"Il tuo pagamento per <strong>%(event_name)s</strong> è andato a buon fine e "
+"il tuo biglietto è ora attivo!"
 
 msgid "Transaction Details"
 msgstr "Dettagli transazione"
@@ -527,11 +628,9 @@ msgstr "Non vediamo l'ora di vederti!"
 msgid "Cheers,"
 msgstr "A presto,"
 
-msgid "The Revel Team"
-msgstr "Il Team di Revel"
-
 msgid "You are receiving this email because you purchased a ticket on Revel."
-msgstr "Stai ricevendo questa email perché hai acquistato un biglietto su Revel."
+msgstr ""
+"Stai ricevendo questa email perché hai acquistato un biglietto su Revel."
 
 #, python-format
 msgid "Potluck Update: %(event_name)s"
@@ -583,7 +682,8 @@ msgstr "Aggiornato da %(changed_by_name)s"
 msgid ""
 "You're receiving this notification because you have potluck updates enabled."
 msgstr ""
-"Stai ricevendo questa notifica perché hai abilitato gli aggiornamenti potluck."
+"Stai ricevendo questa notifica perché hai abilitato gli aggiornamenti "
+"potluck."
 
 #, python-format
 msgid "Questionnaire Evaluation Result: %(event_name)s"
@@ -602,7 +702,8 @@ msgid "NOT APPROVED"
 msgstr "NON APPROVATO"
 
 msgid "Your questionnaire submission was not approved at this time."
-msgstr "La tua risposta al questionario non è stata approvata in questo momento."
+msgstr ""
+"La tua risposta al questionario non è stata approvata in questo momento."
 
 msgid "Submission Details"
 msgstr "Dettagli invio"
@@ -635,15 +736,16 @@ msgid ""
 "Your questionnaire submission has been approved! You can now proceed with "
 "your event registration or participation as outlined in the event details."
 msgstr ""
-"La tua risposta al questionario è stata approvata! Puoi ora procedere con "
-"la registrazione all'evento o la partecipazione come indicato nei dettagli dell'evento."
+"La tua risposta al questionario è stata approvata! Puoi ora procedere con la "
+"registrazione all'evento o la partecipazione come indicato nei dettagli "
+"dell'evento."
 
 msgid ""
 "If you have questions about this evaluation or would like to understand what "
 "you can do differently, please contact the event organizers directly."
 msgstr ""
-"Se hai domande su questa valutazione o vuoi capire cosa puoi fare diversamente, "
-"contatta direttamente gli organizzatori dell'evento."
+"Se hai domande su questa valutazione o vuoi capire cosa puoi fare "
+"diversamente, contatta direttamente gli organizzatori dell'evento."
 
 msgid "Event Date:"
 msgstr "Data evento:"
@@ -653,8 +755,8 @@ msgid ""
 "This evaluation was conducted as part of the application process for "
 "%(event_name)s."
 msgstr ""
-"Questa valutazione è stata condotta come parte del processo di candidatura per "
-"%(event_name)s."
+"Questa valutazione è stata condotta come parte del processo di candidatura "
+"per %(event_name)s."
 
 #, python-format
 msgid "New Questionnaire Submission: %(questionnaire_name)s"
@@ -670,8 +772,8 @@ msgid ""
 "A new questionnaire submission has been received and requires manual review "
 "before it can be processed."
 msgstr ""
-"È stata ricevuta una nuova risposta al questionario che richiede una revisione manuale "
-"prima di poter essere elaborata."
+"È stata ricevuta una nuova risposta al questionario che richiede una "
+"revisione manuale prima di poter essere elaborata."
 
 msgid "Submitted By"
 msgstr "Inviato da"
@@ -705,8 +807,8 @@ msgid ""
 "The submission needs to be either <strong>approved</strong> or "
 "<strong>rejected</strong> before the submitter can proceed."
 msgstr ""
-"L'invio deve essere <strong>approvato</strong> o "
-"<strong>rifiutato</strong> prima che chi l'ha inviato possa procedere."
+"L'invio deve essere <strong>approvato</strong> o <strong>rifiutato</strong> "
+"prima che chi l'ha inviato possa procedere."
 
 #, python-format
 msgid ""
@@ -731,7 +833,8 @@ msgstr "Notifica per lo staff"
 
 #, python-format
 msgid "A new ticket has been activated for <strong>%(event_name)s</strong>."
-msgstr "Un nuovo biglietto è stato attivato per <strong>%(event_name)s</strong>."
+msgstr ""
+"Un nuovo biglietto è stato attivato per <strong>%(event_name)s</strong>."
 
 #, python-format
 msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
@@ -790,20 +893,22 @@ msgid ""
 "Your free ticket for %(event_name)s is ready. Your ticket is attached to "
 "this email as a PDF."
 msgstr ""
-"Il tuo biglietto gratuito per %(event_name)s è pronto. Il tuo biglietto è allegato "
-"a questa email in formato PDF."
+"Il tuo biglietto gratuito per %(event_name)s è pronto. Il tuo biglietto è "
+"allegato a questa email in formato PDF."
 
 msgid "Your ticket reservation is confirmed"
 msgstr "La tua prenotazione del biglietto è confermata"
 
 msgid "but payment is still needed to complete your registration."
-msgstr "ma il pagamento è ancora necessario per completare la tua registrazione."
+msgstr ""
+"ma il pagamento è ancora necessario per completare la tua registrazione."
 
 msgid "Your spot is reserved!"
 msgstr "Il tuo posto è riservato!"
 
 msgid "Please bring payment to the event. Your ticket is attached as a PDF."
-msgstr "Porta il pagamento all'evento. Il tuo biglietto è allegato in formato PDF."
+msgstr ""
+"Porta il pagamento all'evento. Il tuo biglietto è allegato in formato PDF."
 
 msgid "All set!"
 msgstr "Tutto pronto!"
@@ -820,7 +925,8 @@ msgstr "Informazioni pagamento"
 msgid ""
 "Please arrive with enough time to complete payment before the event starts."
 msgstr ""
-"Arriva con abbastanza anticipo per completare il pagamento prima dell'inizio dell'evento."
+"Arriva con abbastanza anticipo per completare il pagamento prima dell'inizio "
+"dell'evento."
 
 msgid "Please contact the event organizers for payment instructions."
 msgstr "Contatta gli organizzatori dell'evento per le istruzioni di pagamento."
@@ -829,8 +935,8 @@ msgid ""
 "Please bring payment to the event. Contact the organizers if you have "
 "questions about payment methods."
 msgstr ""
-"Porta il pagamento all'evento. Contatta gli organizzatori se hai "
-"domande sui metodi di pagamento."
+"Porta il pagamento all'evento. Contatta gli organizzatori se hai domande sui "
+"metodi di pagamento."
 
 msgid "📎 Your ticket is attached to this email as a PDF."
 msgstr "📎 Il tuo biglietto è allegato a questa email in formato PDF."

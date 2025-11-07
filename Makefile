@@ -27,6 +27,10 @@ mypy:
 test:
 	.venv/bin/pytest --cov=src --cov-report=term --cov-report=html --cov-branch -v src/ && coverage html --skip-covered
 
+.PHONY: test-parallel
+test-parallel:
+	.venv/bin/pytest -n auto --cov=src --cov-report=term --cov-report=html --cov-branch -v src/ && coverage html --skip-covered
+
 .PHONY: test-failed
 test-failed:
 	.venv/bin/pytest --cov=src --cov-report=term --cov-report=html --cov-branch -v --last-failed src/ && coverage html --skip-covered

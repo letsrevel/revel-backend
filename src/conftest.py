@@ -9,6 +9,8 @@ from datetime import datetime, time, timedelta
 
 import faker
 import pytest
+import redis
+from django.conf import settings
 from django.utils import timezone
 from pytest import MonkeyPatch
 
@@ -56,6 +58,23 @@ def mock_ip2location(monkeypatch: MonkeyPatch) -> None:
 def increase_rate_limit(monkeypatch: MonkeyPatch) -> None:
     """Increase the rate limits for AuthThrottle to allow testing."""
     monkeypatch.setattr("common.throttling.AuthThrottle.rate", "1000/min")
+
+
+@pytest.fixture(autouse=True)
+def flush_redis() -> None:
+    """Flush Redis before each test to ensure clean state.
+
+    This is especially important for rate limiting errors we might encounter.
+    """
+
+    # Connect to Redis using Django settings
+    redis_client = redis.Redis(
+        host=settings.REDIS_HOST,
+        port=settings.REDIS_PORT,
+        db=0,  # Default database
+        decode_responses=True,
+    )
+    redis_client.flushdb()
 
 
 @pytest.fixture

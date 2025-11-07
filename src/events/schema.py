@@ -5,18 +5,21 @@ from uuid import UUID
 
 from ninja import ModelSchema, Schema
 from pydantic import (
+    UUID4,
     AwareDatetime,
     BaseModel,
+    Discriminator,
     EmailStr,
     Field,
     StringConstraints,
+    Tag,
     field_serializer,
     field_validator,
     model_validator,
 )
 
 from accounts.models import RevelUser
-from accounts.schema import MemberUserSchema, MinimalRevelUserSchema
+from accounts.schema import MemberUserSchema, MinimalRevelUserSchema, _BaseEmailJWTPayloadSchema
 from common.schema import OneToOneFiftyString, OneToSixtyFourString, StrippedString
 from events import models
 from events.models import (
@@ -938,6 +941,69 @@ class PWYCCheckoutPayloadSchema(Schema):
     """Schema for Pay What You Can checkout payload."""
 
     pwyc: Decimal = Field(..., ge=1, description="Pay what you can amount, minimum 1")
+
+
+# ---- Guest User Schemas ----
+
+
+class GuestUserDataSchema(Schema):
+    """Base schema for guest user data (no authentication required)."""
+
+    email: EmailStr
+    first_name: StrippedString = Field(..., min_length=1, max_length=150, description="Guest user's first name")
+    last_name: StrippedString = Field(..., min_length=1, max_length=150, description="Guest user's last name")
+
+
+class GuestPWYCCheckoutSchema(GuestUserDataSchema):
+    """Schema for guest PWYC ticket checkout."""
+
+    pwyc: Decimal = Field(..., ge=1, description="Pay what you can amount, minimum 1")
+
+
+class GuestActionResponseSchema(Schema):
+    """Response after guest action initiated (RSVP or non-online-payment ticket)."""
+
+    message: str = Field(default="Please check your email to confirm your action")
+
+
+class GuestActionConfirmSchema(Schema):
+    """Request to confirm a guest action via JWT token."""
+
+    token: str = Field(..., description="JWT token from confirmation email")
+
+
+# ---- Guest JWT Payload Schemas (for email confirmation tokens) ----
+
+
+class GuestRSVPJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+    """JWT payload for guest RSVP confirmation."""
+
+    type: t.Literal["guest_rsvp"] = "guest_rsvp"
+    event_id: UUID4
+    answer: t.Literal["yes", "no", "maybe"]
+
+
+class GuestTicketJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+    """JWT payload for guest ticket purchase confirmation.
+
+    Only used for non-online-payment tickets (free/offline/at-the-door).
+    Online payment tickets go directly to Stripe without email confirmation.
+    """
+
+    type: t.Literal["guest_ticket"] = "guest_ticket"
+    event_id: UUID4
+    tier_id: UUID4
+    pwyc_amount: Decimal | None = None
+
+
+# Discriminated union for guest action payloads
+GuestActionPayload = t.Annotated[
+    t.Union[
+        t.Annotated[GuestRSVPJWTPayloadSchema, Tag("guest_rsvp")],
+        t.Annotated[GuestTicketJWTPayloadSchema, Tag("guest_ticket")],
+    ],
+    Discriminator("type"),
+]
 
 
 # ---- TicketTier Schemas for Admin CRUD ----

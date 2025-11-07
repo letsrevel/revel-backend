@@ -239,7 +239,6 @@ disable_error_code = ["django-manager-missing"]
 pythonpath = "src"
 DJANGO_SETTINGS_MODULE = "revel.settings"
 testpaths = ["src"]
-addopts = "-n auto"  # Automatically use all CPU cores
 norecursedirs = [
     ".*",
     "build",

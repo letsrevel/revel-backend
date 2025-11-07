@@ -531,9 +531,20 @@ class EventManager:
         ticket_service = TicketService(event=self.event, user=self.user, tier=tier)
         return ticket_service.checkout(price_override=price_override)
 
-    def check_eligibility(self, bypass: bool = False) -> EventUserEligibility:
-        """Call the eligibility check."""
-        return self.eligibility_service.check_eligibility(bypass=bypass)
+    def check_eligibility(self, bypass: bool = False, raise_on_false: bool = False) -> EventUserEligibility:
+        """Call the eligibility check.
+
+        Returns:
+            EventUserEligibility
+        Raises:
+            UserIsIneligibleError if the user is not eligible for this event and raise_on_false is True
+        """
+        eligibility = self.eligibility_service.check_eligibility(bypass=bypass)
+        if not eligibility.allowed and raise_on_false:
+            raise UserIsIneligibleError(
+                message=eligibility.reason or _("You are not eligible."), eligibility=eligibility
+            )
+        return eligibility
 
     def _create_complimentary_ticket(self, tier: TicketTier) -> Ticket:
         """Create a complimentary (free) ACTIVE ticket, bypassing payment flow.

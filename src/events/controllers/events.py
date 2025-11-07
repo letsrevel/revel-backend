@@ -20,6 +20,7 @@ from common.schema import ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle
 from events import filters, models, schema
 from events.service import event_service
+from events.service import guest as guest_service
 from events.service.event_manager import EventManager, EventUserEligibility
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 from questionnaires.schema import (
@@ -298,6 +299,23 @@ class EventController(UserAwareController):
         invitation_request.delete()
         return 204, None
 
+    @route.post(
+        "/guest-actions/confirm",
+        url_name="confirm_guest_action",
+        response={200: schema.EventRSVPSchema | schema.EventTicketSchema, 400: ResponseMessage},
+        throttle=WriteThrottle(),
+    )
+    def confirm_guest_action(
+        self, payload: schema.GuestActionConfirmSchema
+    ) -> schema.EventRSVPSchema | schema.EventTicketSchema:
+        """Confirm a guest action (RSVP or ticket purchase) via JWT token from email.
+
+        Validates the token, executes the action (creates RSVP or ticket), and blacklists the token
+        to prevent reuse. Returns the created RSVP or ticket on success. Returns 400 if token is
+        invalid, expired, already used, or if eligibility checks fail (e.g., event became full).
+        """
+        return guest_service.confirm_guest_action(payload.token)
+
     @route.get("/{org_slug}/{event_slug}", url_name="get_event_by_slug", response=schema.EventDetailSchema)
     def get_event_by_slugs(self, org_slug: str, event_slug: str) -> models.Event:
         """Retrieve event details using human-readable organization and event slugs.
@@ -352,7 +370,7 @@ class EventController(UserAwareController):
         settings and sales_start_at/sales_end_at to determine which are currently on sale.
         """
         event = self.get_one(event_id)
-        return models.TicketTier.objects.for_user(self.user()).filter(event=event).distinct()
+        return models.TicketTier.objects.for_user(self.maybe_user()).filter(event=event).distinct()
 
     @route.post(
         "/{event_id}/tickets/{tier_id}/checkout",
@@ -477,3 +495,83 @@ class EventController(UserAwareController):
         if submission.status == QuestionnaireSubmission.Status.READY:
             evaluate_questionnaire_submission.delay(str(db_submission.pk))
         return QuestionnaireSubmissionResponseSchema.from_orm(db_submission)
+
+    # ---- Guest User Endpoints (No Authentication Required) ----
+
+    @route.post(
+        "/{event_id}/rsvp/{answer}/public",
+        url_name="guest_rsvp",
+        response={200: schema.GuestActionResponseSchema, 400: ResponseMessage},
+        throttle=WriteThrottle(),
+    )
+    def guest_rsvp(
+        self, event_id: UUID, answer: models.EventRSVP.Status, payload: schema.GuestUserDataSchema
+    ) -> schema.GuestActionResponseSchema:
+        """RSVP to an event without authentication (guest user).
+
+        Creates or updates a guest user and sends a confirmation email. The RSVP is created only
+        after the user confirms via the email link. Requires event.can_attend_without_login=True.
+        Returns 400 if event doesn't allow guest access or if a non-guest account exists with
+        the provided email.
+        """
+        self.ensure_not_authenticated()
+        event = self.get_one(event_id)
+        return guest_service.handle_guest_rsvp(event, answer, payload.email, payload.first_name, payload.last_name)
+
+    @route.post(
+        "/{event_id}/tickets/{tier_id}/checkout/public",
+        url_name="guest_ticket_checkout",
+        response={200: schema.StripeCheckoutSessionSchema | schema.GuestActionResponseSchema, 400: ResponseMessage},
+        throttle=WriteThrottle(),
+    )
+    def guest_ticket_checkout(
+        self, event_id: UUID, tier_id: UUID, payload: schema.GuestUserDataSchema
+    ) -> schema.StripeCheckoutSessionSchema | schema.GuestActionResponseSchema:
+        """Purchase a fixed-price ticket without authentication (guest user).
+
+        For online payment: creates guest user and returns Stripe checkout URL immediately (no email
+        confirmation). For free/offline/at-the-door tickets: sends confirmation email first. Requires
+        event.can_attend_without_login=True. Returns 400 if event doesn't allow guest access, if a
+        non-guest account exists with the email, or for PWYC tiers (use /pwyc endpoint instead).
+        """
+        self.ensure_not_authenticated()
+        event = self.get_one(event_id)
+        tier = get_object_or_404(
+            models.TicketTier.objects.for_user(self.maybe_user()),
+            pk=tier_id,
+            event=event,
+        )
+        if tier.price_type == models.TicketTier.PriceType.PWYC:
+            raise HttpError(400, str(_("Use /pwyc endpoint for pay-what-you-can tickets")))
+        return guest_service.handle_guest_ticket_checkout(
+            event, tier, payload.email, payload.first_name, payload.last_name
+        )
+
+    @route.post(
+        "/{event_id}/tickets/{tier_id}/checkout/pwyc/public",
+        url_name="guest_ticket_pwyc_checkout",
+        response={200: schema.StripeCheckoutSessionSchema | schema.GuestActionResponseSchema, 400: ResponseMessage},
+        throttle=WriteThrottle(),
+    )
+    def guest_ticket_pwyc_checkout(
+        self, event_id: UUID, tier_id: UUID, payload: schema.GuestPWYCCheckoutSchema
+    ) -> schema.StripeCheckoutSessionSchema | schema.GuestActionResponseSchema:
+        """Purchase a PWYC ticket without authentication (guest user).
+
+        For online payment: creates guest user and returns Stripe checkout URL immediately. For
+        free/offline/at-the-door tickets: sends confirmation email first. Validates PWYC amount
+        is within tier bounds. Requires event.can_attend_without_login=True. Returns 400 if event
+        doesn't allow guest access, if a non-guest account exists, or if PWYC amount is invalid.
+        """
+        self.ensure_not_authenticated()
+        event = self.get_one(event_id)
+        tier = get_object_or_404(
+            models.TicketTier.objects.for_user(self.maybe_user()),
+            pk=tier_id,
+            event=event,
+        )
+        if tier.price_type != models.TicketTier.PriceType.PWYC:
+            raise HttpError(400, str(_("This endpoint is only for pay-what-you-can tickets")))
+        return guest_service.handle_guest_ticket_checkout(
+            event, tier, payload.email, payload.first_name, payload.last_name, pwyc_amount=payload.pwyc
+        )
