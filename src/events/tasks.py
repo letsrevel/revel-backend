@@ -1,8 +1,9 @@
+import typing as t
 from collections import Counter
 from uuid import UUID
 
 import structlog
-from celery import shared_task
+from celery import group, shared_task
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.core.management import call_command
@@ -15,8 +16,8 @@ from django.utils.translation import gettext as _
 from accounts.models import RevelUser
 from common.models import EmailLog, SiteSettings
 from common.tasks import send_email, to_safe_email_address
+from events.email_helpers import build_email_context, generate_attachment_content
 from events.service import update_db_instance
-from events.utils import create_ticket_pdf
 
 from .models import (
     AttendeeVisibilityFlag,
@@ -37,6 +38,175 @@ from .service.notification_service import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+# ==== Core Email Sending Task ====
+
+
+@shared_task(bind=True, max_retries=3)
+def send_notification_email(
+    self: t.Any,
+    recipient_email: str,
+    subject: str,
+    template_txt: str,
+    template_html: str | None,
+    context_ids: dict[str, t.Any],
+    attachments: list[dict[str, str]] | None = None,
+    user_id: str | None = None,
+    notification_type: str | None = None,
+    event_id: str | None = None,
+) -> dict[str, t.Any]:
+    """Send a single notification email with automatic retry logic.
+
+    This task handles sending one email to one recipient. It automatically retries
+    up to 3 times with exponential backoff (delays: 1s, 2s, 4s) on failure.
+    Each email is isolated - one failure won't affect others.
+
+    Note: We use manual retry with self.retry() instead of autoretry_for because
+    we need custom behavior on final failure (logging to NotificationAttempt with
+    success=False). Using autoretry_for would require a custom task class with
+    on_failure() override, which is more complex than this approach.
+
+    Args:
+        self: the task itself.
+        recipient_email: Email address to send to
+        subject: Email subject line
+        template_txt: Path to text template (e.g., 'events/emails/event_open.txt')
+        template_html: Path to HTML template (optional, e.g., 'events/emails/event_open.html')
+        context_ids: Dict of model IDs to fetch and pass to template:
+            - user_id: User ID (optional)
+            - event_id: Event ID (optional)
+            - organization_id: Organization ID (optional)
+            - ticket_id: Ticket ID (optional)
+            - potluck_item_id: Potluck item ID (optional)
+            - submission_id: Questionnaire submission ID (optional)
+            - evaluation_id: Questionnaire evaluation ID (optional)
+            - changed_by_user_id: User who made the change (optional)
+            - ticket_holder_id: Ticket holder user ID (optional)
+            Plus any other context data as raw values
+        attachments: List of attachment specs, e.g.:
+            [{'type': 'ticket_pdf', 'ticket_id': '...', 'filename': 'ticket.pdf', 'content_type': 'application/pdf'}]
+            [{'type': 'event_ics', 'event_id': '...', 'filename': 'event.ics', 'content_type': 'text/calendar'}]
+        user_id: ID of recipient user for notification logging (optional)
+        notification_type: Notification type for logging (optional, string value of NotificationType enum)
+        event_id: Event ID for notification logging (optional)
+
+    Returns:
+        Dict with:
+            - success (bool): Whether email was sent successfully
+            - recipient (str): Email address
+            - user_id (str|None): User ID if provided
+            - error (str): Error message if failed (only on final failure)
+
+    Raises:
+        self.retry: On failure, automatically retries with exponential backoff
+    """
+    try:
+        # Build template context by fetching objects from IDs
+        context = build_email_context(context_ids)
+
+        # Render templates
+        body = render_to_string(template_txt, context)
+        html_body = render_to_string(template_html, context) if template_html else None
+
+        # Get safe recipient (respects debug mode email routing)
+        site_settings = SiteSettings.get_solo()
+        recipient = to_safe_email_address(recipient_email, site_settings=site_settings)
+
+        # Build email message
+        email_msg = EmailMultiAlternatives(
+            subject=subject,
+            body=body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            bcc=[recipient],
+        )
+
+        if html_body:
+            email_msg.attach_alternative(html_body, "text/html")
+
+        # Generate and attach files (CRITICAL: fails loudly if generation fails)
+        if attachments:
+            for att_spec in attachments:
+                content = generate_attachment_content(att_spec)
+                email_msg.attach(
+                    att_spec.get("filename", "attachment"),
+                    content,
+                    att_spec.get("content_type", "application/octet-stream"),
+                )
+
+        # Send email (fail_silently=False means it raises on SMTP errors)
+        email_msg.send(fail_silently=False)
+
+        # Log the email for auditing
+        email_log = EmailLog(to=recipient, subject=subject)
+        email_log.set_body(body=body)
+        if html_body:
+            email_log.set_html(html_body=html_body)
+        email_log.save()
+
+        # Log notification attempt (success)
+        if user_id and notification_type:
+            user = RevelUser.objects.get(pk=user_id)
+            event = Event.objects.get(pk=event_id) if event_id else None
+            # Convert string back to enum for logging
+            notif_type_enum = NotificationType(notification_type)
+            log_notification_attempt(user, notif_type_enum, event=event, success=True)
+
+        logger.info("notification_email_sent", recipient=recipient_email, subject=subject)
+
+        return {
+            "success": True,
+            "recipient": recipient_email,
+            "user_id": user_id,
+        }
+
+    except Exception as e:
+        # Check if we've exhausted retries
+        # Pattern: self.request.retries tracks current retry count (0-indexed)
+        # If retries >= max_retries, this is the final attempt
+        if self.request.retries >= self.max_retries:
+            # Final failure - log permanently and return failure result
+            logger.error(
+                "notification_email_failed_permanently",
+                recipient=recipient_email,
+                subject=subject,
+                attempts=self.max_retries + 1,
+                error=str(e),
+                exc_info=True,
+            )
+
+            # Log notification attempt (failure) for tracking
+            if user_id and notification_type:
+                try:
+                    user = RevelUser.objects.get(pk=user_id)
+                    event = Event.objects.get(pk=event_id) if event_id else None
+                    # Convert string back to enum for logging
+                    notif_type_enum = NotificationType(notification_type)
+                    log_notification_attempt(user, notif_type_enum, event=event, success=False)
+                except Exception as log_error:
+                    logger.error("failed_to_log_notification_attempt", error=str(log_error))
+
+            # Return failure result (doesn't raise - task completes)
+            return {
+                "success": False,
+                "recipient": recipient_email,
+                "user_id": user_id,
+                "error": str(e),
+            }
+
+        # Retry with exponential backoff: 2^0=1s, 2^1=2s, 2^2=4s
+        countdown = 2**self.request.retries
+        logger.warning(
+            "notification_email_failed_retrying",
+            recipient=recipient_email,
+            subject=subject,
+            attempt=self.request.retries + 1,
+            max_attempts=self.max_retries + 1,
+            retry_in_seconds=countdown,
+            error=str(e),
+        )
+        # Raises Retry exception - task will be retried after countdown
+        raise self.retry(exc=e, countdown=countdown)
 
 
 @shared_task
@@ -83,48 +253,59 @@ def build_attendee_visibility_flags(event_id: str) -> None:
 
 
 @shared_task
-def send_payment_confirmation_email(payment_id: str) -> None:
-    """Sends a payment confirmation email to the user with PDF and ICS attachments."""
+def send_payment_confirmation_email(payment_id: str) -> dict[str, int]:
+    """Send payment confirmation email to the user with PDF and ICS attachments.
+
+    Dispatches email asynchronously with automatic retry on failure.
+
+    Args:
+        payment_id: The ID of the payment
+
+    Returns:
+        Dict with task dispatch info
+    """
     payment = Payment.objects.select_related(
         "user", "ticket__event__organization", "ticket__event__city", "ticket__tier"
     ).get(pk=payment_id)
     user = payment.user
     ticket = payment.ticket
+    event = ticket.event
 
-    subject = f"Your Ticket for {ticket.event.name}"
-    context = {"user": user, "ticket": ticket, "payment": payment}
-    body = render_to_string("events/emails/payment_confirmation.txt", context)
-    html_body = render_to_string("events/emails/payment_confirmation.html", context)
+    subject = f"Your Ticket for {event.name}"
 
-    # Generate PDF and ICS files
-    pdf_bytes = create_ticket_pdf(ticket)
-    ics_bytes = ticket.event.ics()
-
-    # Build and send email directly to support attachments
-    site_settings = SiteSettings.get_solo()
-    recipient = to_safe_email_address(user.email, site_settings=site_settings)
-
-    email_msg = EmailMultiAlternatives(
+    # Dispatch email task
+    send_notification_email.delay(
+        recipient_email=user.email,
         subject=subject,
-        body=body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        bcc=[recipient],
+        template_txt="events/emails/payment_confirmation.txt",
+        template_html="events/emails/payment_confirmation.html",
+        context_ids={
+            "user_id": str(user.id),
+            "ticket_id": str(ticket.id),
+            "payment_id": str(payment.id),
+        },
+        attachments=[
+            {
+                "type": "ticket_pdf",
+                "ticket_id": str(ticket.id),
+                "filename": "ticket.pdf",
+                "content_type": "application/pdf",
+            },
+            {
+                "type": "event_ics",
+                "event_id": str(event.id),
+                "filename": "invite.ics",
+                "content_type": "text/calendar",
+            },
+        ],
+        user_id=str(user.id),
+        notification_type=None,  # Payment confirmations don't use NotificationType
+        event_id=None,
     )
-    if html_body:
-        email_msg.attach_alternative(html_body, "text/html")
 
-    # Attach generated files
-    email_msg.attach("ticket.pdf", pdf_bytes, "application/pdf")
-    email_msg.attach("invite.ics", ics_bytes, "text/calendar")
+    logger.info("payment_confirmation_dispatched", payment_id=payment_id, user_email=user.email)
 
-    email_msg.send(fail_silently=False)
-
-    # Log the email for auditing purposes
-    email_log = EmailLog(to=recipient, subject=subject)
-    email_log.set_body(body=body)
-    if html_body:
-        email_log.set_html(html_body=html_body)
-    email_log.save()
+    return {"dispatched": 1}
 
 
 @shared_task(name="events.cleanup_expired_payments")
@@ -176,76 +357,58 @@ def cleanup_expired_payments() -> int:
 def notify_event_open(event_id: str) -> dict[str, int]:
     """Send notifications when an event is opened.
 
+    Dispatches emails in parallel. Each email is sent independently with
+    automatic retry logic. Check logs and notification tracking for individual failures.
+
     Args:
         event_id: The ID of the event that was opened
 
     Returns:
-        Dictionary with notification statistics
+        Dictionary with dispatch count: {'dispatched': N}
     """
-    try:
-        event = Event.objects.select_related("organization").get(pk=event_id)
-    except Event.DoesNotExist:
-        logger.error(f"Event with ID {event_id} not found for notification")
-        return {"error": 1, "sent": 0, "skipped": 0}
-
+    event = Event.objects.select_related("organization").get(pk=event_id)
     eligible_users = get_eligible_users_for_event_notification(event, NotificationType.EVENT_OPEN)
 
-    stats = {"sent": 0, "skipped": 0, "error": 0}
-
+    # Build email tasks for parallel execution
+    email_tasks = []
     for user in eligible_users:
-        try:
-            subject = f"New Event: {event.name}"
-            context = {
-                "user": user,
-                "event": event,
-                "organization": event.organization,
-            }
+        task = send_notification_email.s(
+            recipient_email=user.email,
+            subject=f"New Event: {event.name}",
+            template_txt="events/emails/event_open.txt",
+            template_html="events/emails/event_open.html",
+            context_ids={
+                "user_id": str(user.id),
+                "event_id": str(event.id),
+                "organization_id": str(event.organization.id),
+            },
+            attachments=[
+                {
+                    "type": "event_ics",
+                    "event_id": str(event.id),
+                    "filename": "event.ics",
+                    "content_type": "text/calendar",
+                }
+            ],
+            user_id=str(user.id),
+            notification_type=NotificationType.EVENT_OPEN.value,
+            event_id=str(event.id),
+        )
+        email_tasks.append(task)
 
-            body = render_to_string("events/emails/event_open.txt", context)
-            html_body = render_to_string("events/emails/event_open.html", context)
+    # Dispatch all emails in parallel
+    if email_tasks:
+        job = group(email_tasks)
+        job.apply_async()
 
-            # Generate ICS attachment
-            ics_bytes = event.ics()
+    logger.info(
+        "event_open_notifications_dispatched",
+        event_id=event_id,
+        event_name=event.name,
+        count=len(email_tasks),
+    )
 
-            # Build email with attachment
-            site_settings = SiteSettings.get_solo()
-            recipient = to_safe_email_address(user.email, site_settings=site_settings)
-
-            email_msg = EmailMultiAlternatives(
-                subject=subject,
-                body=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                bcc=[recipient],
-            )
-
-            if html_body:
-                email_msg.attach_alternative(html_body, "text/html")
-
-            # Attach ICS file
-            email_msg.attach("event.ics", ics_bytes, "text/calendar")
-
-            email_msg.send(fail_silently=False)
-
-            # Log the email
-            email_log = EmailLog(to=recipient, subject=subject)
-            email_log.set_body(body=body)
-            if html_body:
-                email_log.set_html(html_body=html_body)
-            email_log.save()
-
-            log_notification_attempt(user, NotificationType.EVENT_OPEN, event=event, success=True)
-            stats["sent"] += 1
-
-        except Exception as e:
-            logger.exception(f"Failed to send event open notification to {user.email}")
-            log_notification_attempt(
-                user, NotificationType.EVENT_OPEN, event=event, success=False, error_message=str(e)
-            )
-            stats["error"] += 1
-
-    logger.info(f"Event open notifications for {event.name}: {stats['sent']} sent, {stats['error']} errors")
-
-    return stats
+    return {"dispatched": len(email_tasks)}
 
 
 @shared_task
@@ -254,20 +417,22 @@ def notify_potluck_item_update(
 ) -> dict[str, int]:
     """Send notifications for potluck item updates.
 
+    Dispatches emails in parallel. Each email is sent independently with
+    automatic retry logic. Check logs and notification tracking for individual failures.
+
     Args:
         potluck_item_id: The ID of the potluck item that was updated
         action: The action performed ('created', 'deleted', 'assigned', 'unassigned')
         changed_by_user_id: ID of user who made the change (optional)
 
     Returns:
-        Dictionary with notification statistics
+        Dictionary with dispatch and skip counts: {'dispatched': N, 'skipped': M}
+
+    Raises:
+        PotluckItem.DoesNotExist: If potluck item not found
     """
-    try:
-        potluck_item = PotluckItem.objects.select_related("event__organization", "assignee").get(pk=potluck_item_id)
-        event = potluck_item.event
-    except PotluckItem.DoesNotExist:
-        logger.error(f"PotluckItem with ID {potluck_item_id} not found for notification")
-        return {"error": 1, "sent": 0, "skipped": 0}
+    potluck_item = PotluckItem.objects.select_related("event__organization", "assignee").get(pk=potluck_item_id)
+    event = potluck_item.event
 
     # Get eligible users (including staff and owners)
     eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_UPDATE)
@@ -279,243 +444,196 @@ def notify_potluck_item_update(
     all_user_ids = eligible_user_ids | staff_and_owner_ids
     all_users = RevelUser.objects.filter(id__in=all_user_ids)
 
-    # Get the user who made the change (to avoid self-notification)
-    changed_by = None
-    if changed_by_user_id:
-        try:
-            changed_by = RevelUser.objects.get(pk=changed_by_user_id)
-        except RevelUser.DoesNotExist:
-            pass
-
-    stats = {"sent": 0, "skipped": 0, "error": 0}
+    # Build email tasks for parallel execution
+    email_tasks = []
+    skipped = 0
 
     for user in all_users:
         # Skip self-notification
-        if changed_by and user.id == changed_by.id:
-            stats["skipped"] += 1
+        if changed_by_user_id and str(user.id) == changed_by_user_id:
+            skipped += 1
             continue
 
-        try:
-            subject = f"Potluck Update: {event.name}"
-            context = {
-                "user": user,
-                "event": event,
-                "potluck_item": potluck_item,
-                "action": action,
-                "changed_by": changed_by,
-            }
+        context_ids = {
+            "user_id": str(user.id),
+            "event_id": str(event.id),
+            "potluck_item_id": str(potluck_item.id),
+            "action": action,
+        }
 
-            body = render_to_string("events/emails/potluck_update.txt", context)
-            html_body = render_to_string("events/emails/potluck_update.html", context)
+        # Add changed_by_user_id if present
+        if changed_by_user_id:
+            context_ids["changed_by_user_id"] = changed_by_user_id
 
-            site_settings = SiteSettings.get_solo()
-            recipient = to_safe_email_address(user.email, site_settings=site_settings)
+        task = send_notification_email.s(
+            recipient_email=user.email,
+            subject=f"Potluck Update: {event.name}",
+            template_txt="events/emails/potluck_update.txt",
+            template_html="events/emails/potluck_update.html",
+            context_ids=context_ids,
+            attachments=None,
+            user_id=str(user.id),
+            notification_type=NotificationType.POTLUCK_UPDATE.value,
+            event_id=str(event.id),
+        )
+        email_tasks.append(task)
 
-            email_msg = EmailMultiAlternatives(
-                subject=subject,
-                body=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                bcc=[recipient],
-            )
-
-            if html_body:
-                email_msg.attach_alternative(html_body, "text/html")
-
-            email_msg.send(fail_silently=False)
-
-            # Log the email
-            email_log = EmailLog(to=recipient, subject=subject)
-            email_log.set_body(body=body)
-            if html_body:
-                email_log.set_html(html_body=html_body)
-            email_log.save()
-
-            log_notification_attempt(user, NotificationType.POTLUCK_UPDATE, event=event, success=True)
-            stats["sent"] += 1
-
-        except Exception as e:
-            logger.exception(f"Failed to send potluck update notification to {user.email}")
-            log_notification_attempt(
-                user, NotificationType.POTLUCK_UPDATE, event=event, success=False, error_message=str(e)
-            )
-            stats["error"] += 1
+    # Dispatch all emails in parallel
+    if email_tasks:
+        job = group(email_tasks)
+        job.apply_async()
 
     logger.info(
-        f"Potluck {action} notifications for {event.name}: "
-        f"{stats['sent']} sent, {stats['error']} errors, {stats['skipped']} skipped"
+        "potluck_update_notifications_dispatched",
+        potluck_item_id=potluck_item_id,
+        event_name=event.name,
+        action=action,
+        dispatched=len(email_tasks),
+        skipped=skipped,
     )
 
-    return stats
+    return {"dispatched": len(email_tasks), "skipped": skipped}
 
 
 @shared_task
-def notify_ticket_update(  # noqa: C901  # todo: refactor
+def notify_ticket_update(
     ticket_id: str, action: str, include_pdf: bool = True, include_ics: bool = True
 ) -> dict[str, int]:
     """Send notifications for ticket updates.
 
+    Dispatches emails in parallel. Each email is sent independently with
+    automatic retry logic. Check logs and notification tracking for individual failures.
+
     Args:
         ticket_id: The ID of the ticket that was updated
         action: The action performed (e.g., 'created', 'activated', 'payment_pending')
-        include_pdf: Whether to include ticket PDF attachment
+        include_pdf: Whether to include ticket PDF attachment (only for ACTIVE tickets)
         include_ics: Whether to include event ICS attachment
 
     Returns:
-        Dictionary with notification statistics
+        Dictionary with dispatch count: {'dispatched': N}
+
+    Raises:
+        Ticket.DoesNotExist: If ticket not found
     """
-    try:
-        ticket = Ticket.objects.select_related("user", "event__organization", "tier").get(pk=ticket_id)
-    except Ticket.DoesNotExist:
-        logger.error(f"Ticket with ID {ticket_id} not found for notification")
-        return {"error": 1, "sent": 0, "skipped": 0}
+    ticket = Ticket.objects.select_related("user", "event__organization", "tier").get(pk=ticket_id)
 
     user = ticket.user
     event = ticket.event
 
-    stats = {"sent": 0, "skipped": 0, "error": 0}
+    email_tasks = []
 
-    try:
-        # Notify the ticket holder
-        subject = f"Ticket Update: {event.name}"
-        context = {
-            "user": user,
-            "ticket": ticket,
-            "event": event,
+    # Build attachments list
+    attachments = []
+    if include_pdf and ticket.status == Ticket.Status.ACTIVE:
+        attachments.append(
+            {
+                "type": "ticket_pdf",
+                "ticket_id": str(ticket.id),
+                "filename": "ticket.pdf",
+                "content_type": "application/pdf",
+            }
+        )
+    if include_ics:
+        attachments.append(
+            {
+                "type": "event_ics",
+                "event_id": str(event.id),
+                "filename": "event.ics",
+                "content_type": "text/calendar",
+            }
+        )
+
+    # Email to ticket holder
+    ticket_holder_task = send_notification_email.s(
+        recipient_email=user.email,
+        subject=f"Ticket Update: {event.name}",
+        template_txt="events/emails/ticket_update.txt",
+        template_html="events/emails/ticket_update.html",
+        context_ids={
+            "user_id": str(user.id),
+            "ticket_id": str(ticket.id),
+            "event_id": str(event.id),
             "action": action,
-        }
-
-        body = render_to_string("events/emails/ticket_update.txt", context)
-        html_body = render_to_string("events/emails/ticket_update.html", context)
-
-        site_settings = SiteSettings.get_solo()
-        recipient = to_safe_email_address(user.email, site_settings=site_settings)
-
-        email_msg = EmailMultiAlternatives(
-            subject=subject,
-            body=body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            bcc=[recipient],
-        )
-
-        if html_body:
-            email_msg.attach_alternative(html_body, "text/html")
-
-        # Add attachments if requested
-        if include_pdf and ticket.status == Ticket.Status.ACTIVE:
-            try:
-                pdf_bytes = create_ticket_pdf(ticket)
-                email_msg.attach("ticket.pdf", pdf_bytes, "application/pdf")
-            except Exception as e:
-                logger.warning(f"Failed to generate PDF for ticket {ticket_id}: {e}")
-
-        if include_ics:
-            try:
-                ics_bytes = event.ics()
-                email_msg.attach("event.ics", ics_bytes, "text/calendar")
-            except Exception as e:
-                logger.warning(f"Failed to generate ICS for event {event.id}: {e}")
-
-        email_msg.send(fail_silently=False)
-
-        # Log the email
-        email_log = EmailLog(to=recipient, subject=subject)
-        email_log.set_body(body=body)
-        if html_body:
-            email_log.set_html(html_body=html_body)
-        email_log.save()
-
-        log_notification_attempt(user, NotificationType.TICKET_UPDATED, event=event, success=True)
-        stats["sent"] += 1
-
-    except Exception as e:
-        logger.exception(f"Failed to send ticket update notification to {user.email}")
-        log_notification_attempt(
-            user, NotificationType.TICKET_UPDATED, event=event, success=False, error_message=str(e)
-        )
-        stats["error"] += 1
+        },
+        attachments=attachments if attachments else None,
+        user_id=str(user.id),
+        notification_type=NotificationType.TICKET_UPDATED.value,
+        event_id=str(event.id),
+    )
+    email_tasks.append(ticket_holder_task)
 
     # Notify organization staff and owners about new ticket
     if action in ["free_ticket_created", "offline_payment_pending", "at_door_payment_pending", "ticket_activated"]:
         staff_and_owners = get_organization_staff_and_owners(event.organization)
 
         for staff_user in staff_and_owners:
-            try:
-                subject = f"New Ticket Issued: {event.name}"
-                context = {
-                    "user": staff_user,
-                    "ticket": ticket,
-                    "event": event,
-                    "ticket_holder": user,
+            staff_task = send_notification_email.s(
+                recipient_email=staff_user.email,
+                subject=f"New Ticket Issued: {event.name}",
+                template_txt="events/emails/ticket_staff_notification.txt",
+                template_html="events/emails/ticket_staff_notification.html",
+                context_ids={
+                    "user_id": str(staff_user.id),
+                    "ticket_id": str(ticket.id),
+                    "event_id": str(event.id),
+                    "ticket_holder_id": str(user.id),
                     "action": action,
-                }
+                },
+                attachments=None,
+                user_id=str(staff_user.id),
+                notification_type=NotificationType.TICKET_CREATED.value,
+                event_id=str(event.id),
+            )
+            email_tasks.append(staff_task)
 
-                body = render_to_string("events/emails/ticket_staff_notification.txt", context)
-                html_body = render_to_string("events/emails/ticket_staff_notification.html", context)
-
-                recipient = to_safe_email_address(staff_user.email, site_settings=site_settings)
-
-                email_msg = EmailMultiAlternatives(
-                    subject=subject,
-                    body=body,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    bcc=[recipient],
-                )
-
-                if html_body:
-                    email_msg.attach_alternative(html_body, "text/html")
-
-                email_msg.send(fail_silently=False)
-
-                # Log the email
-                email_log = EmailLog(to=recipient, subject=subject)
-                email_log.set_body(body=body)
-                if html_body:
-                    email_log.set_html(html_body=html_body)
-                email_log.save()
-
-                log_notification_attempt(staff_user, NotificationType.TICKET_CREATED, event=event, success=True)
-                stats["sent"] += 1
-
-            except Exception as e:
-                logger.exception(f"Failed to send staff ticket notification to {staff_user.email}")
-                log_notification_attempt(
-                    staff_user, NotificationType.TICKET_CREATED, event=event, success=False, error_message=str(e)
-                )
-                stats["error"] += 1
+    # Dispatch all emails in parallel
+    if email_tasks:
+        job = group(email_tasks)
+        job.apply_async()
 
     logger.info(
-        f"Ticket {action} notifications for {event.name}: "
-        f"{stats['sent']} sent, {stats['error']} errors, {stats['skipped']} skipped"
+        "ticket_update_notifications_dispatched",
+        ticket_id=ticket_id,
+        event_name=event.name,
+        action=action,
+        dispatched=len(email_tasks),
     )
 
-    return stats
+    return {"dispatched": len(email_tasks)}
 
 
 @shared_task
 def notify_questionnaire_submission(questionnaire_submission_id: str) -> dict[str, int]:
     """Send notifications when a questionnaire is submitted for manual review.
 
+    Dispatches emails in parallel. Each email is sent independently with
+    automatic retry logic. Check logs and notification tracking for individual failures.
+
     Args:
         questionnaire_submission_id: The ID of the questionnaire submission
 
     Returns:
-        Dictionary with notification statistics
+        Dictionary with dispatch and skip counts: {'dispatched': N, 'skipped': M}
+
+    Raises:
+        QuestionnaireSubmission.DoesNotExist: If submission not found
     """
     # Import here to avoid circular imports
     from questionnaires.models import QuestionnaireSubmission
 
-    try:
-        submission = QuestionnaireSubmission.objects.select_related("questionnaire__event__organization", "user").get(
-            pk=questionnaire_submission_id
-        )
-    except QuestionnaireSubmission.DoesNotExist:
-        logger.error(f"QuestionnaireSubmission with ID {questionnaire_submission_id} not found")
-        return {"error": 1, "sent": 0, "skipped": 0}
+    submission = QuestionnaireSubmission.objects.select_related("questionnaire__event__organization", "user").get(
+        pk=questionnaire_submission_id
+    )
 
     # Only notify if questionnaire is not in automatic mode
     if submission.questionnaire.evaluation_mode == submission.questionnaire.EvaluationMode.AUTOMATIC:
-        logger.info(f"Skipping notification for automatic questionnaire {submission.questionnaire.id}")
-        return {"sent": 0, "skipped": 1, "error": 0}
+        logger.info(
+            "questionnaire_submission_auto_skipped",
+            questionnaire_id=str(submission.questionnaire.id),
+            submission_id=questionnaire_submission_id,
+        )
+        return {"dispatched": 0, "skipped": 1}
 
     org_questionnaire = OrganizationQuestionnaire.objects.get(questionnaire_id=submission.questionnaire_id)
     organization = org_questionnaire.organization
@@ -524,81 +642,68 @@ def notify_questionnaire_submission(questionnaire_submission_id: str) -> dict[st
     staff_and_owners = get_organization_staff_and_owners(organization)
     # TODO: Filter by evaluate_questionnaire permission when permission system is implemented
 
-    stats = {"sent": 0, "skipped": 0, "error": 0}
+    email_tasks = []
+    skipped = 0
 
     for user in staff_and_owners:
         if not should_notify_user_for_questionnaire(user, organization, NotificationType.QUESTIONNAIRE_SUBMITTED):
-            stats["skipped"] += 1
+            skipped += 1
             continue
 
-        try:
-            subject = f"New Questionnaire Submission: {submission.questionnaire.name}"
-            context = {
-                "user": user,
-                "submission": submission,
-                "questionnaire": submission.questionnaire,
-                "organization": organization,
-                "submitter": submission.user,
-            }
+        task = send_notification_email.s(
+            recipient_email=user.email,
+            subject=f"New Questionnaire Submission: {submission.questionnaire.name}",
+            template_txt="events/emails/questionnaire_submission.txt",
+            template_html="events/emails/questionnaire_submission.html",
+            context_ids={
+                "user_id": str(user.id),
+                "submission_id": str(submission.id),
+                "organization_id": str(organization.id),
+            },
+            attachments=None,
+            user_id=str(user.id),
+            notification_type=NotificationType.QUESTIONNAIRE_SUBMITTED.value,
+            event_id=None,
+        )
+        email_tasks.append(task)
 
-            body = render_to_string("events/emails/questionnaire_submission.txt", context)
-            html_body = render_to_string("events/emails/questionnaire_submission.html", context)
+    # Dispatch all emails in parallel
+    if email_tasks:
+        job = group(email_tasks)
+        job.apply_async()
 
-            site_settings = SiteSettings.get_solo()
-            recipient = to_safe_email_address(user.email, site_settings=site_settings)
+    logger.info(
+        "questionnaire_submission_notifications_dispatched",
+        submission_id=questionnaire_submission_id,
+        questionnaire_name=submission.questionnaire.name,
+        dispatched=len(email_tasks),
+        skipped=skipped,
+    )
 
-            email_msg = EmailMultiAlternatives(
-                subject=subject,
-                body=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                bcc=[recipient],
-            )
-
-            if html_body:
-                email_msg.attach_alternative(html_body, "text/html")
-
-            email_msg.send(fail_silently=False)
-
-            # Log the email
-            email_log = EmailLog(to=recipient, subject=subject)
-            email_log.set_body(body=body)
-            if html_body:
-                email_log.set_html(html_body=html_body)
-            email_log.save()
-
-            log_notification_attempt(user, NotificationType.QUESTIONNAIRE_SUBMITTED, event=None, success=True)
-            stats["sent"] += 1
-
-        except Exception as e:
-            logger.exception(f"Failed to send questionnaire submission notification to {user.email}")
-            log_notification_attempt(
-                user, NotificationType.QUESTIONNAIRE_SUBMITTED, event=None, success=False, error_message=str(e)
-            )
-            stats["error"] += 1
-
-    return stats
+    return {"dispatched": len(email_tasks), "skipped": skipped}
 
 
 @shared_task
 def notify_questionnaire_evaluation_result(questionnaire_evaluation_id: str) -> dict[str, int]:
     """Send notification to user when their questionnaire evaluation is complete.
 
+    Dispatches email asynchronously with automatic retry on failure.
+
     Args:
         questionnaire_evaluation_id: The ID of the questionnaire evaluation
 
     Returns:
-        Dictionary with notification statistics
+        Dictionary with dispatch or skip count: {'dispatched': N, 'skipped': M}
+
+    Raises:
+        QuestionnaireEvaluation.DoesNotExist: If evaluation not found
     """
     # Import here to avoid circular imports
     from questionnaires.models import QuestionnaireEvaluation
 
-    try:
-        evaluation = QuestionnaireEvaluation.objects.select_related(
-            "submission__questionnaire__event__organization", "submission__user", "evaluator"
-        ).get(pk=questionnaire_evaluation_id)
-    except QuestionnaireEvaluation.DoesNotExist:
-        logger.error(f"QuestionnaireEvaluation with ID {questionnaire_evaluation_id} not found")
-        return {"error": 1, "sent": 0, "skipped": 0}
+    evaluation = QuestionnaireEvaluation.objects.select_related(
+        "submission__questionnaire__event__organization", "submission__user", "evaluator"
+    ).get(pk=questionnaire_evaluation_id)
 
     submission = evaluation.submission
     user = submission.user
@@ -606,64 +711,41 @@ def notify_questionnaire_evaluation_result(questionnaire_evaluation_id: str) -> 
     org_questionnaire = questionnaire.org_questionnaires
     organization = org_questionnaire.organization
 
-    stats = {"sent": 0, "skipped": 0, "error": 0}
-
     # Check if user should be notified
     if not should_notify_user_for_questionnaire(user, organization, NotificationType.QUESTIONNAIRE_EVALUATION):
-        stats["skipped"] = 1
-        return stats
-
-    try:
-        subject = f"Questionnaire Evaluation Result: {questionnaire.name}"
-        context = {
-            "user": user,
-            "evaluation": evaluation,
-            "submission": submission,
-            "questionnaire": submission.questionnaire,
-            "organization": organization,
-        }
-
-        body = render_to_string("events/emails/questionnaire_evaluation.txt", context)
-        html_body = render_to_string("events/emails/questionnaire_evaluation.html", context)
-
-        site_settings = SiteSettings.get_solo()
-        recipient = to_safe_email_address(user.email, site_settings=site_settings)
-
-        email_msg = EmailMultiAlternatives(
-            subject=subject,
-            body=body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            bcc=[recipient],
+        logger.info(
+            "questionnaire_evaluation_notification_skipped",
+            user_id=str(user.id),
+            evaluation_id=questionnaire_evaluation_id,
+            reason="user_preferences",
         )
+        return {"dispatched": 0, "skipped": 1}
 
-        if html_body:
-            email_msg.attach_alternative(html_body, "text/html")
-
-        email_msg.send(fail_silently=False)
-
-        # Log the email
-        email_log = EmailLog(to=recipient, subject=subject)
-        email_log.set_body(body=body)
-        if html_body:
-            email_log.set_html(html_body=html_body)
-        email_log.save()
-
-        log_notification_attempt(user, NotificationType.QUESTIONNAIRE_EVALUATION, event=None, success=True)
-        stats["sent"] = 1
-
-    except Exception as e:
-        logger.exception(f"Failed to send questionnaire evaluation result to {user.email}")
-        log_notification_attempt(
-            user, NotificationType.QUESTIONNAIRE_EVALUATION, event=None, success=False, error_message=str(e)
-        )
-        stats["error"] = 1
-
-    logger.info(
-        f"Questionnaire evaluation result notification for {questionnaire.name}: "
-        f"{stats['sent']} sent, {stats['error']} errors, {stats['skipped']} skipped"
+    # Dispatch email task
+    send_notification_email.delay(
+        recipient_email=user.email,
+        subject=f"Questionnaire Evaluation Result: {questionnaire.name}",
+        template_txt="events/emails/questionnaire_evaluation.txt",
+        template_html="events/emails/questionnaire_evaluation.html",
+        context_ids={
+            "user_id": str(user.id),
+            "evaluation_id": str(evaluation.id),
+            "organization_id": str(organization.id),
+        },
+        attachments=None,
+        user_id=str(user.id),
+        notification_type=NotificationType.QUESTIONNAIRE_EVALUATION.value,  # Pass enum value as string
+        event_id=None,
     )
 
-    return stats
+    logger.info(
+        "questionnaire_evaluation_notification_dispatched",
+        evaluation_id=questionnaire_evaluation_id,
+        questionnaire_name=questionnaire.name,
+        user_email=user.email,
+    )
+
+    return {"dispatched": 1, "skipped": 0}
 
 
 @shared_task(name="events.reset_demo_data")
