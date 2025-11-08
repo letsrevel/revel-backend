@@ -135,6 +135,9 @@ When writing tests:
 - Business logic belongs in service modules, not controllers or models
 - Use Django Ninja's automatic OpenAPI documentation features
 - Use the context7 MCP to look up documentation
+- Adhere to DRY, KISS and SOLID principles. Exceptions are allowed when they make sense.
+- Do not catch exceptions for the sake of catching them. Especially in the celery tasks, it might be important to let them propagate instead of having the tasks fail silently.
+- Avoid using raw dictionaries. When possible prefer TypedDict, Pydantic or Dataclasses
 
 ## Dependency Management
 
