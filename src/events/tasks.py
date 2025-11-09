@@ -1,10 +1,12 @@
 import typing as t
 from collections import Counter
+from smtplib import SMTPException
 from uuid import UUID
 
 import structlog
 from celery import group, shared_task
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.mail import EmailMultiAlternatives
 from django.core.management import call_command
 from django.db import transaction
@@ -43,8 +45,58 @@ logger = structlog.get_logger(__name__)
 # ==== Core Email Sending Task ====
 
 
+def _log_failed_notification(
+    user_id: str | None,
+    notification_type: str | None,
+    event_id: str | None,
+) -> None:
+    """Log a failed notification attempt.
+
+    Helper function to avoid repeating notification logging logic.
+    Safely handles errors during logging to prevent cascading failures.
+
+    Args:
+        user_id: User ID for notification tracking
+        notification_type: Notification type enum value
+        event_id: Event ID for notification tracking
+    """
+    if not user_id or not notification_type:
+        return
+
+    try:
+        user = RevelUser.objects.get(pk=user_id)
+        event = Event.objects.get(pk=event_id) if event_id else None
+        notif_type_enum = NotificationType(notification_type)
+        log_notification_attempt(user, notif_type_enum, event=event, success=False)
+    except Exception as log_error:
+        logger.error("failed_to_log_notification_attempt", error=str(log_error))
+
+
+def _create_failure_response(
+    recipient_email: str,
+    user_id: str | None,
+    error: str,
+) -> dict[str, t.Any]:
+    """Create a standardized failure response dict.
+
+    Args:
+        recipient_email: Email address of recipient
+        user_id: User ID if available
+        error: Error message describing the failure
+
+    Returns:
+        Standardized failure response dictionary
+    """
+    return {
+        "success": False,
+        "recipient": recipient_email,
+        "user_id": user_id,
+        "error": error,
+    }
+
+
 @shared_task(bind=True, max_retries=3)
-def send_notification_email(
+def send_notification_email(  # noqa: C901
     self: t.Any,
     recipient_email: str,
     subject: str,
@@ -59,13 +111,17 @@ def send_notification_email(
     """Send a single notification email with automatic retry logic.
 
     This task handles sending one email to one recipient. It automatically retries
-    up to 3 times with exponential backoff (delays: 1s, 2s, 4s) on failure.
+    up to 3 times with exponential backoff (delays: 1s, 2s, 4s) on transient failures.
     Each email is isolated - one failure won't affect others.
 
     Note: We use manual retry with self.retry() instead of autoretry_for because
-    we need custom behavior on final failure (logging to NotificationAttempt with
-    success=False). Using autoretry_for would require a custom task class with
+    we need custom behavior on final failure (logging via log_notification_attempt()
+    with success=False). Using autoretry_for would require a custom task class with
     on_failure() override, which is more complex than this approach.
+
+    Error handling strategy:
+    - Retryable errors (SMTP, network, timeouts): automatic retry with backoff
+    - Non-retryable errors (invalid IDs, missing objects): fail immediately without retry
 
     Args:
         self: the task itself.
@@ -99,7 +155,9 @@ def send_notification_email(
             - error (str): Error message if failed (only on final failure)
 
     Raises:
-        self.retry: On failure, automatically retries with exponential backoff
+        self.retry: On transient failures, automatically retries with exponential backoff
+        ObjectDoesNotExist: When context_ids reference non-existent objects (non-retryable)
+        ValueError: When attachment specs are invalid or attachment generation fails (non-retryable)
     """
     try:
         # Build template context by fetching objects from IDs
@@ -160,39 +218,48 @@ def send_notification_email(
             "user_id": user_id,
         }
 
-    except Exception as e:
+    except (ObjectDoesNotExist, ValueError, KeyError) as e:
+        # Non-retryable errors: invalid IDs, missing objects, invalid attachment specs
+        # These won't be fixed by retrying, so fail immediately
+        logger.error(
+            "notification_email_failed_non_retryable",
+            recipient=recipient_email,
+            subject=subject,
+            error=str(e),
+            error_type=type(e).__name__,
+            exc_info=True,
+        )
+
+        # Log notification attempt (failure) for tracking
+        _log_failed_notification(user_id, notification_type, event_id)
+
+        # Return failure result (doesn't raise - task completes)
+        return _create_failure_response(recipient_email, user_id, f"Non-retryable error: {e}")
+
+    except (SMTPException, OSError, TimeoutError, ConnectionError) as e:
+        # Retryable errors: SMTP failures, network issues, timeouts
+        # These might be transient, so retry with exponential backoff
+
         # Check if we've exhausted retries
-        # Pattern: self.request.retries tracks current retry count (0-indexed)
-        # If retries >= max_retries, this is the final attempt
+        # Note: self.request.retries is 0-indexed (0, 1, 2 for max_retries=3)
+        # When retries >= max_retries, this is the final attempt
         if self.request.retries >= self.max_retries:
-            # Final failure - log permanently and return failure result
+            # Final failure after exhausting retries - log and return failure
             logger.error(
                 "notification_email_failed_permanently",
                 recipient=recipient_email,
                 subject=subject,
                 attempts=self.max_retries + 1,
                 error=str(e),
+                error_type=type(e).__name__,
                 exc_info=True,
             )
 
             # Log notification attempt (failure) for tracking
-            if user_id and notification_type:
-                try:
-                    user = RevelUser.objects.get(pk=user_id)
-                    event = Event.objects.get(pk=event_id) if event_id else None
-                    # Convert string back to enum for logging
-                    notif_type_enum = NotificationType(notification_type)
-                    log_notification_attempt(user, notif_type_enum, event=event, success=False)
-                except Exception as log_error:
-                    logger.error("failed_to_log_notification_attempt", error=str(log_error))
+            _log_failed_notification(user_id, notification_type, event_id)
 
             # Return failure result (doesn't raise - task completes)
-            return {
-                "success": False,
-                "recipient": recipient_email,
-                "user_id": user_id,
-                "error": str(e),
-            }
+            return _create_failure_response(recipient_email, user_id, str(e))
 
         # Retry with exponential backoff: 2^0=1s, 2^1=2s, 2^2=4s
         countdown = 2**self.request.retries
@@ -204,8 +271,31 @@ def send_notification_email(
             max_attempts=self.max_retries + 1,
             retry_in_seconds=countdown,
             error=str(e),
+            error_type=type(e).__name__,
         )
         # Raises Retry exception - task will be retried after countdown
+        raise self.retry(exc=e, countdown=countdown)
+
+    except Exception as e:
+        # Catch-all for unexpected errors - treat as potentially retryable
+        # This ensures we don't silently fail on unknown error types
+        logger.warning(
+            "notification_email_unexpected_error",
+            recipient=recipient_email,
+            subject=subject,
+            error=str(e),
+            error_type=type(e).__name__,
+            exc_info=True,
+        )
+
+        # Retry if attempts remaining, otherwise fail
+        if self.request.retries >= self.max_retries:
+            # Log failure
+            _log_failed_notification(user_id, notification_type, event_id)
+            return _create_failure_response(recipient_email, user_id, f"Unexpected error: {e}")
+
+        # Retry with exponential backoff
+        countdown = 2**self.request.retries
         raise self.retry(exc=e, countdown=countdown)
 
 
@@ -299,8 +389,8 @@ def send_payment_confirmation_email(payment_id: str) -> dict[str, int]:
             },
         ],
         user_id=str(user.id),
-        notification_type=None,  # Payment confirmations don't use NotificationType
-        event_id=None,
+        notification_type=NotificationType.PAYMENT_CONFIRMATION.value,
+        event_id=str(event.id),
     )
 
     logger.info("payment_confirmation_dispatched", payment_id=payment_id, user_email=user.email)
@@ -357,7 +447,7 @@ def cleanup_expired_payments() -> int:
 def notify_event_open(event_id: str) -> dict[str, int]:
     """Send notifications when an event is opened.
 
-    Dispatches emails in parallel. Each email is sent independently with
+    Dispatches emails asynchronously. Each email is sent independently with
     automatic retry logic. Check logs and notification tracking for individual failures.
 
     Args:
@@ -369,7 +459,7 @@ def notify_event_open(event_id: str) -> dict[str, int]:
     event = Event.objects.select_related("organization").get(pk=event_id)
     eligible_users = get_eligible_users_for_event_notification(event, NotificationType.EVENT_OPEN)
 
-    # Build email tasks for parallel execution
+    # Build email tasks for asynchronous execution
     email_tasks = []
     for user in eligible_users:
         task = send_notification_email.s(
@@ -396,7 +486,7 @@ def notify_event_open(event_id: str) -> dict[str, int]:
         )
         email_tasks.append(task)
 
-    # Dispatch all emails in parallel
+    # Dispatch all emails asynchronously
     if email_tasks:
         job = group(email_tasks)
         job.apply_async()
@@ -417,7 +507,7 @@ def notify_potluck_item_update(
 ) -> dict[str, int]:
     """Send notifications for potluck item updates.
 
-    Dispatches emails in parallel. Each email is sent independently with
+    Dispatches emails asynchronously. Each email is sent independently with
     automatic retry logic. Check logs and notification tracking for individual failures.
 
     Args:
@@ -444,7 +534,7 @@ def notify_potluck_item_update(
     all_user_ids = eligible_user_ids | staff_and_owner_ids
     all_users = RevelUser.objects.filter(id__in=all_user_ids)
 
-    # Build email tasks for parallel execution
+    # Build email tasks for asynchronous execution
     email_tasks = []
     skipped = 0
 
@@ -478,7 +568,7 @@ def notify_potluck_item_update(
         )
         email_tasks.append(task)
 
-    # Dispatch all emails in parallel
+    # Dispatch all emails asynchronously
     if email_tasks:
         job = group(email_tasks)
         job.apply_async()
@@ -501,7 +591,7 @@ def notify_ticket_update(
 ) -> dict[str, int]:
     """Send notifications for ticket updates.
 
-    Dispatches emails in parallel. Each email is sent independently with
+    Dispatches emails asynchronously. Each email is sent independently with
     automatic retry logic. Check logs and notification tracking for individual failures.
 
     Args:
@@ -587,7 +677,7 @@ def notify_ticket_update(
             )
             email_tasks.append(staff_task)
 
-    # Dispatch all emails in parallel
+    # Dispatch all emails asynchronously
     if email_tasks:
         job = group(email_tasks)
         job.apply_async()
@@ -607,7 +697,7 @@ def notify_ticket_update(
 def notify_questionnaire_submission(questionnaire_submission_id: str) -> dict[str, int]:
     """Send notifications when a questionnaire is submitted for manual review.
 
-    Dispatches emails in parallel. Each email is sent independently with
+    Dispatches emails asynchronously. Each email is sent independently with
     automatic retry logic. Check logs and notification tracking for individual failures.
 
     Args:
@@ -667,7 +757,7 @@ def notify_questionnaire_submission(questionnaire_submission_id: str) -> dict[st
         )
         email_tasks.append(task)
 
-    # Dispatch all emails in parallel
+    # Dispatch all emails asynchronously
     if email_tasks:
         job = group(email_tasks)
         job.apply_async()
@@ -734,7 +824,7 @@ def notify_questionnaire_evaluation_result(questionnaire_evaluation_id: str) -> 
         },
         attachments=None,
         user_id=str(user.id),
-        notification_type=NotificationType.QUESTIONNAIRE_EVALUATION.value,  # Pass enum value as string
+        notification_type=NotificationType.QUESTIONNAIRE_EVALUATION.value,
         event_id=None,
     )
 

@@ -29,6 +29,7 @@ class NotificationType(Enum):
     TICKET_UPDATED = "ticket_updated"
     QUESTIONNAIRE_EVALUATION = "questionnaire_evaluation"
     QUESTIONNAIRE_SUBMITTED = "questionnaire_submitted"
+    PAYMENT_CONFIRMATION = "payment_confirmation"
 
 
 def resolve_notification_preference(  # noqa: C901  # todo: refactor

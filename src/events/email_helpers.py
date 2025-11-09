@@ -1,7 +1,28 @@
 """Email notification helpers for events tasks.
 
-This module contains helper functions for email rendering, attachment generation,
-and context building used by the notification email tasks.
+This module contains helper functions used by notification email tasks to:
+1. Build template context from model IDs (avoiding pickling Django models in Celery tasks)
+2. Generate email attachments (PDFs, ICS files)
+
+Architecture pattern:
+- Parent tasks (notify_*) dispatch child tasks using Celery groups for asynchronous execution
+- Child tasks (send_notification_email) handle individual emails with retry logic
+- Helpers here abstract common operations to maintain DRY principles
+
+Registry pattern:
+CONTEXT_FETCHERS maps context key suffixes (e.g., "user_id") to (context_name, fetcher) tuples.
+This allows adding new context types without modifying build_email_context().
+
+Example usage:
+    # In a notification task
+    context_ids = {
+        "user_id": str(user.id),
+        "event_id": str(event.id),
+    }
+
+    # In send_notification_email task
+    context = build_email_context(context_ids)
+    # context now contains: {"user": <User obj>, "event": <Event obj>}
 """
 
 import typing as t
@@ -32,9 +53,7 @@ CONTEXT_FETCHERS: dict[str, tuple[str, ModelFetcher]] = {
     ),
     "submission_id": (
         "submission",
-        lambda pk: QuestionnaireSubmission.objects.select_related("questionnaire__event__organization", "user").get(
-            pk=pk
-        ),
+        lambda pk: QuestionnaireSubmission.objects.select_related("questionnaire", "user").get(pk=pk),
     ),
     "evaluation_id": (
         "evaluation",
@@ -50,17 +69,24 @@ CONTEXT_FETCHERS: dict[str, tuple[str, ModelFetcher]] = {
 def generate_attachment_content(attachment_spec: dict[str, str]) -> bytes:
     """Generate attachment content based on specification.
 
+    This function intentionally fails loudly on errors. If an attachment cannot be generated
+    (e.g., ticket not found, PDF generation fails), the exception propagates to the caller,
+    which will trigger email send retry logic.
+
     Args:
         attachment_spec: Dict with 'type' and type-specific fields:
-            - ticket_pdf: requires 'ticket_id'
-            - event_ics: requires 'event_id'
+            - ticket_pdf: requires 'ticket_id' (UUID as string)
+            - event_ics: requires 'event_id' (UUID as string)
 
     Returns:
         Attachment content as bytes
 
     Raises:
+        KeyError: If required fields are missing from attachment_spec
         ValueError: If attachment type is unknown
-        Exception: If attachment generation fails (e.g., ticket/event not found)
+        Ticket.DoesNotExist: If ticket_id references non-existent ticket
+        Event.DoesNotExist: If event_id references non-existent event
+        RuntimeError: If PDF/ICS generation fails due to internal errors
     """
     att_type = attachment_spec["type"]
 
@@ -82,11 +108,22 @@ def build_email_context(context_ids: dict[str, t.Any]) -> dict[str, t.Any]:
     model fetchers. This avoids the if/elif spaghetti and makes it easy to add
     new context types.
 
+    Note on derived context:
+    For submission_id, this function adds derived context (questionnaire, submitter)
+    from the submission object. This special-casing exists because submission emails
+    need these values. See the registry implementation for details.
+
     Args:
-        context_ids: Dict with model IDs and raw context values
+        context_ids: Dict with model IDs (str) and raw context values (Any).
+            Keys ending in '_id' are treated as model IDs and fetched from database.
+            Other keys are passed through as-is.
 
     Returns:
         Template context dict with fetched model instances and raw values
+
+    Raises:
+        ObjectDoesNotExist: If any ID references a non-existent object
+        ValueError: If ID format is invalid (e.g., invalid UUID)
     """
     context: dict[str, t.Any] = {}
 
@@ -98,6 +135,11 @@ def build_email_context(context_ids: dict[str, t.Any]) -> dict[str, t.Any]:
             context[context_name] = obj
 
             # Handle derived context for specific models
+            # NOTE: This special-casing breaks the registry abstraction slightly, but is acceptable
+            # because: (1) submission emails genuinely need both questionnaire and submitter in context,
+            # (2) the alternative (nested fetchers or separate registry) adds complexity for one case,
+            # (3) this is documented in the function docstring.
+            # Type ignores are safe here because we know obj is a QuestionnaireSubmission when key == "submission_id"
             if key == "submission_id":
                 context["questionnaire"] = obj.questionnaire  # type: ignore[attr-defined]
                 context["submitter"] = obj.user  # type: ignore[attr-defined]
