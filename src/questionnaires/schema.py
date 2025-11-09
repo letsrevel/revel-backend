@@ -47,7 +47,7 @@ class SectionSchema(QuestionContainerSchema):
 
 class QuestionnaireSchema(QuestionContainerSchema):
     sections: list[SectionSchema] = Field(default_factory=list)
-    evaluation_mode: Questionnaire.EvaluationMode
+    evaluation_mode: Questionnaire.QuestionnaireEvaluationMode
 
 
 # --- Questionnaire Submission ---
@@ -67,7 +67,7 @@ class QuestionnaireSubmissionSchema(Schema):
     questionnaire_id: UUID
     multiple_choice_answers: list[MultipleChoiceSubmissionSchema] = Field(default_factory=list)
     free_text_answers: list[FreeTextSubmissionSchema] = Field(default_factory=list)
-    status: QuestionnaireSubmission.Status
+    status: QuestionnaireSubmission.QuestionnaireSubmissionStatus
 
     @model_validator(mode="after")
     def ensure_unique_question_ids(self) -> "QuestionnaireSubmissionSchema":
@@ -90,7 +90,7 @@ class QuestionnaireSubmissionSchema(Schema):
 
 class QuestionnaireSubmissionResponseSchema(ModelSchema):
     questionnaire_id: UUID
-    status: QuestionnaireSubmission.Status
+    status: QuestionnaireSubmission.QuestionnaireSubmissionStatus
     submitted_at: datetime
 
     class Meta:
@@ -101,7 +101,7 @@ class QuestionnaireSubmissionResponseSchema(ModelSchema):
 class QuestionnaireEvaluationForUserSchema(ModelSchema):
     submission: QuestionnaireSubmissionResponseSchema
     score: Decimal
-    status: QuestionnaireEvaluation.Status
+    status: QuestionnaireEvaluation.QuestionnaireEvaluationStatus
 
     class Meta:
         model = QuestionnaireEvaluation
@@ -121,7 +121,7 @@ class SubmissionListItemSchema(ModelSchema):
     user_email: str
     user_name: str
     questionnaire_name: str
-    evaluation_status: QuestionnaireEvaluation.Status | None = None
+    evaluation_status: QuestionnaireEvaluation.QuestionnaireEvaluationStatus | None = None
     evaluation_score: Decimal | None = None
 
     class Meta:
@@ -144,7 +144,9 @@ class SubmissionListItemSchema(ModelSchema):
         return obj.questionnaire.name
 
     @staticmethod
-    def resolve_evaluation_status(obj: QuestionnaireSubmission) -> QuestionnaireEvaluation.Status | None:
+    def resolve_evaluation_status(
+        obj: QuestionnaireSubmission,
+    ) -> QuestionnaireEvaluation.QuestionnaireEvaluationStatus | None:
         """Resolve evaluation status from submission object."""
         if hasattr(obj, "evaluation") and obj.evaluation:
             return obj.evaluation.status  # type: ignore[return-value]
@@ -179,7 +181,7 @@ class QuestionAnswerDetailSchema(Schema):
 class EvaluationCreateSchema(Schema):
     """Schema for creating/updating an evaluation."""
 
-    status: QuestionnaireEvaluation.Status
+    status: QuestionnaireEvaluation.QuestionnaireEvaluationStatus
     score: Decimal | None = Field(None, ge=0, le=100)
     comments: str | None = None
 
@@ -189,7 +191,7 @@ class EvaluationResponseSchema(ModelSchema):
 
     id: UUID
     submission_id: UUID
-    status: QuestionnaireEvaluation.Status
+    status: QuestionnaireEvaluation.QuestionnaireEvaluationStatus
     score: Decimal | None
     comments: str | None
     evaluator_id: UUID | None
@@ -208,7 +210,7 @@ class SubmissionDetailSchema(Schema):
     user_email: str
     user_name: str
     questionnaire: "QuestionnaireInListSchema"
-    status: QuestionnaireSubmission.Status
+    status: QuestionnaireSubmission.QuestionnaireSubmissionStatus
     submitted_at: datetime | None
     evaluation: EvaluationResponseSchema | None = None
     answers: list[QuestionAnswerDetailSchema]
@@ -220,11 +222,11 @@ class SubmissionDetailSchema(Schema):
 
 class QuestionnaireBaseSchema(Schema):
     name: str
-    status: Questionnaire.Status
+    status: Questionnaire.QuestionnaireStatus
     min_score: Decimal = Field(ge=0, le=100)
     shuffle_questions: bool = False
     shuffle_sections: bool = False
-    evaluation_mode: Questionnaire.EvaluationMode
+    evaluation_mode: Questionnaire.QuestionnaireEvaluationMode
 
 
 class QuestionnaireInListSchema(QuestionnaireBaseSchema):
@@ -320,7 +322,7 @@ class SectionUpdateSchema(SectionCreateSchema):
 class QuestionnaireCreateSchema(QuestionnaireBaseSchema):
     """Schema for creating a new Questionnaire with its sections and questions."""
 
-    status: Questionnaire.Status = Questionnaire.Status.DRAFT  # Override to add default
+    status: Questionnaire.QuestionnaireStatus = Questionnaire.QuestionnaireStatus.DRAFT  # Override to add default
     sections: list[SectionCreateSchema] = Field(default_factory=list)
     multiplechoicequestion_questions: list[MultipleChoiceQuestionCreateSchema] = Field(default_factory=list)
     freetextquestion_questions: list[FreeTextQuestionCreateSchema] = Field(default_factory=list)
@@ -349,8 +351,8 @@ class QuestionnaireCreateSchema(QuestionnaireBaseSchema):
         has_free_text = has_top_level_ftq or has_section_ftq
 
         is_auto_or_hybrid = self.evaluation_mode in [
-            Questionnaire.EvaluationMode.AUTOMATIC,
-            Questionnaire.EvaluationMode.HYBRID,
+            Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
+            Questionnaire.QuestionnaireEvaluationMode.HYBRID,
         ]
 
         if is_auto_or_hybrid and has_free_text and not self.llm_guidelines:

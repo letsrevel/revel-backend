@@ -64,7 +64,7 @@ def handle_ticket_status_change(ticket: Ticket, old_status: str) -> None:
         old_status: The previous status of the ticket
     """
     # Only notify if status changed to ACTIVE from a non-ACTIVE status
-    if ticket.status == Ticket.Status.ACTIVE and old_status != Ticket.Status.ACTIVE:
+    if ticket.status == Ticket.TicketStatus.ACTIVE and old_status != Ticket.TicketStatus.ACTIVE:
         logger.info(f"Ticket {ticket.id} activated (was {old_status}), sending notification")
         notify_ticket_update.delay(
             ticket_id=str(ticket.id),

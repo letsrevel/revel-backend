@@ -121,7 +121,7 @@ def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, **kwarg
     build_attendee_visibility_flags.delay(str(instance.event_id))
 
     # Unclaim potluck items if RSVP is not a definite YES
-    if instance.status in [EventRSVP.Status.NO, EventRSVP.Status.MAYBE]:
+    if instance.status in [EventRSVP.RsvpStatus.NO, EventRSVP.RsvpStatus.MAYBE]:
         unclaim_user_potluck_items(instance.event_id, instance.user_id)
 
 
@@ -146,7 +146,7 @@ def handle_ticket_save(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) 
     build_attendee_visibility_flags.delay(str(instance.event_id))
 
     # Unclaim potluck items if ticket is cancelled
-    if instance.status == Ticket.Status.CANCELLED:
+    if instance.status == Ticket.TicketStatus.CANCELLED:
         unclaim_user_potluck_items(instance.event_id, instance.user_id)
 
 

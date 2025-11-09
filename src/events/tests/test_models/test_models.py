@@ -47,7 +47,7 @@ def test_event_series_unique_constraint(organization: Organization) -> None:
 @pytest.mark.django_db
 def test_event_creation(event: Event) -> None:
     assert event.organization.name == "Org"
-    assert event.event_type == Event.Types.PUBLIC
+    assert event.event_type == Event.EventType.PUBLIC
 
 
 @pytest.mark.django_db

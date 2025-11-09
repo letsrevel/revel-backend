@@ -17,9 +17,9 @@ pytestmark = pytest.mark.django_db
 def test_list_rsvps_by_owner(organization_owner_client: Client, event: Event, member_user: RevelUser) -> None:
     """Test that an event owner can list RSVPs."""
     # Create some RSVPs
-    rsvp1 = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.Status.YES)
+    rsvp1 = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
     user2 = RevelUser.objects.create_user(username="user2", email="user2@example.com", password="pass")
-    rsvp2 = EventRSVP.objects.create(event=event, user=user2, status=EventRSVP.Status.NO)
+    rsvp2 = EventRSVP.objects.create(event=event, user=user2, status=EventRSVP.RsvpStatus.NO)
 
     url = reverse("api:list_rsvps", kwargs={"event_id": event.pk})
     response = organization_owner_client.get(url)
@@ -37,7 +37,7 @@ def test_list_rsvps_by_staff_with_permission(
 ) -> None:
     """Test that staff with invite_to_event permission can list RSVPs."""
     # Create RSVP
-    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.Status.YES)
+    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
 
     url = reverse("api:list_rsvps", kwargs={"event_id": event.pk})
     response = organization_staff_client.get(url)
@@ -79,8 +79,8 @@ def test_list_rsvps_with_search(organization_owner_client: Client, event: Event)
     )
     user2 = RevelUser.objects.create_user(username="bob", email="bob@example.com", password="pass", first_name="Bob")
 
-    rsvp1 = EventRSVP.objects.create(event=event, user=user1, status=EventRSVP.Status.YES)
-    EventRSVP.objects.create(event=event, user=user2, status=EventRSVP.Status.NO)
+    rsvp1 = EventRSVP.objects.create(event=event, user=user1, status=EventRSVP.RsvpStatus.YES)
+    EventRSVP.objects.create(event=event, user=user2, status=EventRSVP.RsvpStatus.NO)
 
     url = reverse("api:list_rsvps", kwargs={"event_id": event.pk})
     response = organization_owner_client.get(url, {"search": "alice"})
@@ -97,9 +97,9 @@ def test_list_rsvps_filter_by_status(organization_owner_client: Client, event: E
     user2 = RevelUser.objects.create_user(username="user2", email="user2@example.com", password="pass")
     user3 = RevelUser.objects.create_user(username="user3", email="user3@example.com", password="pass")
 
-    rsvp_yes = EventRSVP.objects.create(event=event, user=user1, status=EventRSVP.Status.YES)
-    EventRSVP.objects.create(event=event, user=user2, status=EventRSVP.Status.NO)
-    EventRSVP.objects.create(event=event, user=user3, status=EventRSVP.Status.MAYBE)
+    rsvp_yes = EventRSVP.objects.create(event=event, user=user1, status=EventRSVP.RsvpStatus.YES)
+    EventRSVP.objects.create(event=event, user=user2, status=EventRSVP.RsvpStatus.NO)
+    EventRSVP.objects.create(event=event, user=user3, status=EventRSVP.RsvpStatus.MAYBE)
 
     url = reverse("api:list_rsvps", kwargs={"event_id": event.pk})
     response = organization_owner_client.get(url, {"status": "yes"})
@@ -115,8 +115,8 @@ def test_list_rsvps_filter_by_user(organization_owner_client: Client, event: Eve
     user1 = RevelUser.objects.create_user(username="user1", email="user1@example.com", password="pass")
     user2 = RevelUser.objects.create_user(username="user2", email="user2@example.com", password="pass")
 
-    rsvp1 = EventRSVP.objects.create(event=event, user=user1, status=EventRSVP.Status.YES)
-    EventRSVP.objects.create(event=event, user=user2, status=EventRSVP.Status.NO)
+    rsvp1 = EventRSVP.objects.create(event=event, user=user1, status=EventRSVP.RsvpStatus.YES)
+    EventRSVP.objects.create(event=event, user=user2, status=EventRSVP.RsvpStatus.NO)
 
     url = reverse("api:list_rsvps", kwargs={"event_id": event.pk})
     response = organization_owner_client.get(url, {"user_id": str(user1.id)})
@@ -132,7 +132,7 @@ def test_list_rsvps_filter_by_user(organization_owner_client: Client, event: Eve
 
 def test_get_rsvp_by_owner(organization_owner_client: Client, event: Event, member_user: RevelUser) -> None:
     """Test that an event owner can get an RSVP."""
-    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.Status.YES)
+    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
 
     url = reverse("api:get_rsvp", kwargs={"event_id": event.pk, "rsvp_id": rsvp.pk})
     response = organization_owner_client.get(url)
@@ -174,7 +174,7 @@ def test_create_rsvp_by_owner(organization_owner_client: Client, event: Event, m
 
     # Verify in database
     rsvp = EventRSVP.objects.get(event=event, user=member_user)
-    assert rsvp.status == EventRSVP.Status.YES
+    assert rsvp.status == EventRSVP.RsvpStatus.YES
 
 
 def test_create_rsvp_by_staff_with_permission(
@@ -223,7 +223,7 @@ def test_create_rsvp_unauthorized(member_client: Client, event: Event) -> None:
 def test_create_rsvp_updates_existing(organization_owner_client: Client, event: Event, member_user: RevelUser) -> None:
     """Test that creating an RSVP for existing user updates the RSVP."""
     # Create existing RSVP
-    EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.Status.NO)
+    EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.NO)
 
     url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
     payload = {"user_id": str(member_user.id), "status": "yes"}
@@ -237,7 +237,7 @@ def test_create_rsvp_updates_existing(organization_owner_client: Client, event: 
     # Verify only one RSVP exists (updated, not created new)
     assert EventRSVP.objects.filter(event=event, user=member_user).count() == 1
     rsvp = EventRSVP.objects.get(event=event, user=member_user)
-    assert rsvp.status == EventRSVP.Status.YES
+    assert rsvp.status == EventRSVP.RsvpStatus.YES
 
 
 def test_create_rsvp_nonexistent_user(organization_owner_client: Client, event: Event) -> None:
@@ -258,7 +258,7 @@ def test_create_rsvp_nonexistent_user(organization_owner_client: Client, event: 
 
 def test_update_rsvp_by_owner(organization_owner_client: Client, event: Event, member_user: RevelUser) -> None:
     """Test that an event owner can update an RSVP."""
-    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.Status.YES)
+    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
 
     url = reverse("api:update_rsvp", kwargs={"event_id": event.pk, "rsvp_id": rsvp.pk})
     payload = {"status": "no"}
@@ -271,14 +271,14 @@ def test_update_rsvp_by_owner(organization_owner_client: Client, event: Event, m
 
     # Verify in database
     rsvp.refresh_from_db()
-    assert rsvp.status == EventRSVP.Status.NO
+    assert rsvp.status == EventRSVP.RsvpStatus.NO
 
 
 def test_update_rsvp_by_staff_with_permission(
     organization_staff_client: Client, event: Event, member_user: RevelUser
 ) -> None:
     """Test that staff with invite_to_event permission can update RSVPs."""
-    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.Status.MAYBE)
+    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.MAYBE)
 
     url = reverse("api:update_rsvp", kwargs={"event_id": event.pk, "rsvp_id": rsvp.pk})
     payload = {"status": "yes"}
@@ -294,7 +294,7 @@ def test_update_rsvp_by_staff_without_permission(
     organization_staff_client: Client, event: Event, member_user: RevelUser, staff_member: OrganizationStaff
 ) -> None:
     """Test that staff without invite_to_event permission cannot update RSVPs."""
-    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.Status.YES)
+    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
 
     # Remove the permission
     perms = staff_member.permissions
@@ -312,7 +312,7 @@ def test_update_rsvp_by_staff_without_permission(
 
 def test_update_rsvp_unauthorized(member_client: Client, event: Event, member_user: RevelUser) -> None:
     """Test that non-staff cannot update RSVPs."""
-    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.Status.YES)
+    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
 
     url = reverse("api:update_rsvp", kwargs={"event_id": event.pk, "rsvp_id": rsvp.pk})
     payload = {"status": "no"}
@@ -340,7 +340,7 @@ def test_update_rsvp_not_found(organization_owner_client: Client, event: Event) 
 
 def test_delete_rsvp_by_owner(organization_owner_client: Client, event: Event, member_user: RevelUser) -> None:
     """Test that an event owner can delete an RSVP."""
-    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.Status.YES)
+    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
 
     url = reverse("api:delete_rsvp", kwargs={"event_id": event.pk, "rsvp_id": rsvp.pk})
     response = organization_owner_client.delete(url)
@@ -353,7 +353,7 @@ def test_delete_rsvp_by_staff_with_permission(
     organization_staff_client: Client, event: Event, member_user: RevelUser
 ) -> None:
     """Test that staff with invite_to_event permission can delete RSVPs."""
-    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.Status.YES)
+    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
 
     url = reverse("api:delete_rsvp", kwargs={"event_id": event.pk, "rsvp_id": rsvp.pk})
     response = organization_staff_client.delete(url)
@@ -366,7 +366,7 @@ def test_delete_rsvp_by_staff_without_permission(
     organization_staff_client: Client, event: Event, member_user: RevelUser, staff_member: OrganizationStaff
 ) -> None:
     """Test that staff without invite_to_event permission cannot delete RSVPs."""
-    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.Status.YES)
+    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
 
     # Remove the permission
     perms = staff_member.permissions
@@ -382,7 +382,7 @@ def test_delete_rsvp_by_staff_without_permission(
 
 def test_delete_rsvp_unauthorized(member_client: Client, event: Event, member_user: RevelUser) -> None:
     """Test that non-staff cannot delete RSVPs."""
-    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.Status.YES)
+    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
 
     url = reverse("api:delete_rsvp", kwargs={"event_id": event.pk, "rsvp_id": rsvp.pk})
     response = member_client.delete(url)

@@ -115,7 +115,7 @@ def create_invitation_request(event: Event, user: RevelUser, message: str | None
         raise HttpError(400, str(_("You are already invited to this event.")))
 
     if EventInvitationRequest.objects.filter(
-        event=event, user=user, status=EventInvitationRequest.Status.PENDING
+        event=event, user=user, status=EventInvitationRequest.InvitationRequestStatus.PENDING
     ).exists():
         raise HttpError(400, str(_("You have already requested an invitation to this event.")))
 
@@ -127,7 +127,7 @@ def approve_invitation_request(
     invitation_request: EventInvitationRequest, decided_by: RevelUser, tier: TicketTier | None = None
 ) -> EventInvitationRequest:
     """Approve an invitation request."""
-    invitation_request.status = EventInvitationRequest.Status.APPROVED
+    invitation_request.status = EventInvitationRequest.InvitationRequestStatus.APPROVED
     invitation_request.decided_by = decided_by
     invitation_request.save(update_fields=["status", "decided_by"])
     EventInvitation.objects.create(event=invitation_request.event, user=invitation_request.user, tier=tier)
@@ -138,7 +138,7 @@ def reject_invitation_request(
     invitation_request: EventInvitationRequest, decided_by: RevelUser
 ) -> EventInvitationRequest:
     """Reject an invitation request."""
-    invitation_request.status = EventInvitationRequest.Status.REJECTED
+    invitation_request.status = EventInvitationRequest.InvitationRequestStatus.REJECTED
     invitation_request.decided_by = decided_by
     invitation_request.save(update_fields=["status", "decided_by"])
     return invitation_request

@@ -61,7 +61,7 @@ class OrganizationQuestionnaireManager(models.Manager["OrganizationQuestionnaire
 
 
 class OrganizationQuestionnaire(TimeStampedModel):
-    class Types(models.TextChoices):
+    class QuestionnaireType(models.TextChoices):
         ADMISSION = "admission"
         MEMBERSHIP = "membership"
         FEEDBACK = "feedback"
@@ -71,7 +71,9 @@ class OrganizationQuestionnaire(TimeStampedModel):
     questionnaire = models.OneToOneField(Questionnaire, on_delete=models.CASCADE, related_name="org_questionnaires")
     event_series = models.ManyToManyField(EventSeries, related_name="org_questionnaires", blank=True)
     events = models.ManyToManyField(Event, related_name="org_questionnaires", blank=True)
-    questionnaire_type = models.CharField(choices=Types.choices, default=Types.ADMISSION, max_length=20, db_index=True)
+    questionnaire_type = models.CharField(
+        choices=QuestionnaireType.choices, default=QuestionnaireType.ADMISSION, max_length=20, db_index=True
+    )
     max_submission_age = models.DurationField(null=True, blank=True, db_index=True)
 
     objects = OrganizationQuestionnaireManager()

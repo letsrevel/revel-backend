@@ -318,9 +318,9 @@ Bring a dish to share and join us for an evening of connection and celebration!
             organization=self.orgs["alpha"],
             name="Summer Sunset Music Festival",
             slug="summer-sunset-music-festival",
-            event_type=events_models.Event.Types.PUBLIC,
+            event_type=events_models.Event.EventType.PUBLIC,
             visibility=events_models.Event.Visibility.PUBLIC,
-            status=events_models.Event.Status.OPEN,
+            status=events_models.Event.EventStatus.OPEN,
             city=self.cities["vienna"],
             requires_ticket=True,
             start=now + timedelta(days=45),
@@ -377,9 +377,9 @@ Limited parking available at Copa Cagrana.
             organization=self.orgs["alpha"],
             name="Exclusive Wine Tasting & Pairing Dinner",
             slug="exclusive-wine-tasting-dinner",
-            event_type=events_models.Event.Types.PRIVATE,
+            event_type=events_models.Event.EventType.PRIVATE,
             visibility=events_models.Event.Visibility.PUBLIC,
-            status=events_models.Event.Status.OPEN,
+            status=events_models.Event.EventStatus.OPEN,
             city=self.cities["vienna"],
             requires_ticket=True,
             start=now + timedelta(days=30),
@@ -428,9 +428,9 @@ Smart casual to business casual
             organization=self.orgs["beta"],
             name="Hands-on Workshop: Building with AI APIs",
             slug="ai-apis-workshop",
-            event_type=events_models.Event.Types.MEMBERS_ONLY,
+            event_type=events_models.Event.EventType.MEMBERS_ONLY,
             visibility=events_models.Event.Visibility.PUBLIC,
-            status=events_models.Event.Status.OPEN,
+            status=events_models.Event.EventStatus.OPEN,
             city=self.cities["berlin"],
             requires_ticket=False,
             start=now + timedelta(days=20),
@@ -483,9 +483,9 @@ consultant for Fortune 500 companies.
             organization=self.orgs["alpha"],
             name="Spring Community Potluck & Garden Party",
             slug="spring-community-potluck",
-            event_type=events_models.Event.Types.PUBLIC,
+            event_type=events_models.Event.EventType.PUBLIC,
             visibility=events_models.Event.Visibility.PUBLIC,
-            status=events_models.Event.Status.OPEN,
+            status=events_models.Event.EventStatus.OPEN,
             event_series=self.event_series["potlucks"],
             city=self.cities["vienna"],
             requires_ticket=False,
@@ -540,9 +540,9 @@ Service animals welcome.
             organization=self.orgs["beta"],
             name="FutureStack 2025: AI & Web3 Conference",
             slug="futurestack-2025",
-            event_type=events_models.Event.Types.PUBLIC,
+            event_type=events_models.Event.EventType.PUBLIC,
             visibility=events_models.Event.Visibility.PUBLIC,
-            status=events_models.Event.Status.OPEN,
+            status=events_models.Event.EventStatus.OPEN,
             city=self.cities["berlin"],
             requires_ticket=True,
             start=now + timedelta(days=60),
@@ -611,9 +611,9 @@ developers, founders, and tech leaders from around the world.
             organization=self.orgs["alpha"],
             name="Weekend Wellness Retreat",
             slug="weekend-wellness-retreat",
-            event_type=events_models.Event.Types.PUBLIC,
+            event_type=events_models.Event.EventType.PUBLIC,
             visibility=events_models.Event.Visibility.PUBLIC,
-            status=events_models.Event.Status.OPEN,
+            status=events_models.Event.EventStatus.OPEN,
             city=self.cities["vienna"],
             requires_ticket=True,
             start=now + timedelta(days=35),
@@ -681,9 +681,9 @@ and deep relaxation in the beautiful Austrian countryside.
             organization=self.orgs["beta"],
             name="Tech Founders Networking Happy Hour",
             slug="tech-founders-happy-hour",
-            event_type=events_models.Event.Types.MEMBERS_ONLY,
+            event_type=events_models.Event.EventType.MEMBERS_ONLY,
             visibility=events_models.Event.Visibility.PUBLIC,
-            status=events_models.Event.Status.OPEN,
+            status=events_models.Event.EventStatus.OPEN,
             city=self.cities["berlin"],
             requires_ticket=False,
             start=now + timedelta(days=10),
@@ -734,9 +734,9 @@ knowledge sharing among peers who understand the founder journey.
             organization=self.orgs["alpha"],
             name="Contemporary Art Exhibition Opening",
             slug="contemporary-art-exhibition",
-            event_type=events_models.Event.Types.PUBLIC,
+            event_type=events_models.Event.EventType.PUBLIC,
             visibility=events_models.Event.Visibility.PUBLIC,
-            status=events_models.Event.Status.OPEN,
+            status=events_models.Event.EventStatus.OPEN,
             city=self.cities["london"],
             requires_ticket=False,
             start=now + timedelta(days=25),
@@ -784,9 +784,9 @@ The gallery is fully wheelchair accessible. ASL interpreter available upon reque
             organization=self.orgs["alpha"],
             name="New Year's Eve Gala 2024",
             slug="nye-gala-2024",
-            event_type=events_models.Event.Types.PUBLIC,
+            event_type=events_models.Event.EventType.PUBLIC,
             visibility=events_models.Event.Visibility.PUBLIC,
-            status=events_models.Event.Status.CLOSED,
+            status=events_models.Event.EventStatus.CLOSED,
             city=self.cities["vienna"],
             requires_ticket=True,
             start=now - timedelta(days=90),
@@ -808,9 +808,9 @@ Thank you to everyone who joined us for this unforgettable evening!
             organization=self.orgs["beta"],
             name="Future Tech Summit (Planning Phase)",
             slug="future-tech-summit-draft",
-            event_type=events_models.Event.Types.PUBLIC,
+            event_type=events_models.Event.EventType.PUBLIC,
             visibility=events_models.Event.Visibility.PUBLIC,
-            status=events_models.Event.Status.DRAFT,
+            status=events_models.Event.EventStatus.DRAFT,
             city=self.cities["tokyo"],
             requires_ticket=True,
             start=now + timedelta(days=180),
@@ -831,9 +831,9 @@ We're planning something big. Stay tuned for details!
             organization=self.orgs["beta"],
             name="Tech Talk May: Scaling Microservices",
             slug="tech-talk-may-2025",
-            event_type=events_models.Event.Types.MEMBERS_ONLY,
+            event_type=events_models.Event.EventType.MEMBERS_ONLY,
             visibility=events_models.Event.Visibility.PUBLIC,
-            status=events_models.Event.Status.OPEN,
+            status=events_models.Event.EventStatus.OPEN,
             event_series=self.event_series["tech_talks"],
             city=self.cities["berlin"],
             requires_ticket=False,
@@ -874,9 +874,9 @@ requests per second.
             organization=self.orgs["beta"],
             name="Advanced Machine Learning Workshop",
             slug="advanced-ml-workshop",
-            event_type=events_models.Event.Types.PUBLIC,
+            event_type=events_models.Event.EventType.PUBLIC,
             visibility=events_models.Event.Visibility.PUBLIC,
-            status=events_models.Event.Status.OPEN,
+            status=events_models.Event.EventStatus.OPEN,
             city=self.cities["berlin"],
             requires_ticket=True,
             start=now + timedelta(days=28),
@@ -1283,7 +1283,7 @@ A complete ML pipeline from data preprocessing to model deployment.
                 event=self.events["summer_festival"],
                 user=self.users[user_key],
                 tier=festival_early_bird,
-                status=events_models.Ticket.Status.ACTIVE,
+                status=events_models.Ticket.TicketStatus.ACTIVE,
             )
 
         # VIP tickets
@@ -1291,7 +1291,7 @@ A complete ML pipeline from data preprocessing to model deployment.
             event=self.events["summer_festival"],
             user=self.users["org_alpha_owner"],
             tier=festival_vip,
-            status=events_models.Ticket.Status.ACTIVE,
+            status=events_models.Ticket.TicketStatus.ACTIVE,
         )
 
         # Pending ticket (payment not completed)
@@ -1299,7 +1299,7 @@ A complete ML pipeline from data preprocessing to model deployment.
             event=self.events["summer_festival"],
             user=self.users["attendee_4"],
             tier=festival_general,
-            status=events_models.Ticket.Status.PENDING,
+            status=events_models.Ticket.TicketStatus.PENDING,
         )
 
         # Payment for pending ticket
@@ -1307,7 +1307,7 @@ A complete ML pipeline from data preprocessing to model deployment.
             ticket=pending_ticket,
             user=self.users["attendee_4"],
             stripe_session_id=f"cs_test_{self.fake.uuid4()}",
-            status=events_models.Payment.Status.PENDING,
+            status=events_models.Payment.PaymentStatus.PENDING,
             amount=Decimal("65.00"),
             platform_fee=Decimal("6.50"),
             currency="USD",
@@ -1321,7 +1321,7 @@ A complete ML pipeline from data preprocessing to model deployment.
             event=self.events["past_event"],
             user=self.users["attendee_1"],
             tier=past_tier,
-            status=events_models.Ticket.Status.CHECKED_IN,
+            status=events_models.Ticket.TicketStatus.CHECKED_IN,
             checked_in_at=now - timedelta(days=89, hours=2),
             checked_in_by=self.users["org_alpha_staff"],
         )
@@ -1331,7 +1331,7 @@ A complete ML pipeline from data preprocessing to model deployment.
             ticket=checked_in_ticket,
             user=self.users["attendee_1"],
             stripe_session_id=f"cs_test_{self.fake.uuid4()}",
-            status=events_models.Payment.Status.SUCCEEDED,
+            status=events_models.Payment.PaymentStatus.SUCCEEDED,
             amount=Decimal("250.00"),
             platform_fee=Decimal("25.00"),
             currency="USD",
@@ -1343,14 +1343,14 @@ A complete ML pipeline from data preprocessing to model deployment.
             event=self.events["summer_festival"],
             user=self.users["pending_user"],
             tier=festival_early_bird,
-            status=events_models.Ticket.Status.CANCELLED,
+            status=events_models.Ticket.TicketStatus.CANCELLED,
         )
 
         events_models.Payment.objects.create(
             ticket=cancelled_ticket,
             user=self.users["pending_user"],
             stripe_session_id=f"cs_test_{self.fake.uuid4()}",
-            status=events_models.Payment.Status.REFUNDED,
+            status=events_models.Payment.PaymentStatus.REFUNDED,
             amount=Decimal("45.00"),
             platform_fee=Decimal("4.50"),
             currency="USD",
@@ -1364,7 +1364,7 @@ A complete ML pipeline from data preprocessing to model deployment.
             event=self.events["wellness_retreat"],
             user=self.users["attendee_2"],
             tier=wellness_tier,
-            status=events_models.Ticket.Status.ACTIVE,
+            status=events_models.Ticket.TicketStatus.ACTIVE,
         )
 
         # Tech conference tickets
@@ -1376,7 +1376,7 @@ A complete ML pipeline from data preprocessing to model deployment.
             event=self.events["tech_conference"],
             user=self.users["org_beta_member"],
             tier=conf_member_tier,
-            status=events_models.Ticket.Status.ACTIVE,
+            status=events_models.Ticket.TicketStatus.ACTIVE,
         )
 
         # --- RSVPs (for events without tickets) ---
@@ -1387,21 +1387,21 @@ A complete ML pipeline from data preprocessing to model deployment.
             events_models.EventRSVP.objects.create(
                 event=self.events["spring_potluck"],
                 user=self.users[user_key],
-                status=events_models.EventRSVP.Status.YES,
+                status=events_models.EventRSVP.RsvpStatus.YES,
             )
 
         # Maybe RSVPs
         events_models.EventRSVP.objects.create(
             event=self.events["spring_potluck"],
             user=self.users["org_alpha_staff"],
-            status=events_models.EventRSVP.Status.MAYBE,
+            status=events_models.EventRSVP.RsvpStatus.MAYBE,
         )
 
         # No RSVP
         events_models.EventRSVP.objects.create(
             event=self.events["spring_potluck"],
             user=self.users["pending_user"],
-            status=events_models.EventRSVP.Status.NO,
+            status=events_models.EventRSVP.RsvpStatus.NO,
         )
 
         # Tech workshop RSVPs (members only)
@@ -1409,14 +1409,14 @@ A complete ML pipeline from data preprocessing to model deployment.
             events_models.EventRSVP.objects.create(
                 event=self.events["tech_workshop"],
                 user=self.users[user_key],
-                status=events_models.EventRSVP.Status.YES,
+                status=events_models.EventRSVP.RsvpStatus.YES,
             )
 
         # Tech talk RSVPs
         events_models.EventRSVP.objects.create(
             event=self.events["tech_talk_may"],
             user=self.users["org_beta_member"],
-            status=events_models.EventRSVP.Status.YES,
+            status=events_models.EventRSVP.RsvpStatus.YES,
         )
 
         # Networking event RSVPs
@@ -1424,7 +1424,7 @@ A complete ML pipeline from data preprocessing to model deployment.
             events_models.EventRSVP.objects.create(
                 event=self.events["networking_event"],
                 user=self.users[user_key],
-                status=events_models.EventRSVP.Status.YES,
+                status=events_models.EventRSVP.RsvpStatus.YES,
             )
 
         # Art opening RSVPs
@@ -1432,7 +1432,7 @@ A complete ML pipeline from data preprocessing to model deployment.
             events_models.EventRSVP.objects.create(
                 event=self.events["art_opening"],
                 user=self.users[user_key],
-                status=events_models.EventRSVP.Status.YES,
+                status=events_models.EventRSVP.RsvpStatus.YES,
             )
 
         # --- Waitlists ---
@@ -1459,10 +1459,10 @@ A complete ML pipeline from data preprocessing to model deployment.
         # Questionnaire 1: Simple Code of Conduct (for tech conference)
         coc_questionnaire = questionnaires_models.Questionnaire.objects.create(
             name="Code of Conduct Agreement",
-            status=questionnaires_models.Questionnaire.Status.PUBLISHED,
-            evaluation_mode=questionnaires_models.Questionnaire.EvaluationMode.AUTOMATIC,
+            status=questionnaires_models.Questionnaire.QuestionnaireStatus.PUBLISHED,
+            evaluation_mode=questionnaires_models.Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
             shuffle_questions=False,
-            llm_backend=questionnaires_models.Questionnaire.LLMBackend.MOCK,
+            llm_backend=questionnaires_models.Questionnaire.QuestionnaireLLMBackend.MOCK,
             max_attempts=3,
             min_score=Decimal("100.00"),
         )
@@ -1513,11 +1513,11 @@ A complete ML pipeline from data preprocessing to model deployment.
         # Questionnaire 2: Wine Tasting Application (for private event)
         wine_questionnaire = questionnaires_models.Questionnaire.objects.create(
             name="Wine Tasting Dinner Application",
-            status=questionnaires_models.Questionnaire.Status.PUBLISHED,
-            evaluation_mode=questionnaires_models.Questionnaire.EvaluationMode.MANUAL,
+            status=questionnaires_models.Questionnaire.QuestionnaireStatus.PUBLISHED,
+            evaluation_mode=questionnaires_models.Questionnaire.QuestionnaireEvaluationMode.MANUAL,
             shuffle_questions=False,
             llm_guidelines="Evaluate applicants based on genuine interest in wine and culinary experiences.",
-            llm_backend=questionnaires_models.Questionnaire.LLMBackend.MOCK,
+            llm_backend=questionnaires_models.Questionnaire.QuestionnaireLLMBackend.MOCK,
             max_attempts=1,
             min_score=Decimal("60.00"),
         )
@@ -1611,14 +1611,14 @@ A complete ML pipeline from data preprocessing to model deployment.
         # Questionnaire 3: Community Membership Application (org-level)
         membership_questionnaire = questionnaires_models.Questionnaire.objects.create(
             name="Tech Innovators Network Membership Application",
-            status=questionnaires_models.Questionnaire.Status.PUBLISHED,
-            evaluation_mode=questionnaires_models.Questionnaire.EvaluationMode.HYBRID,
+            status=questionnaires_models.Questionnaire.QuestionnaireStatus.PUBLISHED,
+            evaluation_mode=questionnaires_models.Questionnaire.QuestionnaireEvaluationMode.HYBRID,
             shuffle_questions=False,
             llm_guidelines=(
                 "Evaluate based on genuine interest in technology, community contribution mindset, "
                 "and professional background. We want diverse perspectives and skill levels."
             ),
-            llm_backend=questionnaires_models.Questionnaire.LLMBackend.MOCK,
+            llm_backend=questionnaires_models.Questionnaire.QuestionnaireLLMBackend.MOCK,
             max_attempts=2,
             can_retake_after=timedelta(days=30),
             min_score=Decimal("70.00"),

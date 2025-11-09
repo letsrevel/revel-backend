@@ -242,9 +242,9 @@ class Command(BaseCommand):
             for _ in range(NUM_EVENTS_PER_ORG):
                 event_counter += 1
 
-                event_type = self.rand.choice(list(Event.Types))
+                event_type = self.rand.choice(list(Event.EventType))
                 visibility = self.rand.choice(list(Event.Visibility))
-                status = self.rand.choice(list(Event.Status))
+                status = self.rand.choice(list(Event.EventStatus))
                 requires_ticket = self.rand.choice([True, False])
                 event_date = now + timedelta(days=self.rand.randint(-10, 90))
 
@@ -304,10 +304,14 @@ class Command(BaseCommand):
 
                 if event.requires_ticket:
                     if self.rand.random() > 0.5:
-                        tickets.append(Ticket(event=event, user=user, status=self.rand.choice(list(Ticket.Status))))
+                        tickets.append(
+                            Ticket(event=event, user=user, status=self.rand.choice(list(Ticket.TicketStatus)))
+                        )
                 else:
                     if self.rand.random() > 0.5:
-                        rsvps.append(EventRSVP(event=event, user=user, status=self.rand.choice(list(EventRSVP.Status))))
+                        rsvps.append(
+                            EventRSVP(event=event, user=user, status=self.rand.choice(list(EventRSVP.RsvpStatus)))
+                        )
 
         self._batch_create(EventInvitation, invitations)
         self._batch_create(Ticket, tickets)

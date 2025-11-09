@@ -110,7 +110,7 @@ class DashboardController(UserAwareController):
         qs = qs.filter(Q(start__date__gte=today) | Q(start__isnull=True))
 
         if not user.is_staff:
-            qs = qs.exclude(status=models.Event.Status.DRAFT)
+            qs = qs.exclude(status=models.Event.EventStatus.DRAFT)
 
         return qs.distinct().order_by(order_by)
 

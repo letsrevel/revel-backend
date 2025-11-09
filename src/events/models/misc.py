@@ -64,7 +64,7 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
         # Gather all event IDs the user is directly connected to.
         invited_event_ids = EventInvitation.objects.filter(user=user).values_list("event_id", flat=True)
         ticketed_event_ids = Ticket.objects.filter(user=user).values_list("event_id", flat=True)
-        rsvpd_event_ids = EventRSVP.objects.filter(user=user, status=EventRSVP.Status.YES).values_list(
+        rsvpd_event_ids = EventRSVP.objects.filter(user=user, status=EventRSVP.RsvpStatus.YES).values_list(
             "event_id", flat=True
         )
 

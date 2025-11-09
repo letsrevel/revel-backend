@@ -344,7 +344,7 @@ class EventController(UserAwareController):
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
-    def rsvp_event(self, event_id: UUID, answer: models.EventRSVP.Status) -> models.EventRSVP:
+    def rsvp_event(self, event_id: UUID, answer: models.EventRSVP.RsvpStatus) -> models.EventRSVP:
         """RSVP to a non-ticketed event (answer: 'yes', 'no', or 'maybe').
 
         Only works for events where requires_ticket=false. Runs full eligibility check including
@@ -492,7 +492,7 @@ class EventController(UserAwareController):
         self.get_one(event_id)
         questionnaire_service = self.get_questionnaire_service(questionnaire_id)
         db_submission = questionnaire_service.submit(self.user(), submission)
-        if submission.status == QuestionnaireSubmission.Status.READY:
+        if submission.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY:
             evaluate_questionnaire_submission.delay(str(db_submission.pk))
         return QuestionnaireSubmissionResponseSchema.from_orm(db_submission)
 
@@ -505,7 +505,7 @@ class EventController(UserAwareController):
         throttle=WriteThrottle(),
     )
     def guest_rsvp(
-        self, event_id: UUID, answer: models.EventRSVP.Status, payload: schema.GuestUserDataSchema
+        self, event_id: UUID, answer: models.EventRSVP.RsvpStatus, payload: schema.GuestUserDataSchema
     ) -> schema.GuestActionResponseSchema:
         """RSVP to an event without authentication (guest user).
 

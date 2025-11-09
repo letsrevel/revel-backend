@@ -62,7 +62,7 @@ class EventQuerySet(models.QuerySet["Event"]):
 
         if user.is_anonymous:
             return base_qs.filter(
-                Q(visibility=Event.Visibility.PUBLIC, status__in=[Event.Status.OPEN, Event.Status.CLOSED])
+                Q(visibility=Event.Visibility.PUBLIC, status__in=[Event.EventStatus.OPEN, Event.EventStatus.CLOSED])
                 | is_allowed_special
             )
 
@@ -102,7 +102,7 @@ class EventQuerySet(models.QuerySet["Event"]):
 
         # Only staff/owners can see drafts
         if not (user.is_staff or user.is_superuser):
-            final_qs = final_qs.exclude(~is_owner_or_staff & Q(status=Event.Status.DRAFT))
+            final_qs = final_qs.exclude(~is_owner_or_staff & Q(status=Event.EventStatus.DRAFT))
 
         return final_qs.distinct()
 
@@ -138,19 +138,19 @@ class EventManager(models.Manager["Event"]):
 class Event(
     SlugFromNameMixin, TimeStampedModel, VisibilityMixin, LocationMixin, LogoCoverValidationMixin, TaggableMixin
 ):
-    class Types(models.TextChoices):
+    class EventType(models.TextChoices):
         PUBLIC = "public"
         PRIVATE = "private"
         MEMBERS_ONLY = "members-only"
 
-    class Status(models.TextChoices):
+    class EventStatus(models.TextChoices):
         OPEN = "open"
         CLOSED = "closed"
         DRAFT = "draft"
         DELETED = "deleted"
 
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="events")
-    status = models.CharField(choices=Status.choices, max_length=10, default=Status.DRAFT)
+    status = models.CharField(choices=EventStatus.choices, max_length=10, default=EventStatus.DRAFT)
     name = models.CharField(max_length=255, db_index=True)
     slug = models.SlugField(max_length=255, db_index=True)
     description = MarkdownField(blank=True, null=True)
@@ -159,7 +159,7 @@ class Event(
         null=True,
         help_text="Invitation message to override the one automatically generated using name and description.",
     )
-    event_type = models.CharField(choices=Types.choices, max_length=20, db_index=True, default=Types.PRIVATE)
+    event_type = models.CharField(choices=EventType.choices, max_length=20, db_index=True, default=EventType.PRIVATE)
     event_series = models.ForeignKey(
         EventSeries, on_delete=models.CASCADE, null=True, blank=True, related_name="events"
     )
@@ -225,8 +225,8 @@ class Event(
             or self.organization.staff_members.filter(id=viewer.id).exists()
         ):
             return RevelUser.objects.filter(
-                Q(tickets__event=self, tickets__status=Ticket.Status.ACTIVE)
-                | Q(rsvps__event=self, rsvps__status=EventRSVP.Status.YES)
+                Q(tickets__event=self, tickets__status=Ticket.TicketStatus.ACTIVE)
+                | Q(rsvps__event=self, rsvps__status=EventRSVP.RsvpStatus.YES)
             ).distinct()
         return RevelUser.objects.filter(
             id__in=AttendeeVisibilityFlag.objects.filter(event=self, user=viewer, is_visible=True).values_list(
@@ -256,7 +256,7 @@ class Event(
     def is_check_in_open(self) -> bool:
         """Check if check-in is currently open for this event."""
         now = timezone.now()
-        if not self.status == self.Status.OPEN:
+        if not self.status == self.EventStatus.OPEN:
             return False
 
         return (self.check_in_starts_at or self.start) <= now <= (self.check_in_ends_at or self.end)
@@ -308,7 +308,7 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
             return qs.filter(
                 visibility=TicketTier.Visibility.PUBLIC,
                 event__visibility=Event.Visibility.PUBLIC,
-                event__status=Event.Status.OPEN,
+                event__status=Event.EventStatus.OPEN,
             )
 
         if user.is_superuser:
@@ -499,7 +499,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
 class Ticket(TimeStampedModel):
     """A ticket for a specific user to a specific event."""
 
-    class Status(models.TextChoices):
+    class TicketStatus(models.TextChoices):
         PENDING = "pending", "Pending"
         ACTIVE = "active", "Active"
         CHECKED_IN = "checked_in", "Checked In"
@@ -507,7 +507,7 @@ class Ticket(TimeStampedModel):
 
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="tickets")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tickets")
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE, db_index=True)
+    status = models.CharField(max_length=20, choices=TicketStatus.choices, default=TicketStatus.ACTIVE, db_index=True)
     tier = models.ForeignKey(TicketTier, on_delete=models.CASCADE, related_name="tickets")
     checked_in_at = models.DateTimeField(null=True, blank=True, editable=False)
     checked_in_by = models.ForeignKey(
@@ -539,7 +539,7 @@ def _get_payment_default_expiry() -> datetime:
 
 
 class Payment(TimeStampedModel):
-    class Status(models.TextChoices):
+    class PaymentStatus(models.TextChoices):
         PENDING = "pending"
         SUCCEEDED = "succeeded"
         FAILED = "failed"
@@ -554,7 +554,7 @@ class Payment(TimeStampedModel):
     stripe_payment_intent_id = models.CharField(
         max_length=255, null=True, blank=True, db_index=True, help_text="Stripe PaymentIntent ID for refund processing"
     )
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.PENDING)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     platform_fee = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=3, default=settings.DEFAULT_CURRENCY)
@@ -669,14 +669,16 @@ class PendingEventInvitation(AbstractEventInvitation):
 
 
 class EventRSVP(TimeStampedModel):
-    class Status(models.TextChoices):
+    class RsvpStatus(models.TextChoices):
         YES = "yes", "Yes"
         NO = "no", "No"
         MAYBE = "maybe", "Maybe"
 
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="rsvps")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="rsvps")
-    status = models.CharField(max_length=20, choices=Status.choices, default=None, null=True, blank=True, db_index=True)
+    status = models.CharField(
+        max_length=20, choices=RsvpStatus.choices, default=None, null=True, blank=True, db_index=True
+    )
 
     class Meta:
         constraints = [
@@ -726,7 +728,7 @@ class AttendeeVisibilityFlag(TimeStampedModel):
 
 
 class EventInvitationRequest(UserRequestMixin):
-    class Status(models.TextChoices):
+    class InvitationRequestStatus(models.TextChoices):
         PENDING = "pending"
         APPROVED = "approved"
         REJECTED = "rejected"

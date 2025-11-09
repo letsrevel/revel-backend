@@ -73,12 +73,12 @@ class QuestionnaireController(UserAwareController):
             pending_evaluations_count=Count(
                 "questionnaire__questionnaire_submissions",
                 filter=Q(
-                    questionnaire__questionnaire_submissions__status=questionnaires_models.QuestionnaireSubmission.Status.READY
+                    questionnaire__questionnaire_submissions__status=questionnaires_models.QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
                 )
                 & (
                     Q(questionnaire__questionnaire_submissions__evaluation__isnull=True)
                     | Q(
-                        questionnaire__questionnaire_submissions__evaluation__status=questionnaires_models.QuestionnaireEvaluation.Status.PENDING_REVIEW
+                        questionnaire__questionnaire_submissions__evaluation__status=questionnaires_models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW
                     )
                 ),
             )
@@ -335,7 +335,7 @@ class QuestionnaireController(UserAwareController):
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
         service = QuestionnaireService(org_questionnaire.questionnaire_id)
         qs = service.get_submissions_queryset().filter(
-            status=questionnaires_models.QuestionnaireSubmission.Status.READY
+            status=questionnaires_models.QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
         )
         qs = params.filter(qs)
         return qs.distinct().order_by(order_by)
@@ -425,11 +425,11 @@ class QuestionnaireController(UserAwareController):
                 min_score=submission.questionnaire.min_score,
                 shuffle_questions=submission.questionnaire.shuffle_questions,
                 shuffle_sections=submission.questionnaire.shuffle_sections,
-                evaluation_mode=questionnaires_models.Questionnaire.EvaluationMode(
+                evaluation_mode=questionnaires_models.Questionnaire.QuestionnaireEvaluationMode(
                     submission.questionnaire.evaluation_mode
                 ),
             ),
-            status=questionnaires_models.QuestionnaireSubmission.Status(submission.status),
+            status=questionnaires_models.QuestionnaireSubmission.QuestionnaireSubmissionStatus(submission.status),
             submitted_at=submission.submitted_at,
             evaluation=(
                 questionnaire_schema.EvaluationResponseSchema.from_orm(submission.evaluation)
@@ -492,7 +492,7 @@ class QuestionnaireController(UserAwareController):
         permissions=[QuestionnairePermission("edit_questionnaire")],
     )
     def update_questionnaire_status(
-        self, org_questionnaire_id: UUID, status: questionnaires_models.Questionnaire.Status
+        self, org_questionnaire_id: UUID, status: questionnaires_models.Questionnaire.QuestionnaireStatus
     ) -> event_models.OrganizationQuestionnaire:
         """Update the status of a questionnaire (admin only).
 

@@ -186,14 +186,17 @@ class QuestionnaireService:
 
         status = submission_schema.status
 
-        if not mandatory_ids.issubset(submitted_question_ids) and status == QuestionnaireSubmission.Status.READY:
+        if (
+            not mandatory_ids.issubset(submitted_question_ids)
+            and status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
+        ):
             missing = mandatory_ids - submitted_question_ids
             raise MissingMandatoryAnswerError(
                 f"Mandatory questions missing from submission: {[str(qid) for qid in missing]}"
             )
 
         # Create the submission and related answers
-        if status == QuestionnaireSubmission.Status.READY:
+        if status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY:
             submission = QuestionnaireSubmission.objects.create(
                 questionnaire=self.questionnaire,
                 user=user,
@@ -202,7 +205,7 @@ class QuestionnaireService:
             )
 
             # Send notification for manual review if needed
-            if self.questionnaire.evaluation_mode != self.questionnaire.EvaluationMode.AUTOMATIC:
+            if self.questionnaire.evaluation_mode != self.questionnaire.QuestionnaireEvaluationMode.AUTOMATIC:
                 # Import here to avoid circular imports
                 from events.tasks import notify_questionnaire_submission
 
@@ -445,7 +448,10 @@ class QuestionnaireService:
         )
 
         # Send notification to user about evaluation result
-        if evaluation.status in [evaluation.Status.APPROVED, evaluation.Status.REJECTED]:
+        if evaluation.status in [
+            evaluation.QuestionnaireEvaluationStatus.APPROVED,
+            evaluation.QuestionnaireEvaluationStatus.REJECTED,
+        ]:
             # Import here to avoid circular imports
             from events.tasks import notify_questionnaire_evaluation_result
 

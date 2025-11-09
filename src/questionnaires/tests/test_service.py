@@ -139,7 +139,7 @@ def test_submit_success_final(user: RevelUser, complex_questionnaire: Questionna
 
     submission_schema = QuestionnaireSubmissionSchema(
         questionnaire_id=q.id,
-        status=QuestionnaireSubmission.Status.READY,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         multiple_choice_answers=[
             MultipleChoiceSubmissionSchema(question_id=mcq_top.id, options_id=[mcq_top_opt.id]),
             MultipleChoiceSubmissionSchema(question_id=mcq_s1.id, options_id=[mcq_s1_opt.id]),
@@ -152,7 +152,7 @@ def test_submit_success_final(user: RevelUser, complex_questionnaire: Questionna
     assert submission.pk is not None
     assert submission.user == user
     assert submission.questionnaire == q
-    assert submission.status == QuestionnaireSubmission.Status.READY
+    assert submission.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     assert submission.submitted_at is not None
     assert submission.multiplechoiceanswer_answers.count() == 2
     assert submission.freetextanswer_answers.count() == 1
@@ -168,14 +168,14 @@ def test_submit_draft_and_update(user: RevelUser, complex_questionnaire: Questio
     # First submission as draft
     draft_schema_1 = QuestionnaireSubmissionSchema(
         questionnaire_id=q.id,
-        status=QuestionnaireSubmission.Status.DRAFT,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.DRAFT,
         multiple_choice_answers=[
             MultipleChoiceSubmissionSchema(question_id=mcq_top.id, options_id=[mcq_top_opt.id]),
         ],
     )
     submission1 = service.submit(user, draft_schema_1)
 
-    assert submission1.status == QuestionnaireSubmission.Status.DRAFT
+    assert submission1.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.DRAFT
     assert QuestionnaireSubmission.objects.count() == 1
     assert submission1.multiplechoiceanswer_answers.count() == 1
 
@@ -183,7 +183,7 @@ def test_submit_draft_and_update(user: RevelUser, complex_questionnaire: Questio
     ftq_s2 = q.freetextquestion_questions.get(section__name="Section 2")
     draft_schema_2 = QuestionnaireSubmissionSchema(
         questionnaire_id=q.id,
-        status=QuestionnaireSubmission.Status.DRAFT,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.DRAFT,
         free_text_answers=[FreeTextSubmissionSchema(question_id=ftq_s2.id, answer="An appended answer.")],
     )
     submission2 = service.submit(user, draft_schema_2)
@@ -206,7 +206,7 @@ def test_submit_raises_missing_mandatory_error(user: RevelUser, complex_question
 
     submission_schema = QuestionnaireSubmissionSchema(
         questionnaire_id=q.id,
-        status=QuestionnaireSubmission.Status.READY,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         multiple_choice_answers=[
             MultipleChoiceSubmissionSchema(question_id=mcq_top.id, options_id=[mcq_top_opt.id]),
         ],
@@ -231,7 +231,7 @@ def test_submit_raises_cross_questionnaire_error(
 
     submission_schema = QuestionnaireSubmissionSchema(
         questionnaire_id=complex_questionnaire.id,
-        status=QuestionnaireSubmission.Status.READY,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         multiple_choice_answers=[
             MultipleChoiceSubmissionSchema(question_id=other_mcq.id, options_id=[other_opt.id]),
         ],
@@ -248,7 +248,7 @@ def test_create_questionnaire_from_schema() -> None:
     payload = QuestionnaireCreateSchema(
         name="Full Test Questionnaire",
         min_score=Decimal(80),
-        evaluation_mode=Questionnaire.EvaluationMode.HYBRID,
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.HYBRID,
         llm_guidelines="Be very nice.",
         multiplechoicequestion_questions=[
             MultipleChoiceQuestionCreateSchema(
@@ -595,16 +595,16 @@ def test_get_submissions_queryset(questionnaire: Questionnaire, user: RevelUser)
     """Test that submissions queryset is retrieved correctly."""
     # Create some submissions
     submission1 = QuestionnaireSubmission.objects.create(
-        user=user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=user, questionnaire=questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
     submission2 = QuestionnaireSubmission.objects.create(
-        user=user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=user, questionnaire=questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
 
     # Create submission for different questionnaire to ensure filtering works
     other_questionnaire = Questionnaire.objects.create(name="Other Questionnaire")
     QuestionnaireSubmission.objects.create(
-        user=user, questionnaire=other_questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=user, questionnaire=other_questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
 
     service = QuestionnaireService(questionnaire.id)
@@ -681,13 +681,15 @@ def test_evaluate_submission_create_new(questionnaire: Questionnaire, user: Reve
     # Create evaluator
     service = QuestionnaireService(questionnaire.id)
     payload = EvaluationCreateSchema(
-        status=QuestionnaireEvaluation.Status.APPROVED, score=Decimal("85.50"), comments="Good submission"
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        score=Decimal("85.50"),
+        comments="Good submission",
     )
 
     evaluation = service.evaluate_submission(submission.id, payload, evaluator)
 
     assert evaluation.submission == submission
-    assert evaluation.status == QuestionnaireEvaluation.Status.APPROVED
+    assert evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED
     assert evaluation.score == Decimal("85.50")
     assert evaluation.comments == "Good submission"
     assert evaluation.evaluator == evaluator
@@ -708,7 +710,7 @@ def test_evaluate_submission_update_existing(
 
     initial_evaluation = QuestionnaireEvaluation.objects.create(
         submission=submission,
-        status=QuestionnaireEvaluation.Status.PENDING_REVIEW,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW,
         score=Decimal("70.00"),
         comments="Initial evaluation",
         evaluator=evaluator,
@@ -716,14 +718,16 @@ def test_evaluate_submission_update_existing(
 
     service = QuestionnaireService(questionnaire.id)
     payload = EvaluationCreateSchema(
-        status=QuestionnaireEvaluation.Status.REJECTED, score=Decimal("60.00"), comments="Updated: needs improvement"
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
+        score=Decimal("60.00"),
+        comments="Updated: needs improvement",
     )
 
     updated_evaluation = service.evaluate_submission(submission.id, payload, evaluator)
 
     # Should be the same evaluation object, just updated
     assert updated_evaluation.id == initial_evaluation.id
-    assert updated_evaluation.status == QuestionnaireEvaluation.Status.REJECTED
+    assert updated_evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
     assert updated_evaluation.score == Decimal("60.00")
     assert updated_evaluation.comments == "Updated: needs improvement"
     assert updated_evaluation.evaluator == evaluator
@@ -742,7 +746,9 @@ def test_evaluate_submission_wrong_questionnaire(
     submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=other_questionnaire)
 
     service = QuestionnaireService(questionnaire.id)
-    payload = EvaluationCreateSchema(status=QuestionnaireEvaluation.Status.APPROVED, score=None, comments="Should fail")
+    payload = EvaluationCreateSchema(
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED, score=None, comments="Should fail"
+    )
 
     with pytest.raises(QuestionnaireSubmission.DoesNotExist):
         service.evaluate_submission(submission.id, payload, evaluator)

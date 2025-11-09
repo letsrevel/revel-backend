@@ -38,7 +38,7 @@ def draft_submission(user: AbstractUser, questionnaire: Questionnaire) -> Questi
 @pytest.fixture
 def submitted_submission(draft_submission: QuestionnaireSubmission) -> QuestionnaireSubmission:
     """Provides a submitted submission, ready for evaluation."""
-    draft_submission.status = QuestionnaireSubmission.Status.READY
+    draft_submission.status = QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     draft_submission.save()
     return draft_submission
 

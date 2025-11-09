@@ -72,7 +72,7 @@ def test_generate_user_data_export_no_questionnaire(user: RevelUser) -> None:
 def test_serialize_questionnaire_data_with_evaluation(user: RevelUser, questionnaire: Questionnaire) -> None:
     """Test that the questionnaire data is serialized correctly when there is an evaluation."""
     submission = QuestionnaireSubmission.objects.create(
-        user=user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=user, questionnaire=questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
     QuestionnaireEvaluation.objects.create(submission=submission, status="approved", score=100)
 

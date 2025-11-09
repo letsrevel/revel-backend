@@ -155,7 +155,7 @@ def test_approve_invitation_request_creates_invitation(
     assert EventInvitation.objects.filter(
         event=event_invitation_request.event, user=event_invitation_request.user
     ).exists()
-    assert event_invitation_request.status == EventInvitationRequest.Status.APPROVED
+    assert event_invitation_request.status == EventInvitationRequest.InvitationRequestStatus.APPROVED
     assert event_invitation_request.decided_by == organization_staff_user
 
 
@@ -175,5 +175,5 @@ def test_reject_invitation_request_does_not_create_invitation(
     assert not EventInvitation.objects.filter(
         event=event_invitation_request.event, user=event_invitation_request.user
     ).exists()
-    assert event_invitation_request.status == EventInvitationRequest.Status.REJECTED
+    assert event_invitation_request.status == EventInvitationRequest.InvitationRequestStatus.REJECTED
     assert event_invitation_request.decided_by == organization_staff_user

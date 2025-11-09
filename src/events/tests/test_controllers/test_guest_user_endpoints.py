@@ -40,9 +40,9 @@ def guest_event(organization: Organization, next_week: datetime) -> Event:
         organization=organization,
         name="Guest-Friendly Event",
         slug="guest-friendly-event",
-        event_type=Event.Types.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
         visibility=Event.Visibility.PUBLIC,
-        status=Event.Status.OPEN,
+        status=Event.EventStatus.OPEN,
         start=next_week,
         end=next_week + timedelta(days=1),
         max_attendees=100,
@@ -58,9 +58,9 @@ def guest_event_with_tickets(organization: Organization, next_week: datetime) ->
         organization=organization,
         name="Guest Ticketed Event",
         slug="guest-ticketed-event",
-        event_type=Event.Types.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
         visibility=Event.Visibility.PUBLIC,
-        status=Event.Status.OPEN,
+        status=Event.EventStatus.OPEN,
         start=next_week,
         end=next_week + timedelta(days=1),
         max_attendees=100,
@@ -76,9 +76,9 @@ def login_required_event(organization: Organization, next_week: datetime) -> Eve
         organization=organization,
         name="Login Required Event",
         slug="login-required-event",
-        event_type=Event.Types.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
         visibility=Event.Visibility.PUBLIC,
-        status=Event.Status.OPEN,
+        status=Event.EventStatus.OPEN,
         start=next_week,
         end=next_week + timedelta(days=1),
         max_attendees=100,
@@ -316,7 +316,7 @@ class TestGuestRSVP:
             email="other@example.com",
             guest=True,
         )
-        EventRSVP.objects.create(event=guest_event, user=other_user, status=EventRSVP.Status.YES)
+        EventRSVP.objects.create(event=guest_event, user=other_user, status=EventRSVP.RsvpStatus.YES)
 
         client = Client()
         url = reverse("api:guest_rsvp", kwargs={"event_id": guest_event.pk, "answer": "yes"})
@@ -721,7 +721,7 @@ class TestConfirmGuestAction:
 
         # Verify RSVP was created
         rsvp = EventRSVP.objects.get(user=existing_guest_user, event=guest_event)
-        assert rsvp.status == EventRSVP.Status.YES
+        assert rsvp.status == EventRSVP.RsvpStatus.YES
 
         # Verify token was blacklisted
         payload_decoded = jwt.decode(
@@ -752,7 +752,7 @@ class TestConfirmGuestAction:
         # Verify ticket was created
         ticket = Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets)
         assert ticket.tier == free_tier
-        assert ticket.status == Ticket.Status.ACTIVE
+        assert ticket.status == Ticket.TicketStatus.ACTIVE
 
     def test_confirm_guest_action_rejects_expired_token(
         self, guest_event: Event, existing_guest_user: RevelUser
@@ -862,7 +862,7 @@ class TestConfirmGuestAction:
             email="filler@example.com",
             guest=True,
         )
-        EventRSVP.objects.create(event=guest_event, user=other_user, status=EventRSVP.Status.YES)
+        EventRSVP.objects.create(event=guest_event, user=other_user, status=EventRSVP.RsvpStatus.YES)
 
         client = Client()
         url = reverse("api:confirm_guest_action")
@@ -1015,7 +1015,7 @@ class TestGuestServiceLayer:
         """Test handle_guest_rsvp service function."""
         # Act
         result = guest_service.handle_guest_rsvp(
-            guest_event, EventRSVP.Status.YES, "service@test.com", "Service", "Test"
+            guest_event, EventRSVP.RsvpStatus.YES, "service@test.com", "Service", "Test"
         )
 
         # Assert
@@ -1383,7 +1383,7 @@ class TestGuestFlowIntegration:
         # Step 4: Verify RSVP was created
         user = RevelUser.objects.get(email="endtoend@example.com")
         rsvp = EventRSVP.objects.get(user=user, event=guest_event)
-        assert rsvp.status == EventRSVP.Status.YES
+        assert rsvp.status == EventRSVP.RsvpStatus.YES
 
     def test_complete_ticket_flow_end_to_end(self, guest_event_with_tickets: Event, free_tier: TicketTier) -> None:
         """Test complete ticket flow: initiate -> receive email -> confirm -> verify ticket."""
@@ -1421,7 +1421,7 @@ class TestGuestFlowIntegration:
         user = RevelUser.objects.get(email="ticketflow@example.com")
         ticket = Ticket.objects.get(user=user, event=guest_event_with_tickets)
         assert ticket.tier == free_tier
-        assert ticket.status == Ticket.Status.ACTIVE
+        assert ticket.status == Ticket.TicketStatus.ACTIVE
 
     @patch("events.service.stripe_service.create_checkout_session")
     def test_complete_online_payment_flow(
@@ -1486,7 +1486,7 @@ class TestGuestFlowIntegration:
         user = RevelUser.objects.get(email="convert@example.com")
         assert user.guest is True
         rsvp = EventRSVP.objects.get(user=user, event=guest_event)
-        assert rsvp.status == EventRSVP.Status.YES
+        assert rsvp.status == EventRSVP.RsvpStatus.YES
 
         # Note: Testing password reset conversion is accounts functionality,
         # not guest endpoint functionality. The guest user and RSVP have been
@@ -1604,7 +1604,7 @@ class TestGuestDuplicateActions:
 
         # Verify first RSVP
         rsvp = EventRSVP.objects.get(user=existing_guest_user, event=guest_event)
-        assert rsvp.status == EventRSVP.Status.YES
+        assert rsvp.status == EventRSVP.RsvpStatus.YES
 
         # Second RSVP: MAYBE (different answer)
         mail.outbox.clear()
@@ -1621,7 +1621,7 @@ class TestGuestDuplicateActions:
 
         # Verify RSVP was updated
         rsvp.refresh_from_db()
-        assert rsvp.status == EventRSVP.Status.MAYBE
+        assert rsvp.status == EventRSVP.RsvpStatus.MAYBE
 
 
 # ============================================================================
@@ -1649,7 +1649,7 @@ class TestGuestModelValidation:
             organization=organization,
             name="Test Event",
             slug="test-event",
-            event_type=Event.Types.PUBLIC,
+            event_type=Event.EventType.PUBLIC,
             start=next_week,
             end=next_week + timedelta(days=1),
         )
@@ -1770,7 +1770,7 @@ class TestGuestErrorMessages:
             email="filler@example.com",
             guest=True,
         )
-        EventRSVP.objects.create(event=guest_event, user=other_user, status=EventRSVP.Status.YES)
+        EventRSVP.objects.create(event=guest_event, user=other_user, status=EventRSVP.RsvpStatus.YES)
 
         # Try to RSVP as guest
         client = Client()

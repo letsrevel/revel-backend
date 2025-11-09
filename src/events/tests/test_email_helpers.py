@@ -60,7 +60,7 @@ class TestBuildEmailContext:
         user = revel_user_factory()
         tier = event.ticket_tiers.first()
         assert tier is not None
-        ticket = Ticket.objects.create(event=event, user=user, tier=tier, status=Ticket.Status.ACTIVE)
+        ticket = Ticket.objects.create(event=event, user=user, tier=tier, status=Ticket.TicketStatus.ACTIVE)
         context_ids = {"ticket_id": str(ticket.id)}
 
         # Act
@@ -176,7 +176,7 @@ class TestGenerateAttachmentContent:
         user = revel_user_factory()
         tier = event.ticket_tiers.first()
         assert tier is not None
-        ticket = Ticket.objects.create(event=event, user=user, tier=tier, status=Ticket.Status.ACTIVE)
+        ticket = Ticket.objects.create(event=event, user=user, tier=tier, status=Ticket.TicketStatus.ACTIVE)
 
         attachment_spec = {
             "type": "ticket_pdf",

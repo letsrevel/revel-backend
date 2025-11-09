@@ -28,7 +28,7 @@ def test_questionnaire_creation_and_manager(questionnaire: Questionnaire) -> Non
 def test_submission_status_change_sets_submitted_at(draft_submission: QuestionnaireSubmission) -> None:
     """Test that moving a submission to SUBMITTED sets the `submitted_at` timestamp."""
     assert draft_submission.submitted_at is None
-    draft_submission.status = QuestionnaireSubmission.Status.READY
+    draft_submission.status = QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     draft_submission.save()  # this will set submitted_at
     draft_submission.refresh_from_db()
     assert draft_submission.submitted_at is not None

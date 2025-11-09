@@ -39,12 +39,12 @@ class OrganizationFilterSchema(CityFilterMixin):
 
 class EventFilterSchema(CityFilterMixin):
     organization: UUID | None = Field(None, q="organization_id")  # type: ignore[call-overload]
-    event_type: Event.Types | None = None
+    event_type: Event.EventType | None = None
     visibility: Event.Visibility | None = None
     event_series: UUID | None = Field(None, q="event_series_id")  # type: ignore[call-overload]
     next_events: bool | None = True
     past_events: bool | None = None
-    status: Event.Status | None = None
+    status: Event.EventStatus | None = None
     tags: list[str] | None = None
 
     def filter_next_events(self, next_events: bool) -> Q:
@@ -118,7 +118,7 @@ class OrganizationTokenFilterSchema(FilterSchema):
 class RSVPFilterSchema(FilterSchema):
     """Filter schema for event RSVPs."""
 
-    status: EventRSVP.Status | None = None
+    status: EventRSVP.RsvpStatus | None = None
     user_id: UUID | None = None
     include_past: bool = False
 
@@ -137,7 +137,7 @@ class RSVPFilterSchema(FilterSchema):
 class TicketFilterSchema(FilterSchema):
     """Filter schema for tickets."""
 
-    status: Ticket.Status | None = None
+    status: Ticket.TicketStatus | None = None
     tier__payment_method: TicketTier.PaymentMethod | None = Field(None, q="tier__payment_method")  # type: ignore[call-overload]
     include_past: bool = False
 
@@ -312,7 +312,7 @@ class MembershipRequestFilterSchema(FilterSchema):
 class InvitationRequestFilterSchema(FilterSchema):
     """Filter schema for event invitation requests."""
 
-    status: EventInvitationRequest.Status | None = None
+    status: EventInvitationRequest.InvitationRequestStatus | None = None
 
 
 class SubmissionFilterSchema(FilterSchema):
@@ -335,7 +335,7 @@ class SubmissionFilterSchema(FilterSchema):
             return Q(evaluation__isnull=True)
 
         # Validate the status value
-        valid_statuses = [choice.value for choice in QuestionnaireEvaluation.Status]
+        valid_statuses = [choice.value for choice in QuestionnaireEvaluation.QuestionnaireEvaluationStatus]
         if evaluation_status not in valid_statuses:
             return Q()
 

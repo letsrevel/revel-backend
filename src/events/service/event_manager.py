@@ -103,7 +103,7 @@ class EventStatusGate(BaseEligibilityGate):
                 event_id=self.event.id,
                 reason=_(Reasons.EVENT_HAS_FINISHED),
             )
-        if self.event.status != models.Event.Status.OPEN:
+        if self.event.status != models.Event.EventStatus.OPEN:
             return EventUserEligibility(
                 allowed=False,
                 event_id=self.event.id,
@@ -118,7 +118,7 @@ class InvitationGate(BaseEligibilityGate):
 
     def check(self) -> EventUserEligibility | None:
         """Check if invitation is valid."""
-        if self.event.event_type == models.Event.Types.PRIVATE and not self.handler.invitation:
+        if self.event.event_type == models.Event.EventType.PRIVATE and not self.handler.invitation:
             return EventUserEligibility(
                 allowed=False,
                 event_id=self.event.id,
@@ -135,7 +135,7 @@ class MembershipGate(BaseEligibilityGate):
         """Check if membership is in order."""
         if self.handler.waives_membership_required():
             return None
-        if self.event.event_type == models.Event.Types.MEMBERS_ONLY and self.user.id not in self.handler.member_ids:
+        if self.event.event_type == models.Event.EventType.MEMBERS_ONLY and self.user.id not in self.handler.member_ids:
             return EventUserEligibility(
                 allowed=False,
                 event_id=self.event.id,
@@ -163,7 +163,10 @@ class QuestionnaireGate(BaseEligibilityGate):
         for org_questionnaire in self.handler.event.organization.relevant_org_questionnaires:  # type: ignore[attr-defined]
             # Look up the submission in our O(1) map. No database query.
             submissions = self.handler.submission_map.get(org_questionnaire.questionnaire_id)
-            if submissions is None or submissions[0].status != QuestionnaireSubmission.Status.READY:
+            if (
+                submissions is None
+                or submissions[0].status != QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
+            ):
                 questionnaires_missing.append(org_questionnaire.questionnaire_id)
 
         if questionnaires_missing:
@@ -182,7 +185,10 @@ class QuestionnaireGate(BaseEligibilityGate):
             # Look up the submission in our O(1) map. No database query.
             if submissions := self.handler.submission_map.get(org_questionnaire.questionnaire_id):
                 evaluation = getattr(submissions[0], "evaluation", None)
-                if evaluation is None or evaluation.status == QuestionnaireEvaluation.Status.PENDING_REVIEW:
+                if (
+                    evaluation is None
+                    or evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW
+                ):
                     questionnaires_pending_review.append(org_questionnaire.questionnaire_id)
         if questionnaires_pending_review:
             return EventUserEligibility(
@@ -207,7 +213,7 @@ class QuestionnaireGate(BaseEligibilityGate):
             evaluation = getattr(submission, "evaluation", None)
             if evaluation is None:
                 continue
-            if evaluation.status != QuestionnaireEvaluation.Status.REJECTED:
+            if evaluation.status != QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED:
                 continue
             if 0 < questionnaire.max_attempts <= len(submissions):
                 failed_questionnaires.append(org_questionnaire.questionnaire_id)
@@ -370,8 +376,8 @@ class EligibilityService:
             event_link_filter |= Q(event_series=event.event_series)
 
         questionnaire_filter = event_link_filter & Q(
-            questionnaire_type=OrganizationQuestionnaire.Types.ADMISSION,
-            questionnaire__status=Questionnaire.Status.PUBLISHED,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+            questionnaire__status=Questionnaire.QuestionnaireStatus.PUBLISHED,
         )
 
         # Now, fetch the event and all its related data in a single, optimized query.
@@ -397,7 +403,7 @@ class EligibilityService:
                 ),
                 Prefetch(
                     "rsvps",
-                    queryset=models.EventRSVP.objects.filter(status=EventRSVP.Status.YES),
+                    queryset=models.EventRSVP.objects.filter(status=EventRSVP.RsvpStatus.YES),
                 ),
                 "ticket_tiers",  # Prefetch ticket tiers for sales window checking
             )
@@ -461,7 +467,7 @@ class EventManager:
         self.eligibility_service = EligibilityService(user, event)
 
     @transaction.atomic
-    def rsvp(self, answer: EventRSVP.Status, bypass_eligibility_checks: bool = False) -> EventRSVP:
+    def rsvp(self, answer: EventRSVP.RsvpStatus, bypass_eligibility_checks: bool = False) -> EventRSVP:
         """Rsvp to an event.
 
         A user can RSVP if an Event DOES not require a ticket, AND:
@@ -557,7 +563,7 @@ class EventManager:
         TicketTier.objects.select_for_update().filter(pk=tier.pk).update(quantity_sold=F("quantity_sold") + 1)
 
         # Create an ACTIVE ticket directly, bypassing the payment flow
-        ticket = Ticket.objects.create(event=self.event, tier=tier, user=self.user, status=Ticket.Status.ACTIVE)
+        ticket = Ticket.objects.create(event=self.event, tier=tier, user=self.user, status=Ticket.TicketStatus.ACTIVE)
 
         return ticket
 
@@ -581,7 +587,9 @@ class EventManager:
                     ),
                 )
         else:
-            count = EventRSVP.objects.select_for_update().filter(event=self.event, status=EventRSVP.Status.YES).count()
+            count = (
+                EventRSVP.objects.select_for_update().filter(event=self.event, status=EventRSVP.RsvpStatus.YES).count()
+            )
 
         if count >= self.event.max_attendees:
             raise UserIsIneligibleError(

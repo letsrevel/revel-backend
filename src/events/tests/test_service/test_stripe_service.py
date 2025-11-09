@@ -241,7 +241,7 @@ class TestCreateCheckoutSession:
 
         # Create a pre-existing pending payment and ticket
         ticket = Ticket.objects.create(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, status=Ticket.Status.PENDING
+            event=event, tier=paid_ticket_tier, user=organization_owner_user, status=Ticket.TicketStatus.PENDING
         )
         Payment.objects.create(
             ticket=ticket,
@@ -281,7 +281,7 @@ class TestCreateCheckoutSession:
         paid_ticket_tier.save()
 
         ticket = Ticket.objects.create(
-            event=event, tier=paid_ticket_tier, user=organization_owner_user, status=Ticket.Status.PENDING
+            event=event, tier=paid_ticket_tier, user=organization_owner_user, status=Ticket.TicketStatus.PENDING
         )
         Payment.objects.create(
             ticket=ticket,
@@ -369,7 +369,7 @@ class TestCreateCheckoutSession:
 
         # Verify ticket was created
         ticket = payment.ticket
-        assert ticket.status == Ticket.Status.PENDING
+        assert ticket.status == Ticket.TicketStatus.PENDING
         assert ticket.event == event
         assert ticket.tier == paid_ticket_tier
         assert ticket.user == organization_owner_user
@@ -487,7 +487,7 @@ class TestStripeEventHandler:
             event=event,
             tier=paid_ticket_tier,
             user=organization_owner_user,
-            status=Ticket.Status.PENDING,
+            status=Ticket.TicketStatus.PENDING,
         )
         return Payment.objects.create(
             ticket=ticket,
@@ -496,7 +496,7 @@ class TestStripeEventHandler:
             amount=Decimal("25.00"),
             platform_fee=Decimal("1.25"),
             currency="EUR",
-            status=Payment.Status.PENDING,
+            status=Payment.PaymentStatus.PENDING,
             raw_response={},
         )
 
@@ -537,14 +537,14 @@ class TestStripeEventHandler:
 
         # Assert
         completed_payment.refresh_from_db()
-        assert completed_payment.status == Payment.Status.SUCCEEDED
+        assert completed_payment.status == Payment.PaymentStatus.SUCCEEDED
         assert completed_payment.stripe_payment_intent_id == "pi_test123"
         # The assertion now works because handler.event is iterable
         assert completed_payment.raw_response == dict(handler.event)
 
         ticket = completed_payment.ticket
         ticket.refresh_from_db()
-        assert ticket.status == Ticket.Status.ACTIVE
+        assert ticket.status == Ticket.TicketStatus.ACTIVE
 
         mock_email_task.assert_called_once_with(str(completed_payment.id))
 
@@ -564,7 +564,7 @@ class TestStripeEventHandler:
 
         # Assert
         completed_payment.refresh_from_db()
-        assert completed_payment.status == Payment.Status.PENDING  # Status remains unchanged
+        assert completed_payment.status == Payment.PaymentStatus.PENDING  # Status remains unchanged
 
     @patch("events.tasks.send_payment_confirmation_email.delay")
     def test_handle_checkout_session_completed_idempotent(
@@ -576,7 +576,7 @@ class TestStripeEventHandler:
     ) -> None:
         """Test that duplicate webhooks are handled idempotently."""
         # Arrange
-        completed_payment.status = Payment.Status.SUCCEEDED
+        completed_payment.status = Payment.PaymentStatus.SUCCEEDED
         completed_payment.save()
 
         mock_session_data = {"id": "cs_test123", "payment_status": "paid"}
@@ -609,12 +609,12 @@ class TestStripeEventHandler:
     ) -> None:
         """Test successful refund processing."""
         # Arrange
-        completed_payment.status = Payment.Status.SUCCEEDED
+        completed_payment.status = Payment.PaymentStatus.SUCCEEDED
         completed_payment.stripe_payment_intent_id = "pi_test123"
         completed_payment.save()
 
         ticket = completed_payment.ticket
-        ticket.status = Ticket.Status.ACTIVE
+        ticket.status = Ticket.TicketStatus.ACTIVE
         ticket.save()
 
         tier = ticket.tier
@@ -636,11 +636,11 @@ class TestStripeEventHandler:
 
         # Assert
         completed_payment.refresh_from_db()
-        assert completed_payment.status == Payment.Status.REFUNDED
+        assert completed_payment.status == Payment.PaymentStatus.REFUNDED
         assert completed_payment.raw_response == dict(handler.event)
 
         ticket.refresh_from_db()
-        assert ticket.status == Ticket.Status.CANCELLED
+        assert ticket.status == Ticket.TicketStatus.CANCELLED
 
         tier.refresh_from_db()
         assert tier.quantity_sold == 4  # Restored from 5 to 4
@@ -653,7 +653,7 @@ class TestStripeEventHandler:
     ) -> None:
         """Test that duplicate refund webhooks are handled idempotently."""
         # Arrange
-        completed_payment.status = Payment.Status.REFUNDED
+        completed_payment.status = Payment.PaymentStatus.REFUNDED
         completed_payment.stripe_payment_intent_id = "pi_test123"
         completed_payment.save()
 
@@ -695,12 +695,12 @@ class TestStripeEventHandler:
     ) -> None:
         """Test successful payment intent cancellation processing."""
         # Arrange
-        completed_payment.status = Payment.Status.PENDING
+        completed_payment.status = Payment.PaymentStatus.PENDING
         completed_payment.stripe_payment_intent_id = "pi_test123"
         completed_payment.save()
 
         ticket = completed_payment.ticket
-        ticket.status = Ticket.Status.PENDING
+        ticket.status = Ticket.TicketStatus.PENDING
         ticket.save()
 
         tier = ticket.tier
@@ -722,11 +722,11 @@ class TestStripeEventHandler:
 
         # Assert
         completed_payment.refresh_from_db()
-        assert completed_payment.status == Payment.Status.FAILED
+        assert completed_payment.status == Payment.PaymentStatus.FAILED
         assert completed_payment.raw_response == dict(handler.event)
 
         ticket.refresh_from_db()
-        assert ticket.status == Ticket.Status.CANCELLED
+        assert ticket.status == Ticket.TicketStatus.CANCELLED
 
         tier.refresh_from_db()
         assert tier.quantity_sold == 4  # Restored from 5 to 4
@@ -739,7 +739,7 @@ class TestStripeEventHandler:
     ) -> None:
         """Test that payment_intent.canceled for non-pending payment is ignored."""
         # Arrange
-        completed_payment.status = Payment.Status.SUCCEEDED
+        completed_payment.status = Payment.PaymentStatus.SUCCEEDED
         completed_payment.stripe_payment_intent_id = "pi_test123"
         completed_payment.save()
 
@@ -755,7 +755,7 @@ class TestStripeEventHandler:
         # Assert
         assert "stripe_payment_intent_canceled_non_pending" in caplog.text
         completed_payment.refresh_from_db()
-        assert completed_payment.status == Payment.Status.SUCCEEDED  # Unchanged
+        assert completed_payment.status == Payment.PaymentStatus.SUCCEEDED  # Unchanged
 
     def test_handle_payment_intent_canceled_unknown_payment(
         self,

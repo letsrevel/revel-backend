@@ -309,9 +309,9 @@ class QuestionnaireEvaluationAdmin(ModelAdmin):  # type: ignore[misc]
     @admin.display(description="Status")
     def status_display(self, obj: models.QuestionnaireEvaluation) -> str:
         colors = {
-            models.QuestionnaireEvaluation.Status.APPROVED: "green",
-            models.QuestionnaireEvaluation.Status.REJECTED: "red",
-            models.QuestionnaireEvaluation.Status.PENDING_REVIEW: "orange",
+            models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED: "green",
+            models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED: "red",
+            models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW: "orange",
         }
         color = colors.get(obj.status, "gray")  # type: ignore[call-overload]
         return mark_safe(f'<span style="color: {color};">{obj.get_status_display()}</span>')
@@ -321,9 +321,9 @@ class QuestionnaireEvaluationAdmin(ModelAdmin):  # type: ignore[misc]
         if not obj.proposed_status:
             return "—"
         colors = {
-            models.QuestionnaireEvaluation.Status.APPROVED: "green",
-            models.QuestionnaireEvaluation.Status.REJECTED: "red",
-            models.QuestionnaireEvaluation.Status.PENDING_REVIEW: "orange",
+            models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED: "green",
+            models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED: "red",
+            models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW: "orange",
         }
         color = colors.get(obj.proposed_status, "gray")  # type: ignore[call-overload]
         return mark_safe(f'<span style="color: {color};">{obj.get_proposed_status_display()}</span>')

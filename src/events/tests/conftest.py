@@ -72,7 +72,7 @@ def event(organization: Organization, event_series: EventSeries) -> Event:
         organization=organization,
         name="Event",
         slug="event",
-        event_type=Event.Types.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
         event_series=event_series,
         max_attendees=100,
         start=timezone.now(),
@@ -115,7 +115,7 @@ def public_event(organization: Organization, next_week: datetime) -> Event:
         name="Public Event",
         slug="Public-Event",
         visibility=Event.Visibility.PUBLIC,
-        event_type=Event.Types.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
         max_attendees=10,
         status="open",
         start=next_week,
@@ -132,7 +132,7 @@ def private_event(organization: Organization, next_week: datetime) -> Event:
         name="Private Event",
         slug="Private-Event",
         visibility=Event.Visibility.PRIVATE,
-        event_type=Event.Types.PRIVATE,
+        event_type=Event.EventType.PRIVATE,
         max_attendees=10,
         status="open",
         start=next_week,
@@ -149,7 +149,7 @@ def members_only_event(organization: Organization, next_week: datetime) -> Event
         name="Members Only Event",
         slug="Members-Only-Event",
         visibility=Event.Visibility.MEMBERS_ONLY,
-        event_type=Event.Types.MEMBERS_ONLY,
+        event_type=Event.EventType.MEMBERS_ONLY,
         status="open",
         start=next_week,
         end=next_week + timedelta(days=1),
@@ -211,7 +211,7 @@ def organization_membership_request(
 # --- Questionnaire Fixtures ---
 @pytest.fixture
 def questionnaire() -> Questionnaire:
-    return Questionnaire.objects.create(name="Test Questionnaire", status=Questionnaire.Status.PUBLISHED)
+    return Questionnaire.objects.create(name="Test Questionnaire", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
 
 
 @pytest.fixture
@@ -224,7 +224,9 @@ def org_questionnaire(organization: Organization, questionnaire: Questionnaire) 
 def submitted_submission(member_user: RevelUser, questionnaire: Questionnaire) -> QuestionnaireSubmission:
     """A submitted questionnaire from the member_user."""
     return QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
 
 
@@ -232,7 +234,7 @@ def submitted_submission(member_user: RevelUser, questionnaire: Questionnaire) -
 def approved_evaluation(submitted_submission: QuestionnaireSubmission) -> QuestionnaireEvaluation:
     """An approved evaluation for the member's submission."""
     return QuestionnaireEvaluation.objects.create(
-        submission=submitted_submission, status=QuestionnaireEvaluation.Status.APPROVED
+        submission=submitted_submission, status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED
     )
 
 
@@ -240,7 +242,7 @@ def approved_evaluation(submitted_submission: QuestionnaireSubmission) -> Questi
 def rejected_evaluation(submitted_submission: QuestionnaireSubmission) -> QuestionnaireEvaluation:
     """A rejected evaluation for the member's submission."""
     return QuestionnaireEvaluation.objects.create(
-        submission=submitted_submission, status=QuestionnaireEvaluation.Status.REJECTED
+        submission=submitted_submission, status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
     )
 
 
