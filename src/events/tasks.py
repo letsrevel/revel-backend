@@ -1,3 +1,52 @@
+"""Celery tasks for event management and notifications.
+
+This module contains asynchronous tasks for:
+- Sending notification emails with retry logic
+- Building attendee visibility flags
+- Cleaning up expired payments
+- Dispatching various event-related notifications
+
+Architecture Overview:
+--------------------
+The notification system uses a two-tier architecture:
+
+1. **Dispatcher Tasks** (notify_*): Parent tasks that:
+   - Fetch eligible users from the database
+   - Create email task signatures for each recipient
+   - Dispatch all emails asynchronously using Celery groups
+   - Return immediately with dispatch count (not waiting for emails to send)
+   - Examples: notify_event_open, notify_potluck_item_update, notify_ticket_update
+
+2. **Worker Task** (send_notification_email): Central task that:
+   - Handles sending a single email to one recipient
+   - Automatically retries on transient failures (SMTP, network) with exponential backoff
+   - Logs all attempts to NotificationTracking for GDPR compliance and debugging
+   - Fails immediately on non-retryable errors (invalid IDs, missing objects)
+   - Each email is isolated - one failure doesn't affect others
+
+Benefits of this architecture:
+- Scalability: Thousands of emails can be dispatched in parallel
+- Reliability: Individual email failures don't block others
+- Observability: Comprehensive logging and tracking for every notification
+- Maintainability: All email-sending logic centralized in one task
+
+Error Handling Strategy:
+-----------------------
+- **Retryable errors** (SMTPException, OSError, TimeoutError, ConnectionError):
+  * Automatic retry up to 3 times with exponential backoff (1s, 2s, 4s)
+  * Logged as warnings during retries, errors on final failure
+
+- **Non-retryable errors** (ObjectDoesNotExist, ValueError, KeyError):
+  * Fail immediately without retry (indicates programming bug or data issue)
+  * Logged as errors with full context
+
+- **Unexpected errors** (anything else):
+  * Fail immediately without retry (likely programming bugs)
+  * Logged as errors with full traceback
+
+See email_helpers.py for registry-based context building and attachment generation.
+"""
+
 import typing as t
 from collections import Counter
 from smtplib import SMTPException
@@ -61,6 +110,12 @@ def _log_failed_notification(
         event_id: Event ID for notification tracking
     """
     if not user_id or not notification_type:
+        logger.warning(
+            "cannot_log_notification_missing_data",
+            user_id=user_id,
+            notification_type=notification_type,
+            reason="missing_required_parameters",
+        )
         return
 
     try:
@@ -68,8 +123,27 @@ def _log_failed_notification(
         event = Event.objects.get(pk=event_id) if event_id else None
         notif_type_enum = NotificationType(notification_type)
         log_notification_attempt(user, notif_type_enum, event=event, success=False)
-    except Exception as log_error:
-        logger.error("failed_to_log_notification_attempt", error=str(log_error))
+    except (ObjectDoesNotExist, ValueError) as e:
+        # Expected errors: invalid IDs or enum values
+        logger.error(
+            "failed_to_log_notification_invalid_data",
+            user_id=user_id,
+            notification_type=notification_type,
+            event_id=event_id,
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+    except Exception as e:
+        # Unexpected errors: log with full traceback
+        logger.error(
+            "failed_to_log_notification_unexpected",
+            user_id=user_id,
+            notification_type=notification_type,
+            event_id=event_id,
+            error=str(e),
+            error_type=type(e).__name__,
+            exc_info=True,
+        )
 
 
 def _create_failure_response(
@@ -277,9 +351,9 @@ def send_notification_email(  # noqa: C901
         raise self.retry(exc=e, countdown=countdown)
 
     except Exception as e:
-        # Catch-all for unexpected errors - treat as potentially retryable
-        # This ensures we don't silently fail on unknown error types
-        logger.warning(
+        # Unexpected errors: likely programming bugs that won't be fixed by retrying
+        # Log as ERROR (not WARNING) and fail immediately without retry
+        logger.error(
             "notification_email_unexpected_error",
             recipient=recipient_email,
             subject=subject,
@@ -288,15 +362,9 @@ def send_notification_email(  # noqa: C901
             exc_info=True,
         )
 
-        # Retry if attempts remaining, otherwise fail
-        if self.request.retries >= self.max_retries:
-            # Log failure
-            _log_failed_notification(user_id, notification_type, event_id)
-            return _create_failure_response(recipient_email, user_id, f"Unexpected error: {e}")
-
-        # Retry with exponential backoff
-        countdown = 2**self.request.retries
-        raise self.retry(exc=e, countdown=countdown)
+        # Log failure and return error response without retry
+        _log_failed_notification(user_id, notification_type, event_id)
+        return _create_failure_response(recipient_email, user_id, f"Unexpected error: {e}")
 
 
 @shared_task
@@ -460,6 +528,7 @@ def notify_event_open(event_id: str) -> dict[str, int]:
     eligible_users = get_eligible_users_for_event_notification(event, NotificationType.EVENT_OPEN)
 
     # Build email tasks for asynchronous execution
+    # Note: No N+1 queries here - we only access user.email which is a direct field on RevelUser
     email_tasks = []
     for user in eligible_users:
         task = send_notification_email.s(
@@ -535,6 +604,7 @@ def notify_potluck_item_update(
     all_users = RevelUser.objects.filter(id__in=all_user_ids)
 
     # Build email tasks for asynchronous execution
+    # Note: No N+1 queries here - we only access user.email and user.id which are direct fields
     email_tasks = []
     skipped = 0
 
@@ -656,6 +726,7 @@ def notify_ticket_update(
     # Notify organization staff and owners about new ticket
     if action in ["free_ticket_created", "offline_payment_pending", "at_door_payment_pending", "ticket_activated"]:
         staff_and_owners = get_organization_staff_and_owners(event.organization)
+        # Note: No N+1 queries - accessing direct fields only
 
         for staff_user in staff_and_owners:
             staff_task = send_notification_email.s(
@@ -734,6 +805,7 @@ def notify_questionnaire_submission(questionnaire_submission_id: str) -> dict[st
 
     email_tasks = []
     skipped = 0
+    # Note: No N+1 queries - accessing direct fields only
 
     for user in staff_and_owners:
         if not should_notify_user_for_questionnaire(user, organization, NotificationType.QUESTIONNAIRE_SUBMITTED):

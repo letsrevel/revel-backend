@@ -333,10 +333,8 @@ class TestSendNotificationEmail:
     """Tests for send_notification_email task with retry logic and error handling."""
 
     @patch("events.tasks.EmailMultiAlternatives")
-    @patch("events.tasks.EmailLog")
     def test_send_notification_email_success(
         self,
-        mock_email_log: MagicMock,
         mock_email_class: MagicMock,
         event: Event,
         revel_user_factory: RevelUserFactory,

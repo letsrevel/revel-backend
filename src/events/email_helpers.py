@@ -28,41 +28,53 @@ Example usage:
 import typing as t
 from collections.abc import Callable
 
-from django.db.models import Model
-
 from accounts.models import RevelUser
 from events.models import Event, Organization, Payment, PotluckItem, Ticket
 from events.utils import create_ticket_pdf
 from questionnaires.models import QuestionnaireEvaluation, QuestionnaireSubmission
 
-# Type alias for model fetcher functions
-ModelFetcher = Callable[[str], Model]
+# Type alias for context fetcher functions that return dict of context values
+# This allows fetchers to return multiple related objects (e.g., submission + questionnaire + submitter)
+ContextFetcher = Callable[[str], dict[str, t.Any]]
+
+
+def _fetch_submission(pk: str) -> dict[str, t.Any]:
+    """Fetch submission and derived context (questionnaire, submitter).
+
+    Args:
+        pk: Submission ID
+
+    Returns:
+        Dict with submission, questionnaire, and submitter objects
+    """
+    submission = QuestionnaireSubmission.objects.select_related("questionnaire", "user").get(pk=pk)
+    return {
+        "submission": submission,
+        "questionnaire": submission.questionnaire,
+        "submitter": submission.user,
+    }
 
 
 # Registry mapping context keys to their fetcher functions
-# Format: {context_key_suffix: (context_name, fetcher_lambda)}
-CONTEXT_FETCHERS: dict[str, tuple[str, ModelFetcher]] = {
-    "user_id": ("user", lambda pk: RevelUser.objects.get(pk=pk)),
-    "event_id": ("event", lambda pk: Event.objects.select_related("organization", "city").get(pk=pk)),
-    "organization_id": ("organization", lambda pk: Organization.objects.get(pk=pk)),
-    "ticket_id": ("ticket", lambda pk: Ticket.objects.select_related("event", "user", "tier").get(pk=pk)),
-    "payment_id": ("payment", lambda pk: Payment.objects.select_related("user", "ticket__event").get(pk=pk)),
-    "potluck_item_id": (
-        "potluck_item",
-        lambda pk: PotluckItem.objects.select_related("event__organization", "assignee").get(pk=pk),
-    ),
-    "submission_id": (
-        "submission",
-        lambda pk: QuestionnaireSubmission.objects.select_related("questionnaire", "user").get(pk=pk),
-    ),
-    "evaluation_id": (
-        "evaluation",
-        lambda pk: QuestionnaireEvaluation.objects.select_related(
+# Format: {context_key_suffix: fetcher_callable}
+# Fetchers return dict[str, Any] with one or more context values
+CONTEXT_FETCHERS: dict[str, ContextFetcher] = {
+    "user_id": lambda pk: {"user": RevelUser.objects.get(pk=pk)},
+    "event_id": lambda pk: {"event": Event.objects.select_related("organization", "city").get(pk=pk)},
+    "organization_id": lambda pk: {"organization": Organization.objects.get(pk=pk)},
+    "ticket_id": lambda pk: {"ticket": Ticket.objects.select_related("event", "user", "tier").get(pk=pk)},
+    "payment_id": lambda pk: {"payment": Payment.objects.select_related("user", "ticket__event").get(pk=pk)},
+    "potluck_item_id": lambda pk: {
+        "potluck_item": PotluckItem.objects.select_related("event__organization", "assignee").get(pk=pk)
+    },
+    "submission_id": _fetch_submission,
+    "evaluation_id": lambda pk: {
+        "evaluation": QuestionnaireEvaluation.objects.select_related(
             "submission__questionnaire__event__organization", "submission__user", "evaluator"
-        ).get(pk=pk),
-    ),
-    "changed_by_user_id": ("changed_by", lambda pk: RevelUser.objects.get(pk=pk)),
-    "ticket_holder_id": ("ticket_holder", lambda pk: RevelUser.objects.get(pk=pk)),
+        ).get(pk=pk)
+    },
+    "changed_by_user_id": lambda pk: {"changed_by": RevelUser.objects.get(pk=pk)},
+    "ticket_holder_id": lambda pk: {"ticket_holder": RevelUser.objects.get(pk=pk)},
 }
 
 
@@ -105,13 +117,8 @@ def build_email_context(context_ids: dict[str, t.Any]) -> dict[str, t.Any]:
     """Build email template context by fetching objects from IDs.
 
     Uses a registry-based approach to map context ID keys to their corresponding
-    model fetchers. This avoids the if/elif spaghetti and makes it easy to add
-    new context types.
-
-    Note on derived context:
-    For submission_id, this function adds derived context (questionnaire, submitter)
-    from the submission object. This special-casing exists because submission emails
-    need these values. See the registry implementation for details.
+    model fetchers. Fetchers can return one or more related objects, enabling
+    derived context (e.g., submission_id returns submission, questionnaire, and submitter).
 
     Args:
         context_ids: Dict with model IDs (str) and raw context values (Any).
@@ -130,19 +137,10 @@ def build_email_context(context_ids: dict[str, t.Any]) -> dict[str, t.Any]:
     # Fetch models using registry
     for key, pk in context_ids.items():
         if key in CONTEXT_FETCHERS:
-            context_name, fetcher = CONTEXT_FETCHERS[key]
-            obj = fetcher(pk)
-            context[context_name] = obj
-
-            # Handle derived context for specific models
-            # NOTE: This special-casing breaks the registry abstraction slightly, but is acceptable
-            # because: (1) submission emails genuinely need both questionnaire and submitter in context,
-            # (2) the alternative (nested fetchers or separate registry) adds complexity for one case,
-            # (3) this is documented in the function docstring.
-            # Type ignores are safe here because we know obj is a QuestionnaireSubmission when key == "submission_id"
-            if key == "submission_id":
-                context["questionnaire"] = obj.questionnaire  # type: ignore[attr-defined]
-                context["submitter"] = obj.user  # type: ignore[attr-defined]
+            fetcher = CONTEXT_FETCHERS[key]
+            # Fetcher returns dict of context values
+            fetched_context = fetcher(pk)
+            context.update(fetched_context)
 
         # Non-ID fields are passed through as-is
         elif not key.endswith("_id"):
