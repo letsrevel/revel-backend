@@ -42,7 +42,7 @@ def test_create_org_questionnaire(organization: Organization, organization_owner
     payload = OrganizationQuestionnaireCreateSchema(
         name="New Questionnaire",
         min_score=Decimal("0.0"),
-        evaluation_mode=Questionnaire.EvaluationMode.AUTOMATIC,
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
         # Using defaults: questionnaire_type=ADMISSION, max_submission_age=None
     )
     response = organization_owner_client.post(
@@ -53,7 +53,7 @@ def test_create_org_questionnaire(organization: Organization, organization_owner
     assert response.status_code == 200
     data = response.json()
     assert data["questionnaire"]["name"] == "New Questionnaire"
-    assert data["questionnaire_type"] == OrganizationQuestionnaire.Types.ADMISSION
+    assert data["questionnaire_type"] == OrganizationQuestionnaire.QuestionnaireType.ADMISSION
     assert data["max_submission_age"] is None
 
 
@@ -64,8 +64,8 @@ def test_create_org_questionnaire_with_custom_fields(
     payload = OrganizationQuestionnaireCreateSchema(
         name="Feedback Questionnaire",
         min_score=Decimal("50.0"),
-        evaluation_mode=Questionnaire.EvaluationMode.MANUAL,
-        questionnaire_type=OrganizationQuestionnaire.Types.FEEDBACK,
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL,
+        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
         max_submission_age=timedelta(hours=2, minutes=30),  # 2.5 hours
     )
     response = organization_owner_client.post(
@@ -76,7 +76,7 @@ def test_create_org_questionnaire_with_custom_fields(
     assert response.status_code == 200
     data = response.json()
     assert data["questionnaire"]["name"] == "Feedback Questionnaire"
-    assert data["questionnaire_type"] == OrganizationQuestionnaire.Types.FEEDBACK
+    assert data["questionnaire_type"] == OrganizationQuestionnaire.QuestionnaireType.FEEDBACK
     assert data["max_submission_age"] == 2.5 * 3600  # 2.5 hours in seconds (float)
 
 
@@ -86,23 +86,29 @@ def test_list_submissions_success(
     """Test that organization staff can list questionnaire submissions."""
     # Create questionnaire and org questionnaire
     questionnaire = Questionnaire.objects.create(
-        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Test Questionnaire", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
 
     # Create ready submissions
     submission1 = QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
     # Create another user for the second submission
     another_user = RevelUser.objects.create_user(username="another_user", email="another@example.com", password="pass")
     submission2 = QuestionnaireSubmission.objects.create(
-        user=another_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=another_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
 
     # Create draft submission (should not appear)
     QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.DRAFT
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.DRAFT,
     )
 
     url = reverse("api:list_submissions", kwargs={"org_questionnaire_id": org_questionnaire.id})
@@ -127,16 +133,16 @@ def test_list_submissions_with_search(organization: Organization, organization_o
 
     # Create questionnaire
     questionnaire = Questionnaire.objects.create(
-        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Test Questionnaire", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
 
     # Create submissions
     submission1 = QuestionnaireSubmission.objects.create(
-        user=user1, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=user1, questionnaire=questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
     QuestionnaireSubmission.objects.create(
-        user=user2, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=user2, questionnaire=questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
 
     url = reverse("api:list_submissions", kwargs={"org_questionnaire_id": org_questionnaire.id})
@@ -165,7 +171,7 @@ def test_list_submissions_filter_by_evaluation_status(
     """Test that submissions can be filtered by evaluation status."""
     # Create questionnaire
     questionnaire = Questionnaire.objects.create(
-        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Test Questionnaire", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
 
@@ -176,35 +182,37 @@ def test_list_submissions_filter_by_evaluation_status(
 
     # Create submissions with different evaluation statuses
     submission_approved = QuestionnaireSubmission.objects.create(
-        user=user1, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=user1, questionnaire=questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
     QuestionnaireEvaluation.objects.create(
         submission=submission_approved,
-        status=QuestionnaireEvaluation.Status.APPROVED,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
         evaluator=organization.owner,
     )
 
     submission_rejected = QuestionnaireSubmission.objects.create(
-        user=user2, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=user2, questionnaire=questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
     QuestionnaireEvaluation.objects.create(
         submission=submission_rejected,
-        status=QuestionnaireEvaluation.Status.REJECTED,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
         evaluator=organization.owner,
     )
 
     submission_pending = QuestionnaireSubmission.objects.create(
-        user=user3, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=user3, questionnaire=questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
     QuestionnaireEvaluation.objects.create(
         submission=submission_pending,
-        status=QuestionnaireEvaluation.Status.PENDING_REVIEW,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW,
         evaluator=organization.owner,
     )
 
     # Create submission without evaluation
     submission_no_eval = QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
 
     url = reverse("api:list_submissions", kwargs={"org_questionnaire_id": org_questionnaire.id})
@@ -254,7 +262,7 @@ def test_list_submissions_ordering(
 
     # Create questionnaire
     questionnaire = Questionnaire.objects.create(
-        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Test Questionnaire", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
 
@@ -266,19 +274,19 @@ def test_list_submissions_ordering(
     # Create submissions with different submission times
     now = timezone.now()
     submission1 = QuestionnaireSubmission.objects.create(
-        user=user1, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=user1, questionnaire=questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
     submission1.submitted_at = now - timedelta(days=2)
     submission1.save()
 
     submission2 = QuestionnaireSubmission.objects.create(
-        user=user2, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=user2, questionnaire=questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
     submission2.submitted_at = now - timedelta(days=1)
     submission2.save()
 
     submission3 = QuestionnaireSubmission.objects.create(
-        user=user3, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=user3, questionnaire=questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
     submission3.submitted_at = now
     submission3.save()
@@ -319,7 +327,7 @@ def test_get_submission_detail_success(
     """Test getting detailed submission with answers."""
     # Create questionnaire with questions
     questionnaire = Questionnaire.objects.create(
-        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Test Questionnaire", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
 
@@ -334,7 +342,9 @@ def test_get_submission_detail_success(
 
     # Create submission with answers
     submission = QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
 
     MultipleChoiceAnswer.objects.create(submission=submission, question=mc_question, option=mc_option)
@@ -344,7 +354,7 @@ def test_get_submission_detail_success(
     # Create evaluation
     QuestionnaireEvaluation.objects.create(
         submission=submission,
-        status=QuestionnaireEvaluation.Status.APPROVED,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
         score=Decimal("85.0"),
         comments="Good work",
         evaluator=organization.owner,
@@ -361,8 +371,8 @@ def test_get_submission_detail_success(
 
     assert data["id"] == str(submission.id)
     assert data["user_email"] == member_user.email
-    assert data["status"] == QuestionnaireSubmission.Status.READY
-    assert data["evaluation"]["status"] == QuestionnaireEvaluation.Status.APPROVED
+    assert data["status"] == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
+    assert data["evaluation"]["status"] == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED
     assert data["evaluation"]["score"] == "85.00"
 
     # Check answers
@@ -390,7 +400,7 @@ def test_get_submission_detail_with_multiple_selections(
     """Test getting detailed submission with multiple answers to a single question."""
     # Create questionnaire with a multiple-selection question
     questionnaire = Questionnaire.objects.create(
-        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Test Questionnaire", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
 
@@ -404,7 +414,9 @@ def test_get_submission_detail_with_multiple_selections(
 
     # Create submission with multiple answers to the same question
     submission = QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
 
     MultipleChoiceAnswer.objects.create(submission=submission, question=mc_question, option=mc_option_1)
@@ -464,7 +476,9 @@ def test_get_submission_detail_permission_denied(
     questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
     submission = QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
 
     url = reverse(
@@ -481,14 +495,20 @@ def test_evaluate_submission_approve(
 ) -> None:
     """Test approving a submission."""
     questionnaire = Questionnaire.objects.create(
-        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Test Questionnaire", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
     submission = QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
 
-    payload = {"status": QuestionnaireEvaluation.Status.APPROVED, "score": "92.5", "comments": "Excellent submission!"}
+    payload = {
+        "status": QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        "score": "92.5",
+        "comments": "Excellent submission!",
+    }
 
     url = reverse(
         "api:evaluate_submission", kwargs={"org_questionnaire_id": org_questionnaire.id, "submission_id": submission.id}
@@ -498,14 +518,14 @@ def test_evaluate_submission_approve(
     assert response.status_code == 200
     data = response.json()
 
-    assert data["status"] == QuestionnaireEvaluation.Status.APPROVED
+    assert data["status"] == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED
     assert Decimal(data["score"]) == Decimal("92.50")
     assert data["comments"] == "Excellent submission!"
     assert data["submission_id"] == str(submission.id)
 
     # Verify evaluation was created
     evaluation = QuestionnaireEvaluation.objects.get(submission=submission)
-    assert evaluation.status == QuestionnaireEvaluation.Status.APPROVED
+    assert evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED
     assert evaluation.score == Decimal("92.50")
     assert evaluation.evaluator == organization.owner
 
@@ -515,14 +535,19 @@ def test_evaluate_submission_reject(
 ) -> None:
     """Test rejecting a submission."""
     questionnaire = Questionnaire.objects.create(
-        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Test Questionnaire", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
     submission = QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
 
-    payload = {"status": QuestionnaireEvaluation.Status.REJECTED, "comments": "Needs improvement in several areas."}
+    payload = {
+        "status": QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
+        "comments": "Needs improvement in several areas.",
+    }
 
     url = reverse(
         "api:evaluate_submission", kwargs={"org_questionnaire_id": org_questionnaire.id, "submission_id": submission.id}
@@ -532,7 +557,7 @@ def test_evaluate_submission_reject(
     assert response.status_code == 200
     data = response.json()
 
-    assert data["status"] == QuestionnaireEvaluation.Status.REJECTED
+    assert data["status"] == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
     assert data["score"] is None
     assert data["comments"] == "Needs improvement in several areas."
 
@@ -542,24 +567,26 @@ def test_evaluate_submission_update_existing(
 ) -> None:
     """Test updating an existing evaluation."""
     questionnaire = Questionnaire.objects.create(
-        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Test Questionnaire", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
     submission = QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
 
     # Create initial evaluation
     initial_evaluation = QuestionnaireEvaluation.objects.create(
         submission=submission,
-        status=QuestionnaireEvaluation.Status.PENDING_REVIEW,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW,
         score=Decimal("70.0"),
         comments="Initial review",
         evaluator=organization.owner,
     )
 
     payload = {
-        "status": QuestionnaireEvaluation.Status.APPROVED,
+        "status": QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
         "score": "85.0",
         "comments": "Updated: looks good now!",
     }
@@ -574,7 +601,7 @@ def test_evaluate_submission_update_existing(
 
     # Should be same evaluation ID, just updated
     assert data["id"] == str(initial_evaluation.id)
-    assert data["status"] == QuestionnaireEvaluation.Status.APPROVED
+    assert data["status"] == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED
     assert Decimal(data["score"]) == Decimal("85.00")
     assert data["comments"] == "Updated: looks good now!"
 
@@ -586,11 +613,13 @@ def test_evaluate_submission_invalid_score(
     questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
     submission = QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
 
     payload = {
-        "status": QuestionnaireEvaluation.Status.APPROVED,
+        "status": QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
         "score": "150.0",  # Invalid: > 100
     }
 
@@ -609,10 +638,12 @@ def test_evaluate_submission_permission_denied(
     questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
     submission = QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire, status=QuestionnaireSubmission.Status.READY
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
 
-    payload = {"status": QuestionnaireEvaluation.Status.APPROVED, "score": "85.0"}
+    payload = {"status": QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED, "score": "85.0"}
 
     url = reverse(
         "api:evaluate_submission", kwargs={"org_questionnaire_id": org_questionnaire.id, "submission_id": submission.id}
@@ -629,10 +660,10 @@ def test_list_org_questionnaires_success(organization: Organization, organizatio
     """Test that organization questionnaires can be listed."""
     # Create questionnaires
     questionnaire1 = Questionnaire.objects.create(
-        name="Test Questionnaire 1", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Test Questionnaire 1", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     questionnaire2 = Questionnaire.objects.create(
-        name="Test Questionnaire 2", evaluation_mode=Questionnaire.EvaluationMode.AUTOMATIC
+        name="Test Questionnaire 2", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
     )
     OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire1)
     OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire2)
@@ -651,10 +682,10 @@ def test_list_org_questionnaires_success(organization: Organization, organizatio
 def test_list_org_questionnaires_with_search(organization: Organization, organization_owner_client: Client) -> None:
     """Test that organization questionnaires can be searched by name."""
     questionnaire1 = Questionnaire.objects.create(
-        name="Python Workshop", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Python Workshop", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     questionnaire2 = Questionnaire.objects.create(
-        name="JavaScript Quiz", evaluation_mode=Questionnaire.EvaluationMode.AUTOMATIC
+        name="JavaScript Quiz", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
     )
     OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire1)
     OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire2)
@@ -828,10 +859,10 @@ def test_list_org_questionnaires_with_pending_evaluations_count(
     """Test that pending evaluations count is correctly included in the response."""
     # Create two questionnaires
     questionnaire1 = Questionnaire.objects.create(
-        name="Questionnaire 1", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Questionnaire 1", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     questionnaire2 = Questionnaire.objects.create(
-        name="Questionnaire 2", evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Questionnaire 2", evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL
     )
     org_q1 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire1)
     org_q2 = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire2)
@@ -845,37 +876,39 @@ def test_list_org_questionnaires_with_pending_evaluations_count(
     # For questionnaire 1: Create submissions with different evaluation statuses
     # 1. Submission with no evaluation (pending)
     QuestionnaireSubmission.objects.create(
-        user=user1, questionnaire=questionnaire1, status=QuestionnaireSubmission.Status.READY
+        user=user1, questionnaire=questionnaire1, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
 
     # 2. Submission with pending review evaluation (pending)
     submission1_pending = QuestionnaireSubmission.objects.create(
-        user=user2, questionnaire=questionnaire1, status=QuestionnaireSubmission.Status.READY
+        user=user2, questionnaire=questionnaire1, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
     QuestionnaireEvaluation.objects.create(
         submission=submission1_pending,
-        status=QuestionnaireEvaluation.Status.PENDING_REVIEW,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW,
         evaluator=organization.owner,
     )
 
     # 3. Submission with approved evaluation (NOT pending)
     submission1_approved = QuestionnaireSubmission.objects.create(
-        user=user3, questionnaire=questionnaire1, status=QuestionnaireSubmission.Status.READY
+        user=user3, questionnaire=questionnaire1, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
     QuestionnaireEvaluation.objects.create(
         submission=submission1_approved,
-        status=QuestionnaireEvaluation.Status.APPROVED,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
         evaluator=organization.owner,
     )
 
     # 4. Draft submission (should NOT be counted)
     QuestionnaireSubmission.objects.create(
-        user=user4, questionnaire=questionnaire1, status=QuestionnaireSubmission.Status.DRAFT
+        user=user4, questionnaire=questionnaire1, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.DRAFT
     )
 
     # For questionnaire 2: Create one submission with no evaluation
     QuestionnaireSubmission.objects.create(
-        user=member_user, questionnaire=questionnaire2, status=QuestionnaireSubmission.Status.READY
+        user=member_user,
+        questionnaire=questionnaire2,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )
 
     url = reverse("api:list_org_questionnaires")
@@ -900,7 +933,9 @@ def test_list_org_questionnaires_with_pending_evaluations_count(
 def test_get_org_questionnaire_success(organization: Organization, organization_owner_client: Client) -> None:
     """Test that an organization questionnaire can be retrieved."""
     questionnaire = Questionnaire.objects.create(
-        name="Test Questionnaire", evaluation_mode=Questionnaire.EvaluationMode.MANUAL, min_score=Decimal("75.0")
+        name="Test Questionnaire",
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL,
+        min_score=Decimal("75.0"),
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
 
@@ -911,7 +946,7 @@ def test_get_org_questionnaire_success(organization: Organization, organization_
     data = response.json()
     assert data["questionnaire"]["name"] == "Test Questionnaire"
     assert data["questionnaire"]["min_score"] == "75.00"
-    assert data["questionnaire"]["evaluation_mode"] == Questionnaire.EvaluationMode.MANUAL
+    assert data["questionnaire"]["evaluation_mode"] == Questionnaire.QuestionnaireEvaluationMode.MANUAL
 
 
 def test_get_org_questionnaire_not_found(organization: Organization, organization_owner_client: Client) -> None:
@@ -1324,22 +1359,25 @@ def test_update_org_questionnaire_success(organization: Organization, organizati
         organization=organization,
         questionnaire=questionnaire,
         max_submission_age=timedelta(minutes=30),
-        questionnaire_type=OrganizationQuestionnaire.Types.ADMISSION,
+        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
     )
 
-    payload = {"max_submission_age": 3600, "questionnaire_type": OrganizationQuestionnaire.Types.FEEDBACK}  # 1 hour
+    payload = {
+        "max_submission_age": 3600,
+        "questionnaire_type": OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
+    }  # 1 hour
 
     url = reverse("api:update_org_questionnaire", kwargs={"org_questionnaire_id": org_questionnaire.id})
     response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["questionnaire_type"] == OrganizationQuestionnaire.Types.FEEDBACK
+    assert data["questionnaire_type"] == OrganizationQuestionnaire.QuestionnaireType.FEEDBACK
 
     # Verify questionnaire was updated
     org_questionnaire.refresh_from_db()
     assert org_questionnaire.max_submission_age == timedelta(hours=1)
-    assert org_questionnaire.questionnaire_type == OrganizationQuestionnaire.Types.FEEDBACK
+    assert org_questionnaire.questionnaire_type == OrganizationQuestionnaire.QuestionnaireType.FEEDBACK
 
 
 def test_update_org_questionnaire_underlying_questionnaire(
@@ -1351,7 +1389,7 @@ def test_update_org_questionnaire_underlying_questionnaire(
         min_score=Decimal("50.0"),
         shuffle_questions=False,
         shuffle_sections=False,
-        evaluation_mode=Questionnaire.EvaluationMode.MANUAL,
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL,
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
 
@@ -1360,7 +1398,7 @@ def test_update_org_questionnaire_underlying_questionnaire(
         "min_score": "75.0",
         "shuffle_questions": True,
         "shuffle_sections": True,
-        "evaluation_mode": Questionnaire.EvaluationMode.AUTOMATIC,
+        "evaluation_mode": Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
         "llm_guidelines": "Be strict in evaluation",
         "can_retake_after": 3600,  # 1 hour in seconds
         "max_attempts": 3,
@@ -1375,7 +1413,7 @@ def test_update_org_questionnaire_underlying_questionnaire(
     assert data["questionnaire"]["min_score"] == "75.00"
     assert data["questionnaire"]["shuffle_questions"] is True
     assert data["questionnaire"]["shuffle_sections"] is True
-    assert data["questionnaire"]["evaluation_mode"] == Questionnaire.EvaluationMode.AUTOMATIC
+    assert data["questionnaire"]["evaluation_mode"] == Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
 
     # Verify underlying questionnaire was updated
     questionnaire.refresh_from_db()
@@ -1383,7 +1421,7 @@ def test_update_org_questionnaire_underlying_questionnaire(
     assert questionnaire.min_score == Decimal("75.00")
     assert questionnaire.shuffle_questions is True
     assert questionnaire.shuffle_sections is True
-    assert questionnaire.evaluation_mode == Questionnaire.EvaluationMode.AUTOMATIC
+    assert questionnaire.evaluation_mode == Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
     assert questionnaire.llm_guidelines == "Be strict in evaluation"
     assert questionnaire.can_retake_after is not None
     assert questionnaire.can_retake_after.total_seconds() == 3600
@@ -1393,13 +1431,15 @@ def test_update_org_questionnaire_underlying_questionnaire(
 def test_update_org_questionnaire_partial(organization: Organization, organization_owner_client: Client) -> None:
     """Test that an organization questionnaire can be partially updated."""
     questionnaire = Questionnaire.objects.create(
-        name="Test Questionnaire", min_score=Decimal("50.0"), evaluation_mode=Questionnaire.EvaluationMode.MANUAL
+        name="Test Questionnaire",
+        min_score=Decimal("50.0"),
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL,
     )
     org_questionnaire = OrganizationQuestionnaire.objects.create(
         organization=organization,
         questionnaire=questionnaire,
         max_submission_age=timedelta(minutes=30),
-        questionnaire_type=OrganizationQuestionnaire.Types.ADMISSION,
+        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
     )
 
     # Only update one field
@@ -1410,7 +1450,7 @@ def test_update_org_questionnaire_partial(organization: Organization, organizati
 
     assert response.status_code == 200
     data = response.json()
-    assert data["questionnaire_type"] == OrganizationQuestionnaire.Types.ADMISSION  # Unchanged
+    assert data["questionnaire_type"] == OrganizationQuestionnaire.QuestionnaireType.ADMISSION  # Unchanged
     assert data["questionnaire"]["name"] == "Test Questionnaire"  # Unchanged
 
     # Verify only llm_guidelines was updated
@@ -1691,7 +1731,7 @@ def test_replace_events_wrong_organization(
         organization=other_org,
         name="Other Event",
         slug="other-event",
-        event_type=Event.Types.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
         status="open",
         start=timezone.now(),
         end=timezone.now() + timedelta(hours=2),
@@ -1750,7 +1790,7 @@ def test_assign_event_wrong_organization(
         organization=other_org,
         name="Other Event",
         slug="other-event",
-        event_type=Event.Types.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
         status="open",
         start=timezone.now(),
         end=timezone.now() + timedelta(hours=2),

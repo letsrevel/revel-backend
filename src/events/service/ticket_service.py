@@ -49,7 +49,9 @@ class TicketService:
     @transaction.atomic
     def _offline_checkout(self) -> Ticket:
         TicketTier.objects.select_for_update().filter(pk=self.tier.pk).update(quantity_sold=F("quantity_sold") + 1)
-        ticket = Ticket.objects.create(event=self.event, tier=self.tier, user=self.user, status=Ticket.Status.PENDING)
+        ticket = Ticket.objects.create(
+            event=self.event, tier=self.tier, user=self.user, status=Ticket.TicketStatus.PENDING
+        )
 
         # Send notification for ticket creation
         notify_ticket_creation(str(ticket.id))
@@ -59,7 +61,9 @@ class TicketService:
     @transaction.atomic
     def _free_checkout(self) -> Ticket:
         TicketTier.objects.select_for_update().filter(pk=self.tier.pk).update(quantity_sold=F("quantity_sold") + 1)
-        ticket = Ticket.objects.create(event=self.event, tier=self.tier, user=self.user, status=Ticket.Status.ACTIVE)
+        ticket = Ticket.objects.create(
+            event=self.event, tier=self.tier, user=self.user, status=Ticket.TicketStatus.ACTIVE
+        )
 
         # Send notification for free ticket creation
         notify_ticket_creation(str(ticket.id))
@@ -77,17 +81,17 @@ def check_in_ticket(event: Event, ticket_id: UUID, checked_in_by: RevelUser) -> 
     )
 
     # Check if ticket status is valid for check-in
-    if ticket.status != Ticket.Status.ACTIVE:
+    if ticket.status != Ticket.TicketStatus.ACTIVE:
         if not (
-            ticket.status == Ticket.Status.PENDING
+            ticket.status == Ticket.TicketStatus.PENDING
             and ticket.tier.payment_method in (TicketTier.PaymentMethod.AT_THE_DOOR, TicketTier.PaymentMethod.OFFLINE)
         ):
             # Determine appropriate error message based on ticket status
-            if ticket.status == Ticket.Status.CHECKED_IN:
+            if ticket.status == Ticket.TicketStatus.CHECKED_IN:
                 error_message = str(_("This ticket has already been checked in."))
-            elif ticket.status == Ticket.Status.CANCELLED:
+            elif ticket.status == Ticket.TicketStatus.CANCELLED:
                 error_message = str(_("This ticket has been cancelled."))
-            elif ticket.status == Ticket.Status.PENDING:
+            elif ticket.status == Ticket.TicketStatus.PENDING:
                 error_message = str(_("This ticket is pending payment confirmation."))
             else:
                 error_message = str(_("Invalid ticket status: {status}")).format(status=ticket.status)
@@ -98,7 +102,7 @@ def check_in_ticket(event: Event, ticket_id: UUID, checked_in_by: RevelUser) -> 
         raise HttpError(400, str(_("Check-in is not currently open for this event.")))
 
     # Update ticket status
-    ticket.status = Ticket.Status.CHECKED_IN
+    ticket.status = Ticket.TicketStatus.CHECKED_IN
     ticket.checked_in_at = timezone.now()
     ticket.checked_in_by = checked_in_by
     ticket.save(update_fields=["status", "checked_in_at", "checked_in_by"])

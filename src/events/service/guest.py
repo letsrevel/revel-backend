@@ -173,7 +173,7 @@ def validate_and_decode_guest_token(token: str) -> schema.GuestActionPayload:
 
 
 def handle_guest_rsvp(
-    event: models.Event, answer: models.EventRSVP.Status, email: str, first_name: str, last_name: str
+    event: models.Event, answer: models.EventRSVP.RsvpStatus, email: str, first_name: str, last_name: str
 ) -> schema.GuestActionResponseSchema:
     """Handle guest RSVP request (business logic extracted from controller).
 
@@ -303,7 +303,7 @@ def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.EventTic
         manager = EventManager(user, event)
 
         # Convert string literal back to Status enum
-        answer_enum = models.EventRSVP.Status(payload.answer)
+        answer_enum = models.EventRSVP.RsvpStatus(payload.answer)
         rsvp = manager.rsvp(answer_enum)
 
         # Blacklist token

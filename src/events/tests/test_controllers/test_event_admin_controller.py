@@ -274,66 +274,66 @@ def test_upload_event_logo_replaces_old_file(
 
 def test_update_event_status_to_open_by_owner(organization_owner_client: Client, event: Event) -> None:
     """Test that an organization owner can change event status to open."""
-    event.status = Event.Status.DRAFT
+    event.status = Event.EventStatus.DRAFT
     event.save()
 
-    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.Status.OPEN})
+    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.OPEN})
     response = organization_owner_client.post(url)
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == Event.Status.OPEN
+    assert data["status"] == Event.EventStatus.OPEN
 
     event.refresh_from_db()
-    assert event.status == Event.Status.OPEN
+    assert event.status == Event.EventStatus.OPEN
 
 
 def test_update_event_status_to_closed_by_owner(organization_owner_client: Client, event: Event) -> None:
     """Test that an organization owner can change event status to closed."""
-    event.status = Event.Status.OPEN
+    event.status = Event.EventStatus.OPEN
     event.save()
 
-    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.Status.CLOSED})
+    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.CLOSED})
     response = organization_owner_client.post(url)
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == Event.Status.CLOSED
+    assert data["status"] == Event.EventStatus.CLOSED
 
     event.refresh_from_db()
-    assert event.status == Event.Status.CLOSED
+    assert event.status == Event.EventStatus.CLOSED
 
 
 def test_update_event_status_to_draft_by_owner(organization_owner_client: Client, event: Event) -> None:
     """Test that an organization owner can change event status to draft."""
-    event.status = Event.Status.OPEN
+    event.status = Event.EventStatus.OPEN
     event.save()
 
-    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.Status.DRAFT})
+    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.DRAFT})
     response = organization_owner_client.post(url)
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == Event.Status.DRAFT
+    assert data["status"] == Event.EventStatus.DRAFT
 
     event.refresh_from_db()
-    assert event.status == Event.Status.DRAFT
+    assert event.status == Event.EventStatus.DRAFT
 
 
 def test_update_event_status_to_deleted_by_owner(organization_owner_client: Client, event: Event) -> None:
     """Test that an organization owner can change event status to deleted."""
-    event.status = Event.Status.OPEN
+    event.status = Event.EventStatus.OPEN
     event.save()
 
-    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.Status.DELETED})
+    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.DELETED})
     response = organization_owner_client.post(url)
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == Event.Status.DELETED
+    assert data["status"] == Event.EventStatus.DELETED
 
     event.refresh_from_db()
-    assert event.status == Event.Status.DELETED
+    assert event.status == Event.EventStatus.DELETED
     # Verify event still exists in database (soft delete)
     assert Event.objects.filter(pk=event.pk).exists()
 
@@ -348,15 +348,15 @@ def test_update_event_status_by_staff_with_permission(
     staff_member.permissions = perms
     staff_member.save()
 
-    event.status = Event.Status.DRAFT
+    event.status = Event.EventStatus.DRAFT
     event.save()
 
-    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.Status.OPEN})
+    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.OPEN})
     response = organization_staff_client.post(url)
 
     assert response.status_code == 200
     event.refresh_from_db()
-    assert event.status == Event.Status.OPEN
+    assert event.status == Event.EventStatus.OPEN
 
 
 def test_update_event_status_by_staff_without_permission(
@@ -371,7 +371,7 @@ def test_update_event_status_by_staff_without_permission(
 
     original_status = event.status
 
-    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.Status.DELETED})
+    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.DELETED})
     response = organization_staff_client.post(url)
 
     assert response.status_code == 403
@@ -384,7 +384,7 @@ def test_update_event_status_nonexistent_event(organization_owner_client: Client
     from uuid import uuid4
 
     fake_event_id = uuid4()
-    url = reverse("api:update_event_status", kwargs={"event_id": fake_event_id, "status": Event.Status.OPEN})
+    url = reverse("api:update_event_status", kwargs={"event_id": fake_event_id, "status": Event.EventStatus.OPEN})
     response = organization_owner_client.post(url)
 
     assert response.status_code == 404
@@ -395,7 +395,7 @@ def test_update_event_status_requires_authentication(event: Event) -> None:
     from django.test.client import Client
 
     client = Client()
-    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.Status.OPEN})
+    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.OPEN})
     response = client.post(url)
 
     assert response.status_code == 401
@@ -418,7 +418,7 @@ def test_decide_invitation_request_approve(
     response = organization_owner_client.post(url)
     assert response.status_code == 204
     event_invitation_request.refresh_from_db()
-    assert event_invitation_request.status == EventInvitationRequest.Status.APPROVED
+    assert event_invitation_request.status == EventInvitationRequest.InvitationRequestStatus.APPROVED
 
 
 def test_decide_invitation_request_reject(
@@ -435,7 +435,7 @@ def test_decide_invitation_request_reject(
     response = organization_owner_client.post(url)
     assert response.status_code == 204
     event_invitation_request.refresh_from_db()
-    assert event_invitation_request.status == EventInvitationRequest.Status.REJECTED
+    assert event_invitation_request.status == EventInvitationRequest.InvitationRequestStatus.REJECTED
 
 
 # --- Tests for GET /event-admin/{event_id}/invitation-requests ---
@@ -914,7 +914,7 @@ def pending_offline_ticket(public_user: RevelUser, event: Event, offline_tier: T
         user=public_user,
         event=event,
         tier=offline_tier,
-        status=Ticket.Status.PENDING,
+        status=Ticket.TicketStatus.PENDING,
     )
 
 
@@ -925,7 +925,7 @@ def pending_at_door_ticket(member_user: RevelUser, event: Event, at_door_tier: T
         user=member_user,
         event=event,
         tier=at_door_tier,
-        status=Ticket.Status.PENDING,
+        status=Ticket.TicketStatus.PENDING,
     )
 
 
@@ -936,7 +936,7 @@ def active_online_ticket(organization_staff_user: RevelUser, event: Event, event
         user=organization_staff_user,
         event=event,
         tier=event_ticket_tier,
-        status=Ticket.Status.ACTIVE,
+        status=Ticket.TicketStatus.ACTIVE,
     )
 
 
@@ -957,7 +957,7 @@ def test_list_tickets_by_owner(
     assert data["count"] == 3  # All tickets
 
     # Test filtering by status=PENDING
-    response = organization_owner_client.get(url, {"status": Ticket.Status.PENDING})
+    response = organization_owner_client.get(url, {"status": Ticket.TicketStatus.PENDING})
     assert response.status_code == 200
     data = response.json()
     assert data["count"] == 2  # Only pending tickets
@@ -995,7 +995,7 @@ def test_list_tickets_by_staff_with_permission(
 
     url = reverse("api:list_tickets", kwargs={"event_id": event.pk})
     # Filter by status to only get pending tickets
-    response = organization_staff_client.get(url, {"status": Ticket.Status.PENDING})
+    response = organization_staff_client.get(url, {"status": Ticket.TicketStatus.PENDING})
 
     assert response.status_code == 200
     data = response.json()
@@ -1033,7 +1033,7 @@ def test_list_tickets_search(
 
     # Search by user's email
     search_email = pending_offline_ticket.user.email
-    response = organization_owner_client.get(url, {"search": search_email, "status": Ticket.Status.PENDING})
+    response = organization_owner_client.get(url, {"search": search_email, "status": Ticket.TicketStatus.PENDING})
 
     assert response.status_code == 200
     data = response.json()
@@ -1088,11 +1088,11 @@ def test_list_tickets_pagination(organization_owner_client: Client, event: Event
             user=user,
             event=event,
             tier=offline_tier,
-            status=Ticket.Status.PENDING,
+            status=Ticket.TicketStatus.PENDING,
         )
 
     url = reverse("api:list_tickets", kwargs={"event_id": event.pk})
-    response = organization_owner_client.get(url, {"status": Ticket.Status.PENDING})
+    response = organization_owner_client.get(url, {"status": Ticket.TicketStatus.PENDING})
 
     assert response.status_code == 200
     data = response.json()
@@ -1117,11 +1117,11 @@ def test_confirm_ticket_payment_by_owner(
     assert response.status_code == 200
     data = response.json()
     assert data["id"] == str(pending_offline_ticket.id)
-    assert data["status"] == Ticket.Status.ACTIVE
+    assert data["status"] == Ticket.TicketStatus.ACTIVE
 
     # Verify in database
     pending_offline_ticket.refresh_from_db()
-    assert pending_offline_ticket.status == Ticket.Status.ACTIVE
+    assert pending_offline_ticket.status == Ticket.TicketStatus.ACTIVE
 
 
 def test_confirm_ticket_payment_by_staff_with_permission(
@@ -1145,7 +1145,7 @@ def test_confirm_ticket_payment_by_staff_with_permission(
 
     assert response.status_code == 200
     pending_offline_ticket.refresh_from_db()
-    assert pending_offline_ticket.status == Ticket.Status.ACTIVE
+    assert pending_offline_ticket.status == Ticket.TicketStatus.ACTIVE
 
 
 def test_confirm_ticket_payment_by_staff_without_permission(
@@ -1171,7 +1171,7 @@ def test_confirm_ticket_payment_by_staff_without_permission(
 
     # Verify ticket status unchanged
     pending_offline_ticket.refresh_from_db()
-    assert pending_offline_ticket.status == Ticket.Status.PENDING
+    assert pending_offline_ticket.status == Ticket.TicketStatus.PENDING
 
 
 def test_confirm_ticket_payment_nonexistent_ticket(organization_owner_client: Client, event: Event) -> None:
@@ -1231,7 +1231,7 @@ def test_confirm_ticket_payment_online_payment_method(
         user=public_user,
         event=event,
         tier=event_ticket_tier,  # This has ONLINE payment method
-        status=Ticket.Status.PENDING,
+        status=Ticket.TicketStatus.PENDING,
     )
 
     url = reverse(
@@ -1244,7 +1244,7 @@ def test_confirm_ticket_payment_online_payment_method(
 
     # Verify ticket status unchanged
     online_pending_ticket.refresh_from_db()
-    assert online_pending_ticket.status == Ticket.Status.PENDING
+    assert online_pending_ticket.status == Ticket.TicketStatus.PENDING
 
 
 def test_pending_tickets_endpoints_require_authentication(event: Event, pending_offline_ticket: Ticket) -> None:
@@ -1288,11 +1288,11 @@ def test_mark_ticket_refunded_offline_by_owner(
     assert response.status_code == 200
     data = response.json()
     assert data["id"] == str(pending_offline_ticket.id)
-    assert data["status"] == Ticket.Status.CANCELLED
+    assert data["status"] == Ticket.TicketStatus.CANCELLED
 
     # Verify in database
     pending_offline_ticket.refresh_from_db()
-    assert pending_offline_ticket.status == Ticket.Status.CANCELLED
+    assert pending_offline_ticket.status == Ticket.TicketStatus.CANCELLED
 
     # Verify quantity was restored
     offline_tier.refresh_from_db()
@@ -1313,7 +1313,7 @@ def test_mark_ticket_refunded_at_door_by_owner(
 
     assert response.status_code == 200
     pending_at_door_ticket.refresh_from_db()
-    assert pending_at_door_ticket.status == Ticket.Status.CANCELLED
+    assert pending_at_door_ticket.status == Ticket.TicketStatus.CANCELLED
 
 
 def test_mark_ticket_refunded_with_payment_record(
@@ -1332,7 +1332,7 @@ def test_mark_ticket_refunded_with_payment_record(
         amount=25.00,
         platform_fee=1.00,
         currency="EUR",
-        status=Payment.Status.SUCCEEDED,
+        status=Payment.PaymentStatus.SUCCEEDED,
     )
 
     url = reverse(
@@ -1345,7 +1345,7 @@ def test_mark_ticket_refunded_with_payment_record(
 
     # Verify payment status is REFUNDED
     payment.refresh_from_db()
-    assert payment.status == Payment.Status.REFUNDED
+    assert payment.status == Payment.PaymentStatus.REFUNDED
 
 
 def test_mark_ticket_refunded_by_staff_with_permission(
@@ -1369,7 +1369,7 @@ def test_mark_ticket_refunded_by_staff_with_permission(
 
     assert response.status_code == 200
     pending_offline_ticket.refresh_from_db()
-    assert pending_offline_ticket.status == Ticket.Status.CANCELLED
+    assert pending_offline_ticket.status == Ticket.TicketStatus.CANCELLED
 
 
 def test_mark_ticket_refunded_by_staff_without_permission(
@@ -1395,7 +1395,7 @@ def test_mark_ticket_refunded_by_staff_without_permission(
 
     # Verify ticket status unchanged
     pending_offline_ticket.refresh_from_db()
-    assert pending_offline_ticket.status == Ticket.Status.PENDING
+    assert pending_offline_ticket.status == Ticket.TicketStatus.PENDING
 
 
 def test_mark_ticket_refunded_online_ticket_rejected(
@@ -1466,11 +1466,11 @@ def test_cancel_ticket_offline_by_owner(
     assert response.status_code == 200
     data = response.json()
     assert data["id"] == str(pending_offline_ticket.id)
-    assert data["status"] == Ticket.Status.CANCELLED
+    assert data["status"] == Ticket.TicketStatus.CANCELLED
 
     # Verify in database
     pending_offline_ticket.refresh_from_db()
-    assert pending_offline_ticket.status == Ticket.Status.CANCELLED
+    assert pending_offline_ticket.status == Ticket.TicketStatus.CANCELLED
 
     # Verify quantity was restored
     offline_tier.refresh_from_db()
@@ -1491,7 +1491,7 @@ def test_cancel_ticket_at_door_by_owner(
 
     assert response.status_code == 200
     pending_at_door_ticket.refresh_from_db()
-    assert pending_at_door_ticket.status == Ticket.Status.CANCELLED
+    assert pending_at_door_ticket.status == Ticket.TicketStatus.CANCELLED
 
 
 def test_cancel_ticket_by_staff_with_permission(
@@ -1515,7 +1515,7 @@ def test_cancel_ticket_by_staff_with_permission(
 
     assert response.status_code == 200
     pending_offline_ticket.refresh_from_db()
-    assert pending_offline_ticket.status == Ticket.Status.CANCELLED
+    assert pending_offline_ticket.status == Ticket.TicketStatus.CANCELLED
 
 
 def test_cancel_ticket_by_staff_without_permission(
@@ -1541,7 +1541,7 @@ def test_cancel_ticket_by_staff_without_permission(
 
     # Verify ticket status unchanged
     pending_offline_ticket.refresh_from_db()
-    assert pending_offline_ticket.status == Ticket.Status.PENDING
+    assert pending_offline_ticket.status == Ticket.TicketStatus.PENDING
 
 
 def test_cancel_ticket_online_ticket_rejected(
@@ -1632,11 +1632,11 @@ def test_check_in_success(organization_owner_client: Client, event: Event, activ
     assert response.status_code == 200
     data = response.json()
     assert data["id"] == str(active_online_ticket.id)
-    assert data["status"] == Ticket.Status.CHECKED_IN
+    assert data["status"] == Ticket.TicketStatus.CHECKED_IN
     assert data["checked_in_at"] is not None
 
     active_online_ticket.refresh_from_db()
-    assert active_online_ticket.status == Ticket.Status.CHECKED_IN
+    assert active_online_ticket.status == Ticket.TicketStatus.CHECKED_IN
     assert active_online_ticket.checked_in_at is not None
     assert active_online_ticket.checked_in_by is not None
 
@@ -1656,7 +1656,7 @@ def test_check_in_already_checked_in(
     event.save()
 
     # Mark ticket as already checked in
-    active_online_ticket.status = Ticket.Status.CHECKED_IN
+    active_online_ticket.status = Ticket.TicketStatus.CHECKED_IN
     active_online_ticket.checked_in_at = now
     active_online_ticket.save()
 
@@ -1716,7 +1716,7 @@ def test_check_in_staff_with_permission(
 
     assert response.status_code == 200
     active_online_ticket.refresh_from_db()
-    assert active_online_ticket.status == Ticket.Status.CHECKED_IN
+    assert active_online_ticket.status == Ticket.TicketStatus.CHECKED_IN
     assert active_online_ticket.checked_in_by == staff_member.user
 
 

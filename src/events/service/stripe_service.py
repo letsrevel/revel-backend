@@ -78,12 +78,12 @@ def create_checkout_session(
     # Lock the tier for the entire transaction to safely check and update quantity
     locked_tier = TicketTier.objects.select_for_update().get(pk=tier.pk)
 
-    if Ticket.objects.filter(~Q(status=Ticket.Status.PENDING), event=event, tier=locked_tier, user=user).exists():
+    if Ticket.objects.filter(~Q(status=Ticket.TicketStatus.PENDING), event=event, tier=locked_tier, user=user).exists():
         raise HttpError(400, str(_("You already have a ticket")))
 
     # Check if a pending ticket already exists for this user/tier combination
     existing_ticket = (
-        Ticket.objects.filter(event=event, tier=locked_tier, user=user, status=Ticket.Status.PENDING)
+        Ticket.objects.filter(event=event, tier=locked_tier, user=user, status=Ticket.TicketStatus.PENDING)
         .select_related("payment")
         .first()
     )
@@ -105,7 +105,7 @@ def create_checkout_session(
         raise HttpError(429, str(_("This ticket tier is sold out.")))
 
     # Create a new pending ticket
-    ticket = Ticket.objects.create(event=event, tier=locked_tier, user=user, status=Ticket.Status.PENDING)
+    ticket = Ticket.objects.create(event=event, tier=locked_tier, user=user, status=Ticket.TicketStatus.PENDING)
 
     platform_fee = round(effective_price * (event.organization.platform_fee_percent / Decimal(100)), 2)
     fixed_fee = event.organization.platform_fee_fixed
@@ -154,7 +154,7 @@ def create_checkout_session(
         amount=effective_price,
         platform_fee=db_platform_fee,
         currency=tier.currency,
-        status=Payment.Status.PENDING,
+        status=Payment.PaymentStatus.PENDING,
         raw_response={},
         expires_at=expires_at,
     )
@@ -198,17 +198,17 @@ class StripeEventHandler:
             )
             return
 
-        if payment.status == Payment.Status.SUCCEEDED:
+        if payment.status == Payment.PaymentStatus.SUCCEEDED:
             logger.warning("stripe_webhook_duplicate_payment_success", payment_id=str(payment.id))
             return  # Webhook already processed, idempotent
 
-        payment.status = Payment.Status.SUCCEEDED
+        payment.status = Payment.PaymentStatus.SUCCEEDED
         payment.stripe_payment_intent_id = session.get("payment_intent")
         payment.raw_response = dict(event)
         payment.save(update_fields=["status", "stripe_payment_intent_id", "raw_response"])
 
         ticket = payment.ticket
-        ticket.status = Ticket.Status.ACTIVE
+        ticket.status = Ticket.TicketStatus.ACTIVE
         ticket.save(update_fields=["status"])
 
         # Send payment confirmation email (includes PDF and ICS attachments)
@@ -277,18 +277,18 @@ class StripeEventHandler:
             return
 
         # Idempotency check
-        if payment.status == Payment.Status.REFUNDED:
+        if payment.status == Payment.PaymentStatus.REFUNDED:
             logger.warning("stripe_webhook_duplicate_refund", payment_id=str(payment.id))
             return
 
         # Update payment status
-        payment.status = Payment.Status.REFUNDED
+        payment.status = Payment.PaymentStatus.REFUNDED
         payment.raw_response = dict(event)
         payment.save(update_fields=["status", "raw_response"])
 
         # Cancel the ticket
         ticket = payment.ticket
-        ticket.status = Ticket.Status.CANCELLED
+        ticket.status = Ticket.TicketStatus.CANCELLED
         ticket.save(update_fields=["status"])
 
         # Restore ticket quantity
@@ -329,7 +329,7 @@ class StripeEventHandler:
             return
 
         # Only update if payment is still pending
-        if payment.status != Payment.Status.PENDING:
+        if payment.status != Payment.PaymentStatus.PENDING:
             logger.info(
                 "stripe_payment_intent_canceled_non_pending",
                 payment_id=str(payment.id),
@@ -338,13 +338,13 @@ class StripeEventHandler:
             return
 
         # Update payment status to failed (canceled before capture)
-        payment.status = Payment.Status.FAILED
+        payment.status = Payment.PaymentStatus.FAILED
         payment.raw_response = dict(event)
         payment.save(update_fields=["status", "raw_response"])
 
         # Cancel the ticket
         ticket = payment.ticket
-        ticket.status = Ticket.Status.CANCELLED
+        ticket.status = Ticket.TicketStatus.CANCELLED
         ticket.save(update_fields=["status"])
 
         # Restore ticket quantity

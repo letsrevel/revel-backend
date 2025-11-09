@@ -173,7 +173,7 @@ class PotluckItemPermission(RootPermission):
         if models.Ticket.objects.filter(event=obj, user=user).exists():
             return True
 
-        if models.EventRSVP.objects.filter(event=obj, user=user, status=models.EventRSVP.Status.YES).exists():
+        if models.EventRSVP.objects.filter(event=obj, user=user, status=models.EventRSVP.RsvpStatus.YES).exists():
             return True
 
         return False

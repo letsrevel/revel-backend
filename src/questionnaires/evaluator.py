@@ -33,7 +33,7 @@ class SubmissionEvaluator:
 
     def __init__(self, submission: QuestionnaireSubmission, llm_evaluator: FreeTextEvaluator | None = None):
         """Initialize the evaluator."""
-        if submission.status != QuestionnaireSubmission.Status.READY:
+        if submission.status != QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY:
             raise ValueError("Only submitted questionnaires can be evaluated.")
 
         self.submission = submission
@@ -209,9 +209,9 @@ class SubmissionEvaluator:
 
         passed = score_percent >= self.questionnaire.min_score
         proposed_status = (
-            QuestionnaireEvaluation.ProposedStatus.APPROVED
+            QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.APPROVED
             if passed
-            else QuestionnaireEvaluation.ProposedStatus.REJECTED
+            else QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.REJECTED
         )
 
         # Build the structured audit data object
@@ -235,14 +235,14 @@ class SubmissionEvaluator:
 
         # Apply logic for different evaluation modes
         missing_mandatory_str = " One or more mandatory questions were not answered." if self.missing_mandatory else ""
-        if self.questionnaire.evaluation_mode == Questionnaire.EvaluationMode.AUTOMATIC:
+        if self.questionnaire.evaluation_mode == Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC:
             evaluation_data["status"] = proposed_status
             evaluation_data["comments"] = (
                 f"This submission was automatically evaluated and finalized.{missing_mandatory_str}"
             )
 
         else:  # HYBRID or MANUAL
-            evaluation_data["status"] = QuestionnaireEvaluation.Status.PENDING_REVIEW
+            evaluation_data["status"] = QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW
             evaluation_data["comments"] = (
                 f"This submission was automatically evaluated and is pending human review.{missing_mandatory_str}"
             )

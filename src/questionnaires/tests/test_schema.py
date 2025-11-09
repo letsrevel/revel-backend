@@ -74,13 +74,15 @@ def test_submission_list_item_schema_resolve_evaluation_status_with_evaluation(
     """Test that SubmissionListItemSchema resolves evaluation status when evaluation exists."""
     submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=questionnaire)
     QuestionnaireEvaluation.objects.create(
-        submission=submission, status=QuestionnaireEvaluation.Status.APPROVED, evaluator=evaluation_user
+        submission=submission,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        evaluator=evaluation_user,
     )
     submission.refresh_from_db()
 
     evaluation_status = SubmissionListItemSchema.resolve_evaluation_status(submission)
 
-    assert evaluation_status == QuestionnaireEvaluation.Status.APPROVED
+    assert evaluation_status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED
 
 
 def test_submission_list_item_schema_resolve_evaluation_status_without_evaluation(
@@ -101,7 +103,7 @@ def test_submission_list_item_schema_resolve_evaluation_score_with_evaluation(
     submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=questionnaire)
     QuestionnaireEvaluation.objects.create(
         submission=submission,
-        status=QuestionnaireEvaluation.Status.APPROVED,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
         score=Decimal("87.50"),
         evaluator=evaluation_user,
     )
@@ -164,10 +166,12 @@ def test_question_answer_detail_schema_free_text() -> None:
 def test_evaluation_create_schema_valid() -> None:
     """Test that EvaluationCreateSchema validates correctly."""
     schema = EvaluationCreateSchema(
-        status=QuestionnaireEvaluation.Status.APPROVED, score=Decimal("92.5"), comments="Excellent work!"
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        score=Decimal("92.5"),
+        comments="Excellent work!",
     )
 
-    assert schema.status == QuestionnaireEvaluation.Status.APPROVED
+    assert schema.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED
     assert schema.score == Decimal("92.5")
     assert schema.comments == "Excellent work!"
 
@@ -175,10 +179,10 @@ def test_evaluation_create_schema_valid() -> None:
 def test_evaluation_create_schema_without_score() -> None:
     """Test that EvaluationCreateSchema works without score."""
     schema = EvaluationCreateSchema(
-        status=QuestionnaireEvaluation.Status.REJECTED, comments="Needs improvement", score=None
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED, comments="Needs improvement", score=None
     )
 
-    assert schema.status == QuestionnaireEvaluation.Status.REJECTED
+    assert schema.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
     assert schema.score is None
     assert schema.comments == "Needs improvement"
 
@@ -190,17 +194,25 @@ def test_evaluation_create_schema_score_validation() -> None:
 
     # Test score below minimum
     with pytest.raises(ValidationError):
-        EvaluationCreateSchema(status=QuestionnaireEvaluation.Status.APPROVED, score=Decimal("-1.0"))
+        EvaluationCreateSchema(
+            status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED, score=Decimal("-1.0")
+        )
 
     # Test score above maximum
     with pytest.raises(ValidationError):
-        EvaluationCreateSchema(status=QuestionnaireEvaluation.Status.APPROVED, score=Decimal("101.0"))
+        EvaluationCreateSchema(
+            status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED, score=Decimal("101.0")
+        )
 
     # Test valid score at boundaries
-    schema_min = EvaluationCreateSchema(status=QuestionnaireEvaluation.Status.APPROVED, score=Decimal("0.0"))
+    schema_min = EvaluationCreateSchema(
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED, score=Decimal("0.0")
+    )
     assert schema_min.score == Decimal("0.0")
 
-    schema_max = EvaluationCreateSchema(status=QuestionnaireEvaluation.Status.APPROVED, score=Decimal("100.0"))
+    schema_max = EvaluationCreateSchema(
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED, score=Decimal("100.0")
+    )
     assert schema_max.score == Decimal("100.0")
 
 
@@ -211,7 +223,7 @@ def test_evaluation_response_schema_from_model(
     submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=questionnaire)
     evaluation = QuestionnaireEvaluation.objects.create(
         submission=submission,
-        status=QuestionnaireEvaluation.Status.APPROVED,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
         score=Decimal("88.0"),
         comments="Well done",
         evaluator=evaluation_user,
@@ -222,7 +234,7 @@ def test_evaluation_response_schema_from_model(
 
     assert schema.id == evaluation.id
     assert schema.submission_id == submission.id
-    assert schema.status == QuestionnaireEvaluation.Status.APPROVED
+    assert schema.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED
     assert schema.score == Decimal("88.0")
     assert schema.comments == "Well done"
     assert schema.evaluator_id == evaluation_user.id

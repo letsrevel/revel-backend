@@ -156,7 +156,7 @@ def test_fixed_price_checkout_with_price_override_should_ignore(public_user: Rev
     from events.models import Ticket
 
     assert isinstance(ticket, Ticket)
-    assert ticket.status == Ticket.Status.ACTIVE
+    assert ticket.status == Ticket.TicketStatus.ACTIVE
 
 
 # --- Service Layer Tests ---

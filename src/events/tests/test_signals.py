@@ -74,7 +74,7 @@ class TestUnclaimUserPotluckItems:
             organization=organization,
             name="Second Event",
             slug="second-event",
-            event_type=Event.Types.PUBLIC,
+            event_type=Event.EventType.PUBLIC,
             max_attendees=100,
             start=timezone.now(),
             status="open",
@@ -127,7 +127,7 @@ class TestRSVPSignalUnclaimingBehavior:
         item2 = PotluckItem.objects.create(event=event, name="Salsa", item_type="food", assignee=nonmember_user)
 
         # Create RSVP with status NO
-        EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.Status.NO)
+        EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.NO)
 
         # Items should be unclaimed
         item1.refresh_from_db()
@@ -141,7 +141,7 @@ class TestRSVPSignalUnclaimingBehavior:
         item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
         # Create RSVP with status MAYBE
-        EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.Status.MAYBE)
+        EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.MAYBE)
 
         # Items should be unclaimed
         item.refresh_from_db()
@@ -153,7 +153,7 @@ class TestRSVPSignalUnclaimingBehavior:
         item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
         # Create RSVP with status YES
-        EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.Status.YES)
+        EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES)
 
         # Items should still be claimed
         item.refresh_from_db()
@@ -162,13 +162,13 @@ class TestRSVPSignalUnclaimingBehavior:
     def test_rsvp_change_yes_to_no_unclaims_items(self, event: Event, nonmember_user: RevelUser) -> None:
         """Test that changing RSVP from YES to NO unclaims items."""
         # Start with YES RSVP
-        rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.Status.YES)
+        rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES)
 
         # Claim items while RSVP is YES
         item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
         # Change to NO
-        rsvp.status = EventRSVP.Status.NO
+        rsvp.status = EventRSVP.RsvpStatus.NO
         rsvp.save()
 
         # Items should be unclaimed
@@ -178,13 +178,13 @@ class TestRSVPSignalUnclaimingBehavior:
     def test_rsvp_change_yes_to_maybe_unclaims_items(self, event: Event, nonmember_user: RevelUser) -> None:
         """Test that changing RSVP from YES to MAYBE unclaims items."""
         # Start with YES RSVP
-        rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.Status.YES)
+        rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES)
 
         # Claim items while RSVP is YES
         item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
         # Change to MAYBE
-        rsvp.status = EventRSVP.Status.MAYBE
+        rsvp.status = EventRSVP.RsvpStatus.MAYBE
         rsvp.save()
 
         # Items should be unclaimed
@@ -194,7 +194,7 @@ class TestRSVPSignalUnclaimingBehavior:
     def test_rsvp_deletion_unclaims_items(self, event: Event, nonmember_user: RevelUser) -> None:
         """Test that deleting an RSVP unclaims all user's potluck items."""
         # Create RSVP with status YES
-        rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.Status.YES)
+        rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES)
 
         # Claim some items
         item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
@@ -212,10 +212,10 @@ class TestRSVPSignalUnclaimingBehavior:
         item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
         # Create NO RSVP (first unclaim)
-        rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.Status.NO)
+        rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.NO)
 
         # Update to NO again (should be idempotent)
-        rsvp.status = EventRSVP.Status.NO
+        rsvp.status = EventRSVP.RsvpStatus.NO
         rsvp.save()
 
         # Item should still be unclaimed
@@ -235,7 +235,9 @@ class TestTicketSignalUnclaimingBehavior:
         item2 = PotluckItem.objects.create(event=event, name="Salsa", item_type="food", assignee=nonmember_user)
 
         # Create ticket with CANCELLED status
-        Ticket.objects.create(event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.Status.CANCELLED)
+        Ticket.objects.create(
+            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.TicketStatus.CANCELLED
+        )
 
         # Items should be unclaimed
         item1.refresh_from_db()
@@ -251,7 +253,9 @@ class TestTicketSignalUnclaimingBehavior:
         item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
         # Create active ticket
-        Ticket.objects.create(event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.Status.ACTIVE)
+        Ticket.objects.create(
+            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.TicketStatus.ACTIVE
+        )
 
         # Item should still be claimed
         item.refresh_from_db()
@@ -265,7 +269,9 @@ class TestTicketSignalUnclaimingBehavior:
         item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
         # Create pending ticket
-        Ticket.objects.create(event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.Status.PENDING)
+        Ticket.objects.create(
+            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.TicketStatus.PENDING
+        )
 
         # Item should still be claimed
         item.refresh_from_db()
@@ -277,14 +283,14 @@ class TestTicketSignalUnclaimingBehavior:
         """Test that changing ticket from ACTIVE to CANCELLED unclaims items."""
         # Create active ticket
         ticket = Ticket.objects.create(
-            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.Status.ACTIVE
+            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.TicketStatus.ACTIVE
         )
 
         # Claim items while ticket is active
         item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
         # Cancel ticket
-        ticket.status = Ticket.Status.CANCELLED
+        ticket.status = Ticket.TicketStatus.CANCELLED
         ticket.save()
 
         # Items should be unclaimed
@@ -297,7 +303,7 @@ class TestTicketSignalUnclaimingBehavior:
         """Test that deleting a ticket unclaims all user's potluck items."""
         # Create active ticket
         ticket = Ticket.objects.create(
-            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.Status.ACTIVE
+            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.TicketStatus.ACTIVE
         )
 
         # Claim items
@@ -318,7 +324,9 @@ class TestTicketSignalUnclaimingBehavior:
         item = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
         # Create checked-in ticket
-        Ticket.objects.create(event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.Status.CHECKED_IN)
+        Ticket.objects.create(
+            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.TicketStatus.CHECKED_IN
+        )
 
         # Item should still be claimed
         item.refresh_from_db()
@@ -339,22 +347,22 @@ class TestCrossEventUnclaimingBehavior:
             organization=organization,
             name="Second Event",
             slug="second-event",
-            event_type=Event.Types.PUBLIC,
+            event_type=Event.EventType.PUBLIC,
             max_attendees=100,
             start=timezone.now(),
             status="open",
         )
 
         # Create RSVPs for both events
-        EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.Status.YES)
-        rsvp2 = EventRSVP.objects.create(event=event2, user=nonmember_user, status=EventRSVP.Status.YES)
+        EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES)
+        rsvp2 = EventRSVP.objects.create(event=event2, user=nonmember_user, status=EventRSVP.RsvpStatus.YES)
 
         # Claim items in both events
         item1 = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
         item2 = PotluckItem.objects.create(event=event2, name="Salsa", item_type="food", assignee=nonmember_user)
 
         # Change RSVP for event2 to NO
-        rsvp2.status = EventRSVP.Status.NO
+        rsvp2.status = EventRSVP.RsvpStatus.NO
         rsvp2.save()
 
         # Only event2 items should be unclaimed
@@ -372,8 +380,8 @@ class TestMultipleUsersUnclaimingBehavior:
     ) -> None:
         """Test that one user's RSVP change doesn't unclaim another user's items."""
         # Both users RSVP YES
-        EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.Status.YES)
-        rsvp2 = EventRSVP.objects.create(event=event, user=organization_owner_user, status=EventRSVP.Status.YES)
+        EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES)
+        rsvp2 = EventRSVP.objects.create(event=event, user=organization_owner_user, status=EventRSVP.RsvpStatus.YES)
 
         # Both users claim items
         item1 = PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
@@ -382,7 +390,7 @@ class TestMultipleUsersUnclaimingBehavior:
         )
 
         # User 2 changes to NO
-        rsvp2.status = EventRSVP.Status.NO
+        rsvp2.status = EventRSVP.RsvpStatus.NO
         rsvp2.save()
 
         # Only user 2's items should be unclaimed

@@ -367,7 +367,7 @@ def test_creates_ticket_for_eligible_user(
     assert Ticket.objects.count() == 1
     assert ticket.user == member_user
     assert ticket.event == public_event
-    assert ticket.status == Ticket.Status.ACTIVE
+    assert ticket.status == Ticket.TicketStatus.ACTIVE
 
     # Verify the "member" tier was created and assigned
     assert public_event.ticket_tiers.filter(name=free_tier.name).exists()
@@ -438,7 +438,7 @@ def test_private_event_rsvp_requires_invitation(public_user: RevelUser, private_
     private_event.save()
     handler = EventManager(user=public_user, event=private_event)
     with pytest.raises(UserIsIneligibleError) as exc_info:
-        handler.rsvp(EventRSVP.Status.YES)
+        handler.rsvp(EventRSVP.RsvpStatus.YES)
 
     eligibility = exc_info.value.eligibility
 
@@ -450,7 +450,7 @@ def test_private_event_rsvp_requires_ticket(public_user: RevelUser, private_even
     """Test that a user cannot RSVP without invitation."""
     handler = EventManager(user=public_user, event=private_event)
     with pytest.raises(UserIsIneligibleError) as exc_info:
-        handler.rsvp(EventRSVP.Status.YES)
+        handler.rsvp(EventRSVP.RsvpStatus.YES)
 
     eligibility = exc_info.value.eligibility
 
@@ -465,11 +465,11 @@ def test_private_event_rsvp_with_invitation(
     private_event.requires_ticket = False
     private_event.save()
     handler = EventManager(user=public_user, event=private_event)
-    handler.rsvp(EventRSVP.Status.YES)
+    handler.rsvp(EventRSVP.RsvpStatus.YES)
 
     rsvp = EventRSVP.objects.filter(event=private_event, user=public_user).first()
     assert rsvp is not None
-    assert rsvp.status == EventRSVP.Status.YES
+    assert rsvp.status == EventRSVP.RsvpStatus.YES
 
 
 def test_private_event_create_ticket_rsvp_only(
@@ -822,7 +822,7 @@ def test_invitation_waives_purchase_creates_complimentary_ticket(
 
     # Assert
     assert isinstance(ticket, Ticket)
-    assert ticket.status == Ticket.Status.ACTIVE
+    assert ticket.status == Ticket.TicketStatus.ACTIVE
     assert ticket.user == public_user
     assert ticket.event == public_event
     assert ticket.tier == free_tier
@@ -872,7 +872,7 @@ def test_waives_purchase_bypasses_payment_flow(public_user: RevelUser, public_ev
 
     # Assert - should get direct ticket, not payment flow
     assert isinstance(ticket, Ticket)
-    assert ticket.status == Ticket.Status.ACTIVE
+    assert ticket.status == Ticket.TicketStatus.ACTIVE
     assert not hasattr(ticket, "payment")  # No payment object should be created
 
 
@@ -941,4 +941,4 @@ def test_waives_purchase_works_with_free_tiers(
 
     # Assert - should still create complimentary ticket (bypassing any free flow)
     assert isinstance(ticket, Ticket)
-    assert ticket.status == Ticket.Status.ACTIVE
+    assert ticket.status == Ticket.TicketStatus.ACTIVE

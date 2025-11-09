@@ -102,7 +102,7 @@ async def organization(django_superuser: RevelUser) -> t.AsyncIterator[Organizat
 async def private_event(organization: Organization) -> t.AsyncIterator[Event]:
     """Fixture for an Event."""
     event = await Event.objects.acreate(
-        organization=organization, name="Test Event", slug="test-event", event_type=Event.Types.PRIVATE
+        organization=organization, name="Test Event", slug="test-event", event_type=Event.EventType.PRIVATE
     )
     yield event
     await event.adelete()

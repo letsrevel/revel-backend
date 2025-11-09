@@ -45,17 +45,17 @@ class QuestionnaireManager(models.Manager["Questionnaire"]):
 
 
 class Questionnaire(TimeStampedModel):
-    class Status(models.TextChoices):
+    class QuestionnaireStatus(models.TextChoices):
         DRAFT = "draft"
         READY = "ready"
         PUBLISHED = "published"
 
-    class EvaluationMode(models.TextChoices):
+    class QuestionnaireEvaluationMode(models.TextChoices):
         AUTOMATIC = "automatic"
         MANUAL = "manual"
         HYBRID = "hybrid"  # human-in-the-loop
 
-    class LLMBackend(models.TextChoices):
+    class QuestionnaireLLMBackend(models.TextChoices):
         MOCK = "questionnaires.llms.MockEvaluator", "Mock Evaluator"
         VULNERABLE = "questionnaires.llms.VulnerableChatGPTEvaluator", "Vulnerable ChatGPTEvaluator"
         INTERMEDIATE = "questionnaires.llms.IntermediateChatGPTEvaluator", "Intermediate ChatGPTEvaluator"
@@ -72,11 +72,17 @@ class Questionnaire(TimeStampedModel):
         blank=True,
         help_text="LLM guidelines to evaluate automatically text-based answers. Can be overridden ad question-level.",
     )
-    llm_backend = models.CharField(choices=LLMBackend.choices, max_length=255, default=LLMBackend.MOCK)
+    llm_backend = models.CharField(
+        choices=QuestionnaireLLMBackend.choices, max_length=255, default=QuestionnaireLLMBackend.MOCK
+    )
     shuffle_questions = models.BooleanField(default=False, help_text="Shuffle questions before answering.")
     shuffle_sections = models.BooleanField(default=False, help_text="Shuffle sections before answering.")
-    status = models.CharField(choices=Status.choices, max_length=10, default=Status.DRAFT, db_index=True)
-    evaluation_mode = models.CharField(choices=EvaluationMode.choices, max_length=20, default=EvaluationMode.AUTOMATIC)
+    status = models.CharField(
+        choices=QuestionnaireStatus.choices, max_length=10, default=QuestionnaireStatus.DRAFT, db_index=True
+    )
+    evaluation_mode = models.CharField(
+        choices=QuestionnaireEvaluationMode.choices, max_length=20, default=QuestionnaireEvaluationMode.AUTOMATIC
+    )
     can_retake_after = models.DurationField(null=True, blank=True, help_text="How long to wait to be able to retake.")
     max_attempts = models.IntegerField(default=0, help_text="Max number of attempts to answer. 0 means unlimited.")
 
@@ -122,7 +128,7 @@ class QuestionnaireSubmissionManager(models.Manager["QuestionnaireSubmission"]):
 
 
 class QuestionnaireSubmission(TimeStampedModel):
-    class Status(models.TextChoices):
+    class QuestionnaireSubmissionStatus(models.TextChoices):
         DRAFT = "draft"
         READY = "ready"
 
@@ -131,9 +137,9 @@ class QuestionnaireSubmission(TimeStampedModel):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="questionnaire_submissions"
     )
     status = models.CharField(
-        choices=Status.choices,
+        choices=QuestionnaireSubmissionStatus.choices,
         max_length=10,
-        default=Status.DRAFT,
+        default=QuestionnaireSubmissionStatus.DRAFT,
         help_text="The status of the submission.",
         db_index=True,
     )
@@ -156,7 +162,7 @@ class QuestionnaireSubmission(TimeStampedModel):
     def clean(self) -> None:
         """Set submitted_at when status is changed to SUBMITTED."""
         super().clean()
-        if self.status == self.Status.READY and not self.submitted_at:
+        if self.status == self.QuestionnaireSubmissionStatus.READY and not self.submitted_at:
             # We could also use django.utils.timezone.now here
             self.submitted_at = timezone.now()
 
@@ -424,21 +430,30 @@ class EvaluationAuditData(PydanticBaseModel):
 
 
 class QuestionnaireEvaluation(TimeStampedModel):
-    class Status(models.TextChoices):
+    class QuestionnaireEvaluationStatus(models.TextChoices):
         APPROVED = "approved"
         REJECTED = "rejected"
         PENDING_REVIEW = "pending review"
 
-    class ProposedStatus(models.TextChoices):
+    class QuestionnaireEvaluationProposedStatus(models.TextChoices):
         APPROVED = "approved"
         REJECTED = "rejected"
 
     submission = models.OneToOneField(QuestionnaireSubmission, on_delete=models.CASCADE, related_name="evaluation")
     score = models.DecimalField(decimal_places=2, max_digits=10, null=True, blank=True)
     raw_evaluation_data = models.JSONField(null=True, blank=True)
-    status = models.CharField(choices=Status.choices, max_length=20, default=Status.PENDING_REVIEW)
+    status = models.CharField(
+        choices=QuestionnaireEvaluationStatus.choices,
+        max_length=20,
+        default=QuestionnaireEvaluationStatus.PENDING_REVIEW,
+    )
     proposed_status = models.CharField(
-        null=True, default=None, choices=ProposedStatus.choices, max_length=20, db_index=True, blank=True
+        null=True,
+        default=None,
+        choices=QuestionnaireEvaluationProposedStatus.choices,
+        max_length=20,
+        db_index=True,
+        blank=True,
     )
     comments = models.TextField(null=True, blank=True)
     automatically_evaluated = models.BooleanField(default=False)

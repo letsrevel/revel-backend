@@ -106,14 +106,14 @@ def trigger_visibility_flags_for_user(user_id: UUID) -> None:
     event_ids = (
         Ticket.objects.filter(
             user_id=user_id,
-            status=Ticket.Status.ACTIVE,
+            status=Ticket.TicketStatus.ACTIVE,
             event__start__gte=timezone.now(),
         )
         .values_list("event_id", flat=True)
         .union(
             EventRSVP.objects.filter(
                 user_id=user_id,
-                status=EventRSVP.Status.YES,
+                status=EventRSVP.RsvpStatus.YES,
                 event__start__gte=timezone.now(),
             ).values_list("event_id", flat=True)
         )
@@ -148,8 +148,8 @@ def resolve_visibility(
 
     is_invited_or_attending = (
         EventInvitation.objects.filter(event=event, user=viewer).exists()
-        or Ticket.objects.filter(event=event, user=viewer, status=Ticket.Status.ACTIVE).exists()
-        or EventRSVP.objects.filter(event=event, user=viewer, status=EventRSVP.Status.YES).exists()
+        or Ticket.objects.filter(event=event, user=viewer, status=Ticket.TicketStatus.ACTIVE).exists()
+        or EventRSVP.objects.filter(event=event, user=viewer, status=EventRSVP.RsvpStatus.YES).exists()
     )
 
     is_same_org_member = (

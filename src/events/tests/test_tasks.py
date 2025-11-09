@@ -38,8 +38,8 @@ def test_build_attendee_visibility_flags(
 
     tier = event.ticket_tiers.first()
     assert tier is not None
-    Ticket.objects.create(event=event, user=attendee1, tier=tier, status=Ticket.Status.ACTIVE)
-    EventRSVP.objects.create(event=event, user=attendee2, status=EventRSVP.Status.YES)
+    Ticket.objects.create(event=event, user=attendee1, tier=tier, status=Ticket.TicketStatus.ACTIVE)
+    EventRSVP.objects.create(event=event, user=attendee2, status=EventRSVP.RsvpStatus.YES)
     event.invitations.create(user=invitee)
 
     # Viewer is attendee1, target is attendee2
@@ -82,8 +82,8 @@ def test_build_attendee_visibility_flags_integration(
 
     tier = event.ticket_tiers.first()
     assert tier is not None
-    Ticket.objects.create(event=event, user=attendee1, tier=tier, status=Ticket.Status.ACTIVE)
-    EventRSVP.objects.create(event=event, user=attendee2, status=EventRSVP.Status.YES)
+    Ticket.objects.create(event=event, user=attendee1, tier=tier, status=Ticket.TicketStatus.ACTIVE)
+    EventRSVP.objects.create(event=event, user=attendee2, status=EventRSVP.RsvpStatus.YES)
 
     # attendee1 wants to be seen by everyone
     GeneralUserPreferences.objects.filter(user=attendee1).update(
@@ -130,8 +130,8 @@ def test_build_attendee_visibility_flags_replaces_existing(
     # Create tickets to make them attendees
     tier = event.ticket_tiers.first()
     assert tier is not None
-    Ticket.objects.create(event=event, user=attendee1, tier=tier, status=Ticket.Status.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee2, tier=tier, status=Ticket.Status.ACTIVE)
+    Ticket.objects.create(event=event, user=attendee1, tier=tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(event=event, user=attendee2, tier=tier, status=Ticket.TicketStatus.ACTIVE)
 
     # Create initial visibility flags (opposite of what they should be)
     AttendeeVisibilityFlag.objects.all().delete()
@@ -186,12 +186,12 @@ class TestCleanupExpiredPayments:
     def test_cleanup_single_expired_payment(self, tier: TicketTier, user: RevelUser) -> None:
         """Test that a single expired payment and its ticket are deleted, and tier quantity is updated."""
         # Arrange
-        ticket = Ticket.objects.create(event=tier.event, tier=tier, user=user, status=Ticket.Status.PENDING)
+        ticket = Ticket.objects.create(event=tier.event, tier=tier, user=user, status=Ticket.TicketStatus.PENDING)
         Payment.objects.create(
             ticket=ticket,
             user=user,
             stripe_session_id="sess_expired",
-            status=Payment.Status.PENDING,
+            status=Payment.PaymentStatus.PENDING,
             expires_at=timezone.now() - timedelta(minutes=1),
             amount=tier.price,
             platform_fee=10,
@@ -215,25 +215,25 @@ class TestCleanupExpiredPayments:
         """Test cleanup of multiple payments across different tiers."""
         # Arrange
         # Payment 1
-        ticket1 = Ticket.objects.create(event=tier.event, tier=tier, user=user, status=Ticket.Status.PENDING)
+        ticket1 = Ticket.objects.create(event=tier.event, tier=tier, user=user, status=Ticket.TicketStatus.PENDING)
         Payment.objects.create(
             ticket=ticket1,
             user=user,
             stripe_session_id="sess_expired1",
-            status=Payment.Status.PENDING,
+            status=Payment.PaymentStatus.PENDING,
             expires_at=timezone.now() - timedelta(minutes=1),
             amount=tier.price,
             platform_fee=10,
         )
         # Payment 2
         ticket2 = Ticket.objects.create(
-            event=another_tier.event, tier=another_tier, user=user, status=Ticket.Status.PENDING
+            event=another_tier.event, tier=another_tier, user=user, status=Ticket.TicketStatus.PENDING
         )
         Payment.objects.create(
             ticket=ticket2,
             user=user,
             stripe_session_id="sess_expired2",
-            status=Payment.Status.PENDING,
+            status=Payment.PaymentStatus.PENDING,
             expires_at=timezone.now() - timedelta(minutes=1),
             amount=another_tier.price,
             platform_fee=10,
@@ -262,25 +262,27 @@ class TestCleanupExpiredPayments:
         """Test that active pending payments are not affected."""
         # Arrange
         # Expired payment
-        expired_ticket = Ticket.objects.create(event=tier.event, tier=tier, user=user, status=Ticket.Status.PENDING)
+        expired_ticket = Ticket.objects.create(
+            event=tier.event, tier=tier, user=user, status=Ticket.TicketStatus.PENDING
+        )
         Payment.objects.create(
             ticket=expired_ticket,
             user=user,
             stripe_session_id="sess_expired",
-            status=Payment.Status.PENDING,
+            status=Payment.PaymentStatus.PENDING,
             expires_at=timezone.now() - timedelta(minutes=1),
             amount=tier.price,
             platform_fee=10,
         )
         # Active payment
         active_ticket = Ticket.objects.create(
-            event=tier.event, tier=tier, user=member_user, status=Ticket.Status.PENDING
+            event=tier.event, tier=tier, user=member_user, status=Ticket.TicketStatus.PENDING
         )
         active_payment = Payment.objects.create(
             ticket=active_ticket,
             user=member_user,
             stripe_session_id="sess_active",
-            status=Payment.Status.PENDING,
+            status=Payment.PaymentStatus.PENDING,
             expires_at=timezone.now() + timedelta(minutes=30),
             amount=tier.price,
             platform_fee=10,
@@ -304,12 +306,12 @@ class TestCleanupExpiredPayments:
     def test_cleanup_ignores_non_pending_payments(self, tier: TicketTier, user: RevelUser) -> None:
         """Test that succeeded, failed, etc. payments are not cleaned up even if expired."""
         # Arrange
-        ticket = Ticket.objects.create(event=tier.event, tier=tier, user=user, status=Ticket.Status.ACTIVE)
+        ticket = Ticket.objects.create(event=tier.event, tier=tier, user=user, status=Ticket.TicketStatus.ACTIVE)
         Payment.objects.create(
             ticket=ticket,
             user=user,
             stripe_session_id="sess_succeeded",
-            status=Payment.Status.SUCCEEDED,
+            status=Payment.PaymentStatus.SUCCEEDED,
             expires_at=timezone.now() - timedelta(minutes=1),
             amount=tier.price,
             platform_fee=5,
@@ -381,7 +383,7 @@ class TestSendNotificationEmail:
         user = revel_user_factory()
         tier = event.ticket_tiers.first()
         assert tier is not None
-        ticket = Ticket.objects.create(event=event, user=user, tier=tier, status=Ticket.Status.ACTIVE)
+        ticket = Ticket.objects.create(event=event, user=user, tier=tier, status=Ticket.TicketStatus.ACTIVE)
 
         mock_email = MagicMock()
         mock_email_class.return_value = mock_email

@@ -117,6 +117,8 @@ class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin):
     accept_membership_requests: bool
     contact_email: str | None = None
     contact_email_verified: bool
+    updated_at: datetime | None = None
+    created_at: datetime | None = None
 
 
 class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin):
@@ -181,6 +183,8 @@ class EventSeriesInListSchema(TaggableSchemaMixin):
     slug: str
     logo: str | None = None
     cover_art: str | None = None
+    updated_at: datetime | None = None
+    created_at: datetime | None = None
 
 
 class EventSeriesRetrieveSchema(TaggableSchemaMixin):
@@ -204,8 +208,8 @@ class EventSeriesEditSchema(Schema):
 class EventEditSchema(CityEditMixin):
     name: OneToOneFiftyString | None = None
     description: StrippedString | None = None
-    event_type: Event.Types | None = None
-    status: Event.Status = Event.Status.DRAFT
+    event_type: Event.EventType | None = None
+    status: Event.EventStatus = Event.EventStatus.DRAFT
     visibility: Event.Visibility | None = None
     invitation_message: StrippedString | None = Field(None, description="Invitation message")
     max_attendees: int = 0
@@ -230,10 +234,10 @@ class EventCreateSchema(EventEditSchema):
 
 class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
     id: UUID
-    event_type: Event.Types
+    event_type: Event.EventType
     visibility: Event.Visibility
     organization: MinimalOrganizationSchema
-    status: Event.Status
+    status: Event.EventStatus
     event_series: MinimalEventSeriesSchema | None = None
     name: str
     slug: str
@@ -254,6 +258,8 @@ class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
     potluck_open: bool
     attendee_count: int
     accept_invitation_requests: bool
+    updated_at: datetime | None = None
+    created_at: datetime | None = None
 
 
 class EventInListSchema(EventBaseSchema):
@@ -267,7 +273,7 @@ class EventDetailSchema(EventBaseSchema):
 
 class EventRSVPSchema(ModelSchema):
     event_id: UUID
-    status: EventRSVP.Status
+    status: EventRSVP.RsvpStatus
 
     class Meta:
         model = EventRSVP
@@ -283,7 +289,7 @@ class RSVPDetailSchema(ModelSchema):
     id: UUID
     event_id: UUID
     user: MinimalRevelUserSchema
-    status: EventRSVP.Status
+    status: EventRSVP.RsvpStatus
     created_at: datetime
     updated_at: datetime
 
@@ -296,20 +302,20 @@ class RSVPCreateSchema(Schema):
     """Schema for creating an RSVP on behalf of a user."""
 
     user_id: UUID
-    status: EventRSVP.Status
+    status: EventRSVP.RsvpStatus
 
 
 class RSVPUpdateSchema(Schema):
     """Schema for updating an RSVP."""
 
-    status: EventRSVP.Status
+    status: EventRSVP.RsvpStatus
 
 
 class UserRSVPSchema(ModelSchema):
     """Schema for user's own RSVPs with event details."""
 
     event: "MinimalEventSchema"
-    status: EventRSVP.Status
+    status: EventRSVP.RsvpStatus
 
     class Meta:
         model = EventRSVP
@@ -401,7 +407,7 @@ Currencies = t.Literal[
 class PaymentSchema(ModelSchema):
     """Public representation of a Payment record."""
 
-    status: Payment.Status
+    status: Payment.PaymentStatus
     currency: Currencies
 
     class Meta:
@@ -412,7 +418,7 @@ class PaymentSchema(ModelSchema):
 class EventTicketSchema(ModelSchema):
     event_id: UUID | None
     tier: TierSchema | None = None
-    status: Ticket.Status
+    status: Ticket.TicketStatus
 
     class Meta:
         model = Ticket
@@ -436,7 +442,7 @@ class UserTicketSchema(ModelSchema):
 
     event: "MinimalEventSchema"
     tier: TierSchema
-    status: Ticket.Status
+    status: Ticket.TicketStatus
 
     class Meta:
         model = Ticket
@@ -571,6 +577,7 @@ class MinimalEventSchema(Schema):
     start: datetime
     end: datetime
     logo: str | None = None
+    cover_art: str | None = None
 
 
 class BaseOrganizationQuestionnaireSchema(Schema):
@@ -578,7 +585,7 @@ class BaseOrganizationQuestionnaireSchema(Schema):
     events: list[MinimalEventSchema] = Field(default_factory=list)
     event_series: list[MinimalEventSeriesSchema] = Field(default_factory=list)
     max_submission_age: timedelta | int | None = None
-    questionnaire_type: OrganizationQuestionnaire.Types
+    questionnaire_type: OrganizationQuestionnaire.QuestionnaireType
 
     @field_serializer("max_submission_age")
     def serialize_max_submission_age(self, value: timedelta | int | None) -> int | None:
@@ -603,7 +610,9 @@ class OrganizationQuestionnaireFieldsMixin(Schema):
     """Mixin for OrganizationQuestionnaire-specific fields (max_submission_age, questionnaire_type)."""
 
     max_submission_age: timedelta | None = None
-    questionnaire_type: OrganizationQuestionnaire.Types = OrganizationQuestionnaire.Types.ADMISSION
+    questionnaire_type: OrganizationQuestionnaire.QuestionnaireType = (
+        OrganizationQuestionnaire.QuestionnaireType.ADMISSION
+    )
 
 
 class OrganizationQuestionnaireCreateSchema(
@@ -630,14 +639,14 @@ class OrganizationQuestionnaireUpdateSchema(Schema):
     min_score: Decimal | None = Field(None, ge=0, le=100)
     shuffle_questions: bool | None = None
     shuffle_sections: bool | None = None
-    evaluation_mode: Questionnaire.EvaluationMode | None = None
+    evaluation_mode: Questionnaire.QuestionnaireEvaluationMode | None = None
     llm_guidelines: str | None = None
     can_retake_after: timedelta | None = None
     max_attempts: int = Field(0, ge=0)
 
     # OrganizationQuestionnaire wrapper fields
     max_submission_age: timedelta | None = None
-    questionnaire_type: OrganizationQuestionnaire.Types | None = None
+    questionnaire_type: OrganizationQuestionnaire.QuestionnaireType | None = None
 
 
 class EventAssignmentSchema(Schema):

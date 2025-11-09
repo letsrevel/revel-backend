@@ -53,7 +53,7 @@ def rsvp_only_public_event(organization: Organization) -> Event:
         name="RSVP-Only Public Event",
         slug="rsvp-only-public-event",
         visibility=Event.Visibility.PUBLIC,
-        event_type=Event.Types.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
         status="open",
         requires_ticket=False,  # Key difference
         start=timezone.now(),
@@ -63,7 +63,7 @@ def rsvp_only_public_event(organization: Organization) -> Event:
 @pytest.fixture
 def event_questionnaire(organization: Organization, public_event: Event) -> Questionnaire:
     """A questionnaire linked to the public_event."""
-    q = Questionnaire.objects.create(name="Event Questionnaire", status=Questionnaire.Status.PUBLISHED)
+    q = Questionnaire.objects.create(name="Event Questionnaire", status=Questionnaire.QuestionnaireStatus.PUBLISHED)
     # Add one mandatory MCQ and one optional FTQ
     mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, question="Mandatory MCQ", is_mandatory=True)
     MultipleChoiceOption.objects.create(question=mcq, option="Correct", is_correct=True)
@@ -79,8 +79,8 @@ def auto_eval_questionnaire(organization: Organization, public_event: Event) -> 
     """A questionnaire with only MCQs, suitable for auto-evaluation."""
     q = Questionnaire.objects.create(
         name="Auto-Eval Questionnaire",
-        status=Questionnaire.Status.PUBLISHED,
-        evaluation_mode=Questionnaire.EvaluationMode.AUTOMATIC,  # Ensure auto mode
+        status=Questionnaire.QuestionnaireStatus.PUBLISHED,
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,  # Ensure auto mode
     )
     mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, question="Auto-Eval MCQ", is_mandatory=True)
     MultipleChoiceOption.objects.create(question=mcq, option="OK", is_correct=True)
@@ -109,7 +109,7 @@ def test_list_events_visibility(
         slug="public-party",
         organization=organization,
         visibility=Event.Visibility.PUBLIC,
-        event_type=Event.Types.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
         status="open",
         start=next_week,
         end=next_week + timedelta(days=1),
@@ -119,7 +119,7 @@ def test_list_events_visibility(
         slug="private-affair",
         organization=organization,
         visibility=Event.Visibility.PRIVATE,
-        event_type=Event.Types.PRIVATE,
+        event_type=Event.EventType.PRIVATE,
         status="open",
         start=next_week,
         end=next_week + timedelta(days=1),
@@ -129,7 +129,7 @@ def test_list_events_visibility(
         slug="members-gala",
         organization=organization,
         visibility=Event.Visibility.MEMBERS_ONLY,
-        event_type=Event.Types.MEMBERS_ONLY,
+        event_type=Event.EventType.MEMBERS_ONLY,
         status="open",
         start=next_week,
         end=next_week + timedelta(days=1),
@@ -146,7 +146,7 @@ def test_list_events_visibility(
         slug="external-event",
         organization=other_org,
         visibility=Event.Visibility.PUBLIC,
-        event_type=Event.Types.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
         status="open",
         start=next_week,
         end=next_week + timedelta(days=1),
@@ -203,7 +203,7 @@ def test_list_events_search(
         slug="tech",
         organization=organization,
         visibility="public",
-        event_type=Event.Types.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
         description="A conference about Python.",
         event_series=event_series,
         status="open",
@@ -215,7 +215,7 @@ def test_list_events_search(
         slug="art",
         organization=organization,
         visibility="public",
-        event_type=Event.Types.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
         description="A fair for artists using generative AI.",
         status="open",
         start=next_week,
@@ -740,19 +740,22 @@ def test_get_my_invitation_requests_status_filtering(
     """Test that status filtering defaults to pending but can show all statuses."""
     # Create requests with different statuses
     pending_req = models.EventInvitationRequest.objects.create(
-        event=private_event, user=nonmember_user, message="Pending", status=models.EventInvitationRequest.Status.PENDING
+        event=private_event,
+        user=nonmember_user,
+        message="Pending",
+        status=models.EventInvitationRequest.InvitationRequestStatus.PENDING,
     )
     approved_req = models.EventInvitationRequest.objects.create(
         event=public_event,
         user=nonmember_user,
         message="Approved",
-        status=models.EventInvitationRequest.Status.APPROVED,
+        status=models.EventInvitationRequest.InvitationRequestStatus.APPROVED,
     )
     rejected_req = models.EventInvitationRequest.objects.create(
         event=members_only_event,
         user=nonmember_user,
         message="Rejected",
-        status=models.EventInvitationRequest.Status.REJECTED,
+        status=models.EventInvitationRequest.InvitationRequestStatus.REJECTED,
     )
 
     url = reverse("api:dashboard_invitation_requests")

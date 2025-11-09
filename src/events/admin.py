@@ -255,7 +255,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
         if obj.requires_ticket:
             count = obj.tickets.count()
         else:
-            count = obj.rsvps.filter(status=models.EventRSVP.Status.YES).count()
+            count = obj.rsvps.filter(status=models.EventRSVP.RsvpStatus.YES).count()
 
         limit = obj.max_attendees if obj.max_attendees > 0 else "∞"
         return f"{count} / {limit}"
@@ -364,10 +364,10 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
     @admin.display(description="Status")
     def status_display(self, obj: models.Payment) -> str:
         colors = {
-            models.Payment.Status.PENDING: "orange",
-            models.Payment.Status.SUCCEEDED: "green",
-            models.Payment.Status.FAILED: "red",
-            models.Payment.Status.REFUNDED: "blue",
+            models.Payment.PaymentStatus.PENDING: "orange",
+            models.Payment.PaymentStatus.SUCCEEDED: "green",
+            models.Payment.PaymentStatus.FAILED: "red",
+            models.Payment.PaymentStatus.REFUNDED: "blue",
         }
         color = colors.get(obj.status, "gray")  # type: ignore[call-overload]
         return mark_safe(f'<span style="color: {color};">{obj.get_status_display()}</span>')
@@ -476,9 +476,9 @@ class EventInvitationRequestAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  #
     @admin.display(description="Status")
     def status_display(self, obj: models.EventInvitationRequest) -> str:
         colors = {
-            models.EventInvitationRequest.Status.PENDING: "orange",
-            models.EventInvitationRequest.Status.APPROVED: "green",
-            models.EventInvitationRequest.Status.REJECTED: "red",
+            models.EventInvitationRequest.InvitationRequestStatus.PENDING: "orange",
+            models.EventInvitationRequest.InvitationRequestStatus.APPROVED: "green",
+            models.EventInvitationRequest.InvitationRequestStatus.REJECTED: "red",
         }
         color = colors.get(obj.status, "gray")  # type: ignore[call-overload]
         return mark_safe(f'<span style="color: {color};">{obj.get_status_display()}</span>')

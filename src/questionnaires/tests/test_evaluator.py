@@ -37,7 +37,7 @@ def test_evaluation_automatic_mode_pass(
 ) -> None:
     """Test a full evaluation in AUTOMATIC mode that results in a pass."""
     # Setup: 1 correct MC answer, 1 FT answer that will pass. Total 2/2 = 100%
-    submitted_submission.questionnaire.evaluation_mode = Questionnaire.EvaluationMode.AUTOMATIC
+    submitted_submission.questionnaire.evaluation_mode = Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
     submitted_submission.questionnaire.min_score = 75
     submitted_submission.questionnaire.save()
 
@@ -54,8 +54,10 @@ def test_evaluation_automatic_mode_pass(
 
     # Assertions
     assert evaluation.score == Decimal("100.00")
-    assert evaluation.proposed_status == QuestionnaireEvaluation.ProposedStatus.APPROVED
-    assert evaluation.status == QuestionnaireEvaluation.Status.APPROVED  # Automatic mode finalizes status
+    assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.APPROVED
+    assert (
+        evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED
+    )  # Automatic mode finalizes status
     assert evaluation.automatically_evaluated is True
     assert evaluation.raw_evaluation_data is not None
     assert evaluation.evaluation_data.mc_points_scored == Decimal("1.0")
@@ -73,7 +75,7 @@ def test_evaluation_automatic_mode_fail(
 ) -> None:
     """Test a full evaluation in AUTOMATIC mode that results in a fail."""
     # Setup: 1 incorrect MC answer. Total 0/1 = 0%
-    submitted_submission.questionnaire.evaluation_mode = Questionnaire.EvaluationMode.AUTOMATIC
+    submitted_submission.questionnaire.evaluation_mode = Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
     submitted_submission.questionnaire.min_score = 75
     submitted_submission.questionnaire.save()
 
@@ -87,8 +89,10 @@ def test_evaluation_automatic_mode_fail(
 
     # Assertions
     assert evaluation.score == Decimal("0.0")
-    assert evaluation.proposed_status == QuestionnaireEvaluation.ProposedStatus.REJECTED
-    assert evaluation.status == QuestionnaireEvaluation.Status.REJECTED  # Automatic mode finalizes status
+    assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.REJECTED
+    assert (
+        evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
+    )  # Automatic mode finalizes status
 
 
 @pytest.mark.django_db
@@ -99,7 +103,7 @@ def test_evaluation_hybrid_mode(
 ) -> None:
     """Test evaluation in HYBRID mode, which should result in PENDING_REVIEW status."""
     # Setup: 1 FT answer that will fail. 0/1 = 0%
-    submitted_submission.questionnaire.evaluation_mode = Questionnaire.EvaluationMode.HYBRID
+    submitted_submission.questionnaire.evaluation_mode = Questionnaire.QuestionnaireEvaluationMode.HYBRID
     submitted_submission.questionnaire.min_score = 75
     submitted_submission.questionnaire.save()
 
@@ -113,8 +117,10 @@ def test_evaluation_hybrid_mode(
 
     # Assertions
     assert evaluation.score == Decimal("0.00")
-    assert evaluation.proposed_status == QuestionnaireEvaluation.ProposedStatus.REJECTED
-    assert evaluation.status == QuestionnaireEvaluation.Status.PENDING_REVIEW  # Hybrid mode awaits human review
+    assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.REJECTED
+    assert (
+        evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW
+    )  # Hybrid mode awaits human review
 
 
 @pytest.mark.django_db
@@ -168,8 +174,10 @@ def test_evaluation_with_fatal_question_failure_overrides_high_score(
 
     # Assertions
     # The fatal rule should override everything else.
-    assert evaluation.proposed_status == QuestionnaireEvaluation.ProposedStatus.REJECTED
-    assert evaluation.status == QuestionnaireEvaluation.Status.REJECTED  # Assuming AUTOMATIC mode
+    assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.REJECTED
+    assert (
+        evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
+    )  # Assuming AUTOMATIC mode
     assert evaluation.score == Decimal("-100.0")  # Final score is set to -100 on fatal failure
 
     # Also check the audit data to ensure points were calculated correctly before the override
@@ -187,7 +195,7 @@ def test_evaluation_with_no_answers(
     evaluator = SubmissionEvaluator(submission=submitted_submission, llm_evaluator=mock_evaluator)
     evaluation = evaluator.evaluate()
     assert evaluation.score == Decimal("100.00")
-    assert evaluation.proposed_status == QuestionnaireEvaluation.ProposedStatus.APPROVED
+    assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.APPROVED
     assert evaluation.raw_evaluation_data is not None
     assert evaluation.evaluation_data.max_mc_points == Decimal("0.0")
     assert evaluation.evaluation_data.max_ft_points == Decimal("0.0")
@@ -247,6 +255,8 @@ def test_evaluation_fails_if_mandatory_question_is_unanswered(
 
     # Assertions
     assert evaluation.score == Decimal("-100.0")
-    assert evaluation.proposed_status == QuestionnaireEvaluation.ProposedStatus.REJECTED
-    assert evaluation.status == QuestionnaireEvaluation.Status.REJECTED  # Assuming AUTOMATIC mode
+    assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.REJECTED
+    assert (
+        evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
+    )  # Assuming AUTOMATIC mode
     assert evaluation.evaluation_data.missing_mandatory == [single_answer_mc_question.id]

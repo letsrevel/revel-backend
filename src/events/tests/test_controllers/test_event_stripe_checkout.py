@@ -42,11 +42,11 @@ class TestEventStripeCheckout:
             organization=stripe_connected_organization,
             name="Public Event",
             slug="public-event",
-            event_type=Event.Types.PUBLIC,
+            event_type=Event.EventType.PUBLIC,
             max_attendees=100,
             start=next_week,
             end=next_week + timedelta(days=1),
-            status=Event.Status.OPEN,
+            status=Event.EventStatus.OPEN,
             visibility=Event.Visibility.PUBLIC,
         )
 
@@ -149,10 +149,10 @@ class TestEventStripeCheckout:
             organization=stripe_connected_organization,
             name="Different Event",
             slug="different-event",
-            event_type=Event.Types.PUBLIC,
+            event_type=Event.EventType.PUBLIC,
             start=next_week,
             end=next_week + timedelta(days=1),
-            status=Event.Status.OPEN,
+            status=Event.EventStatus.OPEN,
             visibility=Event.Visibility.PUBLIC,
         )
 
@@ -204,9 +204,9 @@ class TestEventStripeCheckout:
             organization=stripe_connected_organization,
             name="Private Event",
             slug="private-event",
-            event_type=Event.Types.PRIVATE,
+            event_type=Event.EventType.PRIVATE,
             start=datetime(2024, 12, 25, 12, tzinfo=timezone.get_current_timezone()),
-            status=Event.Status.OPEN,
+            status=Event.EventStatus.OPEN,
             visibility=Event.Visibility.PRIVATE,
         )
 
@@ -271,9 +271,9 @@ class TestEventStripeCheckout:
             organization=organization,
             name="Event",
             slug="event",
-            event_type=Event.Types.PUBLIC,
+            event_type=Event.EventType.PUBLIC,
             start=datetime(2024, 12, 25, 12, tzinfo=timezone.get_current_timezone()),
-            status=Event.Status.OPEN,
+            status=Event.EventStatus.OPEN,
             visibility=Event.Visibility.PUBLIC,
         )
 
@@ -322,10 +322,10 @@ class TestStripeCheckoutRateLimit:
             organization=stripe_connected_organization,
             name="Public Event",
             slug="public-event",
-            event_type=Event.Types.PUBLIC,
+            event_type=Event.EventType.PUBLIC,
             start=next_week,
             end=next_week + timedelta(days=1),
-            status=Event.Status.OPEN,
+            status=Event.EventStatus.OPEN,
             visibility=Event.Visibility.PUBLIC,
         )
 

@@ -376,8 +376,8 @@ def build_attendee_visibility_flags(event_id: str) -> None:
 
     # Users attending the event
 
-    attendees_q = Q(tickets__event=event, tickets__status=Ticket.Status.ACTIVE) | Q(
-        rsvps__event=event, rsvps__status=EventRSVP.Status.YES
+    attendees_q = Q(tickets__event=event, tickets__status=Ticket.TicketStatus.ACTIVE) | Q(
+        rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES
     )
 
     attendees = RevelUser.objects.filter(attendees_q).distinct()
@@ -476,7 +476,7 @@ def cleanup_expired_payments() -> int:
     """
     # Find payments for tickets that are still pending and whose Stripe session has expired.
     expired_payments_qs = Payment.objects.filter(
-        status=Payment.Status.PENDING, expires_at__lt=timezone.now()
+        status=Payment.PaymentStatus.PENDING, expires_at__lt=timezone.now()
     ).select_related("ticket", "ticket__tier")
 
     if not expired_payments_qs.exists():
@@ -505,7 +505,7 @@ def cleanup_expired_payments() -> int:
         Payment.objects.filter(pk__in=payment_ids_to_delete).delete()
 
         # Now delete the associated pending tickets
-        Ticket.objects.filter(pk__in=ticket_ids_to_delete, status=Ticket.Status.PENDING).delete()
+        Ticket.objects.filter(pk__in=ticket_ids_to_delete, status=Ticket.TicketStatus.PENDING).delete()
 
     logger.info(f"Successfully cleaned up {len(payment_ids_to_delete)} expired payments.")
     return len(payment_ids_to_delete)
@@ -685,7 +685,7 @@ def notify_ticket_update(
 
     # Build attachments list
     attachments = []
-    if include_pdf and ticket.status == Ticket.Status.ACTIVE:
+    if include_pdf and ticket.status == Ticket.TicketStatus.ACTIVE:
         attachments.append(
             {
                 "type": "ticket_pdf",
@@ -788,7 +788,7 @@ def notify_questionnaire_submission(questionnaire_submission_id: str) -> dict[st
     )
 
     # Only notify if questionnaire is not in automatic mode
-    if submission.questionnaire.evaluation_mode == submission.questionnaire.EvaluationMode.AUTOMATIC:
+    if submission.questionnaire.evaluation_mode == submission.questionnaire.QuestionnaireEvaluationMode.AUTOMATIC:
         logger.info(
             "questionnaire_submission_auto_skipped",
             questionnaire_id=str(submission.questionnaire.id),

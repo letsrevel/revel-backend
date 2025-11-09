@@ -45,7 +45,7 @@ class TestPotluckController:
         self, nonmember_client: Client, event: Event, nonmember_user: RevelUser
     ) -> None:
         """Test that the creator of a potluck item can update it."""
-        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.Status.YES)
+        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.RsvpStatus.YES)
         potluck_item = PotluckItem.objects.create(
             event=event, name="Drinks", item_type="drink", created_by=nonmember_user
         )
@@ -60,7 +60,7 @@ class TestPotluckController:
         self, nonmember_client: Client, event: Event, nonmember_user: RevelUser
     ) -> None:
         """Test that the creator of a potluck item can delete it."""
-        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.Status.YES)
+        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.RsvpStatus.YES)
         potluck_item = PotluckItem.objects.create(
             event=event, name="Dessert", item_type="food", created_by=nonmember_user
         )
@@ -71,7 +71,7 @@ class TestPotluckController:
 
     def test_claim_potluck_item(self, nonmember_client: Client, event: Event, nonmember_user: RevelUser) -> None:
         """Test that a user can claim a potluck item."""
-        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.Status.YES)
+        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.RsvpStatus.YES)
         potluck_item = PotluckItem.objects.create(event=event, name="Napkins", item_type="supplies", is_suggested=True)
         url = reverse("api:claim_potluck_item", kwargs={"event_id": event.id, "item_id": potluck_item.id})
         response = nonmember_client.post(url)
@@ -81,7 +81,7 @@ class TestPotluckController:
 
     def test_unclaim_potluck_item(self, nonmember_client: Client, event: Event, nonmember_user: RevelUser) -> None:
         """Test that a user can unclaim a potluck item they previously claimed."""
-        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.Status.YES)
+        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.RsvpStatus.YES)
         potluck_item = PotluckItem.objects.create(
             event=event, name="Paper Towels", item_type="supplies", is_suggested=True, assignee=nonmember_user
         )
@@ -143,7 +143,7 @@ class TestPotluckControllerPermissions:
         self, nonmember_client: Client, event: Event, nonmember_user: RevelUser
     ) -> None:
         """Test that a non-creator, non-staff member cannot update a potluck item."""
-        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.Status.YES)
+        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.RsvpStatus.YES)
         potluck_item = PotluckItem.objects.create(event=event, name="Forks", item_type="supplies")
         url = reverse("api:update_potluck_item", kwargs={"event_id": event.id, "item_id": potluck_item.id})
         payload = {"name": "Plastic Forks", "item_type": "supplies"}
@@ -154,7 +154,7 @@ class TestPotluckControllerPermissions:
         self, nonmember_client: Client, event: Event, nonmember_user: RevelUser
     ) -> None:
         """Test that a non-creator, non-staff member cannot delete a potluck item."""
-        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.Status.YES)
+        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.RsvpStatus.YES)
         potluck_item = PotluckItem.objects.create(event=event, name="Knives", item_type="supplies")
         url = reverse("api:delete_potluck_item", kwargs={"event_id": event.id, "item_id": potluck_item.id})
         response = nonmember_client.delete(url)
@@ -191,7 +191,7 @@ class TestCreatePotluckItemPermissions:
         self, nonmember_client: Client, event: Event, nonmember_user: RevelUser
     ) -> None:
         """Test that an attendee with an RSVP can create a potluck item."""
-        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.Status.YES)
+        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.RsvpStatus.YES)
         event.potluck_open = True
         event.save()
         url = reverse("api:create_potluck_item", kwargs={"event_id": event.id})
@@ -203,7 +203,7 @@ class TestCreatePotluckItemPermissions:
         self, nonmember_client: Client, event: Event, nonmember_user: RevelUser
     ) -> None:
         """Test that an attendee with an RSVP can create a potluck item."""
-        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.Status.YES)
+        models.EventRSVP.objects.create(event=event, user=nonmember_user, status=models.EventRSVP.RsvpStatus.YES)
         event.potluck_open = False
         event.save()
         url = reverse("api:create_potluck_item", kwargs={"event_id": event.id})

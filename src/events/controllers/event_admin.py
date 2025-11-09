@@ -350,7 +350,7 @@ class EventAdminController(UserAwareController):
         permissions=[EventPermission("manage_event")],
         response=schema.EventDetailSchema,
     )
-    def update_event_status(self, event_id: UUID, status: models.Event.Status) -> models.Event:
+    def update_event_status(self, event_id: UUID, status: models.Event.EventStatus) -> models.Event:
         """Update event status to the specified value."""
         event = self.get_one(event_id)
         old_status = event.status
@@ -358,7 +358,7 @@ class EventAdminController(UserAwareController):
         event.save(update_fields=["status"])
 
         # Send notification if event is being opened
-        if old_status != models.Event.Status.OPEN and status == models.Event.Status.OPEN:
+        if old_status != models.Event.EventStatus.OPEN and status == models.Event.EventStatus.OPEN:
             notify_event_open.delay(str(event.id))
 
         return event
@@ -570,7 +570,7 @@ class EventAdminController(UserAwareController):
             ],
         )
         old_status = ticket.status
-        ticket.status = models.Ticket.Status.ACTIVE
+        ticket.status = models.Ticket.TicketStatus.ACTIVE
         ticket.save(update_fields=["status"])
 
         # Send ticket activation notification
@@ -608,12 +608,12 @@ class EventAdminController(UserAwareController):
             models.TicketTier.objects.select_for_update().filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
-            ticket.status = models.Ticket.Status.CANCELLED
+            ticket.status = models.Ticket.TicketStatus.CANCELLED
             ticket.save(update_fields=["status"])
 
             # Mark the associated payment as refunded if it exists
             if hasattr(ticket, "payment"):
-                ticket.payment.status = models.Payment.Status.REFUNDED
+                ticket.payment.status = models.Payment.PaymentStatus.REFUNDED
                 ticket.payment.save(update_fields=["status"])
 
         # Send notification
@@ -644,7 +644,7 @@ class EventAdminController(UserAwareController):
             ],
         )
 
-        if ticket.status == models.Ticket.Status.CANCELLED:
+        if ticket.status == models.Ticket.TicketStatus.CANCELLED:
             raise HttpError(400, str(_("Ticket already cancelled")))
 
         old_status = ticket.status
@@ -654,7 +654,7 @@ class EventAdminController(UserAwareController):
             models.TicketTier.objects.select_for_update().filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
-            ticket.status = models.Ticket.Status.CANCELLED
+            ticket.status = models.Ticket.TicketStatus.CANCELLED
             ticket.save(update_fields=["status"])
 
         # Send notification

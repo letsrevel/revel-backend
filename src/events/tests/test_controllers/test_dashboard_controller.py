@@ -409,7 +409,7 @@ def test_dashboard_tickets(
     )
     tier = new_event.ticket_tiers.first()
     assert tier is not None
-    ticket2 = Ticket.objects.create(event=new_event, user=dashboard_user, tier=tier, status=Ticket.Status.PENDING)
+    ticket2 = Ticket.objects.create(event=new_event, user=dashboard_user, tier=tier, status=Ticket.TicketStatus.PENDING)
 
     url = reverse("api:dashboard_tickets")
 
@@ -511,10 +511,10 @@ def test_dashboard_invitation_requests(
 
     # Create requests with different statuses
     req1 = EventInvitationRequest.objects.create(
-        event=event1, user=dashboard_user, status=EventInvitationRequest.Status.PENDING
+        event=event1, user=dashboard_user, status=EventInvitationRequest.InvitationRequestStatus.PENDING
     )
     req2 = EventInvitationRequest.objects.create(
-        event=event2, user=dashboard_user, status=EventInvitationRequest.Status.APPROVED
+        event=event2, user=dashboard_user, status=EventInvitationRequest.InvitationRequestStatus.APPROVED
     )
 
     url = reverse("api:dashboard_invitation_requests")
@@ -559,7 +559,7 @@ def test_dashboard_rsvps(
         start=timezone.now() + timedelta(days=5),
         end=timezone.now() + timedelta(days=6),
     )
-    rsvp2 = EventRSVP.objects.create(event=new_event, user=dashboard_user, status=EventRSVP.Status.MAYBE)
+    rsvp2 = EventRSVP.objects.create(event=new_event, user=dashboard_user, status=EventRSVP.RsvpStatus.MAYBE)
 
     url = reverse("api:dashboard_rsvps")
 
@@ -600,7 +600,7 @@ def test_dashboard_rsvps_include_past(
         start=timezone.now() - timedelta(days=3),
         end=timezone.now() - timedelta(days=2),
     )
-    EventRSVP.objects.create(event=past_event, user=dashboard_user, status=EventRSVP.Status.YES)
+    EventRSVP.objects.create(event=past_event, user=dashboard_user, status=EventRSVP.RsvpStatus.YES)
 
     # Create upcoming event
     upcoming_event = Event.objects.create(
@@ -611,7 +611,7 @@ def test_dashboard_rsvps_include_past(
         start=timezone.now() + timedelta(days=3),
         end=timezone.now() + timedelta(days=4),
     )
-    upcoming_rsvp = EventRSVP.objects.create(event=upcoming_event, user=dashboard_user, status=EventRSVP.Status.YES)
+    upcoming_rsvp = EventRSVP.objects.create(event=upcoming_event, user=dashboard_user, status=EventRSVP.RsvpStatus.YES)
 
     url = reverse("api:dashboard_rsvps")
 
