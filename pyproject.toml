@@ -128,7 +128,8 @@ exclude = [
     "node_modules",
     "venv",
     "playground.py",
-    "*/migrations/*"
+    "*/migrations/*",
+    "_*.py"
 ]
 
 # Same as Black.
@@ -177,7 +178,8 @@ line-ending = "auto"
 mypy_path = ["./src",]
 # ignore_missing_imports = true  # sympy is not and there are no stubs
 plugins = ["pydantic.mypy", "mypy_django_plugin.main"]
-exclude = ["./*/migrations/*", "playground.py"]
+# exclude uses regex patterns: match migration files, playground.py, and files starting with underscore
+exclude = ["(?x)(^.*/migrations/.*\\.py$|^.*playground\\.py$|^.*/_[^/]*\\.py$)"]
 
 [[tool.mypy.overrides]]
 module = "django_google_sso.*"
