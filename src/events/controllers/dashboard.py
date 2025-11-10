@@ -14,8 +14,8 @@ from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
+from common.controllers import UserAwareController
 from events import filters, models, schema
-from events.controllers.user_aware_controller import UserAwareController
 
 
 @api_controller("/dashboard", auth=I18nJWTAuth())

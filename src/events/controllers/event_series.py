@@ -11,9 +11,8 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from common.authentication import OptionalAuth
+from common.controllers import UserAwareController
 from events import filters, models, schema
-
-from .user_aware_controller import UserAwareController
 
 
 @api_controller("/event-series", auth=OptionalAuth(), tags=["Event Series"])

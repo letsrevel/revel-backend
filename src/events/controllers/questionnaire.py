@@ -16,6 +16,7 @@ from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
+from common.controllers import UserAwareController
 from common.schema import ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters
@@ -27,7 +28,6 @@ from questionnaires import schema as questionnaire_schema
 from questionnaires.service import QuestionnaireService
 
 from .permissions import OrganizationPermission, QuestionnairePermission
-from .user_aware_controller import UserAwareController
 
 
 @api_controller("/questionnaires", auth=I18nJWTAuth(), tags=["Questionnaires"], throttle=WriteThrottle())

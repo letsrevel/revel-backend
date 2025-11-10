@@ -7,6 +7,7 @@ from ninja.files import UploadedFile
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
+from common.controllers import UserAwareController
 from common.models import Tag
 from common.schema import TagSchema, ValidationErrorResponse
 from common.throttling import WriteThrottle
@@ -15,7 +16,6 @@ from events import models, schema
 from events.service import update_db_instance
 
 from .permissions import EventSeriesPermission
-from .user_aware_controller import UserAwareController
 
 
 @api_controller(

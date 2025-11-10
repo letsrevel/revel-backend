@@ -11,8 +11,8 @@ from ninja_extra.permissions import BasePermission
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
+from common.controllers import UserAwareController
 from events import models, schema
-from events.controllers.user_aware_controller import UserAwareController
 
 
 class RootPermission(BasePermission):
