@@ -16,6 +16,7 @@ from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth, OptionalAuth
+from common.controllers import UserAwareController
 from common.schema import ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle
 from events import filters, models, schema
@@ -33,7 +34,6 @@ from questionnaires.service import QuestionnaireService
 from questionnaires.tasks import evaluate_questionnaire_submission
 
 from .permissions import CanPurchaseTicket
-from .user_aware_controller import UserAwareController
 
 
 @api_controller("/events", auth=OptionalAuth(), tags=["Events"])

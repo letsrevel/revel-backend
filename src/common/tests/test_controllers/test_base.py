@@ -1,4 +1,4 @@
-"""Tests for UserAwareController location functionality."""
+"""Tests for UserAwareController (now in common.controllers.base) location functionality."""
 
 import typing as t
 from unittest.mock import Mock
@@ -8,9 +8,9 @@ from django.contrib.gis.geos import Point
 from django.core.cache import cache
 from django.test import RequestFactory
 
+from common.controllers import UserAwareController
 from common.types import HttpRequest
 from conftest import RevelUserFactory
-from events.controllers.user_aware_controller import UserAwareController
 from events.models import GeneralUserPreferences
 from events.service.location_service import get_user_location_cache_key
 from geo.ip2 import LazyGeoPoint

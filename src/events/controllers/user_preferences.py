@@ -4,10 +4,9 @@ from django.shortcuts import get_object_or_404
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
+from common.controllers import UserAwareController
 from events import models, schema
 from events.service.user_preferences_service import set_preferences
-
-from .user_aware_controller import UserAwareController
 
 
 @api_controller("/preferences", auth=I18nJWTAuth(), tags=["User Preferences"])

@@ -16,6 +16,7 @@ from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
+from common.controllers import UserAwareController
 from common.models import Tag
 from common.schema import TagSchema, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -25,7 +26,6 @@ from events.models import OrganizationMembershipRequest
 from events.service import organization_service, resource_service, stripe_service, update_db_instance
 
 from .permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
-from .user_aware_controller import UserAwareController
 
 logger = logging.getLogger(__name__)
 

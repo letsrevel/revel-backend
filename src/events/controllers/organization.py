@@ -11,6 +11,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from common.authentication import I18nJWTAuth, OptionalAuth
+from common.controllers import UserAwareController
 from common.schema import ResponseMessage
 from common.throttling import (
     UserRequestThrottle,
@@ -19,7 +20,6 @@ from events import filters, models, schema
 from events.service import organization_service
 
 from ..service.event_service import order_by_distance
-from .user_aware_controller import UserAwareController
 
 
 @api_controller("/organizations", auth=OptionalAuth(), tags=["Organization"])

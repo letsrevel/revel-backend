@@ -17,6 +17,7 @@ from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
+from common.controllers import UserAwareController
 from common.models import Tag
 from common.schema import TagSchema, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
@@ -33,7 +34,6 @@ from events.service.ticket_service import check_in_ticket
 from ..models import EventInvitationRequest
 from ..tasks import notify_event_open
 from .permissions import EventPermission
-from .user_aware_controller import UserAwareController
 
 
 class All(Schema):

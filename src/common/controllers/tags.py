@@ -4,9 +4,9 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
+from common.controllers import UserAwareController
 from common.models import Tag
 from common.schema import TagSchema
-from events.controllers.user_aware_controller import UserAwareController
 
 
 @api_controller("/tags", tags=["Tags"])
