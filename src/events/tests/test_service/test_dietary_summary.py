@@ -76,7 +76,7 @@ def test_get_event_dietary_summary_single_restriction(
     DietaryRestriction.objects.create(
         user=attendee_user1,
         food_item=food,
-        restriction_type="severe_allergy",
+        restriction_type=DietaryRestriction.RestrictionType.SEVERE_ALLERGY,
         notes="Carry EpiPen",
         is_public=True,
     )
@@ -108,14 +108,14 @@ def test_get_event_dietary_summary_aggregates_same_restriction(
     DietaryRestriction.objects.create(
         user=attendee_user1,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         notes="Mild reaction",
         is_public=True,
     )
     DietaryRestriction.objects.create(
         user=attendee_user2,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         notes="Severe reaction",
         is_public=True,
     )
@@ -147,13 +147,13 @@ def test_get_event_dietary_summary_different_severity_separate(
     DietaryRestriction.objects.create(
         user=attendee_user1,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         is_public=True,
     )
     DietaryRestriction.objects.create(
         user=attendee_user2,
         food_item=food,
-        restriction_type="severe_allergy",
+        restriction_type=DietaryRestriction.RestrictionType.SEVERE_ALLERGY,
         is_public=True,
     )
 
@@ -180,7 +180,7 @@ def test_get_event_dietary_summary_omits_empty_notes(
     DietaryRestriction.objects.create(
         user=attendee_user1,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         notes="",  # Empty
         is_public=True,
     )
@@ -270,13 +270,13 @@ def test_get_event_dietary_summary_visibility_organizer_sees_all(
     DietaryRestriction.objects.create(
         user=attendee_user1,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         is_public=True,
     )
     DietaryRestriction.objects.create(
         user=attendee_user2,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         is_public=False,  # Private
     )
 
@@ -305,13 +305,13 @@ def test_get_event_dietary_summary_visibility_attendee_sees_public_only(
     DietaryRestriction.objects.create(
         user=attendee_user2,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         is_public=True,
     )
     DietaryRestriction.objects.create(
         user=attendee_user3,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         is_public=False,  # Private
     )
 
@@ -340,13 +340,13 @@ def test_get_event_dietary_summary_staff_sees_all(
     DietaryRestriction.objects.create(
         user=attendee_user1,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         is_public=True,
     )
     DietaryRestriction.objects.create(
         user=attendee_user2,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         is_public=False,
     )
 
@@ -376,14 +376,14 @@ def test_get_event_dietary_summary_mixed_restrictions_and_preferences(
     DietaryRestriction.objects.create(
         user=attendee_user1,
         food_item=food1,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         notes="Mild",
         is_public=True,
     )
     DietaryRestriction.objects.create(
         user=attendee_user2,
         food_item=food2,
-        restriction_type="severe_allergy",
+        restriction_type=DietaryRestriction.RestrictionType.SEVERE_ALLERGY,
         notes="Anaphylaxis",
         is_public=True,
     )
@@ -419,7 +419,7 @@ def test_get_event_dietary_summary_rsvp_attendees(
     DietaryRestriction.objects.create(
         user=attendee_user1,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         is_public=True,
     )
 
