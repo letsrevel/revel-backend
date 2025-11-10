@@ -1,34 +1,29 @@
 """Controllers for dietary restrictions and preferences management."""
 
-import typing as t
 from uuid import UUID
 
 from django.db.models import Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
-from ninja_extra import ControllerBase, api_controller, route, status
+from ninja_extra import api_controller, route, status
 
 from accounts import schema
 from accounts.models import (
     DietaryPreference,
     DietaryRestriction,
     FoodItem,
-    RevelUser,
     UserDietaryPreference,
 )
 from common.authentication import I18nJWTAuth
+from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from common.utils import get_or_create_with_race_protection
 
 
 @api_controller("/dietary", tags=["Dietary"], auth=I18nJWTAuth(), throttle=UserDefaultThrottle())
-class DietaryController(ControllerBase):
+class DietaryController(UserAwareController):
     """Controller for managing user dietary restrictions and preferences."""
-
-    def user(self) -> RevelUser:
-        """Get the authenticated user for this request."""
-        return t.cast(RevelUser, self.context.request.user)  # type: ignore[union-attr]
 
     # Food Items Endpoints
 
