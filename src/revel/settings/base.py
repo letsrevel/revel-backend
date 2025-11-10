@@ -125,6 +125,13 @@ ASGI_APPLICATION = "revel.asgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# PgBouncer configuration
+# When using PgBouncer in transaction mode:
+# - Set CONN_MAX_AGE to 0 (PgBouncer handles pooling, not Django)
+# - Disable CONN_HEALTH_CHECKS (incompatible with transaction mode)
+# - Keep ATOMIC_REQUESTS=True (works perfectly with transaction mode)
+USE_PGBOUNCER = config("DB_USE_PGBOUNCER", cast=bool, default=False)
+
 _postgres_db = {
     "ENGINE": "django_prometheus.db.backends.postgis",  # Instrumented PostGIS backend for metrics
     "NAME": config("DB_NAME", "revel"),
@@ -132,13 +139,17 @@ _postgres_db = {
     "PASSWORD": config("DB_PASSWORD", "revel-password"),
     "HOST": config("DB_HOST", "localhost"),
     "PORT": config("DB_PORT", "5432"),
-    "CONN_MAX_AGE": config("DB_CONN_MAX_AGE", cast=int, default=60),
-    "CONN_HEALTH_CHECKS": config("DB_CONN_HEALTH_CHECKS", cast=bool, default=True),
+    "CONN_MAX_AGE": 0 if USE_PGBOUNCER else config("DB_CONN_MAX_AGE", cast=int, default=60),
     "ATOMIC_REQUESTS": True,
     "OPTIONS": {
         "connect_timeout": 5,
     },
 }
+
+# Add CONN_HEALTH_CHECKS only when not using PgBouncer
+# (transaction pooling mode doesn't support health checks)
+if not USE_PGBOUNCER:
+    _postgres_db["CONN_HEALTH_CHECKS"] = config("DB_CONN_HEALTH_CHECKS", cast=bool, default=True)
 
 _sqlite_db = {
     "ENGINE": "django.db.backends.sqlite3",
