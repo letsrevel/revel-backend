@@ -10,7 +10,13 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 from faker import Faker
 
-from accounts.models import RevelUser
+from accounts.models import (
+    DietaryPreference,
+    DietaryRestriction,
+    FoodItem,
+    RevelUser,
+    UserDietaryPreference,
+)
 from common.models import Tag
 from events import models as events_models
 from geo.models import City
@@ -69,6 +75,9 @@ class Command(BaseCommand):
 
         # Create user relationships
         self._create_user_relationships()
+
+        # Create dietary data
+        self._create_dietary_data()
 
         # Create questionnaires
         self._create_questionnaires()
@@ -1451,6 +1460,182 @@ A complete ML pipeline from data preprocessing to model deployment.
         )
 
         logger.info("Created user relationships (invitations, tickets, RSVPs, waitlists)")
+
+    def _create_dietary_data(self) -> None:
+        """Create dietary preferences and restrictions for users."""
+        logger.info("Creating dietary preferences and restrictions...")
+
+        # Get dietary preferences (seeded in migration)
+        vegan = DietaryPreference.objects.get(name="Vegan")
+        vegetarian = DietaryPreference.objects.get(name="Vegetarian")
+        gluten_free = DietaryPreference.objects.get(name="Gluten-Free")
+        dairy_free = DietaryPreference.objects.get(name="Dairy-Free")
+        pescatarian = DietaryPreference.objects.get(name="Pescatarian")
+        halal = DietaryPreference.objects.get(name="Halal")
+        kosher = DietaryPreference.objects.get(name="Kosher")
+
+        # Get common food items (seeded in migration)
+        peanuts, _ = FoodItem.objects.get_or_create(name="Peanuts")
+        shellfish, _ = FoodItem.objects.get_or_create(name="Shellfish")
+        tree_nuts, _ = FoodItem.objects.get_or_create(name="Tree nuts")
+        gluten, _ = FoodItem.objects.get_or_create(name="Gluten")
+        milk, _ = FoodItem.objects.get_or_create(name="Milk")
+        eggs, _ = FoodItem.objects.get_or_create(name="Eggs")
+        soy, _ = FoodItem.objects.get_or_create(name="Soy")
+        sesame, _ = FoodItem.objects.get_or_create(name="Sesame")
+        fish, _ = FoodItem.objects.get_or_create(name="Fish")
+        celery, _ = FoodItem.objects.get_or_create(name="Celery")
+
+        # Alice (org_alpha_owner) - Vegetarian with mild lactose intolerance
+        UserDietaryPreference.objects.create(
+            user=self.users["org_alpha_owner"],
+            preference=vegetarian,
+            comment="Vegetarian for 5 years, prefer organic when possible",
+            is_public=True,
+        )
+        DietaryRestriction.objects.create(
+            user=self.users["org_alpha_owner"],
+            food_item=milk,
+            restriction_type=DietaryRestriction.RestrictionType.INTOLERANT,
+            notes="Mild lactose intolerance, can handle small amounts in cooked food",
+            is_public=True,
+        )
+
+        # Bob (org_alpha_staff) - Vegan
+        UserDietaryPreference.objects.create(
+            user=self.users["org_alpha_staff"],
+            preference=vegan,
+            comment="Strict vegan, no animal products including honey",
+            is_public=True,
+        )
+
+        # Charlie (org_alpha_member) - Gluten-Free due to celiac
+        UserDietaryPreference.objects.create(
+            user=self.users["org_alpha_member"],
+            preference=gluten_free,
+            comment="Celiac disease, need strict gluten-free options",
+            is_public=True,
+        )
+        DietaryRestriction.objects.create(
+            user=self.users["org_alpha_member"],
+            food_item=gluten,
+            restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
+            notes="Celiac disease - even cross-contamination is an issue",
+            is_public=True,
+        )
+
+        # Diana (org_beta_owner) - Severe peanut allergy
+        DietaryRestriction.objects.create(
+            user=self.users["org_beta_owner"],
+            food_item=peanuts,
+            restriction_type=DietaryRestriction.RestrictionType.SEVERE_ALLERGY,
+            notes="Anaphylaxis risk, carries EpiPen",
+            is_public=True,
+        )
+
+        # Eve (org_beta_staff) - Pescatarian with shellfish allergy
+        UserDietaryPreference.objects.create(
+            user=self.users["org_beta_staff"],
+            preference=pescatarian,
+            comment="Eat fish but no other meat",
+            is_public=True,
+        )
+        DietaryRestriction.objects.create(
+            user=self.users["org_beta_staff"],
+            food_item=shellfish,
+            restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
+            notes="Allergic to all crustaceans and mollusks",
+            is_public=True,
+        )
+
+        # Frank (org_beta_member) - Halal
+        UserDietaryPreference.objects.create(
+            user=self.users["org_beta_member"],
+            preference=halal,
+            comment="Halal meat only, no pork or alcohol",
+            is_public=True,
+        )
+
+        # George (attendee_1) - Tree nut allergy
+        DietaryRestriction.objects.create(
+            user=self.users["attendee_1"],
+            food_item=tree_nuts,
+            restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
+            notes="Allergic to almonds, walnuts, cashews - all tree nuts",
+            is_public=True,
+        )
+
+        # Hannah (attendee_2) - Dairy-Free and egg allergy
+        UserDietaryPreference.objects.create(
+            user=self.users["attendee_2"],
+            preference=dairy_free,
+            comment="Dairy-free diet",
+            is_public=True,
+        )
+        DietaryRestriction.objects.create(
+            user=self.users["attendee_2"],
+            food_item=eggs,
+            restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
+            notes="Allergic reaction to eggs",
+            is_public=True,
+        )
+
+        # Ivan (attendee_3) - Soy intolerance
+        DietaryRestriction.objects.create(
+            user=self.users["attendee_3"],
+            food_item=soy,
+            restriction_type=DietaryRestriction.RestrictionType.INTOLERANT,
+            notes="Digestive issues with soy products",
+            is_public=True,
+        )
+
+        # Julia (attendee_4) - Vegetarian and sesame allergy
+        UserDietaryPreference.objects.create(
+            user=self.users["attendee_4"],
+            preference=vegetarian,
+            comment="Vegetarian, okay with dairy and eggs",
+            is_public=True,
+        )
+        DietaryRestriction.objects.create(
+            user=self.users["attendee_4"],
+            food_item=sesame,
+            restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
+            notes="Allergic to sesame seeds and tahini",
+            is_public=True,
+        )
+
+        # Karen (multi_org_user) - Kosher
+        UserDietaryPreference.objects.create(
+            user=self.users["multi_org_user"],
+            preference=kosher,
+            comment="Keep kosher, need separate meat and dairy",
+            is_public=True,
+        )
+
+        # Leo (pending_user) - Celery allergy
+        DietaryRestriction.objects.create(
+            user=self.users["pending_user"],
+            food_item=celery,
+            restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
+            notes="Allergic to celery and celeriac",
+            is_public=True,
+        )
+
+        # Maria (invited_user) - Pescatarian and gluten-free
+        UserDietaryPreference.objects.create(
+            user=self.users["invited_user"],
+            preference=pescatarian,
+            comment="Pescatarian lifestyle",
+            is_public=True,
+        )
+        UserDietaryPreference.objects.create(
+            user=self.users["invited_user"],
+            preference=gluten_free,
+            comment="Gluten sensitivity, not celiac",
+            is_public=True,
+        )
+
+        logger.info("Created dietary preferences and restrictions for users")
 
     def _create_questionnaires(self) -> None:
         """Create varied questionnaires with different evaluation modes."""

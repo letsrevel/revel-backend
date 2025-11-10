@@ -5,6 +5,7 @@ from ninja_extra import NinjaExtraAPI
 
 from accounts.controllers.account import AccountController
 from accounts.controllers.auth import AuthController
+from accounts.controllers.dietary import DietaryController
 from accounts.controllers.otp import OtpController
 from common.controllers import TagController
 from common.schema import ResponseOk, VersionResponse
@@ -90,6 +91,7 @@ api.register_controllers(
     AuthController,
     OtpController,
     AccountController,
+    DietaryController,
     # Event controllers
     DashboardController,
     OrganizationController,

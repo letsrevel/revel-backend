@@ -12,7 +12,7 @@ from pydantic import UUID4, EmailStr, Field, field_serializer, model_validator
 from accounts.password_validation import validate_password
 from common.schema import StrippedString
 
-from .models import RevelUser
+from .models import DietaryPreference, DietaryRestriction, FoodItem, RevelUser, UserDietaryPreference
 
 
 class RevelUserSchema(ModelSchema):
@@ -213,3 +213,87 @@ class DemoLoginSchema(Schema):
         if not self.username.endswith("@example.com"):
             raise ValueError("Email must end with '@example.com'")
         return self
+
+
+# Dietary Models Schemas
+
+
+class FoodItemSchema(ModelSchema):
+    """Schema for FoodItem model."""
+
+    class Meta:
+        model = FoodItem
+        fields = ["id", "name"]
+
+
+class FoodItemCreateSchema(Schema):
+    """Schema for creating a FoodItem."""
+
+    name: StrippedString = Field(..., min_length=1, max_length=255, description="Food or ingredient name")
+
+
+class DietaryRestrictionSchema(ModelSchema):
+    """Schema for DietaryRestriction model."""
+
+    food_item: FoodItemSchema
+    restriction_type: DietaryRestriction.RestrictionType
+
+    class Meta:
+        model = DietaryRestriction
+        fields = ["id", "food_item", "restriction_type", "notes", "is_public"]
+
+
+class DietaryRestrictionCreateSchema(Schema):
+    """Schema for creating a DietaryRestriction."""
+
+    food_item_name: StrippedString = Field(
+        ..., min_length=1, max_length=255, description="Food item name (creates if doesn't exist)"
+    )
+    restriction_type: DietaryRestriction.RestrictionType = Field(
+        ..., description="Type of restriction (dislike, intolerant, allergy, severe_allergy)"
+    )
+    notes: str = Field(default="", description="Optional additional context")
+    is_public: bool = Field(default=False, description="Visible to all event attendees if True")
+
+
+class DietaryRestrictionUpdateSchema(Schema):
+    """Schema for updating a DietaryRestriction."""
+
+    restriction_type: DietaryRestriction.RestrictionType | None = Field(
+        None, description="Type of restriction (dislike, intolerant, allergy, severe_allergy)"
+    )
+    notes: str | None = Field(None, description="Optional additional context")
+    is_public: bool | None = Field(None, description="Visible to all event attendees if True")
+
+
+class DietaryPreferenceSchema(ModelSchema):
+    """Schema for DietaryPreference model (system-managed)."""
+
+    class Meta:
+        model = DietaryPreference
+        fields = ["id", "name"]
+
+
+class UserDietaryPreferenceSchema(ModelSchema):
+    """Schema for UserDietaryPreference model."""
+
+    preference: DietaryPreferenceSchema
+
+    class Meta:
+        model = UserDietaryPreference
+        fields = ["id", "preference", "comment", "is_public"]
+
+
+class UserDietaryPreferenceCreateSchema(Schema):
+    """Schema for creating a UserDietaryPreference."""
+
+    preference_id: UUID4 = Field(..., description="ID of the dietary preference to add")
+    comment: str = Field(default="", description="Optional context about this preference")
+    is_public: bool = Field(default=False, description="Visible to all event attendees if True")
+
+
+class UserDietaryPreferenceUpdateSchema(Schema):
+    """Schema for updating a UserDietaryPreference."""
+
+    comment: str | None = Field(None, description="Optional context about this preference")
+    is_public: bool | None = Field(None, description="Visible to all event attendees if True")
