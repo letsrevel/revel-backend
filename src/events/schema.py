@@ -225,6 +225,7 @@ class EventEditSchema(CityEditMixin):
     # requires_ticket: bool = False
     potluck_open: bool = False
     accept_invitation_requests: bool = False
+    can_attend_without_login: bool = False
 
 
 class EventCreateSchema(EventEditSchema):
@@ -258,6 +259,7 @@ class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
     potluck_open: bool
     attendee_count: int
     accept_invitation_requests: bool
+    can_attend_without_login: bool
     updated_at: datetime | None = None
     created_at: datetime | None = None
 
