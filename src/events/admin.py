@@ -240,6 +240,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
                         "waitlist_open",
                         "potluck_open",
                         "accept_invitation_requests",
+                        "can_attend_without_login"
                     ),
                     "requires_ticket",
                     ("check_in_starts_at", "check_in_ends_at"),
