@@ -196,6 +196,111 @@ When working on issues or new features, follow this collaborative workflow:
 - **Document decisions**: Explain reasoning in comments and docstrings
 - **Iterative refinement**: It's better to ask questions than make assumptions
 
+## Code Style Preferences
+
+### Schemas (Django Ninja)
+- **ModelSchema**: Only declare fields at class level when they require special handling (e.g., enum conversion to string)
+- **Omit unnecessary fields**: Don't include `created_at`/`updated_at` in response schemas unless specifically needed
+- **DRY**: Let ModelSchema infer field types from the model definition
+- Example:
+  ```python
+  # Good
+  class UserSchema(ModelSchema):
+      restriction_type: str  # Only for enum->string conversion
+      class Meta:
+          model = User
+          fields = ["id", "name", "email"]
+
+  # Bad - redundant declarations
+  class UserSchema(ModelSchema):
+      id: UUID4
+      name: str
+      email: str
+      created_at: datetime.datetime  # Not needed for API responses
+      class Meta:
+          model = User
+          fields = ["id", "name", "email", "created_at"]
+  ```
+
+### Controllers (Django Ninja Extra)
+- **Authentication & throttling**: Define at class level when all endpoints share the same configuration
+- **Per-endpoint overrides**: Use `throttle=WriteThrottle()` only for POST/PATCH/DELETE that modify data
+- **Default throttle**: `UserDefaultThrottle` for GET endpoints, `WriteThrottle` for mutations
+- **Flat functions**: Avoid nested conditionals. Use early returns and `model_dump(exclude_unset=True)` for updates
+- **No try-except in views**: Use `get_object_or_404()` or `self.get_object_or_exception()` for lookups
+- Example:
+  ```python
+  # Good
+  @api_controller("/api", auth=I18nJWTAuth(), throttle=UserDefaultThrottle())
+  class MyController(ControllerBase):
+      @route.post("/items", throttle=WriteThrottle())
+      def create_item(self, payload: Schema) -> Item:
+          return Item.objects.create(**payload.model_dump())
+
+      @route.patch("/items/{id}", throttle=WriteThrottle())
+      def update_item(self, id: UUID, payload: UpdateSchema) -> Item:
+          item = get_object_or_404(Item, id=id, user=self.user())
+          update_data = payload.model_dump(exclude_unset=True)
+          if not update_data:
+              return item
+          for field, value in update_data.items():
+              setattr(item, field, value)
+          item.save(update_fields=list(update_data.keys()))
+          return item
+
+  # Bad - repetitive auth/throttle, nested ifs
+  @api_controller("/api", throttle=AuthThrottle())
+  class MyController(ControllerBase):
+      @route.post("/items", auth=I18nJWTAuth(), throttle=WriteThrottle())
+      def create_item(self, payload: Schema) -> Item:
+          return Item.objects.create(**payload.model_dump())
+
+      @route.patch("/items/{id}", auth=I18nJWTAuth(), throttle=WriteThrottle())
+      def update_item(self, id: UUID, payload: UpdateSchema) -> Item:
+          try:
+              item = Item.objects.get(id=id, user=self.user())
+          except Item.DoesNotExist:
+              raise Http404
+
+          if payload.field1 is not None:
+              item.field1 = payload.field1
+          if payload.field2 is not None:
+              item.field2 = payload.field2
+          item.save()
+          return item
+  ```
+
+### Race Condition Protection
+- **Use helper function**: For create operations with uniqueness constraints, use `get_or_create_with_race_protection()` from `common.utils`
+- **No manual try-except**: Avoid wrapping IntegrityError manually in views
+- Example:
+  ```python
+  # Good
+  from common.utils import get_or_create_with_race_protection
+
+  food_item = get_or_create_with_race_protection(
+      FoodItem,
+      Q(name__iexact=name),
+      {"name": name}
+  )
+
+  # Bad - manual handling
+  try:
+      food_item = FoodItem.objects.create(name=name)
+  except IntegrityError:
+      food_item = FoodItem.objects.get(name__iexact=name)
+  ```
+
+### Query Optimization
+- **Prefetch relationships**: Use `select_related()` for foreign keys, `prefetch_related()` for reverse/M2M
+- **Avoid N+1 in schemas**: When ModelSchema includes nested relationships, ensure the queryset prefetches them
+- **Example**:
+  ```python
+  # Controller with proper prefetching
+  def list_items(self) -> QuerySet[Item]:
+      return Item.objects.select_related("category").prefetch_related("tags")
+  ```
+
 ## Note to claude
 - Do not run tests. Let the user run the tests.
 - Always discuss implementation approach before writing code for non-trivial changes.
