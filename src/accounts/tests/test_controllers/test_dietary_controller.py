@@ -126,7 +126,7 @@ def test_list_dietary_restrictions(auth_client: Client, user: RevelUser) -> None
     DietaryRestriction.objects.create(
         user=user,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         notes="Carry EpiPen",
         is_public=True,
     )
@@ -165,7 +165,9 @@ def test_create_dietary_restriction_success(auth_client: Client, user: RevelUser
     # Verify food item was created
     assert FoodItem.objects.filter(name="Peanuts").exists()
     # Verify restriction was created
-    assert DietaryRestriction.objects.filter(user=user, restriction_type="severe_allergy").exists()
+    assert DietaryRestriction.objects.filter(
+        user=user, restriction_type=DietaryRestriction.RestrictionType.SEVERE_ALLERGY
+    ).exists()
 
 
 def test_create_dietary_restriction_creates_food_item(auth_client: Client, user: RevelUser) -> None:
@@ -215,7 +217,9 @@ def test_create_dietary_restriction_uses_existing_food_item(auth_client: Client,
 def test_create_dietary_restriction_duplicate_returns_400(auth_client: Client, user: RevelUser) -> None:
     """Test that creating a duplicate restriction returns 400."""
     food, _ = FoodItem.objects.get_or_create(name="Peanuts")
-    DietaryRestriction.objects.create(user=user, food_item=food, restriction_type="allergy")
+    DietaryRestriction.objects.create(
+        user=user, food_item=food, restriction_type=DietaryRestriction.RestrictionType.ALLERGY
+    )
 
     url = reverse("api:create-dietary-restriction")
     payload = {
@@ -237,7 +241,7 @@ def test_update_dietary_restriction_success(auth_client: Client, user: RevelUser
     restriction = DietaryRestriction.objects.create(
         user=user,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         notes="",
         is_public=False,
     )
@@ -264,7 +268,7 @@ def test_update_dietary_restriction_partial(auth_client: Client, user: RevelUser
     restriction = DietaryRestriction.objects.create(
         user=user,
         food_item=food,
-        restriction_type="allergy",
+        restriction_type=DietaryRestriction.RestrictionType.ALLERGY,
         notes="Original note",
         is_public=False,
     )
@@ -295,7 +299,9 @@ def test_update_dietary_restriction_other_user(auth_client: Client, user: RevelU
     """Test that a user cannot update another user's restriction."""
     other_user = RevelUser.objects.create_user(username="other@example.com", email="other@example.com")
     food, _ = FoodItem.objects.get_or_create(name="Peanuts")
-    restriction = DietaryRestriction.objects.create(user=other_user, food_item=food, restriction_type="allergy")
+    restriction = DietaryRestriction.objects.create(
+        user=other_user, food_item=food, restriction_type=DietaryRestriction.RestrictionType.ALLERGY
+    )
 
     url = reverse("api:update-dietary-restriction", args=[restriction.id])
     payload = {"is_public": True}
@@ -308,7 +314,9 @@ def test_update_dietary_restriction_other_user(auth_client: Client, user: RevelU
 def test_delete_dietary_restriction_success(auth_client: Client, user: RevelUser) -> None:
     """Test deleting a dietary restriction."""
     food, _ = FoodItem.objects.get_or_create(name="Peanuts")
-    restriction = DietaryRestriction.objects.create(user=user, food_item=food, restriction_type="allergy")
+    restriction = DietaryRestriction.objects.create(
+        user=user, food_item=food, restriction_type=DietaryRestriction.RestrictionType.ALLERGY
+    )
 
     url = reverse("api:delete-dietary-restriction", args=[restriction.id])
     response = auth_client.delete(url)

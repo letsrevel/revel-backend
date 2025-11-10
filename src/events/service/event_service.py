@@ -1,4 +1,5 @@
 import typing as t
+from collections import defaultdict
 from datetime import timedelta
 from uuid import UUID
 
@@ -10,7 +11,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
-from accounts.models import RevelUser
+from accounts.models import DietaryRestriction, RevelUser, UserDietaryPreference
 from events.models import (
     Event,
     EventInvitation,
@@ -165,10 +166,6 @@ def get_event_dietary_summary(event: Event, user: RevelUser) -> EventDietarySumm
     Returns:
         EventDietarySummarySchema with aggregated restrictions and preferences
     """
-    from collections import defaultdict
-
-    from accounts.models import DietaryRestriction, UserDietaryPreference
-
     # Get all attendees regardless of viewer - visibility is controlled by is_public flag
     attendees = RevelUser.objects.filter(
         Q(tickets__event=event, tickets__status=Ticket.TicketStatus.ACTIVE)
@@ -208,7 +205,7 @@ def get_event_dietary_summary(event: Event, user: RevelUser) -> EventDietarySumm
     aggregated_restrictions = [
         AggregatedDietaryRestrictionSchema(
             food_item=food_item,
-            severity=severity,
+            severity=severity,  # type: ignore[arg-type]
             attendee_count=data["count"],
             notes=data["notes"],
         )

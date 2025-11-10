@@ -236,7 +236,7 @@ class DietaryRestrictionSchema(ModelSchema):
     """Schema for DietaryRestriction model."""
 
     food_item: FoodItemSchema
-    restriction_type: str  # Enum value as string
+    restriction_type: DietaryRestriction.RestrictionType
 
     class Meta:
         model = DietaryRestriction
@@ -249,7 +249,9 @@ class DietaryRestrictionCreateSchema(Schema):
     food_item_name: StrippedString = Field(
         ..., min_length=1, max_length=255, description="Food item name (creates if doesn't exist)"
     )
-    restriction_type: str = Field(..., description="Type of restriction (DISLIKE, INTOLERANT, ALLERGY, SEVERE_ALLERGY)")
+    restriction_type: DietaryRestriction.RestrictionType = Field(
+        ..., description="Type of restriction (dislike, intolerant, allergy, severe_allergy)"
+    )
     notes: str = Field(default="", description="Optional additional context")
     is_public: bool = Field(default=False, description="Visible to all event attendees if True")
 
@@ -257,8 +259,8 @@ class DietaryRestrictionCreateSchema(Schema):
 class DietaryRestrictionUpdateSchema(Schema):
     """Schema for updating a DietaryRestriction."""
 
-    restriction_type: str | None = Field(
-        None, description="Type of restriction (DISLIKE, INTOLERANT, ALLERGY, SEVERE_ALLERGY)"
+    restriction_type: DietaryRestriction.RestrictionType | None = Field(
+        None, description="Type of restriction (dislike, intolerant, allergy, severe_allergy)"
     )
     notes: str | None = Field(None, description="Optional additional context")
     is_public: bool | None = Field(None, description="Visible to all event attendees if True")

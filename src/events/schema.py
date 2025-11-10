@@ -18,7 +18,7 @@ from pydantic import (
     model_validator,
 )
 
-from accounts.models import RevelUser
+from accounts.models import DietaryRestriction, RevelUser
 from accounts.schema import MemberUserSchema, MinimalRevelUserSchema, _BaseEmailJWTPayloadSchema
 from common.schema import OneToOneFiftyString, OneToSixtyFourString, StrippedString
 from events import models
@@ -1116,7 +1116,9 @@ class AggregatedDietaryRestrictionSchema(Schema):
     """Aggregated dietary restriction data for event attendees."""
 
     food_item: str = Field(..., description="Food or ingredient name")
-    severity: str = Field(..., description="Restriction severity (DISLIKE, INTOLERANT, ALLERGY, SEVERE_ALLERGY)")
+    severity: DietaryRestriction.RestrictionType = Field(
+        ..., description="Restriction severity (dislike, intolerant, allergy, severe_allergy)"
+    )
     attendee_count: int = Field(..., description="Number of attendees with this restriction")
     notes: list[str] = Field(default_factory=list, description="Non-empty notes from attendees")
 
