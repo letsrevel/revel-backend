@@ -6,7 +6,7 @@ from io import BytesIO
 from django.contrib.auth.models import AbstractUser
 from django.core.files import File
 from django.core.files.uploadedfile import InMemoryUploadedFile
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from PIL import Image
 
 from common import tasks
@@ -60,6 +60,48 @@ def assert_image_equal(actual_bytes: bytes, expected_bytes: bytes) -> None:
 
 
 T = t.TypeVar("T", bound=models.Model)
+
+
+def get_or_create_with_race_protection(
+    model: type[T],
+    lookup_filter: models.Q,
+    defaults: dict[str, t.Any],
+) -> T:
+    """Get or create a model instance with protection against race conditions.
+
+    Attempts to retrieve an instance matching the lookup filter. If not found,
+    creates one using the defaults. Handles IntegrityError from race conditions
+    by retrying the lookup.
+
+    Args:
+        model: The Django model class
+        lookup_filter: Q object for filtering the lookup
+        defaults: Dictionary of field values for creating the instance
+
+    Returns:
+        The retrieved or created model instance
+
+    Example:
+        food_item = get_or_create_with_race_protection(
+            FoodItem,
+            Q(name__iexact="peanuts"),
+            {"name": "Peanuts"}
+        )
+    """
+    manager: models.Manager[T] = getattr(model, "objects")
+    instance = manager.filter(lookup_filter).first()
+    if instance:
+        return instance
+
+    try:
+        return manager.create(**defaults)
+    except IntegrityError:
+        # Race condition: another request created it between our check and create
+        instance = manager.filter(lookup_filter).first()
+        if not instance:
+            # Should never happen, but if it does, re-raise the original error
+            raise
+        return instance
 
 
 @transaction.atomic
