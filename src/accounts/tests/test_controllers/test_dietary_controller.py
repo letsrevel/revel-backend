@@ -232,7 +232,7 @@ def test_create_dietary_restriction_duplicate_returns_400(auth_client: Client, u
     response = auth_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 400
-    assert "already have a restriction" in response.json()["message"]
+    assert "already have a restriction" in response.json()["detail"]
 
 
 def test_update_dietary_restriction_success(auth_client: Client, user: RevelUser) -> None:
@@ -449,7 +449,7 @@ def test_add_dietary_preference_duplicate_returns_400(auth_client: Client, user:
     response = auth_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 400
-    assert "already added" in response.json()["message"]
+    assert "already added" in response.json()["detail"]
 
 
 def test_update_dietary_preference_success(auth_client: Client, user: RevelUser) -> None:

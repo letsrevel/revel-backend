@@ -6,6 +6,7 @@ from uuid import UUID
 from django.db.models import Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
+from ninja.errors import HttpError
 from ninja_extra import ControllerBase, api_controller, route, status
 
 from accounts import schema
@@ -17,7 +18,6 @@ from accounts.models import (
     UserDietaryPreference,
 )
 from common.authentication import I18nJWTAuth
-from common.schema import ResponseMessage
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from common.utils import get_or_create_with_race_protection
 
@@ -88,13 +88,13 @@ class DietaryController(ControllerBase):
 
     @route.post(
         "/restrictions",
-        response={201: schema.DietaryRestrictionSchema, 400: ResponseMessage},
+        response={201: schema.DietaryRestrictionSchema},
         url_name="create-dietary-restriction",
         throttle=WriteThrottle(),
     )
     def create_dietary_restriction(
         self, payload: schema.DietaryRestrictionCreateSchema
-    ) -> tuple[int, DietaryRestriction | ResponseMessage]:
+    ) -> tuple[int, DietaryRestriction]:
         """Create a new dietary restriction for the authenticated user.
 
         Creates a restriction linked to a food item. If the food item doesn't exist (case-insensitive),
@@ -107,8 +107,9 @@ class DietaryController(ControllerBase):
         )
 
         if DietaryRestriction.objects.filter(user=self.user(), food_item=food_item).exists():
-            return status.HTTP_400_BAD_REQUEST, ResponseMessage(
-                message=str(_("You already have a restriction for this food item."))
+            raise HttpError(
+                status.HTTP_400_BAD_REQUEST,
+                str(_("You already have a restriction for this food item.")),
             )
 
         restriction = DietaryRestriction.objects.create(
@@ -122,13 +123,13 @@ class DietaryController(ControllerBase):
 
     @route.patch(
         "/restrictions/{restriction_id}",
-        response={200: schema.DietaryRestrictionSchema, 404: ResponseMessage},
+        response=schema.DietaryRestrictionSchema,
         url_name="update-dietary-restriction",
         throttle=WriteThrottle(),
     )
     def update_dietary_restriction(
         self, restriction_id: UUID, payload: schema.DietaryRestrictionUpdateSchema
-    ) -> tuple[int, DietaryRestriction | ResponseMessage]:
+    ) -> DietaryRestriction:
         """Update an existing dietary restriction.
 
         Allows updating restriction type, notes, or visibility. Only the authenticated user
@@ -139,21 +140,21 @@ class DietaryController(ControllerBase):
 
         update_data = payload.model_dump(exclude_unset=True)
         if not update_data:
-            return status.HTTP_200_OK, restriction
+            return restriction
 
         for field, value in update_data.items():
             setattr(restriction, field, value)
 
         restriction.save(update_fields=list(update_data.keys()))
-        return status.HTTP_200_OK, restriction
+        return restriction
 
     @route.delete(
         "/restrictions/{restriction_id}",
-        response={204: None, 404: ResponseMessage},
+        response={204: None},
         url_name="delete-dietary-restriction",
         throttle=WriteThrottle(),
     )
-    def delete_dietary_restriction(self, restriction_id: UUID) -> tuple[int, None | ResponseMessage]:
+    def delete_dietary_restriction(self, restriction_id: UUID) -> tuple[int, None]:
         """Delete a dietary restriction.
 
         Removes the restriction from the user's profile. Only the authenticated user can delete
@@ -192,13 +193,13 @@ class DietaryController(ControllerBase):
 
     @route.post(
         "/my-preferences",
-        response={201: schema.UserDietaryPreferenceSchema, 400: ResponseMessage, 404: ResponseMessage},
+        response={201: schema.UserDietaryPreferenceSchema},
         url_name="add-dietary-preference",
         throttle=WriteThrottle(),
     )
     def add_dietary_preference(
         self, payload: schema.UserDietaryPreferenceCreateSchema
-    ) -> tuple[int, UserDietaryPreference | ResponseMessage]:
+    ) -> tuple[int, UserDietaryPreference]:
         """Add a dietary preference to the authenticated user's profile.
 
         Links a predefined dietary preference to the user with optional comment and visibility settings.
@@ -207,8 +208,9 @@ class DietaryController(ControllerBase):
         preference = get_object_or_404(DietaryPreference, id=payload.preference_id)
 
         if UserDietaryPreference.objects.filter(user=self.user(), preference=preference).exists():
-            return status.HTTP_400_BAD_REQUEST, ResponseMessage(
-                message=str(_("You have already added this dietary preference."))
+            raise HttpError(
+                status.HTTP_400_BAD_REQUEST,
+                str(_("You have already added this dietary preference.")),
             )
 
         user_preference = UserDietaryPreference.objects.create(
@@ -221,13 +223,13 @@ class DietaryController(ControllerBase):
 
     @route.patch(
         "/my-preferences/{preference_id}",
-        response={200: schema.UserDietaryPreferenceSchema, 404: ResponseMessage},
+        response=schema.UserDietaryPreferenceSchema,
         url_name="update-dietary-preference",
         throttle=WriteThrottle(),
     )
     def update_dietary_preference(
         self, preference_id: UUID, payload: schema.UserDietaryPreferenceUpdateSchema
-    ) -> tuple[int, UserDietaryPreference | ResponseMessage]:
+    ) -> UserDietaryPreference:
         """Update a dietary preference comment or visibility.
 
         Allows updating the comment or visibility setting for a user's dietary preference.
@@ -237,21 +239,21 @@ class DietaryController(ControllerBase):
 
         update_data = payload.model_dump(exclude_unset=True)
         if not update_data:
-            return status.HTTP_200_OK, user_preference
+            return user_preference
 
         for field, value in update_data.items():
             setattr(user_preference, field, value)
 
         user_preference.save(update_fields=list(update_data.keys()))
-        return status.HTTP_200_OK, user_preference
+        return user_preference
 
     @route.delete(
         "/my-preferences/{preference_id}",
-        response={204: None, 404: ResponseMessage},
+        response={204: None},
         url_name="delete-dietary-preference",
         throttle=WriteThrottle(),
     )
-    def delete_dietary_preference(self, preference_id: UUID) -> tuple[int, None | ResponseMessage]:
+    def delete_dietary_preference(self, preference_id: UUID) -> tuple[int, None]:
         """Remove a dietary preference from the user's profile.
 
         Removes the preference association from the user's profile. Returns 404 if the preference
