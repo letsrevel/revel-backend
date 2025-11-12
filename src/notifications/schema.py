@@ -4,7 +4,9 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from ninja import Schema
+from ninja import ModelSchema, Schema
+
+from notifications.models import NotificationPreference
 
 
 class NotificationSchema(Schema):
@@ -31,16 +33,25 @@ class MarkReadResponseSchema(Schema):
     success: bool
 
 
-class NotificationPreferenceSchema(Schema):
+class NotificationPreferenceSchema(ModelSchema):
     """Schema for notification preferences."""
 
-    silence_all_notifications: bool
-    enabled_channels: list[str]
+    # Only declare fields that need special handling (enum/type conversion)
     digest_frequency: str
     digest_send_time: str
-    event_reminders_enabled: bool
-    notification_type_settings: dict[str, Any]
     show_me_on_attendee_list: str
+
+    class Meta:
+        model = NotificationPreference
+        fields = [
+            "silence_all_notifications",
+            "enabled_channels",
+            "digest_frequency",
+            "digest_send_time",
+            "event_reminders_enabled",
+            "notification_type_settings",
+            "show_me_on_attendee_list",
+        ]
 
 
 class UpdateNotificationPreferenceSchema(Schema):

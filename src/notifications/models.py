@@ -204,6 +204,9 @@ class NotificationPreference(TimeStampedModel):
     class Meta:
         verbose_name = "Notification Preference"
         verbose_name_plural = "Notification Preferences"
+        indexes = [
+            models.Index(fields=["digest_frequency", "digest_send_time"]),
+        ]
 
     def __str__(self) -> str:
         return f"{self.user_id} notification preferences"

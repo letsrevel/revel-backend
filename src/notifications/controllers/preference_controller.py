@@ -1,5 +1,7 @@
 """API controller for notification preference management."""
 
+from typing import Literal
+
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
@@ -7,6 +9,8 @@ from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from notifications.models import NotificationPreference
 from notifications.schema import NotificationPreferenceSchema, UpdateNotificationPreferenceSchema
+
+ChannelType = Literal["in_app", "email", "telegram"]
 
 
 @api_controller(
@@ -46,7 +50,7 @@ class NotificationPreferenceController(UserAwareController):
         response=NotificationPreferenceSchema,
         throttle=WriteThrottle(),
     )
-    def enable_channel(self, channel: str) -> NotificationPreference:
+    def enable_channel(self, channel: ChannelType) -> NotificationPreference:
         """Enable a notification channel."""
         prefs, _ = NotificationPreference.objects.get_or_create(user=self.user())
 
@@ -61,7 +65,7 @@ class NotificationPreferenceController(UserAwareController):
         response=NotificationPreferenceSchema,
         throttle=WriteThrottle(),
     )
-    def disable_channel(self, channel: str) -> NotificationPreference:
+    def disable_channel(self, channel: ChannelType) -> NotificationPreference:
         """Disable a notification channel."""
         prefs, _ = NotificationPreference.objects.get_or_create(user=self.user())
 

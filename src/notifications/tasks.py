@@ -34,7 +34,9 @@ def dispatch_notification(self: t.Any, notification_id: str) -> dict[str, t.Any]
         Dict with dispatch stats
     """
     try:
-        notification = Notification.objects.select_related("user").get(pk=notification_id)
+        notification = Notification.objects.select_related("user", "user__notification_preferences").get(
+            pk=notification_id
+        )
     except Notification.DoesNotExist:
         logger.error("notification_not_found", notification_id=notification_id)
         return {"error": "notification_not_found"}
@@ -155,6 +157,9 @@ def deliver_to_channel(self: t.Any, delivery_id: str) -> dict[str, t.Any]:
         return {"status": "sent", "channel": delivery.channel}
 
     except Exception as e:
+        # Refresh delivery object to get updated retry_count from channel's deliver() method
+        delivery.refresh_from_db()
+
         logger.error(
             "delivery_exception",
             delivery_id=delivery_id,

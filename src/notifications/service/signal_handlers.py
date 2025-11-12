@@ -39,32 +39,22 @@ def handle_notification_request(sender: t.Any, **kwargs: t.Any) -> None:
         )
         return
 
-    try:
-        # Create notification
-        notification = create_notification(
-            notification_type=notification_type,
-            user=user,
-            context=context,
-        )
+    # Create notification
+    notification = create_notification(
+        notification_type=notification_type,
+        user=user,
+        context=context,
+    )
 
-        # Dispatch async
-        from notifications.tasks import dispatch_notification
+    # Dispatch async
+    from notifications.tasks import dispatch_notification
 
-        dispatch_notification.delay(str(notification.id))
+    dispatch_notification.delay(str(notification.id))
 
-        logger.info(
-            "notification_request_handled",
-            notification_id=str(notification.id),
-            notification_type=notification_type,
-            user_id=str(user.id),
-            sender=sender.__name__ if hasattr(sender, "__name__") else str(sender),
-        )
-
-    except Exception as e:
-        logger.exception(
-            "notification_request_failed",
-            notification_type=notification_type,
-            user_id=str(user.id) if user else None,
-            error=str(e),
-        )
-        # Don't re-raise - we don't want to break the business logic that triggered this
+    logger.info(
+        "notification_request_handled",
+        notification_id=str(notification.id),
+        notification_type=notification_type,
+        user_id=str(user.id),
+        sender=sender.__name__ if hasattr(sender, "__name__") else str(sender),
+    )
