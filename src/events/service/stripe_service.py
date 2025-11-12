@@ -311,18 +311,47 @@ class StripeEventHandler:
 
         # Send refund notification via new notification system
         ticket_event = ticket.event
+        context = {
+            "ticket_id": str(ticket.id),
+            "ticket_reference": str(ticket.id),
+            "event_id": str(ticket_event.id),
+            "event_name": ticket_event.name,
+            "event_start": ticket_event.start.isoformat() if ticket_event.start else "",
+            "refund_amount": f"{payment.amount} {payment.currency}",
+            "action": "refunded",
+            "include_pdf": False,
+            "include_ics": False,
+        }
+
+        # Always notify ticket holder
         notification_requested.send(
             sender=self.__class__,
             user=payment.user,
             notification_type=NotificationType.TICKET_REFUNDED,
-            context={
-                "ticket_id": str(ticket.id),
-                "ticket_reference": str(ticket.id),
-                "event_id": str(ticket_event.id),
-                "event_name": ticket_event.name,
-                "refund_amount": f"{payment.amount} {payment.currency}",
-            },
+            context=context,
         )
+
+        # Notify organization staff/owners if they have it enabled
+        from events.service.notification_service import get_organization_staff_and_owners
+
+        staff_and_owners = get_organization_staff_and_owners(ticket_event.organization_id)
+        for staff_user in staff_and_owners:
+            try:
+                prefs = staff_user.notification_preferences
+                if prefs.is_notification_type_enabled(NotificationType.TICKET_REFUNDED.value):
+                    notification_requested.send(
+                        sender=self.__class__,
+                        user=staff_user,
+                        notification_type=NotificationType.TICKET_REFUNDED,
+                        context={
+                            **context,
+                            "ticket_holder_name": payment.user.get_full_name() or payment.user.username,
+                            "ticket_holder_email": payment.user.email,
+                        },
+                    )
+            except Exception:
+                # User may not have notification preferences yet, skip
+                pass
 
         logger.info(
             "stripe_refund_processed",

@@ -28,7 +28,11 @@ from events.service.invitation_service import (
     create_direct_invitations,
     delete_invitation,
 )
-from events.service.ticket_notification_service import notify_ticket_status_change
+from events.service.ticket_notification_service import (
+    notify_ticket_cancelled,
+    notify_ticket_refunded,
+    notify_ticket_status_change,
+)
 from events.service.ticket_service import check_in_ticket
 
 from ..models import EventInvitationRequest
@@ -599,8 +603,6 @@ class EventAdminController(UserAwareController):
             ],
         )
 
-        old_status = ticket.status
-
         # Restore ticket quantity and cancel the ticket
         with transaction.atomic():
             models.TicketTier.objects.select_for_update().filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
@@ -614,8 +616,8 @@ class EventAdminController(UserAwareController):
                 ticket.payment.status = models.Payment.PaymentStatus.REFUNDED
                 ticket.payment.save(update_fields=["status"])
 
-        # Send notification
-        notify_ticket_status_change(str(ticket.id), old_status)
+        # Send refund notification
+        notify_ticket_refunded(str(ticket.id))
 
         return ticket
 
@@ -645,8 +647,6 @@ class EventAdminController(UserAwareController):
         if ticket.status == models.Ticket.TicketStatus.CANCELLED:
             raise HttpError(400, str(_("Ticket already cancelled")))
 
-        old_status = ticket.status
-
         # Restore ticket quantity and cancel the ticket
         with transaction.atomic():
             models.TicketTier.objects.select_for_update().filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
@@ -655,8 +655,8 @@ class EventAdminController(UserAwareController):
             ticket.status = models.Ticket.TicketStatus.CANCELLED
             ticket.save(update_fields=["status"])
 
-        # Send notification
-        notify_ticket_status_change(str(ticket.id), old_status)
+        # Send cancellation notification
+        notify_ticket_cancelled(str(ticket.id))
         return ticket
 
     @route.post(

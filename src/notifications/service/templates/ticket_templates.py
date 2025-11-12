@@ -126,12 +126,17 @@ class TicketUpdatedTemplate(NotificationTemplate):
     def get_attachments(self, notification: Notification) -> dict[str, Any]:
         """Get attachments (ticket PDF + ICS).
 
-        For ticket updates (especially activations), always include both PDF and ICS.
+        For ticket activations, include both PDF and ICS.
+        For cancellations/refunds, no attachments are included.
         """
         ticket_id = notification.context.get("ticket_id")
         event_id = notification.context.get("event_id")
         include_pdf = notification.context.get("include_pdf", True)
         include_ics = notification.context.get("include_ics", True)
+
+        # No attachments for cancellations/refunds (include_pdf and include_ics will be False)
+        if not include_pdf and not include_ics:
+            return {}
 
         if not ticket_id or not event_id:
             return {}
@@ -237,4 +242,6 @@ class PaymentConfirmationTemplate(NotificationTemplate):
 # Register templates
 register_template(NotificationType.TICKET_CREATED, TicketCreatedTemplate())
 register_template(NotificationType.TICKET_UPDATED, TicketUpdatedTemplate())
+register_template(NotificationType.TICKET_CANCELLED, TicketUpdatedTemplate())
+register_template(NotificationType.TICKET_REFUNDED, TicketUpdatedTemplate())
 register_template(NotificationType.PAYMENT_CONFIRMATION, PaymentConfirmationTemplate())

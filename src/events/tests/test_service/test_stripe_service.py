@@ -653,13 +653,18 @@ class TestStripeEventHandler:
         tier.refresh_from_db()
         assert tier.quantity_sold == 4  # Restored from 5 to 4
 
-        # Verify notification signal was sent
-        mock_notification_signal.assert_called_once()
-        call_kwargs = mock_notification_signal.call_args.kwargs
-        assert call_kwargs["user"] == completed_payment.user
+        # Verify notification signal was sent to ticket holder (and potentially staff)
+        # The signal is called at least once for the ticket holder
+        # It may be called additional times for staff/owners with the preference enabled
+        assert mock_notification_signal.call_count >= 1
+
+        # Verify the first call is to the ticket holder
+        first_call_kwargs = mock_notification_signal.call_args_list[0].kwargs
+        assert first_call_kwargs["user"] == completed_payment.user
         from notifications.enums import NotificationType
 
-        assert call_kwargs["notification_type"] == NotificationType.TICKET_REFUNDED
+        assert first_call_kwargs["notification_type"] == NotificationType.TICKET_REFUNDED
+        assert first_call_kwargs["context"]["action"] == "refunded"
 
     def test_handle_charge_refunded_idempotent(
         self,
