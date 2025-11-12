@@ -1,0 +1,20 @@
+Hi {{ user.first_name|default:user.username }},
+
+A new questionnaire submission needs your review:
+
+Submitter: {{ context.submitter_name }} ({{ context.submitter_email }})
+{% if context.event_name %}Event: {{ context.event_name }}{% endif %}
+Organization: {{ context.organization_name }}
+
+Questionnaire: {{ context.questionnaire_name }}
+
+Submitted: {{ context.submitted_at }}
+
+This questionnaire requires manual review before the submission can be approved or rejected.
+
+Please log in to the admin panel to review this submission.
+
+You're receiving this notification because you have permission to evaluate questionnaires for {{ context.organization_name }}.
+
+Best regards,
+Revel Team

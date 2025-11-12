@@ -1,0 +1,54 @@
+{% load i18n %}<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #2196F3; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; background: #f9f9f9; }
+        .event-info { background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #2196F3; }
+        .button { display: inline-block; padding: 12px 24px; background: #2196F3; color: white; text-decoration: none; border-radius: 4px; margin: 10px 0; }
+        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{% trans "New Event!" %}</h1>
+        </div>
+        <div class="content">
+            <p>{% blocktranslate with name=user.first_name|default:user.username %}Hi {{ name }}{% endblocktranslate %},</p>
+            <p>{% trans "A new event has been published by" %} <strong>{{ context.organization_name }}</strong>:</p>
+
+            <div class="event-info">
+                <h2>{{ context.event_name }}</h2>
+                <p>{{ context.event_description }}</p>
+                <p><strong>{% trans "When:" %}</strong> {{ context.event_start }}</p>
+                <p><strong>{% trans "Where:" %}</strong> {{ context.event_location }}</p>
+            </div>
+
+            {% if context.rsvp_required %}
+            <p>⚠️ {% trans "RSVP is required for this event." %}</p>
+            {% endif %}
+            {% if context.tickets_available %}
+            <p>🎫 {% trans "Tickets are available for purchase." %}</p>
+            {% endif %}
+            {% if context.questionnaire_required %}
+            <p>📝 {% trans "You'll need to complete a questionnaire to attend." %}</p>
+            {% endif %}
+
+            {% if context.frontend_url %}
+            <p style="text-align: center;">
+                <a href="{{ context.frontend_url }}" class="button">{% trans "View Event Details" %}</a>
+            </p>
+            {% endif %}
+
+            <p>{% trans "See you there!" %}</p>
+        </div>
+        <div class="footer">
+            <p>{{ context.organization_name }}</p>
+        </div>
+    </div>
+</body>
+</html>

@@ -25,6 +25,8 @@ from events.controllers.user_preferences import UserPreferencesController
 from events.exceptions import AlreadyMemberError, PendingMembershipRequestExistsError, TooManyItemsError
 from events.service.event_manager import UserIsIneligibleError
 from geo.controllers.cities import CityController
+from notifications.controllers.notification_controller import NotificationController
+from notifications.controllers.preference_controller import NotificationPreferenceController
 from questionnaires.exceptions import (
     CrossQuestionnaireSubmissionError,
     MissingMandatoryAnswerError,
@@ -109,6 +111,9 @@ api.register_controllers(
     TagController,
     # Geo controllers
     CityController,
+    # Notification controllers
+    NotificationController,
+    NotificationPreferenceController,
 )
 
 EXCEPTION_HANDLERS = {

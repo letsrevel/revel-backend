@@ -68,6 +68,7 @@ INSTALLED_APPS = [
     "questionnaires",
     "telegram",
     "geo",
+    "notifications",
 ]
 
 if SILK_PROFILER:
@@ -296,3 +297,7 @@ CLAMAV_HOST = config("CLAMAV_HOST", default="localhost")
 CLAMAV_PORT = config("CLAMAV_PORT", default=3310, cast=int)
 
 IP2LOCATION_TOKEN = config("IP2LOCATION_TOKEN", default=None)
+
+
+# NOTIFICATIONS
+NOTIFICATION_RETENTION_DAYS = config("NOTIFICATION_RETENTION_DAYS", default=90, cast=int)

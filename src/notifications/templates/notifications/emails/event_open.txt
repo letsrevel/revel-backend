@@ -1,0 +1,22 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate with name=user.first_name|default:user.username %}Hi {{ name }}{% endblocktranslate %},
+
+{% trans "A new event has been published!" %}
+
+{{ context.event_name }}
+
+{{ context.event_description }}
+
+{% trans "When:" %} {{ context.event_start }}
+{% trans "Where:" %} {{ context.event_location }}
+{% trans "Organized by:" %} {{ context.organization_name }}
+
+{% if context.rsvp_required %}{% trans "RSVP is required for this event." %}{% endif %}
+{% if context.tickets_available %}{% trans "Tickets are available for purchase." %}{% endif %}
+{% if context.questionnaire_required %}{% trans "You'll need to complete a questionnaire to attend." %}{% endif %}
+
+{% trans "Click here to view event details and RSVP:" %}
+{{ context.frontend_url }}
+
+{% trans "See you there!" %}
+{{ context.organization_name }}
+{% endautoescape %}

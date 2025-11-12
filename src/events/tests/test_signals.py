@@ -1,7 +1,6 @@
 """Tests for event-related signal handlers, particularly potluck item unclaiming."""
 
 import typing as t
-from unittest.mock import patch
 
 import pytest
 
@@ -93,26 +92,21 @@ class TestUnclaimUserPotluckItems:
         assert event1_item.assignee is None
         assert event2_item.assignee == nonmember_user
 
-    @patch("events.signals.notify_potluck_item_update.delay")
-    def test_unclaim_sends_notification_when_items_unclaimed(
-        self, mock_notify: t.Any, event: Event, nonmember_user: RevelUser
-    ) -> None:
+    def test_unclaim_sends_notification_when_items_unclaimed(self, event: Event, nonmember_user: RevelUser) -> None:
         """Test that notification is sent when items are unclaimed."""
         PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
-        unclaim_user_potluck_items(event.id, nonmember_user.id, notify=True)
+        count = unclaim_user_potluck_items(event.id, nonmember_user.id, notify=True)
 
-        # Notification should be scheduled
+        assert count == 1
+        # Notification is now handled via signals using notification_requested.send()
         # Note: transaction.on_commit won't fire in tests unless we're in a real transaction
-        # So we just verify the function would attempt to notify
 
-    @patch("events.signals.notify_potluck_item_update.delay")
-    def test_unclaim_skips_notification_when_no_items(
-        self, mock_notify: t.Any, event: Event, nonmember_user: RevelUser
-    ) -> None:
+    def test_unclaim_skips_notification_when_no_items(self, event: Event, nonmember_user: RevelUser) -> None:
         """Test that no notification is sent when there are no items to unclaim."""
-        unclaim_user_potluck_items(event.id, nonmember_user.id, notify=True)
+        count = unclaim_user_potluck_items(event.id, nonmember_user.id, notify=True)
 
+        assert count == 0
         # No notification should be sent since count was 0
         # This is implicit - the on_commit block only runs if count > 0
 

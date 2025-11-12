@@ -16,7 +16,8 @@ from stripe.checkout import Session
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Event, Organization, Payment, Ticket, TicketTier
-from events.tasks import send_payment_confirmation_email
+from notifications.enums import NotificationType
+from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
 
@@ -211,8 +212,22 @@ class StripeEventHandler:
         ticket.status = Ticket.TicketStatus.ACTIVE
         ticket.save(update_fields=["status"])
 
-        # Send payment confirmation email (includes PDF and ICS attachments)
-        send_payment_confirmation_email.delay(str(payment.id))
+        # Send payment confirmation notification via new notification system
+        ticket_event = ticket.event
+        notification_requested.send(
+            sender=self.__class__,
+            user=payment.user,
+            notification_type=NotificationType.PAYMENT_CONFIRMATION,
+            context={
+                "ticket_id": str(ticket.id),
+                "ticket_reference": str(ticket.id),  # Use ticket ID as reference
+                "event_id": str(ticket_event.id),
+                "event_name": ticket_event.name,
+                "event_start": ticket_event.start.isoformat(),
+                "payment_amount": f"{payment.amount} {payment.currency}",
+                "payment_method": "card",  # Stripe payments are card-based
+            },
+        )
         logger.info(
             "stripe_payment_success",
             payment_id=str(payment.id),
@@ -292,9 +307,22 @@ class StripeEventHandler:
         ticket.save(update_fields=["status"])
 
         # Restore ticket quantity
-        from django.db.models import F
-
         TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
+
+        # Send refund notification via new notification system
+        ticket_event = ticket.event
+        notification_requested.send(
+            sender=self.__class__,
+            user=payment.user,
+            notification_type=NotificationType.TICKET_REFUNDED,
+            context={
+                "ticket_id": str(ticket.id),
+                "ticket_reference": str(ticket.id),
+                "event_id": str(ticket_event.id),
+                "event_name": ticket_event.name,
+                "refund_amount": f"{payment.amount} {payment.currency}",
+            },
+        )
 
         logger.info(
             "stripe_refund_processed",
@@ -348,8 +376,6 @@ class StripeEventHandler:
         ticket.save(update_fields=["status"])
 
         # Restore ticket quantity
-        from django.db.models import F
-
         TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
 
         logger.info(

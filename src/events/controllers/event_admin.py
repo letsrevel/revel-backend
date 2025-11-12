@@ -32,7 +32,6 @@ from events.service.ticket_notification_service import notify_ticket_status_chan
 from events.service.ticket_service import check_in_ticket
 
 from ..models import EventInvitationRequest
-from ..tasks import notify_event_open
 from .permissions import EventPermission
 
 
@@ -351,15 +350,14 @@ class EventAdminController(UserAwareController):
         response=schema.EventDetailSchema,
     )
     def update_event_status(self, event_id: UUID, status: models.Event.EventStatus) -> models.Event:
-        """Update event status to the specified value."""
+        """Update event status to the specified value.
+
+        Note: Event opening notifications are handled automatically by the post_save signal
+        in events/signals.py which triggers when status field is updated.
+        """
         event = self.get_one(event_id)
-        old_status = event.status
         event.status = status
         event.save(update_fields=["status"])
-
-        # Send notification if event is being opened
-        if old_status != models.Event.EventStatus.OPEN and status == models.Event.EventStatus.OPEN:
-            notify_event_open.delay(str(event.id))
 
         return event
 
