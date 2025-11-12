@@ -1,9 +1,9 @@
 # src/telegram/signals.py
 
-import logging
 import typing as t
 from uuid import UUID
 
+import structlog
 from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -21,13 +21,15 @@ from events.models import (
     TicketTier,
     UserEventPreferences,
 )
-from events.service.user_preferences_service import trigger_visibility_flags_for_user
-from events.tasks import (
-    build_attendee_visibility_flags,
-    notify_potluck_item_update,
+from events.service.notification_service import (
+    get_eligible_users_for_event_notification,
 )
+from events.service.user_preferences_service import trigger_visibility_flags_for_user
+from events.tasks import build_attendee_visibility_flags
+from notifications.enums import NotificationType
+from notifications.signals import notification_requested
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def unclaim_user_potluck_items(event_id: UUID, user_id: UUID, notify: bool = True) -> int:
@@ -45,24 +47,46 @@ def unclaim_user_potluck_items(event_id: UUID, user_id: UUID, notify: bool = Tru
     Returns:
         The number of items that were unclaimed
     """
+    # Get items before unclaiming (for notification purposes)
+    if notify:
+        items = list(PotluckItem.objects.filter(event_id=event_id, assignee=user_id).select_related("event"))
+
     unclaimed_count = PotluckItem.objects.filter(event_id=event_id, assignee=user_id).update(assignee=None)
 
     if notify and unclaimed_count > 0:
         logger.info(
-            f"Auto-unclaimed {unclaimed_count} potluck item(s) for user {user_id} at event {event_id} "
-            f"due to participation status change"
+            "potluck_items_auto_unclaimed",
+            count=unclaimed_count,
+            user_id=str(user_id),
+            event_id=str(event_id),
         )
+
+        # Send notification for each unclaimed item
         # Schedule notification task to run after the current transaction commits
-        # This ensures the database changes are committed before we send notifications
-        # Note: We pass a placeholder item ID since the notification system expects it,
-        # but in the future this could be enhanced to support bulk notifications
-        transaction.on_commit(
-            lambda: notify_potluck_item_update.delay(
-                potluck_item_id=str(event_id),  # Use event_id as placeholder for bulk unclaim
-                action="auto_unclaimed",
-                changed_by_user_id=str(user_id),
-            )
-        )
+        def send_notifications() -> None:
+            user = RevelUser.objects.get(pk=user_id)
+            for item in items:
+                event = item.event
+                # Get all users who should be notified
+                eligible_users = get_eligible_users_for_event_notification(
+                    event, NotificationType.POTLUCK_ITEM_UNCLAIMED
+                )
+                for recipient in eligible_users:
+                    notification_requested.send(
+                        sender=unclaim_user_potluck_items,
+                        user=recipient,
+                        notification_type=NotificationType.POTLUCK_ITEM_UNCLAIMED,
+                        context={
+                            "potluck_item_id": str(item.id),
+                            "item_name": item.name,
+                            "event_id": str(event.id),
+                            "event_name": event.name,
+                            "action": "unclaimed",
+                            "changed_by_username": user.first_name or user.username,
+                        },
+                    )
+
+        transaction.on_commit(send_notifications)
 
     return unclaimed_count
 
@@ -74,23 +98,39 @@ def handle_event_save(sender: type[Event], instance: Event, created: bool, **kwa
     if instance.requires_ticket and not TicketTier.objects.filter(event=instance).exists():
         TicketTier.objects.create(event=instance, name=DEFAULT_TICKET_TIER_NAME)
 
-    # Send notification when event status changes to OPEN
-    # Note: For now, we'll rely on manual triggering or a separate management command
-    # TODO: Implement proper status change detection using django-model-utils or custom tracking
+    # Send notification when event is created as OPEN or when status field is explicitly updated
+    # This is triggered either:
+    # 1. When an event is created with status=OPEN
+    # 2. When status is explicitly in update_fields (updated via admin or API)
+    # Note: For more robust change detection, django-model-utils FieldTracker could be used
+    if instance.status == Event.EventStatus.OPEN:
+        update_fields = kwargs.get("update_fields")
+
+        # Trigger notification if:
+        # - Created as OPEN
+        # - Status field was explicitly updated (indicates intentional status change)
+        if created or (update_fields and "status" in update_fields):
+            from events.service.event_notification_service import notify_event_opened
+
+            transaction.on_commit(lambda: notify_event_opened(instance))
 
 
 @receiver(post_save, sender=RevelUser)
 def handle_user_creation(sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: t.Any) -> None:
     """Creates GeneralUserPreferences and processes pending invitations when a new RevelUser is created."""
     if created:
-        logger.info(f"New RevelUser created (ID: {instance.id}). Creating settings.")
+        logger.info("revel_user_created", user_id=str(instance.id))
         GeneralUserPreferences.objects.create(user=instance)
 
         # Convert any pending invitations for this email to real invitations
         pending_invitations = PendingEventInvitation.objects.filter(email__iexact=instance.email)
 
         if pending_invitations.exists():
-            logger.info(f"Converting {pending_invitations.count()} pending invitations for {instance.email}")
+            logger.info(
+                "converting_pending_invitations",
+                user_id=str(instance.id),
+                count=pending_invitations.count(),
+            )
 
             for pending in pending_invitations:
                 # Create EventInvitation from PendingEventInvitation
@@ -204,34 +244,74 @@ def handle_default_user_pref_save(
 @receiver(post_save, sender=PotluckItem)
 def handle_potluck_item_save(sender: type[PotluckItem], instance: PotluckItem, created: bool, **kwargs: t.Any) -> None:
     """Handle potluck item creation and updates."""
+    event = instance.event
+
     if created:
-        logger.info(f"PotluckItem {instance.id} created for event {instance.event.name}, sending notifications")
-        notify_potluck_item_update.delay(
-            potluck_item_id=str(instance.id),
-            action="created",
-            changed_by_user_id=None,  # TODO: Track who created the item
-        )
+        action = "created"
+        notification_type = NotificationType.POTLUCK_ITEM_CREATED
+        logger.info("potluck_item_created", potluck_item_id=str(instance.id), event_id=str(event.id))
     else:
-        # For updates, we need to check if assignment changed
-        # This is a simplified approach - in a real implementation you'd track field changes
-        action = "assigned" if instance.assignee else "unassigned"
-        logger.info(f"PotluckItem {instance.id} updated ({action}) for event {instance.event.name}")
-        notify_potluck_item_update.delay(
-            potluck_item_id=str(instance.id),
-            action=action,
-            changed_by_user_id=None,  # TODO: Track who made the change
-        )
+        # For updates, determine action based on assignee
+        if instance.assignee:
+            action = "claimed"
+            notification_type = NotificationType.POTLUCK_ITEM_CLAIMED
+        else:
+            action = "unclaimed"
+            notification_type = NotificationType.POTLUCK_ITEM_UNCLAIMED
+        logger.info("potluck_item_updated", potluck_item_id=str(instance.id), event_id=str(event.id), action=action)
+
+    # Get all eligible users for notification
+    def send_notifications() -> None:
+        eligible_users = get_eligible_users_for_event_notification(event, notification_type)
+
+        for user in eligible_users:
+            context = {
+                "potluck_item_id": str(instance.id),
+                "item_name": instance.name,
+                "event_id": str(event.id),
+                "event_name": event.name,
+                "action": action,
+            }
+
+            # Add assignee username if claimed
+            if action == "claimed" and instance.assignee:
+                context["assigned_to_username"] = instance.assignee.first_name or instance.assignee.username
+
+            notification_requested.send(
+                sender=sender,
+                user=user,
+                notification_type=notification_type,
+                context=context,
+            )
+
+    transaction.on_commit(send_notifications)
 
 
 @receiver(post_delete, sender=PotluckItem)
 def handle_potluck_item_delete(sender: type[PotluckItem], instance: PotluckItem, **kwargs: t.Any) -> None:
     """Handle potluck item deletion."""
-    logger.info(f"PotluckItem {instance.id} deleted for event {instance.event.name}, sending notifications")
-    notify_potluck_item_update.delay(
-        potluck_item_id=str(instance.id),
-        action="deleted",
-        changed_by_user_id=None,  # TODO: Track who deleted the item
-    )
+    logger.info("potluck_item_deleted", potluck_item_id=str(instance.id), event_id=str(instance.event_id))
+    event = instance.event
+
+    # Get all eligible users for notification
+    def send_notifications() -> None:
+        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_ITEM_UPDATED)
+
+        for user in eligible_users:
+            notification_requested.send(
+                sender=sender,
+                user=user,
+                notification_type=NotificationType.POTLUCK_ITEM_UPDATED,
+                context={
+                    "potluck_item_id": str(instance.id),
+                    "item_name": instance.name,
+                    "event_id": str(event.id),
+                    "event_name": event.name,
+                    "action": "deleted",
+                },
+            )
+
+    transaction.on_commit(send_notifications)
 
 
 # Ticket notifications are now handled in the service layer, not signals

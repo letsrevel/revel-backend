@@ -11,7 +11,8 @@ from events.models import (
     UserEventSeriesPreferences,
     UserOrganizationPreferences,
 )
-from events.service.notification_service import NotificationType, get_eligible_users_for_event_notification
+from events.service.notification_service import get_eligible_users_for_event_notification
+from notifications.enums import NotificationType
 
 pytestmark = pytest.mark.django_db
 
@@ -29,7 +30,7 @@ class TestGetEligibleUsersForEventNotification:
             notify_on_potluck_updates=True,
         )
 
-        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_UPDATE)
+        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_ITEM_UPDATED)
 
         assert nonmember_user in eligible_users
 
@@ -89,7 +90,7 @@ class TestGetEligibleUsersForEventNotification:
             silence_all_notifications=True,  # User silenced everything
         )
 
-        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_UPDATE)
+        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_ITEM_UPDATED)
 
         assert nonmember_user not in eligible_users
 
@@ -103,7 +104,7 @@ class TestGetEligibleUsersForEventNotification:
             notify_on_potluck_updates=True,
         )
 
-        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_UPDATE)
+        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_ITEM_UPDATED)
 
         assert nonmember_user not in eligible_users
 
@@ -117,7 +118,7 @@ class TestGetEligibleUsersForEventNotification:
             notify_on_potluck_updates=False,  # Disabled for potluck
         )
 
-        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_UPDATE)
+        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_ITEM_UPDATED)
 
         assert nonmember_user not in eligible_users
 
@@ -132,7 +133,7 @@ class TestGetEligibleUsersForEventNotification:
         )
 
         # Should be included for POTLUCK_UPDATE
-        eligible_for_potluck = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_UPDATE)
+        eligible_for_potluck = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_ITEM_UPDATED)
         assert nonmember_user in eligible_for_potluck
 
         # Should NOT be included for EVENT_OPEN (no notify_on_new_events in event preferences)
@@ -154,7 +155,7 @@ class TestGetEligibleUsersForEventNotification:
         )
 
         # Should work without errors
-        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_UPDATE)
+        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_ITEM_UPDATED)
 
         assert nonmember_user in eligible_users
 
@@ -174,7 +175,7 @@ class TestGetEligibleUsersForEventNotification:
             notify_on_new_events=True,
         )
 
-        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_UPDATE)
+        eligible_users = get_eligible_users_for_event_notification(event, NotificationType.POTLUCK_ITEM_UPDATED)
 
         # User should appear only once
         user_ids = list(eligible_users.values_list("id", flat=True))
@@ -224,7 +225,7 @@ class TestGetEligibleUsersForEventNotification:
             notify_on_new_events=True,
         )
 
-        eligible_users = get_eligible_users_for_event_notification(series_event, NotificationType.POTLUCK_UPDATE)
+        eligible_users = get_eligible_users_for_event_notification(series_event, NotificationType.POTLUCK_ITEM_UPDATED)
 
         # Only user1 should be included (has potluck notifications enabled)
         assert user1 in eligible_users

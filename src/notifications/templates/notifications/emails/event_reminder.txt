@@ -1,0 +1,21 @@
+{% load i18n %}{% autoescape off %}{% blocktranslate with name=user.first_name|default:user.username %}Hi {{ name }}{% endblocktranslate %},
+
+{% if context.days_until == 1 %}
+{% trans "This is a reminder that your event is TOMORROW!" %}
+{% else %}
+{% blocktranslate with days=context.days_until %}This is a reminder that your event is in {{ days }} days!{% endblocktranslate %}
+{% endif %}
+
+{{ context.event_name }}
+
+{% trans "When:" %} {{ context.event_start }}
+{% trans "Where:" %} {{ context.event_location }}
+
+{% if context.ticket_reference %}{% trans "Your Ticket Reference:" %} {{ context.ticket_reference }}{% endif %}
+{% if context.rsvp_status %}{% trans "Your RSVP Status:" %} {{ context.rsvp_status }}{% endif %}
+
+{% trans "Don't forget!" %}
+
+{% trans "See you soon," %}
+Revel
+{% endautoescape %}

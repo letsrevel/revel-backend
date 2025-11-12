@@ -6,6 +6,8 @@ from django.db.models import Prefetch, QuerySet
 from django.utils import timezone
 
 from accounts.models import RevelUser
+from notifications.enums import NotificationType
+from notifications.signals import notification_requested
 from questionnaires.models import (
     FreeTextAnswer,
     FreeTextQuestion,
@@ -206,10 +208,41 @@ class QuestionnaireService:
 
             # Send notification for manual review if needed
             if self.questionnaire.evaluation_mode != self.questionnaire.QuestionnaireEvaluationMode.AUTOMATIC:
-                # Import here to avoid circular imports
-                from events.tasks import notify_questionnaire_submission
+                from events.models import OrganizationQuestionnaire
+                from events.service.notification_service import get_organization_staff_and_owners
 
-                notify_questionnaire_submission.delay(str(submission.id))
+                # Only fetch organization_id and name (we need name for context)
+                org_data = (
+                    OrganizationQuestionnaire.objects.filter(questionnaire_id=self.questionnaire.id)
+                    .select_related("organization")
+                    .values_list("organization_id", "organization__name")
+                    .first()
+                )
+
+                if not org_data:
+                    # No organization linked, skip notifications
+                    return submission
+
+                organization_id, organization_name = org_data
+
+                # Get staff and owners with evaluate_questionnaire permission
+                staff_and_owners = get_organization_staff_and_owners(organization_id)
+
+                # Send notification to all eligible users
+                for staff_user in staff_and_owners:
+                    notification_requested.send(
+                        sender=self.__class__,
+                        user=staff_user,
+                        notification_type=NotificationType.QUESTIONNAIRE_SUBMITTED,
+                        context={
+                            "submission_id": str(submission.id),
+                            "questionnaire_name": self.questionnaire.name,
+                            "submitter_email": user.email,
+                            "submitter_name": user.first_name or user.username,
+                            "submitted_at": submission.submitted_at.isoformat() if submission.submitted_at else "",
+                            "organization_name": organization_name,
+                        },
+                    )
         else:
             submission, _ = QuestionnaireSubmission.objects.update_or_create(
                 questionnaire=self.questionnaire,
@@ -453,9 +486,30 @@ class QuestionnaireService:
             evaluation.QuestionnaireEvaluationStatus.REJECTED,
         ]:
             # Import here to avoid circular imports
-            from events.tasks import notify_questionnaire_evaluation_result
+            from events.models import OrganizationQuestionnaire
 
-            notify_questionnaire_evaluation_result.delay(str(evaluation.id))
+            # Only fetch organization_name (no need for full object)
+            organization_name = (
+                OrganizationQuestionnaire.objects.filter(questionnaire_id=self.questionnaire.id)
+                .select_related("organization")
+                .values_list("organization__name", flat=True)
+                .first()
+            )
+
+            if organization_name:
+                notification_requested.send(
+                    sender=self.__class__,
+                    user=submission.user,
+                    notification_type=NotificationType.QUESTIONNAIRE_EVALUATION_RESULT,
+                    context={
+                        "submission_id": str(submission.id),
+                        "questionnaire_name": self.questionnaire.name,
+                        "evaluation_status": evaluation.status.upper(),
+                        "evaluation_score": str(payload.score) if payload.score else None,
+                        "evaluation_comments": payload.comments,
+                        "organization_name": organization_name,
+                    },
+                )
 
         return evaluation
 

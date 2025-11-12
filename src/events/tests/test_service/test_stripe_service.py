@@ -509,10 +509,10 @@ class TestStripeEventHandler:
         gat.save()
         return gat
 
-    @patch("events.tasks.send_payment_confirmation_email.delay")
+    @patch("notifications.signals.notification_requested.send")
     def test_handle_checkout_session_completed_success(
         self,
-        mock_email_task: Mock,
+        mock_notification_signal: Mock,
         handler: stripe_service.StripeEventHandler,
         completed_payment: Payment,
     ) -> None:
@@ -546,7 +546,13 @@ class TestStripeEventHandler:
         ticket.refresh_from_db()
         assert ticket.status == Ticket.TicketStatus.ACTIVE
 
-        mock_email_task.assert_called_once_with(str(completed_payment.id))
+        # Verify notification signal was sent
+        mock_notification_signal.assert_called_once()
+        call_kwargs = mock_notification_signal.call_args.kwargs
+        assert call_kwargs["user"] == completed_payment.user
+        from notifications.enums import NotificationType
+
+        assert call_kwargs["notification_type"] == NotificationType.PAYMENT_CONFIRMATION
 
     def test_handle_checkout_session_not_complete_is_noop(
         self,
@@ -602,8 +608,10 @@ class TestStripeEventHandler:
         with pytest.raises(Http404):
             handler.handle_checkout_session_completed(handler.event)
 
+    @patch("notifications.signals.notification_requested.send")
     def test_handle_charge_refunded_success(
         self,
+        mock_notification_signal: Mock,
         handler: stripe_service.StripeEventHandler,
         completed_payment: Payment,
     ) -> None:
@@ -644,6 +652,19 @@ class TestStripeEventHandler:
 
         tier.refresh_from_db()
         assert tier.quantity_sold == 4  # Restored from 5 to 4
+
+        # Verify notification signal was sent to ticket holder (and potentially staff)
+        # The signal is called at least once for the ticket holder
+        # It may be called additional times for staff/owners with the preference enabled
+        assert mock_notification_signal.call_count >= 1
+
+        # Verify the first call is to the ticket holder
+        first_call_kwargs = mock_notification_signal.call_args_list[0].kwargs
+        assert first_call_kwargs["user"] == completed_payment.user
+        from notifications.enums import NotificationType
+
+        assert first_call_kwargs["notification_type"] == NotificationType.TICKET_REFUNDED
+        assert first_call_kwargs["context"]["action"] == "refunded"
 
     def test_handle_charge_refunded_idempotent(
         self,

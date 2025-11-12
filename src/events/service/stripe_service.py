@@ -16,7 +16,8 @@ from stripe.checkout import Session
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Event, Organization, Payment, Ticket, TicketTier
-from events.tasks import send_payment_confirmation_email
+from notifications.enums import NotificationType
+from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
 
@@ -211,8 +212,22 @@ class StripeEventHandler:
         ticket.status = Ticket.TicketStatus.ACTIVE
         ticket.save(update_fields=["status"])
 
-        # Send payment confirmation email (includes PDF and ICS attachments)
-        send_payment_confirmation_email.delay(str(payment.id))
+        # Send payment confirmation notification via new notification system
+        ticket_event = ticket.event
+        notification_requested.send(
+            sender=self.__class__,
+            user=payment.user,
+            notification_type=NotificationType.PAYMENT_CONFIRMATION,
+            context={
+                "ticket_id": str(ticket.id),
+                "ticket_reference": str(ticket.id),  # Use ticket ID as reference
+                "event_id": str(ticket_event.id),
+                "event_name": ticket_event.name,
+                "event_start": ticket_event.start.isoformat(),
+                "payment_amount": f"{payment.amount} {payment.currency}",
+                "payment_method": "card",  # Stripe payments are card-based
+            },
+        )
         logger.info(
             "stripe_payment_success",
             payment_id=str(payment.id),
@@ -292,9 +307,51 @@ class StripeEventHandler:
         ticket.save(update_fields=["status"])
 
         # Restore ticket quantity
-        from django.db.models import F
-
         TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
+
+        # Send refund notification via new notification system
+        ticket_event = ticket.event
+        context = {
+            "ticket_id": str(ticket.id),
+            "ticket_reference": str(ticket.id),
+            "event_id": str(ticket_event.id),
+            "event_name": ticket_event.name,
+            "event_start": ticket_event.start.isoformat() if ticket_event.start else "",
+            "refund_amount": f"{payment.amount} {payment.currency}",
+            "action": "refunded",
+            "include_pdf": False,
+            "include_ics": False,
+        }
+
+        # Always notify ticket holder
+        notification_requested.send(
+            sender=self.__class__,
+            user=payment.user,
+            notification_type=NotificationType.TICKET_REFUNDED,
+            context=context,
+        )
+
+        # Notify organization staff/owners if they have it enabled
+        from events.service.notification_service import get_organization_staff_and_owners
+
+        staff_and_owners = get_organization_staff_and_owners(ticket_event.organization_id)
+        for staff_user in staff_and_owners:
+            try:
+                prefs = staff_user.notification_preferences
+                if prefs.is_notification_type_enabled(NotificationType.TICKET_REFUNDED.value):
+                    notification_requested.send(
+                        sender=self.__class__,
+                        user=staff_user,
+                        notification_type=NotificationType.TICKET_REFUNDED,
+                        context={
+                            **context,
+                            "ticket_holder_name": payment.user.get_full_name() or payment.user.username,
+                            "ticket_holder_email": payment.user.email,
+                        },
+                    )
+            except Exception:
+                # User may not have notification preferences yet, skip
+                pass
 
         logger.info(
             "stripe_refund_processed",
@@ -348,8 +405,6 @@ class StripeEventHandler:
         ticket.save(update_fields=["status"])
 
         # Restore ticket quantity
-        from django.db.models import F
-
         TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
 
         logger.info(

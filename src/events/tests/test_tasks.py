@@ -17,8 +17,8 @@ from events.models import (
     Ticket,
     TicketTier,
 )
-from events.service.notification_service import NotificationType
 from events.tasks import build_attendee_visibility_flags, cleanup_expired_payments, send_notification_email
+from notifications.enums import NotificationType
 
 pytestmark = pytest.mark.django_db
 

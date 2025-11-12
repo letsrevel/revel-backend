@@ -2,7 +2,7 @@
 
 import logging
 import typing as t
-from enum import Enum
+from uuid import UUID
 
 from django.db.models import Q, QuerySet
 
@@ -16,20 +16,9 @@ from events.models import (
     UserEventSeriesPreferences,
     UserOrganizationPreferences,
 )
+from notifications.enums import NotificationType
 
 logger = logging.getLogger(__name__)
-
-
-class NotificationType(Enum):
-    """Types of notifications that can be sent."""
-
-    EVENT_OPEN = "event_open"
-    POTLUCK_UPDATE = "potluck_update"
-    TICKET_CREATED = "ticket_created"
-    TICKET_UPDATED = "ticket_updated"
-    QUESTIONNAIRE_EVALUATION = "questionnaire_evaluation"
-    QUESTIONNAIRE_SUBMITTED = "questionnaire_submitted"
-    PAYMENT_CONFIRMATION = "payment_confirmation"
 
 
 def resolve_notification_preference(  # noqa: C901  # todo: refactor
@@ -155,24 +144,29 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
         if notification_type == NotificationType.EVENT_OPEN:
             if resolve_notification_preference(user, "notify_on_new_events", event=event):
                 eligible_users.append(user.id)
-        elif notification_type == NotificationType.POTLUCK_UPDATE:
+        elif notification_type in [
+            NotificationType.POTLUCK_ITEM_CREATED,
+            NotificationType.POTLUCK_ITEM_UPDATED,
+            NotificationType.POTLUCK_ITEM_CLAIMED,
+            NotificationType.POTLUCK_ITEM_UNCLAIMED,
+        ]:
             if resolve_notification_preference(user, "notify_on_potluck_updates", event=event):
                 eligible_users.append(user.id)
 
     return RevelUser.objects.filter(id__in=eligible_users)
 
 
-def get_organization_staff_and_owners(organization: Organization) -> QuerySet[RevelUser]:
+def get_organization_staff_and_owners(organization_id: UUID) -> QuerySet[RevelUser]:
     """Get all staff members and owners of an organization.
 
     Args:
-        organization: The organization
+        organization_id: The organization ID
 
     Returns:
         QuerySet of staff and owner users
     """
     return RevelUser.objects.filter(
-        Q(owned_organizations=organization) | Q(organization_staff_memberships__organization=organization)
+        Q(owned_organizations=organization_id) | Q(organization_staff_memberships__organization_id=organization_id)
     ).distinct()
 
 

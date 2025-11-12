@@ -1,9 +1,11 @@
 """conftest.py: Fixtures for the questionnaires app."""
 
+import typing as t
+
 import pytest
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import AbstractUser
 
+from events.models import Organization, OrganizationQuestionnaire
 from questionnaires.llms.llm_backends import MockEvaluator
 from questionnaires.models import (
     FreeTextQuestion,
@@ -18,9 +20,27 @@ User = get_user_model()
 
 
 @pytest.fixture
-def user() -> AbstractUser:
+def user() -> t.Any:
     """Provides a standard user instance."""
     return User.objects.create_user(username="testuser", password="password")
+
+
+@pytest.fixture
+def organization(user: t.Any) -> t.Any:
+    """Provides an Organization instance for questionnaire tests."""
+
+    return Organization.objects.create(name="Test Organization", slug="test-org", owner=user)
+
+
+@pytest.fixture
+def org_questionnaire(organization: Organization, questionnaire: Questionnaire) -> OrganizationQuestionnaire:
+    """Link the questionnaire to the organization.
+
+    This is required for the notification system which needs to determine
+    which organization a questionnaire belongs to when sending evaluation notifications.
+    """
+
+    return OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
 
 
 @pytest.fixture
@@ -30,9 +50,9 @@ def another_questionnaire() -> Questionnaire:
 
 
 @pytest.fixture
-def draft_submission(user: AbstractUser, questionnaire: Questionnaire) -> QuestionnaireSubmission:
+def draft_submission(user: t.Any, questionnaire: Questionnaire) -> QuestionnaireSubmission:
     """Provides a draft submission for the standard user and questionnaire."""
-    return QuestionnaireSubmission.objects.create(user=user, questionnaire=questionnaire)  # type: ignore[misc]
+    return QuestionnaireSubmission.objects.create(user=user, questionnaire=questionnaire)
 
 
 @pytest.fixture

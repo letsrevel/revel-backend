@@ -668,7 +668,9 @@ def test_get_submission_detail_wrong_questionnaire(questionnaire: Questionnaire,
         service.get_submission_detail(submission.id)
 
 
-def test_evaluate_submission_create_new(questionnaire: Questionnaire, user: RevelUser, evaluator: RevelUser) -> None:
+def test_evaluate_submission_create_new(
+    questionnaire: Questionnaire, user: RevelUser, evaluator: RevelUser, org_questionnaire: object
+) -> None:
     """Test creating a new evaluation for a submission."""
     from decimal import Decimal
 
@@ -697,7 +699,7 @@ def test_evaluate_submission_create_new(questionnaire: Questionnaire, user: Reve
 
 
 def test_evaluate_submission_update_existing(
-    questionnaire: Questionnaire, user: RevelUser, evaluator: RevelUser
+    questionnaire: Questionnaire, user: RevelUser, evaluator: RevelUser, org_questionnaire: object
 ) -> None:
     """Test updating an existing evaluation for a submission."""
     from decimal import Decimal
