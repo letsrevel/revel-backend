@@ -1,16 +1,12 @@
 """API controller for notification preference management."""
 
-from typing import Literal
-
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from notifications.models import NotificationPreference
-from notifications.schema import NotificationPreferenceSchema, UpdateNotificationPreferenceSchema
-
-ChannelType = Literal["in_app", "email", "telegram"]
+from notifications.schema import ChannelType, NotificationPreferenceSchema, UpdateNotificationPreferenceSchema
 
 
 @api_controller(
