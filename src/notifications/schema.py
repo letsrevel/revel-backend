@@ -58,7 +58,7 @@ class NotificationPreferenceSchema(ModelSchema):
     digest_send_time: time
     show_me_on_attendee_list: str
     enabled_channels: list[ChannelType]
-    notification_type_settings: dict[str, NotificationTypeSettings]
+    notification_type_settings: dict[NotificationType, NotificationTypeSettings]
 
     class Meta:
         model = NotificationPreference

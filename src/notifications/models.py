@@ -140,18 +140,12 @@ class NotificationDelivery(TimeStampedModel):
 def get_default_notification_type_settings() -> dict[NotificationType, NotificationTypeSetting]:
     """Get the default notification type settings (exclude potluck from email to avoid spamming users)."""
     return {
-        NotificationType.POTLUCK_ITEM_CLAIMED: {
-            NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP])
-        },
-        NotificationType.POTLUCK_ITEM_CREATED: {
-            NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP])
-        },
-        NotificationType.POTLUCK_ITEM_UPDATED: {
-            NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP])
-        },
-        NotificationType.POTLUCK_ITEM_UNCLAIMED: {
-            NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP])
-        },
+        NotificationType.POTLUCK_ITEM_CLAIMED: NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP]),
+        NotificationType.POTLUCK_ITEM_CREATED: NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP]),
+        NotificationType.POTLUCK_ITEM_UPDATED: NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP]),
+        NotificationType.POTLUCK_ITEM_UNCLAIMED: NotificationTypeSetting(
+            enabled=True, channels=[DeliveryChannel.IN_APP]
+        ),
     }
 
 
