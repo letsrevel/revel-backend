@@ -10,7 +10,10 @@ from django.utils.translation import gettext_lazy as _
 from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import TimeStampedModel
-from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
+from notifications.enums import DeliveryStatus, NotificationType
+
+from .enums import DeliveryChannel
+from .types import NotificationTypeSetting
 
 
 class Notification(TimeStampedModel):
@@ -134,6 +137,24 @@ class NotificationDelivery(TimeStampedModel):
         return f"{self.notification.notification_type} via {self.channel} - {self.status}"
 
 
+def get_default_notification_type_settings() -> dict[NotificationType, NotificationTypeSetting]:
+    """Get the default notification type settings (exclude potluck from email to avoid spamming users)."""
+    return {
+        NotificationType.POTLUCK_ITEM_CLAIMED: {
+            NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP])
+        },
+        NotificationType.POTLUCK_ITEM_CREATED: {
+            NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP])
+        },
+        NotificationType.POTLUCK_ITEM_UPDATED: {
+            NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP])
+        },
+        NotificationType.POTLUCK_ITEM_UNCLAIMED: {
+            NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP])
+        },
+    }
+
+
 class NotificationPreference(TimeStampedModel):
     """User's notification preferences.
 
@@ -182,7 +203,7 @@ class NotificationPreference(TimeStampedModel):
 
     # Per-notification-type preferences (JSON for flexibility)
     notification_type_settings = models.JSONField(
-        default=dict,
+        default=get_default_notification_type_settings,
         blank=True,
         help_text="Per-type settings: {notification_type: {enabled: bool, channels: []}}",
     )
