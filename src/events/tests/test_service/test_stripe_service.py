@@ -1,5 +1,6 @@
 """Tests for the Stripe service."""
 
+import typing as t
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, Mock, patch
@@ -614,6 +615,7 @@ class TestStripeEventHandler:
         mock_notification_signal: Mock,
         handler: stripe_service.StripeEventHandler,
         completed_payment: Payment,
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         """Test successful refund processing."""
         # Arrange
@@ -639,8 +641,9 @@ class TestStripeEventHandler:
         handler.event.data.object = event_dict_data["data"]["object"]  # type: ignore[index]
         handler.event.__iter__.return_value = iter(event_dict_data.items())  # type: ignore[attr-defined]
 
-        # Act
-        handler.handle_charge_refunded(handler.event)
+        # Act - capture on_commit callbacks from signal handlers
+        with django_capture_on_commit_callbacks(execute=True):
+            handler.handle_charge_refunded(handler.event)
 
         # Assert
         completed_payment.refresh_from_db()
@@ -664,7 +667,9 @@ class TestStripeEventHandler:
         from notifications.enums import NotificationType
 
         assert first_call_kwargs["notification_type"] == NotificationType.TICKET_REFUNDED
-        assert first_call_kwargs["context"]["action"] == "refunded"
+        # Context should include refund amount
+        assert "refund_amount" in first_call_kwargs["context"]
+        assert first_call_kwargs["context"]["ticket_id"] == str(ticket.id)
 
     def test_handle_charge_refunded_idempotent(
         self,

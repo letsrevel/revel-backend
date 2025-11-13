@@ -19,11 +19,27 @@ class TicketCreatedTemplate(NotificationTemplate):
     def get_title(self, notification: Notification) -> str:
         """Get title."""
         event_name = notification.context.get("event_name", "")
+        ticket_holder_name = notification.context.get("ticket_holder_name")
+
+        if ticket_holder_name:
+            # Notification to staff/owners
+            return _("New Ticket: %(holder)s - %(event)s") % {"holder": ticket_holder_name, "event": event_name}
+        # Notification to ticket holder
         return _("Ticket Confirmation for %(event)s") % {"event": event_name}
 
     def get_body(self, notification: Notification) -> str:
         """Get body."""
         ctx = notification.context
+        ticket_holder_name = ctx.get("ticket_holder_name")
+
+        if ticket_holder_name:
+            # Notification to staff/owners
+            return _("%(holder)s's ticket for **%(event)s** has been confirmed. Reference: %(reference)s") % {
+                "holder": ticket_holder_name,
+                "event": ctx.get("event_name", ""),
+                "reference": ctx.get("ticket_reference", ""),
+            }
+        # Notification to ticket holder
         return _("Your ticket for **%(event)s** has been confirmed! Your ticket reference is: %(reference)s") % {
             "event": ctx.get("event_name", ""),
             "reference": ctx.get("ticket_reference", ""),
@@ -32,6 +48,12 @@ class TicketCreatedTemplate(NotificationTemplate):
     def get_subject(self, notification: Notification) -> str:
         """Get email subject."""
         event_name = notification.context.get("event_name", "")
+        ticket_holder_name = notification.context.get("ticket_holder_name")
+
+        if ticket_holder_name:
+            # Notification to staff/owners
+            return _("New Ticket: %(holder)s - %(event)s") % {"holder": ticket_holder_name, "event": event_name}
+        # Notification to ticket holder
         return _("Your ticket for %(event)s") % {"event": event_name}
 
     def get_text_body(self, notification: Notification) -> str:
@@ -95,12 +117,33 @@ class TicketUpdatedTemplate(NotificationTemplate):
     def get_title(self, notification: Notification) -> str:
         """Get title."""
         event_name = notification.context.get("event_name", "")
+        ticket_holder_name = notification.context.get("ticket_holder_name")
+        action = notification.context.get("action", "updated")
+
+        if ticket_holder_name:
+            # Notification to staff/owners
+            return _("Ticket %(action)s: %(holder)s - %(event)s") % {
+                "action": action.capitalize(),
+                "holder": ticket_holder_name,
+                "event": event_name,
+            }
+        # Notification to ticket holder
         return _("Ticket Update for %(event)s") % {"event": event_name}
 
     def get_body(self, notification: Notification) -> str:
         """Get body."""
         ctx = notification.context
         action = ctx.get("action", "updated")
+        ticket_holder_name = ctx.get("ticket_holder_name")
+
+        if ticket_holder_name:
+            # Notification to staff/owners
+            return _("%(holder)s's ticket for **%(event)s** has been %(action)s.") % {
+                "holder": ticket_holder_name,
+                "event": ctx.get("event_name", ""),
+                "action": action,
+            }
+        # Notification to ticket holder
         return _("Your ticket for **%(event)s** has been %(action)s.") % {
             "event": ctx.get("event_name", ""),
             "action": action,
@@ -109,6 +152,17 @@ class TicketUpdatedTemplate(NotificationTemplate):
     def get_subject(self, notification: Notification) -> str:
         """Get email subject."""
         event_name = notification.context.get("event_name", "")
+        ticket_holder_name = notification.context.get("ticket_holder_name")
+        action = notification.context.get("action", "updated")
+
+        if ticket_holder_name:
+            # Notification to staff/owners
+            return _("Ticket %(action)s: %(holder)s - %(event)s") % {
+                "action": action.capitalize(),
+                "holder": ticket_holder_name,
+                "event": event_name,
+            }
+        # Notification to ticket holder
         return _("Ticket Update - %(event)s") % {"event": event_name}
 
     def get_text_body(self, notification: Notification) -> str:

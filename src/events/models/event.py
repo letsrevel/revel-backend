@@ -568,6 +568,19 @@ class Payment(TimeStampedModel):
         """Return whether a payment has expired."""
         return self.expires_at < timezone.now()
 
+    @staticmethod
+    def stripe_mode() -> str:
+        """Stripe mode."""
+        key: str = settings.STRIPE_SECRET_KEY
+        return "test" if key.startswith("sk_test_") else "live"
+
+    def stripe_dashboard_url(self) -> str:
+        """Return the stripe dashboard URL."""
+        mode: str = self.stripe_mode()
+        if self.stripe_payment_intent_id:
+            return f"https://dashboard.stripe.com/{mode}/payments/{self.stripe_payment_intent_id}"
+        return f"https://dashboard.stripe.com/{mode}/checkout/sessions/{self.stripe_session_id}"
+
 
 class EventInvitationQueryset(models.QuerySet["EventInvitation"]):
     def with_related(self) -> t.Self:

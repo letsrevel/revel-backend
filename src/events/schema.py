@@ -411,6 +411,7 @@ class PaymentSchema(ModelSchema):
 
     status: Payment.PaymentStatus
     currency: Currencies
+    stripe_dashboard_url: str
 
     class Meta:
         model = Payment
@@ -495,7 +496,7 @@ class DirectInvitationCreateSchema(InvitationBaseSchema):
     """Schema for creating direct invitations to events."""
 
     emails: list[EmailStr] = Field(..., min_length=1, description="List of email addresses to invite")
-    tier_id: UUID = Field(description="Ticket tier to assign to invitations")
+    tier_id: UUID | None = Field(None, description="Ticket tier to assign to invitations")
     send_notification: bool = Field(True, description="Whether to send notification emails")
 
 
@@ -879,56 +880,18 @@ class TagUpdateSchema(BaseModel):
 DEFAULT_VISIBILITY_PREFERENCE = models.BaseUserPreferences.VisibilityPreference.NEVER
 
 
-class BaseUserPreferencesSchema(Schema):
+class GeneralUserPreferencesSchema(Schema):
+    """Schema for general user preferences (visibility and location)."""
+
     show_me_on_attendee_list: models.BaseUserPreferences.VisibilityPreference = DEFAULT_VISIBILITY_PREFERENCE
-    event_reminders: bool = True
-    silence_all_notifications: bool = False
-
-
-class GeneralUserPreferencesSchema(BaseUserPreferencesSchema):
     city: CitySchema | None = None
 
 
-class BaseSubscriptionPreferencesSchema(BaseUserPreferencesSchema):
-    is_subscribed: bool
+class GeneralUserPreferencesUpdateSchema(Schema):
+    """Schema for updating general user preferences."""
 
-
-class UserOrganizationPreferencesSchema(BaseSubscriptionPreferencesSchema):
-    notify_on_new_events: bool
-
-
-class UserEventSeriesPreferencesSchema(BaseSubscriptionPreferencesSchema):
-    notify_on_new_events: bool
-
-
-class UserEventPreferencesSchema(BaseSubscriptionPreferencesSchema):
-    notify_on_potluck_updates: bool
-
-
-class BaseUserPreferencesUpdateSchema(Schema):
     show_me_on_attendee_list: models.BaseUserPreferences.VisibilityPreference = DEFAULT_VISIBILITY_PREFERENCE
-    event_reminders: bool = True
-    silence_all_notifications: bool = False
-
-
-class GeneralUserPreferencesUpdateSchema(BaseUserPreferencesUpdateSchema):
     city_id: int | None = None
-
-
-class BaseSubscriptionPreferencesUpdateSchema(BaseUserPreferencesUpdateSchema):
-    is_subscribed: bool = False
-
-
-class UserOrganizationPreferencesUpdateSchema(BaseSubscriptionPreferencesUpdateSchema):
-    notify_on_new_events: bool = True
-
-
-class UserEventSeriesPreferencesUpdateSchema(BaseSubscriptionPreferencesUpdateSchema):
-    notify_on_new_events: bool = True
-
-
-class UserEventPreferencesUpdateSchema(BaseSubscriptionPreferencesUpdateSchema):
-    notify_on_potluck_updates: bool = False
 
 
 # --- Stripe Schemas ---
@@ -1106,6 +1069,8 @@ class TicketTierDetailSchema(ModelSchema):
 
 
 class AttendeeSchema(ModelSchema):
+    display_name: str
+
     class Meta:
         model = RevelUser
         fields = ["preferred_name", "pronouns", "first_name", "last_name"]

@@ -114,6 +114,12 @@
     <p>{% trans "If you have questions about this decision, please contact the event organizers." %}</p>
     {% endif %}
 
+    {% if context.frontend_url %}
+    <p style="text-align: center; margin-top: 20px;">
+        <a href="{{ context.frontend_url }}" style="display: inline-block; padding: 12px 24px; background: #6366f1; color: white; text-decoration: none; border-radius: 4px;">{% trans "View Event Details" %}</a>
+    </p>
+    {% endif %}
+
     <div class="footer">
         <p><strong>{% if context.organization_name %}{{ context.organization_name }}{% else %}Revel{% endif %}</strong></p>
     </div>

@@ -34,6 +34,12 @@
             <p>{% trans "Your ticket QR code is attached to this email. Please present it at the event entrance." %}</p>
             {% endif %}
 
+            {% if context.frontend_url %}
+            <p style="text-align: center;">
+                <a href="{{ context.frontend_url }}" class="button">{% trans "View Event Details" %}</a>
+            </p>
+            {% endif %}
+
             <p>{% trans "We look forward to seeing you at the event!" %}</p>
         </div>
         <div class="footer">

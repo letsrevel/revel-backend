@@ -182,7 +182,9 @@ class NotificationPreference(TimeStampedModel):
 
     # Per-notification-type preferences (JSON for flexibility)
     notification_type_settings = models.JSONField(
-        default=dict, blank=True, help_text="Per-type settings: {notification_type: {enabled: bool, channels: []}}"
+        default=dict,
+        blank=True,
+        help_text="Per-type settings: {notification_type: {enabled: bool, channels: []}}",
     )
 
     # Event reminders
@@ -197,9 +199,6 @@ class NotificationPreference(TimeStampedModel):
         default=VisibilityPreference.NEVER,
         help_text="Attendee list visibility preference",
     )
-
-    # Default city (from old GeneralUserPreferences)
-    city = models.ForeignKey("geo.City", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
         verbose_name = "Notification Preference"

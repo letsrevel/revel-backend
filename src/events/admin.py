@@ -587,11 +587,9 @@ class GeneralUserPreferencesAdmin(ModelAdmin):  # type: ignore[misc]
         "__str__",
         "user_link",
         "city_link",
-        "silence_all_notifications",
         "show_me_on_attendee_list",
-        "event_reminders",
     ]
-    list_filter = ["silence_all_notifications", "show_me_on_attendee_list", "event_reminders", "city__country"]
+    list_filter = ["show_me_on_attendee_list", "city__country"]
     search_fields = ["user__username", "user__email", "city__name"]
     autocomplete_fields = ["user", "city"]
 
@@ -606,97 +604,6 @@ class GeneralUserPreferencesAdmin(ModelAdmin):  # type: ignore[misc]
             return "—"
         url = reverse("admin:geo_city_change", args=[obj.city.id])
         return format_html('<a href="{}">{}</a>', url, str(obj.city))
-
-
-@admin.register(models.UserOrganizationPreferences)
-class UserOrganizationPreferencesAdmin(ModelAdmin):  # type: ignore[misc]
-    """Admin for UserOrganizationPreferences."""
-
-    list_display = [
-        "__str__",
-        "user_link",
-        "organization_link",
-        "is_subscribed",
-        "silence_all_notifications",
-        "notify_on_new_events",
-    ]
-    list_filter = ["is_subscribed", "silence_all_notifications", "notify_on_new_events", "organization__name"]
-    search_fields = ["user__username", "user__email", "organization__name"]
-    autocomplete_fields = ["user", "organization"]
-
-    @admin.display(description="User")
-    def user_link(self, obj: models.UserOrganizationPreferences) -> str:
-        url = reverse("admin:accounts_reveluser_change", args=[obj.user.id])
-        return format_html('<a href="{}">{}</a>', url, obj.user.username)
-
-    @admin.display(description="Organization")
-    def organization_link(self, obj: models.UserOrganizationPreferences) -> str:
-        url = reverse("admin:events_organization_change", args=[obj.organization.id])
-        return format_html('<a href="{}">{}</a>', url, obj.organization.name)
-
-
-@admin.register(models.UserEventPreferences)
-class UserEventPreferencesAdmin(ModelAdmin):  # type: ignore[misc]
-    """Admin for UserEventPreferences."""
-
-    list_display = [
-        "__str__",
-        "user_link",
-        "event_link",
-        "is_subscribed",
-        "silence_all_notifications",
-        "notify_on_potluck_updates",
-    ]
-    list_filter = [
-        "is_subscribed",
-        "silence_all_notifications",
-        "notify_on_potluck_updates",
-        "event__organization__name",
-    ]
-    search_fields = ["user__username", "user__email", "event__name"]
-    autocomplete_fields = ["user", "event"]
-
-    @admin.display(description="User")
-    def user_link(self, obj: models.UserEventPreferences) -> str:
-        url = reverse("admin:accounts_reveluser_change", args=[obj.user.id])
-        return format_html('<a href="{}">{}</a>', url, obj.user.username)
-
-    @admin.display(description="Event")
-    def event_link(self, obj: models.UserEventPreferences) -> str:
-        url = reverse("admin:events_event_change", args=[obj.event.id])
-        return format_html('<a href="{}">{}</a>', url, obj.event.name)
-
-
-@admin.register(models.UserEventSeriesPreferences)
-class UserEventSeriesPreferencesAdmin(ModelAdmin):  # type: ignore[misc]
-    """Admin for UserEventSeriesPreferences."""
-
-    list_display = [
-        "__str__",
-        "user_link",
-        "event_series_link",
-        "is_subscribed",
-        "silence_all_notifications",
-        "notify_on_new_events",
-    ]
-    list_filter = [
-        "is_subscribed",
-        "silence_all_notifications",
-        "notify_on_new_events",
-        "event_series__organization__name",
-    ]
-    search_fields = ["user__username", "user__email", "event_series__name"]
-    autocomplete_fields = ["user", "event_series"]
-
-    @admin.display(description="User")
-    def user_link(self, obj: models.UserEventSeriesPreferences) -> str:
-        url = reverse("admin:accounts_reveluser_change", args=[obj.user.id])
-        return format_html('<a href="{}">{}</a>', url, obj.user.username)
-
-    @admin.display(description="Event Series")
-    def event_series_link(self, obj: models.UserEventSeriesPreferences) -> str:
-        url = reverse("admin:events_eventseries_change", args=[obj.event_series.id])
-        return format_html('<a href="{}">{}</a>', url, obj.event_series.name)
 
 
 @admin.register(models.AttendeeVisibilityFlag)

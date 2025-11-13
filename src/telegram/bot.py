@@ -12,7 +12,7 @@ from django.conf import settings
 from redis.asyncio import Redis
 
 from telegram import commands
-from telegram.middleware import UserMiddleware
+from telegram.middleware import TelegramUserMiddleware
 
 # Import handlers and middlewares
 from telegram.routers import admin, common, events, preferences
@@ -31,9 +31,12 @@ def get_bot(token: str | None = None) -> Bot:
 def get_dispatcher(storage: RedisStorage | MemoryStorage) -> Dispatcher:
     """Instantiate a telegram bot dispatcher."""
     dp = Dispatcher(storage=storage)
-    dp.update.middleware(UserMiddleware())
+
+    # Outer middleware - runs on every update before filters
+    dp.update.outer_middleware(TelegramUserMiddleware())
 
     # --- Routers ---
+    # Note: AuthorizationMiddleware is registered at router level to access handler flags
     dp.include_router(common.router)
     dp.include_router(preferences.router)
     dp.include_router(admin.router)

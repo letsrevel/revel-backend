@@ -238,8 +238,8 @@ class QuestionnaireService:
                             "submission_id": str(submission.id),
                             "questionnaire_name": self.questionnaire.name,
                             "submitter_email": user.email,
-                            "submitter_name": user.first_name or user.username,
-                            "submitted_at": submission.submitted_at.isoformat() if submission.submitted_at else "",
+                            "submitter_name": user.get_display_name(),
+                            "organization_id": str(organization_id),
                             "organization_name": organization_name,
                         },
                     )

@@ -28,11 +28,6 @@ from events.service.invitation_service import (
     create_direct_invitations,
     delete_invitation,
 )
-from events.service.ticket_notification_service import (
-    notify_ticket_cancelled,
-    notify_ticket_refunded,
-    notify_ticket_status_change,
-)
 from events.service.ticket_service import check_in_ticket
 
 from ..models import EventInvitationRequest
@@ -571,13 +566,12 @@ class EventAdminController(UserAwareController):
                 models.TicketTier.PaymentMethod.AT_THE_DOOR,
             ],
         )
-        old_status = ticket.status
+        # Store old status before updating (signal handler needs this)
+        ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
         ticket.status = models.Ticket.TicketStatus.ACTIVE
         ticket.save(update_fields=["status"])
 
-        # Send ticket activation notification
-        notify_ticket_status_change(str(ticket.id), old_status)
-
+        # Notification sent automatically via signal handler
         return ticket
 
     @route.post(
@@ -616,9 +610,7 @@ class EventAdminController(UserAwareController):
                 ticket.payment.status = models.Payment.PaymentStatus.REFUNDED
                 ticket.payment.save(update_fields=["status"])
 
-        # Send refund notification
-        notify_ticket_refunded(str(ticket.id))
-
+        # Refund notification sent automatically by stripe webhook handler
         return ticket
 
     @route.post(
@@ -652,11 +644,12 @@ class EventAdminController(UserAwareController):
             models.TicketTier.objects.select_for_update().filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
+            # Store old status before updating (signal handler needs this)
+            ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
             ticket.status = models.Ticket.TicketStatus.CANCELLED
             ticket.save(update_fields=["status"])
 
-        # Send cancellation notification
-        notify_ticket_cancelled(str(ticket.id))
+        # Notification sent automatically via signal handler
         return ticket
 
     @route.post(

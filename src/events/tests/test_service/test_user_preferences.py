@@ -1,3 +1,5 @@
+"""Tests for user preferences service."""
+
 import pytest
 from django.contrib.gis.geos import Point
 from django.core.cache import cache
@@ -6,9 +8,9 @@ from accounts.models import RevelUser
 from conftest import RevelUserFactory
 from events import models
 from events.models import OrganizationMember, OrganizationStaff
-from events.schema import BaseUserPreferencesSchema, GeneralUserPreferencesUpdateSchema
+from events.schema import GeneralUserPreferencesUpdateSchema
 from events.service.location_service import get_user_location_cache_key
-from events.service.user_preferences_service import resolve_visibility, set_preferences
+from events.service.user_preferences_service import resolve_visibility, set_general_preferences
 from geo.models import City
 
 pytestmark = pytest.mark.django_db
@@ -25,6 +27,8 @@ def target(revel_user_factory: RevelUserFactory) -> RevelUser:
 
 
 class TestResolveVisibility:
+    """Test visibility resolution based on user preferences."""
+
     def test_owner_can_always_see(
         self, organization_owner_user: RevelUser, target: RevelUser, event: models.Event
     ) -> None:
@@ -160,57 +164,9 @@ class TestResolveVisibility:
             is False
         )
 
-    def test_preference_event_override(self, viewer: RevelUser, target: RevelUser, event: models.Event) -> None:
-        """Test that event-specific preferences override global preferences."""
-        # Global pref is 'never'
-        target.general_preferences.show_me_on_attendee_list = "never"
-        target.general_preferences.save()
-        # Event pref is 'always'
-        models.UserEventPreferences.objects.create(event=event, user=target, show_me_on_attendee_list="always")
 
-        assert (
-            resolve_visibility(
-                viewer=viewer,
-                target=target,
-                event=event,
-                owner_id=event.organization.owner_id,
-                staff_ids=set(),
-            )
-            is True
-        )
-
-
-class TestSetPreferences:
-    def test_set_preferences_cascade_overwrite(
-        self,
-        member_user: RevelUser,
-        organization: models.Organization,
-        event_series: models.EventSeries,
-        event: models.Event,
-    ) -> None:
-        """Test that parent preferences override children preferences in a cascading manner."""
-        # Set up
-        assert member_user.general_preferences.silence_all_notifications is False
-        org_prefs = models.UserOrganizationPreferences.objects.create(user=member_user, organization=organization)
-        assert org_prefs.silence_all_notifications is False
-        ser_prefs = models.UserEventSeriesPreferences.objects.create(user=member_user, event_series=event_series)
-        assert ser_prefs.silence_all_notifications is False
-        evt_prefs = models.UserEventPreferences.objects.create(user=member_user, event=event)
-        assert evt_prefs.silence_all_notifications is False
-
-        # Act
-        payload = BaseUserPreferencesSchema(silence_all_notifications=True)
-        set_preferences(member_user.general_preferences, payload, overwrite_children=True)
-
-        # Assert
-        member_user.refresh_from_db()
-        assert member_user.general_preferences.silence_all_notifications is True
-        org_prefs.refresh_from_db()  # type: ignore[unreachable]
-        assert org_prefs.silence_all_notifications is True
-        ser_prefs.refresh_from_db()
-        assert ser_prefs.silence_all_notifications is True
-        evt_prefs.refresh_from_db()
-        assert evt_prefs.silence_all_notifications is True
+class TestSetGeneralPreferences:
+    """Test set_general_preferences function."""
 
     def test_invalidates_location_cache_when_city_changes(self, member_user: RevelUser) -> None:
         """Test that location cache is invalidated when city preference changes."""
@@ -245,9 +201,9 @@ class TestSetPreferences:
         cache.set(cache_key, "some_cached_location", timeout=3600)
         assert cache.get(cache_key) is not None
 
-        # Update city via set_preferences
+        # Update city via set_general_preferences
         payload = GeneralUserPreferencesUpdateSchema(city_id=city2.id)
-        set_preferences(member_user.general_preferences, payload, overwrite_children=False)
+        set_general_preferences(member_user.general_preferences, payload)
 
         # Cache should be invalidated
         assert cache.get(cache_key) is None
@@ -276,8 +232,10 @@ class TestSetPreferences:
         assert cache.get(cache_key) is not None
 
         # Update other preference (not city)
-        payload = GeneralUserPreferencesUpdateSchema(silence_all_notifications=True)
-        set_preferences(member_user.general_preferences, payload, overwrite_children=False)
+        payload = GeneralUserPreferencesUpdateSchema(
+            show_me_on_attendee_list=models.GeneralUserPreferences.VisibilityPreference.ALWAYS
+        )
+        set_general_preferences(member_user.general_preferences, payload)
 
         # Cache should still exist
         assert cache.get(cache_key) is not None
@@ -305,7 +263,7 @@ class TestSetPreferences:
 
         # Remove city
         payload = GeneralUserPreferencesUpdateSchema(city_id=None)
-        set_preferences(member_user.general_preferences, payload, overwrite_children=False)
+        set_general_preferences(member_user.general_preferences, payload)
 
         # Cache should be invalidated
         assert cache.get(cache_key) is None

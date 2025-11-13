@@ -10,23 +10,23 @@ from aiogram.types.chat import Chat
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from telegram.middleware import UserMiddleware
+from telegram.middleware import TelegramUserMiddleware
 from telegram.models import TelegramUser
 
 pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
-def middleware() -> UserMiddleware:
-    """Fixture for the UserMiddleware instance."""
-    return UserMiddleware()
+def middleware() -> TelegramUserMiddleware:
+    """Fixture for the TelegramUserMiddleware instance."""
+    return TelegramUserMiddleware()
 
 
 @pytest.mark.asyncio
 async def test_user_middleware_existing_user(
-    middleware: UserMiddleware, django_user: RevelUser, aiogram_user: AiogramUser
+    middleware: TelegramUserMiddleware, django_user: RevelUser, aiogram_user: AiogramUser
 ) -> None:
-    """Test that the middleware correctly fetches an existing user."""
+    """Test that the middleware correctly fetches an existing TelegramUser."""
     handler = AsyncMock()
     event = Message(message_id=1, date=timezone.now(), chat=MagicMock(spec=Chat), text="test")
     data = {"event_from_user": aiogram_user}
@@ -34,82 +34,67 @@ async def test_user_middleware_existing_user(
     await middleware(handler, event, data)
 
     handler.assert_awaited_once()
-    assert "user" in data
-    assert data["user"] == django_user  # type: ignore[comparison-overlap]
+    assert "tg_user" in data
+    tg_user: TelegramUser = data["tg_user"]  # type: ignore[assignment]
+    assert tg_user.user == django_user
     assert await TelegramUser.objects.filter(telegram_id=aiogram_user.id, user=django_user).aexists()
 
 
 @pytest.mark.asyncio
-async def test_user_middleware_no_tg_user_error(
-    middleware: UserMiddleware, django_user: RevelUser, aiogram_user: AiogramUser
-) -> None:
-    """Test that the middleware correctly fetches an existing user."""
+async def test_user_middleware_no_event_from_user(middleware: TelegramUserMiddleware) -> None:
+    """Test that middleware returns None and doesn't call handler when event_from_user is missing."""
     handler = AsyncMock()
     event = Message(message_id=1, date=timezone.now(), chat=MagicMock(spec=Chat), text="test")
     data: dict[str, t.Any] = {}
 
-    with pytest.raises(Exception):
-        await middleware(handler, event, data)
+    result = await middleware(handler, event, data)
 
-
-@pytest.mark.asyncio
-async def test_user_middleware_new_user(middleware: UserMiddleware, aiogram_user: AiogramUser) -> None:
-    """Test that the middleware correctly creates a new user."""
-    handler = AsyncMock()
-    event = Message(message_id=1, date=timezone.now(), chat=MagicMock(spec=Chat), text="test")
-    data = {"event_from_user": aiogram_user}
-
-    assert await RevelUser.objects.acount() == 0
-
-    await middleware(handler, event, data)
-
-    handler.assert_awaited_once()
-    assert "user" in data
-    assert await RevelUser.objects.acount() == 1
-    assert await TelegramUser.objects.acount() == 1
-    new_django_user = data["user"]
-    assert new_django_user.username == aiogram_user.username
-    assert new_django_user.telegram_user.telegram_id == aiogram_user.id  # type: ignore[attr-defined]
-    await new_django_user.adelete()  # type: ignore[attr-defined]
-
-
-@pytest.mark.asyncio
-async def test_user_middleware_new_user_existing_username(
-    middleware: UserMiddleware, aiogram_user: AiogramUser
-) -> None:
-    """Test that the middleware correctly creates a new user."""
-    handler = AsyncMock()
-    event = Message(message_id=1, date=timezone.now(), chat=MagicMock(spec=Chat), text="test")
-    data = {"event_from_user": aiogram_user}
-
-    existing_user = await RevelUser.objects.acreate_user(username=aiogram_user.username)  # type: ignore[arg-type]
-
-    assert await RevelUser.objects.acount() == 1
-
-    await middleware(handler, event, data)
-
-    handler.assert_awaited_once()
-    assert "user" in data
-    assert await RevelUser.objects.acount() == 2
-    assert await TelegramUser.objects.acount() == 1
-    new_django_user = data["user"]
-    assert new_django_user.username == aiogram_user.username + "_1"  # type: ignore[operator]
-    assert new_django_user.telegram_user.telegram_id == aiogram_user.id  # type: ignore[attr-defined]
-    await new_django_user.adelete()  # type: ignore[attr-defined]
-    await existing_user.adelete()
-
-
-@pytest.mark.asyncio
-async def test_user_middleware_inactive_user_raises_error(
-    middleware: UserMiddleware, django_inactive_user: RevelUser, aiogram_user: AiogramUser
-) -> None:
-    """Test that the middleware raises an exception for an inactive Django user."""
-
-    handler = AsyncMock()
-    event = Message(message_id=1, date=timezone.now(), chat=MagicMock(spec=Chat), text="test")
-    data = {"event_from_user": aiogram_user}
-
-    with pytest.raises(Exception, match="Django User is inactive."):
-        await middleware(handler, event, data)
-
+    assert result is None
     handler.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_user_middleware_new_user(middleware: TelegramUserMiddleware, aiogram_user: AiogramUser) -> None:
+    """Test that the middleware creates a new TelegramUser (without linked RevelUser)."""
+    handler = AsyncMock()
+    event = Message(message_id=1, date=timezone.now(), chat=MagicMock(spec=Chat), text="test")
+    data = {"event_from_user": aiogram_user}
+
+    assert await TelegramUser.objects.acount() == 0
+
+    await middleware(handler, event, data)
+
+    handler.assert_awaited_once()
+    assert "tg_user" in data
+    tg_user: TelegramUser = data["tg_user"]  # type: ignore[assignment]
+    assert await TelegramUser.objects.acount() == 1
+    assert tg_user.user is None  # No RevelUser is created automatically
+    assert tg_user.telegram_id == aiogram_user.id
+    assert tg_user.telegram_username == aiogram_user.username
+
+
+@pytest.mark.asyncio
+async def test_user_middleware_updates_username(
+    middleware: TelegramUserMiddleware, django_user: RevelUser, aiogram_user: AiogramUser
+) -> None:
+    """Test that the middleware updates telegram_username if it changed."""
+    handler = AsyncMock()
+    event = Message(message_id=1, date=timezone.now(), chat=MagicMock(spec=Chat), text="test")
+
+    # Create TelegramUser with old username
+    tg_user = await TelegramUser.objects.aget(user=django_user)
+    tg_user.telegram_username = "old_username"
+    await tg_user.asave()
+
+    # Create aiogram user with new username (must create new object since username is read-only)
+    new_aiogram_user = AiogramUser(
+        id=aiogram_user.id, is_bot=False, first_name=aiogram_user.first_name, username="new_username"
+    )
+    data = {"event_from_user": new_aiogram_user}
+
+    await middleware(handler, event, data)
+
+    handler.assert_awaited_once()
+    assert "tg_user" in data
+    updated_tg_user: TelegramUser = data["tg_user"]  # type: ignore[assignment]
+    assert updated_tg_user.telegram_username == "new_username"

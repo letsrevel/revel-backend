@@ -13,7 +13,15 @@ from . import models
 class TelegramUserAdmin(ModelAdmin):  # type: ignore[misc]
     """Enhanced admin for TelegramUser with status monitoring."""
 
-    list_display = ["user_link", "telegram_id", "telegram_username", "status_display", "was_welcomed", "created_at"]
+    list_display = [
+        "__str__",
+        "user_link",
+        "telegram_id",
+        "telegram_username",
+        "status_display",
+        "was_welcomed",
+        "created_at",
+    ]
     list_filter = ["blocked_by_user", "user_is_deactivated", "was_welcomed", "user__is_active", "created_at"]
     search_fields = [
         "user__username",
@@ -29,6 +37,8 @@ class TelegramUserAdmin(ModelAdmin):  # type: ignore[misc]
     date_hierarchy = "created_at"
 
     def user_link(self, obj: models.TelegramUser) -> str:
+        if not obj.user:
+            return mark_safe('<span style="color: gray;">Not linked</span>')
         url = reverse("admin:accounts_reveluser_change", args=[obj.user.id])
         return format_html('<a href="{}">{}</a>', url, obj.user.username)
 
@@ -41,7 +51,7 @@ class TelegramUserAdmin(ModelAdmin):  # type: ignore[misc]
             return mark_safe('<span style="color: red;">Blocked by User</span>')
         elif obj.user_is_deactivated:
             return mark_safe('<span style="color: orange;">User Deactivated</span>')
-        elif not obj.user.is_active:
+        elif obj.user and not obj.user.is_active:
             return mark_safe('<span style="color: red;">User Inactive</span>')
         else:
             return mark_safe('<span style="color: green;">Active</span>')

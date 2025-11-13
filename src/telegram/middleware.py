@@ -1,83 +1,101 @@
-# src/telegram/middlewares.py
+# src/telegram/middleware.py
 
 import logging
 import typing as t
 
 from aiogram import BaseMiddleware
-from aiogram.types import TelegramObject
+from aiogram.types import CallbackQuery, Message, TelegramObject
 from aiogram.types import User as AiogramUser
-from django.conf import settings
 
 from accounts.models import RevelUser
-
-from .models import TelegramUser
+from telegram.models import TelegramUser
+from telegram.utils import get_or_create_tg_user
 
 logger = logging.getLogger(__name__)
 
 
-class UserMiddleware(BaseMiddleware):
-    """Gets or creates a Django User based on the Telegram User.
+class TelegramUserMiddleware(BaseMiddleware):
+    """Outer middleware: Creates/fetches TelegramUser for every update.
 
-    Injects the Django User object into the handler context data with the key "user".
+    Injects 'tg_user' into handler data with prefetched user relationship.
+    This middleware runs on every incoming update before filters are evaluated.
     """
 
     async def __call__(
         self,
-        handler: t.Callable[[TelegramObject, dict[str, t.Any]], t.Awaitable[t.Any]],
+        handler: t.Callable[[TelegramObject, t.Dict[str, t.Any]], t.Awaitable[t.Any]],
         event: TelegramObject,
-        data: dict[str, t.Any],
+        data: t.Dict[str, t.Any],
     ) -> t.Any:
-        """Custom middleware to inject User into the context."""
+        """Inject TelegramUser into context."""
         aiogram_user: AiogramUser | None = data.get("event_from_user")
 
         if not aiogram_user:
-            # Cannot proceed without a Telegram user object
             logger.error("Could not extract Telegram user from event data.")
-            raise Exception("Could not extract Telegram user from event data.")
+            return None  # Stop processing
 
-        django_user: RevelUser = await self.get_or_create_user(aiogram_user)
+        tg_user: TelegramUser = await get_or_create_tg_user(aiogram_user)
 
-        if not django_user.is_active:
-            logger.error(f"Django User is inactive: {aiogram_user.id}")
-            raise Exception("Django User is inactive.")
+        # Mark if bot was unblocked or user was reactivated
+        if tg_user.blocked_by_user or tg_user.user_is_deactivated:
+            tg_user.blocked_by_user = False
+            tg_user.user_is_deactivated = False
+            await tg_user.asave(update_fields=["blocked_by_user", "user_is_deactivated", "updated_at"])
 
-        data["user"] = django_user
-        logger.debug(f"Injected user {django_user.username} into handler data.")
+        data["tg_user"] = tg_user
         return await handler(event, data)
 
-    async def get_or_create_user(self, aiogram_user: AiogramUser) -> RevelUser:
-        """Get or create Django User and TelegramUser profile."""
-        try:
-            tg_user_profile = await TelegramUser.objects.select_related("user").aget(telegram_id=aiogram_user.id)
-            # Optionally update username if it changed
-            if (
-                aiogram_user.username and tg_user_profile.telegram_username != aiogram_user.username
-            ):  # pragma: no branch
-                tg_user_profile.telegram_username = aiogram_user.username
-                await tg_user_profile.asave(update_fields=["telegram_username", "updated_at"])
-            return tg_user_profile.user
-        except TelegramUser.DoesNotExist:
-            # Create Django User and TelegramUser profile
-            username = aiogram_user.username or f"tg_{aiogram_user.id}"
-            # Ensure username uniqueness
-            base_username = username
-            counter = 1
-            while await RevelUser.objects.filter(username=username).aexists():
-                username = f"{base_username}_{counter}"
-                counter += 1
 
-            is_superuser = aiogram_user.id in settings.TELEGRAM_SUPERUSER_IDS
-            is_staff = aiogram_user.id in settings.TELEGRAM_STAFF_IDS
-            django_user = await RevelUser.objects.acreate_user(
-                username=username, is_staff=is_staff, is_superuser=is_superuser
-            )
-            logger.info(
-                f"Created new Django user '{username}' for TG ID {aiogram_user.id} (is_superuser={is_superuser}, is_staff={is_staff})"  # noqa: E501
-            )
-            _tg_user_profile = await TelegramUser.objects.acreate(
-                user=django_user,
-                telegram_id=aiogram_user.id,
-                telegram_username=aiogram_user.username,
-            )
-            logger.info(f"Created new Django user '{username}' for TG ID {aiogram_user.id}")
-            return django_user
+class AuthorizationMiddleware(BaseMiddleware):
+    """Inner middleware: Enforces authorization flags.
+
+    Checks handler flags for:
+    - requires_linked_user: Injects 'user' if linked, sends error if not
+    - requires_superuser: Ensures user is superuser
+
+    This middleware runs after filters pass, before the handler is invoked.
+    """
+
+    async def __call__(
+        self,
+        handler: t.Callable[[TelegramObject, t.Dict[str, t.Any]], t.Awaitable[t.Any]],
+        event: TelegramObject,
+        data: t.Dict[str, t.Any],
+    ) -> t.Any:
+        """Enforce authorization based on handler flags."""
+        from aiogram.dispatcher.flags import get_flag
+
+        tg_user: TelegramUser | None = data.get("tg_user")
+
+        if not tg_user:
+            logger.error("TelegramUser not found in context - check middleware order!")
+            return None
+
+        # Access flags from data dict as per aiogram documentation
+        requires_linked = get_flag(data, "requires_linked_user", default=False)
+        requires_superuser = get_flag(data, "requires_superuser", default=False)
+
+        # If handler requires linked user or superuser
+        if requires_linked or requires_superuser:
+            if not tg_user.user_id:
+                # Send helpful message
+                if isinstance(event, Message):
+                    await event.answer("⚠️ Please link your Revel account first using /connect command.")
+                elif isinstance(event, CallbackQuery):
+                    await event.answer("Please link your account first using /connect", show_alert=True)
+                return None  # Stop processing
+
+            # Inject user into data (already prefetched by get_or_create_tg_user)
+            user: RevelUser = t.cast(RevelUser, tg_user.user)
+
+            # Check superuser requirement
+            if requires_superuser and not user.is_superuser:
+                if isinstance(event, Message):
+                    await event.answer("⚠️ This command is for administrators only.")
+                elif isinstance(event, CallbackQuery):
+                    await event.answer("Administrators only", show_alert=True)
+                return None
+
+            data["user"] = user
+
+        return await handler(event, data)

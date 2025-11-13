@@ -26,6 +26,7 @@ class RevelUserSchema(ModelSchema):
     last_name: str
     totp_active: bool
     language: str
+    display_name: str
 
     class Meta:
         model = RevelUser
@@ -33,12 +34,16 @@ class RevelUserSchema(ModelSchema):
 
 
 class MinimalRevelUserSchema(ModelSchema):
+    display_name: str
+
     class Meta:
         model = RevelUser
         fields = ["preferred_name", "pronouns", "first_name", "last_name", "email"]
 
 
 class MemberUserSchema(ModelSchema):
+    display_name: str
+
     class Meta:
         model = RevelUser
         fields = ["id", "email", "phone_number", "preferred_name", "pronouns", "first_name", "last_name"]

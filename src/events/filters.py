@@ -156,7 +156,6 @@ class DashboardOrganizationsFiltersSchema(Schema):
     owner: bool = True
     staff: bool = True
     member: bool = True
-    subscriber: bool = True
 
     def get_organizations_queryset(self, user_id: UUID) -> models.QuerySet[Organization]:
         """This is the high-performance query builder for the organization dashboard.
@@ -174,12 +173,6 @@ class DashboardOrganizationsFiltersSchema(Schema):
         if self.member:
             member_orgs = Organization.objects.filter(members__id=user_id).values("id")
             org_id_querysets.append(member_orgs)
-        if self.subscriber:
-            # Assuming 'subscriber' means subscribed to the organization itself
-            sub_orgs = Organization.objects.filter(
-                user_preferences__user_id=user_id, user_preferences__is_subscribed=True
-            ).values("id")
-            org_id_querysets.append(sub_orgs)
 
         if not org_id_querysets:
             return Organization.objects.none()
@@ -200,9 +193,8 @@ class DashboardEventsFiltersSchema(Schema):
     rsvp_maybe: bool = True
     got_ticket: bool = True
     got_invitation: bool = True
-    subscriber: bool = True
 
-    def get_events_queryset(self, user_id: UUID) -> models.QuerySet[Event]:  # noqa: C901
+    def get_events_queryset(self, user_id: UUID) -> models.QuerySet[Event]:
         """This is the high-performance query builder for the dashboard.
 
         It gathers IDs from different sources using UNION and then filters.
@@ -236,15 +228,6 @@ class DashboardEventsFiltersSchema(Schema):
         if self.got_invitation:
             invitation_events = Event.objects.filter(invitations__user_id=user_id).values("id")
             event_id_querysets.append(invitation_events)
-        if self.subscriber:
-            event_sub_events = Event.objects.filter(
-                user_preferences__user_id=user_id, user_preferences__is_subscribed=True
-            ).values("id")
-            series_sub_events = Event.objects.filter(
-                event_series__user_preferences__user_id=user_id, event_series__user_preferences__is_subscribed=True
-            ).values("id")
-            event_id_querysets.append(event_sub_events)
-            event_id_querysets.append(series_sub_events)
 
         if not event_id_querysets:
             return Event.objects.none()
@@ -260,7 +243,6 @@ class DashboardEventSeriesFiltersSchema(Schema):
     owner: bool = True
     staff: bool = True
     member: bool = True
-    subscriber: bool = True
 
     def get_event_series_queryset(self, user_id: UUID) -> models.QuerySet["EventSeries"]:
         """High-performance query builder for event series dashboard using UNION strategy.
@@ -281,11 +263,6 @@ class DashboardEventSeriesFiltersSchema(Schema):
         if self.member:
             member_series = EventSeries.objects.filter(organization__members__id=user_id).values("id")
             series_id_querysets.append(member_series)
-        if self.subscriber:
-            sub_series = EventSeries.objects.filter(
-                user_preferences__user_id=user_id, user_preferences__is_subscribed=True
-            ).values("id")
-            series_id_querysets.append(sub_series)
 
         if not series_id_querysets:
             return EventSeries.objects.none()

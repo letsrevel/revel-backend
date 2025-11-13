@@ -5,14 +5,43 @@ from io import BytesIO
 
 import qrcode
 from aiogram.types import BufferedInputFile, ReplyMarkupUnion
+from aiogram.types import User as AiogramUser
+
+from telegram.models import TelegramUser
 
 logger = logging.getLogger(__name__)
+
+
+async def get_or_create_tg_user(aiogram_user: AiogramUser) -> TelegramUser:
+    """Get or create TelegramUser (without creating RevelUser).
+
+    Args:
+        aiogram_user: Aiogram User object from incoming update.
+
+    Returns:
+        TelegramUser instance with prefetched user relationship.
+    """
+    try:
+        tg_user = await TelegramUser.objects.select_related("user").aget(telegram_id=aiogram_user.id)
+        # Update username if it changed
+        if aiogram_user.username and tg_user.telegram_username != aiogram_user.username:
+            tg_user.telegram_username = aiogram_user.username
+            await tg_user.asave(update_fields=["telegram_username", "updated_at"])
+        return tg_user
+    except TelegramUser.DoesNotExist:
+        tg_user = await TelegramUser.objects.acreate(
+            user=None,
+            telegram_id=aiogram_user.id,
+            telegram_username=aiogram_user.username,
+        )
+        logger.info(f"Created new TelegramUser for telegram_id={aiogram_user.id}")
+        return tg_user
 
 
 async def send_telegram_message(
     telegram_id: int, *, message: str, reply_markup: ReplyMarkupUnion | None = None
 ) -> None:
-    """Sends the story PDF and optional audio via Telegram."""
+    """Sends a message via Telegram."""
     from telegram.bot import get_bot  # avoid circular imports
 
     bot = get_bot()

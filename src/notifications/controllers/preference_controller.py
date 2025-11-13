@@ -5,12 +5,17 @@ from ninja_extra import api_controller, route
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle, WriteThrottle
+from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
-from notifications.schema import ChannelType, NotificationPreferenceSchema, UpdateNotificationPreferenceSchema
+from notifications.schema import (
+    ChannelType,
+    NotificationPreferenceSchema,
+    UpdateNotificationPreferenceSchema,
+)
 
 
 @api_controller(
-    "/api/notification-preferences",
+    "/notification-preferences",
     tags=["Notification Preferences"],
     auth=I18nJWTAuth(),
     throttle=UserDefaultThrottle(),
@@ -70,3 +75,12 @@ class NotificationPreferenceController(UserAwareController):
             prefs.save(update_fields=["enabled_channels", "updated_at"])
 
         return prefs
+
+    @route.get("/available-notification-types", response=list[NotificationType])
+    def get_available_notification_types(self) -> list[NotificationType]:
+        """Get list of all available notification types.
+
+        Returns all notification types that users can configure preferences for.
+        Frontend can use this to dynamically build the preferences UI.
+        """
+        return list(NotificationType)

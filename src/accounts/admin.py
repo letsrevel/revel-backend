@@ -14,7 +14,7 @@ from django.utils.safestring import mark_safe
 from django_google_sso.admin import GoogleSSOInlineAdmin, get_current_user_and_admin
 from unfold.admin import ModelAdmin, TabularInline
 
-from accounts.models import AccountOTP, RevelUser, UserDataExport
+from accounts.models import RevelUser, UserDataExport
 from events.models import GeneralUserPreferences
 
 # Monkey patch the missing attribute
@@ -45,23 +45,6 @@ class UserDataExportInline(TabularInline):  # type: ignore[misc]
     can_delete = False
     readonly_fields = ["status", "completed_at", "error_message", "file"]
     fields = ["status", "completed_at", "file", "error_message"]
-
-
-class AccountOTPInline(TabularInline):  # type: ignore[misc]
-    """Inline for user OTP."""
-
-    model = AccountOTP
-    extra = 0
-    can_delete = False
-    readonly_fields = ["otp", "token", "expires_at", "used_at", "is_expired_display"]
-    fields = ["otp", "expires_at", "used_at", "is_expired_display"]
-
-    def is_expired_display(self, obj: AccountOTP) -> str:
-        if obj.is_expired():
-            return mark_safe('<span style="color: red;">Yes</span>')
-        return mark_safe('<span style="color: green;">No</span>')
-
-    is_expired_display.short_description = "Expired"  # type: ignore[attr-defined]
 
 
 @admin.register(RevelUser)
@@ -154,7 +137,6 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     # Inlines
     inlines = [
         GeneralUserPreferencesInline,
-        AccountOTPInline,
         UserDataExportInline,
     ]
 
@@ -296,43 +278,4 @@ class UserDataExportAdmin(ModelAdmin):  # type: ignore[misc]
     file_size.short_description = "File Size"  # type: ignore[attr-defined]
 
     def has_add_permission(self, request: t.Any) -> bool:
-        return False
-
-
-@admin.register(AccountOTP)
-class AccountOTPAdmin(ModelAdmin):  # type: ignore[misc]
-    """Admin for account OTP codes with security monitoring."""
-
-    list_display = ["user_link", "otp", "expires_at", "used_at", "is_expired_display", "created_at"]
-    list_filter = ["expires_at", "used_at", "created_at"]
-    search_fields = ["user__username", "user__email", "otp"]
-    readonly_fields = [
-        "id",
-        "user",
-        "otp",
-        "token",
-        "used_at",
-        "expires_at",
-        "created_at",
-        "updated_at",
-        "is_expired_display",
-    ]
-    date_hierarchy = "created_at"
-    ordering = ["-created_at"]
-
-    def user_link(self, obj: AccountOTP) -> str:
-        url = reverse("admin:accounts_reveluser_change", args=[obj.user.id])
-        return format_html('<a href="{}">{}</a>', url, obj.user.username)
-
-    user_link.short_description = "User"  # type: ignore[attr-defined]
-    user_link.admin_order_field = "user__username"  # type: ignore[attr-defined]
-
-    @admin.display(description="Expired", boolean=True)
-    def is_expired_display(self, obj: AccountOTP) -> bool:
-        return obj.is_expired()
-
-    def has_add_permission(self, request: t.Any) -> bool:
-        return False
-
-    def has_change_permission(self, request: t.Any, obj: t.Any = None) -> bool:
         return False

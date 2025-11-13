@@ -31,5 +31,9 @@ You can now proceed with your event registration or participation as outlined in
 If you have questions about this decision, please contact the event organizers.
 {% endif %}
 
+{% if context.frontend_url %}
+View event details: {{ context.frontend_url }}
+{% endif %}
+
 Best regards,
 {% if context.organization_name %}{{ context.organization_name }} Team{% else %}Revel Team{% endif %}

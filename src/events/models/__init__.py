@@ -26,12 +26,8 @@ from .organization import (
     PermissionsSchema,
 )
 from .preferences import (
-    BaseSubscriptionPreferences,
     BaseUserPreferences,
     GeneralUserPreferences,
-    UserEventPreferences,
-    UserEventSeriesPreferences,
-    UserOrganizationPreferences,
 )
 from .questionnaire import OrganizationQuestionnaire
 
@@ -62,12 +58,8 @@ __all__ = [
     # Event Series
     "EventSeries",
     # Preferences
-    "BaseSubscriptionPreferences",
     "BaseUserPreferences",
     "GeneralUserPreferences",
-    "UserEventPreferences",
-    "UserEventSeriesPreferences",
-    "UserOrganizationPreferences",
     # Questionnaire
     "OrganizationQuestionnaire",
     # Misc

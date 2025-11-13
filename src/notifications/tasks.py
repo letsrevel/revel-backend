@@ -114,11 +114,7 @@ def deliver_to_channel(self: t.Any, delivery_id: str) -> dict[str, t.Any]:
     Returns:
         Dict with delivery result
     """
-    try:
-        delivery = NotificationDelivery.objects.select_related("notification", "notification__user").get(pk=delivery_id)
-    except NotificationDelivery.DoesNotExist:
-        logger.error("delivery_not_found", delivery_id=delivery_id)
-        return {"error": "delivery_not_found"}
+    delivery = NotificationDelivery.objects.select_related("notification", "notification__user").get(pk=delivery_id)
 
     # Get channel instance
     try:
@@ -128,7 +124,7 @@ def deliver_to_channel(self: t.Any, delivery_id: str) -> dict[str, t.Any]:
         delivery.status = DeliveryStatus.FAILED
         delivery.error_message = f"Channel not found: {delivery.channel}"
         delivery.save(update_fields=["status", "error_message", "updated_at"])
-        return {"error": "channel_not_found"}
+        raise
 
     # Check if delivery should proceed
     if not channel.can_deliver(delivery.notification):
@@ -185,7 +181,7 @@ def deliver_to_channel(self: t.Any, delivery_id: str) -> dict[str, t.Any]:
             delivery.status = DeliveryStatus.FAILED
             delivery.error_message = str(e)
             delivery.save(update_fields=["status", "error_message", "updated_at"])
-            return {"status": "failed", "error": str(e), "permanent": True}
+            raise
 
 
 # ===== Digest Tasks =====

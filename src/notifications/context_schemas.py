@@ -153,6 +153,8 @@ class RSVPConfirmationContext(BaseNotificationContext):
     event_location: str
     response: str  # YES, NO, MAYBE
     plus_ones: int
+    user_name: str  # Name of person who RSVP'd (for staff notifications)
+    user_email: str  # Email of person who RSVP'd (for staff notifications)
 
 
 class RSVPUpdatedContext(BaseNotificationContext):
@@ -163,6 +165,16 @@ class RSVPUpdatedContext(BaseNotificationContext):
     event_name: str
     old_response: str
     new_response: str
+    user_name: str  # Name of person who updated RSVP (for staff notifications)
+    user_email: str  # Email of person who updated RSVP (for staff notifications)
+
+
+class RSVPCancelledContext(BaseNotificationContext):
+    """Context for RSVP_CANCELLED notification."""
+
+    event_id: str
+    event_name: str
+    user_name: str
 
 
 # ===== Potluck Contexts =====
@@ -287,6 +299,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.EVENT_CANCELLED: EventCancelledContext,
     NotificationType.RSVP_CONFIRMATION: RSVPConfirmationContext,
     NotificationType.RSVP_UPDATED: RSVPUpdatedContext,
+    NotificationType.RSVP_CANCELLED: RSVPCancelledContext,
     NotificationType.POTLUCK_ITEM_CREATED: PotluckItemContext,
     NotificationType.POTLUCK_ITEM_UPDATED: PotluckItemContext,
     NotificationType.POTLUCK_ITEM_CLAIMED: PotluckItemContext,

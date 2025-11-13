@@ -5,18 +5,24 @@ import logging
 from aiogram import F, Router
 from aiogram.filters import (
     CommandStart,
-    StateFilter,  # Added StateFilter
+    StateFilter,
 )
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InaccessibleMessage, Message  # Added CallbackQuery, InaccessibleMessage
-from django.contrib.auth.models import User as DjangoUser
+from aiogram.types import CallbackQuery, InaccessibleMessage, Message
 
+from accounts.models import RevelUser
 from telegram import keyboards
-from telegram.fsm import BroadcastStates  # NEW: Import BroadcastStates
-from telegram.tasks import send_broadcast_message_task  # NEW: Import the task
+from telegram.fsm import BroadcastStates
+from telegram.middleware import AuthorizationMiddleware
+from telegram.models import TelegramUser
+from telegram.tasks import send_broadcast_message_task
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+# Register middleware at router level to access handler flags
+router.message.middleware(AuthorizationMiddleware())
+router.callback_query.middleware(AuthorizationMiddleware())
 
 
 # --- Superuser Broadcast Feature ---
@@ -27,10 +33,11 @@ router = Router()
 @router.message(
     F.text,  # Matches any text message
     ~CommandStart(),  # Excludes messages starting with '/' (commands)
-    # Superuser check is done inside the handler to allow other F.text handlers for non-superusers
-    # to be processed if this handler is registered before them.
+    flags={"requires_superuser": True},
 )
-async def handle_potential_broadcast_message(message: Message, user: DjangoUser, state: FSMContext) -> None:
+async def handle_potential_broadcast_message(
+    message: Message, user: RevelUser, tg_user: TelegramUser, state: FSMContext
+) -> None:
     """If a raw message is received, and it is sent by a superuser, it can be broadcast to all users."""
     if not await _check_broadcast_gates(message, user, state):
         return
@@ -49,12 +56,8 @@ async def handle_potential_broadcast_message(message: Message, user: DjangoUser,
     )
 
 
-async def _check_broadcast_gates(message: Message, user: DjangoUser, state: FSMContext) -> bool:
+async def _check_broadcast_gates(message: Message, user: RevelUser, state: FSMContext) -> bool:
     """Checks whether a broadcast message can be sent."""
-    if not user.is_superuser:
-        logger.debug(f"User {user} has no permission to broadcast message")
-        return False
-
     current_fsm_state = await state.get_state()
     if current_fsm_state is not None:
         # Superuser is in an active FSM flow (e.g., setting preferences).
@@ -73,16 +76,15 @@ async def _check_broadcast_gates(message: Message, user: DjangoUser, state: FSMC
     return True
 
 
-@router.callback_query(StateFilter(BroadcastStates.confirming_broadcast), F.data.startswith("broadcast_confirm:"))
-async def cb_broadcast_confirm(callback: CallbackQuery, user: DjangoUser, state: FSMContext) -> None:
+@router.callback_query(
+    StateFilter(BroadcastStates.confirming_broadcast),
+    F.data.startswith("broadcast_confirm:"),
+    flags={"requires_superuser": True},
+)
+async def cb_broadcast_confirm(
+    callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser, state: FSMContext
+) -> None:
     """Confirm send broadcast message to all Telegram users."""
-    if not user.is_superuser:  # Should be protected by state, but double-check
-        await callback.answer("This action is for superusers only.", show_alert=True)
-        await state.clear()
-        if callback.message and not isinstance(callback.message, InaccessibleMessage):
-            await callback.message.delete()  # Clean up confirmation message
-        return
-
     assert callback.data is not None
     action = callback.data.split(":")[1]
     data = await state.get_data()

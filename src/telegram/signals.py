@@ -1,22 +1,12 @@
 # src/telegram/signals.py
 
-import logging
-import typing as t
-
-from django.db.models.signals import post_save
-from django.dispatch import receiver
-
-from events.models import EventInvitation
-from telegram.tasks import send_event_invitation_task
-
-logger = logging.getLogger(__name__)
-
-
-@receiver(post_save, sender=EventInvitation)
-def handle_invitation_creation(
-    sender: type[EventInvitation], instance: EventInvitation, created: bool, **kwargs: t.Any
-) -> None:
-    """Triggers a Celery task to send a Telegram invitation when a new EventInvitation is created."""
-    if created:
-        logger.info(f"New EventInvitation created (ID: {instance.id}). Queuing Telegram notification.")
-        send_event_invitation_task.delay(str(instance.id))
+# This file previously contained EventInvitation signal handlers that sent
+# Telegram messages directly, bypassing the notifications system.
+#
+# These have been migrated to use the notification_requested signal instead,
+# which allows for:
+# - Consistent notification delivery across all channels (email, telegram, in-app)
+# - User notification preferences to be respected
+# - Unified tracking and logging
+#
+# See events/signals.py:handle_invitation_save for the new implementation.
