@@ -67,7 +67,7 @@ class CommonConfig(AppConfig):
         from logging_loki import LokiHandler
 
         # Wrap Loki handler to handle connection errors gracefully
-        class GracefulLokiHandler(LokiHandler):
+        class GracefulLokiHandler(LokiHandler):  # type: ignore[misc]
             """LokiHandler that silently fails on connection errors instead of crashing."""
 
             def handleError(self, record: logging.LogRecord) -> None:
