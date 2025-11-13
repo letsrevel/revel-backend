@@ -69,6 +69,13 @@ class TelegramUser(TimeStampedModel):
         indexes = [
             models.Index(fields=["blocked_by_user", "user_is_deactivated"], name="tg_user_blocked_deact_idx"),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=models.Q(user__isnull=False),
+                name="unique_telegram_user_per_revel_user",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.telegram_username or 'Unknown'} ({self.telegram_id})"

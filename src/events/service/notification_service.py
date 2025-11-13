@@ -225,11 +225,15 @@ def get_organization_staff_and_owners(organization_id: UUID) -> QuerySet[RevelUs
         organization_id: The organization ID
 
     Returns:
-        QuerySet of staff and owner users
+        QuerySet of staff and owner users with notification preferences prefetched
     """
-    return RevelUser.objects.filter(
-        Q(owned_organizations=organization_id) | Q(organization_staff_memberships__organization_id=organization_id)
-    ).distinct()
+    return (
+        RevelUser.objects.filter(
+            Q(owned_organizations=organization_id) | Q(organization_staff_memberships__organization_id=organization_id)
+        )
+        .select_related("notification_preferences")
+        .distinct()
+    )
 
 
 def should_notify_user_for_questionnaire(

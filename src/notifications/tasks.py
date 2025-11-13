@@ -117,14 +117,7 @@ def deliver_to_channel(self: t.Any, delivery_id: str) -> dict[str, t.Any]:
     delivery = NotificationDelivery.objects.select_related("notification", "notification__user").get(pk=delivery_id)
 
     # Get channel instance
-    try:
-        channel = get_channel_instance(delivery.channel)
-    except KeyError:
-        logger.error("channel_not_found", delivery_id=delivery_id, channel=delivery.channel)
-        delivery.status = DeliveryStatus.FAILED
-        delivery.error_message = f"Channel not found: {delivery.channel}"
-        delivery.save(update_fields=["status", "error_message", "updated_at"])
-        raise
+    channel = get_channel_instance(delivery.channel)
 
     # Check if delivery should proceed
     if not channel.can_deliver(delivery.notification):

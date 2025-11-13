@@ -12,6 +12,7 @@ from accounts.models import RevelUser
 from telegram.bot import get_bot
 from telegram.models import AccountOTP, TelegramUser
 from telegram.tasks import send_message_task
+from asgiref.sync import async_to_sync
 
 
 def connect_accounts(user: RevelUser, otp: str) -> None:
@@ -88,7 +89,7 @@ def get_bot_name() -> str:
 
     # Fetch from Telegram API
     bot = get_bot()
-    bot_name_obj = asyncio.run(bot.get_me())
+    bot_name_obj = async_to_sync(bot.get_me)()
     bot_name: str = bot_name_obj.username or ""
 
     # Cache for 24 hours

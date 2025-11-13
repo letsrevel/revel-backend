@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import MinValueValidator
 from django.db.models import Prefetch, Q
 from django.utils import timezone
+from model_utils import FieldTracker
 
 from accounts.models import RevelUser
 from common.fields import MarkdownField
@@ -519,6 +520,8 @@ class Ticket(TimeStampedModel):
         editable=False,
     )
 
+    tracker = FieldTracker(fields=["status"])
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -692,6 +695,8 @@ class EventRSVP(TimeStampedModel):
     status = models.CharField(
         max_length=20, choices=RsvpStatus.choices, default=None, null=True, blank=True, db_index=True
     )
+
+    tracker = FieldTracker(fields=["status"])
 
     class Meta:
         constraints = [

@@ -195,7 +195,21 @@ def _send_rsvp_updated_notifications(rsvp: EventRSVP, update_fields: set[str] | 
     if update_fields is not None and "status" not in update_fields:
         return  # Status wasn't updated, skip
 
-    old_status = getattr(rsvp, "_original_status", rsvp.status)
+    # Determine old status value
+    # Try FieldTracker first, then check if status actually changed
+    if rsvp.tracker.has_changed("status"):
+        old_status = rsvp.tracker.previous("status")
+    elif update_fields is not None and "status" in update_fields:
+        # If update_fields explicitly includes status but tracker says no change,
+        # fallback to manually set attribute or current status
+        old_status = getattr(rsvp, "_original_status", rsvp.status)
+    else:
+        # No change detected, skip notification
+        return
+
+    # Skip if old and new status are the same (no actual change)
+    if old_status == rsvp.status:
+        return
 
     context = {
         "rsvp_id": str(rsvp.id),
@@ -641,8 +655,22 @@ def handle_ticket_save_and_notifications(
         if created:
             _send_ticket_created_notifications(instance)
         else:
-            old_status = getattr(instance, "_original_ticket_status", None)
-            _handle_ticket_status_change(instance, old_status)
+            # Determine if status changed and get old value
+            update_fields = kwargs.get("update_fields")
+
+            # If update_fields explicitly includes "status", we know it changed
+            if update_fields is not None and "status" in update_fields:
+                # Try FieldTracker first, fallback to manually set attribute
+                if instance.tracker.has_changed("status"):
+                    old_status = instance.tracker.previous("status")
+                else:
+                    # Fallback for cases where tracker was already reset (e.g., stripe service)
+                    old_status = getattr(instance, "_original_ticket_status", instance.status)
+                _handle_ticket_status_change(instance, old_status)
+            # If update_fields is None (all fields saved), check tracker
+            elif update_fields is None and instance.tracker.has_changed("status"):
+                old_status = instance.tracker.previous("status")
+                _handle_ticket_status_change(instance, old_status)
 
     transaction.on_commit(send_notifications)
 
