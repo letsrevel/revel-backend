@@ -1,8 +1,8 @@
 # src/telegram/service.py
 """Telegram service layer."""
 
-import asyncio
 
+from asgiref.sync import async_to_sync
 from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
@@ -12,7 +12,6 @@ from accounts.models import RevelUser
 from telegram.bot import get_bot
 from telegram.models import AccountOTP, TelegramUser
 from telegram.tasks import send_message_task
-from asgiref.sync import async_to_sync
 
 
 def connect_accounts(user: RevelUser, otp: str) -> None:
