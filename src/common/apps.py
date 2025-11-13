@@ -66,7 +66,20 @@ class CommonConfig(AppConfig):
         # Create Loki handler instance for the listener
         from logging_loki import LokiHandler
 
-        loki_handler = LokiHandler(
+        # Wrap Loki handler to handle connection errors gracefully
+        class GracefulLokiHandler(LokiHandler):  # type: ignore[misc]
+            """LokiHandler that silently fails on connection errors instead of crashing."""
+
+            def handleError(self, record: logging.LogRecord) -> None:
+                """Override to silently ignore connection errors to Loki.
+
+                In CI/test environments, Loki may not be available.
+                We don't want logging failures to crash the application.
+                """
+                # Silently ignore - don't call super() which would print to stderr
+                pass
+
+        loki_handler = GracefulLokiHandler(
             url=loki_handler_config["url"],
             tags=loki_handler_config["tags"],
             version=loki_handler_config["version"],

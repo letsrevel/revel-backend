@@ -1,24 +1,38 @@
 """Schemas for notification API."""
 
 import typing as t
-from datetime import datetime
+from datetime import datetime, time
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
 from pydantic import Field, field_validator
 
+from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
 
 ChannelType = t.Literal["in_app", "email", "telegram"]
+
+
+class NotificationTypeSettings(Schema):
+    """Settings for a specific notification type.
+
+    Attributes:
+        enabled: Whether this notification type is enabled (default: True)
+        channels: List of channels to use for this type (default: [] = use global channels)
+    """
+
+    enabled: bool = True
+    channels: list[ChannelType] = Field(default_factory=list, max_length=3)
 
 
 class NotificationSchema(Schema):
     """Schema for notification response."""
 
     id: UUID
-    notification_type: str
+    notification_type: NotificationType
     title: str
     body: str
+    body_html: str
     context: dict[str, t.Any]
     read_at: datetime | None
     created_at: datetime
@@ -41,9 +55,10 @@ class NotificationPreferenceSchema(ModelSchema):
 
     # Only declare fields that need special handling (enum/type conversion)
     digest_frequency: str
-    digest_send_time: str
+    digest_send_time: time
     show_me_on_attendee_list: str
     enabled_channels: list[ChannelType]
+    notification_type_settings: dict[NotificationType, NotificationTypeSettings]
 
     class Meta:
         model = NotificationPreference
@@ -64,8 +79,9 @@ class UpdateNotificationPreferenceSchema(Schema):
     silence_all_notifications: bool | None = None
     enabled_channels: list[ChannelType] | None = Field(None, max_length=3)
     digest_frequency: str | None = None
-    digest_send_time: str | None = None
+    digest_send_time: time | None = None
     event_reminders_enabled: bool | None = None
+    notification_type_settings: dict[str, NotificationTypeSettings] | None = None
 
     @field_validator("enabled_channels")
     @classmethod

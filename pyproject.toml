@@ -16,6 +16,7 @@ dependencies = [
     "django-extensions>=4.1",
     "django-fernet-encrypted-fields>=0.3.0",
     "django-google-sso>=8.0.0",
+    "django-model-utils>=5.0.0",
     "django-money>=3.5.4",
     "django-ninja==1.4.5",
     "django-ninja-extra==0.30.2",

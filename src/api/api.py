@@ -33,6 +33,7 @@ from questionnaires.exceptions import (
     QuestionIntegrityError,
     SectionIntegrityError,
 )
+from telegram.controllers import TelegramController
 
 from .exception_handlers import (
     handle_already_member_error,
@@ -114,6 +115,8 @@ api.register_controllers(
     # Notification controllers
     NotificationController,
     NotificationPreferenceController,
+    # Telegram controllers
+    TelegramController,
 )
 
 EXCEPTION_HANDLERS = {

@@ -77,8 +77,8 @@ if SILK_PROFILER:
 
 SITE_ID = 1
 SITE_NAME = config("SITE_NAME", default="Revel")
-BASE_URL = config("BASE_URL", default="https://revel.biagiodistefano.io")
-FRONTEND_BASE_URL = config("FRONTEND_BASE_URL", default="http://localhost:3000")
+BASE_URL = config("BASE_URL", default="https://demo.letsrevel.io")
+FRONTEND_BASE_URL = config("FRONTEND_BASE_URL", default="http://localhost:5173")
 
 
 MIDDLEWARE = [

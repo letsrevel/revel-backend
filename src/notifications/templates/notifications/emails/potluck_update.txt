@@ -16,6 +16,10 @@ There's an update to the potluck for {{ context.event_name }}:
 Updated by: {{ context.changed_by_username }}
 {% endif %}
 
+{% if context.frontend_url %}
+View event and potluck: {{ context.frontend_url }}
+{% endif %}
+
 You're receiving this notification because you have potluck updates enabled.
 
 Best regards,

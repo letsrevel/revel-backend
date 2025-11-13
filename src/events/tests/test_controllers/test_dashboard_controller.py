@@ -17,7 +17,6 @@ from events.models import (
     OrganizationMember,
     OrganizationStaff,
     Ticket,
-    UserOrganizationPreferences,
 )
 
 pytestmark = pytest.mark.django_db
@@ -53,10 +52,6 @@ def dashboard_setup(dashboard_user: RevelUser) -> t.Dict[str, t.Any]:
     org_public_ticket = Organization.objects.create(
         name="Ticket Org", owner=RevelUser.objects.create_user("fifthowner"), visibility="public"
     )
-    org_public_sub = Organization.objects.create(
-        name="Subscribed Org", owner=RevelUser.objects.create_user("sixthowner"), visibility="public"
-    )
-    UserOrganizationPreferences.objects.create(organization=org_public_sub, user=dashboard_user, is_subscribed=True)
 
     # A private org the user has no access to
     org_private_unrelated = Organization.objects.create(
@@ -100,7 +95,6 @@ def dashboard_setup(dashboard_user: RevelUser) -> t.Dict[str, t.Any]:
             "member": org_member,
             "rsvp": org_public_rsvp,
             "ticket": org_public_ticket,
-            "sub": org_public_sub,
             "private": org_private_unrelated,
         },
         "events": {
@@ -120,16 +114,16 @@ def test_dashboard_organizations_default_filters(dashboard_client: Client, dashb
     response = dashboard_client.get(url)
     assert response.status_code == 200
     data = response.json()
-    assert data["count"] == 4  # owner, staff, member, subscribed
+    assert data["count"] == 3  # owner, staff, member
     names = {org["name"] for org in data["results"]}
-    expected_names = {"Owned Org", "Staff Org", "Member Org", "Subscribed Org"}
+    expected_names = {"Owned Org", "Staff Org", "Member Org"}
     assert names == expected_names
 
 
 def test_dashboard_organizations_single_filter(dashboard_client: Client, dashboard_setup: dict[str, t.Any]) -> None:
     """Test filtering organizations by a single relationship type."""
     url = reverse("api:dashboard_organizations")
-    response = dashboard_client.get(url, {"owner": "true", "staff": "false", "member": "false", "subscriber": "false"})
+    response = dashboard_client.get(url, {"owner": "true", "staff": "false", "member": "false"})
     assert response.status_code == 200
     data = response.json()
     assert data["count"] == 1

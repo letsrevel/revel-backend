@@ -12,10 +12,16 @@ from accounts.models import RevelUser
 from events.models import Event, EventWaitList, TicketTier
 from events.service.event_manager import EventManager, NextStep, UserIsIneligibleError
 from telegram.keyboards import get_event_eligible_keyboard
+from telegram.middleware import AuthorizationMiddleware
+from telegram.models import TelegramUser
 from telegram.utils import generate_qr_code
 
 logger = logging.getLogger(__name__)
 router = Router(name="events-router")
+
+# Register middleware at router level to access handler flags
+router.message.middleware(AuthorizationMiddleware())
+router.callback_query.middleware(AuthorizationMiddleware())
 
 
 @sync_to_async
@@ -24,8 +30,8 @@ def get_ticket_handler(user: RevelUser, event: Event) -> EventManager:
     return EventManager(user, event)
 
 
-@router.callback_query(F.data.startswith("rsvp:"))
-async def cb_handle_rsvp(callback: CallbackQuery, user: RevelUser) -> None:
+@router.callback_query(F.data.startswith("rsvp:"), flags={"requires_linked_user": True})
+async def cb_handle_rsvp(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
     """Handles RSVP callback queries."""
     assert callback.data is not None
     assert isinstance(callback.message, Message)
@@ -58,8 +64,8 @@ def _get_rsvp_response_text(rsvp: t.Literal["yes", "no", "maybe"]) -> str:
     raise ValueError(f"Invalid rsvp: {rsvp}")
 
 
-@router.callback_query(F.data.startswith("get_ticket:"))
-async def cb_get_ticket(callback: CallbackQuery, user: RevelUser) -> None:
+@router.callback_query(F.data.startswith("get_ticket:"), flags={"requires_linked_user": True})
+async def cb_get_ticket(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
     """Handles the 'Get Ticket' button press."""
     assert callback.data is not None
     _, tier_id_str = callback.data.split(":")
@@ -95,8 +101,8 @@ async def cb_get_ticket(callback: CallbackQuery, user: RevelUser) -> None:
         )
 
 
-@router.callback_query(F.data.startswith("join_waitlist:"))
-async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser) -> None:
+@router.callback_query(F.data.startswith("join_waitlist:"), flags={"requires_linked_user": True})
+async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
     """Handles the 'Join Waitlist' button press."""
     assert callback.data is not None
     assert isinstance(callback.message, Message)

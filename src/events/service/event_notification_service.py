@@ -4,6 +4,7 @@ from uuid import UUID
 
 import structlog
 
+from common.models import SiteSettings
 from events.models import Event
 from events.service.notification_service import get_eligible_users_for_event_notification
 from notifications.enums import NotificationType
@@ -22,10 +23,21 @@ def notify_event_opened(event: Event | UUID) -> int:
         Number of notifications sent
     """
     if isinstance(event, UUID):
-        event = Event.objects.select_related("organization").get(pk=event)
+        event = (
+            Event.objects.select_related("organization", "city")
+            .prefetch_related("ticket_tiers", "org_questionnaires")
+            .get(pk=event)
+        )
 
     # Get all eligible users for notification
     eligible_users = get_eligible_users_for_event_notification(event, NotificationType.EVENT_OPEN)
+
+    # Build location string
+    event_location = event.address or (event.city.name if event.city else "")
+
+    # Build frontend URL
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_url = f"{frontend_base_url}/events/{event.id}"
 
     count = 0
     for user in eligible_users:
@@ -36,10 +48,16 @@ def notify_event_opened(event: Event | UUID) -> int:
             context={
                 "event_id": str(event.id),
                 "event_name": event.name,
-                "event_start": event.start.isoformat() if event.start else "",
                 "event_description": event.description or "",
+                "event_start": event.start.isoformat() if event.start else "",
+                "event_end": event.end.isoformat() if event.end else "",
+                "event_location": event_location,
                 "organization_id": str(event.organization.id),
                 "organization_name": event.organization.name,
+                "rsvp_required": not event.requires_ticket,
+                "tickets_available": event.requires_ticket,
+                "questionnaire_required": event.org_questionnaires.exists(),
+                "frontend_url": frontend_url,
             },
         )
         count += 1

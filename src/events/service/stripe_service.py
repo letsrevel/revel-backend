@@ -209,11 +209,17 @@ class StripeEventHandler:
         payment.save(update_fields=["status", "stripe_payment_intent_id", "raw_response"])
 
         ticket = payment.ticket
+        # Store original status so signal handler can detect PENDING→ACTIVE transition
+        ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
         ticket.status = Ticket.TicketStatus.ACTIVE
         ticket.save(update_fields=["status"])
 
         # Send payment confirmation notification via new notification system
         ticket_event = ticket.event
+        # Build frontend URL
+        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_url = f"{frontend_base_url}/events/{ticket_event.id}"
+
         notification_requested.send(
             sender=self.__class__,
             user=payment.user,
@@ -226,6 +232,7 @@ class StripeEventHandler:
                 "event_start": ticket_event.start.isoformat(),
                 "payment_amount": f"{payment.amount} {payment.currency}",
                 "payment_method": "card",  # Stripe payments are card-based
+                "frontend_url": frontend_url,
             },
         )
         logger.info(
@@ -303,55 +310,15 @@ class StripeEventHandler:
 
         # Cancel the ticket
         ticket = payment.ticket
+        # Mark as refund-related cancellation so signal sends TICKET_REFUNDED instead of TICKET_CANCELLED
+        ticket._is_refund = True  # type: ignore[attr-defined]
+        ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
+        ticket._refund_amount = f"{payment.amount} {payment.currency}"  # type: ignore[attr-defined]
         ticket.status = Ticket.TicketStatus.CANCELLED
         ticket.save(update_fields=["status"])
 
         # Restore ticket quantity
         TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
-
-        # Send refund notification via new notification system
-        ticket_event = ticket.event
-        context = {
-            "ticket_id": str(ticket.id),
-            "ticket_reference": str(ticket.id),
-            "event_id": str(ticket_event.id),
-            "event_name": ticket_event.name,
-            "event_start": ticket_event.start.isoformat() if ticket_event.start else "",
-            "refund_amount": f"{payment.amount} {payment.currency}",
-            "action": "refunded",
-            "include_pdf": False,
-            "include_ics": False,
-        }
-
-        # Always notify ticket holder
-        notification_requested.send(
-            sender=self.__class__,
-            user=payment.user,
-            notification_type=NotificationType.TICKET_REFUNDED,
-            context=context,
-        )
-
-        # Notify organization staff/owners if they have it enabled
-        from events.service.notification_service import get_organization_staff_and_owners
-
-        staff_and_owners = get_organization_staff_and_owners(ticket_event.organization_id)
-        for staff_user in staff_and_owners:
-            try:
-                prefs = staff_user.notification_preferences
-                if prefs.is_notification_type_enabled(NotificationType.TICKET_REFUNDED.value):
-                    notification_requested.send(
-                        sender=self.__class__,
-                        user=staff_user,
-                        notification_type=NotificationType.TICKET_REFUNDED,
-                        context={
-                            **context,
-                            "ticket_holder_name": payment.user.get_full_name() or payment.user.username,
-                            "ticket_holder_email": payment.user.email,
-                        },
-                    )
-            except Exception:
-                # User may not have notification preferences yet, skip
-                pass
 
         logger.info(
             "stripe_refund_processed",

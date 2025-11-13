@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import MinValueValidator
 from django.db.models import Prefetch, Q
 from django.utils import timezone
+from model_utils import FieldTracker
 
 from accounts.models import RevelUser
 from common.fields import MarkdownField
@@ -519,6 +520,8 @@ class Ticket(TimeStampedModel):
         editable=False,
     )
 
+    tracker = FieldTracker(fields=["status"])
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -567,6 +570,19 @@ class Payment(TimeStampedModel):
     def has_expired(self) -> bool:
         """Return whether a payment has expired."""
         return self.expires_at < timezone.now()
+
+    @staticmethod
+    def stripe_mode() -> str:
+        """Stripe mode."""
+        key: str = settings.STRIPE_SECRET_KEY
+        return "test" if key.startswith("sk_test_") else "live"
+
+    def stripe_dashboard_url(self) -> str:
+        """Return the stripe dashboard URL."""
+        mode: str = self.stripe_mode()
+        if self.stripe_payment_intent_id:
+            return f"https://dashboard.stripe.com/{mode}/payments/{self.stripe_payment_intent_id}"
+        return f"https://dashboard.stripe.com/{mode}/checkout/sessions/{self.stripe_session_id}"
 
 
 class EventInvitationQueryset(models.QuerySet["EventInvitation"]):
@@ -679,6 +695,8 @@ class EventRSVP(TimeStampedModel):
     status = models.CharField(
         max_length=20, choices=RsvpStatus.choices, default=None, null=True, blank=True, db_index=True
     )
+
+    tracker = FieldTracker(fields=["status"])
 
     class Meta:
         constraints = [

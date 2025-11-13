@@ -1,3 +1,4 @@
+import re
 import secrets
 import typing as t
 import uuid
@@ -55,63 +56,16 @@ class RevelUser(AbstractUser):
             self.phone_number = normalize_phone_number(self.phone_number)
         super().save(*args, **kwargs)
 
+    @property
+    def display_name(self) -> str:
+        """Display name."""
+        return self.get_display_name()
+
     def get_display_name(self) -> str:
         """Returns the user's preferred name, or their full name as a fallback."""
-        return self.preferred_name or self.get_full_name()
-
-
-def get_otp_expiration_time() -> datetime:
-    """Returns the expiration time for OTPs."""
-    return timezone.now() + timedelta(minutes=settings.ACCOUNT_OTP_EXPIRATION_MINUTES)
-
-
-def get_12h_otp_expiration_time() -> datetime:
-    """Returns the expiration time for story OTPs (12 hours)."""
-    return timezone.now() + timedelta(hours=12)
-
-
-def generate_otp() -> str:
-    """Generates a random 6-digit OTP."""
-    return f"{secrets.randbelow(10**6):06d}"
-
-
-class AccountOTP(TimeStampedModel):
-    """Stores the OTP for a user."""
-
-    user = models.OneToOneField(RevelUser, on_delete=models.CASCADE, related_name="telegram_otp")
-    otp = models.CharField(max_length=6, default=generate_otp, unique=True)
-    token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    used_at = models.DateTimeField(null=True, blank=True, db_index=True)
-    expires_at = models.DateTimeField(default=get_otp_expiration_time, db_index=True)
-
-    def is_expired(self) -> bool:
-        """Checks if the OTP is expired."""
-        return self.expires_at < timezone.now()
-
-    def __str__(self) -> str:
-        return f"OTP for {self.user.username}"
-
-
-def get_or_create_user_otp(user: RevelUser, long_expiration: bool = False) -> AccountOTP:
-    """Gets or creates an OTP for a user.
-
-    Args:
-        user: The user to get or create an OTP for
-        long_expiration: If True, the OTP will expire in 12 hours, otherwise in the default time
-
-    Returns:
-        The OTP object
-    """
-    try:
-        otp = AccountOTP.objects.get(user=user)
-        # If OTP is expired, or we need a long expiration, and it's not set for that, create a new one
-        if otp.is_expired() or (long_expiration and otp.expires_at < get_12h_otp_expiration_time()):
-            otp.delete()
-            raise AccountOTP.DoesNotExist
-        return otp
-    except AccountOTP.DoesNotExist:
-        expiration_func = get_12h_otp_expiration_time if long_expiration else get_otp_expiration_time
-        return AccountOTP.objects.create(user=user, expires_at=expiration_func())
+        return (
+            self.preferred_name or self.get_full_name() or re.sub(r"(\W|_)+", " ", self.username.split("@")[0]).title()
+        )
 
 
 class UserDataExport(TimeStampedModel):
@@ -251,3 +205,21 @@ class UserDietaryPreference(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.user.username} - {self.preference.name}"
+
+
+# Kept for retro-compatibility
+
+
+def generate_otp() -> str:
+    """Generates a random 6-digit OTP."""
+    return f"{secrets.randbelow(10**6):06d}"
+
+
+def get_otp_expiration_time() -> datetime:
+    """Returns the expiration time for OTPs."""
+    return timezone.now() + timedelta(minutes=settings.ACCOUNT_OTP_EXPIRATION_MINUTES)
+
+
+def get_12h_otp_expiration_time() -> datetime:
+    """Returns the expiration time for story OTPs (12 hours)."""
+    return timezone.now() + timedelta(hours=12)

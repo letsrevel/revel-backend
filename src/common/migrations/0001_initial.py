@@ -57,7 +57,7 @@ class Migration(migrations.Migration):
                 ('updated_at', models.DateTimeField(auto_now=True)),
                 ('data_retention_days', models.PositiveIntegerField(default=30, help_text='The number of days to retain data before deletion.', verbose_name='Data Retention Period')),
                 ('live_emails', models.BooleanField(default=False, help_text='Live-emails enabled')),
-                ('frontend_base_url', models.URLField(default='http://localhost:3000')),
+                ('frontend_base_url', models.URLField(default='http://localhost:5173')),
                 ('internal_catchall_email', models.EmailField(default='internal@example.com', help_text='The catchall email address for internal use.', max_length=254, verbose_name='Internal Catchall Email')),
             ],
             options={
@@ -112,7 +112,7 @@ class Migration(migrations.Migration):
                 ('updated_at', models.DateTimeField(blank=True, editable=False)),
                 ('data_retention_days', models.PositiveIntegerField(default=30, help_text='The number of days to retain data before deletion.', verbose_name='Data Retention Period')),
                 ('live_emails', models.BooleanField(default=False, help_text='Live-emails enabled')),
-                ('frontend_base_url', models.URLField(default='http://localhost:3000')),
+                ('frontend_base_url', models.URLField(default='http://localhost:5173')),
                 ('internal_catchall_email', models.EmailField(default='internal@example.com', help_text='The catchall email address for internal use.', max_length=254, verbose_name='Internal Catchall Email')),
                 ('history_id', models.AutoField(primary_key=True, serialize=False)),
                 ('history_date', models.DateTimeField(db_index=True)),

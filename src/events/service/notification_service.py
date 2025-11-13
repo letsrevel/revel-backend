@@ -1,104 +1,184 @@
-"""Notification service for handling hierarchical user preferences and dispatching notifications."""
+"""Notification service for participation-based eligibility."""
 
 import logging
-import typing as t
 from uuid import UUID
 
 from django.db.models import Q, QuerySet
 
 from accounts.models import RevelUser
-from events.models import (
-    Event,
-    EventSeries,
-    GeneralUserPreferences,
-    Organization,
-    UserEventPreferences,
-    UserEventSeriesPreferences,
-    UserOrganizationPreferences,
-)
+from events.models import Event, EventInvitation, EventRSVP, Organization, OrganizationMember, Ticket, TicketTier
 from notifications.enums import NotificationType
+from notifications.models import NotificationPreference
 
 logger = logging.getLogger(__name__)
 
 
-def resolve_notification_preference(  # noqa: C901  # todo: refactor
-    user: RevelUser,
-    preference_name: str,
-    *,
-    event: Event | None = None,
-    event_series: EventSeries | None = None,
-    organization: Organization | None = None,
-) -> bool:
-    """Resolve a notification preference using the hierarchy.
-
-    Hierarchy: UserEventPreferences -> UserEventSeriesPreferences ->
-               UserOrganizationPreferences -> GeneralUserPreferences
+def has_active_rsvp(user: RevelUser, event: Event) -> bool:
+    """Check if user has an active RSVP (YES or MAYBE) for an event.
 
     Args:
-        user: The user whose preferences to resolve
-        preference_name: Name of the preference field to resolve
+        user: The user to check
+        event: The event to check
+
+    Returns:
+        True if user has RSVP'd YES or MAYBE
+    """
+    return EventRSVP.objects.filter(
+        user=user, event=event, status__in=[EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.MAYBE]
+    ).exists()
+
+
+def has_active_ticket(user: RevelUser, event: Event) -> bool:
+    """Check if user has an active or pending ticket for an event.
+
+    For online payment tiers: only ACTIVE tickets count.
+    For offline payment tiers: ACTIVE or PENDING tickets count.
+
+    Args:
+        user: The user to check
+        event: The event to check
+
+    Returns:
+        True if user has a valid ticket
+    """
+    tickets = Ticket.objects.filter(user=user, event=event).select_related("tier")
+
+    for ticket in tickets:
+        if ticket.status == Ticket.TicketStatus.ACTIVE:
+            return True
+
+        # For offline payment tiers, pending tickets also count
+        if (
+            ticket.tier
+            and ticket.tier.payment_method != TicketTier.PaymentMethod.ONLINE
+            and ticket.status == Ticket.TicketStatus.PENDING
+        ):
+            return True
+
+    return False
+
+
+def has_event_invitation(user: RevelUser, event: Event) -> bool:
+    """Check if user has been invited to an event.
+
+    Args:
+        user: The user to check
+        event: The event to check
+
+    Returns:
+        True if user has an invitation
+    """
+    return EventInvitation.objects.filter(user=user, event=event).exists()
+
+
+def is_org_member(user: RevelUser, organization: Organization) -> bool:
+    """Check if user is a member of an organization.
+
+    Args:
+        user: The user to check
+        organization: The organization to check
+
+    Returns:
+        True if user is a member
+    """
+    return OrganizationMember.objects.filter(user=user, organization=organization).exists()
+
+
+def is_org_staff(user: RevelUser, organization: Organization) -> bool:
+    """Check if user is staff or owner of an organization.
+
+    Args:
+        user: The user to check
+        organization: The organization to check
+
+    Returns:
+        True if user is staff or owner
+    """
+    return organization.owner_id == user.id or organization.staff_members.filter(id=user.id).exists()
+
+
+def is_participating_in_event(user: RevelUser, event: Event) -> bool:
+    """Check if user is actively participating in an event.
+
+    User is participating if they:
+    1. Are organization owner/staff, OR
+    2. Have RSVP'd (YES or MAYBE), OR
+    3. Have an active/pending ticket, OR
+    4. Have been explicitly invited
+
+    Args:
+        user: The user to check
+        event: The event to check
+
+    Returns:
+        True if user is participating
+    """
+    if not event.organization:
+        return False
+
+    return (
+        is_org_staff(user, event.organization)
+        or has_active_rsvp(user, event)
+        or has_active_ticket(user, event)
+        or has_event_invitation(user, event)
+    )
+
+
+def is_user_eligible_for_notification(
+    user: RevelUser,
+    notification_type: NotificationType,
+    *,
+    event: Event | None = None,
+    organization: Organization | None = None,
+) -> bool:
+    """Check if a user is eligible to receive a specific notification.
+
+    Eligibility is based on:
+    1. User's notification preferences (not silenced globally)
+    2. Notification type is enabled in user's preferences
+    3. User is participating in the event/organization
+
+    Args:
+        user: The user to check
+        notification_type: The type of notification
         event: Optional event context
-        event_series: Optional event series context
         organization: Optional organization context
 
     Returns:
-        The resolved preference value
+        True if user should receive the notification
     """
-    # Try UserEventPreferences first
+    # Get user's notification preferences
+    prefs, _ = NotificationPreference.objects.get_or_create(user=user)
+
+    # Check global silence
+    if prefs.silence_all_notifications:
+        return False
+
+    # Check if notification type is enabled
+    if not prefs.is_notification_type_enabled(notification_type):
+        return False
+
+    # Check participation
     if event:
-        try:
-            event_prefs = UserEventPreferences.objects.get(user=user, event=event)
-            value = getattr(event_prefs, preference_name, None)
-            if value is not None:
-                return t.cast(bool, value)
-        except UserEventPreferences.DoesNotExist:
-            pass
+        # For EVENT_OPEN notifications, org members are eligible even without other participation
+        if notification_type == NotificationType.EVENT_OPEN and event.organization:
+            return is_org_member(user, event.organization) or is_participating_in_event(user, event)
+        return is_participating_in_event(user, event)
 
-    # Try UserEventSeriesPreferences
-    if event_series or (event and event.event_series):
-        series = event_series or event.event_series  # type: ignore[union-attr]
-        try:
-            series_prefs = UserEventSeriesPreferences.objects.get(user=user, event_series=series)
-            value = getattr(series_prefs, preference_name, None)
-            if value is not None:
-                return t.cast(bool, value)
-        except UserEventSeriesPreferences.DoesNotExist:
-            pass
+    if organization:
+        return is_org_member(user, organization)
 
-    # Try UserOrganizationPreferences
-    if organization or (event and event.organization):
-        org = organization or event.organization  # type: ignore[union-attr]
-        try:
-            org_prefs = UserOrganizationPreferences.objects.get(user=user, organization=org)
-            value = getattr(org_prefs, preference_name, None)
-            if value is not None:
-                return t.cast(bool, value)
-        except UserOrganizationPreferences.DoesNotExist:
-            pass
-
-    # Fall back to GeneralUserPreferences
-    try:
-        general_prefs = GeneralUserPreferences.objects.get(user=user)
-        value = getattr(general_prefs, preference_name, None)
-        if value is not None:
-            return t.cast(bool, value)
-    except GeneralUserPreferences.DoesNotExist:
-        pass
-
-    # Default values based on preference type
-    preference_defaults = {
-        "silence_all_notifications": False,
-        "is_subscribed": False,
-        "notify_on_new_events": False,
-        "notify_on_potluck_updates": False,
-        "event_reminders": True,
-    }
-
-    return preference_defaults.get(preference_name, False)
+    return False
 
 
 def get_eligible_users_for_event_notification(event: Event, notification_type: NotificationType) -> QuerySet[RevelUser]:
     """Get users eligible to receive notifications for an event.
+
+    Eligibility is based on actual participation:
+    - Organization members (for EVENT_OPEN notifications)
+    - Users with RSVP (YES or MAYBE)
+    - Users with active/pending tickets
+    - Users with event invitations
 
     Args:
         event: The event for which to send notifications
@@ -107,53 +187,35 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
     Returns:
         QuerySet of eligible users
     """
-    # Start with all users who could potentially be notified
-    # This includes members of the organization and users with preferences
-    potential_users_q = Q()
+    # Build query for participating users
+    participants_q = Q()
 
-    # Organization members
-    if event.organization:
-        potential_users_q |= Q(organization_memberships__organization=event.organization)
+    # For EVENT_OPEN notifications, include all org members
+    if notification_type == NotificationType.EVENT_OPEN and event.organization:
+        participants_q |= Q(organization_memberships__organization=event.organization)
 
-    # Users with event-specific preferences
-    potential_users_q |= Q(usereventpreferences_preferences__event=event)
+    # Users with active RSVP
+    participants_q |= Q(rsvps__event=event, rsvps__status__in=[EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.MAYBE])
 
-    # Users with series-specific preferences
-    if event.event_series:
-        potential_users_q |= Q(usereventseriespreferences_preferences__event_series=event.event_series)
+    # Users with active or pending tickets
+    participants_q |= Q(
+        tickets__event=event, tickets__status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.PENDING]
+    )
 
-    # Users with organization-specific preferences
-    potential_users_q |= Q(userorganizationpreferences_preferences__organization=event.organization)
+    # Users with invitations
+    participants_q |= Q(invitations__event=event)
 
     # Get unique users
-    potential_users = RevelUser.objects.filter(potential_users_q).distinct()
+    potential_users = RevelUser.objects.filter(participants_q).distinct()
 
-    # Filter based on resolved preferences
-    eligible_users = []
+    # Filter based on notification preferences
+    eligible_user_ids: list[UUID] = []
 
     for user in potential_users:
-        # Check if user has silenced all notifications
-        if resolve_notification_preference(user, "silence_all_notifications", event=event):
-            continue
+        if is_user_eligible_for_notification(user, notification_type, event=event):
+            eligible_user_ids.append(user.id)
 
-        # Check if user is subscribed (at any level)
-        if not resolve_notification_preference(user, "is_subscribed", event=event):
-            continue
-
-        # Check specific notification preferences
-        if notification_type == NotificationType.EVENT_OPEN:
-            if resolve_notification_preference(user, "notify_on_new_events", event=event):
-                eligible_users.append(user.id)
-        elif notification_type in [
-            NotificationType.POTLUCK_ITEM_CREATED,
-            NotificationType.POTLUCK_ITEM_UPDATED,
-            NotificationType.POTLUCK_ITEM_CLAIMED,
-            NotificationType.POTLUCK_ITEM_UNCLAIMED,
-        ]:
-            if resolve_notification_preference(user, "notify_on_potluck_updates", event=event):
-                eligible_users.append(user.id)
-
-    return RevelUser.objects.filter(id__in=eligible_users)
+    return RevelUser.objects.filter(id__in=eligible_user_ids)
 
 
 def get_organization_staff_and_owners(organization_id: UUID) -> QuerySet[RevelUser]:
@@ -163,11 +225,15 @@ def get_organization_staff_and_owners(organization_id: UUID) -> QuerySet[RevelUs
         organization_id: The organization ID
 
     Returns:
-        QuerySet of staff and owner users
+        QuerySet of staff and owner users with notification preferences prefetched
     """
-    return RevelUser.objects.filter(
-        Q(owned_organizations=organization_id) | Q(organization_staff_memberships__organization_id=organization_id)
-    ).distinct()
+    return (
+        RevelUser.objects.filter(
+            Q(owned_organizations=organization_id) | Q(organization_staff_memberships__organization_id=organization_id)
+        )
+        .select_related("notification_preferences")
+        .distinct()
+    )
 
 
 def should_notify_user_for_questionnaire(
@@ -183,15 +249,7 @@ def should_notify_user_for_questionnaire(
     Returns:
         True if user should be notified
     """
-    # Check basic notification preferences
-    if resolve_notification_preference(user, "silence_all_notifications", organization=organization):
-        return False
-
-    # For questionnaire notifications, we typically want to notify:
-    # - Organization owners and staff (for submissions needing review)
-    # - Users who submitted questionnaires (for evaluation results)
-
-    return True  # More specific logic can be added based on requirements
+    return is_user_eligible_for_notification(user, notification_type, organization=organization)
 
 
 def log_notification_attempt(

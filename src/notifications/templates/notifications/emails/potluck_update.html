@@ -87,6 +87,12 @@
     <p><small><em>{% blocktrans with changed_by=context.changed_by_username %}Updated by {{ changed_by }}{% endblocktrans %}</em></small></p>
     {% endif %}
 
+    {% if context.frontend_url %}
+    <p style="text-align: center; margin-top: 20px;">
+        <a href="{{ context.frontend_url }}" style="display: inline-block; padding: 12px 24px; background: #28a745; color: white; text-decoration: none; border-radius: 4px;">{% trans "View Event & Potluck" %}</a>
+    </p>
+    {% endif %}
+
     <div class="footer">
         <p>{% trans "You're receiving this notification because you have potluck updates enabled." %}</p>
     </div>

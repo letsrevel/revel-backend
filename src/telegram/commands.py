@@ -4,11 +4,11 @@ from aiogram.types import BotCommand, BotCommandScopeDefault
 # Define the commands list (good practice to keep it organized)
 DEFAULT_COMMANDS = [
     BotCommand(command="start", description="Start the bot / Show welcome message"),
+    BotCommand(command="connect", description="🔗 Link your Revel account"),
     BotCommand(command="preferences", description="⚙️ Manage your preferences"),
     BotCommand(command="cancel", description="🔙 Cancel the current action"),
     BotCommand(command="toc", description="📜 View Terms and Conditions"),
     BotCommand(command="privacy", description="🔒 View Privacy Policy"),
-    BotCommand(command="weblogin", description="🖥️ Web login"),
     # Add other commands like /help if you implement them
     # BotCommand(command="help", description="Show help information"),
 ]

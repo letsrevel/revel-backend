@@ -41,6 +41,13 @@
             </div>
 
             <p>{% trans "Don't forget!" %}</p>
+
+            {% if context.frontend_url %}
+            <p style="text-align: center;">
+                <a href="{{ context.frontend_url }}" class="button">{% trans "View Event Details" %}</a>
+            </p>
+            {% endif %}
+
             <p>{% trans "See you soon!" %}</p>
         </div>
         <div class="footer">

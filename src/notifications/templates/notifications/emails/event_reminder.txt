@@ -16,6 +16,8 @@
 
 {% trans "Don't forget!" %}
 
+{% if context.frontend_url %}{% trans "View event details:" %} {{ context.frontend_url }}{% endif %}
+
 {% trans "See you soon," %}
 Revel
 {% endautoescape %}

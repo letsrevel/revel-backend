@@ -12,12 +12,13 @@ from ninja_extra.pagination import PageNumberPaginationExtra, paginate
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle, WriteThrottle
+from notifications.filters import NotificationFilterSchema
 from notifications.models import Notification
-from notifications.schema import MarkReadResponseSchema, NotificationSchema, UnreadCountSchema
+from notifications.schema import NotificationSchema, UnreadCountSchema
 
 
 @api_controller(
-    "/api/notifications",
+    "/notifications",
     tags=["Notifications"],
     auth=I18nJWTAuth(),
     throttle=UserDefaultThrottle(),
@@ -32,24 +33,14 @@ class NotificationController(UserAwareController):
     @paginate(PageNumberPaginationExtra, page_size=20)
     def list_notifications(
         self,
-        unread_only: bool = Query(False, description="Filter to unread notifications only"),  # type: ignore[type-arg]
-        notification_type: str | None = Query(None, description="Filter by notification type"),  # type: ignore[type-arg]
+        params: NotificationFilterSchema = Query(...),  # type: ignore[type-arg]
     ) -> QuerySet[Notification]:
         """List user's notifications.
 
         Supports filtering by unread status and notification type.
         """
-        qs = Notification.objects.filter(user=self.user())
-
-        if unread_only:
-            qs = qs.filter(read_at__isnull=True)
-
-        if notification_type:
-            qs = qs.filter(notification_type=notification_type)
-
-        qs = qs.order_by("-created_at")
-
-        return qs
+        qs = Notification.objects.filter(user=self.user()).order_by("-created_at")
+        return params.filter(qs)
 
     @route.get("/unread-count", response=UnreadCountSchema)
     def unread_count(self) -> dict[str, int]:
@@ -60,33 +51,23 @@ class NotificationController(UserAwareController):
 
     @route.post(
         "/{notification_id}/mark-read",
-        response=MarkReadResponseSchema,
         throttle=WriteThrottle(),
     )
-    def mark_read(self, notification_id: UUID) -> dict[str, bool]:
+    def mark_read(self, notification_id: UUID) -> None:
         """Mark a notification as read."""
         notification = get_object_or_404(Notification, id=notification_id, user=self.user())
-
         notification.mark_read()
-
-        return {"success": True}
 
     @route.post(
         "/{notification_id}/mark-unread",
-        response=MarkReadResponseSchema,
         throttle=WriteThrottle(),
     )
-    def mark_unread(self, notification_id: UUID) -> dict[str, bool]:
+    def mark_unread(self, notification_id: UUID) -> None:
         """Mark a notification as unread."""
         notification = get_object_or_404(Notification, id=notification_id, user=self.user())
-
         notification.mark_unread()
 
-        return {"success": True}
-
-    @route.post("/mark-all-read", response=MarkReadResponseSchema, throttle=WriteThrottle())
-    def mark_all_read(self) -> dict[str, bool]:
+    @route.post("/mark-all-read", throttle=WriteThrottle())
+    def mark_all_read(self) -> None:
         """Mark all user's notifications as read."""
         Notification.objects.filter(user=self.user(), read_at__isnull=True).update(read_at=timezone.now())
-
-        return {"success": True}

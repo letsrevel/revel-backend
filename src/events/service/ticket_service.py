@@ -11,7 +11,6 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier
 from events.service import stripe_service
-from events.service.ticket_notification_service import notify_ticket_creation
 
 
 class TicketService:
@@ -52,10 +51,7 @@ class TicketService:
         ticket = Ticket.objects.create(
             event=self.event, tier=self.tier, user=self.user, status=Ticket.TicketStatus.PENDING
         )
-
-        # Send notification for ticket creation
-        notify_ticket_creation(str(ticket.id))
-
+        # Notification sent automatically via post_save signal
         return ticket
 
     @transaction.atomic
@@ -64,10 +60,7 @@ class TicketService:
         ticket = Ticket.objects.create(
             event=self.event, tier=self.tier, user=self.user, status=Ticket.TicketStatus.ACTIVE
         )
-
-        # Send notification for free ticket creation
-        notify_ticket_creation(str(ticket.id))
-
+        # Notification sent automatically via post_save signal
         return ticket
 
 

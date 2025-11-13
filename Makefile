@@ -90,6 +90,10 @@ run-celery:
 run-celery-beat:
 	cd src && ../.venv/bin/celery -A revel beat -l INFO --scheduler django_celery_beat.schedulers:DatabaseScheduler
 
+.PHONY: run-telegram
+run-telegram:
+	cd src && ../.venv/bin/python manage.py run_telegram_bot
+
 .PHONY: run-flower
 run-flower:
 	cd src && ../.venv/bin/celery -A revel flower

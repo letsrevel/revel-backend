@@ -9,6 +9,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from accounts.models import RevelUser
+from common.models import SiteSettings
 from events.models import (
     DEFAULT_TICKET_TIER_NAME,
     Event,
@@ -19,7 +20,6 @@ from events.models import (
     PotluckItem,
     Ticket,
     TicketTier,
-    UserEventPreferences,
 )
 from events.service.notification_service import (
     get_eligible_users_for_event_notification,
@@ -67,6 +67,10 @@ def unclaim_user_potluck_items(event_id: UUID, user_id: UUID, notify: bool = Tru
             user = RevelUser.objects.get(pk=user_id)
             for item in items:
                 event = item.event
+                # Build frontend URL
+                frontend_base_url = SiteSettings.get_solo().frontend_base_url
+                frontend_url = f"{frontend_base_url}/events/{event.id}"
+
                 # Get all users who should be notified
                 eligible_users = get_eligible_users_for_event_notification(
                     event, NotificationType.POTLUCK_ITEM_UNCLAIMED
@@ -83,6 +87,7 @@ def unclaim_user_potluck_items(event_id: UUID, user_id: UUID, notify: bool = Tru
                             "event_name": event.name,
                             "action": "unclaimed",
                             "changed_by_username": user.first_name or user.username,
+                            "frontend_url": frontend_url,
                         },
                     )
 
@@ -150,44 +155,139 @@ def handle_user_creation(sender: type[RevelUser], instance: RevelUser, created: 
             pending_invitations.delete()
 
 
+def _build_rsvp_context(rsvp: EventRSVP) -> dict[str, t.Any]:
+    """Build notification context for RSVP."""
+    return {
+        "rsvp_id": str(rsvp.id),
+        "event_id": str(rsvp.event.id),
+        "event_name": rsvp.event.name,
+        "event_start": rsvp.event.start.isoformat(),
+        "event_location": rsvp.event.address or (rsvp.event.city.name if rsvp.event.city else ""),
+        "response": rsvp.status,
+        "plus_ones": 0,  # EventRSVP doesn't have plus_ones field yet
+        "user_name": rsvp.user.get_display_name(),
+        "user_email": rsvp.user.email,
+    }
+
+
+def _notify_staff_about_rsvp(rsvp: EventRSVP, notification_type: str, context: dict[str, t.Any]) -> None:
+    """Notify staff/owners about RSVP event."""
+    from events.service.notification_service import get_organization_staff_and_owners
+
+    staff_and_owners = get_organization_staff_and_owners(rsvp.event.organization_id)
+    for recipient in staff_and_owners:
+        notification_requested.send(
+            sender=EventRSVP,
+            user=recipient,
+            notification_type=notification_type,
+            context=context,
+        )
+
+
+def _send_rsvp_confirmation_notifications(rsvp: EventRSVP) -> None:
+    """Send notifications when RSVP is created."""
+    context = _build_rsvp_context(rsvp)
+    _notify_staff_about_rsvp(rsvp, NotificationType.RSVP_CONFIRMATION, context)
+
+
+def _send_rsvp_updated_notifications(rsvp: EventRSVP, update_fields: set[str] | None) -> None:
+    """Send notifications when RSVP is updated."""
+    if update_fields is not None and "status" not in update_fields:
+        return  # Status wasn't updated, skip
+
+    # Determine old status value
+    # Try FieldTracker first, then check if status actually changed
+    if rsvp.tracker.has_changed("status"):
+        old_status = rsvp.tracker.previous("status")
+    elif update_fields is not None and "status" in update_fields:
+        # If update_fields explicitly includes status but tracker says no change,
+        # fallback to manually set attribute or current status
+        old_status = getattr(rsvp, "_original_status", rsvp.status)
+    else:
+        # No change detected, skip notification
+        return
+
+    # Skip if old and new status are the same (no actual change)
+    if old_status == rsvp.status:
+        return
+
+    context = {
+        "rsvp_id": str(rsvp.id),
+        "event_id": str(rsvp.event.id),
+        "event_name": rsvp.event.name,
+        "old_response": old_status,
+        "new_response": rsvp.status,
+        "user_name": rsvp.user.get_display_name(),
+        "user_email": rsvp.user.email,
+    }
+
+    _notify_staff_about_rsvp(rsvp, NotificationType.RSVP_UPDATED, context)
+
+
 @receiver(post_save, sender=EventRSVP)
-def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, **kwargs: t.Any) -> None:
-    """Trigger visibility task and unclaim potluck items after RSVP is changed or created.
+def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, created: bool, **kwargs: t.Any) -> None:
+    """Trigger visibility task, unclaim potluck items, and send notifications after RSVP is changed or created.
 
     When a user's RSVP status changes to anything other than YES (i.e., NO or MAYBE),
     we automatically unclaim all potluck items they had previously claimed, since they
     are no longer confirmed to attend.
+
+    Sends notifications to:
+    - Organization staff and owners (NOT the user who RSVPed)
     """
     build_attendee_visibility_flags.delay(str(instance.event_id))
 
-    # Unclaim potluck items if RSVP is not a definite YES
     if instance.status in [EventRSVP.RsvpStatus.NO, EventRSVP.RsvpStatus.MAYBE]:
         unclaim_user_potluck_items(instance.event_id, instance.user_id)
+
+    def send_notifications() -> None:
+        if created:
+            _send_rsvp_confirmation_notifications(instance)
+        else:
+            update_fields = kwargs.get("update_fields")
+            _send_rsvp_updated_notifications(instance, update_fields)
+
+    transaction.on_commit(send_notifications)
 
 
 @receiver(post_delete, sender=EventRSVP)
 def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwargs: t.Any) -> None:
-    """Trigger visibility task and unclaim potluck items after RSVP is deleted.
+    """Trigger visibility task, unclaim potluck items, and send notifications after RSVP is deleted.
 
     When a user deletes their RSVP entirely, we unclaim all potluck items they had claimed.
+
+    Sends notifications to:
+    - Organization staff and owners (the user already knows they cancelled)
     """
     build_attendee_visibility_flags.delay(str(instance.event_id))
     # Unclaim items when RSVP is deleted entirely
     unclaim_user_potluck_items(instance.event_id, instance.user_id)
 
+    # Send notifications after transaction commits
+    def send_notifications() -> None:
+        from events.service.notification_service import get_organization_staff_and_owners
 
-@receiver(post_save, sender=Ticket)
-def handle_ticket_save(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
-    """Trigger visibility task and unclaim potluck items after Ticket is changed or created.
+        event = instance.event
+        user = instance.user
 
-    When a user's ticket status changes to CANCELLED, we automatically unclaim all potluck
-    items they had previously claimed, since they are no longer attending.
-    """
-    build_attendee_visibility_flags.delay(str(instance.event_id))
+        notification_type = NotificationType.RSVP_CANCELLED
+        context = {
+            "event_id": str(event.id),
+            "event_name": event.name,
+            "user_name": user.first_name or user.username,
+        }
 
-    # Unclaim potluck items if ticket is cancelled
-    if instance.status == Ticket.TicketStatus.CANCELLED:
-        unclaim_user_potluck_items(instance.event_id, instance.user_id)
+        # Notify organization staff and owners only (user already knows they cancelled)
+        staff_and_owners = get_organization_staff_and_owners(event.organization_id)
+        for recipient in staff_and_owners:
+            notification_requested.send(
+                sender=sender,
+                user=recipient,
+                notification_type=notification_type,
+                context=context,
+            )
+
+    transaction.on_commit(send_notifications)
 
 
 @receiver(post_delete, sender=Ticket)
@@ -202,30 +302,40 @@ def handle_ticket_delete(sender: type[Ticket], instance: Ticket, **kwargs: t.Any
 
 
 @receiver(post_save, sender=EventInvitation)
-def handle_invitation_save(sender: type[EventInvitation], instance: EventInvitation, **kwargs: t.Any) -> None:
-    """Trigger visibility task after invitation is changed or created."""
+def handle_invitation_save(
+    sender: type[EventInvitation], instance: EventInvitation, created: bool, **kwargs: t.Any
+) -> None:
+    """Trigger visibility task and send notifications after invitation is created."""
     build_attendee_visibility_flags.delay(str(instance.event_id))
+    if not created:
+        return
+
+    # Send INVITATION_RECEIVED notification to the invited user
+    def send_invitation_notification() -> None:
+        event = instance.event
+        # Get the user who created the invitation (assume it's org staff/owner)
+        invited_by_name = "Someone"  # Default if we can't determine
+
+        notification_requested.send(
+            sender=sender,
+            user=instance.user,
+            notification_type=NotificationType.INVITATION_RECEIVED,
+            context={
+                "invitation_id": str(instance.id),
+                "event_id": str(event.id),
+                "event_name": event.name,
+                "event_start": event.start.isoformat() if event.start else "",
+                "invited_by_name": invited_by_name,
+                "personal_message": instance.custom_message or "",
+            },
+        )
+
+    transaction.on_commit(send_invitation_notification)
 
 
 @receiver(post_delete, sender=EventInvitation)
 def handle_invitation_delete(sender: type[EventInvitation], instance: EventInvitation, **kwargs: t.Any) -> None:
     """Trigger visibility task after invitation is deleted."""
-    build_attendee_visibility_flags.delay(str(instance.event_id))
-
-
-@receiver(post_save, sender=UserEventPreferences)
-def handle_event_user_pref_save(
-    sender: type[UserEventPreferences], instance: UserEventPreferences, **kwargs: t.Any
-) -> None:
-    """Trigger visibility task after user preferences is changed or created."""
-    build_attendee_visibility_flags.delay(str(instance.event_id))
-
-
-@receiver(post_delete, sender=UserEventPreferences)
-def handle_event_user_pref_delete(
-    sender: type[UserEventPreferences], instance: UserEventPreferences, **kwargs: t.Any
-) -> None:
-    """Trigger visibility task after user preferences is deleted."""
     build_attendee_visibility_flags.delay(str(instance.event_id))
 
 
@@ -262,6 +372,10 @@ def handle_potluck_item_save(sender: type[PotluckItem], instance: PotluckItem, c
 
     # Get all eligible users for notification
     def send_notifications() -> None:
+        # Build frontend URL
+        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        frontend_url = f"{frontend_base_url}/events/{event.id}"
+
         eligible_users = get_eligible_users_for_event_notification(event, notification_type)
 
         for user in eligible_users:
@@ -271,6 +385,7 @@ def handle_potluck_item_save(sender: type[PotluckItem], instance: PotluckItem, c
                 "event_id": str(event.id),
                 "event_name": event.name,
                 "action": action,
+                "frontend_url": frontend_url,
             }
 
             # Add assignee username if claimed
@@ -314,13 +429,251 @@ def handle_potluck_item_delete(sender: type[PotluckItem], instance: PotluckItem,
     transaction.on_commit(send_notifications)
 
 
-# Ticket notifications are now handled in the service layer, not signals
+# ---- Ticket Notification Signal Handlers ----
 
 
-# ---- Questionnaire Notification Signal Handlers ----
-# Note: Questionnaire submission notifications are now handled directly in the service layer
-# to avoid signal complexity and ensure they only fire when appropriate
+def _get_ticket_action_for_payment_method(payment_method: str) -> str | None:
+    """Get action string for ticket creation based on payment method."""
+    action_map = {
+        TicketTier.PaymentMethod.FREE: "free_ticket_created",
+        TicketTier.PaymentMethod.OFFLINE: "offline_payment_pending",
+        TicketTier.PaymentMethod.AT_THE_DOOR: "at_door_payment_pending",
+    }
+    return t.cast(str | None, action_map.get(payment_method))  # type: ignore[call-overload]
 
 
-# Note: Questionnaire evaluation notifications are also now handled in the service layer
-# when evaluations are created/updated to ensure proper timing and avoid duplicate signals
+def _build_ticket_created_context(ticket: Ticket) -> dict[str, t.Any]:
+    """Build notification context for TICKET_CREATED."""
+    event = ticket.event
+    event_location = event.address or (event.city.name if event.city else "")
+
+    # Build frontend URL
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_url = f"{frontend_base_url}/events/{event.id}"
+
+    return {
+        "ticket_id": str(ticket.id),
+        "ticket_reference": str(ticket.id),
+        "event_id": str(event.id),
+        "event_name": event.name,
+        "event_start": event.start.isoformat() if event.start else "",
+        "event_location": event_location,
+        "organization_id": str(event.organization_id),
+        "organization_name": event.organization.name,
+        "tier_name": ticket.tier.name,
+        "tier_price": str(ticket.tier.price),
+        "quantity": 1,  # Single ticket per notification
+        "total_price": str(ticket.tier.price),
+        "frontend_url": frontend_url,
+    }
+
+
+def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, t.Any]:
+    """Build notification context for TICKET_UPDATED."""
+    return {
+        "ticket_id": str(ticket.id),
+        "ticket_reference": str(ticket.id),
+        "event_id": str(ticket.event.id),
+        "event_name": ticket.event.name,
+        "old_status": old_status,
+        "new_status": ticket.status,
+    }
+
+
+def _build_ticket_refunded_context(ticket: Ticket, refund_amount: str | None = None) -> dict[str, t.Any]:
+    """Build notification context for TICKET_REFUNDED."""
+    return {
+        "ticket_id": str(ticket.id),
+        "ticket_reference": str(ticket.id),
+        "event_id": str(ticket.event.id),
+        "event_name": ticket.event.name,
+        "refund_amount": refund_amount or str(ticket.tier.price),
+    }
+
+
+def _send_ticket_created_notifications(ticket: Ticket) -> None:
+    """Send notifications for newly created ticket."""
+    from events.service.notification_service import get_organization_staff_and_owners
+
+    action = _get_ticket_action_for_payment_method(ticket.tier.payment_method)
+    if not action:
+        return  # Online payment - handled by payment service
+
+    context = _build_ticket_created_context(ticket)
+
+    # Notify ticket holder
+    notification_requested.send(
+        sender=Ticket,
+        user=ticket.user,
+        notification_type=NotificationType.TICKET_CREATED,
+        context=context,
+    )
+
+    # Notify staff/owners with additional context
+    staff_context = {
+        **context,
+        "ticket_holder_name": ticket.user.get_display_name(),
+        "ticket_holder_email": ticket.user.email,
+    }
+    staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
+    for staff_user in list(staff_and_owners):
+        prefs = getattr(staff_user, "notification_preferences", None)
+        if prefs and prefs.is_notification_type_enabled(NotificationType.TICKET_CREATED):
+            notification_requested.send(
+                sender=Ticket,
+                user=staff_user,
+                notification_type=NotificationType.TICKET_CREATED,
+                context=staff_context,
+            )
+
+
+def _send_ticket_activated_notification(ticket: Ticket, old_status: str) -> None:
+    """Send notification when ticket is activated."""
+    context = _build_ticket_updated_context(ticket, old_status)
+
+    notification_requested.send(
+        sender=Ticket,
+        user=ticket.user,
+        notification_type=NotificationType.TICKET_UPDATED,
+        context=context,
+    )
+
+
+def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> None:
+    """Send notifications when ticket is cancelled."""
+    from events.service.notification_service import get_organization_staff_and_owners
+
+    context = _build_ticket_updated_context(ticket, old_status)
+
+    # Notify ticket holder
+    notification_requested.send(
+        sender=Ticket,
+        user=ticket.user,
+        notification_type=NotificationType.TICKET_UPDATED,
+        context=context,
+    )
+
+    # Notify staff/owners with additional context
+    staff_context = {
+        **context,
+        "ticket_holder_name": ticket.user.get_display_name(),
+        "ticket_holder_email": ticket.user.email,
+    }
+    staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
+    for staff_user in list(staff_and_owners):
+        prefs = getattr(staff_user, "notification_preferences", None)
+        if prefs and prefs.is_notification_type_enabled(NotificationType.TICKET_UPDATED):
+            notification_requested.send(
+                sender=Ticket,
+                user=staff_user,
+                notification_type=NotificationType.TICKET_UPDATED,
+                context=staff_context,
+            )
+
+
+def _send_ticket_refunded_notifications(ticket: Ticket) -> None:
+    """Send notifications when ticket is refunded."""
+    from events.service.notification_service import get_organization_staff_and_owners
+
+    # Add refund amount if available
+    refund_amount_value = getattr(ticket, "_refund_amount", None)
+    context = _build_ticket_refunded_context(ticket, refund_amount_value)
+
+    # Notify ticket holder
+    notification_requested.send(
+        sender=Ticket,
+        user=ticket.user,
+        notification_type=NotificationType.TICKET_REFUNDED,
+        context=context,
+    )
+
+    # Notify staff/owners with additional context
+    staff_context = {
+        **context,
+        "ticket_holder_name": ticket.user.get_display_name(),
+        "ticket_holder_email": ticket.user.email,
+    }
+    staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
+    for staff_user in list(staff_and_owners):
+        prefs = getattr(staff_user, "notification_preferences", None)
+        if prefs and prefs.is_notification_type_enabled(NotificationType.TICKET_REFUNDED):
+            notification_requested.send(
+                sender=Ticket,
+                user=staff_user,
+                notification_type=NotificationType.TICKET_REFUNDED,
+                context=staff_context,
+            )
+
+
+def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None:
+    """Handle notifications for ticket status changes."""
+    if not old_status or old_status == ticket.status:
+        return
+
+    if ticket.status == Ticket.TicketStatus.ACTIVE:
+        _send_ticket_activated_notification(ticket, old_status)
+
+        # If payment was just completed (PENDING→ACTIVE), notify staff/owners
+        if old_status == Ticket.TicketStatus.PENDING:
+            from events.service.notification_service import get_organization_staff_and_owners
+
+            context = _build_ticket_created_context(ticket)
+            staff_context = {
+                **context,
+                "ticket_holder_name": ticket.user.get_display_name(),
+                "ticket_holder_email": ticket.user.email,
+            }
+            staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
+            for staff_user in list(staff_and_owners):
+                prefs = getattr(staff_user, "notification_preferences", None)
+                if prefs and prefs.is_notification_type_enabled(NotificationType.TICKET_CREATED):
+                    notification_requested.send(
+                        sender=Ticket,
+                        user=staff_user,
+                        notification_type=NotificationType.TICKET_CREATED,
+                        context=staff_context,
+                    )
+    elif ticket.status == Ticket.TicketStatus.CANCELLED:
+        # Check if this is a refund-related cancellation
+        if getattr(ticket, "_is_refund", False):
+            _send_ticket_refunded_notifications(ticket)
+        else:
+            _send_ticket_cancelled_notifications(ticket, old_status)
+
+
+@receiver(post_save, sender=Ticket)
+def handle_ticket_save_and_notifications(
+    sender: type[Ticket], instance: Ticket, created: bool, **kwargs: t.Any
+) -> None:
+    """Trigger visibility task, unclaim potluck items, and send notifications for ticket lifecycle."""
+    build_attendee_visibility_flags.delay(str(instance.event_id))
+
+    if instance.status == Ticket.TicketStatus.CANCELLED:
+        unclaim_user_potluck_items(instance.event_id, instance.user_id)
+
+    def send_notifications() -> None:
+        if created:
+            _send_ticket_created_notifications(instance)
+        else:
+            # Determine if status changed and get old value
+            update_fields = kwargs.get("update_fields")
+
+            # If update_fields explicitly includes "status", we know it changed
+            if update_fields is not None and "status" in update_fields:
+                # Try FieldTracker first, fallback to manually set attribute
+                if instance.tracker.has_changed("status"):
+                    old_status = instance.tracker.previous("status")
+                else:
+                    # Fallback for cases where tracker was already reset (e.g., stripe service)
+                    old_status = getattr(instance, "_original_ticket_status", instance.status)
+                _handle_ticket_status_change(instance, old_status)
+            # If update_fields is None (all fields saved), check tracker
+            elif update_fields is None and instance.tracker.has_changed("status"):
+                old_status = instance.tracker.previous("status")
+                _handle_ticket_status_change(instance, old_status)
+
+    transaction.on_commit(send_notifications)
+
+
+# Note: TICKET_REFUNDED notifications are handled by Payment model signals
+# in the stripe service when a refund is processed, not by Ticket model
