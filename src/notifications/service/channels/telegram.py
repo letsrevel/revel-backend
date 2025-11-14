@@ -24,7 +24,7 @@ def update_delivery_status(delivery_id: str, status: str, error_message: str | N
         delivery = NotificationDelivery.objects.get(pk=delivery_id)
 
         delivery.status = DeliveryStatus(status)
-        if status == "SENT":
+        if status == DeliveryStatus.SENT:
             delivery.delivered_at = timezone.now()
         elif error_message:
             delivery.error_message = error_message
@@ -40,7 +40,7 @@ def update_delivery_status(delivery_id: str, status: str, error_message: str | N
     except NotificationDelivery.DoesNotExist:
         logger.error("delivery_not_found_for_callback", delivery_id=delivery_id)
     except Exception as e:
-        logger.error("delivery_status_update_failed", delivery_id=delivery_id, error=str(e))
+        logger.exception("delivery_status_update_failed", delivery_id=delivery_id, error=str(e), exc_info=True)
 
 
 class TelegramChannel(NotificationChannel):
@@ -143,15 +143,10 @@ class TelegramChannel(NotificationChannel):
             )
 
             # Mark as PENDING (will be updated by callback)
-            delivery.status = DeliveryStatus.PENDING
             delivery.metadata["telegram_task_id"] = result.id
             delivery.save(
                 update_fields=[
-                    "status",
                     "metadata",
-                    "retry_count",
-                    "attempted_at",
-                    "updated_at",
                 ]
             )
 
@@ -161,6 +156,7 @@ class TelegramChannel(NotificationChannel):
                 notification_type=notification.notification_type,
                 user_id=str(notification.user.id),
                 task_id=result.id,
+                callback_data=callback_data,
             )
 
             return True

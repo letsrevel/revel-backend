@@ -33,14 +33,7 @@ def dispatch_notification(self: t.Any, notification_id: str) -> dict[str, t.Any]
     Returns:
         Dict with dispatch stats
     """
-    try:
-        notification = Notification.objects.select_related("user", "user__notification_preferences").get(
-            pk=notification_id
-        )
-    except Notification.DoesNotExist:
-        logger.error("notification_not_found", notification_id=notification_id)
-        return {"error": "notification_not_found"}
-
+    notification = Notification.objects.select_related("user", "user__notification_preferences").get(pk=notification_id)
     # Render title and body from template
     try:
         from notifications.service.templates.registry import get_template

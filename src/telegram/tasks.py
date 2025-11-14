@@ -10,6 +10,7 @@ from django.db import transaction
 from events import utils as event_utils
 from events.models import EventInvitation
 from events.service.event_manager import EligibilityService
+from notifications.enums import DeliveryStatus
 from telegram import utils
 from telegram.keyboards import get_event_eligible_keyboard
 from telegram.models import TelegramUser
@@ -43,10 +44,10 @@ def _execute_callback(callback_data: dict[str, t.Any], error_occurred: bool, err
 
         # Add status and error_message to kwargs
         if error_occurred:
-            kwargs["status"] = "FAILED"
+            kwargs["status"] = DeliveryStatus.FAILED
             kwargs["error_message"] = error_message
         else:
-            kwargs["status"] = "SENT"
+            kwargs["status"] = DeliveryStatus.SENT
 
         # Execute callback
         callback_function(**kwargs)
@@ -55,7 +56,7 @@ def _execute_callback(callback_data: dict[str, t.Any], error_occurred: bool, err
             "telegram_callback_executed",
             module=module_path,
             function=function_name,
-            status="FAILED" if error_occurred else "SENT",
+            status=DeliveryStatus.FAILED if error_occurred else DeliveryStatus.SENT,
         )
     except Exception as callback_error:
         logger.error(

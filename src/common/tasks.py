@@ -90,6 +90,7 @@ def to_safe_email_address(email: str, site_settings: SiteSettings | None = None)
     safe_email = email.replace("@", "_at_").replace(".", "_dot_")
     user, domain = site_settings.internal_catchall_email.split("@", 1)
     safe_email = f"{user}+{safe_email}@{domain}"
+    # return f"me+{user}@biagiodistefano.io"
     return safe_email
 
 

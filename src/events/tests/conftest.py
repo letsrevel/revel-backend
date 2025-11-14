@@ -77,6 +77,7 @@ def event(organization: Organization, event_series: EventSeries) -> Event:
         max_attendees=100,
         start=timezone.now(),
         status="open",
+        requires_ticket=True,
     )
 
 
@@ -121,6 +122,7 @@ def public_event(organization: Organization, next_week: datetime) -> Event:
         start=next_week,
         end=next_week + timedelta(days=1),
         accept_invitation_requests=True,
+        requires_ticket=True,
     )
 
 
@@ -138,6 +140,7 @@ def private_event(organization: Organization, next_week: datetime) -> Event:
         start=next_week,
         end=next_week + timedelta(days=1),
         accept_invitation_requests=True,
+        requires_ticket=True,
     )
 
 
@@ -153,6 +156,7 @@ def members_only_event(organization: Organization, next_week: datetime) -> Event
         status="open",
         start=next_week,
         end=next_week + timedelta(days=1),
+        requires_ticket=True,
     )
 
 

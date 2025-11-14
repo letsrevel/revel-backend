@@ -5,7 +5,7 @@ from uuid import UUID
 
 import structlog
 from django.db import transaction
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from accounts.models import RevelUser
@@ -190,24 +190,15 @@ def _send_rsvp_confirmation_notifications(rsvp: EventRSVP) -> None:
     _notify_staff_about_rsvp(rsvp, NotificationType.RSVP_CONFIRMATION, context)
 
 
-def _send_rsvp_updated_notifications(rsvp: EventRSVP, update_fields: set[str] | None) -> None:
+def _send_rsvp_updated_notifications(rsvp: EventRSVP) -> None:
     """Send notifications when RSVP is updated."""
-    if update_fields is not None and "status" not in update_fields:
-        return  # Status wasn't updated, skip
+    # Check if old status was captured in pre_save
+    if not hasattr(rsvp, "_old_status"):
+        return  # No status change
 
-    # Determine old status value
-    # Try FieldTracker first, then check if status actually changed
-    if rsvp.tracker.has_changed("status"):
-        old_status = rsvp.tracker.previous("status")
-    elif update_fields is not None and "status" in update_fields:
-        # If update_fields explicitly includes status but tracker says no change,
-        # fallback to manually set attribute or current status
-        old_status = getattr(rsvp, "_original_status", rsvp.status)
-    else:
-        # No change detected, skip notification
-        return
+    old_status = rsvp._old_status
 
-    # Skip if old and new status are the same (no actual change)
+    # Skip if old and new status are the same
     if old_status == rsvp.status:
         return
 
@@ -222,6 +213,18 @@ def _send_rsvp_updated_notifications(rsvp: EventRSVP, update_fields: set[str] | 
     }
 
     _notify_staff_about_rsvp(rsvp, NotificationType.RSVP_UPDATED, context)
+
+
+@receiver(pre_save, sender=EventRSVP)
+def capture_rsvp_old_status(sender: type[EventRSVP], instance: EventRSVP, **kwargs: t.Any) -> None:
+    """Capture the old status value before save for change detection in post_save."""
+    if instance.pk:
+        try:
+            old_instance = EventRSVP.objects.get(pk=instance.pk)
+            if old_instance.status != instance.status:
+                instance._old_status = old_instance.status  # type: ignore[attr-defined]
+        except EventRSVP.DoesNotExist:
+            pass
 
 
 @receiver(post_save, sender=EventRSVP)
@@ -244,8 +247,7 @@ def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, created
         if created:
             _send_rsvp_confirmation_notifications(instance)
         else:
-            update_fields = kwargs.get("update_fields")
-            _send_rsvp_updated_notifications(instance, update_fields)
+            _send_rsvp_updated_notifications(instance)
 
     transaction.on_commit(send_notifications)
 
@@ -641,6 +643,18 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
             _send_ticket_cancelled_notifications(ticket, old_status)
 
 
+@receiver(pre_save, sender=Ticket)
+def capture_ticket_old_status(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
+    """Capture the old status value before save for change detection in post_save."""
+    if instance.pk:
+        try:
+            old_instance = Ticket.objects.get(pk=instance.pk)
+            if old_instance.status != instance.status:
+                instance._old_status = old_instance.status  # type: ignore[attr-defined]
+        except Ticket.DoesNotExist:
+            pass
+
+
 @receiver(post_save, sender=Ticket)
 def handle_ticket_save_and_notifications(
     sender: type[Ticket], instance: Ticket, created: bool, **kwargs: t.Any
@@ -655,22 +669,9 @@ def handle_ticket_save_and_notifications(
         if created:
             _send_ticket_created_notifications(instance)
         else:
-            # Determine if status changed and get old value
-            update_fields = kwargs.get("update_fields")
-
-            # If update_fields explicitly includes "status", we know it changed
-            if update_fields is not None and "status" in update_fields:
-                # Try FieldTracker first, fallback to manually set attribute
-                if instance.tracker.has_changed("status"):
-                    old_status = instance.tracker.previous("status")
-                else:
-                    # Fallback for cases where tracker was already reset (e.g., stripe service)
-                    old_status = getattr(instance, "_original_ticket_status", instance.status)
-                _handle_ticket_status_change(instance, old_status)
-            # If update_fields is None (all fields saved), check tracker
-            elif update_fields is None and instance.tracker.has_changed("status"):
-                old_status = instance.tracker.previous("status")
-                _handle_ticket_status_change(instance, old_status)
+            # Check if old status was captured in pre_save
+            if hasattr(instance, "_old_status"):
+                _handle_ticket_status_change(instance, instance._old_status)
 
     transaction.on_commit(send_notifications)
 

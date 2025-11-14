@@ -11,7 +11,7 @@ from django.dispatch import Signal, receiver
 
 from accounts.models import RevelUser
 from notifications.enums import DeliveryChannel, NotificationType
-from notifications.models import NotificationPreference
+from notifications.models import NotificationPreference, get_default_notification_type_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -76,7 +76,9 @@ def create_notification_preferences(
 
     # Guest users get restricted notification types (only event participation essentials)
     # Regular users get all notification types enabled (default empty dict)
-    notification_type_settings = _get_guest_notification_type_settings() if instance.guest else {}
+    notification_type_settings = (
+        _get_guest_notification_type_settings() if instance.guest else get_default_notification_type_settings()
+    )
 
     # Use get_or_create to handle race conditions and duplicate signals
     prefs, was_created = NotificationPreference.objects.get_or_create(
