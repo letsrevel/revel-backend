@@ -239,10 +239,17 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
         )
         participants_q |= Q(invitations__event=event)
 
-    # Get unique users
-    potential_users = RevelUser.objects.filter(participants_q).distinct()
+    # Filter out users who have silenced all notifications early to reduce Python iteration
+    participants_with_prefs_q = participants_q & ~Q(notification_preferences__silence_all_notifications=True)
 
-    # Filter based on notification preferences
+    # Get unique users with preferences prefetched to avoid N+1 queries
+    potential_users = (
+        RevelUser.objects.filter(participants_with_prefs_q)
+        .select_related("notification_preferences")
+        .distinct()
+    )
+
+    # Filter based on notification preferences and participation rules
     eligible_user_ids: list[UUID] = []
 
     for user in potential_users:

@@ -77,7 +77,14 @@ def _build_ticket_refunded_context(ticket: Ticket, refund_amount: str | None = N
 
 
 def _send_ticket_created_notifications(ticket: Ticket) -> None:
-    """Send notifications for newly created ticket."""
+    """Send notifications for newly created ticket.
+
+    Notifies both the ticket holder and organization staff/owners.
+    Only sends notifications for offline/free tiers (online payment handled by payment service).
+
+    Args:
+        ticket: The newly created ticket
+    """
     action = _get_ticket_action_for_payment_method(ticket.tier.payment_method)
     if not action:
         return  # Online payment - handled by payment service
@@ -99,9 +106,8 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
         "ticket_holder_email": ticket.user.email,
     }
     staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
-    for staff_user in list(staff_and_owners):
-        prefs = getattr(staff_user, "notification_preferences", None)
-        if prefs and prefs.is_notification_type_enabled(NotificationType.TICKET_CREATED):
+    for staff_user in staff_and_owners:
+        if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.TICKET_CREATED):
             notification_requested.send(
                 sender=Ticket,
                 user=staff_user,
@@ -111,7 +117,14 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
 
 
 def _send_ticket_activated_notification(ticket: Ticket, old_status: str) -> None:
-    """Send notification when ticket is activated."""
+    """Send notification when ticket is activated.
+
+    Notifies the ticket holder when their ticket status changes to ACTIVE.
+
+    Args:
+        ticket: The ticket being activated
+        old_status: The previous ticket status
+    """
     context = _build_ticket_updated_context(ticket, old_status)
 
     notification_requested.send(
@@ -123,7 +136,14 @@ def _send_ticket_activated_notification(ticket: Ticket, old_status: str) -> None
 
 
 def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> None:
-    """Send notifications when ticket is cancelled."""
+    """Send notifications when ticket is cancelled.
+
+    Notifies both the ticket holder and organization staff/owners about the cancellation.
+
+    Args:
+        ticket: The ticket being cancelled
+        old_status: The previous ticket status
+    """
     context = _build_ticket_updated_context(ticket, old_status)
 
     # Notify ticket holder
@@ -141,9 +161,8 @@ def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> Non
         "ticket_holder_email": ticket.user.email,
     }
     staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
-    for staff_user in list(staff_and_owners):
-        prefs = getattr(staff_user, "notification_preferences", None)
-        if prefs and prefs.is_notification_type_enabled(NotificationType.TICKET_CANCELLED):
+    for staff_user in staff_and_owners:
+        if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.TICKET_CANCELLED):
             notification_requested.send(
                 sender=Ticket,
                 user=staff_user,
@@ -153,7 +172,14 @@ def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> Non
 
 
 def _send_ticket_refunded_notifications(ticket: Ticket) -> None:
-    """Send notifications when ticket is refunded."""
+    """Send notifications when ticket is refunded.
+
+    Notifies both the ticket holder and organization staff/owners about the refund.
+    Includes refund amount from ticket._refund_amount if available.
+
+    Args:
+        ticket: The ticket being refunded
+    """
     # Add refund amount if available
     refund_amount_value = getattr(ticket, "_refund_amount", None)
     context = _build_ticket_refunded_context(ticket, refund_amount_value)
@@ -173,9 +199,8 @@ def _send_ticket_refunded_notifications(ticket: Ticket) -> None:
         "ticket_holder_email": ticket.user.email,
     }
     staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
-    for staff_user in list(staff_and_owners):
-        prefs = getattr(staff_user, "notification_preferences", None)
-        if prefs and prefs.is_notification_type_enabled(NotificationType.TICKET_REFUNDED):
+    for staff_user in staff_and_owners:
+        if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.TICKET_REFUNDED):
             notification_requested.send(
                 sender=Ticket,
                 user=staff_user,
@@ -218,7 +243,14 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
 
 @receiver(pre_save, sender=Ticket)
 def capture_ticket_old_status(sender: type[Ticket], instance: Ticket, **kwargs: t.Any) -> None:
-    """Capture the old status value before save for change detection in post_save."""
+    """Capture the old status value before save for change detection in post_save.
+
+    NOTE: This pattern uses pre_save to fetch the old instance, which theoretically
+    has a race condition if another transaction modifies the ticket between the read
+    and the save. However, we don't expect concurrent modifications to ticket status
+    in our current use cases, so this simpler approach is preferred over adding
+    django-model-utils dependency for FieldTracker.
+    """
     if instance.pk:
         try:
             old_instance = Ticket.objects.get(pk=instance.pk)

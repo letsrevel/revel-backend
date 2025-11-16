@@ -17,7 +17,7 @@ NINJA_JWT = {
     "AUDIENCE": JWT_AUDIENCE,
 }
 VERIFY_TOKEN_LIFETIME = timedelta(minutes=config("VERIFY_TOKEN_LIFETIME_MINUTES", default=15, cast=int))
-UNSUBSCRIBE_TOKEN_LIFETIME = timedelta(days=config("UNSUBSCRIBE_TOKEN_LIFETIME_DAYS", default=7, cast=int))
+UNSUBSCRIBE_TOKEN_LIFETIME = timedelta(days=config("UNSUBSCRIBE_TOKEN_LIFETIME_DAYS", default=30, cast=int))
 
 
 NINJA_EXTRA = {
