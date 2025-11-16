@@ -55,9 +55,7 @@
 
             <p style="text-align: center; font-size: 18px;">{% trans "See you there!" %}</p>
         </div>
-        <div class="footer">
-            {{ context.org_signature_html|safe }}
-        </div>
+        {% include "notifications/email/_footer.html" %}
     </div>
 </body>
 </html>

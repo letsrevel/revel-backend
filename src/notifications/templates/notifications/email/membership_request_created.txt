@@ -14,3 +14,5 @@
 {{ frontend_url }}
 
 {% trans "This is an automated notification from your organization management system." %}
+
+{% include "notifications/email/_footer.txt" %}

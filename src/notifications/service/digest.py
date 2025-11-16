@@ -59,8 +59,14 @@ class NotificationDigest:
 
         # Build bodies
         from common.models import SiteSettings
+        from notifications.service.unsubscribe import generate_unsubscribe_token
 
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        site_settings = SiteSettings.get_solo()
+        frontend_base_url = site_settings.frontend_base_url
+
+        # Generate unsubscribe link
+        unsubscribe_token = generate_unsubscribe_token(self.user)
+        unsubscribe_link = f"{frontend_base_url}/unsubscribe?token={unsubscribe_token}"
 
         context = {
             "user": self.user,
@@ -68,6 +74,7 @@ class NotificationDigest:
             "grouped_notifications": grouped,
             "digest_date": timezone.now(),
             "frontend_url": frontend_base_url,
+            "unsubscribe_link": unsubscribe_link,
         }
 
         text_body = render_to_string("notifications/emails/digest.txt", context)

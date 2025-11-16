@@ -90,3 +90,10 @@ class UpdateNotificationPreferenceSchema(Schema):
         if v is not None and len(v) != len(set(v)):
             raise ValueError("All channel types must be unique")
         return v
+
+
+class UnsubscribeSchema(Schema):
+    """Schema for unsubscribing from notifications via email link."""
+
+    token: str
+    preferences: UpdateNotificationPreferenceSchema

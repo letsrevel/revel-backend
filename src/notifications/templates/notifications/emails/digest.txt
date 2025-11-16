@@ -17,3 +17,6 @@
 
 {% trans "Best regards," %}
 {% trans "The Revel Team" %}
+
+---
+{% trans "Unsubscribe or manage notification preferences:" %} {{ unsubscribe_link }}

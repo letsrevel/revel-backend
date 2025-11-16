@@ -12,6 +12,18 @@ from notifications.models import Notification, NotificationDelivery
 
 
 @pytest.fixture
+def user(django_user_model: type[RevelUser]) -> RevelUser:
+    """A standard user for testing."""
+    return django_user_model.objects.create_user(
+        username="testuser@example.com",
+        email="testuser@example.com",
+        password="strong-password-123!",
+        first_name="Test",
+        last_name="User",
+    )
+
+
+@pytest.fixture
 def regular_user(django_user_model: type[RevelUser]) -> RevelUser:
     """A regular (non-guest) user."""
     return django_user_model.objects.create_user(

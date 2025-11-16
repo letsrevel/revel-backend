@@ -14,4 +14,4 @@
 
 {% trans "View event details:" %} {{ context.event_url }}
 
-{{ context.org_signature_md }}
+{% include "notifications/email/_footer.txt" %}

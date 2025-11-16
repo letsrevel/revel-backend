@@ -24,4 +24,4 @@
 
 {% trans "See you there!" %}
 
-{{ context.org_signature_md }}
+{% include "notifications/email/_footer.txt" %}

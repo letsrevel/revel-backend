@@ -9,4 +9,4 @@
 
 {% trans "Claim this item:" %} {{ context.frontend_url }}
 
-{{ context.org_signature_md }}
+{% include "notifications/email/_footer.txt" %}

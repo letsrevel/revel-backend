@@ -139,6 +139,7 @@ class NotificationTemplate(ABC):
         - Organization signatures (HTML and markdown)
         - Event links
         - User information
+        - Unsubscribe link
 
         Args:
             notification: The notification instance
@@ -146,6 +147,9 @@ class NotificationTemplate(ABC):
         Returns:
             Template context dict with user and enriched context
         """
+        from common.models import SiteSettings
+        from notifications.service.unsubscribe import generate_unsubscribe_token
+
         user = notification.user
         user_language = user.language if hasattr(user, "language") else "en"
 
@@ -154,6 +158,12 @@ class NotificationTemplate(ABC):
             notification.context,
             user_language=user_language,
         )
+
+        # Generate unsubscribe token and link
+        unsubscribe_token = generate_unsubscribe_token(user)
+        site_settings = SiteSettings.get_solo()
+        unsubscribe_link = f"{site_settings.frontend_base_url}/unsubscribe?token={unsubscribe_token}"
+        enriched_context["unsubscribe_link"] = unsubscribe_link
 
         return {
             "user": user,

@@ -1,0 +1,4 @@
+{% load i18n %}{{ context.org_signature_md }}
+
+---
+{% trans "Unsubscribe or manage notification preferences:" %} {{ context.unsubscribe_link }}

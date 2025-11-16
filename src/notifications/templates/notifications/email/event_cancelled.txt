@@ -22,4 +22,4 @@
 
 {% trans "We apologize for any inconvenience this may cause." %}
 
-{{ context.org_signature_md }}
+{% include "notifications/email/_footer.txt" %}

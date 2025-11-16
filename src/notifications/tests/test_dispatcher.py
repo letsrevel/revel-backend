@@ -180,17 +180,26 @@ class TestDetermineDeliveryChannels:
         assert DeliveryChannel.IN_APP in channels
         assert DeliveryChannel.EMAIL in channels
 
-    def test_respects_per_type_channel_customization(
+    def test_per_type_channels_override_global_settings(
         self,
         regular_user: RevelUser,
     ) -> None:
-        """Test that users can customize channels per notification type."""
-        # Arrange - User wants EVENT_REMINDER only via email, not in-app
+        """Test that per-type channel settings OVERRIDE global enabled_channels.
+
+        This tests the override semantics: if a notification type specifies channels,
+        those channels are used INSTEAD OF the global enabled_channels.
+        This allows users to say: "I don't want telegram globally, BUT send me
+        telegram for critical alerts."
+        """
+        # Arrange - User has only in_app and email enabled globally
         prefs = regular_user.notification_preferences
+        prefs.enabled_channels = [DeliveryChannel.IN_APP, DeliveryChannel.EMAIL]
+
+        # But for EVENT_REMINDER, override to use only telegram (not in enabled_channels!)
         prefs.notification_type_settings = {
             NotificationType.EVENT_REMINDER: {
                 "enabled": True,
-                "channels": [DeliveryChannel.EMAIL],
+                "channels": [DeliveryChannel.TELEGRAM],  # Override!
             }
         }
         prefs.save()
@@ -198,6 +207,51 @@ class TestDetermineDeliveryChannels:
         # Act
         channels = determine_delivery_channels(regular_user, NotificationType.EVENT_REMINDER)
 
-        # Assert - Should only include email
-        assert DeliveryChannel.EMAIL in channels
+        # Assert - Should use override channels (telegram), NOT global channels
+        assert channels == [DeliveryChannel.TELEGRAM]
         assert DeliveryChannel.IN_APP not in channels
+        assert DeliveryChannel.EMAIL not in channels
+
+    def test_per_type_channels_can_restrict_global_settings(
+        self,
+        regular_user: RevelUser,
+    ) -> None:
+        """Test that per-type settings can also restrict channels."""
+        # Arrange - User has all three channels enabled globally
+        prefs = regular_user.notification_preferences
+        prefs.enabled_channels = [DeliveryChannel.IN_APP, DeliveryChannel.EMAIL, DeliveryChannel.TELEGRAM]
+
+        # But for TICKET_CREATED, only use email
+        prefs.notification_type_settings = {
+            NotificationType.TICKET_CREATED: {
+                "enabled": True,
+                "channels": [DeliveryChannel.EMAIL],
+            }
+        }
+        prefs.save()
+
+        # Act
+        channels = determine_delivery_channels(regular_user, NotificationType.TICKET_CREATED)
+
+        # Assert - Should only include email
+        assert channels == [DeliveryChannel.EMAIL]
+        assert DeliveryChannel.IN_APP not in channels
+        assert DeliveryChannel.TELEGRAM not in channels
+
+    def test_uses_global_channels_when_no_per_type_override(
+        self,
+        regular_user: RevelUser,
+    ) -> None:
+        """Test that global enabled_channels are used when no per-type override exists."""
+        # Arrange - User has specific channels enabled, no per-type settings
+        prefs = regular_user.notification_preferences
+        prefs.enabled_channels = [DeliveryChannel.IN_APP, DeliveryChannel.TELEGRAM]
+        prefs.notification_type_settings = {}  # No overrides
+        prefs.save()
+
+        # Act
+        channels = determine_delivery_channels(regular_user, NotificationType.TICKET_CREATED)
+
+        # Assert - Should use global channels
+        assert set(channels) == {DeliveryChannel.IN_APP, DeliveryChannel.TELEGRAM}
+        assert DeliveryChannel.EMAIL not in channels

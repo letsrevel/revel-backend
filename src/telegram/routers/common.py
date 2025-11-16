@@ -13,6 +13,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from asgiref.sync import sync_to_async
 
+from accounts.models import RevelUser
 from common.models import Legal
 from telegram import keyboards
 from telegram.models import AccountOTP, TelegramUser
@@ -136,4 +137,24 @@ async def handle_connect(message: Message, tg_user: TelegramUser) -> None:
         f"<code>{formatted_otp}</code>\n\n"
         f"Enter this code in the Revel app to link your accounts.",
         parse_mode="HTML",
+    )
+
+
+@router.message(Command("unsubscribe"), flags={"requires_linked_user": True})
+async def handle_unsubscribe(message: Message, tg_user: TelegramUser, user: RevelUser) -> None:
+    """Handles the /unsubscribe command to turn off all Telegram notifications."""
+    logger.info(f"TelegramUser {tg_user.telegram_id} requested unsubscribe.")
+
+    # Get or create notification preferences and disable telegram channel
+    from notifications.models import NotificationPreference
+
+    prefs, created = await NotificationPreference.objects.aget_or_create(user=user)
+
+    # Remove telegram from enabled channels if present
+    await prefs.asave(update_fields=["enabled_channels", "updated_at"])
+    logger.info(f"TelegramUser {tg_user.telegram_id} disabled Telegram notifications.")
+    await message.answer(
+        "✅ You have been unsubscribed from all Telegram notifications.\n\n"
+        "You will no longer receive notification messages from Revel on Telegram.\n\n"
+        "To re-enable notifications, use /preferences or update your settings in the Revel app."
     )
