@@ -4,14 +4,17 @@ from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
+from common.schema import ResponseMessage
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
 from notifications.schema import (
     ChannelType,
     NotificationPreferenceSchema,
+    UnsubscribeSchema,
     UpdateNotificationPreferenceSchema,
 )
+from notifications.service.unsubscribe import confirm_unsubscribe
 
 
 @api_controller(
@@ -84,3 +87,17 @@ class NotificationPreferenceController(UserAwareController):
         Frontend can use this to dynamically build the preferences UI.
         """
         return list(NotificationType)
+
+    @route.post("/unsubscribe", response=ResponseMessage, throttle=WriteThrottle(), auth=None)
+    def unsubscribe(self, payload: UnsubscribeSchema) -> ResponseMessage:
+        """Update notification preferences via unsubscribe token from email.
+
+        This is an unauthenticated endpoint that allows users to update their
+        notification preferences using a token received via email. The token
+        is valid for 7 days.
+
+        The frontend should handle the token and present a UI for users to
+        customize their preferences before submitting to this endpoint.
+        """
+        confirm_unsubscribe(payload.token, payload.preferences)
+        return ResponseMessage(message="Your notification preferences have been updated.")

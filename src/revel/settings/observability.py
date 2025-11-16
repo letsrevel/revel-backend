@@ -185,7 +185,7 @@ LOGGING = {
     "root": {
         # Use queue handler instead of direct Loki handler (non-blocking)
         "handlers": ["console", "queue"] if ENABLE_OBSERVABILITY else ["console"],
-        "level": "DEBUG" if config("DEBUG", default=False, cast=bool) else "INFO",
+        "level": "INFO" if config("DEBUG", default=False, cast=bool) else "INFO",
     },
     "loggers": {
         "django": {

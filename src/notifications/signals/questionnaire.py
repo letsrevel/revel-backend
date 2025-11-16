@@ -1,0 +1,160 @@
+"""Signal handlers for questionnaire notifications."""
+
+import typing as t
+
+import structlog
+from django.db.models.signals import post_save, pre_save
+from django.dispatch import receiver
+
+from notifications.enums import NotificationType
+from notifications.service.eligibility import get_organization_staff_and_owners
+from notifications.signals import notification_requested
+from questionnaires.models import QuestionnaireEvaluation, QuestionnaireSubmission
+
+logger = structlog.get_logger(__name__)
+
+
+@receiver(post_save, sender=QuestionnaireSubmission)
+def handle_questionnaire_submission(
+    sender: type[QuestionnaireSubmission], instance: QuestionnaireSubmission, created: bool, **kwargs: t.Any
+) -> None:
+    """Send notifications when a questionnaire is submitted.
+
+    Only sends notifications for event-related questionnaires.
+    Notifies organization staff and owners.
+    """
+    if not created:
+        return  # Only notify on creation
+
+    # Get organization data to determine if this is event-related
+    # Only send notifications for questionnaires linked to organizations
+    from events.models import OrganizationQuestionnaire
+
+    org_data = (
+        OrganizationQuestionnaire.objects.filter(questionnaire_id=instance.questionnaire_id)
+        .select_related("organization")
+        .values_list("organization_id", "organization__name")
+        .first()
+    )
+
+    if not org_data:
+        # No organization linked, skip notifications
+        logger.debug(
+            "questionnaire_submission_no_org",
+            submission_id=str(instance.id),
+            questionnaire_id=str(instance.questionnaire_id),
+        )
+        return
+
+    organization_id, organization_name = org_data
+
+    # Get staff and owners with evaluate_questionnaire permission
+    staff_and_owners = get_organization_staff_and_owners(organization_id)
+
+    # Send notification to all eligible users
+    for staff_user in staff_and_owners:
+        notification_requested.send(
+            sender=sender,
+            user=staff_user,
+            notification_type=NotificationType.QUESTIONNAIRE_SUBMITTED,
+            context={
+                "submission_id": str(instance.id),
+                "questionnaire_name": instance.questionnaire.name,
+                "submitter_email": instance.user.email,
+                "submitter_name": instance.user.get_display_name(),
+                "organization_id": str(organization_id),
+                "organization_name": organization_name,
+            },
+        )
+
+    logger.info(
+        "questionnaire_submission_notifications_sent",
+        submission_id=str(instance.id),
+        organization_id=str(organization_id),
+        recipients_count=len(list(staff_and_owners)),
+    )
+
+
+@receiver(pre_save, sender=QuestionnaireEvaluation)
+def capture_evaluation_old_status(
+    sender: type[QuestionnaireEvaluation], instance: QuestionnaireEvaluation, **kwargs: t.Any
+) -> None:
+    """Capture the old status value before save for change detection."""
+    if instance.pk:
+        try:
+            old_instance = QuestionnaireEvaluation.objects.get(pk=instance.pk)
+            if old_instance.status != instance.status:
+                instance._old_status = old_instance.status  # type: ignore[attr-defined]
+        except QuestionnaireEvaluation.DoesNotExist:
+            pass
+
+
+@receiver(post_save, sender=QuestionnaireEvaluation)
+def handle_questionnaire_evaluation(
+    sender: type[QuestionnaireEvaluation], instance: QuestionnaireEvaluation, created: bool, **kwargs: t.Any
+) -> None:
+    """Send notifications when a questionnaire evaluation status changes to approved/rejected.
+
+    Only sends notifications when status changes to APPROVED or REJECTED.
+    Notifies the user who submitted the questionnaire.
+    """
+    # Check if this is a status change to approved/rejected
+    if not hasattr(instance, "_old_status"):
+        # No status change (either new or status didn't change)
+        if not created:
+            return
+
+        # New evaluation - only notify if already approved/rejected
+        if instance.status not in [
+            QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+            QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
+        ]:
+            return
+    else:
+        # Status changed - only notify for approved/rejected states
+        if instance.status not in [
+            QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+            QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
+        ]:
+            return
+
+    # Get organization name
+    from events.models import OrganizationQuestionnaire
+
+    organization_name = (
+        OrganizationQuestionnaire.objects.filter(questionnaire_id=instance.submission.questionnaire_id)
+        .select_related("organization")
+        .values_list("organization__name", flat=True)
+        .first()
+    )
+
+    if not organization_name:
+        logger.debug(
+            "questionnaire_evaluation_no_org",
+            evaluation_id=str(instance.id),
+            submission_id=str(instance.submission_id),
+        )
+        return
+
+    # Send notification to the submitter
+    notification_requested.send(
+        sender=sender,
+        user=instance.submission.user,
+        notification_type=NotificationType.QUESTIONNAIRE_EVALUATION_RESULT,
+        context={
+            "submission_id": str(instance.submission_id),
+            "questionnaire_name": instance.submission.questionnaire.name,
+            "evaluation_status": instance.status.upper(),
+            "evaluation_score": str(instance.score) if instance.score else None,
+            "evaluation_comments": instance.comments,
+            "organization_name": organization_name,
+        },
+    )
+
+    logger.info(
+        "questionnaire_evaluation_notification_sent",
+        evaluation_id=str(instance.id),
+        submission_id=str(instance.submission_id),
+        status=instance.status,
+        user_id=str(instance.submission.user_id),
+    )

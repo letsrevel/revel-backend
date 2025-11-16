@@ -17,8 +17,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
-from events.tasks import build_attendee_visibility_flags, cleanup_expired_payments, send_notification_email
-from notifications.enums import NotificationType
+from events.tasks import build_attendee_visibility_flags, cleanup_expired_payments
 
 pytestmark = pytest.mark.django_db
 
@@ -36,17 +35,18 @@ def test_build_attendee_visibility_flags(
     attendee2 = revel_user_factory()
     invitee = revel_user_factory()
 
+    # Viewer is attendee1, target is attendee2
+    # Let's say attendee1 can see attendee2
+    # Configure the mock to return boolean values directly
+    mock_resolve_visibility.side_effect = (
+        lambda viewer, target, *args, **kwargs: viewer == attendee1 and target == attendee2
+    )
+
     tier = event.ticket_tiers.first()
     assert tier is not None
     Ticket.objects.create(event=event, user=attendee1, tier=tier, status=Ticket.TicketStatus.ACTIVE)
     EventRSVP.objects.create(event=event, user=attendee2, status=EventRSVP.RsvpStatus.YES)
     event.invitations.create(user=invitee)
-
-    # Viewer is attendee1, target is attendee2
-    # Let's say attendee1 can see attendee2
-    mock_resolve_visibility.side_effect = (
-        lambda viewer, target, *args, **kwargs: viewer == attendee1 and target == attendee2
-    )
 
     # Act
     build_attendee_visibility_flags(str(event.id))
@@ -329,224 +329,3 @@ class TestCleanupExpiredPayments:
         assert tier.quantity_sold == 1
         assert Payment.objects.count() == 1
         assert Ticket.objects.count() == 1
-
-
-class TestSendNotificationEmail:
-    """Tests for send_notification_email task with retry logic and error handling."""
-
-    @patch("events.tasks.EmailMultiAlternatives")
-    def test_send_notification_email_success(
-        self,
-        mock_email_class: MagicMock,
-        event: Event,
-        revel_user_factory: RevelUserFactory,
-    ) -> None:
-        """Test successful email sending logs correctly."""
-        # Arrange
-        user = revel_user_factory()
-        mock_email = MagicMock()
-        mock_email_class.return_value = mock_email
-        mock_email.send.return_value = 1
-
-        context_ids = {
-            "user_id": str(user.id),
-            "event_id": str(event.id),
-        }
-
-        # Act
-        result = send_notification_email(
-            recipient_email=user.email,
-            subject="Test Subject",
-            template_txt="events/emails/event_open.txt",
-            template_html="events/emails/event_open.html",
-            context_ids=context_ids,
-            user_id=str(user.id),
-            notification_type=NotificationType.EVENT_OPEN.value,
-            event_id=str(event.id),
-        )
-
-        # Assert
-        assert result["success"] is True
-        assert result["recipient"] == user.email
-        assert result["user_id"] == str(user.id)
-        mock_email.send.assert_called_once_with(fail_silently=False)
-
-    @patch("events.tasks.EmailMultiAlternatives")
-    def test_send_notification_email_with_attachments(
-        self,
-        mock_email_class: MagicMock,
-        event: Event,
-        revel_user_factory: RevelUserFactory,
-    ) -> None:
-        """Test email with attachments."""
-        # Arrange
-        user = revel_user_factory()
-        tier = event.ticket_tiers.first()
-        assert tier is not None
-        ticket = Ticket.objects.create(event=event, user=user, tier=tier, status=Ticket.TicketStatus.ACTIVE)
-
-        mock_email = MagicMock()
-        mock_email_class.return_value = mock_email
-        mock_email.send.return_value = 1
-
-        context_ids = {"user_id": str(user.id), "ticket_id": str(ticket.id)}
-
-        attachments = [
-            {
-                "type": "event_ics",
-                "event_id": str(event.id),
-                "filename": "event.ics",
-                "content_type": "text/calendar",
-            }
-        ]
-
-        # Act
-        with patch("events.email_helpers.Event.ics", return_value=b"ICS content"):
-            result = send_notification_email(
-                recipient_email=user.email,
-                subject="Test with Attachment",
-                template_txt="events/emails/event_open.txt",
-                template_html=None,
-                context_ids=context_ids,
-                attachments=attachments,
-            )
-
-        # Assert
-        assert result["success"] is True
-        mock_email.attach.assert_called_once_with("event.ics", b"ICS content", "text/calendar")
-
-    @patch("events.tasks.EmailMultiAlternatives")
-    def test_send_notification_email_fails_immediately_on_invalid_id(
-        self,
-        mock_email_class: MagicMock,
-        revel_user_factory: RevelUserFactory,
-    ) -> None:
-        """Test that invalid IDs fail immediately without retry (non-retryable error)."""
-        # Arrange
-        user = revel_user_factory()
-        context_ids = {
-            "user_id": "00000000-0000-0000-0000-000000000000",  # Non-existent user
-        }
-
-        # Act - Call task directly (runs synchronously in tests)
-        result = send_notification_email(
-            recipient_email=user.email,
-            subject="Test Subject",
-            template_txt="events/emails/event_open.txt",
-            template_html=None,
-            context_ids=context_ids,
-        )
-
-        # Assert
-        assert result["success"] is False
-        assert "Non-retryable error" in result["error"]
-
-    @patch("events.tasks.EmailMultiAlternatives")
-    @patch("events.tasks.send_notification_email.retry")
-    def test_send_notification_email_retries_on_smtp_error(
-        self,
-        mock_retry: MagicMock,
-        mock_email_class: MagicMock,
-        event: Event,
-        revel_user_factory: RevelUserFactory,
-    ) -> None:
-        """Test that SMTP errors trigger retry logic."""
-        # Arrange
-        from smtplib import SMTPException
-
-        from celery.exceptions import Retry
-
-        user = revel_user_factory()
-        mock_email = MagicMock()
-        mock_email_class.return_value = mock_email
-        mock_email.send.side_effect = SMTPException("SMTP server unavailable")
-        mock_retry.side_effect = Retry()  # Simulate Celery's retry behavior
-
-        context_ids = {
-            "user_id": str(user.id),
-            "event_id": str(event.id),
-        }
-
-        # Act & Assert - SMTP errors should trigger retry (calls self.retry())
-        with pytest.raises(Retry):
-            send_notification_email(
-                recipient_email=user.email,
-                subject="Test Subject",
-                template_txt="events/emails/event_open.txt",
-                template_html=None,
-                context_ids=context_ids,
-            )
-
-        # Verify retry was called with exponential backoff
-        assert mock_retry.called
-
-    @patch("events.tasks.EmailMultiAlternatives")
-    def test_send_notification_email_attachment_failure_is_non_retryable(
-        self,
-        mock_email_class: MagicMock,
-        event: Event,
-        revel_user_factory: RevelUserFactory,
-    ) -> None:
-        """Test that attachment generation failures return error response (non-retryable)."""
-        # Arrange
-        user = revel_user_factory()
-        context_ids = {"user_id": str(user.id)}
-
-        attachments = [
-            {
-                "type": "ticket_pdf",
-                "ticket_id": "00000000-0000-0000-0000-000000000000",  # Non-existent ticket
-                "filename": "ticket.pdf",
-                "content_type": "application/pdf",
-            }
-        ]
-
-        # Act
-        result = send_notification_email(
-            recipient_email=user.email,
-            subject="Test Subject",
-            template_txt="events/emails/event_open.txt",
-            template_html=None,
-            context_ids=context_ids,
-            attachments=attachments,
-        )
-
-        # Assert
-        assert result["success"] is False
-        assert "Non-retryable error" in result["error"]
-
-    @patch("events.tasks.EmailMultiAlternatives")
-    def test_send_notification_email_without_notification_tracking(
-        self,
-        mock_email_class: MagicMock,
-        event: Event,
-        revel_user_factory: RevelUserFactory,
-    ) -> None:
-        """Test email sending without notification tracking (user_id=None, notification_type=None)."""
-        # Arrange
-        user = revel_user_factory()
-        mock_email = MagicMock()
-        mock_email_class.return_value = mock_email
-        mock_email.send.return_value = 1
-
-        # Provide context for template rendering (user needed by event_open.txt template)
-        context_ids = {
-            "user_id": str(user.id),
-            "event_id": str(event.id),
-        }
-
-        # Act
-        result = send_notification_email(
-            recipient_email=user.email,
-            subject="Test Subject",
-            template_txt="events/emails/event_open.txt",
-            template_html=None,
-            context_ids=context_ids,
-            user_id=None,  # No notification tracking
-            notification_type=None,
-            event_id=None,
-        )
-
-        # Assert
-        assert result["success"] is True
-        assert result["user_id"] is None

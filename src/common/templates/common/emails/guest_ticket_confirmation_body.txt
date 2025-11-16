@@ -1,0 +1,11 @@
+{% load i18n %}{% trans "Confirm your ticket purchase" %}
+
+{% blocktranslate %}You've requested a ticket for {{ event_name }} ({{ tier_name }}).{% endblocktranslate %}
+
+{% trans "To confirm your ticket purchase, please click the link below:" %}
+
+{{ confirmation_link }}
+
+{% trans "This link will expire in 24 hours." %}
+
+{% trans "If you didn't make this request, you can safely ignore this email." %}

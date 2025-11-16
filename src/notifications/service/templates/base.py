@@ -3,15 +3,33 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
+from django.template.loader import render_to_string
+
 from notifications.models import Notification
+from notifications.utils import get_formatted_context_for_template
 
 
 class NotificationTemplate(ABC):
-    """Base class for notification templates."""
+    """Base class for notification templates.
+
+    This class provides a channel-aware template interface where each notification
+    type must implement rendering for three channels:
+    - In-app: Title + markdown body (stored in notification.body, rendered via body_html)
+    - Email: Subject + text body + HTML body
+    - Telegram: Markdown body (converted to HTML via body_html, then sanitized)
+
+    The base class provides default implementations that render Django templates
+    from the standard structure:
+    - notifications/in_app/{notification_type}.md
+    - notifications/email/{notification_type}.{txt,html}
+    - notifications/telegram/{notification_type}.md
+    """
+
+    # ==================== In-App Channel ====================
 
     @abstractmethod
-    def get_title(self, notification: Notification) -> str:
-        """Get notification title (for in-app display).
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display.
 
         Args:
             notification: The notification instance
@@ -21,20 +39,25 @@ class NotificationTemplate(ABC):
         """
         pass
 
-    @abstractmethod
-    def get_body(self, notification: Notification) -> str:
-        """Get notification body (for in-app display, markdown).
+    def get_in_app_body(self, notification: Notification) -> str:
+        """Get markdown body for in-app display.
+
+        By default, renders the template at:
+        notifications/in_app/{notification_type}.md
 
         Args:
             notification: The notification instance
 
         Returns:
-            Body string (markdown formatted)
+            Markdown body string
         """
-        pass
+        template_name = f"notifications/in_app/{notification.notification_type}.md"
+        return render_to_string(template_name, self._get_template_context(notification))
+
+    # ==================== Email Channel ====================
 
     @abstractmethod
-    def get_subject(self, notification: Notification) -> str:
+    def get_email_subject(self, notification: Notification) -> str:
         """Get email subject line.
 
         Args:
@@ -45,9 +68,11 @@ class NotificationTemplate(ABC):
         """
         pass
 
-    @abstractmethod
-    def get_text_body(self, notification: Notification) -> str:
-        """Get email text body.
+    def get_email_text_body(self, notification: Notification) -> str:
+        """Get plain text email body.
+
+        By default, renders the template at:
+        notifications/email/{notification_type}.txt
 
         Args:
             notification: The notification instance
@@ -55,10 +80,14 @@ class NotificationTemplate(ABC):
         Returns:
             Plain text email body
         """
-        pass
+        template_name = f"notifications/email/{notification.notification_type}.txt"
+        return render_to_string(template_name, self._get_template_context(notification))
 
-    def get_html_body(self, notification: Notification) -> str | None:
-        """Get email HTML body (optional).
+    def get_email_html_body(self, notification: Notification) -> str | None:
+        """Get HTML email body.
+
+        By default, renders the template at:
+        notifications/email/{notification_type}.html
 
         Args:
             notification: The notification instance
@@ -66,9 +95,10 @@ class NotificationTemplate(ABC):
         Returns:
             HTML email body or None
         """
-        return None
+        template_name = f"notifications/email/{notification.notification_type}.html"
+        return render_to_string(template_name, self._get_template_context(notification))
 
-    def get_attachments(self, notification: Notification) -> dict[str, Any]:
+    def get_email_attachments(self, notification: Notification) -> dict[str, Any]:
         """Get email attachments.
 
         Args:
@@ -78,3 +108,64 @@ class NotificationTemplate(ABC):
             Dict of {filename: {content_base64: str, mimetype: str}}
         """
         return {}
+
+    # ==================== Telegram Channel ====================
+
+    def get_telegram_body(self, notification: Notification) -> str:
+        """Get markdown body for Telegram.
+
+        By default, renders the template at:
+        notifications/telegram/{notification_type}.md
+
+        The markdown will be converted to HTML via notification.body_html
+        and then sanitized for Telegram in the TelegramChannel.
+
+        Args:
+            notification: The notification instance
+
+        Returns:
+            Markdown body string
+        """
+        template_name = f"notifications/telegram/{notification.notification_type}.md"
+        return render_to_string(template_name, self._get_template_context(notification))
+
+    # ==================== Helper Methods ====================
+
+    def _get_template_context(self, notification: Notification) -> dict[str, Any]:
+        """Build context for template rendering.
+
+        This method enriches the notification context with:
+        - Formatted datetime strings
+        - Organization signatures (HTML and markdown)
+        - Event links
+        - User information
+        - Unsubscribe link
+
+        Args:
+            notification: The notification instance
+
+        Returns:
+            Template context dict with user and enriched context
+        """
+        from common.models import SiteSettings
+        from notifications.service.unsubscribe import generate_unsubscribe_token
+
+        user = notification.user
+        user_language = user.language if hasattr(user, "language") else "en"
+
+        # Get formatted context with dates, links, etc.
+        enriched_context = get_formatted_context_for_template(
+            notification.context,
+            user_language=user_language,
+        )
+
+        # Generate unsubscribe token and link
+        unsubscribe_token = generate_unsubscribe_token(user)
+        site_settings = SiteSettings.get_solo()
+        unsubscribe_link = f"{site_settings.frontend_base_url}/unsubscribe?token={unsubscribe_token}"
+        enriched_context["unsubscribe_link"] = unsubscribe_link
+
+        return {
+            "user": user,
+            "context": enriched_context,
+        }

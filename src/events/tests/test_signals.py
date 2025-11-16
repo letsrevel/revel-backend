@@ -25,7 +25,7 @@ class TestUnclaimUserPotluckItems:
         )
 
         # Unclaim items
-        count = unclaim_user_potluck_items(event.id, nonmember_user.id, notify=False)
+        count = unclaim_user_potluck_items(event.id, nonmember_user.id)
 
         # Verify both items were unclaimed
         assert count == 2
@@ -39,7 +39,7 @@ class TestUnclaimUserPotluckItems:
         # Create items but don't assign them
         PotluckItem.objects.create(event=event, name="Chips", item_type="food")
 
-        count = unclaim_user_potluck_items(event.id, nonmember_user.id, notify=False)
+        count = unclaim_user_potluck_items(event.id, nonmember_user.id)
 
         assert count == 0
 
@@ -54,7 +54,7 @@ class TestUnclaimUserPotluckItems:
         )
 
         # Unclaim only nonmember_user's items
-        count = unclaim_user_potluck_items(event.id, nonmember_user.id, notify=False)
+        count = unclaim_user_potluck_items(event.id, nonmember_user.id)
 
         assert count == 1
         user1_item.refresh_from_db()
@@ -84,7 +84,7 @@ class TestUnclaimUserPotluckItems:
         event2_item = PotluckItem.objects.create(event=event2, name="Salsa", item_type="food", assignee=nonmember_user)
 
         # Unclaim only event1 items
-        count = unclaim_user_potluck_items(event.id, nonmember_user.id, notify=False)
+        count = unclaim_user_potluck_items(event.id, nonmember_user.id)
 
         assert count == 1
         event1_item.refresh_from_db()
@@ -96,7 +96,7 @@ class TestUnclaimUserPotluckItems:
         """Test that notification is sent when items are unclaimed."""
         PotluckItem.objects.create(event=event, name="Chips", item_type="food", assignee=nonmember_user)
 
-        count = unclaim_user_potluck_items(event.id, nonmember_user.id, notify=True)
+        count = unclaim_user_potluck_items(event.id, nonmember_user.id)
 
         assert count == 1
         # Notification is now handled via signals using notification_requested.send()
@@ -104,7 +104,7 @@ class TestUnclaimUserPotluckItems:
 
     def test_unclaim_skips_notification_when_no_items(self, event: Event, nonmember_user: RevelUser) -> None:
         """Test that no notification is sent when there are no items to unclaim."""
-        count = unclaim_user_potluck_items(event.id, nonmember_user.id, notify=True)
+        count = unclaim_user_potluck_items(event.id, nonmember_user.id)
 
         assert count == 0
         # No notification should be sent since count was 0

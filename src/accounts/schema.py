@@ -161,6 +161,10 @@ class DeleteAccountJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
     type: t.Literal["delete_account"] = "delete_account"
 
 
+class UnsubscribeJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+    type: t.Literal["unsubscribe"] = "unsubscribe"
+
+
 class DeleteAccountSchema(Schema):
     password: str
 

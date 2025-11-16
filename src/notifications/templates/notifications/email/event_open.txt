@@ -1,0 +1,22 @@
+{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+
+🎉 {% blocktranslate with org=context.organization_name event=context.event_name %}{{ org }} has published a new event: {{ event }}!{% endblocktranslate %}
+
+{% trans "Event Details:" %}
+📅 {{ context.event_start_formatted }}
+{% if context.event_end_formatted %}{% trans "Until:" %} {{ context.event_end_formatted }}{% endif %}
+{% if context.event_location %}📍 {{ context.event_location }}{% endif %}
+
+{% if context.event_description %}
+{{ context.event_description }}
+{% endif %}
+
+{% if context.registration_opens_at %}
+🎫 {% trans "Registration opens:" %} {{ context.registration_opens_at }}
+{% else %}
+🎫 {% trans "Registration is now open!" %}
+{% endif %}
+
+{% trans "View event details and register:" %} {{ context.event_url }}
+
+{% include "notifications/email/_footer.txt" %}

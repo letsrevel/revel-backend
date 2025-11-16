@@ -1,0 +1,18 @@
+{% load i18n %}{% blocktranslate with event=context.event_name %}Your ticket refund for **{{ event }}** has been processed. 💰{% endblocktranslate %}
+
+**{% trans "Event Details:" %}**
+- 📅 {{ context.event_start_formatted }}
+{% if context.event_location %}- 📍 {{ context.event_location }}{% endif %}
+
+**{% trans "Refund Information:" %}**
+- {% trans "Amount:" %} **{{ context.refund_amount }} {{ context.payment_currency }}**
+- {% trans "Ticket ID:" %} `{{ context.ticket_id }}`
+- {% trans "Tier:" %} {{ context.tier_name }}
+
+{% if context.refund_reason %}
+**{% trans "Reason:" %}** {{ context.refund_reason }}
+{% endif %}
+
+{% blocktranslate %}The refund will appear in your original payment method within 5-10 business days.{% endblocktranslate %}
+
+[{% trans "View Event" %}]({{ context.event_url }})

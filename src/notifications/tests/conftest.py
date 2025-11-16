@@ -1,5 +1,6 @@
 """Shared fixtures for notification tests."""
 
+import uuid
 from datetime import timedelta
 
 import pytest
@@ -8,6 +9,18 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
 from notifications.models import Notification, NotificationDelivery
+
+
+@pytest.fixture
+def user(django_user_model: type[RevelUser]) -> RevelUser:
+    """A standard user for testing."""
+    return django_user_model.objects.create_user(
+        username="testuser@example.com",
+        email="testuser@example.com",
+        password="strong-password-123!",
+        first_name="Test",
+        last_name="User",
+    )
 
 
 @pytest.fixture
@@ -41,13 +54,13 @@ def notification(regular_user: RevelUser) -> Notification:
         notification_type=NotificationType.TICKET_CREATED,
         user=regular_user,
         context={
-            "ticket_id": "abc123",
+            "ticket_id": str(uuid.uuid4()),
             "ticket_reference": "TKT-001",
-            "event_id": "evt123",
+            "event_id": str(uuid.uuid4()),
             "event_name": "Test Event",
             "event_start": "2025-12-01T18:00:00Z",
             "event_location": "Test Venue",
-            "organization_id": "org123",
+            "organization_id": str(uuid.uuid4()),
             "organization_name": "Test Org",
             "tier_name": "General Admission",
             "tier_price": "10.00",
@@ -81,7 +94,7 @@ def digest_notifications(regular_user: RevelUser) -> list[Notification]:
             notification_type=NotificationType.EVENT_REMINDER,
             user=regular_user,
             context={
-                "event_id": f"evt{i}",
+                "event_id": str(uuid.uuid4()),
                 "event_name": f"Event {i + 1}",
                 "event_start": (timezone.now() + timedelta(days=i + 1)).isoformat(),
                 "event_location": "Test Venue",

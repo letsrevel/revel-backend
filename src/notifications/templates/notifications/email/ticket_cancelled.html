@@ -1,0 +1,61 @@
+{% load i18n %}<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+        .container { max-width: 600px; margin: 0 auto; background: white; }
+        .header { background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); color: white; padding: 30px 20px; text-align: center; }
+        .content { padding: 30px 20px; }
+        .card { background: #f8f9fa; border-left: 4px solid #dc3545; padding: 20px; margin: 20px 0; border-radius: 4px; }
+        .info-row { margin: 10px 0; }
+        .label { color: #666; font-weight: 600; }
+        .refund { background: #d4edda; border-left-color: #28a745; }
+        .button { display: inline-block; padding: 14px 28px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white !important; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: 600; }
+        .footer { background: #f8f9fa; padding: 20px; text-align: center; color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 style="margin: 0; font-size: 28px;">❌ {% trans "Ticket Cancelled" %}</h1>
+        </div>
+        <div class="content">
+            <p>{% trans "Hello" %} {{ user.first_name }},</p>
+            <p>{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> has been cancelled.{% endblocktranslate %}</p>
+
+            <div class="card">
+                <h3 style="margin-top: 0; color: #dc3545;">{% trans "Event Details" %}</h3>
+                <div class="info-row">📅 {{ context.event_start_formatted }}</div>
+                {% if context.event_location %}<div class="info-row">📍 {{ context.event_location }}</div>{% endif %}
+            </div>
+
+            <div class="card">
+                <h3 style="margin-top: 0; color: #dc3545;">{% trans "Cancelled Ticket" %}</h3>
+                <div class="info-row"><span class="label">{% trans "Tier:" %}</span> {{ context.tier_name }}</div>
+                <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
+            </div>
+
+            {% if context.cancellation_reason %}
+            <div class="card">
+                <h3 style="margin-top: 0; color: #dc3545;">{% trans "Reason" %}</h3>
+                <p>{{ context.cancellation_reason }}</p>
+            </div>
+            {% endif %}
+
+            {% if context.refund_amount %}
+            <div class="card refund">
+                <h3 style="margin-top: 0; color: #28a745;">💰 {% trans "Refund Information" %}</h3>
+                <p>{% blocktranslate with amount=context.refund_amount currency=context.payment_currency %}A refund of <strong>{{ amount }} {{ currency }}</strong> will be processed to your original payment method within 5-10 business days.{% endblocktranslate %}</p>
+            </div>
+            {% endif %}
+
+            <center>
+                <a href="{{ context.event_url }}" class="button">{% trans "View Event Details" %}</a>
+            </center>
+        </div>
+        {% include "notifications/email/_footer.html" %}
+    </div>
+</body>
+</html>

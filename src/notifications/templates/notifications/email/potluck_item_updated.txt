@@ -1,0 +1,13 @@
+{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+
+{% if context.action == "deleted" %}
+🗑️ {% blocktranslate with item=context.item_name event=context.event_name %}"{{ item }}" has been removed from the potluck for {{ event }}.{% endblocktranslate %}
+{% else %}
+🔄 {% blocktranslate with item=context.item_name event=context.event_name %}"{{ item }}" has been updated for {{ event }}.{% endblocktranslate %}
+{% endif %}
+
+{% trans "Item:" %} {{ context.item_name }}
+
+{% trans "View potluck list:" %} {{ context.frontend_url }}
+
+{% include "notifications/email/_footer.txt" %}

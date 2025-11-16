@@ -16,8 +16,6 @@ from stripe.checkout import Session
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Event, Organization, Payment, Ticket, TicketTier
-from notifications.enums import NotificationType
-from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
 
@@ -214,27 +212,7 @@ class StripeEventHandler:
         ticket.status = Ticket.TicketStatus.ACTIVE
         ticket.save(update_fields=["status"])
 
-        # Send payment confirmation notification via new notification system
-        ticket_event = ticket.event
-        # Build frontend URL
-        frontend_base_url = SiteSettings.get_solo().frontend_base_url
-        frontend_url = f"{frontend_base_url}/events/{ticket_event.id}"
-
-        notification_requested.send(
-            sender=self.__class__,
-            user=payment.user,
-            notification_type=NotificationType.PAYMENT_CONFIRMATION,
-            context={
-                "ticket_id": str(ticket.id),
-                "ticket_reference": str(ticket.id),  # Use ticket ID as reference
-                "event_id": str(ticket_event.id),
-                "event_name": ticket_event.name,
-                "event_start": ticket_event.start.isoformat(),
-                "payment_amount": f"{payment.amount} {payment.currency}",
-                "payment_method": "card",  # Stripe payments are card-based
-                "frontend_url": frontend_url,
-            },
-        )
+        # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
         logger.info(
             "stripe_payment_success",
             payment_id=str(payment.id),
@@ -309,9 +287,8 @@ class StripeEventHandler:
         payment.save(update_fields=["status", "raw_response"])
 
         # Cancel the ticket
+        # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
         ticket = payment.ticket
-        # Mark as refund-related cancellation so signal sends TICKET_REFUNDED instead of TICKET_CANCELLED
-        ticket._is_refund = True  # type: ignore[attr-defined]
         ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
         ticket._refund_amount = f"{payment.amount} {payment.currency}"  # type: ignore[attr-defined]
         ticket.status = Ticket.TicketStatus.CANCELLED

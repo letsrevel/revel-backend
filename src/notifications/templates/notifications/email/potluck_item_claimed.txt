@@ -1,0 +1,17 @@
+{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+
+{% if context.is_organizer and context.actor_name %}
+✅ {% blocktranslate with actor=context.actor_name item=context.item_name event=context.event_name %}{{ actor }} claimed "{{ item }}" for {{ event }}.{% endblocktranslate %}
+{% else %}
+✅ {% blocktranslate with item=context.item_name event=context.event_name %}"{{ item }}" has been claimed for {{ event }}.{% endblocktranslate %}
+{% endif %}
+
+{% trans "Item Details:" %}
+- {% trans "Item:" %} {{ context.item_name }}
+- {% trans "Category:" %} {{ context.item_type }}
+{% if context.quantity %}- {% trans "Quantity:" %} {{ context.quantity }}{% endif %}
+{% if context.is_organizer and context.actor_name %}- {% trans "Claimed by:" %} {{ context.actor_name }}{% endif %}
+
+{% trans "View potluck list:" %} {{ context.frontend_url }}
+
+{% include "notifications/email/_footer.txt" %}

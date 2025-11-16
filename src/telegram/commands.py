@@ -6,6 +6,7 @@ DEFAULT_COMMANDS = [
     BotCommand(command="start", description="Start the bot / Show welcome message"),
     BotCommand(command="connect", description="🔗 Link your Revel account"),
     BotCommand(command="preferences", description="⚙️ Manage your preferences"),
+    BotCommand(command="unsubscribe", description="🔕 Turn off all Telegram notifications"),
     BotCommand(command="cancel", description="🔙 Cancel the current action"),
     BotCommand(command="toc", description="📜 View Terms and Conditions"),
     BotCommand(command="privacy", description="🔒 View Privacy Policy"),

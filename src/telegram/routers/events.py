@@ -9,12 +9,16 @@ from aiogram.types import CallbackQuery, Message
 from asgiref.sync import sync_to_async
 
 from accounts.models import RevelUser
-from events.models import Event, EventWaitList, TicketTier
-from events.service.event_manager import EventManager, NextStep, UserIsIneligibleError
-from telegram.keyboards import get_event_eligible_keyboard
+from events.models import (
+    Event,
+    EventInvitationRequest,
+    Organization,
+    OrganizationMembershipRequest,
+)
+from events.service import event_service, organization_service
+from events.service.event_manager import EventManager, UserIsIneligibleError
 from telegram.middleware import AuthorizationMiddleware
 from telegram.models import TelegramUser
-from telegram.utils import generate_qr_code
 
 logger = logging.getLogger(__name__)
 router = Router(name="events-router")
@@ -64,64 +68,143 @@ def _get_rsvp_response_text(rsvp: t.Literal["yes", "no", "maybe"]) -> str:
     raise ValueError(f"Invalid rsvp: {rsvp}")
 
 
-@router.callback_query(F.data.startswith("get_ticket:"), flags={"requires_linked_user": True})
-async def cb_get_ticket(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
-    """Handles the 'Get Ticket' button press."""
-    assert callback.data is not None
-    _, tier_id_str = callback.data.split(":")
-    tier_id = uuid.UUID(tier_id_str)
-    tier = await TicketTier.objects.aget(id=tier_id)
-    event = await Event.objects.aget(id=tier.event_id)
-
-    handler = await get_ticket_handler(user, event)
-    try:
-        ticket = await sync_to_async(handler.create_ticket)(tier)
-
-        if isinstance(ticket, str):
-            await callback.answer(f"Click on the url to complete the purchase: {ticket}")
-            return
-
-        await callback.answer("Your ticket is being generated...")
-        assert isinstance(callback.message, Message)
-        qr_code_input_file = await sync_to_async(generate_qr_code)(str(ticket.id))
-        await callback.message.answer_photo(
-            photo=qr_code_input_file,
-            caption=(
-                f"🎟️ Here is your ticket for **{event.name}**!\n\n"
-                f"Present this QR code at the entrance for check-in. "
-                f"See you there!"
-            ),
-        )
-        if isinstance(callback.message, Message):
-            await callback.message.delete()  # Clean up the initial button
-    except UserIsIneligibleError as e:
-        logger.warning(f"User {user.username} was ineligible for ticket to event {event.id}: {e.eligibility.reason}")
-        await callback.answer(
-            f"Sorry, you are not eligible for a ticket (yet). Reason: {e.eligibility.reason}", show_alert=False
-        )
-
-
-@router.callback_query(F.data.startswith("join_waitlist:"), flags={"requires_linked_user": True})
-async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
-    """Handles the 'Join Waitlist' button press."""
+@router.callback_query(F.data.startswith("request_invitation:"), flags={"requires_linked_user": True})
+async def cb_handle_request_invitation(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+    """Handles the 'Request Invitation' button press."""
     assert callback.data is not None
     assert isinstance(callback.message, Message)
     _, event_id_str = callback.data.split(":")
     event_id = uuid.UUID(event_id_str)
-    event = await Event.objects.prefetch_related("ticket_tiers").aget(id=event_id)
-    handler = await get_ticket_handler(user, event)
-    eligibility = await sync_to_async(handler.check_eligibility)()
-    if eligibility.allowed:  # the party opened up meanwhile!
-        reply_markup = get_event_eligible_keyboard(event, eligibility, user)
-        await callback.message.answer(text="Good news, the Event opened up!", reply_markup=reply_markup)
-        return
-    if eligibility.next_step == NextStep.JOIN_WAITLIST:
-        await EventWaitList.objects.aget_or_create(event=event, user=user)
-        await callback.message.answer("Congrats! You are in the waiting list ⏳")
-        return
-    await callback.message.answer(
-        f"Ooops. Something went wrong. You cannot join the waiting list. Reason: {eligibility.reason}"
-    )
+    event = await Event.objects.select_related("organization").aget(id=event_id)
+
+    # TODO: Implement FSM state for prompting custom message
+    # For now, create invitation request without message
+
+    try:
+        await sync_to_async(event_service.create_invitation_request)(event=event, user=user, message=None)
+        await callback.message.answer(
+            f"✅ Your invitation request for <b>{event.name}</b> has been sent to the organizers. "
+            f"You'll be notified when they respond."
+        )
+    except Exception as e:
+        logger.exception(f"Failed to create invitation request: {e}")
+        await callback.message.answer("❌ Sorry, something went wrong. Please try again later.")
 
 
-# TODO: handlers for other NextSteps when appropriate
+@router.callback_query(F.data.startswith("become_member:"), flags={"requires_linked_user": True})
+async def cb_handle_become_member(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+    """Handles the 'Request Membership' button press."""
+    assert callback.data is not None
+    assert isinstance(callback.message, Message)
+    _, org_id_str = callback.data.split(":")
+    org_id = uuid.UUID(org_id_str)
+
+    try:
+        organization = await Organization.objects.aget(id=org_id)
+        await sync_to_async(organization_service.create_membership_request)(
+            organization=organization, user=user, message=None
+        )
+        await callback.message.answer(
+            f"✅ Your membership request for <b>{organization.name}</b> has been sent to the organizers. "
+            f"You'll be notified when they respond."
+        )
+    except Exception as e:
+        logger.exception(f"Failed to create membership request: {e}")
+        await callback.message.answer("❌ Sorry, something went wrong. Please try again later.")
+
+
+@router.callback_query(F.data.startswith("invitation_request_accept:"), flags={"requires_linked_user": True})
+async def cb_handle_invitation_request_accept(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+    """Handles accepting an invitation request (organizer action)."""
+    assert callback.data is not None
+    assert isinstance(callback.message, Message)
+    _, request_id_str = callback.data.split(":")
+    request_id = uuid.UUID(request_id_str)
+
+    try:
+        request = await EventInvitationRequest.objects.select_related("event", "user").aget(pk=request_id)
+        await sync_to_async(event_service.approve_invitation_request)(request, decided_by=user)
+        await callback.message.edit_text(
+            f"✅ Invitation request from <b>{request.user.get_display_name()}</b> "
+            f"for <b>{request.event.name}</b> has been <b>accepted</b>.",
+            reply_markup=None,
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.exception(f"Failed to accept invitation request: {e}")
+        await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("invitation_request_reject:"), flags={"requires_linked_user": True})
+async def cb_handle_invitation_request_reject(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+    """Handles rejecting an invitation request (organizer action)."""
+    assert callback.data is not None
+    assert isinstance(callback.message, Message)
+    _, request_id_str = callback.data.split(":")
+    request_id = uuid.UUID(request_id_str)
+
+    try:
+        request = await EventInvitationRequest.objects.select_related("event", "user").aget(pk=request_id)
+        await sync_to_async(event_service.reject_invitation_request)(request, decided_by=user)
+        await callback.message.edit_text(
+            f"❌ Invitation request from <b>{request.user.get_display_name()}</b> "
+            f"for <b>{request.event.name}</b> has been <b>rejected</b>.",
+            reply_markup=None,
+            parse_mode="HTML",
+        )
+    except EventInvitationRequest.DoesNotExist:
+        await callback.answer("❌ Invitation request not found.", show_alert=True)
+    except Exception as e:
+        logger.exception(f"Failed to reject invitation request: {e}")
+        await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("membership_request_approve:"), flags={"requires_linked_user": True})
+async def cb_handle_membership_request_approve(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+    """Handles approving a membership request (organizer action)."""
+    assert callback.data is not None
+    assert isinstance(callback.message, Message)
+    _, request_id_str = callback.data.split(":")
+    request_id = uuid.UUID(request_id_str)
+
+    try:
+        request = await OrganizationMembershipRequest.objects.select_related("organization", "user").aget(pk=request_id)
+        await sync_to_async(organization_service.approve_membership_request)(request, decided_by=user)
+        await callback.message.edit_text(
+            f"✅ Membership request from <b>{request.user.get_display_name()}</b> "
+            f"for <b>{request.organization.name}</b> has been <b>approved</b>.",
+            reply_markup=None,
+            parse_mode="HTML",
+        )
+    except OrganizationMembershipRequest.DoesNotExist:
+        await callback.answer("❌ Membership request not found.", show_alert=True)
+    except Exception as e:
+        logger.exception(f"Failed to approve membership request: {e}")
+        await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("membership_request_reject:"), flags={"requires_linked_user": True})
+async def cb_handle_membership_request_reject(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+    """Handles rejecting a membership request (organizer action)."""
+    assert callback.data is not None
+    assert isinstance(callback.message, Message)
+    _, request_id_str = callback.data.split(":")
+    request_id = uuid.UUID(request_id_str)
+
+    try:
+        request = await OrganizationMembershipRequest.objects.select_related("organization", "user").aget(pk=request_id)
+        await sync_to_async(organization_service.reject_membership_request)(request, decided_by=user)
+        await callback.message.edit_text(
+            f"❌ Membership request from <b>{request.user.get_display_name()}</b> "
+            f"for <b>{request.organization.name}</b> has been <b>rejected</b>.",
+            reply_markup=None,
+            parse_mode="HTML",
+        )
+    except OrganizationMembershipRequest.DoesNotExist:
+        await callback.answer("❌ Membership request not found.", show_alert=True)
+    except Exception as e:
+        logger.exception(f"Failed to reject membership request: {e}")
+        await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
+
+
+# TODO: handlers for questionnaire and other NextSteps when appropriate

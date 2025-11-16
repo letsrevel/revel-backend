@@ -173,14 +173,14 @@ class NotificationPreference(TimeStampedModel):
 
     # Global notification settings
     silence_all_notifications = models.BooleanField(
-        default=False, help_text="Master switch to disable all notifications"
+        default=False, help_text="Master kill switch - disables ALL notifications including in-app"
     )
 
     enabled_channels = ArrayField(
         models.CharField(max_length=20),
         default=list,
         blank=True,
-        help_text="List of enabled channels: ['in_app', 'email', 'telegram']",
+        help_text="Default channels for notifications. Can be overridden per notification type.",
     )
 
     # Digest preferences
@@ -199,7 +199,8 @@ class NotificationPreference(TimeStampedModel):
     notification_type_settings = models.JSONField(
         default=get_default_notification_type_settings,
         blank=True,
-        help_text="Per-type settings: {notification_type: {enabled: bool, channels: []}}",
+        help_text="Per-type overrides: {notification_type: {enabled: bool, channels: []}}. "
+        "Channels specified here OVERRIDE enabled_channels for that type.",
     )
 
     # Event reminders
@@ -256,6 +257,15 @@ class NotificationPreference(TimeStampedModel):
     def get_channels_for_notification_type(self, notification_type: str) -> list[str]:
         """Get enabled channels for a specific notification type.
 
+        Uses override semantics: per-type channel settings override global enabled_channels.
+        This allows users to say "I generally don't want telegram, BUT for critical alerts send telegram."
+
+        Hierarchy:
+            1. silence_all_notifications (master kill switch) -> []
+            2. notification_type enabled check -> []
+            3. notification_type_settings[type].channels (if specified) -> use these channels
+            4. Otherwise -> use global enabled_channels
+
         Args:
             notification_type: Notification type
 
@@ -274,8 +284,8 @@ class NotificationPreference(TimeStampedModel):
         custom_channels = settings.get("channels", [])
 
         if custom_channels:
-            # Use custom channels if specified
-            return [ch for ch in custom_channels if ch in self.enabled_channels]
+            # Per-type override - use these channels instead of global settings
+            return list(custom_channels)
 
-        # Otherwise use all enabled channels
+        # Otherwise use global enabled channels
         return list(self.enabled_channels)

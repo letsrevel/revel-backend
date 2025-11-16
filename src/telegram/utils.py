@@ -41,11 +41,19 @@ async def get_or_create_tg_user(aiogram_user: AiogramUser) -> TelegramUser:
 async def send_telegram_message(
     telegram_id: int, *, message: str, reply_markup: ReplyMarkupUnion | None = None
 ) -> None:
-    """Sends a message via Telegram."""
+    """Sends a message via Telegram with HTML parse mode.
+
+    Args:
+        telegram_id: Telegram user ID
+        message: Message text (HTML formatted)
+        reply_markup: Optional keyboard markup
+    """
+    from aiogram.enums import ParseMode
+
     from telegram.bot import get_bot  # avoid circular imports
 
     bot = get_bot()
-    await bot.send_message(chat_id=telegram_id, text=message, reply_markup=reply_markup)
+    await bot.send_message(chat_id=telegram_id, text=message, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
     await bot.session.close()
 
 

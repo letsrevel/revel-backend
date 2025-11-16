@@ -3,9 +3,9 @@
 
 from aiogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
-from django.conf import settings
 
 from accounts.models import RevelUser
+from common.models import SiteSettings
 from events.models import Event
 from events.service.event_manager import EventUserEligibility, NextStep
 
@@ -62,10 +62,10 @@ class EventKeyboardHandler:
         self.event = event
         self.user = user
         self.eligibility = eligibility
+        self.site_settings = SiteSettings.get_solo()
+        self.frontend_url = f"{self.site_settings.frontend_base_url}/events/{self.event.id}"
         self.builder = InlineKeyboardBuilder()
-        self.builder.button(
-            text="🎉 Event details", web_app=WebAppInfo(url=settings.BASE_URL + f"/{self.event.id}")
-        )  # placeholder, will use reverse()
+        self.builder.button(text="🎉 Event details", web_app=WebAppInfo(url=self.frontend_url))
         self.builder.adjust(1, 1)
 
     def get_eligible_keyboard(self) -> InlineKeyboardMarkup:
@@ -80,8 +80,8 @@ class EventKeyboardHandler:
         return self._get_keyboard_rsvp()
 
     def _get_keyboard_ticket(self) -> InlineKeyboardMarkup:
-        for tier in self.event.ticket_tiers.all():
-            self.builder.button(text=f"🎟️ Get Your Ticket: {tier.name}", callback_data=f"get_ticket:{tier.id}")
+        # For ticketed events, only show the event details link (already added in __init__)
+        # Users should purchase tickets through the frontend
         return self.builder.as_markup()
 
     def _get_keyboard_rsvp(self) -> InlineKeyboardMarkup:
@@ -92,53 +92,20 @@ class EventKeyboardHandler:
         return self.builder.as_markup()
 
     def _get_keyboard_not_allowed(self) -> InlineKeyboardMarkup:
+        # For users who are not eligible, show simple action buttons for common next steps
+        # More complex flows (questionnaires, waitlist) should be done via the frontend
         if self.eligibility.next_step == NextStep.REQUEST_INVITATION:
             self.builder.button(
                 text="💌 Request Invitation",
                 callback_data=f"request_invitation:{self.event.id}",
             )
-
         elif self.eligibility.next_step == NextStep.BECOME_MEMBER:
             self.builder.button(
                 text="👤 Become Member",
                 callback_data=f"become_member:{self.event.organization_id}",
             )
 
-        elif self.eligibility.next_step == NextStep.COMPLETE_QUESTIONNAIRE and self.eligibility.questionnaires_missing:
-            questionnaire_id = self.eligibility.questionnaires_missing[0]
-            self.builder.button(
-                text="✍️ Start Questionnaire",
-                web_app=WebAppInfo(url=f"https://placeholder.example.com/questionnaire/{questionnaire_id}"),
-            )
-
-        elif (
-            self.eligibility.next_step == NextStep.WAIT_FOR_QUESTIONNAIRE_EVALUATION
-            and self.eligibility.questionnaires_pending_review
-        ):
-            # questionnaire_id = self.eligibility.questionnaires_pending_review[0]
-            self.builder.button(
-                text="🕵️ Questionnaire is pending review",
-                callback_data=f"wait_for_questionnaire_evaluation:{self.event.id}",
-            )
-
-        elif self.eligibility.next_step == NextStep.JOIN_WAITLIST:
-            self.builder.button(
-                text="⏳ Join Waitlist",
-                callback_data=f"join_waitlist:{self.event.id}",
-            )
-
-        elif self.eligibility.next_step == NextStep.PURCHASE_TICKET:
-            self.builder.button(
-                text="💶 Purchase Ticket",
-                callback_data=f"purchase_ticket:{self.event.id}",
-            )
-
-        else:
-            self.builder.button(
-                text="Oops. Unfortunately you are not (yet) eligible for this party.",
-                callback_data=f"consolation_meme:{self.event.id}",
-            )
-        """Get the right keyboard with possible actions based on eligibility and next steps."""
+        # For all other next steps, users should use the event details link (already added in __init__)
         return self.builder.as_markup()
 
 

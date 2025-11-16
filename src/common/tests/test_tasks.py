@@ -30,6 +30,8 @@ def test_scan_for_malware(mock_clamd: MagicMock, revel_user_factory: RevelUserFa
     instance = safe_save_uploaded_file(
         instance=additional_resource, field="file", file=ContentFile(eicar_payload, name="eicar.txt"), uploader=uploader
     )
+
+    # With CELERY_TASK_ALWAYS_EAGER=True, the scan task runs synchronously
     audit = FileUploadAudit.objects.first()
     assert audit is not None
     assert audit.instance_pk == instance.pk

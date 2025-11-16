@@ -139,4 +139,5 @@ def test_confirm_account_deletion_success(user: RevelUser) -> None:
 
     assert RevelUser.objects.filter(id=user_id).exists()
     account_service.confirm_account_deletion(token)
+    # With CELERY_TASK_ALWAYS_EAGER=True, the task runs synchronously
     assert not RevelUser.objects.filter(id=user_id).exists()

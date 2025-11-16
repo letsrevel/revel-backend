@@ -1,0 +1,7 @@
+{%load i18n %}{%trans "Hello" %} {{ user.first_name }},
+
+✅ {%blocktranslate%}Request Approved{%endblocktranslate%}
+
+{%trans "View details:" %} {{ context.event_url }}
+
+{% include "notifications/email/_footer.txt" %}

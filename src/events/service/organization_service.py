@@ -8,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from common.models import SiteSettings
 from events import models
 from events.exceptions import AlreadyMemberError, PendingMembershipRequestExistsError
 from events.models import (
@@ -19,6 +20,8 @@ from events.models import (
     PermissionsSchema,
 )
 from events.models.organization import _get_default_permissions
+from notifications.enums import NotificationType
+from notifications.signals import notification_requested
 
 
 def create_membership_request(
@@ -45,7 +48,28 @@ def approve_membership_request(membership_request: models.OrganizationMembership
     membership_request.status = models.OrganizationMembershipRequest.Status.APPROVED
     membership_request.decided_by = decided_by
     membership_request.save(update_fields=["status", "decided_by"])
-    models.OrganizationMember.objects.create(organization=membership_request.organization, user=membership_request.user)
+
+    # Create membership (this will trigger MEMBERSHIP_GRANTED notification via signal)
+    _, created = models.OrganizationMember.objects.get_or_create(
+        organization=membership_request.organization, user=membership_request.user
+    )
+
+    # Send approval notification
+    def send_approval_notification() -> None:
+        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        notification_requested.send(
+            sender=models.OrganizationMembershipRequest,
+            user=membership_request.user,
+            notification_type=NotificationType.MEMBERSHIP_REQUEST_APPROVED,
+            context={
+                "organization_id": str(membership_request.organization_id),
+                "organization_name": membership_request.organization.name,
+                "frontend_url": f"{frontend_base_url}/organizations/{membership_request.organization_id}",
+            },
+        )
+
+    if created:
+        transaction.on_commit(send_approval_notification)
 
 
 def reject_membership_request(request: models.OrganizationMembershipRequest, decided_by: RevelUser) -> None:
@@ -53,6 +77,22 @@ def reject_membership_request(request: models.OrganizationMembershipRequest, dec
     request.status = models.OrganizationMembershipRequest.Status.REJECTED
     request.decided_by = decided_by
     request.save(update_fields=["status", "decided_by"])
+
+    # Send rejection notification
+    def send_rejection_notification() -> None:
+        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        notification_requested.send(
+            sender=models.OrganizationMembershipRequest,
+            user=request.user,
+            notification_type=NotificationType.MEMBERSHIP_REQUEST_REJECTED,
+            context={
+                "organization_id": str(request.organization_id),
+                "organization_name": request.organization.name,
+                "frontend_url": f"{frontend_base_url}/organizations",
+            },
+        )
+
+    transaction.on_commit(send_rejection_notification)
 
 
 def create_organization_token(

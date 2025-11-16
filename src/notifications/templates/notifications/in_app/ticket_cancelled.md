@@ -1,0 +1,19 @@
+{% load i18n %}{% blocktranslate with event=context.event_name %}Your ticket for **{{ event }}** has been cancelled.{% endblocktranslate %}
+
+**{% trans "Event Details:" %}**
+- 📅 {{ context.event_start_formatted }}
+{% if context.event_location %}- 📍 {{ context.event_location }}{% endif %}
+
+**{% trans "Cancelled Ticket:" %}**
+- {% trans "Tier:" %} {{ context.tier_name }}
+- {% trans "Ticket ID:" %} `{{ context.ticket_id }}`
+
+{% if context.cancellation_reason %}
+**{% trans "Reason:" %}** {{ context.cancellation_reason }}
+{% endif %}
+
+{% if context.refund_amount %}
+💰 {% blocktranslate with amount=context.refund_amount currency=context.payment_currency %}A refund of **{{ amount }} {{ currency }}** will be processed within 5-10 business days.{% endblocktranslate %}
+{% endif %}
+
+[{% trans "View Event" %}]({{ context.event_url }})

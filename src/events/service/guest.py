@@ -190,7 +190,7 @@ def handle_guest_rsvp(
     Raises:
         HttpError: If event doesn't allow guest access or eligibility checks fail
     """
-    from events import tasks
+    from common.tasks import send_guest_rsvp_confirmation
 
     # Check if event allows guest access
     if not event.can_attend_without_login:
@@ -208,7 +208,7 @@ def handle_guest_rsvp(
     token = create_guest_rsvp_token(user, event.id, answer_str)
 
     # Send confirmation email
-    tasks.send_guest_rsvp_confirmation.delay(user.email, token, event.name)
+    send_guest_rsvp_confirmation.delay(user.email, token, event.name)
 
     return schema.GuestActionResponseSchema(message=str(_("Please check your email to confirm your RSVP")))
 
@@ -237,7 +237,7 @@ def handle_guest_ticket_checkout(
     Raises:
         HttpError: If event doesn't allow guest access, tier issues, or eligibility checks fail
     """
-    from events import tasks
+    from common.tasks import send_guest_ticket_confirmation
 
     # Check if event allows guest access
     if not event.can_attend_without_login:
@@ -268,7 +268,7 @@ def handle_guest_ticket_checkout(
     else:
         # Non-online payment: require email confirmation
         token = create_guest_ticket_token(user, event.id, tier.id, pwyc_amount)
-        tasks.send_guest_ticket_confirmation.delay(user.email, token, event.name, tier.name)
+        send_guest_ticket_confirmation.delay(user.email, token, event.name, tier.name)
         return schema.GuestActionResponseSchema(
             message=str(_("Please check your email to confirm your ticket purchase"))
         )

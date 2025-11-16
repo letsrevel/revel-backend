@@ -84,7 +84,7 @@ jwt:
 
 .PHONY: run-celery
 run-celery:
-	cd src && ../.venv/bin/celery -A revel worker -l INFO --concurrency=1 --pool=solo
+	cd src && ../.venv/bin/celery -A revel worker -l INFO --concurrency=2 --pool=prefork
 
 .PHONY: run-celery-beat
 run-celery-beat:

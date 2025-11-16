@@ -1,53 +1,35 @@
 {% load i18n %}<!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background: #673AB7; color: white; padding: 20px; text-align: center; }
-        .content { padding: 20px; background: #f9f9f9; }
-        .notification-group { margin: 20px 0; }
-        .notification-type { background: #673AB7; color: white; padding: 10px; font-weight: bold; }
-        .notification-item { background: white; padding: 15px; margin: 10px 0; border-left: 4px solid #673AB7; }
-        .notification-title { font-weight: bold; margin-bottom: 5px; }
-        .notification-date { font-size: 12px; color: #666; }
-        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-    </style>
+    <meta charset="UTF-8">
+    <title>{% trans "Notification Digest" %}</title>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>📬 {% trans "Notification Digest" %}</h1>
-        </div>
-        <div class="content">
-            <p>{% blocktranslate with name=user.first_name|default:user.username %}Hi {{ name }}{% endblocktranslate %},</p>
-            <p>{% blocktranslate with count=total_count %}You have <strong>{{ count }}</strong> new notification{{ count|pluralize }}:{% endblocktranslate %}</p>
+    <h2>{% trans "Notification Digest" %}</h2>
 
-            {% for notif_type, notifications in grouped_notifications.items %}
-            <div class="notification-group">
-                <div class="notification-type">
-                    {{ notif_type|upper }}
-                </div>
-                {% for notif in notifications %}
-                <div class="notification-item">
-                    <div class="notification-title">{{ notif.title }}</div>
-                    <div class="notification-date">{{ notif.created_at|date:"SHORT_DATETIME_FORMAT" }}</div>
-                </div>
-                {% endfor %}
-            </div>
-            {% endfor %}
+    <p>{% trans "Dear" %} {{ user.get_display_name }},</p>
 
-            <p style="margin-top: 30px;">{% trans "View all your notifications in the app." %}</p>
+    <p>{% trans "Here's a summary of your recent notifications:" %}</p>
 
-            <p style="font-size: 12px; color: #666;">
-                {% trans "You're receiving this digest because your notification preferences are set to" %} <strong>{{ user.notification_preferences.digest_frequency }}</strong>.
-                {% trans "You can change this in your notification settings." %}
-            </p>
-        </div>
-        <div class="footer">
-            <p>Revel</p>
-        </div>
-    </div>
+    {% for notification_type, notifications in grouped_notifications.items %}
+    <h3>{{ notification_type }}</h3>
+    <ul>
+        {% for notification in notifications %}
+        <li>{{ notification.title }}</li>
+        {% endfor %}
+    </ul>
+    {% endfor %}
+
+    <p><a href="{{ frontend_url }}/notifications">{% trans "View all notifications" %}</a></p>
+
+    <p>
+        {% trans "Best regards," %}<br>
+        {% trans "The Revel Team" %}
+    </p>
+
+    <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
+    <p style="font-size: 12px; color: #999; text-align: center;">
+        <a href="{{ unsubscribe_link }}" style="color: #999; text-decoration: underline;">{% trans "Unsubscribe or manage notification preferences" %}</a>
+    </p>
 </body>
 </html>

@@ -138,7 +138,7 @@ def approve_invitation_request(
     invitation_request.status = EventInvitationRequest.InvitationRequestStatus.APPROVED
     invitation_request.decided_by = decided_by
     invitation_request.save(update_fields=["status", "decided_by"])
-    EventInvitation.objects.create(event=invitation_request.event, user=invitation_request.user, tier=tier)
+    EventInvitation.objects.get_or_create(event=invitation_request.event, user=invitation_request.user, tier=tier)
     return invitation_request
 
 
