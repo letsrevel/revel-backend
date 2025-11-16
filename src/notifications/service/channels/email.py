@@ -75,20 +75,26 @@ class EmailChannel(NotificationChannel):
         Returns:
             True if delivery succeeded
         """
+        from django.utils import translation
+
         delivery.attempted_at = timezone.now()
         delivery.retry_count += 1
 
         try:
             # Get email template
-            from notifications.service.templates.registry import get_email_template
+            from notifications.service.templates.registry import get_template
 
-            template = get_email_template(notification.notification_type)
+            template = get_template(notification.notification_type)
 
-            # Render email content
-            subject = template.get_subject(notification)
-            text_body = template.get_text_body(notification)
-            html_body = template.get_html_body(notification)
-            attachments = template.get_attachments(notification)
+            # Get user's language
+            user_language = getattr(notification.user, "language", settings.LANGUAGE_CODE)
+
+            # Render email content in user's language
+            with translation.override(user_language):
+                subject = template.get_email_subject(notification)
+                text_body = template.get_email_text_body(notification)
+                html_body = template.get_email_html_body(notification)
+                attachments = template.get_email_attachments(notification)
 
             # Get safe recipient email
             site_settings = SiteSettings.get_solo()

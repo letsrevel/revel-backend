@@ -1,0 +1,12 @@
+{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+
+🔓 {% blocktranslate with item=context.item_name event=context.event_name %}"{{ item }}" is now available for {{ event }}.{% endblocktranslate %}
+
+{% trans "Item Details:" %}
+- {% trans "Item:" %} {{ context.item_name }}
+- {% trans "Category:" %} {{ context.item_type }}
+{% if context.quantity %}- {% trans "Quantity:" %} {{ context.quantity }}{% endif %}
+
+{% trans "Claim this item:" %} {{ context.frontend_url }}
+
+{{ context.org_signature_md }}

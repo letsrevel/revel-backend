@@ -1,5 +1,5 @@
 # src/telegram/tests/test_utils.py
-from unittest.mock import AsyncMock, patch
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 from aiogram.types import BufferedInputFile
@@ -20,7 +20,9 @@ async def test_send_telegram_message() -> None:
         await send_telegram_message(telegram_id, message=message_text)
 
         mock_get_bot.assert_called_once()
-        mock_bot.send_message.assert_awaited_once_with(chat_id=telegram_id, text=message_text, reply_markup=None)
+        mock_bot.send_message.assert_awaited_once_with(
+            chat_id=telegram_id, text=message_text, reply_markup=None, parse_mode=ANY
+        )
         mock_bot.session.close.assert_awaited_once()
 
 

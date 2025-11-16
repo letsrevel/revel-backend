@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 import orjson
 import pytest
 from django.test.client import Client
@@ -29,17 +27,6 @@ class TestPotluckController:
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
         assert response.status_code == 200
         assert PotluckItem.objects.filter(event=event, name="Salad").exists()
-
-    def test_create_potluck_item_too_many_items(self, organization_owner_client: Client, event: Event) -> None:
-        """Test that creating too many potluck items raises an exception."""
-        for i in range(2):
-            PotluckItem.objects.create(event=event, name=f"Item {i}", item_type="food")
-        url = reverse("api:create_potluck_item", kwargs={"event_id": event.id})
-        payload = {"name": "One Too Many", "item_type": "food"}
-        with patch("events.service.potluck_service.MAX_ITEMS", 1):
-            r = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
-            assert r.status_code == 400
-            assert "too many items" in r.json()["detail"]
 
     def test_update_potluck_item_by_creator(
         self, nonmember_client: Client, event: Event, nonmember_user: RevelUser

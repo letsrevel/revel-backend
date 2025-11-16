@@ -69,7 +69,7 @@ def test_list_rsvps_unauthorized(member_client: Client, event: Event) -> None:
     url = reverse("api:list_rsvps", kwargs={"event_id": event.pk})
     response = member_client.get(url)
 
-    assert response.status_code == 404  # Event is not visible to non-staff, returns 404
+    assert response.status_code == 403  # Event is visible but user lacks permission
 
 
 def test_list_rsvps_with_search(organization_owner_client: Client, event: Event) -> None:
@@ -217,7 +217,7 @@ def test_create_rsvp_unauthorized(member_client: Client, event: Event) -> None:
 
     response = member_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
-    assert response.status_code == 404  # Event is not visible to non-staff, returns 404
+    assert response.status_code == 403  # Event is visible but user lacks permission
 
 
 def test_create_rsvp_updates_existing(organization_owner_client: Client, event: Event, member_user: RevelUser) -> None:

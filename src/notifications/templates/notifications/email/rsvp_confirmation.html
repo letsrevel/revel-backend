@@ -1,0 +1,60 @@
+{% load i18n %}<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+        .container { max-width: 600px; margin: 0 auto; background: white; }
+        .header { background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 30px 20px; text-align: center; }
+        .content { padding: 30px 20px; }
+        .card { background: #f8f9fa; border-left: 4px solid #28a745; padding: 20px; margin: 20px 0; border-radius: 4px; }
+        .info-row { margin: 10px 0; }
+        .label { color: #666; font-weight: 600; }
+        .button { display: inline-block; padding: 14px 28px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white !important; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: 600; }
+        .footer { background: #f8f9fa; padding: 20px; text-align: center; color: #666; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 style="margin: 0; font-size: 28px;">✅ {% trans "RSVP Confirmed" %}</h1>
+        </div>
+        <div class="content">
+            <p>{% trans "Hello" %} {{ user.first_name }},</p>
+
+            {% if context.user_name %}
+                <p>{% blocktranslate with user=context.user_name event=context.event_name response=context.response %}<strong>{{ user }}</strong> has RSVP'd <strong>{{ response }}</strong> for <strong>{{ event }}</strong>.{% endblocktranslate %}</p>
+
+                <div class="card">
+                    <h3 style="margin-top: 0; color: #28a745;">{% trans "RSVP Details" %}</h3>
+                    <div class="info-row"><span class="label">{% trans "User:" %}</span> {{ context.user_name }} ({{ context.user_email }})</div>
+                    <div class="info-row"><span class="label">{% trans "Response:" %}</span> {{ context.response }}</div>
+                </div>
+            {% else %}
+                <p style="font-size: 18px;">{% blocktranslate with event=context.event_name response=context.response %}Your RSVP (<strong>{{ response }}</strong>) for <strong>{{ event }}</strong> has been confirmed! ✅{% endblocktranslate %}</p>
+
+                <div class="card">
+                    <h3 style="margin-top: 0; color: #28a745;">{% trans "Event Details" %}</h3>
+                    <div class="info-row">📅 {{ context.event_start_formatted }}</div>
+                    {% if context.event_location %}<div class="info-row">📍 {{ context.event_location }}</div>{% endif %}
+                </div>
+
+                <div class="card">
+                    <h3 style="margin-top: 0; color: #28a745;">{% trans "Your Response" %}</h3>
+                    <div class="info-row"><span class="label">{% trans "Response:" %}</span> <strong>{{ context.response }}</strong></div>
+                    {% if context.guest_count %}<div class="info-row"><span class="label">{% trans "Guests:" %}</span> {{ context.guest_count }}</div>{% endif %}
+                    {% if context.dietary_restrictions %}<div class="info-row"><span class="label">{% trans "Dietary restrictions:" %}</span> {{ context.dietary_restrictions }}</div>{% endif %}
+                </div>
+            {% endif %}
+
+            <center>
+                <a href="{{ context.event_url }}" class="button">{% trans "View Event Details" %}</a>
+            </center>
+        </div>
+        <div class="footer">
+            {{ context.org_signature_html|safe }}
+        </div>
+    </div>
+</body>
+</html>

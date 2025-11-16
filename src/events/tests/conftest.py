@@ -73,6 +73,7 @@ def event(organization: Organization, event_series: EventSeries) -> Event:
         name="Event",
         slug="event",
         event_type=Event.EventType.PUBLIC,
+        visibility=Event.Visibility.PUBLIC,
         event_series=event_series,
         max_attendees=100,
         start=timezone.now(),

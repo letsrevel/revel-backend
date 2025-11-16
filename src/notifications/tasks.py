@@ -6,7 +6,7 @@ from datetime import timedelta
 import structlog
 from celery import group, shared_task
 from django.conf import settings
-from django.utils import timezone
+from django.utils import timezone, translation
 
 from notifications.enums import DeliveryChannel, DeliveryStatus
 from notifications.models import Notification, NotificationDelivery, NotificationPreference
@@ -21,7 +21,7 @@ def dispatch_notification(self: t.Any, notification_id: str) -> dict[str, t.Any]
 
     This task:
     1. Loads notification
-    2. Renders title/body from template
+    2. Renders title/body from template (using recipient's language)
     3. Determines delivery channels based on user preferences
     4. Creates NotificationDelivery records
     5. Dispatches to channel-specific delivery tasks
@@ -34,19 +34,29 @@ def dispatch_notification(self: t.Any, notification_id: str) -> dict[str, t.Any]
         Dict with dispatch stats
     """
     notification = Notification.objects.select_related("user", "user__notification_preferences").get(pk=notification_id)
+
+    # Get recipient's language preference
+    user_language = getattr(notification.user, "language", settings.LANGUAGE_CODE)
+
     # Render title and body from template
+    # CRITICAL: Activate recipient's language, not sender's or system default
     try:
         from notifications.service.templates.registry import get_template
 
         template = get_template(notification.notification_type)
-        notification.title = template.get_title(notification)
-        notification.body = template.get_body(notification)
+
+        # Activate user's language for rendering
+        with translation.override(user_language):
+            notification.title = template.get_in_app_title(notification)
+            notification.body = template.get_in_app_body(notification)
+
         notification.save(update_fields=["title", "body", "updated_at"])
 
         logger.debug(
             "notification_rendered",
             notification_id=notification_id,
             notification_type=notification.notification_type,
+            user_language=user_language,
         )
     except Exception as e:
         logger.error(

@@ -1,0 +1,7 @@
+{%load i18n %}{%trans "Hello" %} {{ user.first_name }},
+
+📢 {%blocktranslate%}Announcement{%endblocktranslate%}
+
+{%trans "View details:" %} {{ context.event_url }}
+
+{{ context.org_signature_md }}

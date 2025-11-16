@@ -4,7 +4,9 @@ import pytest
 
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, EventRSVP, Organization, OrganizationMember, Ticket, TicketTier
-from events.service.notification_service import (
+from notifications.enums import NotificationType
+from notifications.models import NotificationPreference
+from notifications.service.eligibility import (
     get_eligible_users_for_event_notification,
     has_active_rsvp,
     has_active_ticket,
@@ -14,8 +16,6 @@ from events.service.notification_service import (
     is_participating_in_event,
     is_user_eligible_for_notification,
 )
-from notifications.enums import NotificationType
-from notifications.models import NotificationPreference
 
 pytestmark = pytest.mark.django_db
 

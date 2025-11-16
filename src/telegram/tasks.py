@@ -3,6 +3,7 @@ import typing as t
 
 import structlog
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
+from aiogram.types import InlineKeyboardMarkup
 from asgiref.sync import async_to_sync
 from celery import Task, shared_task
 from django.db import transaction
@@ -66,12 +67,13 @@ def _execute_callback(callback_data: dict[str, t.Any], error_occurred: bool, err
         )
 
 
-@shared_task(bind=True, name="telegram.send_message_task", rate_limit="20/s", queue="telegram")
+@shared_task(bind=True, name="telegram.send_message_task", rate_limit="20/s")
 def send_message_task(
     self: Task,  # type: ignore[type-arg]
     telegram_id: int,
     *,
     message: str,
+    reply_markup: dict[str, t.Any] | None = None,
     callback_data: dict[str, t.Any] | None = None,
 ) -> None:
     """Wrapper for async message sending task with optional callback.
@@ -80,18 +82,25 @@ def send_message_task(
         self: Celery task instance
         telegram_id: Telegram user ID
         message: Message to send
+        reply_markup: Optional serialized InlineKeyboardMarkup dict
         callback_data: Optional callback configuration with:
             - module: Python module path (e.g., "notifications.service.channels.telegram")
             - function: Function name to call (e.g., "update_delivery_status")
             - kwargs: Dict of keyword arguments to pass to the function
     """
-    logger.info(f"telegram.tasks.send_message_task({telegram_id=}, {message=}, callback={bool(callback_data)})")
+    logger.info(
+        f"telegram.tasks.send_message_task({telegram_id=}, {message=}, "
+        f"reply_markup={bool(reply_markup)}, callback={bool(callback_data)})"
+    )
 
     error_occurred = False
     error_message = None
 
     try:
-        async_to_sync(utils.send_telegram_message)(telegram_id, message=message)
+        # Deserialize reply_markup if provided
+
+        keyboard = InlineKeyboardMarkup.model_validate(reply_markup) if reply_markup else None
+        async_to_sync(utils.send_telegram_message)(telegram_id, message=message, reply_markup=keyboard)
     except TelegramForbiddenError as e:
         error_occurred = True
         if "bot was blocked by the user" in e.message.lower():
@@ -138,12 +147,7 @@ def send_event_invitation_task(invitation_id: str) -> None:
 
     with the appropriate keyboard based on their eligibility.
     """
-    try:
-        invitation = EventInvitation.objects.select_related("user", "event").get(id=invitation_id)
-    except EventInvitation.DoesNotExist:
-        logger.error(f"EventInvitation with ID {invitation_id} not found.")
-        return
-
+    invitation = EventInvitation.objects.select_related("user", "event").get(id=invitation_id)
     user = invitation.user
     event = invitation.event
     tg_user = TelegramUser.objects.filter(user=user).first()

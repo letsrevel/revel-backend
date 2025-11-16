@@ -1,22 +1,19 @@
-{% load i18n %}{% autoescape off %}{% blocktranslate with name=user.first_name|default:user.username %}Hi {{ name }}{% endblocktranslate %},
+{% load i18n %}{% trans "Notification Digest" %}
 
-{% blocktranslate with count=total_count %}You have {{ count }} new notification{{ count|pluralize }}:{% endblocktranslate %}
+{% trans "Dear" %} {{ user.get_display_name }},
 
-{% for notif_type, notifications in grouped_notifications.items %}
-{% trans "===" %} {{ notif_type|upper }} {% trans "===" %}
+{% trans "Here's a summary of your recent notifications:" %}
 
-{% for notif in notifications %}
-  - {{ notif.title }}
-    {{ notif.created_at|date:"SHORT_DATETIME_FORMAT" }}
+{% for notification_type, notifications in grouped_notifications.items %}
+
+{{ notification_type }}:
+{% for notification in notifications %}
+  - {{ notification.title }}
+{% endfor %}
 
 {% endfor %}
-{% endfor %}
 
-{% trans "View all your notifications in the app." %}
+{% trans "View all notifications:" %} {{ frontend_url }}/notifications
 
-{% trans "You're receiving this digest because your notification preferences are set to" %} {{ user.notification_preferences.digest_frequency }}.
-{% trans "You can change this in your notification settings." %}
-
-{% trans "Thanks," %}
-Revel
-{% endautoescape %}
+{% trans "Best regards," %}
+{% trans "The Revel Team" %}

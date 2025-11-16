@@ -1,0 +1,9 @@
+{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+
+🗑️ {% blocktranslate with item=context.item_name event=context.event_name %}"{{ item }}" has been removed from the potluck for {{ event }}.{% endblocktranslate %}
+
+{% trans "Item:" %} {{ context.item_name }}
+
+{% trans "View potluck list:" %} {{ context.frontend_url }}
+
+{{ context.org_signature_md }}

@@ -1,0 +1,35 @@
+{%load i18n %}<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;}
+        .container {max-width:600px;margin:0 auto;background:white;}
+        .header {background:linear-gradient(135deg,#ff9800 0%,#ff9800dd 100%);color:white;padding:30px 20px;text-align:center;}
+        .content {padding:30px 20px;}
+        .card {background:#f8f9fa;border-left:4px solid #ff9800;padding:20px;margin:20px 0;border-radius:4px;}
+        .button {display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white!important;text-decoration:none;border-radius:6px;margin:20px 0;font-weight:600;}
+        .footer {background:#f8f9fa;padding:20px;text-align:center;color:#666;font-size:14px;}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 style="margin:0;font-size:28px;">⬆️ {%trans "Role Updated"%}</h1>
+        </div>
+        <div class="content">
+            <p>{%trans "Hello"%} {{user.first_name}},</p>
+            <div class="card">
+                <p>{%trans "Please check the details of this notification."%}</p>
+            </div>
+            <center>
+                <a href="{{context.event_url}}" class="button">{%trans "View Details"%}</a>
+            </center>
+        </div>
+        <div class="footer">
+            {{context.org_signature_html|safe}}
+        </div>
+    </div>
+</body>
+</html>

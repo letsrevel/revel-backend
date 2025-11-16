@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Query
 from ninja_extra import api_controller, route
-from ninja_extra.pagination import PageNumberPaginationExtra, paginate
+from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
@@ -28,7 +28,7 @@ class NotificationController(UserAwareController):
 
     @route.get(
         "",
-        response=PageNumberPaginationExtra.get_response_schema(NotificationSchema),
+        response=PaginatedResponseSchema[NotificationSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     def list_notifications(

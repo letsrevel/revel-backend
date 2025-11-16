@@ -10,7 +10,7 @@ class NotificationType(TextChoices):
     are handled separately in the accounts app and are NOT part of this system.
     """
 
-    # Ticket notifications
+    # Ticket notifications (need 1 version for recipients, one for owners/staff)
     TICKET_CREATED = "ticket_created"
     TICKET_UPDATED = "ticket_updated"
     TICKET_CANCELLED = "ticket_cancelled"
@@ -19,43 +19,40 @@ class NotificationType(TextChoices):
 
     # Event notifications
     EVENT_OPEN = "event_open"
-    EVENT_CREATED = "event_created"
     EVENT_UPDATED = "event_updated"
     EVENT_CANCELLED = "event_cancelled"
-    EVENT_REMINDER = "event_reminder"
+    EVENT_REMINDER = "event_reminder"  # Placeholder - requires Celery periodic task
 
     # RSVP notifications
     RSVP_CONFIRMATION = "rsvp_confirmation"
     RSVP_UPDATED = "rsvp_updated"
     RSVP_CANCELLED = "rsvp_cancelled"
 
-    # Potluck notifications
+    # Potluck notifications (need 1 version for recipients, one for owners/staff)
     POTLUCK_ITEM_CREATED = "potluck_item_created"
     POTLUCK_ITEM_UPDATED = "potluck_item_updated"
     POTLUCK_ITEM_CLAIMED = "potluck_item_claimed"
     POTLUCK_ITEM_UNCLAIMED = "potluck_item_unclaimed"
+    POTLUCK_ITEM_DELETED = "potluck_item_deleted"
 
     # Questionnaire notifications
-    QUESTIONNAIRE_SUBMITTED = "questionnaire_submitted"
-    QUESTIONNAIRE_EVALUATION_RESULT = "questionnaire_evaluation_result"
+    QUESTIONNAIRE_SUBMITTED = "questionnaire_submitted"  # (need 1 version for recipients, one for owners/staff)
+    QUESTIONNAIRE_EVALUATION_RESULT = "questionnaire_evaluation_result"  # (only needed for users)
 
     # Invitation notifications
     INVITATION_RECEIVED = "invitation_received"
-    INVITATION_CLAIMED = "invitation_claimed"
-    INVITATION_REVOKED = "invitation_revoked"
+    INVITATION_REQUEST_CREATED = "invitation_request_created"  # User requests invitation to event
 
     # Membership notifications
     MEMBERSHIP_GRANTED = "membership_granted"
     MEMBERSHIP_PROMOTED = "membership_promoted"
     MEMBERSHIP_REMOVED = "membership_removed"
+    MEMBERSHIP_REQUEST_CREATED = "membership_request_created"  # User requests to join organization
     MEMBERSHIP_REQUEST_APPROVED = "membership_request_approved"
     MEMBERSHIP_REQUEST_REJECTED = "membership_request_rejected"
 
     # Organization notifications
-    ORG_ANNOUNCEMENT = "org_announcement"
-
-    # System notifications
-    MALWARE_DETECTED = "malware_detected"
+    ORG_ANNOUNCEMENT = "org_announcement"  # Placeholder - requires API endpoint
 
 
 class DeliveryChannel(TextChoices):

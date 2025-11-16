@@ -3,7 +3,6 @@
 import base64
 from typing import Any
 
-from django.template.loader import render_to_string
 from django.utils.translation import gettext as _
 
 from events.models import Event, Ticket
@@ -16,8 +15,8 @@ from notifications.service.templates.registry import register_template
 class TicketCreatedTemplate(NotificationTemplate):
     """Template for TICKET_CREATED notification."""
 
-    def get_title(self, notification: Notification) -> str:
-        """Get title."""
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
         event_name = notification.context.get("event_name", "")
         ticket_holder_name = notification.context.get("ticket_holder_name")
 
@@ -27,25 +26,7 @@ class TicketCreatedTemplate(NotificationTemplate):
         # Notification to ticket holder
         return _("Ticket Confirmation for %(event)s") % {"event": event_name}
 
-    def get_body(self, notification: Notification) -> str:
-        """Get body."""
-        ctx = notification.context
-        ticket_holder_name = ctx.get("ticket_holder_name")
-
-        if ticket_holder_name:
-            # Notification to staff/owners
-            return _("%(holder)s's ticket for **%(event)s** has been confirmed. Reference: %(reference)s") % {
-                "holder": ticket_holder_name,
-                "event": ctx.get("event_name", ""),
-                "reference": ctx.get("ticket_reference", ""),
-            }
-        # Notification to ticket holder
-        return _("Your ticket for **%(event)s** has been confirmed! Your ticket reference is: %(reference)s") % {
-            "event": ctx.get("event_name", ""),
-            "reference": ctx.get("ticket_reference", ""),
-        }
-
-    def get_subject(self, notification: Notification) -> str:
+    def get_email_subject(self, notification: Notification) -> str:
         """Get email subject."""
         event_name = notification.context.get("event_name", "")
         ticket_holder_name = notification.context.get("ticket_holder_name")
@@ -56,19 +37,7 @@ class TicketCreatedTemplate(NotificationTemplate):
         # Notification to ticket holder
         return _("Your ticket for %(event)s") % {"event": event_name}
 
-    def get_text_body(self, notification: Notification) -> str:
-        """Get email text body."""
-        return render_to_string(
-            "notifications/emails/ticket_created.txt", {"user": notification.user, "context": notification.context}
-        )
-
-    def get_html_body(self, notification: Notification) -> str:
-        """Get email HTML body."""
-        return render_to_string(
-            "notifications/emails/ticket_created.html", {"user": notification.user, "context": notification.context}
-        )
-
-    def get_attachments(self, notification: Notification) -> dict[str, Any]:
+    def get_email_attachments(self, notification: Notification) -> dict[str, Any]:
         """Get attachments (ticket PDF + ICS).
 
         Conditionally includes PDF based on ticket status and payment method.
@@ -114,8 +83,8 @@ class TicketCreatedTemplate(NotificationTemplate):
 class TicketUpdatedTemplate(NotificationTemplate):
     """Template for TICKET_UPDATED notification."""
 
-    def get_title(self, notification: Notification) -> str:
-        """Get title."""
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
         event_name = notification.context.get("event_name", "")
         ticket_holder_name = notification.context.get("ticket_holder_name")
         action = notification.context.get("action", "updated")
@@ -130,26 +99,7 @@ class TicketUpdatedTemplate(NotificationTemplate):
         # Notification to ticket holder
         return _("Ticket Update for %(event)s") % {"event": event_name}
 
-    def get_body(self, notification: Notification) -> str:
-        """Get body."""
-        ctx = notification.context
-        action = ctx.get("action", "updated")
-        ticket_holder_name = ctx.get("ticket_holder_name")
-
-        if ticket_holder_name:
-            # Notification to staff/owners
-            return _("%(holder)s's ticket for **%(event)s** has been %(action)s.") % {
-                "holder": ticket_holder_name,
-                "event": ctx.get("event_name", ""),
-                "action": action,
-            }
-        # Notification to ticket holder
-        return _("Your ticket for **%(event)s** has been %(action)s.") % {
-            "event": ctx.get("event_name", ""),
-            "action": action,
-        }
-
-    def get_subject(self, notification: Notification) -> str:
+    def get_email_subject(self, notification: Notification) -> str:
         """Get email subject."""
         event_name = notification.context.get("event_name", "")
         ticket_holder_name = notification.context.get("ticket_holder_name")
@@ -165,19 +115,7 @@ class TicketUpdatedTemplate(NotificationTemplate):
         # Notification to ticket holder
         return _("Ticket Update - %(event)s") % {"event": event_name}
 
-    def get_text_body(self, notification: Notification) -> str:
-        """Get email text body."""
-        return render_to_string(
-            "notifications/emails/ticket_updated.txt", {"user": notification.user, "context": notification.context}
-        )
-
-    def get_html_body(self, notification: Notification) -> str:
-        """Get email HTML body."""
-        return render_to_string(
-            "notifications/emails/ticket_updated.html", {"user": notification.user, "context": notification.context}
-        )
-
-    def get_attachments(self, notification: Notification) -> dict[str, Any]:
+    def get_email_attachments(self, notification: Notification) -> dict[str, Any]:
         """Get attachments (ticket PDF + ICS).
 
         For ticket activations, include both PDF and ICS.
@@ -227,38 +165,16 @@ class TicketUpdatedTemplate(NotificationTemplate):
 class PaymentConfirmationTemplate(NotificationTemplate):
     """Template for PAYMENT_CONFIRMATION notification."""
 
-    def get_title(self, notification: Notification) -> str:
-        """Get title."""
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
         return _("Payment Confirmation")
 
-    def get_body(self, notification: Notification) -> str:
-        """Get body."""
-        ctx = notification.context
-        return _("Your payment of %(amount)s for %(event)s has been confirmed.") % {
-            "amount": ctx.get("amount", ""),
-            "event": ctx.get("event_name", ""),
-        }
-
-    def get_subject(self, notification: Notification) -> str:
+    def get_email_subject(self, notification: Notification) -> str:
         """Get email subject."""
         event_name = notification.context.get("event_name", "")
         return _("Payment Confirmation - %(event)s") % {"event": event_name}
 
-    def get_text_body(self, notification: Notification) -> str:
-        """Get email text body."""
-        return render_to_string(
-            "notifications/emails/payment_confirmation.txt",
-            {"user": notification.user, "context": notification.context},
-        )
-
-    def get_html_body(self, notification: Notification) -> str:
-        """Get email HTML body."""
-        return render_to_string(
-            "notifications/emails/payment_confirmation.html",
-            {"user": notification.user, "context": notification.context},
-        )
-
-    def get_attachments(self, notification: Notification) -> dict[str, Any]:
+    def get_email_attachments(self, notification: Notification) -> dict[str, Any]:
         """Get email attachments (PDF ticket and ICS calendar file)."""
         ticket_id = notification.context.get("ticket_id")
         event_id = notification.context.get("event_id")

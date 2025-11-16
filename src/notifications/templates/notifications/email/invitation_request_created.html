@@ -1,0 +1,25 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <h2>{% trans "New Invitation Request" %}</h2>
+
+    <p>{% blocktranslate with email=requester_email event=event_name %}<strong>{{ email }}</strong> has requested an invitation to <strong>{{ event }}</strong>.{% endblocktranslate %}</p>
+
+    <h3>{% trans "Request Details:" %}</h3>
+    <ul>
+        <li><strong>{% trans "Email:" %}</strong> {{ requester_email }}</li>
+        {% if requester_name %}<li><strong>{% trans "Name:" %}</strong> {{ requester_name }}</li>{% endif %}
+        {% if request_message %}
+        <li><strong>{% trans "Message:" %}</strong><br>{{ request_message }}</li>
+        {% endif %}
+    </ul>
+
+    <p><a href="{{ frontend_url }}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">{% trans "View Request" %}</a></p>
+
+    <p style="color: #666; font-size: 12px;">{% trans "This is an automated notification from your event management system." %}</p>
+</body>
+</html>

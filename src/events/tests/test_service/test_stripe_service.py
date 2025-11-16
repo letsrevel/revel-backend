@@ -516,6 +516,7 @@ class TestStripeEventHandler:
         mock_notification_signal: Mock,
         handler: stripe_service.StripeEventHandler,
         completed_payment: Payment,
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         """Test successful checkout session completion."""
         # Arrange
@@ -534,7 +535,8 @@ class TestStripeEventHandler:
         handler.event.__iter__.return_value = iter(event_dict_data.items())  # type: ignore[attr-defined]
 
         # Act
-        handler.handle_checkout_session_completed(handler.event)
+        with django_capture_on_commit_callbacks(execute=True):
+            handler.handle_checkout_session_completed(handler.event)
 
         # Assert
         completed_payment.refresh_from_db()
@@ -547,13 +549,19 @@ class TestStripeEventHandler:
         ticket.refresh_from_db()
         assert ticket.status == Ticket.TicketStatus.ACTIVE
 
-        # Verify notification signal was sent
-        mock_notification_signal.assert_called_once()
-        call_kwargs = mock_notification_signal.call_args.kwargs
-        assert call_kwargs["user"] == completed_payment.user
+        # Verify notification signals were sent
+        # We expect multiple notifications: PAYMENT_CONFIRMATION, and potentially TICKET_UPDATED/TICKET_CREATED
+        assert mock_notification_signal.called
         from notifications.enums import NotificationType
 
-        assert call_kwargs["notification_type"] == NotificationType.PAYMENT_CONFIRMATION
+        # Check that PAYMENT_CONFIRMATION was sent
+        payment_confirmation_calls = [
+            call
+            for call in mock_notification_signal.call_args_list
+            if call.kwargs["notification_type"] == NotificationType.PAYMENT_CONFIRMATION
+        ]
+        assert len(payment_confirmation_calls) == 1
+        assert payment_confirmation_calls[0].kwargs["user"] == completed_payment.user
 
     def test_handle_checkout_session_not_complete_is_noop(
         self,
@@ -573,15 +581,18 @@ class TestStripeEventHandler:
         completed_payment.refresh_from_db()
         assert completed_payment.status == Payment.PaymentStatus.PENDING  # Status remains unchanged
 
-    @patch("events.tasks.send_payment_confirmation_email.delay")
     def test_handle_checkout_session_completed_idempotent(
         self,
-        mock_email_task: Mock,
         handler: stripe_service.StripeEventHandler,
         completed_payment: Payment,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Test that duplicate webhooks are handled idempotently."""
+        """Test that duplicate webhooks are handled idempotently.
+
+        When a payment is already SUCCEEDED and we receive another webhook,
+        the status doesn't change and no duplicate notification is sent
+        (notifications are only sent when status changes via signal).
+        """
         # Arrange
         completed_payment.status = Payment.PaymentStatus.SUCCEEDED
         completed_payment.save()
@@ -592,9 +603,10 @@ class TestStripeEventHandler:
         # Act
         handler.handle_checkout_session_completed(handler.event)
 
-        # Assert
+        # Assert - payment status remains unchanged
+        completed_payment.refresh_from_db()
+        assert completed_payment.status == Payment.PaymentStatus.SUCCEEDED
         assert "stripe_webhook_duplicate_payment_success" in caplog.text
-        mock_email_task.assert_not_called()
 
     def test_handle_checkout_session_completed_payment_not_found(
         self,

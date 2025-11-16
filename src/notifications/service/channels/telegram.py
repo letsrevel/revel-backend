@@ -1,11 +1,17 @@
 """Telegram notification channel implementation."""
 
 import structlog
-from django.utils import timezone
+from django.conf import settings
+from django.utils import timezone, translation
 
+from common.fields import render_markdown
 from notifications.enums import DeliveryChannel, DeliveryStatus
 from notifications.models import Notification, NotificationDelivery
 from notifications.service.channels.base import NotificationChannel
+from notifications.service.templates.registry import get_template
+from notifications.utils import sanitize_for_telegram
+from telegram.notification_keyboards import get_notification_keyboard
+from telegram.tasks import send_message_task
 
 logger = structlog.get_logger(__name__)
 
@@ -124,6 +130,10 @@ class TelegramChannel(NotificationChannel):
             # Format message for Telegram
             message = self._format_telegram_message(notification)
 
+            # Build keyboard if applicable
+            keyboard = get_notification_keyboard(notification)
+            keyboard_dict = keyboard.model_dump(mode="json") if keyboard else None
+
             # Prepare callback data for status update
             callback_data = {
                 "module": "notifications.service.channels.telegram",
@@ -134,11 +144,10 @@ class TelegramChannel(NotificationChannel):
             }
 
             # Send via telegram task with callback
-            from telegram.tasks import send_message_task
-
             result = send_message_task.delay(
                 tg_user.telegram_id,
                 message=message,
+                reply_markup=keyboard_dict,
                 callback_data=callback_data,
             )
 
@@ -177,14 +186,52 @@ class TelegramChannel(NotificationChannel):
             return False
 
     def _format_telegram_message(self, notification: Notification) -> str:
-        """Format notification for Telegram (plain text with markdown).
+        """Format notification for Telegram using HTML.
+
+        The Telegram bot is configured to use HTML parse mode (see telegram/bot.py).
+        We render a Telegram-specific template (markdown), convert it to HTML via
+        MarkdownField's render_markdown(), and then sanitize for Telegram's limited
+        HTML support.
+
+        Telegram supports: <b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>,
+        <code>, <pre>, <a href="">
 
         Args:
             notification: The notification to format
 
         Returns:
-            Formatted message for Telegram
+            Formatted HTML message for Telegram
         """
-        # TODO: Use template registry for telegram-specific formatting
-        # For now, simple formatting
-        return f"**{notification.title}**\n\n{notification.body}"
+        # Get user's language
+        user_language = getattr(notification.user, "language", settings.LANGUAGE_CODE)
+
+        try:
+            # Get template for this notification type
+            template = get_template(notification.notification_type)
+
+            # Render telegram-specific body in user's language
+            with translation.override(user_language):
+                telegram_body_md = template.get_telegram_body(notification)
+
+            # Convert markdown to HTML
+            html_body = render_markdown(telegram_body_md)
+
+            # Sanitize for Telegram (remove unsupported tags)
+            telegram_html = sanitize_for_telegram(html_body)
+
+            # Add title in bold
+            return f"<b>{notification.title}</b>\n\n{telegram_html}"
+
+        except Exception as e:
+            # Fallback to simple formatting if template fails
+            logger.warning(
+                "telegram_template_render_failed",
+                notification_id=str(notification.id),
+                notification_type=notification.notification_type,
+                error=str(e),
+            )
+            # Use notification.body_html as fallback (already rendered markdown)
+            # body_html is a property added dynamically by MarkdownField
+            body_html = getattr(notification, "body_html", notification.body or "")
+            fallback_html = sanitize_for_telegram(str(body_html))
+            return f"<b>{notification.title}</b>\n\n{fallback_html}"

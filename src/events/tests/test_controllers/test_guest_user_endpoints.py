@@ -184,7 +184,7 @@ def existing_guest_user(django_user_model: type[RevelUser]) -> RevelUser:
 class TestGuestRSVP:
     """Test guest RSVP endpoint."""
 
-    @patch("events.tasks.send_guest_rsvp_confirmation.delay")
+    @patch("common.tasks.send_guest_rsvp_confirmation.delay")
     def test_guest_rsvp_success(self, mock_send_email: Mock, guest_event: Event) -> None:
         """Test successful guest RSVP initiates email confirmation."""
         # Arrange
@@ -280,7 +280,7 @@ class TestGuestRSVP:
         data = response.json()
         assert "already exists" in data["detail"].lower() or "log in" in data["detail"].lower()
 
-    @patch("events.tasks.send_guest_rsvp_confirmation.delay")
+    @patch("common.tasks.send_guest_rsvp_confirmation.delay")
     def test_guest_rsvp_updates_existing_guest_user(
         self, mock_send_email: Mock, guest_event: Event, existing_guest_user: RevelUser
     ) -> None:
@@ -344,7 +344,7 @@ class TestGuestRSVP:
 class TestGuestTicketCheckout:
     """Test guest ticket checkout endpoint for fixed-price tiers."""
 
-    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    @patch("common.tasks.send_guest_ticket_confirmation.delay")
     def test_guest_checkout_free_ticket_sends_confirmation(
         self, mock_send_email: Mock, guest_event_with_tickets: Event, free_tier: TicketTier
     ) -> None:
@@ -531,7 +531,7 @@ class TestGuestTicketCheckout:
 class TestGuestPWYCCheckout:
     """Test guest PWYC ticket checkout endpoint."""
 
-    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    @patch("common.tasks.send_guest_ticket_confirmation.delay")
     def test_guest_pwyc_checkout_offline_success(
         self, mock_send_email: Mock, guest_event_with_tickets: Event, pwyc_tier: TicketTier
     ) -> None:
@@ -1010,7 +1010,7 @@ class TestGuestServiceLayer:
         assert payload.event_id == guest_event_with_tickets.id
         assert payload.tier_id == free_tier.id
 
-    @patch("events.tasks.send_guest_rsvp_confirmation.delay")
+    @patch("common.tasks.send_guest_rsvp_confirmation.delay")
     def test_handle_guest_rsvp(self, mock_send_email: Mock, guest_event: Event) -> None:
         """Test handle_guest_rsvp service function."""
         # Act
@@ -1029,7 +1029,7 @@ class TestGuestServiceLayer:
         # Verify email was sent
         mock_send_email.assert_called_once()
 
-    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    @patch("common.tasks.send_guest_ticket_confirmation.delay")
     def test_handle_guest_ticket_checkout_offline(
         self, mock_send_email: Mock, guest_event_with_tickets: Event, offline_tier: TicketTier
     ) -> None:
@@ -1122,7 +1122,7 @@ class TestGuestServiceLayer:
 class TestGuestUserEdgeCases:
     """Test edge cases for guest user functionality."""
 
-    @patch("events.tasks.send_guest_rsvp_confirmation.delay")
+    @patch("common.tasks.send_guest_rsvp_confirmation.delay")
     def test_empty_first_name(self, mock_send_email: Mock, guest_event: Event) -> None:
         """Test that empty first/last names are handled with 422."""
         # Arrange
@@ -1193,7 +1193,7 @@ class TestGuestUserEdgeCases:
         }
 
         # Act
-        with patch("events.tasks.send_guest_ticket_confirmation.delay"):
+        with patch("common.tasks.send_guest_ticket_confirmation.delay"):
             response = client.post(url, data=payload, content_type="application/json")
 
         # Assert
@@ -1215,7 +1215,7 @@ class TestGuestUserEdgeCases:
         }
 
         # Act
-        with patch("events.tasks.send_guest_ticket_confirmation.delay"):
+        with patch("common.tasks.send_guest_ticket_confirmation.delay"):
             response = client.post(url, data=payload, content_type="application/json")
 
         # Assert
@@ -1234,8 +1234,7 @@ class TestGuestEmailTasks:
         """Test that send_guest_rsvp_confirmation task creates email correctly."""
         from django.core import mail
 
-        from common.tasks import to_safe_email_address
-        from events.tasks import send_guest_rsvp_confirmation
+        from common.tasks import send_guest_rsvp_confirmation, to_safe_email_address
 
         # Arrange
         email = "test@example.com"
@@ -1263,8 +1262,7 @@ class TestGuestEmailTasks:
         """Test that send_guest_ticket_confirmation task creates email correctly."""
         from django.core import mail
 
-        from common.tasks import to_safe_email_address
-        from events.tasks import send_guest_ticket_confirmation
+        from common.tasks import send_guest_ticket_confirmation, to_safe_email_address
 
         # Arrange
         email = "test@example.com"
@@ -1292,7 +1290,7 @@ class TestGuestEmailTasks:
         """Test that RSVP email contains proper confirmation link."""
         from django.core import mail
 
-        from events.tasks import send_guest_rsvp_confirmation
+        from common.tasks import send_guest_rsvp_confirmation
 
         # Arrange
         email = "test@example.com"
@@ -1313,7 +1311,7 @@ class TestGuestEmailTasks:
         """Test that ticket email contains proper confirmation link."""
         from django.core import mail
 
-        from events.tasks import send_guest_ticket_confirmation
+        from common.tasks import send_guest_ticket_confirmation
 
         # Arrange
         email = "test@example.com"
@@ -1331,7 +1329,7 @@ class TestGuestEmailTasks:
         """Test that email subjects use internationalization strings."""
         from django.core import mail
 
-        from events.tasks import send_guest_rsvp_confirmation
+        from common.tasks import send_guest_rsvp_confirmation
 
         # Act
         send_guest_rsvp_confirmation("test@example.com", "token", guest_event.name)
@@ -1501,7 +1499,7 @@ class TestGuestFlowIntegration:
 class TestGuestDuplicateActions:
     """Test handling of duplicate guest actions."""
 
-    @patch("events.tasks.send_guest_rsvp_confirmation.delay")
+    @patch("common.tasks.send_guest_rsvp_confirmation.delay")
     def test_guest_initiates_rsvp_twice_updates_name(self, mock_send_email: Mock, guest_event: Event) -> None:
         """Test that initiating RSVP twice updates the guest user's name."""
         # First RSVP
@@ -1532,7 +1530,7 @@ class TestGuestDuplicateActions:
         # Assert: Email sent twice (once for each attempt)
         assert mock_send_email.call_count == 2
 
-    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    @patch("common.tasks.send_guest_ticket_confirmation.delay")
     def test_guest_initiates_ticket_purchase_twice(
         self, mock_send_email: Mock, guest_event_with_tickets: Event, free_tier: TicketTier
     ) -> None:
@@ -1822,7 +1820,7 @@ class TestGuestConcurrency:
         data = response2.json()
         assert "full" in data["reason"].lower()
 
-    @patch("events.tasks.send_guest_rsvp_confirmation.delay")
+    @patch("common.tasks.send_guest_rsvp_confirmation.delay")
     def test_guest_initiating_rsvp_with_concurrent_capacity_changes(
         self, mock_send_email: Mock, guest_event: Event
     ) -> None:

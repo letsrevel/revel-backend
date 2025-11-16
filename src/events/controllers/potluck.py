@@ -61,7 +61,7 @@ class PotluckController(UserAwareController):
         POST /{event_id}/potluck/{item_id}/claim. Requires permission to create potluck items.
         """
         event = self.get_object_or_exception(self.get_event_queryset(), pk=event_id)
-        return potluck_service.create_potluck_item(event, **payload.model_dump(), created_by=self.user())
+        return potluck_service.create_potluck_item(event, created_by=self.user(), **payload.model_dump())
 
     @route.put(
         "/{item_id}",

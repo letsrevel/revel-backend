@@ -58,11 +58,16 @@ class NotificationDigest:
         }
 
         # Build bodies
+        from common.models import SiteSettings
+
+        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+
         context = {
             "user": self.user,
             "total_count": total_count,
             "grouped_notifications": grouped,
             "digest_date": timezone.now(),
+            "frontend_url": frontend_base_url,
         }
 
         text_body = render_to_string("notifications/emails/digest.txt", context)

@@ -5,16 +5,16 @@ the structure of the context data. This ensures type safety and makes
 it clear what data is required for each notification type.
 """
 
-from typing import Any, NotRequired, TypedDict
+import typing as t
 
 from notifications.enums import NotificationType
 
 
-class BaseNotificationContext(TypedDict):
+class BaseNotificationContext(t.TypedDict):
     """Base context for all notifications."""
 
     # Frontend URL for deep linking
-    frontend_url: NotRequired[str]
+    frontend_url: t.NotRequired[str]
 
 
 # ===== Ticket Contexts =====
@@ -35,7 +35,7 @@ class TicketCreatedContext(BaseNotificationContext):
     tier_price: str
     quantity: int
     total_price: str
-    qr_code_url: NotRequired[str]
+    qr_code_url: t.NotRequired[str]
 
 
 class TicketUpdatedContext(BaseNotificationContext):
@@ -47,8 +47,8 @@ class TicketUpdatedContext(BaseNotificationContext):
     event_name: str
     old_status: str
     new_status: str
-    changed_by: NotRequired[str]
-    reason: NotRequired[str]
+    changed_by: t.NotRequired[str]
+    reason: t.NotRequired[str]
 
 
 class PaymentConfirmationContext(BaseNotificationContext):
@@ -61,7 +61,7 @@ class PaymentConfirmationContext(BaseNotificationContext):
     event_start: str
     payment_amount: str
     payment_method: str
-    receipt_url: NotRequired[str]
+    receipt_url: t.NotRequired[str]
 
 
 class TicketRefundedContext(BaseNotificationContext):
@@ -72,7 +72,7 @@ class TicketRefundedContext(BaseNotificationContext):
     event_id: str
     event_name: str
     refund_amount: str
-    refund_reason: NotRequired[str]
+    refund_reason: t.NotRequired[str]
 
 
 # ===== Event Contexts =====
@@ -87,25 +87,12 @@ class EventOpenContext(BaseNotificationContext):
     event_start: str
     event_end: str
     event_location: str
-    event_image_url: NotRequired[str]
+    event_image_url: t.NotRequired[str]
     organization_id: str
     organization_name: str
     rsvp_required: bool
     tickets_available: bool
     questionnaire_required: bool
-
-
-class EventCreatedContext(BaseNotificationContext):
-    """Context for EVENT_CREATED notification."""
-
-    event_id: str
-    event_name: str
-    event_description: str
-    event_start: str
-    event_end: str
-    event_location: str
-    organization_id: str
-    organization_name: str
 
 
 class EventUpdatedContext(BaseNotificationContext):
@@ -126,8 +113,8 @@ class EventReminderContext(BaseNotificationContext):
     event_start: str
     event_location: str
     days_until: int  # 14, 7, or 1
-    rsvp_status: NotRequired[str]
-    ticket_reference: NotRequired[str]
+    rsvp_status: t.NotRequired[str]
+    ticket_reference: t.NotRequired[str]
 
 
 class EventCancelledContext(BaseNotificationContext):
@@ -136,7 +123,7 @@ class EventCancelledContext(BaseNotificationContext):
     event_id: str
     event_name: str
     event_start: str
-    cancellation_reason: NotRequired[str]
+    cancellation_reason: t.NotRequired[str]
     refund_available: bool
 
 
@@ -188,8 +175,11 @@ class PotluckItemContext(BaseNotificationContext):
     event_id: str
     event_name: str
     action: str  # "created", "updated", "claimed", "unclaimed"
-    changed_by_username: NotRequired[str]
-    assigned_to_username: NotRequired[str]
+    item_type: t.NotRequired[str]
+    quantity: t.NotRequired[str]
+    note: t.NotRequired[str]
+    actor_name: t.NotRequired[str]  # Who performed the action (created/claimed)
+    is_organizer: t.NotRequired[bool]  # Whether recipient is org staff/owner
 
 
 # ===== Questionnaire Contexts =====
@@ -204,8 +194,8 @@ class QuestionnaireSubmittedContext(BaseNotificationContext):
     submitter_name: str
     organization_id: str
     organization_name: str
-    event_id: NotRequired[str]
-    event_name: NotRequired[str]
+    event_id: t.NotRequired[str]
+    event_name: t.NotRequired[str]
 
 
 class QuestionnaireEvaluationContext(BaseNotificationContext):
@@ -214,9 +204,11 @@ class QuestionnaireEvaluationContext(BaseNotificationContext):
     submission_id: str
     questionnaire_name: str
     evaluation_status: str  # ACCEPTED, REJECTED, PENDING_PAYMENT
-    event_id: NotRequired[str]
-    event_name: NotRequired[str]
-    feedback: NotRequired[str]
+    organization_name: str
+    evaluation_score: t.NotRequired[str]
+    evaluation_comments: t.NotRequired[str]
+    event_id: t.NotRequired[str]
+    event_name: t.NotRequired[str]
 
 
 # ===== Invitation Contexts =====
@@ -228,28 +220,26 @@ class InvitationReceivedContext(BaseNotificationContext):
     invitation_id: str
     event_id: str
     event_name: str
+    event_description: str
     event_start: str
-    invited_by_name: str
-    personal_message: NotRequired[str]
+    event_end: str
+    event_location: str
+    organization_id: str
+    organization_name: str
+    personal_message: t.NotRequired[str]
+    rsvp_required: bool
+    tickets_required: bool
 
 
-class InvitationClaimedContext(BaseNotificationContext):
-    """Context for INVITATION_CLAIMED notification (to organizers)."""
+class InvitationRequestCreatedContext(BaseNotificationContext):
+    """Context for INVITATION_REQUEST_CREATED notification (to organizers)."""
 
-    invitation_id: str
+    request_id: str
     event_id: str
     event_name: str
-    claimed_by_email: str
-    claimed_by_name: str
-
-
-class InvitationRevokedContext(BaseNotificationContext):
-    """Context for INVITATION_REVOKED notification."""
-
-    invitation_id: str
-    event_id: str
-    event_name: str
-    revoked_by_name: NotRequired[str]
+    requester_email: str
+    requester_name: t.NotRequired[str]
+    request_message: t.NotRequired[str]
 
 
 # ===== Membership Contexts =====
@@ -262,18 +252,22 @@ class MembershipContext(BaseNotificationContext):
     organization_name: str
     role: str  # "member", "staff", "owner"
     action: str  # "granted", "promoted", "removed"
-    actioned_by_name: NotRequired[str]
+    actioned_by_name: t.NotRequired[str]
+
+
+class MembershipRequestCreatedContext(BaseNotificationContext):
+    """Context for MEMBERSHIP_REQUEST_CREATED notification (to organizers)."""
+
+    request_id: str
+    organization_id: str
+    organization_name: str
+    requester_id: str
+    requester_name: str
+    requester_email: str
+    request_message: t.NotRequired[str]
 
 
 # ===== System Contexts =====
-
-
-class MalwareDetectedContext(BaseNotificationContext):
-    """Context for MALWARE_DETECTED notification."""
-
-    file_name: str
-    findings: dict[str, Any]
-    quarantine_id: NotRequired[str]
 
 
 class OrgAnnouncementContext(BaseNotificationContext):
@@ -293,7 +287,6 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.TICKET_REFUNDED: TicketRefundedContext,
     NotificationType.PAYMENT_CONFIRMATION: PaymentConfirmationContext,
     NotificationType.EVENT_OPEN: EventOpenContext,
-    NotificationType.EVENT_CREATED: EventCreatedContext,
     NotificationType.EVENT_UPDATED: EventUpdatedContext,
     NotificationType.EVENT_REMINDER: EventReminderContext,
     NotificationType.EVENT_CANCELLED: EventCancelledContext,
@@ -304,22 +297,22 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.POTLUCK_ITEM_UPDATED: PotluckItemContext,
     NotificationType.POTLUCK_ITEM_CLAIMED: PotluckItemContext,
     NotificationType.POTLUCK_ITEM_UNCLAIMED: PotluckItemContext,
+    NotificationType.POTLUCK_ITEM_DELETED: PotluckItemContext,
     NotificationType.QUESTIONNAIRE_SUBMITTED: QuestionnaireSubmittedContext,
     NotificationType.QUESTIONNAIRE_EVALUATION_RESULT: QuestionnaireEvaluationContext,
     NotificationType.INVITATION_RECEIVED: InvitationReceivedContext,
-    NotificationType.INVITATION_CLAIMED: InvitationClaimedContext,
-    NotificationType.INVITATION_REVOKED: InvitationRevokedContext,
+    NotificationType.INVITATION_REQUEST_CREATED: InvitationRequestCreatedContext,
     NotificationType.MEMBERSHIP_GRANTED: MembershipContext,
     NotificationType.MEMBERSHIP_PROMOTED: MembershipContext,
     NotificationType.MEMBERSHIP_REMOVED: MembershipContext,
+    NotificationType.MEMBERSHIP_REQUEST_CREATED: MembershipRequestCreatedContext,
     NotificationType.MEMBERSHIP_REQUEST_APPROVED: MembershipContext,
     NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipContext,
-    NotificationType.MALWARE_DETECTED: MalwareDetectedContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,
 }
 
 
-def validate_notification_context(notification_type: NotificationType, context: dict[str, Any]) -> None:
+def validate_notification_context(notification_type: NotificationType, context: dict[str, t.Any]) -> None:
     """Validate that context matches expected schema for notification type.
 
     Args:
@@ -330,7 +323,7 @@ def validate_notification_context(notification_type: NotificationType, context: 
         ValueError: If context is invalid or notification type has no schema
     """
     schema = NOTIFICATION_CONTEXT_SCHEMAS.get(notification_type)
-    if not schema:
+    if schema is None:
         raise ValueError(f"No schema defined for notification type: {notification_type}")
 
     # TypedDict validation happens at type-check time with mypy

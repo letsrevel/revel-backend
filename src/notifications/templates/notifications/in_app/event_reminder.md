@@ -1,0 +1,24 @@
+{% load i18n %}{% if context.days_until == 1 %}
+⏰ {% blocktranslate with event=context.event_name %}Reminder: **{{ event }}** is tomorrow!{% endblocktranslate %}
+{% else %}
+⏰ {% blocktranslate with event=context.event_name days=context.days_until %}Reminder: **{{ event }}** is in **{{ days }} days**{% endblocktranslate %}
+{% endif %}
+
+**{% trans "Event Details:" %}**
+- 📅 {{ context.event_start_formatted }}
+{% if context.event_end_formatted %}- {% trans "Until:" %} {{ context.event_end_formatted }}{% endif %}
+{% if context.event_location %}- 📍 {{ context.event_location }}{% endif %}
+
+{% if context.ticket_id %}
+🎫 **{% trans "Your Ticket:" %}**
+- {% trans "Ticket ID:" %} `{{ context.ticket_id }}`
+- {% trans "Tier:" %} {{ context.tier_name }}
+{% endif %}
+
+{% if context.reminder_message %}
+{{ context.reminder_message }}
+{% endif %}
+
+[{% trans "View Event" %}]({{ context.event_url }})
+
+{% trans "See you there!" %}
