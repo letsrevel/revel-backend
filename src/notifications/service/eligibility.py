@@ -244,9 +244,7 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
 
     # Get unique users with preferences prefetched to avoid N+1 queries
     potential_users = (
-        RevelUser.objects.filter(participants_with_prefs_q)
-        .select_related("notification_preferences")
-        .distinct()
+        RevelUser.objects.filter(participants_with_prefs_q).select_related("notification_preferences").distinct()
     )
 
     # Filter based on notification preferences and participation rules

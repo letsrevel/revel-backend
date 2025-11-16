@@ -5,6 +5,7 @@ Focus is on testing business logic and who gets notified, not the delivery pipel
 """
 
 import typing as t
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
@@ -144,7 +145,7 @@ class TestEventUpdate:
 
         # Act - Update event name and start time
         public_event.name = "Updated Event Name"
-        public_event.start = timezone.now() + timezone.timedelta(days=10)
+        public_event.start = timezone.now() + timedelta(days=10)
         public_event.save(update_fields=["name", "start"])
 
         # Assert - Participant should be notified
@@ -419,9 +420,7 @@ class TestInvitationRequest:
         assert notification.context["requester_email"] == public_user.email
         assert notification.context["request_message"] == "Please invite me!"
 
-    def test_invitation_received_notifies_invited_user(
-        self, private_event: Event, public_user: RevelUser
-    ) -> None:
+    def test_invitation_received_notifies_invited_user(self, private_event: Event, public_user: RevelUser) -> None:
         """Test that receiving an invitation notifies the invited user.
 
         When a user is invited to an event, they should receive a notification
@@ -631,9 +630,7 @@ class TestNotificationEligibility:
         )
 
         prefs = member_user.notification_preferences
-        prefs.notification_type_settings = {
-            NotificationType.EVENT_CANCELLED: {"enabled": False, "channels": []}
-        }
+        prefs.notification_type_settings = {NotificationType.EVENT_CANCELLED: {"enabled": False, "channels": []}}
         prefs.save()
 
         # Act - Cancel event
@@ -677,9 +674,7 @@ class TestNotificationEligibility:
         assert public_user.id in notified_users
         assert member_user.id not in notified_users
 
-    def test_ticket_status_change_deduplication(
-        self, public_event: Event, member_user: RevelUser
-    ) -> None:
+    def test_ticket_status_change_deduplication(self, public_event: Event, member_user: RevelUser) -> None:
         """Test that rapidly changing ticket status doesn't create duplicate notifications.
 
         If ticket status changes multiple times in quick succession, each change
