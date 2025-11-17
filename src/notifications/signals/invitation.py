@@ -78,7 +78,7 @@ def handle_invitation_request_created(
 
         # Get frontend URL
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
-        frontend_url = f"{frontend_base_url}/events/{event.id}/invitation-requests"
+        frontend_url = f"{frontend_base_url}/org/{event.organization.slug}/admin/events/{event.id}/invitations"
 
         # Notify all staff and owners of the event's organization
         staff_and_owners = get_organization_staff_and_owners(event.organization.id)

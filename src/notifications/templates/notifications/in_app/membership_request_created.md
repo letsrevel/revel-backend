@@ -1,7 +1,7 @@
-{% load i18n %}**{{ requester_name }}** {% trans "requested to join" %} **{{ organization_name }}**
+{% load i18n %}**{{ context.requester_name }}** {% trans "requested to join" %} **{{ context.organization_name }}**
 
-{% if request_message %}
-> {{ request_message }}
+{% if context.request_message %}
+> {{ context.request_message }}
 {% endif %}
 
-[{% trans "View Request" %}]({{ frontend_url }})
+[{% trans "View Request" %}]({{ context.frontend_url }})

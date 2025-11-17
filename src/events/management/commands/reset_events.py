@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Q
 
 from accounts.models import RevelUser
 from events.models import Organization
@@ -66,7 +67,7 @@ class Command(BaseCommand):
         with transaction.atomic():
             # Count objects before deletion
             org_count = Organization.objects.count()
-            user_count = RevelUser.objects.filter(email__endswith="@example.com").count()
+            user_count = RevelUser.objects.filter(~Q(email__endswith="@letsrevel.io")).count()
 
             self.stdout.write(
                 self.style.WARNING(f"Deleting {org_count} organizations and {user_count} @example.com users...")

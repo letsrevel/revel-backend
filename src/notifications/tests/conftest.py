@@ -59,13 +59,17 @@ def notification(regular_user: RevelUser) -> Notification:
             "event_id": str(uuid.uuid4()),
             "event_name": "Test Event",
             "event_start": "2025-12-01T18:00:00Z",
+            "event_start_formatted": "Saturday, December 01, 2025 at 6:00 PM UTC",
             "event_location": "Test Venue",
+            "event_url": "https://example.com/events/test",
             "organization_id": str(uuid.uuid4()),
             "organization_name": "Test Org",
             "tier_name": "General Admission",
             "tier_price": "10.00",
+            "ticket_status": "active",
             "quantity": 1,
             "total_price": "10.00",
+            "payment_method": "online",
         },
     )
 
@@ -90,14 +94,17 @@ def digest_notifications(regular_user: RevelUser) -> list[Notification]:
 
     notifications = []
     for i in range(3):
+        event_start = timezone.now() + timedelta(days=i + 1)
         notif = create_notification(
             notification_type=NotificationType.EVENT_REMINDER,
             user=regular_user,
             context={
                 "event_id": str(uuid.uuid4()),
                 "event_name": f"Event {i + 1}",
-                "event_start": (timezone.now() + timedelta(days=i + 1)).isoformat(),
+                "event_start": event_start.isoformat(),
+                "event_start_formatted": f"Event starting in {i + 1} days",
                 "event_location": "Test Venue",
+                "event_url": f"https://example.com/events/test-{i}",
                 "days_until": i + 1,
             },
         )

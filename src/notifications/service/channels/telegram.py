@@ -143,12 +143,16 @@ class TelegramChannel(NotificationChannel):
                 },
             }
 
+            # Get QR data (ticket ID for QR code) if applicable
+            qr_data = self._get_qr_data(notification)
+
             # Send via telegram task with callback
             result = send_message_task.delay(
                 tg_user.telegram_id,
                 message=message,
                 reply_markup=keyboard_dict,
                 callback_data=callback_data,
+                qr_data=qr_data,
             )
 
             # Mark as PENDING (will be updated by callback)
@@ -184,6 +188,36 @@ class TelegramChannel(NotificationChannel):
             )
 
             return False
+
+    def _get_qr_data(self, notification: Notification) -> str | None:
+        """Get QR data for ticket notifications (ticket ID for QR code generation).
+
+        Args:
+            notification: The notification to check for QR code attachment
+
+        Returns:
+            Ticket ID string for QR code generation, or None if no QR code needed
+        """
+        from notifications.enums import NotificationType
+
+        # Send QR code for ticket-related notifications
+        ticket_notification_types = {
+            NotificationType.TICKET_CREATED,
+            NotificationType.TICKET_UPDATED,
+        }
+
+        if notification.notification_type in ticket_notification_types:
+            # Only send QR code to ticket holder, not to staff/owners
+            ticket_holder_name = notification.context.get("ticket_holder_name")
+            if ticket_holder_name:
+                # This is a notification to staff/owners, don't send QR code
+                return None
+
+            ticket_id = notification.context.get("ticket_id")
+            if ticket_id:
+                return str(ticket_id)
+
+        return None
 
     def _format_telegram_message(self, notification: Notification) -> str:
         """Format notification for Telegram using HTML.

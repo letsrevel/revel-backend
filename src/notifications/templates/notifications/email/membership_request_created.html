@@ -7,18 +7,18 @@
 <body>
     <h2>{% trans "New Membership Request" %}</h2>
 
-    <p>{% blocktranslate with name=requester_name org=organization_name %}<strong>{{ name }}</strong> has requested to join <strong>{{ org }}</strong>.{% endblocktranslate %}</p>
+    <p>{% blocktranslate with name=context.requester_name org=context.organization_name %}<strong>{{ name }}</strong> has requested to join <strong>{{ org }}</strong>.{% endblocktranslate %}</p>
 
     <h3>{% trans "Request Details:" %}</h3>
     <ul>
-        <li><strong>{% trans "Name:" %}</strong> {{ requester_name }}</li>
-        <li><strong>{% trans "Email:" %}</strong> {{ requester_email }}</li>
-        {% if request_message %}
-        <li><strong>{% trans "Message:" %}</strong><br>{{ request_message }}</li>
+        <li><strong>{% trans "Name:" %}</strong> {{ context.requester_name }}</li>
+        <li><strong>{% trans "Email:" %}</strong> {{ context.requester_email }}</li>
+        {% if context.request_message %}
+        <li><strong>{% trans "Message:" %}</strong><br>{{ context.request_message }}</li>
         {% endif %}
     </ul>
 
-    <p><a href="{{ frontend_url }}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">{% trans "View Request" %}</a></p>
+    <p><a href="{{ context.frontend_url }}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">{% trans "View Request" %}</a></p>
 
     <p style="color: #666; font-size: 12px;">{% trans "This is an automated notification from your organization management system." %}</p>
 </body>

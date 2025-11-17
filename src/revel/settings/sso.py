@@ -19,4 +19,6 @@ GOOGLE_SSO_SUPERUSER_LIST = [
 _GOOGLE_SSO_STAFF_LIST = [_email for _email in config("GOOGLE_SSO_STAFF_LIST", cast=Csv(), default="") if "@" in _email]
 GOOGLE_SSO_STAFF_LIST = GOOGLE_SSO_SUPERUSER_LIST + _GOOGLE_SSO_STAFF_LIST
 
+SSO_SHOW_FORM_ON_ADMIN_PAGE = config("SSO_SHOW_FORM_ON_ADMIN_PAGE", cast=bool, default=True)
+
 # more settings: https://megalus.github.io/django-google-sso/settings/

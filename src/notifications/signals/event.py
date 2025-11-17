@@ -51,25 +51,43 @@ def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
     transaction.on_commit(send_cancellation_notifications)
 
 
-def _handle_event_updated(sender: type[Event], instance: Event, changed_fields: list[str]) -> None:
+def _handle_event_updated(
+    sender: type[Event],
+    instance: Event,
+    changed_fields: list[str],
+    old_values: dict[str, str],
+    new_values: dict[str, str],
+) -> None:
     """Handle EVENT_UPDATED notification."""
+    from django.utils.dateformat import format as date_format
 
     def send_update_notifications() -> None:
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
         eligible_users = get_eligible_users_for_event_notification(instance, NotificationType.EVENT_UPDATED)
 
+        event_start_formatted = date_format(instance.start, "l, F j, Y \\a\\t g:i A T") if instance.start else ""
+        event_end_formatted = date_format(instance.end, "l, F j, Y \\a\\t g:i A T") if instance.end else None
+        event_location = instance.address or (instance.city.name if instance.city else "")
+
         for user in eligible_users:
+            context = {
+                "event_id": str(instance.id),
+                "event_name": instance.name,
+                "event_start_formatted": event_start_formatted,
+                "event_location": event_location,
+                "event_url": f"{frontend_base_url}/events/{instance.id}",
+                "changed_fields": changed_fields,
+                "old_values": old_values,
+                "new_values": new_values,
+            }
+            if event_end_formatted:
+                context["event_end_formatted"] = event_end_formatted
+
             notification_requested.send(
                 sender=sender,
                 user=user,
                 notification_type=NotificationType.EVENT_UPDATED,
-                context={
-                    "event_id": str(instance.id),
-                    "event_name": instance.name,
-                    "event_start": instance.start.isoformat() if instance.start else "",
-                    "changed_fields": ", ".join(changed_fields),
-                    "frontend_url": f"{frontend_base_url}/events/{instance.id}",
-                },
+                context=context,
             )
 
         logger.info(
@@ -82,7 +100,9 @@ def _handle_event_updated(sender: type[Event], instance: Event, changed_fields: 
     transaction.on_commit(send_update_notifications)
 
 
-def _detect_field_changes(instance: Event, previous_state: dict[str, t.Any]) -> list[str]:
+def _detect_field_changes(
+    instance: Event, previous_state: dict[str, t.Any]
+) -> tuple[list[str], dict[str, str], dict[str, str]]:
     """Detect which important fields changed.
 
     Args:
@@ -90,8 +110,10 @@ def _detect_field_changes(instance: Event, previous_state: dict[str, t.Any]) -> 
         previous_state: Dictionary containing previous field values
 
     Returns:
-        List of field names that changed (using display names)
+        Tuple of (changed_fields list, old_values dict, new_values dict)
     """
+    from django.utils.dateformat import format as date_format
+
     # Map of instance attribute -> display name in notifications
     watched_fields = {
         "name": "name",
@@ -102,11 +124,35 @@ def _detect_field_changes(instance: Event, previous_state: dict[str, t.Any]) -> 
     }
 
     changed_fields = []
+    old_values = {}
+    new_values = {}
+
     for attr_name, display_name in watched_fields.items():
-        if previous_state.get(attr_name) != getattr(instance, attr_name):
+        old_val = previous_state.get(attr_name)
+        new_val = getattr(instance, attr_name)
+
+        if old_val != new_val:
             changed_fields.append(display_name)
 
-    return changed_fields
+            # Format values for display
+            if attr_name in ("start", "end") and new_val:
+                new_values[display_name] = date_format(new_val, "l, F j, Y \\a\\t g:i A T")
+                if old_val:
+                    old_values[display_name] = date_format(old_val, "l, F j, Y \\a\\t g:i A T")
+                else:
+                    old_values[display_name] = "Not set"
+            elif attr_name == "city_id":
+                new_values[display_name] = instance.city.name if instance.city else "Not set"
+                if old_val and instance.city:
+                    # We don't have the old city object, so we can't get the name
+                    old_values[display_name] = "Changed"
+                else:
+                    old_values[display_name] = "Not set"
+            else:
+                new_values[display_name] = str(new_val) if new_val else "Not set"
+                old_values[display_name] = str(old_val) if old_val else "Not set"
+
+    return changed_fields, old_values, new_values
 
 
 @receiver(pre_save, sender=Event)
@@ -153,6 +199,6 @@ def handle_event_notification(sender: type[Event], instance: Event, created: boo
 
         # Event was updated (important fields changed, not deleted)
         if instance.status != Event.EventStatus.DELETED:
-            changed_fields = _detect_field_changes(instance, previous_state)
+            changed_fields, old_values, new_values = _detect_field_changes(instance, previous_state)
             if changed_fields:
-                _handle_event_updated(sender, instance, changed_fields)
+                _handle_event_updated(sender, instance, changed_fields, old_values, new_values)

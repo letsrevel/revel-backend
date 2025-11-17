@@ -302,3 +302,20 @@ def retry_failed_deliveries() -> dict[str, t.Any]:
     logger.info("failed_deliveries_retried", count=retry_count)
 
     return {"retried_count": retry_count}
+
+
+@shared_task
+def send_event_reminders() -> dict[str, t.Any]:
+    """Send event reminders for upcoming events.
+
+    Runs daily via Celery beat.
+    Sends reminders at 14, 7, and 1 days before events.
+    Ensures each reminder is sent only once per user per event.
+
+    Returns:
+        Dict with reminder stats
+    """
+    from notifications.service.reminder_service import EventReminderService
+
+    service = EventReminderService()
+    return service.send_all_reminders()

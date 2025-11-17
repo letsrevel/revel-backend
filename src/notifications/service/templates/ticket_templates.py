@@ -19,23 +19,29 @@ class TicketCreatedTemplate(NotificationTemplate):
         """Get title for in-app display."""
         event_name = notification.context.get("event_name", "")
         ticket_holder_name = notification.context.get("ticket_holder_name")
+        ticket_status = notification.context.get("ticket_status", "")
 
         if ticket_holder_name:
             # Notification to staff/owners
             return _("New Ticket: %(holder)s - %(event)s") % {"holder": ticket_holder_name, "event": event_name}
         # Notification to ticket holder
-        return _("Ticket Confirmation for %(event)s") % {"event": event_name}
+        if ticket_status == "pending":
+            return _("Ticket Pending for %(event)s") % {"event": event_name}
+        return _("Ticket Confirmed for %(event)s") % {"event": event_name}
 
     def get_email_subject(self, notification: Notification) -> str:
         """Get email subject."""
         event_name = notification.context.get("event_name", "")
         ticket_holder_name = notification.context.get("ticket_holder_name")
+        ticket_status = notification.context.get("ticket_status", "")
 
         if ticket_holder_name:
             # Notification to staff/owners
             return _("New Ticket: %(holder)s - %(event)s") % {"holder": ticket_holder_name, "event": event_name}
         # Notification to ticket holder
-        return _("Your ticket for %(event)s") % {"event": event_name}
+        if ticket_status == "pending":
+            return _("Ticket Pending - %(event)s") % {"event": event_name}
+        return _("Ticket Confirmed - %(event)s") % {"event": event_name}
 
     def get_email_attachments(self, notification: Notification) -> dict[str, Any]:
         """Get attachments (ticket PDF + ICS).
@@ -88,6 +94,8 @@ class TicketUpdatedTemplate(NotificationTemplate):
         event_name = notification.context.get("event_name", "")
         ticket_holder_name = notification.context.get("ticket_holder_name")
         action = notification.context.get("action", "updated")
+        old_status = notification.context.get("old_status", "")
+        new_status = notification.context.get("new_status", "")
 
         if ticket_holder_name:
             # Notification to staff/owners
@@ -97,6 +105,8 @@ class TicketUpdatedTemplate(NotificationTemplate):
                 "event": event_name,
             }
         # Notification to ticket holder
+        if old_status == "pending" and new_status == "active":
+            return _("Ticket Confirmed for %(event)s") % {"event": event_name}
         return _("Ticket Update for %(event)s") % {"event": event_name}
 
     def get_email_subject(self, notification: Notification) -> str:
@@ -104,6 +114,8 @@ class TicketUpdatedTemplate(NotificationTemplate):
         event_name = notification.context.get("event_name", "")
         ticket_holder_name = notification.context.get("ticket_holder_name")
         action = notification.context.get("action", "updated")
+        old_status = notification.context.get("old_status", "")
+        new_status = notification.context.get("new_status", "")
 
         if ticket_holder_name:
             # Notification to staff/owners
@@ -113,6 +125,8 @@ class TicketUpdatedTemplate(NotificationTemplate):
                 "event": event_name,
             }
         # Notification to ticket holder
+        if old_status == "pending" and new_status == "active":
+            return _("Ticket Confirmed - %(event)s") % {"event": event_name}
         return _("Ticket Update - %(event)s") % {"event": event_name}
 
     def get_email_attachments(self, notification: Notification) -> dict[str, Any]:
@@ -209,9 +223,24 @@ class PaymentConfirmationTemplate(NotificationTemplate):
         return attachments
 
 
+class TicketCheckedInTemplate(NotificationTemplate):
+    """Template for TICKET_CHECKED_IN notification."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        event_name = notification.context.get("event_name", "")
+        return _("Checked in for %(event)s") % {"event": event_name}
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        event_name = notification.context.get("event_name", "")
+        return _("Checked in - %(event)s") % {"event": event_name}
+
+
 # Register templates
 register_template(NotificationType.TICKET_CREATED, TicketCreatedTemplate())
 register_template(NotificationType.TICKET_UPDATED, TicketUpdatedTemplate())
 register_template(NotificationType.TICKET_CANCELLED, TicketUpdatedTemplate())
 register_template(NotificationType.TICKET_REFUNDED, TicketUpdatedTemplate())
+register_template(NotificationType.TICKET_CHECKED_IN, TicketCheckedInTemplate())
 register_template(NotificationType.PAYMENT_CONFIRMATION, PaymentConfirmationTemplate())

@@ -8,7 +8,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from common.models import SiteSettings
-from events.models import Ticket, TicketTier
+from events.models import Event, Ticket, TicketTier
 from events.tasks import build_attendee_visibility_flags
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_organization_staff_and_owners
@@ -18,48 +18,90 @@ logger = structlog.get_logger(__name__)
 
 
 def _get_ticket_action_for_payment_method(payment_method: str) -> str | None:
-    """Get action string for ticket creation based on payment method."""
-    action_map = {
+    """Get action string for ticket creation based on payment method.
+
+    Args:
+        payment_method: Payment method from TicketTier.PaymentMethod
+
+    Returns:
+        Action string for notification, or None for online payments
+    """
+    action_map: dict[str, str] = {
         TicketTier.PaymentMethod.FREE: "free_ticket_created",
         TicketTier.PaymentMethod.OFFLINE: "offline_payment_pending",
         TicketTier.PaymentMethod.AT_THE_DOOR: "at_door_payment_pending",
     }
-    return t.cast(str | None, action_map.get(payment_method))  # type: ignore[call-overload]
+    return action_map.get(payment_method)
+
+
+def _build_base_event_context(event: Event) -> dict[str, t.Any]:
+    """Build common event context fields used across notifications.
+
+    Args:
+        event: Event to build context for
+
+    Returns:
+        Dictionary with event_id, event_name, event_location, event_url, event_start_formatted,
+        organization_id, organization_name
+    """
+    from django.utils.dateformat import format as date_format
+
+    event_location = event.address or (event.city.name if event.city else "")
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_url = f"{frontend_base_url}/events/{event.id}"
+
+    event_start_formatted = ""
+    if event.start:
+        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
+
+    return {
+        "event_id": str(event.id),
+        "event_name": event.name,
+        "event_location": event_location,
+        "event_url": frontend_url,
+        "event_start_formatted": event_start_formatted,
+        "organization_id": str(event.organization_id),
+        "organization_name": event.organization.name,
+    }
 
 
 def _build_ticket_created_context(ticket: Ticket) -> dict[str, t.Any]:
     """Build notification context for TICKET_CREATED."""
     event = ticket.event
-    event_location = event.address or (event.city.name if event.city else "")
+    base_context = _build_base_event_context(event)
 
-    # Build frontend URL
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    frontend_url = f"{frontend_base_url}/events/{event.id}"
+    # Get manual payment instructions if available
+    manual_payment_instructions = None
+    if ticket.tier.manual_payment_instructions:
+        manual_payment_instructions = ticket.tier.manual_payment_instructions
 
     return {
+        **base_context,
         "ticket_id": str(ticket.id),
         "ticket_reference": str(ticket.id),
-        "event_id": str(event.id),
-        "event_name": event.name,
         "event_start": event.start.isoformat() if event.start else "",
-        "event_location": event_location,
-        "organization_id": str(event.organization_id),
-        "organization_name": event.organization.name,
         "tier_name": ticket.tier.name,
         "tier_price": str(ticket.tier.price),
+        "ticket_status": ticket.status,
         "quantity": 1,  # Single ticket per notification
         "total_price": str(ticket.tier.price),
-        "frontend_url": frontend_url,
+        "frontend_url": base_context["event_url"],  # Alias for backwards compatibility
+        "payment_method": ticket.tier.payment_method,
+        "manual_payment_instructions": manual_payment_instructions,
     }
 
 
 def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, t.Any]:
     """Build notification context for TICKET_UPDATED."""
+    event = ticket.event
+    base_context = _build_base_event_context(event)
+
     return {
+        **base_context,
         "ticket_id": str(ticket.id),
         "ticket_reference": str(ticket.id),
-        "event_id": str(ticket.event.id),
-        "event_name": ticket.event.name,
+        "tier_name": ticket.tier.name,
+        "ticket_status": ticket.status,
         "old_status": old_status,
         "new_status": ticket.status,
     }
@@ -73,6 +115,24 @@ def _build_ticket_refunded_context(ticket: Ticket, refund_amount: str | None = N
         "event_id": str(ticket.event.id),
         "event_name": ticket.event.name,
         "refund_amount": refund_amount or str(ticket.tier.price),
+    }
+
+
+def _build_ticket_checked_in_context(ticket: Ticket) -> dict[str, t.Any]:
+    """Build notification context for TICKET_CHECKED_IN."""
+    from django.utils.dateformat import format as date_format
+
+    event = ticket.event
+    base_context = _build_base_event_context(event)
+
+    checked_in_at_formatted = ""
+    if ticket.checked_in_at:
+        checked_in_at_formatted = date_format(ticket.checked_in_at, "l, F j, Y \\a\\t g:i A T")
+
+    return {
+        **base_context,
+        "ticket_id": str(ticket.id),
+        "checked_in_at": checked_in_at_formatted,
     }
 
 
@@ -209,6 +269,22 @@ def _send_ticket_refunded_notifications(ticket: Ticket) -> None:
             )
 
 
+def _send_ticket_checked_in_notification(ticket: Ticket) -> None:
+    """Send notification when ticket is checked in.
+
+    Args:
+        ticket: The ticket being checked in
+    """
+    context = _build_ticket_checked_in_context(ticket)
+
+    notification_requested.send(
+        sender=Ticket,
+        user=ticket.user,
+        notification_type=NotificationType.TICKET_CHECKED_IN,
+        context=context,
+    )
+
+
 def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None:
     """Handle notifications for ticket status changes."""
     if not old_status or old_status == ticket.status:
@@ -235,6 +311,8 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
                         notification_type=NotificationType.TICKET_CREATED,
                         context=staff_context,
                     )
+    elif ticket.status == Ticket.TicketStatus.CHECKED_IN:
+        _send_ticket_checked_in_notification(ticket)
     elif ticket.status == Ticket.TicketStatus.CANCELLED:
         # Refund notifications are handled by Payment signals in notifications/signals/payment.py
         # Only send cancellation notifications for non-refund cancellations

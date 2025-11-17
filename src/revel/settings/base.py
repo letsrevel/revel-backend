@@ -281,6 +281,16 @@ SERVICE_DESCRIPTION = config("SERVICE_DESCRIPTION", default="The Revel API")
 ADMIN_URL = config("ADMIN_URL", default="admin/")
 
 
+if not DEBUG:
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True  # Apply to all subdomains
+    SECURE_HSTS_PRELOAD = True  # Submit for HSTS preload list
+    SECURE_SSL_REDIRECT = True  # Redirect all HTTP requests to HTTPS
+    SESSION_COOKIE_SECURE = True  # Only send session cookies over HTTPS
+    CSRF_COOKIE_SECURE = True  # Only send CSRF cookies over HTTPS
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+
 # OTP
 TOTP_ISSUER_NAME = config("TOTP_ISSUER_NAME", default="Revel")
 
@@ -301,3 +311,17 @@ IP2LOCATION_TOKEN = config("IP2LOCATION_TOKEN", default=None)
 
 # NOTIFICATIONS
 NOTIFICATION_RETENTION_DAYS = config("NOTIFICATION_RETENTION_DAYS", default=90, cast=int)
+
+DEPLOYMENT_ENVIRONMENT = config(
+    "DEPLOYMENT_ENVIRONMENT", default="development" if config("DEBUG", default=False, cast=bool) else "production"
+)
+
+
+if DEPLOYMENT_ENVIRONMENT == "production":
+    SECURE_HSTS_SECONDS = 31536000  # 1 year
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True  # Apply to all subdomains
+    SECURE_HSTS_PRELOAD = True  # Submit for HSTS preload list
+    SECURE_SSL_REDIRECT = True  # Redirect all HTTP requests to HTTPS
+    SESSION_COOKIE_SECURE = True  # Only send session cookies over HTTPS
+    CSRF_COOKIE_SECURE = True  # Only send CSRF cookies over HTTPS
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

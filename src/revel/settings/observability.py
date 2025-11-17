@@ -13,7 +13,7 @@ import typing as t
 import structlog
 from decouple import config
 
-from .base import VERSION
+from .base import DEPLOYMENT_ENVIRONMENT, VERSION
 
 # Observability toggle
 ENABLE_OBSERVABILITY = config("ENABLE_OBSERVABILITY", default=True, cast=bool)
@@ -26,9 +26,6 @@ TRACING_SAMPLE_RATE = config(
 # Service identification
 SERVICE_NAME = config("SERVICE_NAME", default="revel")
 SERVICE_VERSION = VERSION
-DEPLOYMENT_ENVIRONMENT = config(
-    "DEPLOYMENT_ENVIRONMENT", default="development" if config("DEBUG", default=False, cast=bool) else "production"
-)
 
 # OpenTelemetry configuration
 OTEL_EXPORTER_OTLP_ENDPOINT = config("OTEL_EXPORTER_OTLP_ENDPOINT", default="http://localhost:4318")
