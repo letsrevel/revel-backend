@@ -36,7 +36,7 @@ def handle_membership_request_created(
 
         # Get frontend URL
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
-        frontend_url = f"{frontend_base_url}/organizations/{organization.id}/membership-requests"
+        frontend_url = f"{frontend_base_url}/org/{organization.slug}/admin/members?tab=requests"
 
         # Notify all staff and owners of the organization
         staff_and_owners = get_organization_staff_and_owners(organization.id)

@@ -1,17 +1,17 @@
 {% load i18n %}{% trans "New Invitation Request" %}
 
-{% blocktranslate with email=requester_email event=event_name %}{{ email }} has requested an invitation to {{ event }}.{% endblocktranslate %}
+{% blocktranslate with email=context.requester_email event=context.event_name %}{{ email }} has requested an invitation to {{ event }}.{% endblocktranslate %}
 
 {% trans "Request Details:" %}
-{% trans "Email:" %} {{ requester_email }}
-{% if requester_name %}{% trans "Name:" %} {{ requester_name }}{% endif %}
-{% if request_message %}
+{% trans "Email:" %} {{ context.requester_email }}
+{% if context.requester_name %}{% trans "Name:" %} {{ context.requester_name }}{% endif %}
+{% if context.request_message %}
 {% trans "Message:" %}
-{{ request_message }}
+{{ context.request_message }}
 {% endif %}
 
 {% trans "View and manage this request:" %}
-{{ frontend_url }}
+{{ context.frontend_url }}
 
 {% trans "This is an automated notification from your event management system." %}
 
