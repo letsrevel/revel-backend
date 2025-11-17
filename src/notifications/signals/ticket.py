@@ -8,7 +8,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from common.models import SiteSettings
-from events.models import Ticket, TicketTier
+from events.models import Event, Ticket, TicketTier
 from events.tasks import build_attendee_visibility_flags
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_organization_staff_and_owners
@@ -18,30 +18,57 @@ logger = structlog.get_logger(__name__)
 
 
 def _get_ticket_action_for_payment_method(payment_method: str) -> str | None:
-    """Get action string for ticket creation based on payment method."""
-    action_map = {
+    """Get action string for ticket creation based on payment method.
+
+    Args:
+        payment_method: Payment method from TicketTier.PaymentMethod
+
+    Returns:
+        Action string for notification, or None for online payments
+    """
+    action_map: dict[str, str] = {
         TicketTier.PaymentMethod.FREE: "free_ticket_created",
         TicketTier.PaymentMethod.OFFLINE: "offline_payment_pending",
         TicketTier.PaymentMethod.AT_THE_DOOR: "at_door_payment_pending",
     }
-    return t.cast(str | None, action_map.get(payment_method))  # type: ignore[call-overload]
+    return action_map.get(payment_method)
+
+
+def _build_base_event_context(event: Event) -> dict[str, t.Any]:
+    """Build common event context fields used across notifications.
+
+    Args:
+        event: Event to build context for
+
+    Returns:
+        Dictionary with event_id, event_name, event_location, event_url, event_start_formatted,
+        organization_id, organization_name
+    """
+    from django.utils.dateformat import format as date_format
+
+    event_location = event.address or (event.city.name if event.city else "")
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_url = f"{frontend_base_url}/events/{event.id}"
+
+    event_start_formatted = ""
+    if event.start:
+        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
+
+    return {
+        "event_id": str(event.id),
+        "event_name": event.name,
+        "event_location": event_location,
+        "event_url": frontend_url,
+        "event_start_formatted": event_start_formatted,
+        "organization_id": str(event.organization_id),
+        "organization_name": event.organization.name,
+    }
 
 
 def _build_ticket_created_context(ticket: Ticket) -> dict[str, t.Any]:
     """Build notification context for TICKET_CREATED."""
-    from django.utils.dateformat import format as date_format
-
     event = ticket.event
-    event_location = event.address or (event.city.name if event.city else "")
-
-    # Build frontend URL
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    frontend_url = f"{frontend_base_url}/events/{event.id}"
-
-    # Format date for user-friendly display
-    event_start_formatted = ""
-    if event.start:
-        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
+    base_context = _build_base_event_context(event)
 
     # Get manual payment instructions if available
     manual_payment_instructions = None
@@ -49,22 +76,16 @@ def _build_ticket_created_context(ticket: Ticket) -> dict[str, t.Any]:
         manual_payment_instructions = ticket.tier.manual_payment_instructions
 
     return {
+        **base_context,
         "ticket_id": str(ticket.id),
         "ticket_reference": str(ticket.id),
-        "event_id": str(event.id),
-        "event_name": event.name,
         "event_start": event.start.isoformat() if event.start else "",
-        "event_start_formatted": event_start_formatted,
-        "event_location": event_location,
-        "event_url": frontend_url,
-        "organization_id": str(event.organization_id),
-        "organization_name": event.organization.name,
         "tier_name": ticket.tier.name,
         "tier_price": str(ticket.tier.price),
         "ticket_status": ticket.status,
         "quantity": 1,  # Single ticket per notification
         "total_price": str(ticket.tier.price),
-        "frontend_url": frontend_url,
+        "frontend_url": base_context["event_url"],  # Alias for backwards compatibility
         "payment_method": ticket.tier.payment_method,
         "manual_payment_instructions": manual_payment_instructions,
     }
@@ -72,28 +93,13 @@ def _build_ticket_created_context(ticket: Ticket) -> dict[str, t.Any]:
 
 def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, t.Any]:
     """Build notification context for TICKET_UPDATED."""
-    from django.utils.dateformat import format as date_format
-
     event = ticket.event
-    event_location = event.address or (event.city.name if event.city else "")
-
-    # Build frontend URL
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    frontend_url = f"{frontend_base_url}/events/{event.id}"
-
-    # Format date for user-friendly display
-    event_start_formatted = ""
-    if event.start:
-        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
+    base_context = _build_base_event_context(event)
 
     return {
+        **base_context,
         "ticket_id": str(ticket.id),
         "ticket_reference": str(ticket.id),
-        "event_id": str(event.id),
-        "event_name": event.name,
-        "event_start_formatted": event_start_formatted,
-        "event_location": event_location,
-        "event_url": frontend_url,
         "tier_name": ticket.tier.name,
         "ticket_status": ticket.status,
         "old_status": old_status,
@@ -117,28 +123,15 @@ def _build_ticket_checked_in_context(ticket: Ticket) -> dict[str, t.Any]:
     from django.utils.dateformat import format as date_format
 
     event = ticket.event
-    event_location = event.address or (event.city.name if event.city else "")
-
-    # Build frontend URL
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    frontend_url = f"{frontend_base_url}/events/{event.id}"
-
-    # Format dates for user-friendly display
-    event_start_formatted = ""
-    if event.start:
-        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
+    base_context = _build_base_event_context(event)
 
     checked_in_at_formatted = ""
     if ticket.checked_in_at:
         checked_in_at_formatted = date_format(ticket.checked_in_at, "l, F j, Y \\a\\t g:i A T")
 
     return {
+        **base_context,
         "ticket_id": str(ticket.id),
-        "event_id": str(event.id),
-        "event_name": event.name,
-        "event_start_formatted": event_start_formatted,
-        "event_location": event_location,
-        "event_url": frontend_url,
         "checked_in_at": checked_in_at_formatted,
     }
 
