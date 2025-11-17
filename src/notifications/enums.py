@@ -15,6 +15,7 @@ class NotificationType(TextChoices):
     TICKET_UPDATED = "ticket_updated"
     TICKET_CANCELLED = "ticket_cancelled"
     TICKET_REFUNDED = "ticket_refunded"
+    TICKET_CHECKED_IN = "ticket_checked_in"
     PAYMENT_CONFIRMATION = "payment_confirmation"
 
     # Event notifications

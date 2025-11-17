@@ -3,6 +3,7 @@
 from datetime import time
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -61,6 +62,17 @@ class Notification(TimeStampedModel):
             models.Index(fields=["user", "read_at"]),  # Unread notifications query
             models.Index(fields=["user", "created_at"]),  # User's notifications timeline
             models.Index(fields=["created_at"]),  # Cleanup task
+            # Composite index for event reminder deduplication
+            models.Index(
+                fields=["notification_type", "user"],
+                name="notif_type_user_idx",
+            ),
+            # GIN index for JSONB context queries (e.g., context->'event_id')
+            GinIndex(
+                fields=["context"],
+                name="notif_context_gin_idx",
+                opclasses=["jsonb_path_ops"],
+            ),
         ]
         verbose_name = "Notification"
         verbose_name_plural = "Notifications"

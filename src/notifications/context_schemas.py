@@ -28,14 +28,19 @@ class TicketCreatedContext(BaseNotificationContext):
     event_id: str
     event_name: str
     event_start: str  # ISO format
+    event_start_formatted: str  # User-friendly format
     event_location: str
+    event_url: str
     organization_id: str
     organization_name: str
     tier_name: str
     tier_price: str
+    ticket_status: str
     quantity: int
     total_price: str
     qr_code_url: t.NotRequired[str]
+    manual_payment_instructions: t.NotRequired[str]
+    payment_method: str
 
 
 class TicketUpdatedContext(BaseNotificationContext):
@@ -45,6 +50,11 @@ class TicketUpdatedContext(BaseNotificationContext):
     ticket_reference: str
     event_id: str
     event_name: str
+    event_start_formatted: str
+    event_location: str
+    event_url: str
+    tier_name: str
+    ticket_status: str
     old_status: str
     new_status: str
     changed_by: t.NotRequired[str]
@@ -75,6 +85,18 @@ class TicketRefundedContext(BaseNotificationContext):
     refund_reason: t.NotRequired[str]
 
 
+class TicketCheckedInContext(BaseNotificationContext):
+    """Context for TICKET_CHECKED_IN notification."""
+
+    ticket_id: str
+    event_id: str
+    event_name: str
+    event_start_formatted: str
+    event_location: str
+    event_url: str
+    checked_in_at: str
+
+
 # ===== Event Contexts =====
 
 
@@ -100,9 +122,15 @@ class EventUpdatedContext(BaseNotificationContext):
 
     event_id: str
     event_name: str
+    event_start_formatted: str
+    event_end_formatted: t.NotRequired[str]
+    event_location: str
+    event_url: str
     changed_fields: list[str]  # ["start", "location", etc.]
     old_values: dict[str, str]
     new_values: dict[str, str]
+    changes_summary: t.NotRequired[str]
+    update_message: t.NotRequired[str]
 
 
 class EventReminderContext(BaseNotificationContext):
@@ -110,11 +138,18 @@ class EventReminderContext(BaseNotificationContext):
 
     event_id: str
     event_name: str
-    event_start: str
+    event_start: str  # ISO format
+    event_start_formatted: str  # User-friendly format
+    event_end_formatted: t.NotRequired[str]  # User-friendly format
     event_location: str
+    event_url: str
     days_until: int  # 14, 7, or 1
+    reminder_message: t.NotRequired[str]
+    # Ticket info (if user has a ticket)
+    ticket_id: t.NotRequired[str]
+    tier_name: t.NotRequired[str]
+    # RSVP info (if user has RSVP)
     rsvp_status: t.NotRequired[str]
-    ticket_reference: t.NotRequired[str]
 
 
 class EventCancelledContext(BaseNotificationContext):
@@ -123,8 +158,12 @@ class EventCancelledContext(BaseNotificationContext):
     event_id: str
     event_name: str
     event_start: str
+    event_start_formatted: str
+    event_location: str
     cancellation_reason: t.NotRequired[str]
     refund_available: bool
+    refund_info: t.NotRequired[str]
+    alternative_event_url: t.NotRequired[str]
 
 
 # ===== RSVP Contexts =====
@@ -285,6 +324,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.TICKET_CREATED: TicketCreatedContext,
     NotificationType.TICKET_UPDATED: TicketUpdatedContext,
     NotificationType.TICKET_REFUNDED: TicketRefundedContext,
+    NotificationType.TICKET_CHECKED_IN: TicketCheckedInContext,
     NotificationType.PAYMENT_CONFIRMATION: PaymentConfirmationContext,
     NotificationType.EVENT_OPEN: EventOpenContext,
     NotificationType.EVENT_UPDATED: EventUpdatedContext,

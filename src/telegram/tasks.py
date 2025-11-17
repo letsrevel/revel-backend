@@ -75,8 +75,9 @@ def send_message_task(
     message: str,
     reply_markup: dict[str, t.Any] | None = None,
     callback_data: dict[str, t.Any] | None = None,
+    qr_data: str | None = None,
 ) -> None:
-    """Wrapper for async message sending task with optional callback.
+    """Wrapper for async message sending task with optional callback and QR code photo attachment.
 
     Args:
         self: Celery task instance
@@ -87,10 +88,11 @@ def send_message_task(
             - module: Python module path (e.g., "notifications.service.channels.telegram")
             - function: Function name to call (e.g., "update_delivery_status")
             - kwargs: Dict of keyword arguments to pass to the function
+        qr_data: Optional data to generate QR code photo from (e.g., ticket ID)
     """
     logger.info(
         f"telegram.tasks.send_message_task({telegram_id=}, {message=}, "
-        f"reply_markup={bool(reply_markup)}, callback={bool(callback_data)})"
+        f"reply_markup={bool(reply_markup)}, callback={bool(callback_data)}, qr={bool(qr_data)})"
     )
 
     error_occurred = False
@@ -98,9 +100,12 @@ def send_message_task(
 
     try:
         # Deserialize reply_markup if provided
-
         keyboard = InlineKeyboardMarkup.model_validate(reply_markup) if reply_markup else None
-        async_to_sync(utils.send_telegram_message)(telegram_id, message=message, reply_markup=keyboard)
+
+        # Generate QR code photo if qr_data provided
+        photo = utils.generate_qr_code(qr_data) if qr_data else None
+
+        async_to_sync(utils.send_telegram_message)(telegram_id, message=message, reply_markup=keyboard, photo=photo)
     except TelegramForbiddenError as e:
         error_occurred = True
         if "bot was blocked by the user" in e.message.lower():

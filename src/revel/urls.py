@@ -37,7 +37,7 @@ def redirect_to_docs(request: HttpRequest) -> HttpResponseRedirect:
 urlpatterns = [
     path("api/", api.urls),
     path("google_sso/", include("django_google_sso.urls", namespace="django_google_sso")),
-    path("", include("django_prometheus.urls")),  # Prometheus metrics endpoint at /metrics
+    path("", include("django_prometheus.urls")),  # Prometheus metrics endpoint at /metrics Caddy will return 404
 ]
 
 if settings.ADMIN_URL:  # pragma: no cover

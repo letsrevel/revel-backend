@@ -29,13 +29,17 @@ class TestCreateNotification:
             "event_id": "evt123",
             "event_name": "Test Event",
             "event_start": "2025-12-01T18:00:00Z",
+            "event_start_formatted": "Saturday, December 01, 2025 at 6:00 PM UTC",
             "event_location": "Test Venue",
+            "event_url": "https://example.com/events/evt123",
             "organization_id": "org123",
             "organization_name": "Test Org",
             "tier_name": "General Admission",
             "tier_price": "10.00",
+            "ticket_status": "active",
             "quantity": 1,
             "total_price": "10.00",
+            "payment_method": "online",
         }
 
         # Act
@@ -81,7 +85,9 @@ class TestCreateNotification:
             "event_id": "evt123",
             "event_name": "Test Event",
             "event_start": "2025-12-01T18:00:00Z",
+            "event_start_formatted": "Saturday, December 01, 2025 at 6:00 PM UTC",
             "event_location": "Test Venue",
+            "event_url": "https://example.com/events/evt123",
             "days_until": 7,
         }
 

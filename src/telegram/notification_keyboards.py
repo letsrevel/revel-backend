@@ -70,6 +70,7 @@ def _is_simple_event_link_notification(notification_type: str) -> bool:
         NotificationType.TICKET_UPDATED,
         NotificationType.TICKET_CANCELLED,
         NotificationType.TICKET_REFUNDED,
+        NotificationType.TICKET_CHECKED_IN,
         NotificationType.PAYMENT_CONFIRMATION,
         NotificationType.RSVP_CONFIRMATION,
         NotificationType.RSVP_UPDATED,

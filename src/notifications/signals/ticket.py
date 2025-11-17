@@ -29,6 +29,8 @@ def _get_ticket_action_for_payment_method(payment_method: str) -> str | None:
 
 def _build_ticket_created_context(ticket: Ticket) -> dict[str, t.Any]:
     """Build notification context for TICKET_CREATED."""
+    from django.utils.dateformat import format as date_format
+
     event = ticket.event
     event_location = event.address or (event.city.name if event.city else "")
 
@@ -36,30 +38,64 @@ def _build_ticket_created_context(ticket: Ticket) -> dict[str, t.Any]:
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     frontend_url = f"{frontend_base_url}/events/{event.id}"
 
+    # Format date for user-friendly display
+    event_start_formatted = ""
+    if event.start:
+        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
+
+    # Get manual payment instructions if available
+    manual_payment_instructions = None
+    if ticket.tier.manual_payment_instructions:
+        manual_payment_instructions = ticket.tier.manual_payment_instructions
+
     return {
         "ticket_id": str(ticket.id),
         "ticket_reference": str(ticket.id),
         "event_id": str(event.id),
         "event_name": event.name,
         "event_start": event.start.isoformat() if event.start else "",
+        "event_start_formatted": event_start_formatted,
         "event_location": event_location,
+        "event_url": frontend_url,
         "organization_id": str(event.organization_id),
         "organization_name": event.organization.name,
         "tier_name": ticket.tier.name,
         "tier_price": str(ticket.tier.price),
+        "ticket_status": ticket.status,
         "quantity": 1,  # Single ticket per notification
         "total_price": str(ticket.tier.price),
         "frontend_url": frontend_url,
+        "payment_method": ticket.tier.payment_method,
+        "manual_payment_instructions": manual_payment_instructions,
     }
 
 
 def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, t.Any]:
     """Build notification context for TICKET_UPDATED."""
+    from django.utils.dateformat import format as date_format
+
+    event = ticket.event
+    event_location = event.address or (event.city.name if event.city else "")
+
+    # Build frontend URL
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_url = f"{frontend_base_url}/events/{event.id}"
+
+    # Format date for user-friendly display
+    event_start_formatted = ""
+    if event.start:
+        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
+
     return {
         "ticket_id": str(ticket.id),
         "ticket_reference": str(ticket.id),
-        "event_id": str(ticket.event.id),
-        "event_name": ticket.event.name,
+        "event_id": str(event.id),
+        "event_name": event.name,
+        "event_start_formatted": event_start_formatted,
+        "event_location": event_location,
+        "event_url": frontend_url,
+        "tier_name": ticket.tier.name,
+        "ticket_status": ticket.status,
         "old_status": old_status,
         "new_status": ticket.status,
     }
@@ -73,6 +109,37 @@ def _build_ticket_refunded_context(ticket: Ticket, refund_amount: str | None = N
         "event_id": str(ticket.event.id),
         "event_name": ticket.event.name,
         "refund_amount": refund_amount or str(ticket.tier.price),
+    }
+
+
+def _build_ticket_checked_in_context(ticket: Ticket) -> dict[str, t.Any]:
+    """Build notification context for TICKET_CHECKED_IN."""
+    from django.utils.dateformat import format as date_format
+
+    event = ticket.event
+    event_location = event.address or (event.city.name if event.city else "")
+
+    # Build frontend URL
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_url = f"{frontend_base_url}/events/{event.id}"
+
+    # Format dates for user-friendly display
+    event_start_formatted = ""
+    if event.start:
+        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
+
+    checked_in_at_formatted = ""
+    if ticket.checked_in_at:
+        checked_in_at_formatted = date_format(ticket.checked_in_at, "l, F j, Y \\a\\t g:i A T")
+
+    return {
+        "ticket_id": str(ticket.id),
+        "event_id": str(event.id),
+        "event_name": event.name,
+        "event_start_formatted": event_start_formatted,
+        "event_location": event_location,
+        "event_url": frontend_url,
+        "checked_in_at": checked_in_at_formatted,
     }
 
 
@@ -209,6 +276,22 @@ def _send_ticket_refunded_notifications(ticket: Ticket) -> None:
             )
 
 
+def _send_ticket_checked_in_notification(ticket: Ticket) -> None:
+    """Send notification when ticket is checked in.
+
+    Args:
+        ticket: The ticket being checked in
+    """
+    context = _build_ticket_checked_in_context(ticket)
+
+    notification_requested.send(
+        sender=Ticket,
+        user=ticket.user,
+        notification_type=NotificationType.TICKET_CHECKED_IN,
+        context=context,
+    )
+
+
 def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None:
     """Handle notifications for ticket status changes."""
     if not old_status or old_status == ticket.status:
@@ -235,6 +318,8 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
                         notification_type=NotificationType.TICKET_CREATED,
                         context=staff_context,
                     )
+    elif ticket.status == Ticket.TicketStatus.CHECKED_IN:
+        _send_ticket_checked_in_notification(ticket)
     elif ticket.status == Ticket.TicketStatus.CANCELLED:
         # Refund notifications are handled by Payment signals in notifications/signals/payment.py
         # Only send cancellation notifications for non-refund cancellations

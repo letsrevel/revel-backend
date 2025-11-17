@@ -6,6 +6,7 @@ import uuid
 import structlog
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
+from opentelemetry import trace
 
 
 class StructlogContextMiddleware:
@@ -41,6 +42,13 @@ class StructlogContextMiddleware:
         # Clear any previous context
         structlog.contextvars.clear_contextvars()
 
+        # Get current trace context (if tracing is active)
+        trace_id = None
+        span = trace.get_current_span()
+        if span and span.get_span_context().is_valid:
+            # Format trace_id as hex string (16 bytes -> 32 hex chars)
+            trace_id = format(span.get_span_context().trace_id, "032x")
+
         # Bind request context
         context: dict[str, t.Any] = {
             "request_id": request_id,
@@ -48,6 +56,10 @@ class StructlogContextMiddleware:
             "path": request.path,
             "ip_address": self._get_client_ip(request),
         }
+
+        # Add trace_id if available (for log-to-trace correlation)
+        if trace_id:
+            context["trace_id"] = trace_id
 
         # Add user context if authenticated
         if hasattr(request, "user") and request.user.is_authenticated:

@@ -7,8 +7,7 @@
 • {% trans "Status:" %} {{ context.ticket_status }}
 • {% trans "Ticket ID:" %} <code>{{ context.ticket_id }}</code>
 
-{% else %}
-🎫 {% blocktranslate with event=context.event_name %}Your ticket for <b>{{ event }}</b> is confirmed!{% endblocktranslate %}
+{% else %}{% if context.ticket_status == "pending" %}⏳ {% blocktranslate with event=context.event_name %}Ticket Pending for <b>{{ event }}</b>{% endblocktranslate %}
 
 <b>{% trans "Event Details:" %}</b>
 📅 {{ context.event_start_formatted }}
@@ -16,12 +15,18 @@
 
 <b>{% trans "Ticket Information:" %}</b>
 • {% trans "Tier:" %} {{ context.tier_name }}
-• {% trans "Status:" %} {{ context.ticket_status }}
+• {% trans "Status:" %} {% trans "Pending" %}
 
-{% if context.ticket_status == "pending_payment" %}
-⚠️ <b>{% trans "Payment Required" %}</b>
-{% blocktranslate with amount=context.payment_amount currency=context.payment_currency %}Please complete payment of {{ amount }} {{ currency }}.{% endblocktranslate %}
-{% endif %}
-{% endif %}
+{% if context.manual_payment_instructions %}<b>{% trans "Payment Instructions:" %}</b>
+<blockquote>{{ context.manual_payment_instructions }}</blockquote>
+{% else %}<i>{% trans "Please contact the organizer to complete the payment." %}</i>
+{% endif %}{% else %}✅ {% blocktranslate with event=context.event_name %}Ticket Confirmed for <b>{{ event }}</b>{% endblocktranslate %}
 
-<a href="{{ context.event_url }}">{% trans "View Event" %}</a>
+<b>{% trans "Event Details:" %}</b>
+📅 {{ context.event_start_formatted }}
+{% if context.event_location %}📍 {{ context.event_location }}{% endif %}
+
+<b>{% trans "Ticket Information:" %}</b>
+• {% trans "Tier:" %} {{ context.tier_name }}
+• {% trans "Status:" %} {% trans "Active" %}
+{% endif %}{% endif %}

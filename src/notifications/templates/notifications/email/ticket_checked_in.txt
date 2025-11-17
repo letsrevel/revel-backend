@@ -1,0 +1,13 @@
+{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+
+{% blocktranslate with event=context.event_name %}You have been checked in for {{ event }}!{% endblocktranslate %} ✅
+
+{% trans "Event Details:" %}
+📅 {{ context.event_start_formatted }}
+{% if context.event_location %}📍 {{ context.event_location }}{% endif %}
+
+{% trans "Enjoy the event!" %}
+
+{% trans "View event details:" %} {{ context.event_url }}
+
+{% include "notifications/email/_footer.txt" %}
