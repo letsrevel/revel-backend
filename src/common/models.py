@@ -9,6 +9,8 @@ from django.db import models
 from simple_history.models import HistoricalRecords
 from solo.models import SingletonModel
 
+from .fields import MarkdownField
+
 
 class TimeStampedModel(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -27,10 +29,10 @@ class TimeStampedModel(models.Model):
 class Legal(SingletonModel):
     """Singleton model for legal documents like Terms and Conditions and Privacy Policy."""
 
-    terms_and_conditions = models.TextField(
+    terms_and_conditions = MarkdownField(
         help_text="Terms and Conditions text in markdown format", blank=True, default=""
     )
-    privacy_policy = models.TextField(help_text="Privacy Policy text in markdown format", blank=True, default="")
+    privacy_policy = MarkdownField(help_text="Privacy Policy text in markdown format", blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True)
     history = HistoricalRecords()
 

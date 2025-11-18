@@ -19,6 +19,7 @@ def valid_register_payload() -> schema.RegisterUserSchema:
         password2="a-Strong-password-123!",
         first_name="New",
         last_name="User",
+        accept_toc_and_privacy=True,
     )
 
 

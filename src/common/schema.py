@@ -43,3 +43,10 @@ class TagAssignmentSchema(ModelSchema):
     class Meta:
         model = TagAssignment
         fields = ("tag",)
+
+
+class LegalSchema(Schema):
+    terms_and_conditions: str
+    terms_and_conditions_html: str
+    privacy_policy: str
+    privacy_policy_html: str

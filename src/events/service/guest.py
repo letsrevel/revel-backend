@@ -190,7 +190,7 @@ def handle_guest_rsvp(
     Raises:
         HttpError: If event doesn't allow guest access or eligibility checks fail
     """
-    from common.tasks import send_guest_rsvp_confirmation
+    from events.tasks import send_guest_rsvp_confirmation
 
     # Check if event allows guest access
     if not event.can_attend_without_login:
@@ -237,7 +237,7 @@ def handle_guest_ticket_checkout(
     Raises:
         HttpError: If event doesn't allow guest access, tier issues, or eligibility checks fail
     """
-    from common.tasks import send_guest_ticket_confirmation
+    from events.tasks import send_guest_ticket_confirmation
 
     # Check if event allows guest access
     if not event.can_attend_without_login:
