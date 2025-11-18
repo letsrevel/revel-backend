@@ -329,7 +329,7 @@ class AvailabilityGate(BaseEligibilityGate):
                     if ticket.status != Ticket.TicketStatus.CANCELLED
                 }
             )
-        return self.event.rsvps.count()
+        return len([rsvp for rsvp in self.event.rsvps.all() if rsvp.status == EventRSVP.RsvpStatus.YES])
 
 
 class TicketSalesGate(BaseEligibilityGate):
