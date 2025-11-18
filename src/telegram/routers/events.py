@@ -124,9 +124,12 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
 
     try:
         event = await Event.objects.aget(id=event_id)
-        await EventWaitList.objects.aget_or_create(event_id=event_id, user=user)
+        _, created = await EventWaitList.objects.aget_or_create(event_id=event_id, user=user)
 
-        await callback.message.answer(f"✅ You are on the waitlist for {event.name}!")
+        if created:
+            await callback.message.answer(f"✅ You are on the waitlist for {event.name}!")
+        else:
+            await callback.message.answer(f"ℹ️ You are already on the waitlist for {event.name}!")
     except Exception as e:
         logger.exception(f"Failed to join waitlist: {e}")
         await callback.message.answer("❌ Sorry, something went wrong. Please try again later.")
