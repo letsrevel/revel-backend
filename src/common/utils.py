@@ -66,7 +66,7 @@ def get_or_create_with_race_protection(
     model: type[T],
     lookup_filter: models.Q,
     defaults: dict[str, t.Any],
-) -> T:
+) -> tuple[T, bool]:
     """Get or create a model instance with protection against race conditions.
 
     Attempts to retrieve an instance matching the lookup filter. If not found,
@@ -79,10 +79,10 @@ def get_or_create_with_race_protection(
         defaults: Dictionary of field values for creating the instance
 
     Returns:
-        The retrieved or created model instance
+        Tuple of (instance, created) where created is True if the instance was created
 
     Example:
-        food_item = get_or_create_with_race_protection(
+        food_item, created = get_or_create_with_race_protection(
             FoodItem,
             Q(name__iexact="peanuts"),
             {"name": "Peanuts"}
@@ -91,17 +91,17 @@ def get_or_create_with_race_protection(
     manager: models.Manager[T] = getattr(model, "objects")
     instance = manager.filter(lookup_filter).first()
     if instance:
-        return instance
+        return instance, False
 
     try:
-        return manager.create(**defaults)
+        return manager.create(**defaults), True
     except IntegrityError:
         # Race condition: another request created it between our check and create
         instance = manager.filter(lookup_filter).first()
         if not instance:
             # Should never happen, but if it does, re-raise the original error
             raise
-        return instance
+        return instance, False
 
 
 @transaction.atomic

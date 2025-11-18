@@ -60,12 +60,12 @@ class DietaryController(UserAwareController):
         if existing:
             return status.HTTP_200_OK, existing
 
-        food_item = get_or_create_with_race_protection(
+        food_item, created = get_or_create_with_race_protection(
             FoodItem,
             Q(name__iexact=payload.name),
             {"name": payload.name},
         )
-        return status.HTTP_201_CREATED, food_item
+        return (status.HTTP_201_CREATED if created else status.HTTP_200_OK), food_item
 
     # Dietary Restrictions Endpoints
 
@@ -95,7 +95,7 @@ class DietaryController(UserAwareController):
         Creates a restriction linked to a food item. If the food item doesn't exist (case-insensitive),
         it will be created automatically. Returns 400 if a restriction for this food item already exists.
         """
-        food_item = get_or_create_with_race_protection(
+        food_item, _created = get_or_create_with_race_protection(
             FoodItem,
             Q(name__iexact=payload.food_item_name),
             {"name": payload.food_item_name},

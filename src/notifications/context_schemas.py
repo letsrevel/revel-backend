@@ -61,6 +61,27 @@ class TicketUpdatedContext(BaseNotificationContext):
     reason: t.NotRequired[str]
 
 
+class TicketCancelledContext(BaseNotificationContext):
+    """Context for TICKET_CANCELLED notification."""
+
+    ticket_id: str
+    ticket_reference: str
+    event_id: str
+    event_name: str
+    event_start_formatted: str
+    event_location: str
+    event_url: str
+    organization_id: str
+    organization_name: str
+    tier_name: str
+    ticket_status: str
+    old_status: str
+    new_status: str
+    # Additional fields for staff notifications
+    ticket_holder_name: t.NotRequired[str]
+    ticket_holder_email: t.NotRequired[str]
+
+
 class PaymentConfirmationContext(BaseNotificationContext):
     """Context for PAYMENT_CONFIRMATION notification."""
 
@@ -319,10 +340,28 @@ class OrgAnnouncementContext(BaseNotificationContext):
     posted_by_name: str
 
 
+# ===== Waitlist Contexts =====
+
+
+class WaitlistSpotAvailableContext(BaseNotificationContext):
+    """Context for WAITLIST_SPOT_AVAILABLE notification."""
+
+    event_id: str
+    event_name: str
+    event_start: str  # ISO format
+    event_start_formatted: str  # User-friendly format
+    event_location: str
+    event_url: str
+    organization_id: str
+    organization_name: str
+    spots_available: int
+
+
 # Context type registry
 NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContext]] = {
     NotificationType.TICKET_CREATED: TicketCreatedContext,
     NotificationType.TICKET_UPDATED: TicketUpdatedContext,
+    NotificationType.TICKET_CANCELLED: TicketCancelledContext,
     NotificationType.TICKET_REFUNDED: TicketRefundedContext,
     NotificationType.TICKET_CHECKED_IN: TicketCheckedInContext,
     NotificationType.PAYMENT_CONFIRMATION: PaymentConfirmationContext,
@@ -349,6 +388,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_REQUEST_APPROVED: MembershipContext,
     NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,
+    NotificationType.WAITLIST_SPOT_AVAILABLE: WaitlistSpotAvailableContext,
 }
 
 

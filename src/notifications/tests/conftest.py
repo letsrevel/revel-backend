@@ -7,6 +7,7 @@ import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
+from events.models import Event, Organization
 from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
 from notifications.models import Notification, NotificationDelivery
 
@@ -115,3 +116,53 @@ def digest_notifications(regular_user: RevelUser) -> list[Notification]:
         notifications.append(notif)
 
     return notifications
+
+
+@pytest.fixture
+def organization(regular_user: RevelUser) -> Organization:
+    """A test organization."""
+    return Organization.objects.create(
+        name="Test Org",
+        slug="test-org",
+        owner=regular_user,
+        accept_membership_requests=True,
+    )
+
+
+@pytest.fixture
+def public_event(organization: Organization) -> Event:
+    """A public event for testing."""
+    next_week = timezone.now() + timedelta(days=7)
+    return Event.objects.create(
+        organization=organization,
+        name="Public Event",
+        slug="public-event",
+        visibility=Event.Visibility.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
+        max_attendees=10,
+        status="open",
+        start=next_week,
+        end=next_week + timedelta(days=1),
+        accept_invitation_requests=True,
+        requires_ticket=True,
+    )
+
+
+@pytest.fixture
+def member_user(django_user_model: type[RevelUser]) -> RevelUser:
+    """A user who will be a member."""
+    return django_user_model.objects.create_user(
+        username="member@example.com",
+        email="member@example.com",
+        password="pass",
+    )
+
+
+@pytest.fixture
+def nonmember_user(django_user_model: type[RevelUser]) -> RevelUser:
+    """A user who is not a member."""
+    return django_user_model.objects.create_user(
+        username="nonmember@example.com",
+        email="nonmember@example.com",
+        password="pass",
+    )

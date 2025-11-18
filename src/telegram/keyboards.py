@@ -104,6 +104,11 @@ class EventKeyboardHandler:
                 text="👤 Become Member",
                 callback_data=f"become_member:{self.event.organization_id}",
             )
+        elif self.eligibility.next_step == NextStep.JOIN_WAITLIST:
+            self.builder.button(
+                text="⌛ Join Waitlist",
+                callback_data=f"join_waitlist:{self.event.id}",
+            )
 
         # For all other next steps, users should use the event details link (already added in __init__)
         return self.builder.as_markup()
