@@ -116,7 +116,7 @@ async def cb_handle_become_member(callback: CallbackQuery, user: RevelUser, tg_u
 
 @router.callback_query(F.data.startswith("join_waitlist:"), flags={"requires_linked_user": True})
 async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
-    """Handles the 'Request Membership' button press."""
+    """Handles the 'Join Waitlist' button press."""
     assert callback.data is not None
     assert isinstance(callback.message, Message)
     _, event_id_str = callback.data.split(":")
