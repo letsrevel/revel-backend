@@ -424,7 +424,7 @@ class EventController(UserAwareController):
         if not event.waitlist_open:
             raise HttpError(400, str(_("This event does not have an open waitlist.")))
 
-        # Use get_or_create to handle duplicate joins
+        # Remove the user from the waitlist if they're on it
         models.EventWaitList.objects.filter(
             event=event,
             user=self.user(),
