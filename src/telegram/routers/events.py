@@ -12,6 +12,7 @@ from accounts.models import RevelUser
 from events.models import (
     Event,
     EventInvitationRequest,
+    EventWaitList,
     Organization,
     OrganizationMembershipRequest,
 )
@@ -110,6 +111,27 @@ async def cb_handle_become_member(callback: CallbackQuery, user: RevelUser, tg_u
         )
     except Exception as e:
         logger.exception(f"Failed to create membership request: {e}")
+        await callback.message.answer("❌ Sorry, something went wrong. Please try again later.")
+
+
+@router.callback_query(F.data.startswith("join_waitlist:"), flags={"requires_linked_user": True})
+async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+    """Handles the 'Join Waitlist' button press."""
+    assert callback.data is not None
+    assert isinstance(callback.message, Message)
+    _, event_id_str = callback.data.split(":")
+    event_id = uuid.UUID(event_id_str)
+
+    try:
+        event = await Event.objects.aget(id=event_id)
+        _, created = await EventWaitList.objects.aget_or_create(event_id=event_id, user=user)
+
+        if created:
+            await callback.message.answer(f"✅ You are on the waitlist for {event.name}!")
+        else:
+            await callback.message.answer(f"ℹ️ You are already on the waitlist for {event.name}!")
+    except Exception as e:
+        logger.exception(f"Failed to join waitlist: {e}")
         await callback.message.answer("❌ Sorry, something went wrong. Please try again later.")
 
 

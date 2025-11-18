@@ -25,6 +25,7 @@ from notifications.signals import (  # noqa: E402, F401
     rsvp,
     ticket,
     user,
+    waitlist,
 )
 
 __all__ = [
@@ -38,4 +39,5 @@ __all__ = [
     "rsvp",
     "ticket",
     "user",
+    "waitlist",
 ]

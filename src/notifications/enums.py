@@ -55,6 +55,9 @@ class NotificationType(TextChoices):
     # Organization notifications
     ORG_ANNOUNCEMENT = "org_announcement"  # Placeholder - requires API endpoint
 
+    # Waitlist notifications
+    WAITLIST_SPOT_AVAILABLE = "waitlist_spot_available"
+
 
 class DeliveryChannel(TextChoices):
     """Notification delivery channels."""

@@ -313,6 +313,23 @@ class RSVPUpdateSchema(Schema):
     status: EventRSVP.RsvpStatus
 
 
+# Waitlist Admin Schemas
+
+
+class WaitlistEntrySchema(ModelSchema):
+    """Schema for waitlist entry details in admin views."""
+
+    id: UUID
+    event_id: UUID
+    user: MinimalRevelUserSchema
+    created_at: datetime
+    updated_at: datetime
+
+    class Meta:
+        model = models.EventWaitList
+        fields = ["id", "created_at", "updated_at"]
+
+
 class UserRSVPSchema(ModelSchema):
     """Schema for user's own RSVPs with event details."""
 

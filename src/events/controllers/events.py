@@ -374,6 +374,63 @@ class EventController(UserAwareController):
         manager = EventManager(self.user(), event)
         return manager.rsvp(answer)
 
+    @route.post(
+        "/{event_id}/waitlist/join",
+        url_name="join_waitlist",
+        response={200: ResponseMessage, 400: ResponseMessage},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def join_waitlist(self, event_id: UUID) -> ResponseMessage:
+        """Join the waitlist for a full event.
+
+        Allows users to join the event waitlist when the event is at capacity. Users will be
+        notified when spots become available. Returns 400 if the event doesn't have an open
+        waitlist or if the user is already on the waitlist.
+        """
+        event = self.get_one(event_id)
+
+        # Check if waitlist is open
+        if not event.waitlist_open:
+            raise HttpError(400, str(_("This event does not have an open waitlist.")))
+
+        # Use get_or_create to handle duplicate joins
+        waitlist_entry, created = models.EventWaitList.objects.get_or_create(
+            event=event,
+            user=self.user(),
+        )
+
+        # If entry already existed, inform the user
+        if not created:
+            return ResponseMessage(message=str(_("You are already on the waitlist for this event.")))
+
+        return ResponseMessage(message=str(_("Successfully joined the waitlist.")))
+
+    @route.delete(
+        "/{event_id}/waitlist/leave",
+        url_name="leave_waitlist",
+        response={200: ResponseMessage, 400: ResponseMessage},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def leave_waitlist(self, event_id: UUID) -> ResponseMessage:
+        """Leave the waitlist for a full event.
+
+        Allows users to leave the event waitlist.
+        """
+        event = self.get_one(event_id)
+
+        # Check if waitlist is open
+        if not event.waitlist_open:
+            raise HttpError(400, str(_("This event does not have an open waitlist.")))
+
+        # Remove the user from the waitlist if they're on it
+        models.EventWaitList.objects.filter(
+            event=event,
+            user=self.user(),
+        ).delete()
+        return ResponseMessage(message=str(_("Successfully left the waitlist.")))
+
     @route.get(
         "/{event_id}/tickets/tiers",
         url_name="tier_list",

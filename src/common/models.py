@@ -163,13 +163,16 @@ class TagManager:
     def add(self, *names: str) -> None:
         """Add the tags."""
         from django.contrib.contenttypes.models import ContentType  # local import to avoid circularity
+        from django.db.models import Q
+
+        from common.utils import get_or_create_with_race_protection
 
         ct = ContentType.objects.get_for_model(self.instance.__class__)
         for name in names:
             name = name.strip()
             if not name:
                 continue  # skip blanks
-            tag, _ = Tag.objects.get_or_create(name=name)
+            tag, _ = get_or_create_with_race_protection(Tag, Q(name=name), {"name": name})
             TagAssignment.objects.get_or_create(
                 tag=tag,
                 content_type=ct,

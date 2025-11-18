@@ -6,7 +6,7 @@ from decimal import Decimal
 from enum import StrEnum
 
 from django.db import transaction
-from django.db.models import Prefetch, Q
+from django.db.models import Exists, OuterRef, Prefetch, Q
 from django.utils import timezone
 from django.utils.translation import gettext as _  # we can't use lazy, otherwise pydantic complains
 from pydantic import BaseModel
@@ -27,6 +27,7 @@ class NextStep(StrEnum):
     WAIT_TO_RETAKE_QUESTIONNAIRE = "wait_to_retake_questionnaire"
     WAIT_FOR_EVENT_TO_OPEN = "wait_for_event_to_open"
     JOIN_WAITLIST = "join_waitlist"
+    WAIT_FOR_OPEN_SPOT = "wait_for_open_spot"
     PURCHASE_TICKET = "purchase_ticket"
     RSVP = "rsvp"
 
@@ -279,7 +280,15 @@ class RSVPDeadlineGate(BaseEligibilityGate):
 
 
 class AvailabilityGate(BaseEligibilityGate):
-    """Gate #7: Checks if the event has space available for another attendee."""
+    """Gate #7: Checks if the event has space available for another attendee.
+
+    This is a preliminary capacity check using prefetched data (zero additional DB queries).
+    It must use the same counting logic as EventManager._assert_capacity() to avoid
+    inconsistencies, but operates on in-memory data for performance.
+
+    The final authoritative capacity check happens in _assert_capacity() within a transaction
+    with row-level locking to prevent race conditions.
+    """
 
     def check(self) -> EventUserEligibility | None:
         """Check if the event has space available for another attendee."""
@@ -291,14 +300,36 @@ class AvailabilityGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.EVENT_IS_FULL),
-                next_step=NextStep.JOIN_WAITLIST if self.event.waitlist_open else None,
+                next_step=self._get_next_step(),
             )
         return None
 
+    def _get_next_step(self) -> NextStep | None:
+        if not self.event.waitlist_open:
+            return None
+        if self.event.user_is_waitlisted:
+            return NextStep.WAIT_FOR_OPEN_SPOT
+        return NextStep.JOIN_WAITLIST
+
     def _get_attendee_count(self) -> int:
+        """Count attendees using prefetched data.
+
+        Uses the same counting logic as EventManager._assert_capacity():
+        - For ticket events: count unique users with non-cancelled tickets
+        - For RSVP events: count YES RSVPs
+
+        This operates on prefetched data for performance, while _assert_capacity()
+        makes fresh DB queries with locking for race-safety.
+        """
         if self.event.requires_ticket:
-            return len({ticket.user_id for ticket in self.event.tickets.all()})
-        return self.event.rsvps.count()
+            return len(
+                {
+                    ticket.user_id
+                    for ticket in self.event.tickets.all()
+                    if ticket.status != Ticket.TicketStatus.CANCELLED
+                }
+            )
+        return len([rsvp for rsvp in self.event.rsvps.all() if rsvp.status == EventRSVP.RsvpStatus.YES])
 
 
 class TicketSalesGate(BaseEligibilityGate):
@@ -407,6 +438,7 @@ class EligibilityService:
                 ),
                 "ticket_tiers",  # Prefetch ticket tiers for sales window checking
             )
+            .annotate(user_is_waitlisted=Exists(models.EventWaitList.objects.filter(event=OuterRef("pk"), user=user)))
             .get(pk=event.pk)
         )
 
@@ -573,7 +605,14 @@ class EventManager:
             return
 
         if use_tickets:
-            count = Ticket.objects.select_for_update().filter(event=self.event).values("user_id").distinct().count()
+            count = (
+                Ticket.objects.select_for_update()
+                .filter(event=self.event)
+                .exclude(status=Ticket.TicketStatus.CANCELLED)
+                .values("user_id")
+                .distinct()
+                .count()
+            )
             if not tier:
                 raise ValueError("Tier must be provided for ticket counts.")
             if tier.total_quantity and tier.quantity_sold >= tier.total_quantity:

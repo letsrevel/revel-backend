@@ -52,6 +52,7 @@ def _is_event_notification_with_eligibility(notification_type: str) -> bool:
         NotificationType.EVENT_UPDATED,
         NotificationType.EVENT_REMINDER,
         NotificationType.INVITATION_RECEIVED,
+        NotificationType.WAITLIST_SPOT_AVAILABLE,
     )
 
 
