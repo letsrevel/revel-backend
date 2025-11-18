@@ -20,10 +20,10 @@ class WaitlistSpotAvailableTemplate(NotificationTemplate):
         if spots == 1:
             return _("Spot available for %(event)s!") % {"event": event_name}
         return ngettext(
-            "%(count)d spot available for %(event)s!",
-            "%(count)d spots available for %(event)s!",
+            "%d spot available for %s!",
+            "%d spots available for %s!",
             spots,
-        ) % {"count": spots, "event": event_name}
+        ) % (spots, event_name)
 
     def get_email_subject(self, notification: Notification) -> str:
         """Get email subject."""
