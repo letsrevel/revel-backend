@@ -7,7 +7,7 @@ from uuid import uuid4
 from django.conf import settings
 from ninja import ModelSchema, Schema
 from ninja_jwt.schema import TokenObtainPairOutputSchema
-from pydantic import UUID4, EmailStr, Field, field_serializer, model_validator
+from pydantic import UUID4, EmailStr, Field, field_serializer, field_validator, model_validator
 
 from accounts.password_validation import validate_password
 from common.schema import StrippedString
@@ -122,6 +122,15 @@ class RegisterUserSchema(PasswordMixin):
     email: EmailStr
     first_name: StrippedString = ""
     last_name: StrippedString = ""
+    accept_toc_and_privacy: bool = Field(..., description="Must accept terms of service and privacy policy")
+
+    @field_validator("accept_toc_and_privacy")
+    @classmethod
+    def validate_accept_toc_and_privacy(cls, v: bool) -> bool:
+        """Validate that the user has accepted the ToC and Privacy Policy."""
+        if v is not True:
+            raise ValueError("You must accept the terms of service and privacy policy")
+        return v
 
     @model_validator(mode="after")
     def validate_password(self) -> t.Self:

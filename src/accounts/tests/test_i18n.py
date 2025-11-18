@@ -35,6 +35,7 @@ def test_error_message_translation_german(mock_send_email: object, user: RevelUs
                     password2="TestPass123!",
                     first_name="Test",
                     last_name="User",
+                    accept_toc_and_privacy=True,
                 )
             )
 
@@ -51,6 +52,7 @@ def test_error_message_translation_italian(mock_send_email: object, user: RevelU
                     password2="TestPass123!",
                     first_name="Test",
                     last_name="User",
+                    accept_toc_and_privacy=True,
                 )
             )
 
@@ -67,6 +69,7 @@ def test_error_message_default_english(mock_send_email: object, user: RevelUser)
                     password2="TestPass123!",
                     first_name="Test",
                     last_name="User",
+                    accept_toc_and_privacy=True,
                 )
             )
 

@@ -8,7 +8,8 @@ from accounts.controllers.auth import AuthController
 from accounts.controllers.dietary import DietaryController
 from accounts.controllers.otp import OtpController
 from common.controllers import TagController
-from common.schema import ResponseOk, VersionResponse
+from common.models import Legal
+from common.schema import LegalSchema, ResponseOk, VersionResponse
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle
 from events.controllers.dashboard import DashboardController
 from events.controllers.event_admin import EventAdminController
@@ -87,6 +88,12 @@ def healthcheck(request: HttpRequest) -> tuple[int, ResponseOk]:
         The response status code and message.
     """
     return 200, ResponseOk()
+
+
+@api.get("/legal", tags=["Legal"], response={200: LegalSchema})
+def legal(request: HttpRequest) -> tuple[int, Legal]:
+    """Return legal documents."""
+    return 200, Legal.get_solo()
 
 
 api.register_controllers(
