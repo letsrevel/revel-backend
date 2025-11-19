@@ -243,7 +243,9 @@ We welcome contributions! Please read our **[CONTRIBUTING.md](CONTRIBUTING.md)**
 
 ### Internationalization
 
-Revel supports multiple languages (currently English, German, and Italian). See **[i18n.md](i18n.md)** for details on how the translation system works and how to add new languages.
+Revel aims to support multiple languages (currently English, German, and Italian). See **[i18n.md](i18n.md)** for details on how the translation system works and how to add new languages.
+
+This is currently heavily WIP.
 
 ---
 
