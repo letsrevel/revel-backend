@@ -167,7 +167,6 @@ class EmailChannel(NotificationChannel):
                 user_id=str(notification.user.id),
                 error=str(e),
                 retry_count=delivery.retry_count,
-                exc_info=True,
             )
 
             return False
