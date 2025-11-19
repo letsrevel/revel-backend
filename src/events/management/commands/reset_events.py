@@ -5,7 +5,7 @@ import typing as t
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
 
 from accounts.models import RevelUser
@@ -64,6 +64,8 @@ class Command(BaseCommand):
                 return
 
         # Perform the reset in a transaction
+        # We clear on_commit hooks to prevent notification signals from failing when trying to
+        # access deleted users (cascade delete triggers signals but users are already gone)
         with transaction.atomic():
             # Count objects before deletion
             org_count = Organization.objects.count()
@@ -80,6 +82,10 @@ class Command(BaseCommand):
             # Delete all users with @example.com emails
             RevelUser.objects.filter(~Q(email__endswith="@letsrevel.io")).delete()
             self.stdout.write(self.style.SUCCESS(f"✓ Deleted {user_count} @example.com users"))
+
+            # Clear on_commit hooks to prevent signals from trying to access deleted users
+            # This prevents "DoesNotExist" errors when signals try to access cascade-deleted users
+            connection.run_on_commit = []
 
         # Re-bootstrap (outside transaction to allow bootstrap's own transaction handling)
         self.stdout.write(self.style.MIGRATE_HEADING("Running bootstrap_events..."))

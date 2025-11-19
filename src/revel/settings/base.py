@@ -9,6 +9,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+from importlib.metadata import version
 from pathlib import Path
 
 from decouple import Csv, config
@@ -246,10 +247,7 @@ CACHES = {
 
 
 # GENERAL
-_version_path = BASE_DIR.parent / "version"
-
-
-VERSION = _version_path.read_text().strip()
+VERSION = version("revel")
 API_DOCS_URL: str | None = "/docs"
 
 SITE_DOMAIN = config("SITE_DOMAIN", default="localhost")

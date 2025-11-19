@@ -123,9 +123,8 @@ COPY --from=builder --chown=appuser:appuser /app/src /app/src
 # Copy collected static files (ensure STATIC_ROOT in builder matches source here)
 COPY --from=builder --chown=appuser:appuser /app/staticfiles /app/staticfiles
 
-# Copy entrypoint script and version file
+# Copy entrypoint script
 COPY --from=builder --chown=appuser:appuser /app/entrypoint.sh /app/entrypoint.sh
-COPY --from=builder --chown=appuser:appuser /app/version /app/version
 
 # Copy Playwright browser cache to the appuser's home directory cache
 # COPY --from=builder --chown=appuser:appuser /root/.cache/ms-playwright /home/appuser/.cache/ms-playwright

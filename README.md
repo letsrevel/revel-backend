@@ -49,7 +49,7 @@ Revel is being built to address the shortcomings of existing event platforms, es
 Revel combines the ticketing power of platforms like Eventbrite with the community-building tools of Meetup, all under a privacy-minded, open-source framework.
 
 #### Community & Membership
-*   **Organizations:** Create and manage your community's central hub. Customize its visibility (Public, Private, Members-Only).
+*   **Organizations:** Create and manage your community's central hub. Customize its visibility (Public, Members-Only).
 *   **Roles & Permissions:** Assign roles like Owner, Staff, and Member, with a granular permission system to control who can create events, manage members, and more.
 *   **Membership System:** Manage a roster of members, enabling members-only events and fostering a sense of belonging.
 
@@ -62,7 +62,7 @@ Revel combines the ticketing power of platforms like Eventbrite with the communi
 *   **Event & Series Management:** Easily create single events or recurring event series under your organization.
 *   **Ticketing & RSVPs:** Support for both paid/free ticketed events (powered by Stripe) and simpler RSVP-based gatherings.
 *   **QR Code Check-In:** Manage event entry smoothly with QR code tickets and a staff-facing check-in flow.
-*   **Potluck Coordination:** A unique, built-in system for attendees to coordinate bringing items, moving logistics off messy spreadsheets.
+*   **Potluck Coordination:** A unique, built-in system for attendees to coordinate bringing items, dietary restrictions and preferences, moving logistics off messy spreadsheets.
 
 ---
 
@@ -70,8 +70,8 @@ Revel combines the ticketing power of platforms like Eventbrite with the communi
 
 Revel is built with a modern and robust backend, designed for performance and scalability.
 
-*   **🐍 Backend:** Python 3.13+ with **Django 5+**
-*   **🚀 API:** **Django Ninja** for a fast, modern, and auto-documenting REST API.
+*   **🐍 Backend:** Python 3.13+ with **[Django 5.2+](https://docs.djangoproject.com/en/5.2/)**
+*   **🚀 API:** **[Django Ninja](https://django-ninja.dev/)** and **[Django Ninja Extra](https://eadwincode.github.io/django-ninja-extra/)** for a fast, modern, and auto-documenting REST API.
 *   **🐘 Database:** **PostgreSQL** with **PostGIS** for powerful geo-features.
 *   **⚙️ Async Tasks:** **Celery** with **Redis** for background jobs (emails, evaluations).
 *   **🐳 Deployment:** Fully containerized with **Docker** for easy setup and deployment.
@@ -243,7 +243,9 @@ We welcome contributions! Please read our **[CONTRIBUTING.md](CONTRIBUTING.md)**
 
 ### Internationalization
 
-Revel supports multiple languages (currently English, German, and Italian). See **[i18n.md](i18n.md)** for details on how the translation system works and how to add new languages.
+Revel aims to support multiple languages (currently English, German, and Italian). See **[i18n.md](i18n.md)** for details on how the translation system works and how to add new languages.
+
+This is currently heavily WIP.
 
 ---
 

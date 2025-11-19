@@ -15,6 +15,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Validate tag format
+        run: |
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ Error: Release tag '$TAG_NAME' must start with 'v' and follow semantic versioning (e.g., v1.0.0)"
+            exit 1
+          fi
+          echo "✅ Tag format is valid: $TAG_NAME"
+
+      - name: Validate version consistency
+        run: |
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          TAG_VERSION="${TAG_NAME#v}"  # Strip 'v' prefix
+          PYPROJECT_VERSION=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "❌ Error: Version mismatch!"
+            echo "   Git tag version: $TAG_VERSION (from $TAG_NAME)"
+            echo "   pyproject.toml version: $PYPROJECT_VERSION"
+            echo "   Please ensure the release tag matches the version in pyproject.toml"
+            exit 1
+          fi
+          echo "✅ Version consistency validated: $TAG_VERSION"
+
       - name: Log in to GHCR
         run: echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ secrets.GHCR_USERNAME }} --password-stdin
 
@@ -35,6 +59,14 @@ jobs:
           echo "After cleanup:"
           df -h
 
+      - name: Extract version without v prefix
+        id: version
+        run: |
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          VERSION="${TAG_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Extracted version: $VERSION"
+
       - name: Build and push image
         uses: docker/build-push-action@v5
         with:
@@ -43,4 +75,4 @@ jobs:
           push: true
           tags: |
             ghcr.io/letsrevel/revel:latest
-            ghcr.io/letsrevel/revel:${{ github.event.release.tag_name }}
+            ghcr.io/letsrevel/revel:${{ steps.version.outputs.version }}

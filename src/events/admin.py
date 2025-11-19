@@ -102,7 +102,8 @@ class OrganizationStaffInline(TabularInline):  # type: ignore[misc]
 class OrganizationMemberInline(TabularInline):  # type: ignore[misc]
     model = models.OrganizationMember
     extra = 1
-    autocomplete_fields = ["user"]
+    autocomplete_fields = ["user", "tier"]
+    fields = ["user", "status", "tier"]
 
 
 class EventSeriesInline(TabularInline):  # type: ignore[misc]
@@ -118,6 +119,12 @@ class OrganizationQuestionnaireInline(TabularInline):  # type: ignore[misc]
     extra = 1
     autocomplete_fields = ["questionnaire"]
     filter_horizontal = ["events", "event_series"]
+
+
+class MembershipTierInline(TabularInline):  # type: ignore[misc]
+    model = models.MembershipTier
+    extra = 1
+    fields = ["name", "description"]
 
 
 class TicketTierInline(TabularInline):  # type: ignore[misc]
@@ -178,13 +185,14 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
 
     tabs = [
         ("Settings", ["Settings"]),
-        ("People", ["Staff", "Members"]),
+        ("People", ["Staff", "Members", "Tiers"]),
         ("Content", ["Series", "Questionnaires"]),
     ]
 
     inlines = [
         OrganizationStaffInline,
         OrganizationMemberInline,
+        MembershipTierInline,
         EventSeriesInline,
         OrganizationQuestionnaireInline,
     ]
@@ -492,6 +500,22 @@ class EventInvitationRequestAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  #
         return format_html('<a href="{}">{}</a>', url, obj.decided_by.username)
 
 
+@admin.register(models.MembershipTier)
+class MembershipTierAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+    """Admin for MembershipTier model."""
+
+    list_display = ["__str__", "name", "organization_link", "member_count", "created_at"]
+    list_filter = ["organization__name", "created_at"]
+    search_fields = ["name", "organization__name"]
+    autocomplete_fields = ["organization"]
+    readonly_fields = ["created_at", "updated_at"]
+    date_hierarchy = "created_at"
+
+    @admin.display(description="Members")
+    def member_count(self, obj: models.MembershipTier) -> int:
+        return obj.members.count()
+
+
 @admin.register(models.OrganizationStaff)
 class OrganizationStaffAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for OrganizationStaff model."""
@@ -516,12 +540,16 @@ class OrganizationStaffAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin): 
 class OrganizationMemberAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for OrganizationMember model."""
 
-    list_display = ["__str__", "user_link", "organization_link", "created_at"]
-    list_filter = ["organization__name", "created_at"]
+    list_display = ["__str__", "user_link", "organization_link", "status", "tier_name", "created_at"]
+    list_filter = ["status", "organization__name", "tier__name", "created_at"]
     search_fields = ["user__username", "user__email", "organization__name"]
-    autocomplete_fields = ["user", "organization"]
+    autocomplete_fields = ["user", "organization", "tier"]
     readonly_fields = ["created_at", "updated_at"]
     date_hierarchy = "created_at"
+
+    @admin.display(description="Tier")
+    def tier_name(self, obj: models.OrganizationMember) -> str:
+        return obj.tier.name if obj.tier else "—"
 
 
 @admin.register(models.OrganizationMembershipRequest)
@@ -557,12 +585,26 @@ class OrganizationMembershipRequestAdmin(ModelAdmin, UserLinkMixin, Organization
 class OrganizationTokenAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for OrganizationToken model."""
 
-    list_display = ["name", "organization_link", "issuer_link", "uses_display", "expires_at", "created_at"]
-    list_filter = ["organization__name", "expires_at", "created_at"]
+    list_display = [
+        "name",
+        "organization_link",
+        "issuer_link",
+        "grants_membership",
+        "grants_staff_status",
+        "tier_name",
+        "uses_display",
+        "expires_at",
+        "created_at",
+    ]
+    list_filter = ["organization__name", "grants_membership", "grants_staff_status", "expires_at", "created_at"]
     search_fields = ["name", "organization__name", "issuer__username"]
-    autocomplete_fields = ["organization", "issuer"]
+    autocomplete_fields = ["organization", "issuer", "membership_tier"]
     readonly_fields = ["id", "created_at", "updated_at"]
     date_hierarchy = "created_at"
+
+    @admin.display(description="Tier")
+    def tier_name(self, obj: models.OrganizationToken) -> str:
+        return obj.membership_tier.name if obj.membership_tier else "—"
 
     @admin.display(description="Issuer")
     def issuer_link(self, obj: models.OrganizationToken) -> str:
