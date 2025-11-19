@@ -1,127 +1,306 @@
+# GEMINI.md
 
-# Gemini Project Overview
+This file provides guidance to Gemini when working with code in this repository.
 
-This document provides a general overview of the Revel project, its structure, and conventions to guide future development and ensure consistency.
+## Development Commands
 
-## Project Overview
+This project uses a comprehensive Makefile for development tasks:
 
-Revel is a Django-based web application with a RESTful API built using `django-ninja`. It utilizes a PostgreSQL database, Redis for caching and Celery task queuing, and Minio for object storage. The project is containerized using Docker.
+### Primary Development Commands
+- `make setup` - Complete one-time setup: creates venv, installs dependencies, sets up Docker services, and starts the server
+- `make run` - Start Django development server (generates test JWTs first)
+- `make jwt EMAIL=user@example.com` - Get JWT access and refresh tokens for a specific user
+- `make check` - Run all code quality checks (format, lint, mypy, i18n-check)
+- `make test` - Run pytest test suite with coverage reporting
+- `make test-failed` - Re-run only failed tests
 
-The application is divided into several Django apps: `accounts`, `api`, `common`, `events`, `questionnaires`, and `telegram`. Each app has a specific responsibility and follows a consistent structure.
+### Code Quality & Formatting
+- `make format` - Auto-format code with ruff
+- `make lint` - Run linting with ruff (auto-fixes issues)
+- `make mypy` - Run strict type checking with mypy
+- `make i18n-check` - Verify translation files are compiled and up-to-date
 
-## Getting Started
+### Internationalization (i18n)
+- `make makemessages` - Extract translatable strings and update .po files
+- `make compilemessages` - Compile .po files into .mo binaries (commit after running!)
+- `make i18n-check` - Verify .mo files are up-to-date with .po files
 
-To set up the development environment, run the following command:
+### Database Management
+- `make migrations` - Create new Django migrations
+- `make migrate` - Apply pending migrations
+- `make bootstrap` - Initialize database with base data
+- `make seed` - Populate database with test data
+- `make nuke-db` - **DESTRUCTIVE**: Delete database and migration files
+- `make restart` - **DESTRUCTIVE**: Restart Docker and recreate database
 
-```bash
-make setup
-```
+### Background Services
+- `make run-celery` - Start Celery worker for background tasks
+- `make run-celery-beat` - Start Celery beat scheduler
+- `make run-flower` - Start Flower (Celery monitoring UI)
 
-This command will:
-1. Create a Python virtual environment.
-2. Install the required dependencies using `uv`.
-3. Copy the example environment file.
-4. Start the required services using Docker Compose.
-5. Generate test JWTs.
-6. Run the Django development server.
+### Testing Variants
+- `make test-functional` - Run functional tests
+- `make test-pipeline` - Run tests with 100% coverage requirement
 
-## Coding Style and Conventions
+## Project Architecture
 
-The project follows the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html).
+Revel is a Django-based event management platform with the following structure:
 
-- **Formatting**: The project uses `ruff` for code formatting. To format the code, run `make format`.
-- **Linting**: The project uses `ruff` for linting. To lint the code, run `make lint`.
-- **Type Hinting**: The project uses `mypy` for static type checking. To run `mypy`, use `make mypy`. All new code should be fully type-hinted.
-- **Docstrings**: The project uses Google-style docstrings. All public modules, functions, classes, and methods should have docstrings.
-- **Naming Conventions**:
-    - Modules: `lowercase_with_underscores`
-    - Classes: `PascalCase`
-    - Functions: `lowercase_with_underscores`
-    - Variables: `lowercase_with_underscores`
-    - Constants: `UPPERCASE_WITH_UNDERSCORES`
+### Core Applications
+- **accounts/** - User authentication, registration, JWT handling, GDPR compliance
+- **events/** - Core event management, organizations, tickets, memberships, invitations
+- **questionnaires/** - Dynamic questionnaire system with LLM-powered evaluation
+- **geo/** - Geolocation features, city data, IP-based location detection
+- **telegram/** - Telegram bot integration with FSM-based conversation flows
+- **api/** - Global API configuration, exception handlers, rate limiting
+- **common/** - Shared utilities, authentication, base models, admin customizations
 
-### General instructions
+### Key Architectural Patterns
 
-- the source code is in the `src` directory.
-- Before doing anything, read ALL the source code in src and keep it in your context. ALWAYS read the whole code before starting a new action.
-- All code should be type hinted, including in tests and mock.
-- The usage of `type: ignore[specifier]` is allowed when it makes sense. Use it with caution. Take inspiration by other files.
-- YOU MUST NEVER USE `# type: ignore[no-untyped-def]`. Function definitions MUST ALWAYS BE TYPED.
-- I prefer not to import annotation from __future__. You can use string-like annotations instead. For example `-> QuerySet["MyModel"]`
-- All the functions must follow the Single Responsibility Principle as much as possible. Deviate from it when it makes sense.
-- KISS and DRY.
-- Use OOP when it makes sense.
-- Use best software architecture practices.
-- Once you finish writing code, run `make check` and `make test` before writing new tests to test the new code.
-- Then run `make check` and `make test` again to ensure everything is correct.
+#### Service Layer Pattern
+Business logic is encapsulated in service modules:
+- `events/service/` - Event management, organization services
+- `accounts/service/` - User management, authentication services
+- `questionnaires/service.py` - Questionnaire evaluation logic
 
-AND MOST IMPORTANTLY: CLEAN CODE.
+#### Controller Pattern (Django Ninja)
+API endpoints are organized in controller classes:
+- Controllers inherit from `UserAwareController` for common user/auth functionality
+- Use `@api_controller` decorator with consistent tagging
+- Implement pagination with `PageNumberPaginationExtra`
+- Support search with `@searching` decorator
 
-## Running Tests
+#### Permission System
+- Custom permission classes in `events/permissions.py`
+- Organization-based access control with roles (Owner, Staff, Member)
+- Event-level permissions with eligibility checking
+- JWT-based authentication with optional anonymous access
 
-The project has a comprehensive test suite using `pytest`. To run the tests, use the following command:
+### Technology Stack
+- **Backend**: Django 5+ with Django Ninja for API
+- **Database**: PostgreSQL with PostGIS for geo features
+- **Async Tasks**: Celery with Redis
+- **Authentication**: JWT with custom user model
+- **File Storage**: Configurable (local/S3)
+- **Containerization**: Docker with docker-compose for development
 
-```bash
-make test
-```
+### Testing Framework
+- **pytest** with Django integration
+- Factory-based test data generation
+- Coverage reporting with HTML output
+- Separate functional and unit test suites
+- Celery task testing with pytest-celery
 
-This command will run all the tests and generate a coverage report.
+### Code Quality Standards
+- **Formatting**: ruff (replaces black)
+- **Linting**: ruff with Django-specific rules
+- **Type Checking**: mypy with strict settings and Django plugin
+- **Docstrings**: Google-style format required
+- **Coverage**: Aim for high coverage, 100% required in CI pipeline
 
-If one or more tests fail, before changing the code, investigate whether the error is due to a faulty test or a faulty implementation.
+### Development Environment
+- Python 3.13+ required
+- **UV for dependency management** (use `uv add`/`uv remove` - NEVER use pip directly)
+- Docker for services (PostgreSQL, Redis, MinIO)
+- Virtual environment automatically created in `.venv/`
 
-### Writing new tests
+### Key Configuration Files
+- `pyproject.toml` - Dependencies, tool configuration (ruff, mypy, pytest)
+- `Makefile` - Development commands and workflows
+- `docker-compose-dev.yml` - Development services
+- `src/revel/settings/` - Modular Django settings
 
-- use pytest.
-- It is important that the tests are typed as well.
-- Do not write or use fixtures without typing the function signatures, or I will switch to the competition.
-- The tests should aim at maximum coverage.
-- Each test should test one thing, except when it makes sense to test a whole flow.
-- Use fixtures smartly to avoid repeating yourself.
+### Security Features
+- GDPR compliance with data export/deletion
+- File malware scanning with ClamAV
+- Advanced user permissions and organization roles
+- Questionnaire-based access control
+- Secure file handling with quarantine system
 
-## Important Commands
+## Testing Guidelines
 
-- `make check`: Runs formatting, linting, and type checking.
-- `make run`: Starts the Django development server.
-- `make run-celery`: Starts the Celery worker.
-- `make run-celery-beat`: Starts the Celery beat scheduler.
-- `make migrations`: Creates new database migrations.
-- `make migrate`: Applies database migrations.
-- `make shell`: Opens the Django shell.
-- `make restart`: Restarts the development environment and recreates the database.
-- `make nuke-db`: Deletes the database and migrations.
+When writing tests:
+- Use factory classes for test data generation
+- Mock external services (Celery tasks, email, file uploads)
+- Test both success and error cases
+- Include integration tests for complex workflows
+- Maintain high test coverage
 
-Once you finish writing code, always run `make check` and `make test` to ensure everything is working.
+## Development Notes
 
-## GitHub CLI
+- Run `make check` before committing to ensure code quality
+- Use type hints for all function signatures (required by mypy --strict), including in tests and fixtures.
+- Follow Google-style docstrings for public APIs
+- Controllers should inherit from `UserAwareController` for consistent user handling
+- Business logic belongs in service modules, not controllers or models
+- Use Django Ninja's automatic OpenAPI documentation features
+- Use the context7 MCP to look up documentation
+- Adhere to DRY, KISS and SOLID principles. Exceptions are allowed when they make sense.
+- Do not catch exceptions for the sake of catching them. Especially in the celery tasks, it might be important to let them propagate instead of having the tasks fail silently.
+- Avoid using raw dictionaries. When possible prefer TypedDict, Pydantic or Dataclasses
 
-You are only allowed to use the gh cli to create and read issues, never to perform any other actions, unless specifically instructed.
+## Dependency Management
 
-To create a new issue, use:
+**IMPORTANT:** This project uses UV for dependency management. NEVER use pip directly.
 
-```
-gh issue create --title 'Title' --body $'Body of the issue' --assignee @me
-```
+### Adding Dependencies
+- **Production dependencies:** `uv add <package>`
+- **Development dependencies:** `uv add --dev <package>` or `uv add --group dev <package>`
+- **Optional dependencies:** `uv add --optional <group> <package>`
 
-Always use `--assignee @me`
+### Removing Dependencies
+- `uv remove <package>`
 
-When appropriate, use `--label`
+### Syncing Environment
+- `uv sync` - Install all dependencies from lockfile
+- `uv sync --dev` - Include development dependencies
 
-Use always single quotation and prefix the body with a $ to make the newlines work. This applies to everything. Also PR commands.
+### Why UV?
+- Faster than pip
+- Deterministic dependency resolution
+- Automatic virtual environment management
+- Better conflict detection
 
-Do not close issues without my explicit command and consent.
+## Implementation Workflow
 
-## Project Structure
+When working on issues or new features, follow this collaborative workflow:
 
-The project is organized into the following directories:
+### 1. Investigation & Analysis Phase
+- Read the issue description thoroughly
+- Explore relevant code sections using Read/Grep/Glob tools
+- Identify all affected files, models, and components
+- Map out dependencies and relationships
 
-- `src`: Contains the Django project and apps.
-- `functional_tests`: Contains functional tests.
-- `docs`: Contains the project documentation.
+### 2. Discussion Phase (Required)
+- Present findings to the user
+- Propose multiple approaches with pros/cons when applicable
+- Discuss implementation details, edge cases, and trade-offs
+- Ask clarifying questions about:
+  - Desired behavior and user experience
+  - Technical preferences (library choices, patterns to follow)
+  - Migration strategies and backward compatibility
+  - API design decisions
+  - Testing requirements
+- Create a detailed implementation plan with clear phases
+- Get explicit approval before proceeding to implementation
 
-Each Django app in the `src` directory follows a similar structure:
+### 3. Implementation Phase
+- Use TodoWrite to track progress through implementation phases
+- Update todos as each phase completes
+- Follow the agreed-upon plan from the discussion phase
+- Raise concerns immediately if issues are discovered during implementation
 
-- `models.py`: Contains the Django models.
-- `admin.py`: Contains the Django admin configuration.
-- `controllers/`: Contains the API endpoints.
-- `service/`: Contains the business logic.
-- `tests/`: Contains the tests for the app.
+### 4. Key Principles
+- **No surprises**: Discuss before implementing, especially for architectural decisions
+- **Be thorough**: Consider migration paths, backward compatibility, and data safety
+- **Document decisions**: Explain reasoning in comments and docstrings
+- **Iterative refinement**: It's better to ask questions than make assumptions
+
+## Code Style Preferences
+
+### Schemas (Django Ninja)
+- **ModelSchema**: Only declare fields at class level when they require special handling (e.g., enum conversion to string)
+- **Omit unnecessary fields**: Don't include `created_at`/`updated_at` in response schemas unless specifically needed
+- **DRY**: Let ModelSchema infer field types from the model definition
+- Example:
+  ```python
+  # Good
+  class UserSchema(ModelSchema):
+      restriction_type: str  # Only for enum->string conversion
+      class Meta:
+          model = User
+          fields = ["id", "name", "email"]
+
+  # Bad - redundant declarations
+  class UserSchema(ModelSchema):
+      id: UUID4
+      name: str
+      email: str
+      created_at: datetime.datetime  # Not needed for API responses
+      class Meta:
+          model = User
+          fields = ["id", "name", "email", "created_at"]
+  ```
+
+### Controllers (Django Ninja Extra)
+- **Authentication & throttling**: Define at class level when all endpoints share the same configuration
+- **Per-endpoint overrides**: Use `throttle=WriteThrottle()` only for POST/PATCH/DELETE that modify data
+- **Default throttle**: `UserDefaultThrottle` for GET endpoints, `WriteThrottle` for mutations
+- **Flat functions**: Avoid nested conditionals. Use early returns and `model_dump(exclude_unset=True)` for updates
+- **No try-except in views**: Use `get_object_or_404()` or `self.get_object_or_exception()` for lookups
+- Example:
+  ```python
+  # Good
+  @api_controller("/api", auth=I18nJWTAuth(), throttle=UserDefaultThrottle())
+  class MyController(ControllerBase):
+      @route.post("/items", throttle=WriteThrottle())
+      def create_item(self, payload: Schema) -> Item:
+          return Item.objects.create(**payload.model_dump())
+
+      @route.patch("/items/{id}", throttle=WriteThrottle())
+      def update_item(self, id: UUID, payload: UpdateSchema) -> Item:
+          item = get_object_or_404(Item, id=id, user=self.user())
+          update_data = payload.model_dump(exclude_unset=True)
+          if not update_data:
+              return item
+          for field, value in update_data.items():
+              setattr(item, field, value)
+          item.save(update_fields=list(update_data.keys()))
+          return item
+
+  # Bad - repetitive auth/throttle, nested ifs
+  @api_controller("/api", throttle=AuthThrottle())
+  class MyController(ControllerBase):
+      @route.post("/items", auth=I18nJWTAuth(), throttle=WriteThrottle())
+      def create_item(self, payload: Schema) -> Item:
+          return Item.objects.create(**payload.model_dump())
+
+      @route.patch("/items/{id}", auth=I18nJWTAuth(), throttle=WriteThrottle())
+      def update_item(self, id: UUID, payload: UpdateSchema) -> Item:
+          try:
+              item = Item.objects.get(id=id, user=self.user())
+          except Item.DoesNotExist:
+              raise Http404
+
+          if payload.field1 is not None:
+              item.field1 = payload.field1
+          if payload.field2 is not None:
+              item.field2 = payload.field2
+          item.save()
+          return item
+  ```
+
+### Race Condition Protection
+- **Use helper function**: For create operations with uniqueness constraints, use `get_or_create_with_race_protection()` from `common.utils`
+- **No manual try-except**: Avoid wrapping IntegrityError manually in views
+- Example:
+  ```python
+  # Good
+  from common.utils import get_or_create_with_race_protection
+
+  food_item = get_or_create_with_race_protection(
+      FoodItem,
+      Q(name__iexact=name),
+      {"name": name}
+  )
+
+  # Bad - manual handling
+  try:
+      food_item = FoodItem.objects.create(name=name)
+  except IntegrityError:
+      food_item = FoodItem.objects.get(name__iexact=name)
+  ```
+
+### Query Optimization
+- **Prefetch relationships**: Use `select_related()` for foreign keys, `prefetch_related()` for reverse/M2M
+- **Avoid N+1 in schemas**: When ModelSchema includes nested relationships, ensure the queryset prefetches them
+- **Example**:
+  ```python
+  # Controller with proper prefetching
+  def list_items(self) -> QuerySet[Item]:
+      return Item.objects.select_related("category").prefetch_related("tags")
+  ```
+
+## Note to Gemini
+- Do not run tests. Let the user run the tests.
+- Always discuss implementation approach before writing code for non-trivial changes.
