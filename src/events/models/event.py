@@ -23,7 +23,7 @@ from .mixins import (
     UserRequestMixin,
     VisibilityMixin,
 )
-from .organization import Organization, OrganizationMember
+from .organization import MembershipTier, Organization, OrganizationMember
 
 
 class EventQuerySet(models.QuerySet["Event"]):
@@ -48,7 +48,13 @@ class EventQuerySet(models.QuerySet["Event"]):
     def for_user(
         self, user: RevelUser | AnonymousUser, include_past: bool = False, allowed_ids: list[UUID] | None = None
     ) -> t.Self:
-        """Get the queryset based on the user, using an efficient subquery strategy."""
+        """Get the queryset based on the user, using an efficient subquery strategy.
+
+        Membership status handling:
+        - BANNED users: Cannot see events from organizations where they are banned, even if public
+        - CANCELLED users: Treated as if they have no membership
+        - PAUSED/ACTIVE users: Can see events based on visibility rules
+        """
         base_qs = self.select_related("organization", "event_series")
 
         is_allowed_special = Q(id__in=allowed_ids) if allowed_ids else Q()
@@ -66,14 +72,22 @@ class EventQuerySet(models.QuerySet["Event"]):
                 | is_allowed_special
             )
 
+        # --- Get banned organization IDs ---
+        # Users banned from an organization cannot see its events, even if public
+        banned_org_ids = OrganizationMember.objects.filter(
+            user=user, status=OrganizationMember.MembershipStatus.BANNED
+        ).values_list("organization_id", flat=True)
+
         # --- Subquery Strategy ---
         # 1. Get IDs of all non-public events this user has a specific relationship with.
 
         # Events they are invited to
         invited_event_ids = EventInvitation.objects.filter(user=user).values_list("event_id", flat=True)
 
-        # Events where they are a member of the organization
-        member_org_ids = OrganizationMember.objects.filter(user=user).values_list("organization_id", flat=True)
+        # Events where they are a valid member of the organization (not cancelled, not banned)
+        member_org_ids = (
+            OrganizationMember.objects.for_visibility().filter(user=user).values_list("organization_id", flat=True)
+        )
         member_event_ids = self.filter(
             visibility=Event.Visibility.MEMBERS_ONLY, organization_id__in=member_org_ids
         ).values_list("id", flat=True)
@@ -93,10 +107,10 @@ class EventQuerySet(models.QuerySet["Event"]):
 
         # 2. Build the final query
         is_owner_or_staff = Q(organization__owner=user) | Q(organization__staff_members=user)
-        is_public = Q(visibility=Event.Visibility.PUBLIC)
+        is_public = Q(visibility=Event.Visibility.PUBLIC) & ~Q(organization_id__in=banned_org_ids)
         is_allowed_non_public = Q(id__in=list(allowed_non_public_ids))
 
-        # Users see events if they are public, if they are staff/owner,
+        # Users see events if they are public (and not banned), if they are staff/owner,
         # or if they have a specific permission (invite/member)
         final_qs = base_qs.filter(is_public | is_owner_or_staff | is_allowed_non_public)
 
@@ -300,7 +314,12 @@ DEFAULT_TICKET_TIER_NAME = "General Admission"
 
 class TicketTierQuerySet(models.QuerySet["TicketTier"]):
     def for_user(self, user: RevelUser | AnonymousUser) -> t.Self:
-        """Return ticket tiers visible to a given user, combining event and tier-level access."""
+        """Return ticket tiers visible to a given user, combining event and tier-level access.
+
+        Membership status handling:
+        - CANCELLED users: Treated as if they have no membership (no access to member-only tiers)
+        - BANNED users: Inherit banned status from Event.for_user (won't see events at all)
+        """
         qs = self.select_related("event", "event__organization")
 
         # --- Anonymous User ---
@@ -316,6 +335,7 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
 
         # --- Authenticated User ---
         # 1. Get all events this user is allowed to see. This is the source of truth.
+        # Event.for_user already handles banned users (they won't see events from banned orgs)
         visible_event_ids = Event.objects.for_user(user, include_past=True).values_list("id", flat=True)
 
         # Base filter: only consider tiers on events the user can see.
@@ -330,7 +350,10 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         # For regular users, apply tier-specific visibility rules ON TOP of visible events.
         is_public_tier = Q(visibility=TicketTier.Visibility.PUBLIC)
 
-        member_org_ids = OrganizationMember.objects.filter(user=user).values_list("organization_id", flat=True)
+        # Only valid members (not cancelled, not banned) can see member-only tiers
+        member_org_ids = (
+            OrganizationMember.objects.for_visibility().filter(user=user).values_list("organization_id", flat=True)
+        )
         is_member_tier = Q(
             visibility=TicketTier.Visibility.MEMBERS_ONLY,
             event__organization_id__in=member_org_ids,
@@ -341,7 +364,7 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
 
         # A regular user can see a tier if it's on a visible event AND...
         # ...it's a public tier, OR
-        # ...it's a member tier and they are a member, OR
+        # ...it's a member tier and they are a valid member, OR
         # ...it's a private tier and they are invited.
         tier_visibility_q = is_public_tier | is_member_tier | is_private_tier
 
@@ -355,7 +378,7 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
 class TicketTierManager(models.Manager["TicketTier"]):
     def get_queryset(self) -> TicketTierQuerySet:
         """Get a QS for ticket tiers."""
-        return TicketTierQuerySet(self.model, using=self._db)
+        return TicketTierQuerySet(self.model, using=self._db).prefetch_related("restricted_to_membership_tiers")
 
     def for_user(self, user: RevelUser | AnonymousUser) -> TicketTierQuerySet:
         """Return ticket tiers visible to a given user, combining event and tier-level access."""
@@ -443,6 +466,12 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     total_quantity = models.PositiveIntegerField(default=None, null=True, blank=True)
     quantity_sold = models.PositiveIntegerField(default=0)
     manual_payment_instructions = models.TextField(null=True, blank=True)
+    restricted_to_membership_tiers = models.ManyToManyField(
+        MembershipTier,
+        related_name="restricted_ticket_tiers",
+        blank=True,
+        help_text="If set, only members of these tiers can purchase this ticket.",
+    )
 
     objects = TicketTierManager()
 
@@ -469,6 +498,25 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
                 raise DjangoValidationError(
                     {"pwyc_max": "Maximum pay-what-you-can amount must be greater than or equal to minimum amount."}
                 )
+
+        # Check if all selected MembershipTiers belong to the Event's Organization
+        for membership_tier in self.restricted_to_membership_tiers.all():
+            if membership_tier.organization_id != self.event.organization_id:
+                raise DjangoValidationError(
+                    {"restricted_to_tiers": "All linked membership tiers must belong to the event's organization."}
+                )
+
+        # Enforce logic consistency
+        if self.restricted_to_membership_tiers.exists() and self.purchasable_by not in [
+            self.PurchasableBy.MEMBERS,
+            self.PurchasableBy.INVITED_AND_MEMBERS,
+        ]:
+            raise DjangoValidationError(
+                {
+                    "restricted_to_tiers": "If tickets are restricted to specific tiers, 'Purchasable By' must be set "
+                    "to 'Members only' or 'Invited and Members only'."
+                }
+            )
 
     def can_purchase(self) -> bool:
         """Check if the ticket can be purchased."""

@@ -27,6 +27,7 @@ from events.models import (
     Event,
     EventRSVP,
     Organization,
+    OrganizationMember,
     OrganizationMembershipRequest,
     OrganizationQuestionnaire,
     Payment,
@@ -341,13 +342,14 @@ class UserRSVPSchema(ModelSchema):
         fields = ["id", "status", "created_at", "updated_at"]
 
 
-class TierSchema(ModelSchema):
+class TicketTierSchema(ModelSchema):
     id: UUID
     event_id: UUID
     price: Decimal
     currency: str
     total_available: int | None
     description_html: str = ""
+    restricted_to_membership_tiers: list["MembershipTierSchema"] | None = None
 
     class Meta:
         model = TicketTier
@@ -437,7 +439,7 @@ class PaymentSchema(ModelSchema):
 
 class EventTicketSchema(ModelSchema):
     event_id: UUID | None
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
     status: Ticket.TicketStatus
 
     class Meta:
@@ -449,7 +451,7 @@ class AdminTicketSchema(ModelSchema):
     """Schema for pending tickets in admin interface."""
 
     user: MemberUserSchema
-    tier: TierSchema
+    tier: TicketTierSchema
     payment: PaymentSchema | None = None
 
     class Meta:
@@ -461,7 +463,7 @@ class UserTicketSchema(ModelSchema):
     """Schema for user's own tickets with event details."""
 
     event: "MinimalEventSchema"
-    tier: TierSchema
+    tier: TicketTierSchema
     status: Ticket.TicketStatus
 
     class Meta:
@@ -479,7 +481,7 @@ class CheckInResponseSchema(ModelSchema):
     """Schema for ticket check-in response."""
 
     user: MinimalRevelUserSchema
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
 
     class Meta:
         model = Ticket
@@ -487,7 +489,7 @@ class CheckInResponseSchema(ModelSchema):
 
 
 class OrganizationPermissionsSchema(Schema):
-    memberships: list[UUID] = Field(default_factory=list)
+    memberships: dict[str, "MinimalOrganizationMemberSchema"] = Field(default_factory=dict)
     organization_permissions: dict[str, PermissionsSchema | t.Literal["owner"]] | None = None
 
 
@@ -505,7 +507,7 @@ class InvitationBaseSchema(Schema):
 
 class InvitationSchema(InvitationBaseSchema):
     event: EventInListSchema
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
     user_id: UUID
 
 
@@ -530,7 +532,7 @@ class EventInvitationListSchema(Schema):
 
     id: UUID
     user: MinimalRevelUserSchema
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
     waives_questionnaire: bool
     waives_purchase: bool
     overrides_max_attendees: bool
@@ -545,7 +547,7 @@ class MyEventInvitationSchema(Schema):
 
     id: UUID
     event: "EventInListSchema"
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
     waives_questionnaire: bool
     waives_purchase: bool
     overrides_max_attendees: bool
@@ -560,7 +562,7 @@ class PendingEventInvitationListSchema(Schema):
 
     id: UUID
     email: str
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
     waives_questionnaire: bool
     waives_purchase: bool
     overrides_max_attendees: bool
@@ -577,7 +579,7 @@ class CombinedInvitationListSchema(Schema):
     type: str = Field(..., description="'registered' for EventInvitation, 'pending' for PendingEventInvitation")
     user: MinimalRevelUserSchema | None = Field(None, description="User for registered invitations")
     email: str | None = Field(None, description="Email for pending invitations")
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
     waives_questionnaire: bool
     waives_purchase: bool
     overrides_max_attendees: bool
@@ -731,14 +733,34 @@ class OrganizationTokenBaseSchema(Schema):
     max_uses: int = 1
     grants_membership: bool = True
     grants_staff_status: bool = False
+    membership_tier_id: UUID4 | None = None
 
 
 class OrganizationTokenCreateSchema(OrganizationTokenBaseSchema):
     duration: int = 24 * 60
 
+    @model_validator(mode="after")
+    def validate_membership_tier(self) -> "OrganizationTokenCreateSchema":
+        """Validate that membership_tier_id is provided when grants_membership is True."""
+        if self.grants_membership and not self.membership_tier_id:
+            raise ValueError("membership_tier_id is required when grants_membership is True")
+        return self
+
 
 class OrganizationTokenUpdateSchema(OrganizationTokenBaseSchema):
     expires_at: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def validate_membership_tier(self) -> "OrganizationTokenUpdateSchema":
+        """Validate that membership_tier_id is provided when grants_membership is explicitly set to True."""
+        # Only validate if grants_membership was explicitly set to True in the update payload
+        if (
+            "grants_membership" in self.__pydantic_fields_set__
+            and self.grants_membership
+            and not self.membership_tier_id
+        ):
+            raise ValueError("membership_tier_id is required when grants_membership is True")
+        return self
 
 
 class OrganizationMembershipRequestCreateSchema(Schema):
@@ -747,10 +769,17 @@ class OrganizationMembershipRequestCreateSchema(Schema):
 
 class OrganizationMembershipRequestRetrieve(ModelSchema):
     user: MinimalRevelUserSchema
+    status: OrganizationMembershipRequest.Status
 
     class Meta:
         model = OrganizationMembershipRequest
         fields = ["id", "status", "message", "created_at", "user"]
+
+
+class ApproveMembershipRequestSchema(Schema):
+    """Schema for approving a membership request with required tier assignment."""
+
+    tier_id: UUID4
 
 
 class PotluckItemCreateSchema(ModelSchema):
@@ -867,9 +896,46 @@ class AdditionalResourceUpdateSchema(Schema):
     event_ids: list[UUID] | None = None
 
 
+class MembershipTierSchema(ModelSchema):
+    description: str | None = None
+    description_html: str | None = None
+
+    class Meta:
+        model = models.MembershipTier
+        fields = ["id", "name", "description"]
+
+
+class MembershipTierCreateSchema(Schema):
+    name: OneToOneFiftyString
+    description: str | None = None
+
+
+class MembershipTierUpdateSchema(Schema):
+    name: OneToOneFiftyString | None = None
+    description: str | None = None
+
+
+class MinimalOrganizationMemberSchema(ModelSchema):
+    """Organization member info without user details - used in permission contexts."""
+
+    member_since: datetime = Field(alias="created_at")
+    tier: MembershipTierSchema | None = None
+
+    class Meta:
+        model = models.OrganizationMember
+        fields = ["created_at", "status", "tier"]
+
+
 class OrganizationMemberSchema(Schema):
     user: MemberUserSchema
     member_since: datetime = Field(alias="created_at")
+    status: OrganizationMember.MembershipStatus
+    tier: MembershipTierSchema | None = None
+
+
+class OrganizationMemberUpdateSchema(Schema):
+    status: OrganizationMember.MembershipStatus | None = None
+    tier_id: UUID4 | None = None
 
 
 class OrganizationStaffSchema(Schema):
@@ -1025,6 +1091,7 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
     total_quantity: int | None = None
+    restricted_to_membership_tiers_ids: list[UUID4] | None = None
 
     @model_validator(mode="after")
     def validate_pwyc_fields(self) -> t.Self:
@@ -1047,6 +1114,7 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
     total_quantity: int | None = None
+    restricted_to_membership_tiers_ids: list[UUID4] | None = None
 
     @model_validator(mode="after")
     def validate_pwyc_fields(self) -> t.Self:
@@ -1060,6 +1128,7 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
 class TicketTierDetailSchema(ModelSchema):
     event_id: UUID
     total_available: int | None = None
+    restricted_to_membership_tiers: list[MembershipTierSchema] | None = None
 
     class Meta:
         model = TicketTier
@@ -1082,6 +1151,7 @@ class TicketTierDetailSchema(ModelSchema):
             "total_quantity",
             "quantity_sold",
             "manual_payment_instructions",
+            "restricted_to_membership_tiers",
         ]
 
 

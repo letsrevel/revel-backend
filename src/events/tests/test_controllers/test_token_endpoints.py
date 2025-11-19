@@ -90,8 +90,11 @@ def test_get_organization_token_returns_token_details(
 ) -> None:
     """Test that GET /organizations/tokens/{token_id} returns token details without authentication."""
     # Arrange
+    from events.models import MembershipTier
+
+    default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
     token = organization_service.create_organization_token(
-        organization=organization, issuer=organization_owner_user, name="Member Invite"
+        organization=organization, issuer=organization_owner_user, name="Member Invite", membership_tier=default_tier
     )
     url = reverse("api:get_organization_token", kwargs={"token_id": token.id})
 
@@ -112,8 +115,15 @@ def test_get_organization_token_shows_staff_status(
 ) -> None:
     """Test that GET /organizations/tokens/{token_id} shows grants_staff_status."""
     # Arrange
+    from events.models import MembershipTier
+
+    default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
     token = organization_service.create_organization_token(
-        organization=organization, issuer=organization_owner_user, name="Staff Invite", grants_staff_status=True
+        organization=organization,
+        issuer=organization_owner_user,
+        name="Staff Invite",
+        grants_staff_status=True,
+        membership_tier=default_tier,
     )
     url = reverse("api:get_organization_token", kwargs={"token_id": token.id})
 
@@ -250,11 +260,17 @@ def test_event_token_grants_visibility_via_header(client: Client, private_event:
 def test_organization_token_grants_visibility_via_header(client: Client, organization_owner_user: RevelUser) -> None:
     """Test that X-Organization-Token header grants visibility to private organizations."""
     # Arrange - create a private organization
+    from events.models import MembershipTier
+
     private_org = Organization.objects.create(
         name="Private Org", slug="private-org", owner=organization_owner_user, visibility="private"
     )
+    # Get the default tier for the new organization
+    default_tier = MembershipTier.objects.get(organization=private_org, name="General membership")
     # Create a token (grants_membership=True by default which is fine for visibility)
-    token = organization_service.create_organization_token(organization=private_org, issuer=organization_owner_user)
+    token = organization_service.create_organization_token(
+        organization=private_org, issuer=organization_owner_user, membership_tier=default_tier
+    )
 
     # Act - access organization with token header (without authentication)
     url = reverse("api:get_organization", kwargs={"slug": private_org.slug})
@@ -293,10 +309,16 @@ def test_organization_token_backwards_compatible_with_query_param(
 ) -> None:
     """Test that ?ot= query param still works for backwards compatibility."""
     # Arrange - create a private organization
+    from events.models import MembershipTier
+
     private_org = Organization.objects.create(
         name="Private Org Legacy", slug="private-org-legacy", owner=organization_owner_user, visibility="private"
     )
-    token = organization_service.create_organization_token(organization=private_org, issuer=organization_owner_user)
+    # Get the default tier for the new organization
+    default_tier = MembershipTier.objects.get(organization=private_org, name="General membership")
+    token = organization_service.create_organization_token(
+        organization=private_org, issuer=organization_owner_user, membership_tier=default_tier
+    )
 
     # Act - access organization with legacy query param
     url = reverse("api:get_organization", kwargs={"slug": private_org.slug})

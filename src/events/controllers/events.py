@@ -434,7 +434,7 @@ class EventController(UserAwareController):
     @route.get(
         "/{event_id}/tickets/tiers",
         url_name="tier_list",
-        response={200: list[schema.TierSchema]},
+        response={200: list[schema.TicketTierSchema]},
     )
     def list_tiers(self, event_id: UUID) -> models.event.TicketTierQuerySet:
         """Get all ticket tiers available for purchase at this event.

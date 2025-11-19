@@ -1,3 +1,4 @@
+import typing as t
 from datetime import timedelta
 
 import pytest
@@ -10,6 +11,7 @@ from events.models import (
     EventInvitation,
     EventRSVP,
     EventSeries,
+    MembershipTier,
     OrganizationMember,
     OrganizationQuestionnaire,
     OrganizationStaff,
@@ -140,6 +142,58 @@ def test_members_only_event_requires_membership(public_user: RevelUser, members_
     assert eligibility.reason == Reasons.MEMBERS_ONLY
     assert eligibility.next_step is not None
     assert eligibility.next_step == NextStep.BECOME_MEMBER
+
+
+def test_members_only_event_blocks_inactive_member(member_user: RevelUser, members_only_event: Event) -> None:
+    """A member with inactive status should be denied access to a members-only event."""
+    # Create a membership with PAUSED status
+    membership = OrganizationMember.objects.create(
+        organization=members_only_event.organization,
+        user=member_user,
+        status=OrganizationMember.MembershipStatus.PAUSED,
+    )
+
+    handler = EligibilityService(user=member_user, event=members_only_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.MEMBERSHIP_INACTIVE
+    assert eligibility.next_step is None  # User needs to contact org to reactivate
+
+    # Test with CANCELLED status
+    membership.status = OrganizationMember.MembershipStatus.CANCELLED
+    membership.save()
+
+    handler = EligibilityService(user=member_user, event=members_only_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.MEMBERSHIP_INACTIVE
+
+    # Test with BANNED status
+    membership.status = OrganizationMember.MembershipStatus.BANNED
+    membership.save()
+
+    handler = EligibilityService(user=member_user, event=members_only_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.MEMBERSHIP_INACTIVE
+
+
+def test_members_only_event_allows_active_member(member_user: RevelUser, members_only_event: Event) -> None:
+    """An active member should be allowed access to a members-only event."""
+    # Create a membership with ACTIVE status
+    OrganizationMember.objects.create(
+        organization=members_only_event.organization,
+        user=member_user,
+        status=OrganizationMember.MembershipStatus.ACTIVE,
+    )
+
+    handler = EligibilityService(user=member_user, event=members_only_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is True
 
 
 # --- Test Cases for Questionnaire Gate ---
@@ -942,3 +996,230 @@ def test_waives_purchase_works_with_free_tiers(
     # Assert - should still create complimentary ticket (bypassing any free flow)
     assert isinstance(ticket, Ticket)
     assert ticket.status == Ticket.TicketStatus.ACTIVE
+
+
+# --- Test Cases for Membership Tier Restrictions ---
+
+
+def test_ticket_tier_without_membership_restriction_allows_all(
+    member_user: RevelUser, public_event: Event, organization_membership: OrganizationMember, free_tier: TicketTier
+) -> None:
+    """Test that ticket tiers without membership restrictions allow any member to purchase."""
+    # free_tier has no restricted_to_membership_tiers set
+    handler = EventManager(user=member_user, event=public_event)
+
+    # Act
+    ticket = handler.create_ticket(free_tier)
+
+    # Assert
+    assert isinstance(ticket, Ticket)
+    assert ticket.status == Ticket.TicketStatus.ACTIVE
+
+
+def test_ticket_tier_with_membership_restriction_allows_correct_tier(
+    member_user: RevelUser, public_event: Event, organization: t.Any
+) -> None:
+    """Test that user with required membership tier can purchase restricted ticket."""
+    # Create membership tier
+    gold_tier = MembershipTier.objects.create(organization=organization, name="Gold")
+
+    # Assign user to gold tier
+    OrganizationMember.objects.create(
+        organization=organization, user=member_user, tier=gold_tier, status=OrganizationMember.MembershipStatus.ACTIVE
+    )
+
+    # Create ticket tier restricted to gold members
+    ticket_tier = TicketTier.objects.create(
+        event=public_event, name="VIP Ticket", payment_method=TicketTier.PaymentMethod.FREE
+    )
+    ticket_tier.restricted_to_membership_tiers.add(gold_tier)
+
+    handler = EventManager(user=member_user, event=public_event)
+
+    # Act
+    ticket = handler.create_ticket(ticket_tier)
+
+    # Assert
+    assert isinstance(ticket, Ticket)
+    assert ticket.status == Ticket.TicketStatus.ACTIVE
+
+
+def test_ticket_tier_with_membership_restriction_blocks_wrong_tier(
+    member_user: RevelUser, public_event: Event, organization: t.Any
+) -> None:
+    """Test that user with wrong membership tier cannot purchase restricted ticket."""
+    # Create membership tiers
+    gold_tier = MembershipTier.objects.create(organization=organization, name="Gold")
+    silver_tier = MembershipTier.objects.create(organization=organization, name="Silver")
+
+    # Assign user to silver tier
+    OrganizationMember.objects.create(
+        organization=organization,
+        user=member_user,
+        tier=silver_tier,
+        status=OrganizationMember.MembershipStatus.ACTIVE,
+    )
+
+    # Create ticket tier restricted to gold members only
+    ticket_tier = TicketTier.objects.create(
+        event=public_event, name="VIP Ticket", payment_method=TicketTier.PaymentMethod.FREE
+    )
+    ticket_tier.restricted_to_membership_tiers.add(gold_tier)
+
+    handler = EventManager(user=member_user, event=public_event)
+
+    # Act & Assert
+    with pytest.raises(UserIsIneligibleError) as exc_info:
+        handler.create_ticket(ticket_tier)
+
+    eligibility = exc_info.value.eligibility
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.MEMBERSHIP_TIER_REQUIRED
+    assert eligibility.next_step == NextStep.UPGRADE_MEMBERSHIP
+
+
+def test_ticket_tier_with_membership_restriction_blocks_non_member(
+    public_user: RevelUser, public_event: Event, organization: t.Any
+) -> None:
+    """Test that non-member cannot purchase membership-restricted ticket."""
+    # Create membership tier
+    gold_tier = MembershipTier.objects.create(organization=organization, name="Gold")
+
+    # Create ticket tier restricted to gold members
+    ticket_tier = TicketTier.objects.create(
+        event=public_event, name="VIP Ticket", payment_method=TicketTier.PaymentMethod.FREE
+    )
+    ticket_tier.restricted_to_membership_tiers.add(gold_tier)
+
+    handler = EventManager(user=public_user, event=public_event)
+
+    # Act & Assert
+    with pytest.raises(UserIsIneligibleError) as exc_info:
+        handler.create_ticket(ticket_tier)
+
+    eligibility = exc_info.value.eligibility
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.MEMBERSHIP_TIER_REQUIRED
+    assert eligibility.next_step == NextStep.UPGRADE_MEMBERSHIP
+
+
+def test_ticket_tier_with_membership_restriction_allows_multiple_tiers(
+    member_user: RevelUser, public_event: Event, organization: t.Any
+) -> None:
+    """Test that ticket tier restricted to multiple membership tiers allows any of them."""
+    # Create membership tiers
+    gold_tier = MembershipTier.objects.create(organization=organization, name="Gold")
+    platinum_tier = MembershipTier.objects.create(organization=organization, name="Platinum")
+    silver_tier = MembershipTier.objects.create(organization=organization, name="Silver")
+
+    # Assign user to silver tier
+    OrganizationMember.objects.create(
+        organization=organization,
+        user=member_user,
+        tier=silver_tier,
+        status=OrganizationMember.MembershipStatus.ACTIVE,
+    )
+
+    # Create ticket tier restricted to silver OR gold OR platinum
+    ticket_tier = TicketTier.objects.create(
+        event=public_event, name="Premium Ticket", payment_method=TicketTier.PaymentMethod.FREE
+    )
+    ticket_tier.restricted_to_membership_tiers.add(gold_tier, platinum_tier, silver_tier)
+
+    handler = EventManager(user=member_user, event=public_event)
+
+    # Act
+    ticket = handler.create_ticket(ticket_tier)
+
+    # Assert
+    assert isinstance(ticket, Ticket)
+    assert ticket.status == Ticket.TicketStatus.ACTIVE
+
+
+def test_ticket_tier_with_membership_restriction_blocks_inactive_member(
+    member_user: RevelUser, public_event: Event, organization: t.Any
+) -> None:
+    """Test that user with paused/cancelled membership cannot purchase restricted ticket."""
+    # Create membership tier
+    gold_tier = MembershipTier.objects.create(organization=organization, name="Gold")
+
+    # Assign user to gold tier but with PAUSED status
+    OrganizationMember.objects.create(
+        organization=organization,
+        user=member_user,
+        tier=gold_tier,
+        status=OrganizationMember.MembershipStatus.PAUSED,
+    )
+
+    # Create ticket tier restricted to gold members
+    ticket_tier = TicketTier.objects.create(
+        event=public_event, name="VIP Ticket", payment_method=TicketTier.PaymentMethod.FREE
+    )
+    ticket_tier.restricted_to_membership_tiers.add(gold_tier)
+
+    handler = EventManager(user=member_user, event=public_event)
+
+    # Act & Assert
+    with pytest.raises(UserIsIneligibleError) as exc_info:
+        handler.create_ticket(ticket_tier)
+
+    eligibility = exc_info.value.eligibility
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.MEMBERSHIP_TIER_REQUIRED
+    assert eligibility.next_step == NextStep.UPGRADE_MEMBERSHIP
+
+
+def test_ticket_tier_with_membership_restriction_waived_by_invitation(
+    public_user: RevelUser, public_event: Event, organization: t.Any
+) -> None:
+    """Test that invitation with waives_membership_required bypasses membership tier requirement."""
+    # Create membership tier
+    gold_tier = MembershipTier.objects.create(organization=organization, name="Gold")
+
+    # Create ticket tier restricted to gold members
+    ticket_tier = TicketTier.objects.create(
+        event=public_event, name="VIP Ticket", payment_method=TicketTier.PaymentMethod.FREE
+    )
+    ticket_tier.restricted_to_membership_tiers.add(gold_tier)
+
+    # Create invitation that waives membership requirement
+    EventInvitation.objects.create(user=public_user, event=public_event, waives_membership_required=True)
+
+    handler = EventManager(user=public_user, event=public_event)
+
+    # Act - should succeed despite not having required tier
+    result = handler.create_ticket(ticket_tier)
+
+    # Assert - will go through payment flow since waives_purchase is False
+    # But membership tier check should be bypassed
+    assert result is not None
+
+
+def test_ticket_tier_with_membership_restriction_blocks_member_without_tier(
+    member_user: RevelUser, public_event: Event, organization: t.Any
+) -> None:
+    """Test that member without any tier cannot purchase tier-restricted ticket."""
+    # Create membership tier
+    gold_tier = MembershipTier.objects.create(organization=organization, name="Gold")
+
+    # Create member without tier assignment
+    OrganizationMember.objects.create(
+        organization=organization, user=member_user, tier=None, status=OrganizationMember.MembershipStatus.ACTIVE
+    )
+
+    # Create ticket tier restricted to gold members
+    ticket_tier = TicketTier.objects.create(
+        event=public_event, name="VIP Ticket", payment_method=TicketTier.PaymentMethod.FREE
+    )
+    ticket_tier.restricted_to_membership_tiers.add(gold_tier)
+
+    handler = EventManager(user=member_user, event=public_event)
+
+    # Act & Assert
+    with pytest.raises(UserIsIneligibleError) as exc_info:
+        handler.create_ticket(ticket_tier)
+
+    eligibility = exc_info.value.eligibility
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.MEMBERSHIP_TIER_REQUIRED
+    assert eligibility.next_step == NextStep.UPGRADE_MEMBERSHIP

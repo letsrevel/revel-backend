@@ -8,7 +8,7 @@ from django.test.client import Client
 
 from accounts.models import RevelUser
 from common.utils import assert_image_equal
-from events.models import Event, EventInvitationRequest, EventToken, OrganizationStaff, Ticket, TicketTier
+from events.models import Event, EventInvitationRequest, EventToken, Organization, OrganizationStaff, Ticket, TicketTier
 
 pytestmark = pytest.mark.django_db
 
@@ -880,6 +880,228 @@ def test_ticket_tier_crud_maintains_event_relationship(
     response = organization_owner_client.get(other_list_url)
     assert response.status_code == 200
     assert response.json()["count"] == 1
+
+
+# --- Tests for Ticket Tier Membership Restrictions ---
+
+
+def test_create_ticket_tier_with_membership_tier_restrictions(
+    organization_owner_client: Client, event: Event, organization: Organization
+) -> None:
+    """Test creating a ticket tier with membership tier restrictions."""
+    from events.models import MembershipTier, TicketTier
+
+    # Create membership tiers
+    gold_tier = MembershipTier.objects.create(organization=organization, name="Gold")
+    silver_tier = MembershipTier.objects.create(organization=organization, name="Silver")
+
+    url = reverse("api:create_ticket_tier", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "VIP Ticket",
+        "price": "100.00",
+        "visibility": "public",
+        "payment_method": "offline",
+        "purchasable_by": "members",
+        "restricted_to_membership_tiers_ids": [str(gold_tier.id), str(silver_tier.id)],
+    }
+
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "VIP Ticket"
+    assert data["restricted_to_membership_tiers"] is not None
+    assert len(data["restricted_to_membership_tiers"]) == 2
+
+    # Verify in database
+    tier = TicketTier.objects.get(pk=data["id"])
+    assert tier.restricted_to_membership_tiers.count() == 2
+    tier_ids = set(tier.restricted_to_membership_tiers.values_list("id", flat=True))
+    assert gold_tier.id in tier_ids
+    assert silver_tier.id in tier_ids
+
+
+def test_create_ticket_tier_with_invalid_membership_tier_id(organization_owner_client: Client, event: Event) -> None:
+    """Test creating ticket tier with non-existent membership tier ID fails."""
+    from uuid import uuid4
+
+    url = reverse("api:create_ticket_tier", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "Invalid Tier",
+        "price": "50.00",
+        "purchasable_by": "members",
+        "restricted_to_membership_tiers_ids": [str(uuid4())],  # Non-existent ID
+    }
+
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 404
+
+
+def test_create_ticket_tier_with_wrong_organization_membership_tier(
+    organization_owner_client: Client, event: Event, organization_owner_user: RevelUser
+) -> None:
+    """Test creating ticket tier with membership tier from different organization fails."""
+    from events.models import MembershipTier, Organization
+
+    # Create another organization with a tier
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+    other_tier = MembershipTier.objects.create(organization=other_org, name="Other Tier")
+
+    url = reverse("api:create_ticket_tier", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "Cross-Org Tier",
+        "price": "50.00",
+        "purchasable_by": "members",
+        "restricted_to_membership_tiers_ids": [str(other_tier.id)],
+    }
+
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 404
+
+
+def test_update_ticket_tier_add_membership_restrictions(
+    organization_owner_client: Client, event: Event, event_ticket_tier: TicketTier, organization: Organization
+) -> None:
+    """Test updating a ticket tier to add membership tier restrictions."""
+    from events.models import MembershipTier
+
+    # Create membership tier
+    platinum_tier = MembershipTier.objects.create(organization=organization, name="Platinum")
+
+    # Initially no restrictions
+    assert event_ticket_tier.restricted_to_membership_tiers.count() == 0
+
+    url = reverse("api:update_ticket_tier", kwargs={"event_id": event.pk, "tier_id": event_ticket_tier.pk})
+    payload = {
+        "purchasable_by": "members",
+        "restricted_to_membership_tiers_ids": [str(platinum_tier.id)],
+    }
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["restricted_to_membership_tiers"]) == 1
+
+    # Verify in database
+    event_ticket_tier.refresh_from_db()
+    assert event_ticket_tier.restricted_to_membership_tiers.count() == 1
+    assert event_ticket_tier.restricted_to_membership_tiers.first() == platinum_tier
+
+
+def test_update_ticket_tier_replace_membership_restrictions(
+    organization_owner_client: Client, event: Event, organization: Organization
+) -> None:
+    """Test updating a ticket tier to replace existing membership tier restrictions."""
+    from events.models import MembershipTier, TicketTier
+
+    # Create membership tiers
+    gold_tier = MembershipTier.objects.create(organization=organization, name="Gold")
+    silver_tier = MembershipTier.objects.create(organization=organization, name="Silver")
+    bronze_tier = MembershipTier.objects.create(organization=organization, name="Bronze")
+
+    # Create tier with initial restrictions (must have purchasable_by=MEMBERS for restrictions)
+    tier = TicketTier.objects.create(
+        event=event,
+        name="Restricted",
+        price=50.00,
+        payment_method=TicketTier.PaymentMethod.OFFLINE,
+        purchasable_by=TicketTier.PurchasableBy.MEMBERS,
+    )
+    tier.restricted_to_membership_tiers.add(gold_tier, silver_tier)
+
+    url = reverse("api:update_ticket_tier", kwargs={"event_id": event.pk, "tier_id": tier.pk})
+    payload = {
+        "restricted_to_membership_tiers_ids": [str(bronze_tier.id)],
+    }
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    assert len(data["restricted_to_membership_tiers"]) == 1
+    assert data["restricted_to_membership_tiers"][0]["name"] == "Bronze"
+
+    # Verify in database
+    tier.refresh_from_db()
+    assert tier.restricted_to_membership_tiers.count() == 1
+    assert tier.restricted_to_membership_tiers.first() == bronze_tier
+
+
+def test_update_ticket_tier_clear_membership_restrictions(
+    organization_owner_client: Client, event: Event, organization: Organization
+) -> None:
+    """Test updating a ticket tier to clear all membership tier restrictions."""
+    from events.models import MembershipTier, TicketTier
+
+    # Create membership tier
+    gold_tier = MembershipTier.objects.create(organization=organization, name="Gold")
+
+    # Create tier with restrictions (must have purchasable_by=MEMBERS for restrictions)
+    tier = TicketTier.objects.create(
+        event=event,
+        name="Restricted",
+        price=50.00,
+        payment_method=TicketTier.PaymentMethod.OFFLINE,
+        purchasable_by=TicketTier.PurchasableBy.MEMBERS,
+    )
+    tier.restricted_to_membership_tiers.add(gold_tier)
+
+    url = reverse("api:update_ticket_tier", kwargs={"event_id": event.pk, "tier_id": tier.pk})
+    payload: dict[str, list[str]] = {
+        "restricted_to_membership_tiers_ids": [],  # Empty list to clear
+    }
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    data = response.json()
+    # The response should show empty list or None for restricted tiers
+    assert data["restricted_to_membership_tiers"] is None or data["restricted_to_membership_tiers"] == []
+
+    # Verify in database
+    tier.refresh_from_db()
+    assert tier.restricted_to_membership_tiers.count() == 0
+
+
+def test_update_ticket_tier_preserve_membership_restrictions_when_not_provided(
+    organization_owner_client: Client, event: Event, organization: Organization
+) -> None:
+    """Test that not providing restricted_to_membership_tiers_ids preserves existing restrictions."""
+    from events.models import MembershipTier, TicketTier
+
+    # Create membership tier
+    gold_tier = MembershipTier.objects.create(organization=organization, name="Gold")
+
+    # Create tier with restrictions (must have purchasable_by=MEMBERS for restrictions)
+    tier = TicketTier.objects.create(
+        event=event,
+        name="Restricted",
+        price=50.00,
+        payment_method=TicketTier.PaymentMethod.OFFLINE,
+        purchasable_by=TicketTier.PurchasableBy.MEMBERS,
+    )
+    tier.restricted_to_membership_tiers.add(gold_tier)
+
+    url = reverse("api:update_ticket_tier", kwargs={"event_id": event.pk, "tier_id": tier.pk})
+    payload = {
+        "name": "Updated Name",
+        # Not providing restricted_to_membership_tiers_ids
+    }
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    assert data["name"] == "Updated Name"
+    assert len(data["restricted_to_membership_tiers"]) == 1
+
+    # Verify restrictions are preserved
+    tier.refresh_from_db()
+    assert tier.restricted_to_membership_tiers.count() == 1
+    assert tier.restricted_to_membership_tiers.first() == gold_tier
 
 
 # --- Tests for Pending Tickets Management ---

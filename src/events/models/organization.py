@@ -8,6 +8,7 @@ from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db.models import Prefetch, Q
+from django.utils.translation import gettext_lazy as _
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 
@@ -50,6 +51,11 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         """Get queryset for user using a high-performance UNION-based strategy.
 
         Avoid slow, multi-JOIN queries.
+
+        Membership status handling:
+        - BANNED users: Cannot see ANY organizations, even public ones
+        - CANCELLED users: Treated as if they have no membership
+        - PAUSED/ACTIVE users: Can see organizations based on visibility rules
         """
         is_allowed_special = Q(id__in=allowed_ids) if allowed_ids else Q()
 
@@ -59,12 +65,21 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         if user.is_anonymous:
             return self.filter(Q(visibility=Organization.Visibility.PUBLIC) | is_allowed_special)
 
+        # --- Check if user is banned from any organization ---
+        # If a user is banned from an organization, they cannot see it at all, even if it's public
+
+        banned_org_ids = OrganizationMember.objects.filter(
+            user=user, status=OrganizationMember.MembershipStatus.BANNED
+        ).values_list("organization_id", flat=True)
+
         # --- "Gather-then-filter" strategy for standard users ---
 
         # 1. Gather IDs from all distinct sources of visibility.
 
-        # A) Publicly visible organizations
-        public_orgs_qs = self.filter(visibility=Organization.Visibility.PUBLIC).values("id")
+        # A) Publicly visible organizations (exclude banned)
+        public_orgs_qs = (
+            self.filter(visibility=Organization.Visibility.PUBLIC).exclude(id__in=banned_org_ids).values("id")
+        )
 
         # B) Organizations the user owns
         owned_orgs_qs = self.filter(owner=user).values("id")
@@ -72,10 +87,20 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         # C) Organizations where the user is a staff member
         staff_orgs_qs = self.filter(staff_members=user).values("id")
 
-        # D) Restricted organizations where the user is a member
-        member_orgs_qs = self.filter(
-            visibility__in=[Organization.Visibility.MEMBERS_ONLY, Organization.Visibility.PRIVATE], members=user
-        ).values("id")
+        # D) Restricted organizations where the user is a valid member (not cancelled, not banned)
+        member_orgs_qs = (
+            self.filter(
+                visibility__in=[Organization.Visibility.MEMBERS_ONLY, Organization.Visibility.PRIVATE],
+                memberships__user=user,
+            )
+            .exclude(
+                memberships__status__in=[
+                    OrganizationMember.MembershipStatus.CANCELLED,
+                    OrganizationMember.MembershipStatus.BANNED,
+                ]
+            )
+            .values("id")
+        )
 
         # 2. Combine the querysets of IDs using UNION.
         # This is extremely fast and efficiently handled by the database.
@@ -244,7 +269,80 @@ class OrganizationStaff(TimeStampedModel):
         return bool(self.permissions.get("default", {}).get(permission, False))
 
 
+class MembershipTier(TimeStampedModel):
+    """Represents a membership tier within an organization."""
+
+    name = models.CharField(max_length=255)
+    description = MarkdownField(blank=True, null=True)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="tiers",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "name"],
+                name="unique_organization_tier_name",
+            )
+        ]
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return f"{self.organization.name} - {self.name}"
+
+
+class OrganizationMemberQuerySet(models.QuerySet["OrganizationMember"]):
+    """Custom QuerySet for OrganizationMember with membership status filtering."""
+
+    def for_visibility(self) -> t.Self:
+        """Return memberships that grant visibility access.
+
+        Excludes:
+        - CANCELLED: Treated as if the membership doesn't exist
+        - BANNED: No access, not even to public resources
+        """
+        return self.exclude(
+            status__in=[OrganizationMember.MembershipStatus.CANCELLED, OrganizationMember.MembershipStatus.BANNED]
+        )
+
+    def active_only(self) -> t.Self:
+        """Return only ACTIVE memberships (for eligibility checks)."""
+        return self.filter(status=OrganizationMember.MembershipStatus.ACTIVE)
+
+    def banned_only(self) -> t.Self:
+        """Return only BANNED memberships."""
+        return self.filter(status=OrganizationMember.MembershipStatus.BANNED)
+
+
+class OrganizationMemberManager(models.Manager["OrganizationMember"]):
+    """Manager for OrganizationMember with custom queryset."""
+
+    def get_queryset(self) -> OrganizationMemberQuerySet:
+        """Return custom queryset."""
+        return OrganizationMemberQuerySet(self.model, using=self._db)
+
+    def for_visibility(self) -> OrganizationMemberQuerySet:
+        """Return memberships that grant visibility access."""
+        return self.get_queryset().for_visibility()
+
+    def active_only(self) -> OrganizationMemberQuerySet:
+        """Return only ACTIVE memberships."""
+        return self.get_queryset().active_only()
+
+    def banned_only(self) -> OrganizationMemberQuerySet:
+        """Return only BANNED memberships."""
+        return self.get_queryset().banned_only()
+
+
 class OrganizationMember(TimeStampedModel):
+    class MembershipStatus(models.TextChoices):
+        ACTIVE = "active"
+        PAUSED = "paused"
+        CANCELLED = "cancelled"
+        BANNED = "banned"
+
     organization = models.ForeignKey(
         Organization,
         on_delete=models.CASCADE,
@@ -255,15 +353,47 @@ class OrganizationMember(TimeStampedModel):
         on_delete=models.CASCADE,
         related_name="organization_memberships",
     )
+    status = models.CharField(
+        default=MembershipStatus.ACTIVE, choices=MembershipStatus.choices, max_length=255, db_index=True
+    )
+    tier = models.ForeignKey(
+        MembershipTier,
+        on_delete=models.SET_NULL,
+        related_name="members",
+        null=True,
+        blank=True,
+    )
+
+    objects = OrganizationMemberManager()
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "status"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "user"], name="unique_organization_member_user"),
+        ]
+
+    def clean(self) -> None:
+        """Validate that tier belongs to the same organization."""
+        super().clean()
+        if self.tier and self.tier.organization_id != self.organization_id:
+            raise DjangoValidationError({"tier": "The tier must belong to the same organization as the membership."})
 
 
 class OrganizationToken(TokenMixin):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="tokens")
     grants_membership = models.BooleanField(default=True)
     grants_staff_status = models.BooleanField(default=False)
+    membership_tier = models.ForeignKey(
+        MembershipTier,
+        on_delete=models.CASCADE,
+        related_name="tokens",
+        null=True,
+        blank=True,
+        help_text="Membership tier to assign when claiming this token",
+    )
 
     class Meta:
         indexes = [
@@ -273,6 +403,20 @@ class OrganizationToken(TokenMixin):
             models.Index(fields=["organization", "-created_at"], name="orgtoken_org_created"),
         ]
         ordering = ["-created_at"]
+
+    def clean(self) -> None:
+        """Validate membership tier configuration."""
+        super().clean()
+
+        # If grants_membership is True, membership_tier must be set
+        if self.grants_membership and not self.membership_tier:
+            raise DjangoValidationError({"membership_tier": _("Membership tier is required when granting membership.")})
+
+        # If membership_tier is set, verify it belongs to the same organization
+        if self.membership_tier and self.membership_tier.organization_id != self.organization_id:
+            raise DjangoValidationError(
+                {"membership_tier": _("Membership tier must belong to the same organization as the token.")}
+            )
 
 
 class OrganizationMembershipRequest(UserRequestMixin):

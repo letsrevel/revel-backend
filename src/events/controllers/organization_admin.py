@@ -349,8 +349,17 @@ class OrganizationAdminController(UserAwareController):
         - 404: Organization slug not found or user lacks access
         """
         organization = self.get_one(slug)
+        payload_dict = payload.model_dump(exclude_unset=True)
+
+        # Resolve membership_tier_id to MembershipTier object
+        membership_tier = None
+        if "membership_tier_id" in payload_dict:
+            tier_id = payload_dict.pop("membership_tier_id")
+            if tier_id:
+                membership_tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
+
         return organization_service.create_organization_token(
-            organization=organization, issuer=self.user(), **payload.model_dump()
+            organization=organization, issuer=self.user(), membership_tier=membership_tier, **payload_dict
         )
 
     @route.put(
@@ -449,7 +458,23 @@ class OrganizationAdminController(UserAwareController):
         """
         organization = self.get_one(slug)
         token = get_object_or_404(models.OrganizationToken, pk=token_id, organization=organization)
-        return update_db_instance(token, payload)
+
+        payload_dict = payload.model_dump(exclude_unset=True)
+
+        # Resolve membership_tier_id to MembershipTier object
+        if "membership_tier_id" in payload_dict:
+            tier_id = payload_dict.pop("membership_tier_id")
+            if tier_id:
+                payload_dict["membership_tier"] = get_object_or_404(
+                    models.MembershipTier, pk=tier_id, organization=organization
+                )
+            else:
+                payload_dict["membership_tier"] = None
+
+        for field, value in payload_dict.items():
+            setattr(token, field, value)
+        token.save(update_fields=list(payload_dict.keys()))
+        return token
 
     @route.delete(
         "/tokens/{token_id}",
@@ -568,11 +593,20 @@ class OrganizationAdminController(UserAwareController):
         response={204: None},
         permissions=[OrganizationPermission("manage_members")],
     )
-    def approve_membership_request(self, slug: str, request_id: UUID) -> tuple[int, None]:
-        """Approve a membership request."""
+    def approve_membership_request(
+        self, slug: str, request_id: UUID, payload: schema.ApproveMembershipRequestSchema
+    ) -> tuple[int, None]:
+        """Approve a membership request and assign tier.
+
+        Requires a tier_id to be specified. The tier must belong to the organization.
+        """
         organization = self.get_one(slug)
         membership_request = get_object_or_404(OrganizationMembershipRequest, pk=request_id, organization=organization)
-        organization_service.approve_membership_request(membership_request, self.user())
+
+        # Resolve tier_id to tier object and validate it belongs to this organization
+        tier = get_object_or_404(models.MembershipTier, pk=payload.tier_id, organization=organization)
+
+        organization_service.approve_membership_request(membership_request, self.user(), tier)
         return 204, None
 
     @route.post(
@@ -671,11 +705,62 @@ class OrganizationAdminController(UserAwareController):
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["user__username", "user__email", "user__first_name", "user__last_name"])
-    def list_members(self, slug: str) -> QuerySet[models.OrganizationMember]:
+    @searching(
+        Searching,
+        search_fields=["user__username", "user__email", "user__first_name", "user__last_name", "user__preferred_name"],
+    )
+    def list_members(
+        self,
+        slug: str,
+        params: filters.MembershipFilterSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[models.OrganizationMember]:
         """List all members of an organization."""
         organization = self.get_one(slug)
-        return models.OrganizationMember.objects.filter(organization=organization).select_related("user").distinct()
+        qs = models.OrganizationMember.objects.filter(organization=organization).select_related("user", "tier")
+        return params.filter(qs).distinct()
+
+    @route.put(
+        "/members/{user_id}",
+        url_name="update_organization_member",
+        response=schema.OrganizationMemberSchema,
+        permissions=[OrganizationPermission("manage_members")],
+    )
+    def update_member(
+        self, slug: str, user_id: UUID, payload: schema.OrganizationMemberUpdateSchema
+    ) -> models.OrganizationMember:
+        """Update a member's status and/or tier.
+
+        Allows organization admins to:
+        - Change membership status (active, paused, cancelled, banned)
+        - Assign or change membership tier
+        - Remove tier assignment by setting tier_id to null
+
+        The tier must belong to the same organization as the membership.
+        """
+        organization = self.get_one(slug)
+        member = get_object_or_404(
+            models.OrganizationMember.objects.select_related("user", "tier"),
+            organization=organization,
+            user_id=user_id,
+        )
+
+        update_data = payload.model_dump(exclude_unset=True)
+        if not update_data:
+            return member
+
+        # Resolve tier_id to tier object if provided
+        tier = None
+        clear_tier = False
+        if "tier_id" in update_data:
+            tier_id = update_data.pop("tier_id")
+            if tier_id is None:
+                clear_tier = True
+            else:
+                tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
+
+        return organization_service.update_member(
+            member, status=update_data.get("status"), tier=tier, clear_tier=clear_tier
+        )
 
     @route.delete(
         "/members/{user_id}",
@@ -688,6 +773,62 @@ class OrganizationAdminController(UserAwareController):
         organization = self.get_one(slug)
         user_to_remove = get_object_or_404(RevelUser, id=user_id)
         organization_service.remove_member(organization, user_to_remove)
+        return 204, None
+
+    @route.get(
+        "/membership-tiers",
+        url_name="list_membership_tiers",
+        response=list[schema.MembershipTierSchema],
+        permissions=[IsOrganizationStaff()],
+        throttle=UserDefaultThrottle(),
+    )
+    def list_membership_tiers(self, slug: str) -> QuerySet[models.MembershipTier]:
+        """List all membership tiers for an organization."""
+        organization = self.get_one(slug)
+        return models.MembershipTier.objects.filter(organization=organization).distinct()
+
+    @route.post(
+        "/membership-tiers",
+        url_name="create_membership_tier",
+        response={201: schema.MembershipTierSchema},
+        permissions=[OrganizationPermission("manage_members")],
+    )
+    def create_membership_tier(
+        self, slug: str, payload: schema.MembershipTierCreateSchema
+    ) -> tuple[int, models.MembershipTier]:
+        """Create a new membership tier for the organization."""
+        organization = self.get_one(slug)
+        tier = models.MembershipTier.objects.create(organization=organization, **payload.model_dump())
+        return 201, tier
+
+    @route.put(
+        "/membership-tiers/{tier_id}",
+        url_name="update_membership_tier",
+        response=schema.MembershipTierSchema,
+        permissions=[OrganizationPermission("manage_members")],
+    )
+    def update_membership_tier(
+        self, slug: str, tier_id: UUID, payload: schema.MembershipTierUpdateSchema
+    ) -> models.MembershipTier:
+        """Update a membership tier."""
+        organization = self.get_one(slug)
+        tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
+        return update_db_instance(tier, payload)
+
+    @route.delete(
+        "/membership-tiers/{tier_id}",
+        url_name="delete_membership_tier",
+        response={204: None},
+        permissions=[OrganizationPermission("manage_members")],
+    )
+    def delete_membership_tier(self, slug: str, tier_id: UUID) -> tuple[int, None]:
+        """Delete a membership tier.
+
+        Members assigned to this tier will have their tier set to NULL (due to SET_NULL on the FK).
+        """
+        organization = self.get_one(slug)
+        tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
+        tier.delete()
         return 204, None
 
     @route.get(

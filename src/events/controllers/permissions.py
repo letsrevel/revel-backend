@@ -13,6 +13,7 @@ from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from events import models, schema
+from events.models import OrganizationMember
 
 
 class RootPermission(BasePermission):
@@ -242,7 +243,16 @@ class PermissionController(UserAwareController):
         }
         staff_perms = {str(perm.organization.id): perm.permissions for perm in perms}
         permissions = {**staff_perms, **owner_perms}
-        memberships = list(
-            models.OrganizationMember.objects.filter(user=user).values_list("organization_id", flat=True)
+
+        # Build memberships dict with minimal member info
+        memberships: dict[str, schema.MinimalOrganizationMemberSchema] = {}
+        members = (
+            models.OrganizationMember.objects.select_related("tier")
+            .filter(user=user)
+            .exclude(status=OrganizationMember.MembershipStatus.BANNED)
         )
+        for member in members:
+            org_id_str = str(member.organization_id)
+            memberships[org_id_str] = schema.MinimalOrganizationMemberSchema.from_orm(member)
+
         return schema.OrganizationPermissionsSchema(organization_permissions=permissions, memberships=memberships)

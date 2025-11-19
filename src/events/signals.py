@@ -15,12 +15,14 @@ from events.models import (
     EventInvitation,
     EventRSVP,
     GeneralUserPreferences,
+    Organization,
     OrganizationMember,
     OrganizationStaff,
     PendingEventInvitation,
     Ticket,
     TicketTier,
 )
+from events.models.organization import MembershipTier
 from events.service.potluck_service import unclaim_user_potluck_items
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
 from events.tasks import build_attendee_visibility_flags
@@ -38,6 +40,22 @@ def handle_event_save(sender: type[Event], instance: Event, created: bool, **kwa
     # Create default ticket tier if needed
     if instance.requires_ticket and not TicketTier.objects.filter(event=instance).exists():
         TicketTier.objects.create(event=instance, name=DEFAULT_TICKET_TIER_NAME)
+
+
+@receiver(post_save, sender=Organization)
+def handle_organization_creation(
+    sender: type[Organization], instance: Organization, created: bool, **kwargs: t.Any
+) -> None:
+    """Create default 'General membership' tier when organization is created."""
+    if not created:
+        return
+
+    MembershipTier.objects.create(organization=instance, name="General membership")
+    logger.info(
+        "default_membership_tier_created",
+        organization_id=str(instance.id),
+        organization_name=instance.name,
+    )
 
 
 @receiver(post_save, sender=RevelUser)

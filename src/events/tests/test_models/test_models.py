@@ -11,8 +11,11 @@ from events.models import (
     AdditionalResource,
     Event,
     EventSeries,
+    MembershipTier,
     Organization,
+    OrganizationMember,
     OrganizationStaff,
+    OrganizationToken,
 )
 from events.models.organization import _validate_permissions
 
@@ -210,3 +213,120 @@ def test_event_ics_no_location(organization: Organization) -> None:
 
     # Should include fallback text
     assert "See event details" in ics_str
+
+
+@pytest.mark.django_db
+def test_organization_member_tier_validation_success(
+    organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """Test that OrganizationMember.clean() passes when tier belongs to same organization."""
+    tier = MembershipTier.objects.create(organization=organization, name="Gold")
+    member = OrganizationMember(organization=organization, user=organization_owner_user, tier=tier)
+
+    # Should not raise any exception
+    member.full_clean()
+
+
+@pytest.mark.django_db
+def test_organization_member_tier_validation_fails_wrong_organization(
+    organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """Test that OrganizationMember.clean() fails when tier belongs to different organization."""
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+    tier = MembershipTier.objects.create(organization=other_org, name="Gold")
+    member = OrganizationMember(organization=organization, user=organization_owner_user, tier=tier)
+
+    with pytest.raises(ValidationError) as exc_info:
+        member.full_clean()
+
+    assert "tier" in exc_info.value.message_dict
+    assert "must belong to the same organization" in str(exc_info.value.message_dict["tier"])
+
+
+@pytest.mark.django_db
+def test_organization_member_tier_can_be_null(organization: Organization, organization_owner_user: RevelUser) -> None:
+    """Test that OrganizationMember can have no tier assigned (tier=None)."""
+    member = OrganizationMember(organization=organization, user=organization_owner_user, tier=None)
+
+    # Should not raise any exception
+    member.full_clean()
+    member.save()
+    assert member.tier is None
+
+
+@pytest.mark.django_db
+def test_organization_token_requires_tier_when_granting_membership(
+    organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """Test that OrganizationToken requires membership_tier when grants_membership is True."""
+    token = OrganizationToken(
+        organization=organization,
+        issuer=organization_owner_user,
+        grants_membership=True,
+        membership_tier=None,  # Missing tier
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        token.full_clean()
+
+    assert "membership_tier" in exc_info.value.message_dict
+    assert "required when granting membership" in str(exc_info.value.message_dict["membership_tier"])
+
+
+@pytest.mark.django_db
+def test_organization_token_tier_must_match_organization(
+    organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """Test that membership_tier must belong to the same organization as the token."""
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+    other_tier = MembershipTier.objects.create(organization=other_org, name="Other Tier")
+
+    token = OrganizationToken(
+        organization=organization,
+        issuer=organization_owner_user,
+        grants_membership=True,
+        membership_tier=other_tier,  # Tier from different organization
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        token.full_clean()
+
+    assert "membership_tier" in exc_info.value.message_dict
+    assert "must belong to the same organization" in str(exc_info.value.message_dict["membership_tier"])
+
+
+@pytest.mark.django_db
+def test_organization_token_valid_with_tier(organization: Organization, organization_owner_user: RevelUser) -> None:
+    """Test that OrganizationToken validates successfully with correct tier."""
+    tier = MembershipTier.objects.create(organization=organization, name="Gold")
+
+    token = OrganizationToken(
+        organization=organization,
+        issuer=organization_owner_user,
+        grants_membership=True,
+        membership_tier=tier,
+    )
+
+    # Should not raise any exception
+    token.full_clean()
+    token.save()
+    assert token.membership_tier == tier
+
+
+@pytest.mark.django_db
+def test_organization_token_tier_optional_when_not_granting_membership(
+    organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """Test that membership_tier is optional when grants_membership is False."""
+    token = OrganizationToken(
+        organization=organization,
+        issuer=organization_owner_user,
+        grants_membership=False,
+        grants_staff_status=True,
+        membership_tier=None,
+    )
+
+    # Should not raise any exception
+    token.full_clean()
+    token.save()
+    assert token.membership_tier is None
