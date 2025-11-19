@@ -13,15 +13,13 @@ import typing as t
 import structlog
 from decouple import config
 
-from .base import DEPLOYMENT_ENVIRONMENT, VERSION
+from .base import DEBUG, DEPLOYMENT_ENVIRONMENT, VERSION
 
 # Observability toggle
 ENABLE_OBSERVABILITY = config("ENABLE_OBSERVABILITY", default=True, cast=bool)
 
 # Sampling configuration
-TRACING_SAMPLE_RATE = config(
-    "TRACING_SAMPLE_RATE", default=1.0 if config("DEBUG", default=False, cast=bool) else 0.1, cast=float
-)
+TRACING_SAMPLE_RATE = config("TRACING_SAMPLE_RATE", default=1.0 if DEBUG else 0.1, cast=float)
 
 # Service identification
 SERVICE_NAME = config("SERVICE_NAME", default="revel")
@@ -144,6 +142,17 @@ LOGGING_HANDLERS: dict[str, dict[str, t.Any]] = {
     },
 }
 
+# Add file handler for warnings and above when in DEBUG mode
+if DEBUG:
+    LOGGING_HANDLERS["file"] = {
+        "class": "logging.handlers.RotatingFileHandler",
+        "filename": "revel.log",
+        "maxBytes": 10 * 1024 * 1024,  # 10MB
+        "backupCount": 5,
+        "formatter": "json",
+        "level": "WARNING",
+    }
+
 # Add Loki handler if observability is enabled
 # Use QueueHandler to prevent blocking on HTTP requests to Loki
 if ENABLE_OBSERVABILITY:
@@ -168,6 +177,12 @@ if ENABLE_OBSERVABILITY:
         },
     }
 
+# Determine handlers based on environment
+if DEBUG:
+    DEFAULT_HANDLERS = ["console", "file", "queue"] if ENABLE_OBSERVABILITY else ["console", "file"]
+else:
+    DEFAULT_HANDLERS = ["console", "queue"] if ENABLE_OBSERVABILITY else ["console"]
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -181,48 +196,48 @@ LOGGING = {
     "handlers": LOGGING_HANDLERS,
     "root": {
         # Use queue handler instead of direct Loki handler (non-blocking)
-        "handlers": ["console", "queue"] if ENABLE_OBSERVABILITY else ["console"],
-        "level": "INFO" if config("DEBUG", default=False, cast=bool) else "INFO",
+        "handlers": DEFAULT_HANDLERS,
+        "level": "INFO",
     },
     "loggers": {
         "django": {
-            "handlers": ["console", "queue"] if ENABLE_OBSERVABILITY else ["console"],
+            "handlers": DEFAULT_HANDLERS,
             "level": "INFO",
             "propagate": False,
         },
         "django.db.backends": {
-            "handlers": ["console", "queue"] if ENABLE_OBSERVABILITY else ["console"],
+            "handlers": DEFAULT_HANDLERS,
             "level": "WARNING",  # Only log slow queries/errors
             "propagate": False,
         },
         "celery": {
-            "handlers": ["console", "queue"] if ENABLE_OBSERVABILITY else ["console"],
+            "handlers": DEFAULT_HANDLERS,
             "level": "INFO",
             "propagate": False,
         },
         "urllib3": {
-            "handlers": ["console", "queue"] if ENABLE_OBSERVABILITY else ["console"],
+            "handlers": DEFAULT_HANDLERS,
             "level": "WARNING",  # Reduce noise from HTTP libraries
             "propagate": False,
         },
         # Reduce noise from verbose libraries
         "silk.middleware": {
-            "handlers": ["console", "queue"] if ENABLE_OBSERVABILITY else ["console"],
+            "handlers": DEFAULT_HANDLERS,
             "level": "WARNING",  # Silk is very noisy - only warnings/errors
             "propagate": False,
         },
         "silk.model_factory": {
-            "handlers": ["console", "queue"] if ENABLE_OBSERVABILITY else ["console"],
+            "handlers": DEFAULT_HANDLERS,
             "level": "ERROR",  # Even noisier - only errors
             "propagate": False,
         },
         "asyncio": {
-            "handlers": ["console", "queue"] if ENABLE_OBSERVABILITY else ["console"],
+            "handlers": DEFAULT_HANDLERS,
             "level": "WARNING",
             "propagate": False,
         },
         "multipart": {
-            "handlers": ["console", "queue"] if ENABLE_OBSERVABILITY else ["console"],
+            "handlers": DEFAULT_HANDLERS,
             "level": "WARNING",
             "propagate": False,
         },

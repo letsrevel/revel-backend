@@ -1,9 +1,9 @@
 # src/telegram/routers/events.py
 
-import logging
 import typing as t
 import uuid
 
+import structlog
 from aiogram import F, Router
 from aiogram.types import CallbackQuery, Message
 from asgiref.sync import sync_to_async
@@ -20,7 +20,7 @@ from events.service.event_manager import EventManager, UserIsIneligibleError
 from telegram.middleware import AuthorizationMiddleware
 from telegram.models import TelegramUser
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 router = Router(name="events-router")
 
 # Register middleware at router level to access handler flags
@@ -49,7 +49,12 @@ async def cb_handle_rsvp(callback: CallbackQuery, user: RevelUser, tg_user: Tele
     try:
         await sync_to_async(handler.rsvp)(status)  # type: ignore[arg-type]
     except UserIsIneligibleError as e:
-        logger.warning(f"User {user.username} was ineligible for RSVP to event {event.id}: {e.eligibility.reason}")
+        logger.warning(
+            "user_ineligible_for_rsvp",
+            username=user.username,
+            event_id=str(event.id),
+            reason=e.eligibility.reason,
+        )
         await callback.answer(
             f"Sorry, you are not eligible to RSVP (yet). Reason: {e.eligibility.reason}", show_alert=False
         )
@@ -87,7 +92,9 @@ async def cb_handle_request_invitation(callback: CallbackQuery, user: RevelUser,
             f"You'll be notified when they respond."
         )
     except Exception as e:
-        logger.exception(f"Failed to create invitation request: {e}")
+        logger.exception(
+            "failed_to_create_invitation_request", event_id=str(event.id), user_id=str(user.id), error=str(e)
+        )
         await callback.message.answer("❌ Sorry, something went wrong. Please try again later.")
 
 
@@ -109,7 +116,7 @@ async def cb_handle_become_member(callback: CallbackQuery, user: RevelUser, tg_u
             f"You'll be notified when they respond."
         )
     except Exception as e:
-        logger.exception(f"Failed to create membership request: {e}")
+        logger.exception("failed_to_create_membership_request", org_id=str(org_id), user_id=str(user.id), error=str(e))
         await callback.message.answer("❌ Sorry, something went wrong. Please try again later.")
 
 
@@ -130,7 +137,7 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
         else:
             await callback.message.answer(f"ℹ️ You are already on the waitlist for {event.name}!")
     except Exception as e:
-        logger.exception(f"Failed to join waitlist: {e}")
+        logger.exception("failed_to_join_waitlist", event_id=str(event_id), user_id=str(user.id), error=str(e))
         await callback.message.answer("❌ Sorry, something went wrong. Please try again later.")
 
 
@@ -152,7 +159,9 @@ async def cb_handle_invitation_request_accept(callback: CallbackQuery, user: Rev
             parse_mode="HTML",
         )
     except Exception as e:
-        logger.exception(f"Failed to accept invitation request: {e}")
+        logger.exception(
+            "failed_to_accept_invitation_request", request_id=str(request_id), user_id=str(user.id), error=str(e)
+        )
         await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
 
 
@@ -176,5 +185,7 @@ async def cb_handle_invitation_request_reject(callback: CallbackQuery, user: Rev
     except EventInvitationRequest.DoesNotExist:
         await callback.answer("❌ Invitation request not found.", show_alert=True)
     except Exception as e:
-        logger.exception(f"Failed to reject invitation request: {e}")
+        logger.exception(
+            "failed_to_reject_invitation_request", request_id=str(request_id), user_id=str(user.id), error=str(e)
+        )
         await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)

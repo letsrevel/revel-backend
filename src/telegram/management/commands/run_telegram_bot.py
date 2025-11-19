@@ -1,16 +1,16 @@
 # src/telegram/management/commands/run_telegram_bot.py
 
-import logging
 import typing as t
 from argparse import ArgumentParser
 
+import structlog
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
 # Import handlers and middlewares
 from telegram.bot import get_bot, get_dispatcher, get_storage, run_bot
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):

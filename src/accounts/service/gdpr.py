@@ -2,8 +2,8 @@
 
 import io
 import json
+import typing as t
 import zipfile
-from typing import Any
 from uuid import UUID
 
 import structlog
@@ -35,7 +35,7 @@ def generate_user_data_export(user: RevelUser) -> UserDataExport:
         export.status = UserDataExport.Status.PROCESSING
         export.save(update_fields=["status"])
 
-        export_data: dict[str, Any] = {}
+        export_data: dict[str, t.Any] = {}
 
         user_fields = {
             f.name: getattr(user, f.name)
@@ -110,12 +110,12 @@ def generate_user_data_export(user: RevelUser) -> UserDataExport:
         raise
 
 
-def _serialize_questionnaire_data(user_id: UUID) -> dict[str, list[dict[str, Any]]]:
+def _serialize_questionnaire_data(user_id: UUID) -> dict[str, list[dict[str, t.Any]]]:
     """Special case serializer for detailed questionnaire data."""
     submissions = QuestionnaireSubmission.objects.filter(user_id=user_id).select_related("questionnaire", "evaluation")
     data = []
     for sub in submissions:
-        sub_data: dict[str, Any] = {
+        sub_data: dict[str, t.Any] = {
             "submission_id": sub.id,
             "questionnaire_name": sub.questionnaire.name,
             "status": sub.status,
@@ -130,7 +130,7 @@ def _serialize_questionnaire_data(user_id: UUID) -> dict[str, list[dict[str, Any
                 "comments": sub.evaluation.comments,
             }
 
-        answers: list[dict[str, Any]] = []
+        answers: list[dict[str, t.Any]] = []
         mc_answers = MultipleChoiceAnswer.objects.filter(submission=sub).select_related("question", "option")
         for mc_ans in mc_answers:
             answers.append(

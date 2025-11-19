@@ -1,6 +1,6 @@
 """Core notification dispatcher service."""
 
-from typing import Any
+import typing as t
 
 import structlog
 
@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 def create_notification(
     notification_type: NotificationType | str,
     user: RevelUser,
-    context: dict[str, Any],
+    context: dict[str, t.Any],
 ) -> Notification:
     """Create a notification record.
 

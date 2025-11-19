@@ -1,15 +1,15 @@
 # src/telegram/utils.py
 
-import logging
 from io import BytesIO
 
 import qrcode
+import structlog
 from aiogram.types import BufferedInputFile, ReplyMarkupUnion
 from aiogram.types import User as AiogramUser
 
 from telegram.models import TelegramUser
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 async def get_or_create_tg_user(aiogram_user: AiogramUser) -> TelegramUser:
@@ -34,7 +34,7 @@ async def get_or_create_tg_user(aiogram_user: AiogramUser) -> TelegramUser:
             telegram_id=aiogram_user.id,
             telegram_username=aiogram_user.username,
         )
-        logger.info(f"Created new TelegramUser for telegram_id={aiogram_user.id}")
+        logger.info("created_telegram_user", telegram_id=aiogram_user.id)
         return tg_user
 
 

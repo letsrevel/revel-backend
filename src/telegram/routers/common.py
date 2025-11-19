@@ -1,9 +1,9 @@
 # src/telegram/handlers/common.py
 
-import logging
 import re
 import typing as t
 
+import structlog
 from aiogram import F, Router
 from aiogram.filters import (
     Command,
@@ -18,7 +18,7 @@ from common.models import Legal
 from telegram import keyboards
 from telegram.models import AccountOTP, TelegramUser
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 router = Router()
 
 
@@ -27,7 +27,7 @@ async def handle_start(message: Message, tg_user: TelegramUser, state: FSMContex
     """Handles the /start command."""
     await state.clear()  # Clear any previous state
 
-    logger.info(f"TelegramUser {tg_user.telegram_id} started the bot.")
+    logger.info("telegram_user_started_bot", telegram_id=tg_user.telegram_id)
 
     # Check if account is linked
     if tg_user.user_id:
@@ -94,7 +94,7 @@ def sanitize_text(raw_html: str) -> str:
 @router.message(Command("toc"))
 async def handle_toc(message: Message, tg_user: TelegramUser) -> None:
     """Handles the /toc command to display Terms and Conditions."""
-    logger.info(f"TelegramUser {tg_user.telegram_id} requested Terms and Conditions.")
+    logger.info("telegram_user_requested_toc", telegram_id=tg_user.telegram_id)
     legal = await sync_to_async(Legal.get_solo)()
     toc = legal.terms_and_conditions or "Terms and Conditions are not available at the moment."
     sanitized_text = sanitize_text(toc)
@@ -104,7 +104,7 @@ async def handle_toc(message: Message, tg_user: TelegramUser) -> None:
 @router.message(Command("privacy"))
 async def handle_privacy(message: Message, tg_user: TelegramUser) -> None:
     """Handles the /privacy command to display Privacy Policy."""
-    logger.info(f"TelegramUser {tg_user.telegram_id} requested Privacy Policy.")
+    logger.info("telegram_user_requested_privacy_policy", telegram_id=tg_user.telegram_id)
     legal = await sync_to_async(Legal.get_solo)()
     privacy = legal.privacy_policy or "Privacy Policy is not available at the moment."
     sanitized_text = sanitize_text(privacy)
@@ -115,7 +115,7 @@ async def handle_privacy(message: Message, tg_user: TelegramUser) -> None:
 @router.message(Command("connect"))
 async def handle_connect(message: Message, tg_user: TelegramUser) -> None:
     """Handles the /connect command to generate OTP for account linking."""
-    logger.info(f"TelegramUser {tg_user.telegram_id} requested account linking.")
+    logger.info("telegram_user_requested_account_linking", telegram_id=tg_user.telegram_id)
 
     # Check if already linked
     if tg_user.user_id:
@@ -143,7 +143,7 @@ async def handle_connect(message: Message, tg_user: TelegramUser) -> None:
 @router.message(Command("unsubscribe"), flags={"requires_linked_user": True})
 async def handle_unsubscribe(message: Message, tg_user: TelegramUser, user: RevelUser) -> None:
     """Handles the /unsubscribe command to turn off all Telegram notifications."""
-    logger.info(f"TelegramUser {tg_user.telegram_id} requested unsubscribe.")
+    logger.info("telegram_user_requested_unsubscribe", telegram_id=tg_user.telegram_id)
 
     # Get or create notification preferences and disable telegram channel
     from notifications.models import NotificationPreference
@@ -152,7 +152,7 @@ async def handle_unsubscribe(message: Message, tg_user: TelegramUser, user: Reve
 
     # Remove telegram from enabled channels if present
     await prefs.asave(update_fields=["enabled_channels", "updated_at"])
-    logger.info(f"TelegramUser {tg_user.telegram_id} disabled Telegram notifications.")
+    logger.info("telegram_user_disabled_notifications", telegram_id=tg_user.telegram_id)
     await message.answer(
         "✅ You have been unsubscribed from all Telegram notifications.\n\n"
         "You will no longer receive notification messages from Revel on Telegram.\n\n"

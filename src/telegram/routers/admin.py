@@ -1,7 +1,6 @@
 # src/telegram/handlers/admin.py
 
-import logging
-
+import structlog
 from aiogram import F, Router
 from aiogram.filters import (
     CommandStart,
@@ -17,7 +16,7 @@ from telegram.middleware import AuthorizationMiddleware
 from telegram.models import TelegramUser
 from telegram.tasks import send_broadcast_message_task
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 router = Router()
 
 # Register middleware at router level to access handler flags
@@ -63,14 +62,15 @@ async def _check_broadcast_gates(message: Message, user: RevelUser, state: FSMCo
         # Superuser is in an active FSM flow (e.g., setting preferences).
         # Do not interpret this message as a broadcast request.
         logger.debug(
-            f"Superuser {user.username} attempting broadcast while in state {current_fsm_state}. "
-            f"Not treating as broadcast."
+            "superuser_broadcast_attempt_in_state",
+            username=user.username,
+            state=current_fsm_state,
         )
         return False
 
     # Superuser, not a command, and not in an active FSM state. Treat as potential broadcast.
     if not message.text or not message.text.strip():  # Ignore empty messages
-        logger.debug(f"Superuser {user.username} sent an empty message. Not broadcasting.")
+        logger.debug("superuser_empty_broadcast_message", username=user.username)
         return False
 
     return True
@@ -112,15 +112,17 @@ async def cb_broadcast_confirm(
             task_info = send_broadcast_message_task.delay(message_text_to_broadcast)
             await callback.answer(f"Broadcast task queued (ID: {task_info.id}).", show_alert=True)
             logger.info(
-                f'Superuser {user.username} confirmed broadcast for: "{message_text_to_broadcast[:100]}...". '
-                f"Task ID: {task_info.id}"
+                "superuser_confirmed_broadcast",
+                username=user.username,
+                message_preview=message_text_to_broadcast[:100],
+                task_id=task_info.id,
             )
         else:
             await callback.answer("Error: No message content found to broadcast.", show_alert=True)
             logger.error(
-                f"Superuser {user.username} confirmed broadcast, "
-                f"but 'broadcast_message_text' was missing from FSM data."
+                "broadcast_message_missing_from_fsm",
+                username=user.username,
             )
     else:  # action == "no"
         await callback.answer("Broadcast cancelled.", show_alert=False)  # No need for alert if message edited
-        logger.info(f"Superuser {user.username} cancelled broadcast.")
+        logger.info("superuser_cancelled_broadcast", username=user.username)

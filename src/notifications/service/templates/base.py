@@ -1,7 +1,7 @@
 """Base template interface for notifications."""
 
+import typing as t
 from abc import ABC, abstractmethod
-from typing import Any
 
 from django.template.loader import render_to_string
 
@@ -98,7 +98,7 @@ class NotificationTemplate(ABC):
         template_name = f"notifications/email/{notification.notification_type}.html"
         return render_to_string(template_name, self._get_template_context(notification))
 
-    def get_email_attachments(self, notification: Notification) -> dict[str, Any]:
+    def get_email_attachments(self, notification: Notification) -> dict[str, t.Any]:
         """Get email attachments.
 
         Args:
@@ -131,7 +131,7 @@ class NotificationTemplate(ABC):
 
     # ==================== Helper Methods ====================
 
-    def _get_template_context(self, notification: Notification) -> dict[str, Any]:
+    def _get_template_context(self, notification: Notification) -> dict[str, t.Any]:
         """Build context for template rendering.
 
         This method enriches the notification context with:

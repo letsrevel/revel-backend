@@ -1,7 +1,7 @@
 """Notification digest service for batching notifications."""
 
+import typing as t
 from datetime import datetime, timedelta
-from typing import Any, TypedDict
 
 import structlog
 from django.db.models import QuerySet
@@ -16,14 +16,14 @@ from notifications.models import Notification, NotificationPreference
 logger = structlog.get_logger(__name__)
 
 
-class DigestNotification(TypedDict):
+class DigestNotification(t.TypedDict):
     """Structure for a notification in a digest."""
 
     title: str
     body: str
     notification_type: str
     created_at: datetime
-    context: dict[str, Any]
+    context: dict[str, t.Any]
 
 
 class NotificationDigest:
