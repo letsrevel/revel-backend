@@ -1,7 +1,6 @@
 import typing as t
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
@@ -299,7 +298,7 @@ class MultipleChoiceQuestionUpdateSchema(MultipleChoiceQuestionCreateSchema):
 
     @model_validator(mode="before")
     @classmethod
-    def check_options(cls, data: Any) -> Any:
+    def check_options(cls, data: t.Any) -> t.Any:
         """Ensure that options is not None."""
         if isinstance(data, dict) and data.get("options") is None:
             data["options"] = []

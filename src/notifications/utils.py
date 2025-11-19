@@ -1,18 +1,17 @@
 """Utility functions for notification formatting."""
 
 import re
+import typing as t
 from datetime import datetime
-from typing import Any, Literal
 
-from django.conf import settings
 from django.utils import timezone, translation
 
-ChannelType = Literal["email", "markdown", "telegram"]
+ChannelType = t.Literal["email", "markdown", "telegram"]
 
 
 def format_datetime(
     dt: datetime | str,
-    format_type: Literal["full", "short"] = "full",
+    format_type: t.Literal["full", "short"] = "full",
 ) -> str:
     """Format a datetime for display in notifications.
 
@@ -67,7 +66,9 @@ def format_org_signature(
         markdown: [Org Name](https://...)
         telegram: Same as markdown (will be converted to HTML)
     """
-    org_url = f"{settings.FRONTEND_BASE_URL}/organizations/{org_slug}"
+    from common.models import SiteSettings
+
+    org_url = f"{SiteSettings.get_solo().frontend_base_url}/organizations/{org_slug}"
 
     if channel == "email":
         # HTML format for email
@@ -105,7 +106,9 @@ def format_event_link(
         email link: <a href="...">Event Name</a>
         markdown: [Event Name](https://...)
     """
-    event_url = f"{settings.FRONTEND_BASE_URL}/events/{event_id}"
+    from common.models import SiteSettings
+
+    event_url = f"{SiteSettings.get_solo().frontend_base_url}/events/{event_id}"
 
     if channel == "email":
         if button:
@@ -173,9 +176,9 @@ def sanitize_for_telegram(html: str) -> str:
 
 
 def get_formatted_context_for_template(
-    context: dict[str, Any],
+    context: dict[str, t.Any],
     user_language: str = "en",
-) -> dict[str, Any]:
+) -> dict[str, t.Any]:
     """Prepare context for template rendering with formatted dates and links.
 
     This function takes the raw notification context and enriches it with:
@@ -231,11 +234,19 @@ def get_formatted_context_for_template(
             )
 
             # Also create direct org URL
-            enriched["organization_url"] = f"{settings.FRONTEND_BASE_URL}/organizations/{enriched['organization_slug']}"
+            from common.models import SiteSettings
+
+            site_settings = SiteSettings.get_solo()
+            enriched["organization_url"] = (
+                f"{site_settings.frontend_base_url}/organizations/{enriched['organization_slug']}"
+            )
 
         # Add event link if event info is present
         if "event_name" in enriched and "event_id" in enriched:
-            enriched["event_url"] = f"{settings.FRONTEND_BASE_URL}/events/{enriched['event_id']}"
+            from common.models import SiteSettings
+
+            site_settings = SiteSettings.get_solo()
+            enriched["event_url"] = f"{site_settings.frontend_base_url}/events/{enriched['event_id']}"
 
             # Button version for email
             enriched["event_button_html"] = format_event_link(

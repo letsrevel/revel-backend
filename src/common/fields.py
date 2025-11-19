@@ -6,14 +6,13 @@ This module provides custom field types with built-in sanitization and security 
 from __future__ import annotations
 
 import typing as t
-from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import bleach
 import markdown as md
 from django.contrib.gis.db import models
 
-if TYPE_CHECKING:
+if t.TYPE_CHECKING:
     pass
 
 # Allowed HTML tags after markdown conversion
@@ -230,7 +229,7 @@ def render_markdown(text: str | None) -> str:
     return sanitize_html(html)
 
 
-if TYPE_CHECKING:
+if t.TYPE_CHECKING:
 
     class MarkdownField(models.TextField[str | None, str | None]):
         """Type stub for MarkdownField."""

@@ -1,8 +1,8 @@
 import asyncio
-import logging
 import signal
 import typing as t
 
+import structlog
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -17,7 +17,7 @@ from telegram.middleware import TelegramUserMiddleware
 # Import handlers and middlewares
 from telegram.routers import admin, common, events, preferences
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def get_bot(token: str | None = None) -> Bot:
@@ -65,7 +65,7 @@ def run_bot(bot: Bot, dispatcher: Dispatcher) -> None:
     async def run() -> None:
         """Run the bot loop."""
         # Set the commands in the telegram menu
-        logger.debug("Setting Bot commands.")
+        logger.debug("setting_bot_commands")
         await commands.set_commands(bot)
 
         loop = asyncio.get_running_loop()
@@ -74,22 +74,22 @@ def run_bot(bot: Bot, dispatcher: Dispatcher) -> None:
             loop.add_signal_handler(sig, stop_event.set)
 
         # Start polling
-        logger.debug("Ensure no webhook is set.")
+        logger.debug("deleting_webhook")
         await bot.delete_webhook(drop_pending_updates=True)
         try:
-            logger.debug("Starting bot.")
+            logger.debug("starting_bot")
             await dispatcher.start_polling(bot, allowed_updates=dispatcher.resolve_used_update_types())
         finally:
             if settings.DEBUG and isinstance(dispatcher.storage, RedisStorage):
-                logger.debug("Stopping flushing Redis Storage.")
+                logger.debug("flushing_redis_storage")
                 await dispatcher.storage.redis.flushall()  # Clear Redis storage when in DEBUG
-            logger.debug("Stopping bot.")
+            logger.debug("stopping_bot")
             await dispatcher.storage.close()
             await bot.session.close()
 
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
-        logger.info("Bot stopped manually.")
+        logger.info("bot_stopped_manually")
     except Exception as e:
-        logger.exception(f"An error occurred: {e}")
+        logger.exception("bot_error", error=str(e))

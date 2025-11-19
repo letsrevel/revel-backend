@@ -1,5 +1,6 @@
 """Celery tasks for notification dispatch and maintenance."""
 
+import traceback
 import typing as t
 from datetime import timedelta
 
@@ -59,7 +60,7 @@ def dispatch_notification(self: t.Any, notification_id: str) -> dict[str, t.Any]
             user_language=user_language,
         )
     except Exception as e:
-        logger.error(
+        logger.exception(
             "notification_render_failed",
             notification_id=notification_id,
             notification_type=notification.notification_type,
@@ -152,7 +153,7 @@ def deliver_to_channel(self: t.Any, delivery_id: str) -> dict[str, t.Any]:
         # Refresh delivery object to get updated retry_count from channel's deliver() method
         delivery.refresh_from_db()
 
-        logger.error(
+        logger.exception(
             "delivery_exception",
             delivery_id=delivery_id,
             channel=delivery.channel,
@@ -175,7 +176,7 @@ def deliver_to_channel(self: t.Any, delivery_id: str) -> dict[str, t.Any]:
         else:
             # Don't retry - permanent failure
             delivery.status = DeliveryStatus.FAILED
-            delivery.error_message = str(e)
+            delivery.error_message = traceback.format_exc()
             delivery.save(update_fields=["status", "error_message", "updated_at"])
             raise
 

@@ -1,8 +1,8 @@
 # ruff: noqa: E501, W293
 
 import re
+import typing as t
 from textwrap import dedent
-from typing import Any, Literal
 
 from django.conf import settings
 from jinja2 import Template
@@ -288,10 +288,10 @@ class SanitizingChatGPTEvaluator(BetterChatGPTEvaluator):
 SENTINEL_MODEL_PATH = settings.BASE_DIR / "questionnaires" / "llms" / "sentinel"
 
 # Global sentinel pipeline cache
-_sentinel_pipeline: Any = None
+_sentinel_pipeline: t.Any = None
 
 
-def _get_sentinel_pipeline() -> Any:
+def _get_sentinel_pipeline() -> t.Any:
     """Load and cache the sentinel model pipeline for reuse."""
     if not TRANSFORMERS_AVAILABLE:
         msg = "Transformers library is not installed. Please install it with: uv sync --group sentinel"
@@ -321,7 +321,7 @@ class SentinelChatGPTEvaluator(BetterChatGPTEvaluator):
     """ChatGPT evaluator with prompt injection detection using the Sentinel model, using BetterChatGPTEvaluator prompts."""
 
     @staticmethod
-    def _check_prompt_injection(text: str) -> Literal["benign", "jailbreak"]:
+    def _check_prompt_injection(text: str) -> t.Literal["benign", "jailbreak"]:
         """Check for prompt injection using the sentinel model.
 
         Returns 'benign' if safe, 'jailbreak' if prompt injection detected.

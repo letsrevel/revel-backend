@@ -1,7 +1,7 @@
 """Templates for ticket-related notifications."""
 
 import base64
-from typing import Any
+import typing as t
 
 from django.utils.translation import gettext as _
 
@@ -43,7 +43,7 @@ class TicketCreatedTemplate(NotificationTemplate):
             return _("Ticket Pending - %(event)s") % {"event": event_name}
         return _("Ticket Confirmed - %(event)s") % {"event": event_name}
 
-    def get_email_attachments(self, notification: Notification) -> dict[str, Any]:
+    def get_email_attachments(self, notification: Notification) -> dict[str, t.Any]:
         """Get attachments (ticket PDF + ICS).
 
         Conditionally includes PDF based on ticket status and payment method.
@@ -129,7 +129,7 @@ class TicketUpdatedTemplate(NotificationTemplate):
             return _("Ticket Confirmed - %(event)s") % {"event": event_name}
         return _("Ticket Update - %(event)s") % {"event": event_name}
 
-    def get_email_attachments(self, notification: Notification) -> dict[str, Any]:
+    def get_email_attachments(self, notification: Notification) -> dict[str, t.Any]:
         """Get attachments (ticket PDF + ICS).
 
         For ticket activations, include both PDF and ICS.
@@ -188,7 +188,7 @@ class PaymentConfirmationTemplate(NotificationTemplate):
         event_name = notification.context.get("event_name", "")
         return _("Payment Confirmation - %(event)s") % {"event": event_name}
 
-    def get_email_attachments(self, notification: Notification) -> dict[str, Any]:
+    def get_email_attachments(self, notification: Notification) -> dict[str, t.Any]:
         """Get email attachments (PDF ticket and ICS calendar file)."""
         ticket_id = notification.context.get("ticket_id")
         event_id = notification.context.get("event_id")

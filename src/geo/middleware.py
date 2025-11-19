@@ -1,5 +1,4 @@
 import typing as t
-from typing import Callable
 
 from django.http import HttpRequest, HttpResponse
 
@@ -7,7 +6,7 @@ from geo.ip2 import LazyGeoPoint
 
 
 class GeoPointMiddleware:
-    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+    def __init__(self, get_response: t.Callable[[HttpRequest], HttpResponse]) -> None:
         """Init."""
         self.get_response = get_response
 

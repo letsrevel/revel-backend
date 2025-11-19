@@ -1,5 +1,7 @@
 """Telegram notification channel implementation."""
 
+import traceback
+
 import structlog
 from django.conf import settings
 from django.utils import timezone, translation
@@ -176,10 +178,10 @@ class TelegramChannel(NotificationChannel):
 
         except Exception as e:
             delivery.status = DeliveryStatus.FAILED
-            delivery.error_message = str(e)
+            delivery.error_message = traceback.format_exc()
             delivery.save(update_fields=["status", "error_message", "retry_count", "attempted_at", "updated_at"])
 
-            logger.error(
+            logger.exception(
                 "telegram_notification_dispatch_failed",
                 notification_id=str(notification.id),
                 notification_type=notification.notification_type,

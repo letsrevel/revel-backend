@@ -1,8 +1,8 @@
 # src/telegram/middleware.py
 
-import logging
 import typing as t
 
+import structlog
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, Message, TelegramObject
 from aiogram.types import User as AiogramUser
@@ -11,7 +11,7 @@ from accounts.models import RevelUser
 from telegram.models import TelegramUser
 from telegram.utils import get_or_create_tg_user
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class TelegramUserMiddleware(BaseMiddleware):
@@ -31,7 +31,7 @@ class TelegramUserMiddleware(BaseMiddleware):
         aiogram_user: AiogramUser | None = data.get("event_from_user")
 
         if not aiogram_user:
-            logger.error("Could not extract Telegram user from event data.")
+            logger.error("telegram_user_not_in_event_data")
             return None  # Stop processing
 
         tg_user: TelegramUser = await get_or_create_tg_user(aiogram_user)
@@ -68,7 +68,7 @@ class AuthorizationMiddleware(BaseMiddleware):
         tg_user: TelegramUser | None = data.get("tg_user")
 
         if not tg_user:
-            logger.error("TelegramUser not found in context - check middleware order!")
+            logger.error("telegram_user_not_in_context")
             return None
 
         # Access flags from data dict as per aiogram documentation

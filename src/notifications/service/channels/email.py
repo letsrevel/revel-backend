@@ -1,6 +1,7 @@
 """Email notification channel implementation."""
 
 import base64
+import traceback
 from smtplib import SMTPException
 
 import structlog
@@ -156,16 +157,17 @@ class EmailChannel(NotificationChannel):
 
         except Exception as e:
             delivery.status = DeliveryStatus.FAILED
-            delivery.error_message = str(e)
+            delivery.error_message = traceback.format_exc()
             delivery.save(update_fields=["status", "error_message", "retry_count", "attempted_at", "updated_at"])
 
-            logger.error(
+            logger.exception(
                 "email_notification_failed",
                 notification_id=str(notification.id),
                 notification_type=notification.notification_type,
                 user_id=str(notification.user.id),
                 error=str(e),
                 retry_count=delivery.retry_count,
+                exc_info=True,
             )
 
             return False

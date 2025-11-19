@@ -1,4 +1,4 @@
-from typing import Protocol
+import typing as t
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -32,7 +32,7 @@ class EvaluationResponse(BaseModel):
 # ---- The Protocol ----
 
 
-class FreeTextEvaluator(Protocol):
+class FreeTextEvaluator(t.Protocol):
     """Defines the interface for any class that can evaluate a BATCH of free-text answers."""
 
     def evaluate(
