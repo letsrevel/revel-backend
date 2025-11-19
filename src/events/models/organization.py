@@ -67,7 +67,7 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
 
         # --- Check if user is banned from any organization ---
         # If a user is banned from an organization, they cannot see it at all, even if it's public
-        from .organization import OrganizationMember
+        # OrganizationMember is defined in this module; no import needed
 
         banned_org_ids = OrganizationMember.objects.filter(
             user=user, status=OrganizationMember.MembershipStatus.BANNED
