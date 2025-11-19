@@ -46,7 +46,7 @@ def reverse_migration(apps, schema_editor):
     OrganizationMember = apps.get_model("events", "OrganizationMember")
 
     # Find all "General" tiers
-    general_tiers = MembershipTier.objects.filter(name="General")
+    general_tiers = MembershipTier.objects.filter(name="General membership")
 
     # Unassign members from these tiers
     OrganizationMember.objects.filter(tier__in=general_tiers).update(tier=None)
