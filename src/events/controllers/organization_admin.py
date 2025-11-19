@@ -593,11 +593,20 @@ class OrganizationAdminController(UserAwareController):
         response={204: None},
         permissions=[OrganizationPermission("manage_members")],
     )
-    def approve_membership_request(self, slug: str, request_id: UUID) -> tuple[int, None]:
-        """Approve a membership request."""
+    def approve_membership_request(
+        self, slug: str, request_id: UUID, payload: schema.ApproveMembershipRequestSchema
+    ) -> tuple[int, None]:
+        """Approve a membership request and assign tier.
+
+        Requires a tier_id to be specified. The tier must belong to the organization.
+        """
         organization = self.get_one(slug)
         membership_request = get_object_or_404(OrganizationMembershipRequest, pk=request_id, organization=organization)
-        organization_service.approve_membership_request(membership_request, self.user())
+
+        # Resolve tier_id to tier object and validate it belongs to this organization
+        tier = get_object_or_404(models.MembershipTier, pk=payload.tier_id, organization=organization)
+
+        organization_service.approve_membership_request(membership_request, self.user(), tier)
         return 204, None
 
     @route.post(

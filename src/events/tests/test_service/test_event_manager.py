@@ -144,6 +144,58 @@ def test_members_only_event_requires_membership(public_user: RevelUser, members_
     assert eligibility.next_step == NextStep.BECOME_MEMBER
 
 
+def test_members_only_event_blocks_inactive_member(member_user: RevelUser, members_only_event: Event) -> None:
+    """A member with inactive status should be denied access to a members-only event."""
+    # Create a membership with PAUSED status
+    membership = OrganizationMember.objects.create(
+        organization=members_only_event.organization,
+        user=member_user,
+        status=OrganizationMember.MembershipStatus.PAUSED,
+    )
+
+    handler = EligibilityService(user=member_user, event=members_only_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.MEMBERSHIP_INACTIVE
+    assert eligibility.next_step is None  # User needs to contact org to reactivate
+
+    # Test with CANCELLED status
+    membership.status = OrganizationMember.MembershipStatus.CANCELLED
+    membership.save()
+
+    handler = EligibilityService(user=member_user, event=members_only_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.MEMBERSHIP_INACTIVE
+
+    # Test with BANNED status
+    membership.status = OrganizationMember.MembershipStatus.BANNED
+    membership.save()
+
+    handler = EligibilityService(user=member_user, event=members_only_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.MEMBERSHIP_INACTIVE
+
+
+def test_members_only_event_allows_active_member(member_user: RevelUser, members_only_event: Event) -> None:
+    """An active member should be allowed access to a members-only event."""
+    # Create a membership with ACTIVE status
+    OrganizationMember.objects.create(
+        organization=members_only_event.organization,
+        user=member_user,
+        status=OrganizationMember.MembershipStatus.ACTIVE,
+    )
+
+    handler = EligibilityService(user=member_user, event=members_only_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is True
+
+
 # --- Test Cases for Questionnaire Gate ---
 
 

@@ -1,3 +1,4 @@
+import typing as t
 from decimal import Decimal
 from uuid import UUID
 
@@ -9,7 +10,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, Ticket, TicketTier
+from events.models import Event, MembershipTier, Ticket, TicketTier
 from events.service import stripe_service
 
 
@@ -101,3 +102,110 @@ def check_in_ticket(event: Event, ticket_id: UUID, checked_in_by: RevelUser) -> 
     ticket.save(update_fields=["status", "checked_in_at", "checked_in_by"])
 
     return ticket
+
+
+@transaction.atomic
+def create_ticket_tier(
+    event: Event, tier_data: dict[str, t.Any], restricted_to_membership_tiers_ids: list[UUID] | None = None
+) -> TicketTier:
+    """Create a ticket tier with membership tier restrictions.
+
+    Args:
+        event: The event for this ticket tier
+        tier_data: Dictionary of TicketTier model fields
+        restricted_to_membership_tiers_ids: Optional list of MembershipTier IDs to restrict this tier to
+
+    Returns:
+        Created TicketTier instance
+
+    Raises:
+        Http404: If any membership tier ID doesn't exist or doesn't belong to event's organization
+
+    Note:
+        TimeStampedModel.save() automatically calls full_clean() before saving.
+        After setting M2M relationships, we call full_clean() again to validate them.
+    """
+    # Create the ticket tier (save() will call full_clean() automatically)
+    tier = TicketTier.objects.create(event=event, **tier_data)
+
+    # Handle membership tier restrictions
+    if restricted_to_membership_tiers_ids:
+        # Fetch and validate membership tiers
+        membership_tiers = MembershipTier.objects.filter(
+            id__in=restricted_to_membership_tiers_ids, organization=event.organization
+        )
+
+        # Ensure all provided IDs exist and belong to the organization
+        if membership_tiers.count() != len(restricted_to_membership_tiers_ids):
+            # Transaction will rollback automatically due to exception
+            raise HttpError(
+                404,
+                str(_("One or more membership tier IDs are invalid or don't belong to the event's organization.")),
+            )
+
+        # Set the M2M relationship
+        tier.restricted_to_membership_tiers.set(membership_tiers)
+
+        # Validate M2M relationships (TicketTier.clean() checks membership tiers)
+        tier.full_clean()
+
+    return tier
+
+
+@transaction.atomic
+def update_ticket_tier(
+    tier: TicketTier, tier_data: dict[str, t.Any], restricted_to_membership_tiers_ids: list[UUID] | None = None
+) -> TicketTier:
+    """Update a ticket tier with membership tier restrictions.
+
+    Args:
+        tier: The TicketTier instance to update
+        tier_data: Dictionary of fields to update
+        restricted_to_membership_tiers_ids: Optional list of MembershipTier IDs (replaces existing)
+            - If list provided: replaces all restrictions with new list
+            - If empty list provided: clears all restrictions
+            - If None (not provided): preserves existing restrictions
+
+    Returns:
+        Updated TicketTier instance
+
+    Raises:
+        Http404: If any membership tier ID doesn't exist or doesn't belong to event's organization
+
+    Note:
+        TimeStampedModel.save() automatically calls full_clean() before saving.
+        After updating M2M relationships, we call full_clean() again to validate them.
+    """
+    # Update regular fields
+    for field, value in tier_data.items():
+        setattr(tier, field, value)
+
+    if tier_data:
+        # save() will call full_clean() automatically via TimeStampedModel
+        tier.save(update_fields=list(tier_data.keys()))
+
+    # Handle membership tier restrictions update
+    if restricted_to_membership_tiers_ids is not None:
+        if restricted_to_membership_tiers_ids:
+            # Fetch and validate membership tiers
+            membership_tiers = MembershipTier.objects.filter(
+                id__in=restricted_to_membership_tiers_ids, organization=tier.event.organization
+            )
+
+            # Ensure all provided IDs exist and belong to the organization
+            if membership_tiers.count() != len(restricted_to_membership_tiers_ids):
+                raise HttpError(
+                    404,
+                    str(_("One or more membership tier IDs are invalid or don't belong to the event's organization.")),
+                )
+
+            # Replace the M2M relationship
+            tier.restricted_to_membership_tiers.set(membership_tiers)
+        else:
+            # Empty list means clear all restrictions
+            tier.restricted_to_membership_tiers.clear()
+
+        # Validate M2M relationships (TicketTier.clean() checks membership tiers and purchasable_by logic)
+        tier.full_clean()
+
+    return tier

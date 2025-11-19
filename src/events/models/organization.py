@@ -51,6 +51,11 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         """Get queryset for user using a high-performance UNION-based strategy.
 
         Avoid slow, multi-JOIN queries.
+
+        Membership status handling:
+        - BANNED users: Cannot see ANY organizations, even public ones
+        - CANCELLED users: Treated as if they have no membership
+        - PAUSED/ACTIVE users: Can see organizations based on visibility rules
         """
         is_allowed_special = Q(id__in=allowed_ids) if allowed_ids else Q()
 
@@ -60,12 +65,22 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         if user.is_anonymous:
             return self.filter(Q(visibility=Organization.Visibility.PUBLIC) | is_allowed_special)
 
+        # --- Check if user is banned from any organization ---
+        # If a user is banned from an organization, they cannot see it at all, even if it's public
+        from .organization import OrganizationMember
+
+        banned_org_ids = OrganizationMember.objects.filter(
+            user=user, status=OrganizationMember.MembershipStatus.BANNED
+        ).values_list("organization_id", flat=True)
+
         # --- "Gather-then-filter" strategy for standard users ---
 
         # 1. Gather IDs from all distinct sources of visibility.
 
-        # A) Publicly visible organizations
-        public_orgs_qs = self.filter(visibility=Organization.Visibility.PUBLIC).values("id")
+        # A) Publicly visible organizations (exclude banned)
+        public_orgs_qs = (
+            self.filter(visibility=Organization.Visibility.PUBLIC).exclude(id__in=banned_org_ids).values("id")
+        )
 
         # B) Organizations the user owns
         owned_orgs_qs = self.filter(owner=user).values("id")
@@ -73,10 +88,20 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         # C) Organizations where the user is a staff member
         staff_orgs_qs = self.filter(staff_members=user).values("id")
 
-        # D) Restricted organizations where the user is a member
-        member_orgs_qs = self.filter(
-            visibility__in=[Organization.Visibility.MEMBERS_ONLY, Organization.Visibility.PRIVATE], members=user
-        ).values("id")
+        # D) Restricted organizations where the user is a valid member (not cancelled, not banned)
+        member_orgs_qs = (
+            self.filter(
+                visibility__in=[Organization.Visibility.MEMBERS_ONLY, Organization.Visibility.PRIVATE],
+                memberships__user=user,
+            )
+            .exclude(
+                memberships__status__in=[
+                    OrganizationMember.MembershipStatus.CANCELLED,
+                    OrganizationMember.MembershipStatus.BANNED,
+                ]
+            )
+            .values("id")
+        )
 
         # 2. Combine the querysets of IDs using UNION.
         # This is extremely fast and efficiently handled by the database.
@@ -269,6 +294,49 @@ class MembershipTier(TimeStampedModel):
         return f"{self.organization.name} - {self.name}"
 
 
+class OrganizationMemberQuerySet(models.QuerySet["OrganizationMember"]):
+    """Custom QuerySet for OrganizationMember with membership status filtering."""
+
+    def for_visibility(self) -> t.Self:
+        """Return memberships that grant visibility access.
+
+        Excludes:
+        - CANCELLED: Treated as if the membership doesn't exist
+        - BANNED: No access, not even to public resources
+        """
+        return self.exclude(
+            status__in=[OrganizationMember.MembershipStatus.CANCELLED, OrganizationMember.MembershipStatus.BANNED]
+        )
+
+    def active_only(self) -> t.Self:
+        """Return only ACTIVE memberships (for eligibility checks)."""
+        return self.filter(status=OrganizationMember.MembershipStatus.ACTIVE)
+
+    def banned_only(self) -> t.Self:
+        """Return only BANNED memberships."""
+        return self.filter(status=OrganizationMember.MembershipStatus.BANNED)
+
+
+class OrganizationMemberManager(models.Manager["OrganizationMember"]):
+    """Manager for OrganizationMember with custom queryset."""
+
+    def get_queryset(self) -> OrganizationMemberQuerySet:
+        """Return custom queryset."""
+        return OrganizationMemberQuerySet(self.model, using=self._db)
+
+    def for_visibility(self) -> OrganizationMemberQuerySet:
+        """Return memberships that grant visibility access."""
+        return self.get_queryset().for_visibility()
+
+    def active_only(self) -> OrganizationMemberQuerySet:
+        """Return only ACTIVE memberships."""
+        return self.get_queryset().active_only()
+
+    def banned_only(self) -> OrganizationMemberQuerySet:
+        """Return only BANNED memberships."""
+        return self.get_queryset().banned_only()
+
+
 class OrganizationMember(TimeStampedModel):
     class MembershipStatus(models.TextChoices):
         ACTIVE = "active"
@@ -296,6 +364,8 @@ class OrganizationMember(TimeStampedModel):
         null=True,
         blank=True,
     )
+
+    objects = OrganizationMemberManager()
 
     class Meta:
         ordering = ["-created_at"]

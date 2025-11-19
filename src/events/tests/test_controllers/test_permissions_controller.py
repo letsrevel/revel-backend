@@ -44,20 +44,27 @@ def test_my_permissions_includes_membership_tiers(
     org_id_str = str(organization.id)
     assert org_id_str in data["memberships"]
     assert isinstance(data["memberships"][org_id_str], dict)
-    assert data["memberships"][org_id_str]["id"] == str(default_tier.id)
-    assert data["memberships"][org_id_str]["name"] == "General membership"
+    assert "member_since" in data["memberships"][org_id_str]
+    assert "status" in data["memberships"][org_id_str]
+    assert data["memberships"][org_id_str]["tier"]["id"] == str(default_tier.id)
+    assert data["memberships"][org_id_str]["tier"]["name"] == "General membership"
 
     # Check that the second organization has the Gold tier
     org2_id_str = str(org2.id)
     assert org2_id_str in data["memberships"]
     assert isinstance(data["memberships"][org2_id_str], dict)
-    assert data["memberships"][org2_id_str]["id"] == str(gold_tier.id)
-    assert data["memberships"][org2_id_str]["name"] == "Gold"
+    assert "member_since" in data["memberships"][org2_id_str]
+    assert "status" in data["memberships"][org2_id_str]
+    assert data["memberships"][org2_id_str]["tier"]["id"] == str(gold_tier.id)
+    assert data["memberships"][org2_id_str]["tier"]["name"] == "Gold"
 
-    # Check that the third organization has literal "member" (no tier)
+    # Check that the third organization has member info with no tier
     org3_id_str = str(org3.id)
     assert org3_id_str in data["memberships"]
-    assert data["memberships"][org3_id_str] == "member"
+    assert isinstance(data["memberships"][org3_id_str], dict)
+    assert "member_since" in data["memberships"][org3_id_str]
+    assert "status" in data["memberships"][org3_id_str]
+    assert data["memberships"][org3_id_str]["tier"] is None
 
     # Check organization_permissions (org2 and org3 are owned by member_user)
     assert data["organization_permissions"] is not None

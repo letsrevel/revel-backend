@@ -77,17 +77,26 @@ class TestApproveMembershipRequest:
     ) -> None:
         """Test that a member is created when a request is approved."""
         # Arrange
+        from events.models import MembershipTier
+
+        tier = MembershipTier.objects.get(
+            organization=organization_membership_request.organization, name="General membership"
+        )
+
         assert not OrganizationMember.objects.filter(
             organization=organization_membership_request.organization, user=organization_membership_request.user
         ).exists()
 
         # Act
-        organization_service.approve_membership_request(organization_membership_request, organization_staff_user)
+        organization_service.approve_membership_request(organization_membership_request, organization_staff_user, tier)
 
         # Assert
-        assert OrganizationMember.objects.filter(
+        member = OrganizationMember.objects.get(
             organization=organization_membership_request.organization, user=organization_membership_request.user
-        ).exists()
+        )
+        assert member is not None
+        assert member.tier == tier
+        assert member.status == OrganizationMember.MembershipStatus.ACTIVE
         assert organization_membership_request.status == OrganizationMembershipRequest.Status.APPROVED
         assert organization_membership_request.decided_by == organization_staff_user
 

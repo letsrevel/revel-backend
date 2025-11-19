@@ -44,16 +44,30 @@ def create_membership_request(
 
 
 @transaction.atomic
-def approve_membership_request(membership_request: models.OrganizationMembershipRequest, decided_by: RevelUser) -> None:
-    """Approve a membership request."""
+def approve_membership_request(
+    membership_request: models.OrganizationMembershipRequest, decided_by: RevelUser, tier: MembershipTier
+) -> None:
+    """Approve a membership request and assign tier.
+
+    Args:
+        membership_request: The membership request to approve
+        decided_by: The user approving the request
+        tier: The membership tier to assign
+    """
     membership_request.status = models.OrganizationMembershipRequest.Status.APPROVED
     membership_request.decided_by = decided_by
     membership_request.save(update_fields=["status", "decided_by"])
 
-    # Create membership (this will trigger MEMBERSHIP_GRANTED notification via signal)
-    _, created = models.OrganizationMember.objects.get_or_create(
-        organization=membership_request.organization, user=membership_request.user
+    # Create or update membership with tier (this will trigger MEMBERSHIP_GRANTED notification via signal)
+    # Use update_or_create to ensure clean() method is called for validation
+    member, created = models.OrganizationMember.objects.update_or_create(
+        organization=membership_request.organization,
+        user=membership_request.user,
+        defaults={"tier": tier, "status": OrganizationMember.MembershipStatus.ACTIVE},
     )
+
+    # Explicitly call clean to validate tier belongs to same organization
+    member.full_clean()
 
     # Send approval notification
     def send_approval_notification() -> None:

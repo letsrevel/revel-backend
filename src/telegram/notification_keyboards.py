@@ -7,7 +7,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
-from events.models import Event, Organization
+from events.models import Event, Organization, OrganizationMembershipRequest
 from events.service.event_manager import EligibilityService
 from notifications.enums import NotificationType
 from notifications.models import Notification
@@ -157,9 +157,12 @@ def _get_membership_request_keyboard(request_id: str) -> InlineKeyboardMarkup:
         InlineKeyboardMarkup with Accept/Reject buttons
     """
     builder = InlineKeyboardBuilder()
-    builder.button(text="✅ Approve", callback_data=f"membership_request_approve:{request_id}")
-    builder.button(text="❌ Reject", callback_data=f"membership_request_reject:{request_id}")
-    builder.adjust(2)  # Two buttons in one row
+    membership_request = OrganizationMembershipRequest.objects.select_related("organization").get(pk=request_id)
+    organization = membership_request.organization
+    site_settings = SiteSettings.get_solo()
+    url = site_settings.frontend_base_url + f"/org/{organization.slug}/admin/members"
+    builder.button(text="✅ View", url=url)
+    builder.adjust(1)  # Two buttons in one row
     return builder.as_markup()
 
 

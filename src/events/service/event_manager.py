@@ -35,6 +35,7 @@ class NextStep(StrEnum):
 
 class Reasons(StrEnum):
     MEMBERS_ONLY = "Only members are allowed."
+    MEMBERSHIP_INACTIVE = "Your membership is not active."
     EVENT_IS_FULL = "Event is full."
     SOLD_OUT = "Sold out"
     QUESTIONNAIRE_MISSING = "Questionnaire has not been filled."
@@ -132,20 +133,37 @@ class InvitationGate(BaseEligibilityGate):
 
 
 class MembershipGate(BaseEligibilityGate):
-    """Gate #4: For members-only events, ensures the user is a member."""
+    """Gate #4: For members-only events, ensures the user is an active member."""
 
     def check(self) -> EventUserEligibility | None:
         """Check if membership is in order."""
         if self.handler.waives_membership_required():
             return None
-        if self.event.event_type == models.Event.EventType.MEMBERS_ONLY and self.user.id not in self.handler.member_ids:
+
+        if self.event.event_type != models.Event.EventType.MEMBERS_ONLY:
+            return None
+
+        # Check if user is an active member
+        if self.user.id in self.handler.member_ids:
+            return None
+
+        # Check if user has a membership but it's not active
+        membership_status = self.handler.membership_status_map.get(self.user.id)
+        if membership_status is not None and membership_status != OrganizationMember.MembershipStatus.ACTIVE:
             return EventUserEligibility(
                 allowed=False,
                 event_id=self.event.id,
-                reason=_(Reasons.MEMBERS_ONLY),
-                next_step=NextStep.BECOME_MEMBER if self.event.organization.accept_membership_requests else None,
+                reason=_(Reasons.MEMBERSHIP_INACTIVE),
+                next_step=None,  # They need to contact the organization to reactivate
             )
-        return None
+
+        # User has no membership at all
+        return EventUserEligibility(
+            allowed=False,
+            event_id=self.event.id,
+            reason=_(Reasons.MEMBERS_ONLY),
+            next_step=NextStep.BECOME_MEMBER if self.event.organization.accept_membership_requests else None,
+        )
 
 
 class QuestionnaireGate(BaseEligibilityGate):
@@ -428,7 +446,18 @@ class EligibilityService:
                     queryset=RevelUser.objects.only("id"),
                     to_attr="staff_members_prefetched",
                 ),
-                Prefetch("organization__members", queryset=RevelUser.objects.only("id"), to_attr="members_prefetched"),
+                Prefetch(
+                    "organization__members",
+                    queryset=RevelUser.objects.filter(
+                        organization_memberships__status=OrganizationMember.MembershipStatus.ACTIVE
+                    ).only("id"),
+                    to_attr="active_members_prefetched",
+                ),
+                Prefetch(
+                    "organization__memberships",
+                    queryset=OrganizationMember.objects.select_related("user").only("user_id", "status"),
+                    to_attr="all_memberships_prefetched",
+                ),
                 Prefetch(
                     "organization__org_questionnaires",
                     queryset=models.OrganizationQuestionnaire.objects.filter(questionnaire_filter).distinct(),
@@ -446,7 +475,12 @@ class EligibilityService:
 
         # Create sets of IDs from the prefetched lightweight model instances.
         self.staff_ids = {staff.id for staff in self.event.organization.staff_members_prefetched}  # type: ignore[attr-defined]
-        self.member_ids = {member.id for member in self.event.organization.members_prefetched}  # type: ignore[attr-defined]
+        self.member_ids = {member.id for member in self.event.organization.active_members_prefetched}  # type: ignore[attr-defined]
+
+        # Build a map of user_id -> membership status for all memberships
+        self.membership_status_map: dict[uuid.UUID, OrganizationMember.MembershipStatus] = {}
+        for membership in self.event.organization.all_memberships_prefetched:  # type: ignore[attr-defined]
+            self.membership_status_map[membership.user_id] = membership.status
 
         self.invitation = self.event.invitations.first()
         self.submission_map: dict[uuid.UUID, list[QuestionnaireSubmission]] = defaultdict(list)

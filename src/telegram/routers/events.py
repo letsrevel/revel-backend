@@ -14,7 +14,6 @@ from events.models import (
     EventInvitationRequest,
     EventWaitList,
     Organization,
-    OrganizationMembershipRequest,
 )
 from events.service import event_service, organization_service
 from events.service.event_manager import EventManager, UserIsIneligibleError
@@ -179,54 +178,3 @@ async def cb_handle_invitation_request_reject(callback: CallbackQuery, user: Rev
     except Exception as e:
         logger.exception(f"Failed to reject invitation request: {e}")
         await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
-
-
-@router.callback_query(F.data.startswith("membership_request_approve:"), flags={"requires_linked_user": True})
-async def cb_handle_membership_request_approve(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
-    """Handles approving a membership request (organizer action)."""
-    assert callback.data is not None
-    assert isinstance(callback.message, Message)
-    _, request_id_str = callback.data.split(":")
-    request_id = uuid.UUID(request_id_str)
-
-    try:
-        request = await OrganizationMembershipRequest.objects.select_related("organization", "user").aget(pk=request_id)
-        await sync_to_async(organization_service.approve_membership_request)(request, decided_by=user)
-        await callback.message.edit_text(
-            f"✅ Membership request from <b>{request.user.get_display_name()}</b> "
-            f"for <b>{request.organization.name}</b> has been <b>approved</b>.",
-            reply_markup=None,
-            parse_mode="HTML",
-        )
-    except OrganizationMembershipRequest.DoesNotExist:
-        await callback.answer("❌ Membership request not found.", show_alert=True)
-    except Exception as e:
-        logger.exception(f"Failed to approve membership request: {e}")
-        await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
-
-
-@router.callback_query(F.data.startswith("membership_request_reject:"), flags={"requires_linked_user": True})
-async def cb_handle_membership_request_reject(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
-    """Handles rejecting a membership request (organizer action)."""
-    assert callback.data is not None
-    assert isinstance(callback.message, Message)
-    _, request_id_str = callback.data.split(":")
-    request_id = uuid.UUID(request_id_str)
-
-    try:
-        request = await OrganizationMembershipRequest.objects.select_related("organization", "user").aget(pk=request_id)
-        await sync_to_async(organization_service.reject_membership_request)(request, decided_by=user)
-        await callback.message.edit_text(
-            f"❌ Membership request from <b>{request.user.get_display_name()}</b> "
-            f"for <b>{request.organization.name}</b> has been <b>rejected</b>.",
-            reply_markup=None,
-            parse_mode="HTML",
-        )
-    except OrganizationMembershipRequest.DoesNotExist:
-        await callback.answer("❌ Membership request not found.", show_alert=True)
-    except Exception as e:
-        logger.exception(f"Failed to reject membership request: {e}")
-        await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
-
-
-# TODO: handlers for questionnaire and other NextSteps when appropriate

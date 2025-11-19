@@ -23,7 +23,7 @@ from common.schema import TagSchema, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from common.utils import safe_save_uploaded_file
 from events import filters, models, schema
-from events.service import event_service, update_db_instance
+from events.service import event_service, ticket_service, update_db_instance
 from events.service.invitation_service import (
     create_direct_invitations,
     delete_invitation,
@@ -472,7 +472,15 @@ class EventAdminController(UserAwareController):
             and not event.organization.is_stripe_connected
         ):
             raise HttpError(400, str(_("You must connect to Stripe first.")))
-        return models.TicketTier.objects.create(event=event, **payload.model_dump())
+
+        # Extract restricted_to_membership_tiers_ids from payload
+        payload_dict = payload.model_dump(exclude_unset=True)
+        restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
+
+        # Create ticket tier with M2M handling in service layer
+        return ticket_service.create_ticket_tier(
+            event=event, tier_data=payload_dict, restricted_to_membership_tiers_ids=restricted_to_membership_tiers_ids
+        )
 
     @route.put(
         "/ticket-tier/{tier_id}",
@@ -490,8 +498,17 @@ class EventAdminController(UserAwareController):
             and not event.organization.is_stripe_connected
         ):
             raise HttpError(400, str(_("You must connect to Stripe first.")))
+
         tier = get_object_or_404(models.TicketTier, pk=tier_id, event=event)
-        return update_db_instance(tier, payload)
+
+        # Extract restricted_to_membership_tiers_ids from payload
+        payload_dict = payload.model_dump(exclude_unset=True)
+        restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
+
+        # Update ticket tier with M2M handling in service layer
+        return ticket_service.update_ticket_tier(
+            tier=tier, tier_data=payload_dict, restricted_to_membership_tiers_ids=restricted_to_membership_tiers_ids
+        )
 
     @route.delete(
         "/ticket-tier/{tier_id}",

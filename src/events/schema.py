@@ -488,7 +488,7 @@ class CheckInResponseSchema(ModelSchema):
 
 
 class OrganizationPermissionsSchema(Schema):
-    memberships: dict[str, "MembershipTierSchema | t.Literal['member']"] = Field(default_factory=dict)
+    memberships: dict[str, "MinimalOrganizationMemberSchema"] = Field(default_factory=dict)
     organization_permissions: dict[str, PermissionsSchema | t.Literal["owner"]] | None = None
 
 
@@ -764,10 +764,17 @@ class OrganizationMembershipRequestCreateSchema(Schema):
 
 class OrganizationMembershipRequestRetrieve(ModelSchema):
     user: MinimalRevelUserSchema
+    status: OrganizationMembershipRequest.Status
 
     class Meta:
         model = OrganizationMembershipRequest
         fields = ["id", "status", "message", "created_at", "user"]
+
+
+class ApproveMembershipRequestSchema(Schema):
+    """Schema for approving a membership request with required tier assignment."""
+
+    tier_id: UUID4
 
 
 class PotluckItemCreateSchema(ModelSchema):
@@ -901,6 +908,17 @@ class MembershipTierCreateSchema(Schema):
 class MembershipTierUpdateSchema(Schema):
     name: OneToOneFiftyString | None = None
     description: str | None = None
+
+
+class MinimalOrganizationMemberSchema(ModelSchema):
+    """Organization member info without user details - used in permission contexts."""
+
+    member_since: datetime = Field(alias="created_at")
+    tier: MembershipTierSchema | None = None
+
+    class Meta:
+        model = models.OrganizationMember
+        fields = ["created_at", "status", "tier"]
 
 
 class OrganizationMemberSchema(Schema):
@@ -1068,6 +1086,7 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
     total_quantity: int | None = None
+    restricted_to_membership_tiers_ids: list[UUID4] | None = None
 
     @model_validator(mode="after")
     def validate_pwyc_fields(self) -> t.Self:
@@ -1090,6 +1109,7 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
     total_quantity: int | None = None
+    restricted_to_membership_tiers_ids: list[UUID4] | None = None
 
     @model_validator(mode="after")
     def validate_pwyc_fields(self) -> t.Self:
