@@ -15,6 +15,7 @@ from events.models import (
     EventRSVP,
     EventSeries,
     Organization,
+    OrganizationMember,
     OrganizationMembershipRequest,
     Ticket,
     TicketTier,
@@ -317,3 +318,10 @@ class SubmissionFilterSchema(FilterSchema):
             return Q()
 
         return Q(evaluation__status=evaluation_status)
+
+
+class MembershipFilterSchema(FilterSchema):
+    """Filter schema for Memberships."""
+
+    status: OrganizationMember.MembershipStatus | None = None
+    tier_id: UUID | None = None

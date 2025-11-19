@@ -19,7 +19,12 @@ from events.service import organization_service
 @pytest.fixture
 def organization_token(organization: Organization, organization_owner_user: RevelUser) -> OrganizationToken:
     """An organization token that grants membership."""
-    return OrganizationToken.objects.create(organization=organization, issuer=organization_owner_user)
+    from events.models import MembershipTier
+
+    default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+    return OrganizationToken.objects.create(
+        organization=organization, issuer=organization_owner_user, membership_tier=default_tier
+    )
 
 
 @pytest.fixture

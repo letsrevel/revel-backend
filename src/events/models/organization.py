@@ -8,6 +8,7 @@ from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db.models import Prefetch, Q
+from django.utils.translation import gettext_lazy as _
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 
@@ -244,7 +245,37 @@ class OrganizationStaff(TimeStampedModel):
         return bool(self.permissions.get("default", {}).get(permission, False))
 
 
+class MembershipTier(TimeStampedModel):
+    """Represents a membership tier within an organization."""
+
+    name = models.CharField(max_length=255)
+    description = MarkdownField(blank=True, null=True)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="tiers",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["organization", "name"],
+                name="unique_organization_tier_name",
+            )
+        ]
+        ordering = ["name"]
+
+    def __str__(self) -> str:
+        return f"{self.organization.name} - {self.name}"
+
+
 class OrganizationMember(TimeStampedModel):
+    class MembershipStatus(models.TextChoices):
+        ACTIVE = "active"
+        PAUSED = "paused"
+        CANCELLED = "cancelled"
+        BANNED = "banned"
+
     organization = models.ForeignKey(
         Organization,
         on_delete=models.CASCADE,
@@ -255,15 +286,45 @@ class OrganizationMember(TimeStampedModel):
         on_delete=models.CASCADE,
         related_name="organization_memberships",
     )
+    status = models.CharField(
+        default=MembershipStatus.ACTIVE, choices=MembershipStatus.choices, max_length=255, db_index=True
+    )
+    tier = models.ForeignKey(
+        MembershipTier,
+        on_delete=models.SET_NULL,
+        related_name="members",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "status"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "user"], name="unique_organization_member_user"),
+        ]
+
+    def clean(self) -> None:
+        """Validate that tier belongs to the same organization."""
+        super().clean()
+        if self.tier and self.tier.organization_id != self.organization_id:
+            raise DjangoValidationError({"tier": "The tier must belong to the same organization as the membership."})
 
 
 class OrganizationToken(TokenMixin):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="tokens")
     grants_membership = models.BooleanField(default=True)
     grants_staff_status = models.BooleanField(default=False)
+    membership_tier = models.ForeignKey(
+        MembershipTier,
+        on_delete=models.CASCADE,
+        related_name="tokens",
+        null=True,
+        blank=True,
+        help_text="Membership tier to assign when claiming this token",
+    )
 
     class Meta:
         indexes = [
@@ -273,6 +334,20 @@ class OrganizationToken(TokenMixin):
             models.Index(fields=["organization", "-created_at"], name="orgtoken_org_created"),
         ]
         ordering = ["-created_at"]
+
+    def clean(self) -> None:
+        """Validate membership tier configuration."""
+        super().clean()
+
+        # If grants_membership is True, membership_tier must be set
+        if self.grants_membership and not self.membership_tier:
+            raise DjangoValidationError({"membership_tier": _("Membership tier is required when granting membership.")})
+
+        # If membership_tier is set, verify it belongs to the same organization
+        if self.membership_tier and self.membership_tier.organization_id != self.organization_id:
+            raise DjangoValidationError(
+                {"membership_tier": _("Membership tier must belong to the same organization as the token.")}
+            )
 
 
 class OrganizationMembershipRequest(UserRequestMixin):

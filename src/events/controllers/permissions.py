@@ -242,7 +242,15 @@ class PermissionController(UserAwareController):
         }
         staff_perms = {str(perm.organization.id): perm.permissions for perm in perms}
         permissions = {**staff_perms, **owner_perms}
-        memberships = list(
-            models.OrganizationMember.objects.filter(user=user).values_list("organization_id", flat=True)
-        )
+
+        # Build memberships dict with tier info
+        memberships: dict[str, schema.MembershipTierSchema | t.Literal["member"]] = {}
+        members = models.OrganizationMember.objects.select_related("tier").filter(user=user)
+        for member in members:
+            org_id_str = str(member.organization_id)
+            if member.tier:
+                memberships[org_id_str] = schema.MembershipTierSchema.from_orm(member.tier)
+            else:
+                memberships[org_id_str] = "member"
+
         return schema.OrganizationPermissionsSchema(organization_permissions=permissions, memberships=memberships)

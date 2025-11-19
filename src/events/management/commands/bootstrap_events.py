@@ -221,7 +221,12 @@ that bring communities together.
             stripe_details_submitted=True,
         )
         org_alpha.staff_members.add(self.users["org_alpha_staff"])
-        org_alpha.members.add(self.users["org_alpha_member"], self.users["multi_org_user"])
+
+        # Add members with default tier
+        default_tier_alpha = events_models.MembershipTier.objects.get(organization=org_alpha, name="General membership")
+        for user in [self.users["org_alpha_member"], self.users["multi_org_user"]]:
+            events_models.OrganizationMember.objects.create(organization=org_alpha, user=user, tier=default_tier_alpha)
+
         org_alpha.add_tags("community", "music", "arts")
 
         # Update organization settings
@@ -256,11 +261,12 @@ who want to shape the future.
             city=self.cities["berlin"],
         )
         org_beta.staff_members.add(self.users["org_beta_staff"])
-        org_beta.members.add(
-            self.users["org_beta_member"],
-            self.users["multi_org_user"],
-            self.users["attendee_1"],
-        )
+
+        # Add members with default tier
+        default_tier_beta = events_models.MembershipTier.objects.get(organization=org_beta, name="General membership")
+        for user in [self.users["org_beta_member"], self.users["multi_org_user"], self.users["attendee_1"]]:
+            events_models.OrganizationMember.objects.create(organization=org_beta, user=user, tier=default_tier_beta)
+
         org_beta.add_tags("tech", "professional", "networking")
 
         # Update organization settings

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from accounts.models import RevelUser
 from events import models
-from events.models import EventRSVP, OrganizationQuestionnaire, Ticket, TicketTier
+from events.models import EventRSVP, OrganizationMember, OrganizationQuestionnaire, Ticket, TicketTier
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 from .ticket_service import TicketService
@@ -30,6 +30,7 @@ class NextStep(StrEnum):
     WAIT_FOR_OPEN_SPOT = "wait_for_open_spot"
     PURCHASE_TICKET = "purchase_ticket"
     RSVP = "rsvp"
+    UPGRADE_MEMBERSHIP = "upgrade_membership"
 
 
 class Reasons(StrEnum):
@@ -49,6 +50,7 @@ class Reasons(StrEnum):
     EVENT_HAS_FINISHED = "Event has finished."
     RSVP_DEADLINE_PASSED = "The RSVP deadline has passed."
     NO_TICKETS_ON_SALE = "Tickets are not currently on sale."
+    MEMBERSHIP_TIER_REQUIRED = "This ticket tier requires a specific membership tier."
 
 
 class EventUserEligibility(BaseModel):
@@ -560,6 +562,10 @@ class EventManager:
         if not eligibility.allowed:
             raise UserIsIneligibleError("The user is not eligible for this event.", eligibility=eligibility)
 
+        # Check membership tier requirement unless waived by invitation
+        if not self.eligibility_service.waives_membership_required():
+            self._assert_membership_tier_requirement(tier)
+
         self._assert_capacity(use_tickets=True, tier=tier)
 
         # Check if user has invitation that waives purchase
@@ -638,5 +644,40 @@ class EventManager:
                     event_id=self.event.id,
                     next_step=NextStep.JOIN_WAITLIST if self.event.waitlist_open else None,
                     reason=_(Reasons.EVENT_IS_FULL),
+                ),
+            )
+
+    def _assert_membership_tier_requirement(self, tier: TicketTier) -> None:
+        """Raises if the user doesn't have the required membership tier for this ticket tier.
+
+        Args:
+            tier: The ticket tier to check membership requirements for
+
+        Raises:
+            UserIsIneligibleError: If the user doesn't have one of the required membership tiers
+        """
+        # Get required membership tiers for this ticket tier
+        required_tier_ids = list(tier.restricted_to_membership_tiers.values_list("id", flat=True))
+
+        # If no tiers are required, allow purchase
+        if not required_tier_ids:
+            return
+
+        # Check if user has a membership with one of the required tiers
+        has_required_tier = OrganizationMember.objects.filter(
+            organization=self.event.organization,
+            user=self.user,
+            tier_id__in=required_tier_ids,
+            status=OrganizationMember.MembershipStatus.ACTIVE,
+        ).exists()
+
+        if not has_required_tier:
+            raise UserIsIneligibleError(
+                message="You need to upgrade your membership to purchase this ticket.",
+                eligibility=EventUserEligibility(
+                    allowed=False,
+                    event_id=self.event.id,
+                    next_step=NextStep.UPGRADE_MEMBERSHIP,
+                    reason=_(Reasons.MEMBERSHIP_TIER_REQUIRED),
                 ),
             )

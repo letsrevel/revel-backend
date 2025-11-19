@@ -23,7 +23,7 @@ from .mixins import (
     UserRequestMixin,
     VisibilityMixin,
 )
-from .organization import Organization, OrganizationMember
+from .organization import MembershipTier, Organization, OrganizationMember
 
 
 class EventQuerySet(models.QuerySet["Event"]):
@@ -355,7 +355,7 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
 class TicketTierManager(models.Manager["TicketTier"]):
     def get_queryset(self) -> TicketTierQuerySet:
         """Get a QS for ticket tiers."""
-        return TicketTierQuerySet(self.model, using=self._db)
+        return TicketTierQuerySet(self.model, using=self._db).prefetch_related("restricted_to_membership_tiers")
 
     def for_user(self, user: RevelUser | AnonymousUser) -> TicketTierQuerySet:
         """Return ticket tiers visible to a given user, combining event and tier-level access."""
@@ -443,6 +443,12 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     total_quantity = models.PositiveIntegerField(default=None, null=True, blank=True)
     quantity_sold = models.PositiveIntegerField(default=0)
     manual_payment_instructions = models.TextField(null=True, blank=True)
+    restricted_to_membership_tiers = models.ManyToManyField(
+        MembershipTier,
+        related_name="restricted_ticket_tiers",
+        blank=True,
+        help_text="If set, only members of these tiers can purchase this ticket.",
+    )
 
     objects = TicketTierManager()
 
@@ -469,6 +475,25 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
                 raise DjangoValidationError(
                     {"pwyc_max": "Maximum pay-what-you-can amount must be greater than or equal to minimum amount."}
                 )
+
+        # Check if all selected MembershipTiers belong to the Event's Organization
+        for membership_tier in self.restricted_to_membership_tiers.all():
+            if membership_tier.organization_id != self.event.organization_id:
+                raise DjangoValidationError(
+                    {"restricted_to_tiers": "All linked membership tiers must belong to the event's organization."}
+                )
+
+        # Enforce logic consistency
+        if self.restricted_to_membership_tiers.exists() and self.purchasable_by not in [
+            self.PurchasableBy.MEMBERS,
+            self.PurchasableBy.INVITED_AND_MEMBERS,
+        ]:
+            raise DjangoValidationError(
+                {
+                    "restricted_to_tiers": "If tickets are restricted to specific tiers, 'Purchasable By' must be set "
+                    "to 'Members only' or 'Invited and Members only'."
+                }
+            )
 
     def can_purchase(self) -> bool:
         """Check if the ticket can be purchased."""

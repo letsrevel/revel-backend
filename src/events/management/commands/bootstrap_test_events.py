@@ -126,7 +126,10 @@ and access control scenario in the Revel platform. Perfect for frontend testing!
 
         # Add staff and members
         self.org.staff_members.add(self.staff_user)
-        self.org.members.add(self.member_user)
+
+        # Add member with default tier
+        default_tier = events_models.MembershipTier.objects.get(organization=self.org, name="General membership")
+        events_models.OrganizationMember.objects.create(organization=self.org, user=self.member_user, tier=default_tier)
 
         # Add some tags
         Tag.objects.get_or_create(name="tech", defaults={"color": "#6C5CE7"})

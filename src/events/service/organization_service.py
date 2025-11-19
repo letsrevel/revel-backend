@@ -12,6 +12,7 @@ from common.models import SiteSettings
 from events import models
 from events.exceptions import AlreadyMemberError, PendingMembershipRequestExistsError
 from events.models import (
+    MembershipTier,
     Organization,
     OrganizationMember,
     OrganizationMembershipRequest,
@@ -101,6 +102,7 @@ def create_organization_token(
     issuer: RevelUser,
     duration: timedelta | int = 60,
     grants_membership: bool = True,
+    membership_tier: MembershipTier | None = None,
     grants_staff_status: bool = False,
     name: str | None = None,
     max_uses: int = 0,
@@ -118,6 +120,7 @@ def create_organization_token(
         max_uses=max_uses,
         grants_membership=grants_membership,
         grants_staff_status=grants_staff_status,
+        membership_tier=membership_tier,
     )
 
 
@@ -138,14 +141,21 @@ def claim_invitation(user: RevelUser, token: str) -> Organization | None:
         return None
     if organization_token.max_uses and organization_token.uses >= organization_token.max_uses:
         return None
-    klass: type[OrganizationStaff] | type[OrganizationMember]
+
     if organization_token.grants_staff_status:
-        klass = OrganizationStaff
+        _, created = OrganizationStaff.objects.get_or_create(organization=organization_token.organization, user=user)
     elif organization_token.grants_membership:
-        klass = OrganizationMember
+        # Create member with tier if specified
+        defaults = {}
+        if organization_token.membership_tier:
+            defaults["tier"] = organization_token.membership_tier
+
+        _, created = OrganizationMember.objects.get_or_create(
+            organization=organization_token.organization, user=user, defaults=defaults
+        )
     else:
         return None
-    _, created = klass.objects.get_or_create(organization=organization_token.organization, user=user)
+
     if not created:
         return None
     OrganizationToken.objects.filter(pk=token).update(uses=F("uses") + 1)
@@ -163,6 +173,43 @@ def remove_member(organization: Organization, user: RevelUser) -> None:
     """Remove a member from an organization."""
     member = get_object_or_404(OrganizationMember, organization=organization, user=user)
     member.delete()
+
+
+def update_member(
+    member: OrganizationMember,
+    *,
+    status: OrganizationMember.MembershipStatus | None = None,
+    tier: MembershipTier | None = None,
+    clear_tier: bool = False,
+) -> OrganizationMember:
+    """Update a member's status and/or tier.
+
+    Args:
+        member: The OrganizationMember instance to update
+        status: New membership status (if provided)
+        tier: New membership tier (if provided)
+        clear_tier: If True, sets tier to None
+
+    Returns:
+        Updated OrganizationMember instance
+    """
+    updated_fields = []
+
+    if status is not None:
+        member.status = status
+        updated_fields.append("status")
+
+    if clear_tier:
+        member.tier = None
+        updated_fields.append("tier")
+    elif tier is not None:
+        member.tier = tier
+        updated_fields.append("tier")
+
+    if updated_fields:
+        member.save(update_fields=updated_fields)
+
+    return member
 
 
 def add_staff(

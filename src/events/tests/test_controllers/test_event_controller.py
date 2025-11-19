@@ -383,9 +383,7 @@ def test_ticket_checkout_success(nonmember_client: Client, public_event: Event, 
     assert Ticket.objects.filter(event=public_event, user__username="nonmember_user").exists()
 
 
-def test_ticket_checkout_for_member_success(
-    member_client: Client, public_event: Event, organization_membership: OrganizationMember, free_tier: TicketTier
-) -> None:
+def test_ticket_checkout_for_member_success(member_client: Client, public_event: Event, free_tier: TicketTier) -> None:
     """Test that an eligible member user gets a ticket with the correct 'member' tier."""
     url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": free_tier.pk})
     response = member_client.post(url)

@@ -27,6 +27,7 @@ from events.models import (
     Event,
     EventRSVP,
     Organization,
+    OrganizationMember,
     OrganizationMembershipRequest,
     OrganizationQuestionnaire,
     Payment,
@@ -487,7 +488,7 @@ class CheckInResponseSchema(ModelSchema):
 
 
 class OrganizationPermissionsSchema(Schema):
-    memberships: list[UUID] = Field(default_factory=list)
+    memberships: dict[str, "MembershipTierSchema | t.Literal['member']"] = Field(default_factory=dict)
     organization_permissions: dict[str, PermissionsSchema | t.Literal["owner"]] | None = None
 
 
@@ -731,14 +732,30 @@ class OrganizationTokenBaseSchema(Schema):
     max_uses: int = 1
     grants_membership: bool = True
     grants_staff_status: bool = False
+    membership_tier_id: UUID4 | None = None
 
 
 class OrganizationTokenCreateSchema(OrganizationTokenBaseSchema):
     duration: int = 24 * 60
 
+    @model_validator(mode="after")
+    def validate_membership_tier(self) -> "OrganizationTokenCreateSchema":
+        """Validate that membership_tier_id is provided when grants_membership is True."""
+        if self.grants_membership and not self.membership_tier_id:
+            raise ValueError("membership_tier_id is required when grants_membership is True")
+        return self
+
 
 class OrganizationTokenUpdateSchema(OrganizationTokenBaseSchema):
     expires_at: AwareDatetime | None = None
+
+    @model_validator(mode="after")
+    def validate_membership_tier(self) -> "OrganizationTokenUpdateSchema":
+        """Validate that membership_tier_id is provided when grants_membership is explicitly set to True."""
+        # Only validate if grants_membership was explicitly set to True in the update payload
+        if "grants_membership" in self.model_fields_set and self.grants_membership and not self.membership_tier_id:
+            raise ValueError("membership_tier_id is required when grants_membership is True")
+        return self
 
 
 class OrganizationMembershipRequestCreateSchema(Schema):
@@ -867,9 +884,35 @@ class AdditionalResourceUpdateSchema(Schema):
     event_ids: list[UUID] | None = None
 
 
+class MembershipTierSchema(ModelSchema):
+    description: str | None = None
+    description_html: str | None = None
+
+    class Meta:
+        model = models.MembershipTier
+        fields = ["id", "name", "description"]
+
+
+class MembershipTierCreateSchema(Schema):
+    name: OneToOneFiftyString
+    description: str | None = None
+
+
+class MembershipTierUpdateSchema(Schema):
+    name: OneToOneFiftyString | None = None
+    description: str | None = None
+
+
 class OrganizationMemberSchema(Schema):
     user: MemberUserSchema
     member_since: datetime = Field(alias="created_at")
+    status: OrganizationMember.MembershipStatus
+    tier: MembershipTierSchema | None = None
+
+
+class OrganizationMemberUpdateSchema(Schema):
+    status: OrganizationMember.MembershipStatus | None = None
+    tier_id: UUID4 | None = None
 
 
 class OrganizationStaffSchema(Schema):
@@ -1060,6 +1103,7 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
 class TicketTierDetailSchema(ModelSchema):
     event_id: UUID
     total_available: int | None = None
+    restricted_to_membership_tiers: list[MembershipTierSchema] | None = None
 
     class Meta:
         model = TicketTier
@@ -1082,6 +1126,7 @@ class TicketTierDetailSchema(ModelSchema):
             "total_quantity",
             "quantity_sold",
             "manual_payment_instructions",
+            "restricted_to_membership_tiers",
         ]
 
 
