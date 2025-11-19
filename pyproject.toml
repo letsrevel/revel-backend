@@ -1,8 +1,23 @@
 [project]
 name = "revel"
 version = "1.0.0"
-description = "Add your description here"
+description = "The Revel Event Manager"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Biagio Distefano", email = "biagio@biagiodistefano.io" }
+]
+keywords = ["event", "manager", "django", "api", "community"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Django :: 5.2",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
 requires-python = ">=3.13"
 dependencies = [
     "aiogram>=3.20.0.post0",
@@ -100,6 +115,16 @@ sentinel = [
     "torch>=2.8.0",
     "transformers>=4.55.2",
 ]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = { find = { where = ["src"] } }
+
+[tool.setuptools.package-data]
+"*" = ["*.html", "*.txt", "*.md", "*.mo", "*.po"]
 
 [tool.ruff]
 
