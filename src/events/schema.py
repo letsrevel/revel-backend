@@ -342,13 +342,14 @@ class UserRSVPSchema(ModelSchema):
         fields = ["id", "status", "created_at", "updated_at"]
 
 
-class TierSchema(ModelSchema):
+class TicketTierSchema(ModelSchema):
     id: UUID
     event_id: UUID
     price: Decimal
     currency: str
     total_available: int | None
     description_html: str = ""
+    restricted_to_membership_tiers: list["MembershipTierSchema"] | None = None
 
     class Meta:
         model = TicketTier
@@ -438,7 +439,7 @@ class PaymentSchema(ModelSchema):
 
 class EventTicketSchema(ModelSchema):
     event_id: UUID | None
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
     status: Ticket.TicketStatus
 
     class Meta:
@@ -450,7 +451,7 @@ class AdminTicketSchema(ModelSchema):
     """Schema for pending tickets in admin interface."""
 
     user: MemberUserSchema
-    tier: TierSchema
+    tier: TicketTierSchema
     payment: PaymentSchema | None = None
 
     class Meta:
@@ -462,7 +463,7 @@ class UserTicketSchema(ModelSchema):
     """Schema for user's own tickets with event details."""
 
     event: "MinimalEventSchema"
-    tier: TierSchema
+    tier: TicketTierSchema
     status: Ticket.TicketStatus
 
     class Meta:
@@ -480,7 +481,7 @@ class CheckInResponseSchema(ModelSchema):
     """Schema for ticket check-in response."""
 
     user: MinimalRevelUserSchema
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
 
     class Meta:
         model = Ticket
@@ -506,7 +507,7 @@ class InvitationBaseSchema(Schema):
 
 class InvitationSchema(InvitationBaseSchema):
     event: EventInListSchema
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
     user_id: UUID
 
 
@@ -531,7 +532,7 @@ class EventInvitationListSchema(Schema):
 
     id: UUID
     user: MinimalRevelUserSchema
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
     waives_questionnaire: bool
     waives_purchase: bool
     overrides_max_attendees: bool
@@ -546,7 +547,7 @@ class MyEventInvitationSchema(Schema):
 
     id: UUID
     event: "EventInListSchema"
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
     waives_questionnaire: bool
     waives_purchase: bool
     overrides_max_attendees: bool
@@ -561,7 +562,7 @@ class PendingEventInvitationListSchema(Schema):
 
     id: UUID
     email: str
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
     waives_questionnaire: bool
     waives_purchase: bool
     overrides_max_attendees: bool
@@ -578,7 +579,7 @@ class CombinedInvitationListSchema(Schema):
     type: str = Field(..., description="'registered' for EventInvitation, 'pending' for PendingEventInvitation")
     user: MinimalRevelUserSchema | None = Field(None, description="User for registered invitations")
     email: str | None = Field(None, description="Email for pending invitations")
-    tier: TierSchema | None = None
+    tier: TicketTierSchema | None = None
     waives_questionnaire: bool
     waives_purchase: bool
     overrides_max_attendees: bool

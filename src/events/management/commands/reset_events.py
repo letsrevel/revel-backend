@@ -78,7 +78,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"✓ Deleted {org_count} organizations"))
 
             # Delete all users with @example.com emails
-            RevelUser.objects.filter(email__endswith="@example.com").delete()
+            RevelUser.objects.filter(~Q(email__endswith="@letsrevel.io")).delete()
             self.stdout.write(self.style.SUCCESS(f"✓ Deleted {user_count} @example.com users"))
 
         # Re-bootstrap (outside transaction to allow bootstrap's own transaction handling)
