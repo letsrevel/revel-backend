@@ -1,5 +1,5 @@
 import typing as t
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -118,8 +118,8 @@ class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin):
     accept_membership_requests: bool
     contact_email: str | None = None
     contact_email_verified: bool
-    updated_at: datetime | None = None
-    created_at: datetime | None = None
+    updated_at: AwareDatetime | None = None
+    created_at: AwareDatetime | None = None
 
 
 class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin):
@@ -184,8 +184,8 @@ class EventSeriesInListSchema(TaggableSchemaMixin):
     slug: str
     logo: str | None = None
     cover_art: str | None = None
-    updated_at: datetime | None = None
-    created_at: datetime | None = None
+    updated_at: AwareDatetime | None = None
+    created_at: AwareDatetime | None = None
 
 
 class EventSeriesRetrieveSchema(TaggableSchemaMixin):
@@ -221,8 +221,6 @@ class EventEditSchema(CityEditMixin):
     check_in_starts_at: AwareDatetime | None = Field(None, description="When check-in opens for this event")
     check_in_ends_at: AwareDatetime | None = Field(None, description="When check-in closes for this event")
     event_series_id: UUID | None = None
-    free_for_members: bool = False
-    free_for_staff: bool = True
     # requires_ticket: bool = False
     potluck_open: bool = False
     accept_invitation_requests: bool = False
@@ -249,20 +247,18 @@ class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
     # invitation_message_html: str = ""
     max_attendees: int = 0
     waitlist_open: bool | None = None
-    start: datetime
-    end: datetime
-    rsvp_before: datetime | None = None
+    start: AwareDatetime
+    end: AwareDatetime
+    rsvp_before: AwareDatetime | None = None
     logo: str | None = None
     cover_art: str | None = None
-    free_for_members: bool
-    free_for_staff: bool
     requires_ticket: bool
     potluck_open: bool
     attendee_count: int
     accept_invitation_requests: bool
     can_attend_without_login: bool
-    updated_at: datetime | None = None
-    created_at: datetime | None = None
+    updated_at: AwareDatetime | None = None
+    created_at: AwareDatetime | None = None
 
 
 class EventInListSchema(EventBaseSchema):
@@ -293,8 +289,8 @@ class RSVPDetailSchema(ModelSchema):
     event_id: UUID
     user: MinimalRevelUserSchema
     status: EventRSVP.RsvpStatus
-    created_at: datetime
-    updated_at: datetime
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
 
     class Meta:
         model = EventRSVP
@@ -323,8 +319,8 @@ class WaitlistEntrySchema(ModelSchema):
     id: UUID
     event_id: UUID
     user: MinimalRevelUserSchema
-    created_at: datetime
-    updated_at: datetime
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
 
     class Meta:
         model = models.EventWaitList
@@ -539,7 +535,7 @@ class EventInvitationListSchema(Schema):
     waives_membership_required: bool
     waives_rsvp_deadline: bool
     custom_message: str | None = None
-    created_at: datetime
+    created_at: AwareDatetime
 
 
 class MyEventInvitationSchema(Schema):
@@ -554,7 +550,7 @@ class MyEventInvitationSchema(Schema):
     waives_membership_required: bool
     waives_rsvp_deadline: bool
     custom_message: str | None = None
-    created_at: datetime
+    created_at: AwareDatetime
 
 
 class PendingEventInvitationListSchema(Schema):
@@ -569,7 +565,7 @@ class PendingEventInvitationListSchema(Schema):
     waives_membership_required: bool
     waives_rsvp_deadline: bool
     custom_message: str | None = None
-    created_at: datetime
+    created_at: AwareDatetime
 
 
 class CombinedInvitationListSchema(Schema):
@@ -586,7 +582,7 @@ class CombinedInvitationListSchema(Schema):
     waives_membership_required: bool
     waives_rsvp_deadline: bool
     custom_message: str | None = None
-    created_at: datetime
+    created_at: AwareDatetime
 
 
 # Questionnaires
@@ -596,8 +592,8 @@ class MinimalEventSchema(Schema):
     id: UUID
     slug: str
     name: str
-    start: datetime
-    end: datetime
+    start: AwareDatetime
+    end: AwareDatetime
     logo: str | None = None
     cover_art: str | None = None
 
@@ -918,7 +914,7 @@ class MembershipTierUpdateSchema(Schema):
 class MinimalOrganizationMemberSchema(ModelSchema):
     """Organization member info without user details - used in permission contexts."""
 
-    member_since: datetime = Field(alias="created_at")
+    member_since: AwareDatetime = Field(alias="created_at")
     tier: MembershipTierSchema | None = None
 
     class Meta:
@@ -928,7 +924,7 @@ class MinimalOrganizationMemberSchema(ModelSchema):
 
 class OrganizationMemberSchema(Schema):
     user: MemberUserSchema
-    member_since: datetime = Field(alias="created_at")
+    member_since: AwareDatetime = Field(alias="created_at")
     status: OrganizationMember.MembershipStatus
     tier: MembershipTierSchema | None = None
 
@@ -940,7 +936,7 @@ class OrganizationMemberUpdateSchema(Schema):
 
 class OrganizationStaffSchema(Schema):
     user: MemberUserSchema
-    staff_since: datetime = Field(alias="created_at")
+    staff_since: AwareDatetime = Field(alias="created_at")
     permissions: PermissionsSchema
 
 

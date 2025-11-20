@@ -433,7 +433,6 @@ Smart casual to business casual
 *Limited to 40 guests for an intimate experience*
 """,
             address="Steirereck, Am Heumarkt 2A, 1030 Vienna, Austria",
-            free_for_members=True,
         )
         wine_tasting.add_tags("food", "formal", "social")
         self.events["wine_tasting"] = wine_tasting
@@ -686,7 +685,6 @@ and deep relaxation in the beautiful Austrian countryside.
 **Space is limited to 25 participants** for an intimate experience.
 """,
             address="Wachau Valley Retreat Center, Dürnstein, 3601 Lower Austria",
-            free_for_members=True,
         )
         wellness_retreat.add_tags("wellness", "casual", "social")
         self.events["wellness_retreat"] = wellness_retreat

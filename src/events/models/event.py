@@ -193,8 +193,6 @@ class Event(
     check_in_ends_at = models.DateTimeField(
         null=True, blank=True, db_index=True, help_text="When check-in closes for this event"
     )
-    free_for_members = models.BooleanField(default=False)
-    free_for_staff = models.BooleanField(default=True)
     requires_ticket = models.BooleanField(default=True)  # If False, managed via RSVPs
     potluck_open = models.BooleanField(default=False)
     accept_invitation_requests = models.BooleanField(default=False)
