@@ -1,4 +1,4 @@
-{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
 
 🎉 {% blocktranslate with org=context.organization_name event=context.event_name %}{{ org }} has published a new event: {{ event }}!{% endblocktranslate %}
 

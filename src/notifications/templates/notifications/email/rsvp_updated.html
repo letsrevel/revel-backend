@@ -21,7 +21,7 @@
             <h1 style="margin: 0; font-size: 28px;">🔄 {% trans "RSVP Updated" %}</h1>
         </div>
         <div class="content">
-            <p>{% trans "Hello" %} {{ user.first_name }},</p>
+            <p>{% trans "Hello" %} {{ user.display_name }},</p>
 
             {% if context.user_name %}
                 <p>{% blocktranslate with user=context.user_name event=context.event_name old=context.old_response new=context.new_response %}<strong>{{ user }}</strong> has changed their RSVP from <strong>{{ old }}</strong> to <strong>{{ new }}</strong> for <strong>{{ event }}</strong>.{% endblocktranslate %}</p>

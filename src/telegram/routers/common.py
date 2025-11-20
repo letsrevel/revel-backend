@@ -34,7 +34,7 @@ async def handle_start(message: Message, tg_user: TelegramUser, state: FSMContex
         user = tg_user.user
         assert user is not None  # user_id is set, so user must exist
         await message.answer(
-            f"Welcome back, {user.first_name or user.username}!\n\n"
+            f"Welcome back, {user.display_name}!\n\n"
             f"I am your Revel companion.\n\n"
             f"By using this bot, you agree to our Terms and Conditions and Privacy Policy.\n"
             f"- https://beta.letsrevel.io/legal/terms\n"

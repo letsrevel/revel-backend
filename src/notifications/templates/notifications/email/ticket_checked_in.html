@@ -19,7 +19,7 @@
             <h1 style="margin: 0; font-size: 28px;">✅ {% trans "Checked In!" %}</h1>
         </div>
         <div class="content">
-            <p>{% trans "Hello" %} {{ user.first_name }},</p>
+            <p>{% trans "Hello" %} {{ user.display_name }},</p>
             <p style="font-size: 18px;">{% blocktranslate with event=context.event_name %}You have been checked in for <strong>{{ event }}</strong>!{% endblocktranslate %}</p>
 
             <div class="card">

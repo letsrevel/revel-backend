@@ -1,4 +1,4 @@
-{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
 
 🗑️ {% blocktranslate with item=context.item_name event=context.event_name %}"{{ item }}" has been removed from the potluck for {{ event }}.{% endblocktranslate %}
 

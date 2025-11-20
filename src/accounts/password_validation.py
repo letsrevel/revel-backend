@@ -51,9 +51,9 @@ class ComplexPasswordValidator:
                 code="password_no_digit",
             )
 
-        if not re.search(r"[!@#$%^&*(),.?\":{}|<>-]", password):
+        if not re.search(r"[!@#$%^&*(),.?\":{}|<>-\[\]=]", password):
             raise ValidationError(
-                _('Password must contain at least one special character (!@#$%^&*(),.?":{}|<>).'),
+                _('Password must contain at least one special character (!@#$%^&*(),.?":{}|<>)[]=.'),
                 code="password_no_special",
             )
 

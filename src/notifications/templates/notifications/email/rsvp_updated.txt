@@ -1,4 +1,4 @@
-{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
 
 {% if context.user_name %}
 {% blocktranslate with user=context.user_name event=context.event_name old=context.old_response new=context.new_response %}{{ user }} has changed their RSVP from {{ old }} to {{ new }} for {{ event }}.{% endblocktranslate %}

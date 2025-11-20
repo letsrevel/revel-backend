@@ -1,4 +1,4 @@
-{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
 
 {% if context.is_organizer and context.actor_name %}
 ✅ {% blocktranslate with actor=context.actor_name item=context.item_name event=context.event_name %}{{ actor }} claimed "{{ item }}" for {{ event }}.{% endblocktranslate %}

@@ -1,4 +1,4 @@
-{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
 
 {% blocktranslate with event=context.event_name %}Your RSVP for {{ event }} has been cancelled.{% endblocktranslate %}
 

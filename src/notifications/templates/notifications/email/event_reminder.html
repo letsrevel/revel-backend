@@ -21,7 +21,7 @@
             <h1 style="margin: 0; font-size: 28px;">⏰ {% trans "Event Reminder" %}</h1>
         </div>
         <div class="content">
-            <p>{% trans "Hello" %} {{ user.first_name }},</p>
+            <p>{% trans "Hello" %} {{ user.display_name }},</p>
             {% if context.days_until == 1 %}
             <p style="font-size: 18px;">{% blocktranslate with event=context.event_name %}Reminder: <strong>{{ event }}</strong> is tomorrow!{% endblocktranslate %}</p>
             {% else %}

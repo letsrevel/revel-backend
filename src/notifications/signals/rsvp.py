@@ -119,11 +119,7 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
         user = instance.user
 
         notification_type = NotificationType.RSVP_CANCELLED
-        context = {
-            "event_id": str(event.id),
-            "event_name": event.name,
-            "user_name": user.first_name or user.username,
-        }
+        context = {"event_id": str(event.id), "event_name": event.name, "user_name": user.display_name}
 
         # Notify organization staff and owners only (user already knows they cancelled)
         staff_and_owners = get_organization_staff_and_owners(event.organization_id)

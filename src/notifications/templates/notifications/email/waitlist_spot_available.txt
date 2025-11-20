@@ -1,4 +1,4 @@
-{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
 
 🎉 {% trans "Great news!" %} {% if context.spots_available == 1 %}{% blocktranslate with count=context.spots_available event=context.event_name %}{{ count }} spot is now available for {{ event }}!{% endblocktranslate %}{% else %}{% blocktranslate with count=context.spots_available event=context.event_name %}{{ count }} spots are now available for {{ event }}!{% endblocktranslate %}{% endif %}
 
