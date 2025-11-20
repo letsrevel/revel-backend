@@ -1,0 +1,289 @@
+{% extends "admin/base_site.html" %}
+{% load static i18n unfold %}
+
+{% block title %}Dashboard | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+<div id="content-main">
+
+    {# Quick Access Buttons #}
+    <div class="flex flex-wrap gap-4 mb-6">
+        {# Frontend Link #}
+        {% if dashboard.quick_actions %}
+            {% for action in dashboard.quick_actions %}
+                <a href="{{ action.url }}" target="_blank" rel="noopener noreferrer"
+                   class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 dark:bg-primary-500 dark:hover:bg-primary-600">
+                    <span class="mr-2">{{ action.icon }}</span>
+                    {{ action.title }}
+                </a>
+            {% endfor %}
+        {% endif %}
+    </div>
+
+    <h1 class="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-6">Revel Dashboard</h1>
+
+    {% if dashboard %}
+        {# Quick Stats Grid #}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            {# Total Users #}
+            <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6">
+                <h2 class="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-200">Total Users</h2>
+                <div class="flex items-center justify-between mb-2">
+                    <p class="text-3xl font-bold text-primary-600 dark:text-primary-500">{{ dashboard.quick_stats.total_users }}</p>
+                    <span class="text-4xl">👥</span>
+                </div>
+                <div class="mt-3 pt-3 border-t border-base-200 dark:border-base-700">
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                            <span>💬</span>
+                            <span>Connected Telegram</span>
+                        </span>
+                        <span class="font-semibold text-gray-900 dark:text-gray-100">{{ dashboard.quick_stats.connected_telegram }}</span>
+                    </div>
+                </div>
+            </div>
+
+            {# Total Organizations #}
+            <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6">
+                <h2 class="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-200">Total Organizations</h2>
+                <div class="flex items-center justify-between">
+                    <p class="text-3xl font-bold text-primary-600 dark:text-primary-500">{{ dashboard.quick_stats.total_organizations }}</p>
+                    <span class="text-4xl">🏢</span>
+                </div>
+            </div>
+
+            {# Total Events #}
+            <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6">
+                <h2 class="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-200">Total Events</h2>
+                <div class="flex items-center justify-between">
+                    <p class="text-3xl font-bold text-primary-600 dark:text-primary-500">{{ dashboard.quick_stats.total_events }}</p>
+                    <span class="text-4xl">📅</span>
+                </div>
+            </div>
+        </div>
+
+        {# User Growth Chart #}
+        <div class="grid grid-cols-1 mb-8">
+            <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6">
+                <h2 class="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-200">User Growth (Last 30 Days)</h2>
+                <div class="h-64">
+                    <canvas id="userGrowthChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        {# Event Analytics #}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            {# Ticket Requirement #}
+            <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6">
+                <h2 class="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">Events by Ticket Requirement</h2>
+                {% if dashboard.event_analytics.total > 0 %}
+                    <div class="space-y-4">
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <span class="text-sm text-gray-600 dark:text-gray-400">RSVP-Based</span>
+                                <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    {{ dashboard.event_analytics.by_ticket_requirement.rsvp_based.count }} ({{ dashboard.event_analytics.by_ticket_requirement.rsvp_based.percentage }}%)
+                                </span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                                <div class="bg-primary-600 h-2 rounded-full" style="width: {{ dashboard.event_analytics.by_ticket_requirement.rsvp_based.percentage }}%"></div>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="flex justify-between mb-1">
+                                <span class="text-sm text-gray-600 dark:text-gray-400">Ticket Required</span>
+                                <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                    {{ dashboard.event_analytics.by_ticket_requirement.ticket_required.count }} ({{ dashboard.event_analytics.by_ticket_requirement.ticket_required.percentage }}%)
+                                </span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                                <div class="bg-primary-500 h-2 rounded-full" style="width: {{ dashboard.event_analytics.by_ticket_requirement.ticket_required.percentage }}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                {% else %}
+                    <p class="text-gray-600 dark:text-gray-400">No events yet</p>
+                {% endif %}
+            </div>
+
+            {# Visibility #}
+            <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6">
+                <h2 class="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">Events by Visibility</h2>
+                {% if dashboard.event_analytics.total > 0 %}
+                    <div class="space-y-4">
+                        {% for visibility, data in dashboard.event_analytics.by_visibility.items %}
+                            <div>
+                                <div class="flex justify-between mb-1">
+                                    <span class="text-sm text-gray-600 dark:text-gray-400">{{ visibility|title }}</span>
+                                    <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                        {{ data.count }} ({{ data.percentage }}%)
+                                    </span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                                    <div class="bg-primary-600 h-2 rounded-full" style="width: {{ data.percentage }}%"></div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-gray-600 dark:text-gray-400">No events yet</p>
+                {% endif %}
+            </div>
+
+            {# Event Type #}
+            <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6">
+                <h2 class="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">Events by Type</h2>
+                {% if dashboard.event_analytics.total > 0 %}
+                    <div class="space-y-4">
+                        {% for event_type, data in dashboard.event_analytics.by_event_type.items %}
+                            <div>
+                                <div class="flex justify-between mb-1">
+                                    <span class="text-sm text-gray-600 dark:text-gray-400">{{ event_type|title }}</span>
+                                    <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                        {{ data.count }} ({{ data.percentage }}%)
+                                    </span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
+                                    <div class="bg-primary-600 h-2 rounded-full" style="width: {{ data.percentage }}%"></div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-gray-600 dark:text-gray-400">No events yet</p>
+                {% endif %}
+            </div>
+        </div>
+
+        {# System Health #}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            {# Failed Tasks #}
+            <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow overflow-hidden">
+                <div class="p-6">
+                    <h2 class="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
+                        Failed Tasks (Last {{ dashboard.task_health.days }} Days)
+                    </h2>
+                    <div class="flex items-center gap-4 mb-4">
+                        <span class="text-4xl">{% if dashboard.task_health.failed_count > 0 %}⚠️{% else %}✅{% endif %}</span>
+                        <div>
+                            <p class="text-3xl font-bold {% if dashboard.task_health.failed_count > 0 %}text-red-600 dark:text-red-500{% else %}text-green-600 dark:text-green-500{% endif %}">
+                                {{ dashboard.task_health.failed_count }}
+                            </p>
+                            <p class="text-sm text-gray-600 dark:text-gray-400">Failed tasks</p>
+                        </div>
+                    </div>
+                </div>
+                {% if dashboard.task_health.recent_failures %}
+                    <div class="border-t border-base-200 dark:border-base-700 p-4">
+                        <p class="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Recent Failures:</p>
+                        <div class="space-y-2 max-h-60 overflow-y-auto">
+                            {% for failure in dashboard.task_health.recent_failures %}
+                                <div class="text-xs bg-gray-50 dark:bg-base-800 p-2 rounded">
+                                    <p class="font-medium text-gray-900 dark:text-gray-100">{{ failure.task_name }}</p>
+                                    <p class="text-gray-600 dark:text-gray-400">{{ failure.date_done|date:"Y-m-d H:i:s" }}</p>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+
+            {# Failed Notifications #}
+            <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow overflow-hidden">
+                <div class="p-6">
+                    <h2 class="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
+                        Failed Notifications (Last {{ dashboard.notification_health.days }} Days)
+                    </h2>
+                    <div class="flex items-center gap-4 mb-4">
+                        <span class="text-4xl">{% if dashboard.notification_health.failed_count > 0 %}⚠️{% else %}✅{% endif %}</span>
+                        <div>
+                            <p class="text-3xl font-bold {% if dashboard.notification_health.failed_count > 0 %}text-red-600 dark:text-red-500{% else %}text-green-600 dark:text-green-500{% endif %}">
+                                {{ dashboard.notification_health.failed_count }}
+                            </p>
+                            <p class="text-sm text-gray-600 dark:text-gray-400">Failed deliveries</p>
+                        </div>
+                    </div>
+                    {% if dashboard.notification_health.channel_breakdown %}
+                        <div class="mb-4">
+                            <p class="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">By Channel:</p>
+                            <div class="space-y-1">
+                                {% for channel, count in dashboard.notification_health.channel_breakdown.items %}
+                                    <div class="flex justify-between text-sm">
+                                        <span class="text-gray-600 dark:text-gray-400">{{ channel|title }}</span>
+                                        <span class="font-semibold text-gray-900 dark:text-gray-100">{{ count }}</span>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+                {% if dashboard.notification_health.recent_failures %}
+                    <div class="border-t border-base-200 dark:border-base-700 p-4">
+                        <p class="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Recent Failures:</p>
+                        <div class="space-y-2 max-h-60 overflow-y-auto">
+                            {% for failure in dashboard.notification_health.recent_failures %}
+                                <div class="text-xs bg-gray-50 dark:bg-base-800 p-2 rounded">
+                                    <p class="font-medium text-gray-900 dark:text-gray-100">{{ failure.notification_type }} ({{ failure.channel }})</p>
+                                    <p class="text-gray-600 dark:text-gray-400">{{ failure.created_at|date:"Y-m-d H:i:s" }}</p>
+                                    {% if failure.error_message %}
+                                        <p class="text-red-600 dark:text-red-400 truncate">{{ failure.error_message }}</p>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+    {% else %}
+        <p class="text-gray-600 dark:text-gray-400">Dashboard data could not be loaded.</p>
+    {% endif %}
+
+</div>
+
+{# JavaScript for Charts #}
+{% block extrahead %}
+    {{ block.super }}
+    {% if dashboard %}
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const ctx = document.getElementById('userGrowthChart');
+            if (ctx) {
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: {{ dashboard.user_growth.labels|safe }},
+                        datasets: [{
+                            label: 'New Users',
+                            data: {{ dashboard.user_growth.data|safe }},
+                            borderColor: '#3b82f6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            tension: 0.4,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: { stepSize: 1 }
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    </script>
+    {% endif %}
+{% endblock %}
+
+{% endblock %}
