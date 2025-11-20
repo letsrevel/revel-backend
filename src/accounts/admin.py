@@ -33,7 +33,7 @@ class GeneralUserPreferencesInline(TabularInline):  # type: ignore[misc]
     model = GeneralUserPreferences
     extra = 0
     can_delete = False
-    fields = ["silence_all_notifications", "show_me_on_attendee_list", "event_reminders", "city"]
+    fields = ["city"]
     autocomplete_fields = ["city"]
 
 
@@ -97,7 +97,6 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
                     ("first_name", "last_name"),
                     ("preferred_name", "pronouns"),
                     "phone_number",
-                    "display_name_display",
                 )
             },
         ),
