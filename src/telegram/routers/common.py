@@ -37,8 +37,8 @@ async def handle_start(message: Message, tg_user: TelegramUser, state: FSMContex
             f"Welcome back, {user.first_name or user.username}!\n\n"
             f"I am your Revel companion.\n\n"
             f"By using this bot, you agree to our Terms and Conditions and Privacy Policy.\n"
-            f"- use /toc to view Terms and Conditions\n"
-            f"- use /privacy to view Privacy Policy\n",
+            f"- https://beta.letsrevel.io/legal/terms\n"
+            f"- https://beta.letsrevel.io/legal/privacy",
             reply_markup=keyboards.get_main_menu_keyboard(),
         )
     else:
@@ -46,8 +46,8 @@ async def handle_start(message: Message, tg_user: TelegramUser, state: FSMContex
             "Welcome to Revel!\n\n"
             "To get started, link your Revel account using the /connect command.\n\n"
             "By using this bot, you agree to our Terms and Conditions and Privacy Policy.\n"
-            "- use /toc to view Terms and Conditions\n"
-            "- use /privacy to view Privacy Policy\n"
+            "- https://beta.letsrevel.io/legal/terms\n"
+            "- https://beta.letsrevel.io/legal/privacy",
         )
 
     # Re-activate the user if they were deactivated or previously blocked the bot
