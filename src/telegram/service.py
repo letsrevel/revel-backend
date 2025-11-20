@@ -48,7 +48,7 @@ def connect_accounts(user: RevelUser, otp: str) -> None:
     # Send confirmation message to Telegram
     send_message_task.delay(
         tg_user.telegram_id,
-        message=f"✅ Account linked successfully!\n\nWelcome to Revel, {user.first_name or user.username}!",
+        message=f"✅ Account linked successfully!\n\nWelcome to Revel, {user.display_name}!",
     )
 
 

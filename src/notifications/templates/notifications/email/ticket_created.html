@@ -22,7 +22,7 @@
             <h1 style="margin: 0; font-size: 28px;">🎫 {% if context.ticket_holder_name %}{% trans "New Ticket Registered" %}{% else %}{% trans "Ticket Confirmed" %}{% endif %}</h1>
         </div>
         <div class="content">
-            <p>{% trans "Hello" %} {{ user.first_name }},</p>
+            <p>{% trans "Hello" %} {{ user.display_name }},</p>
 
             {% if context.ticket_holder_name %}
                 <p>{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<strong>{{ holder }}</strong> has registered for <strong>{{ event }}</strong>.{% endblocktranslate %}</p>

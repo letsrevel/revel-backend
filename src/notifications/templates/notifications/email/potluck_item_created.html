@@ -21,7 +21,7 @@
             <h1 style="margin: 0; font-size: 28px;">🍽️ {% trans "New Potluck Item" %}</h1>
         </div>
         <div class="content">
-            <p>{% trans "Hello" %} {{ user.first_name }},</p>
+            <p>{% trans "Hello" %} {{ user.display_name }},</p>
             {% if context.is_organizer and context.actor_name %}
             <p>{% blocktranslate with actor=context.actor_name item=context.item_name event=context.event_name %}<strong>{{ actor }}</strong> added <strong>"{{ item }}"</strong> to the potluck for <strong>{{ event }}</strong>.{% endblocktranslate %}</p>
             {% else %}

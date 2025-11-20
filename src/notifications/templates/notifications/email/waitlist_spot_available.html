@@ -21,7 +21,7 @@
             <h1 style="margin: 0; font-size: 28px;">🎉 {% trans "Spot Available!" %}</h1>
         </div>
         <div class="content">
-            <p>{% trans "Hello" %} {{ user.first_name }},</p>
+            <p>{% trans "Hello" %} {{ user.display_name }},</p>
             <p style="font-size: 18px;">{% trans "Great news!" %} {% if context.spots_available == 1 %}{% blocktranslate with count=context.spots_available event=context.event_name %}<strong>{{ count }} spot</strong> is now available for <strong>{{ event }}</strong>!{% endblocktranslate %}{% else %}{% blocktranslate with count=context.spots_available event=context.event_name %}<strong>{{ count }} spots</strong> are now available for <strong>{{ event }}</strong>!{% endblocktranslate %}{% endif %}</p>
 
             <div class="alert">

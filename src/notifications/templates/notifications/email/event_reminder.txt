@@ -1,4 +1,4 @@
-{% load i18n %}{% trans "Hello" %} {{ user.first_name }},
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
 
 {% if context.days_until == 1 %}
 ⏰ {% blocktranslate with event=context.event_name %}Reminder: {{ event }} is tomorrow!{% endblocktranslate %}
