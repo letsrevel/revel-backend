@@ -70,24 +70,47 @@ def test_verify_email_success(
 
 
 @patch("accounts.tasks.send_verification_email.delay")
-def test_resend_verification_email_success(mock_send_email: MagicMock, unverified_auth_client: Client) -> None:
+def test_resend_verification_email_success(
+    mock_send_email: MagicMock, client: Client, unverified_user: RevelUser
+) -> None:
     """Test resending verification for an unverified user returns 200."""
     url = reverse("api:resend-verification-email")
-    response = unverified_auth_client.post(url)
+    payload = {"email": unverified_user.email}
+    response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 200
     assert response.json()["message"] == "Verification email sent."
     mock_send_email.assert_called_once()
 
 
-def test_resend_verification_email_for_verified_user(auth_client: Client, user: RevelUser) -> None:
-    """Test trying to resend for an already verified user returns 400."""
+@patch("accounts.tasks.send_verification_email.delay")
+def test_resend_verification_email_for_verified_user(
+    mock_send_email: MagicMock, client: Client, user: RevelUser
+) -> None:
+    """Test trying to resend for an already verified user returns 200 (security by obscurity)."""
     user.email_verified = True
     user.save()
     url = reverse("api:resend-verification-email")
-    response = auth_client.post(url)
-    assert response.status_code == 400
-    assert response.json()["message"] == "Email already verified."
+    payload = {"email": user.email}
+    response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Verification email sent."
+    # Email should NOT be sent for already verified users
+    mock_send_email.assert_not_called()
+
+
+@patch("accounts.tasks.send_verification_email.delay")
+def test_resend_verification_email_nonexistent_user(mock_send_email: MagicMock, client: Client) -> None:
+    """Test resending verification for a non-existent user returns 200 (security by obscurity)."""
+    url = reverse("api:resend-verification-email")
+    payload = {"email": "nonexistent@example.com"}
+    response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Verification email sent."
+    # Email should NOT be sent for non-existent users
+    mock_send_email.assert_not_called()
 
 
 @patch("accounts.tasks.send_account_deletion_link.delay")

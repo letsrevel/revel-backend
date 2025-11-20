@@ -15,7 +15,7 @@ from accounts.service import account as account_service
 from accounts.service.auth import get_token_pair_for_user
 from common.authentication import I18nJWTAuth
 from common.schema import ResponseMessage
-from common.throttling import AuthThrottle, UserDataExportThrottle
+from common.throttling import AuthThrottle, UserDataExportThrottle, UserRegistrationThrottle
 
 
 @api_controller("/account", tags=["Account"], throttle=AuthThrottle())
@@ -78,6 +78,7 @@ class AccountController(ControllerBase):
         tags=["Account"],
         response={201: RevelUserSchema},
         url_name="register-account",
+        throttle=UserRegistrationThrottle(),
     )
     def register(self, payload: schema.RegisterUserSchema) -> tuple[int, RevelUser]:
         """Create a new user account with email and password.
@@ -110,21 +111,19 @@ class AccountController(ControllerBase):
     @route.post(
         "/verify-resend",
         tags=["Account"],
-        response={200: ResponseMessage, 400: ResponseMessage},
+        response=ResponseMessage,
         url_name="resend-verification-email",
-        auth=I18nJWTAuth(),
+        throttle=UserRegistrationThrottle(),
     )
-    def resend_verification_email(self) -> tuple[int, ResponseMessage]:
-        """Resend the email verification link to the authenticated user.
+    def resend_verification_email(self, payload: schema.ResendVerificationEmailSchema) -> ResponseMessage:
+        """Resend the email verification link for a given email address.
 
-        Use this if the original verification email was lost or expired. Returns 400 if the
-        email is already verified. Requires authentication with the unverified account's JWT.
+        Use this if the original verification email was lost or expired. Always returns a
+        success message to prevent user enumeration attacks. The email is only sent if the
+        account exists and is not yet verified.
         """
-        user = self.user()
-        if user.email_verified:
-            return status.HTTP_400_BAD_REQUEST, ResponseMessage(message=str(_("Email already verified.")))
-        account_service.send_verification_email_for_user(user)
-        return status.HTTP_200_OK, ResponseMessage(message=str(_("Verification email sent.")))
+        account_service.resend_verification_email(payload.email)
+        return ResponseMessage(message=str(_("Verification email sent.")))
 
     @route.post(
         "/delete-request",

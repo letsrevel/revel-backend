@@ -85,6 +85,32 @@ def verify_email(token: str) -> RevelUser:
     raise HttpError(400, str(_("A user with this email no longer exists.")))
 
 
+def resend_verification_email(email: str) -> None:
+    """Resend verification email for a user.
+
+    Silently handles all cases to prevent user enumeration:
+    - If user doesn't exist: do nothing
+    - If email already verified: do nothing
+    - If user exists and unverified: send verification email
+
+    Args:
+        email (str): The email address of the user.
+    """
+    logger.info("verification_email_resend_requested", email=email)
+    try:
+        user = RevelUser.objects.get(username=email)
+    except RevelUser.DoesNotExist:
+        logger.info("verification_email_resend_user_not_found", email=email)
+        return None
+
+    if user.email_verified:
+        logger.info("verification_email_resend_already_verified", user_id=str(user.id), email=email)
+        return None
+
+    send_verification_email_for_user(user)
+    return None
+
+
 def request_password_reset(email: str) -> str | None:
     """Request a password reset.
 

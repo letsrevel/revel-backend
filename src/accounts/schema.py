@@ -186,6 +186,10 @@ class PasswordResetRequestSchema(Schema):
     email: EmailStr
 
 
+class ResendVerificationEmailSchema(Schema):
+    email: EmailStr
+
+
 class PasswordResetSchema(PasswordMixin):
     token: str
 
