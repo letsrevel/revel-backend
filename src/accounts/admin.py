@@ -14,7 +14,14 @@ from django.utils.safestring import mark_safe
 from django_google_sso.admin import GoogleSSOInlineAdmin, get_current_user_and_admin
 from unfold.admin import ModelAdmin, TabularInline
 
-from accounts.models import RevelUser, UserDataExport
+from accounts.models import (
+    DietaryPreference,
+    DietaryRestriction,
+    FoodItem,
+    RevelUser,
+    UserDataExport,
+    UserDietaryPreference,
+)
 from events.models import GeneralUserPreferences
 
 # Monkey patch the missing attribute
@@ -45,6 +52,24 @@ class UserDataExportInline(TabularInline):  # type: ignore[misc]
     can_delete = False
     readonly_fields = ["status", "completed_at", "error_message", "file"]
     fields = ["status", "completed_at", "file", "error_message"]
+
+
+class DietaryRestrictionInline(TabularInline):  # type: ignore[misc]
+    """Inline for user dietary restrictions."""
+
+    model = DietaryRestriction
+    extra = 0
+    autocomplete_fields = ["food_item"]
+    fields = ["food_item", "restriction_type", "notes", "is_public"]
+
+
+class UserDietaryPreferenceInline(TabularInline):  # type: ignore[misc]
+    """Inline for user dietary preferences."""
+
+    model = UserDietaryPreference
+    extra = 0
+    autocomplete_fields = ["preference"]
+    fields = ["preference", "comment", "is_public"]
 
 
 @admin.register(RevelUser)
@@ -136,6 +161,8 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     # Inlines
     inlines = [
         GeneralUserPreferencesInline,
+        DietaryRestrictionInline,
+        UserDietaryPreferenceInline,
         UserDataExportInline,
     ]
 
@@ -278,3 +305,193 @@ class UserDataExportAdmin(ModelAdmin):  # type: ignore[misc]
 
     def has_add_permission(self, request: t.Any) -> bool:
         return False
+
+
+# --- Dietary Models Admins ---
+
+
+@admin.register(FoodItem)
+class FoodItemAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for FoodItem model."""
+
+    list_display = ["name", "restriction_count", "created_at"]
+    search_fields = ["name"]
+    readonly_fields = ["id", "created_at", "updated_at"]
+    ordering = ["name"]
+    date_hierarchy = "created_at"
+
+    @admin.display(description="Restrictions")
+    def restriction_count(self, obj: FoodItem) -> int:
+        return obj.user_restrictions.count()
+
+    def has_add_permission(self, request: t.Any) -> bool:
+        # Food items are created through dietary restrictions
+        return t.cast(bool, request.user.is_superuser)
+
+    def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        # Prevent deletion to maintain data integrity
+        return False
+
+
+@admin.register(DietaryRestriction)
+class DietaryRestrictionAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for DietaryRestriction model."""
+
+    list_display = [
+        "__str__",
+        "user_link",
+        "food_item_link",
+        "restriction_type",
+        "restriction_type_display",
+        "is_public",
+        "created_at",
+    ]
+    list_filter = ["restriction_type", "is_public", "created_at"]
+    search_fields = ["user__username", "user__email", "food_item__name", "notes"]
+    autocomplete_fields = ["user", "food_item"]
+    readonly_fields = ["id", "created_at", "updated_at"]
+    date_hierarchy = "created_at"
+    ordering = ["-created_at"]
+
+    fieldsets = [
+        (
+            "Basic Information",
+            {
+                "fields": (
+                    "user",
+                    "food_item",
+                    "restriction_type",
+                )
+            },
+        ),
+        (
+            "Details",
+            {
+                "fields": (
+                    "notes",
+                    "is_public",
+                )
+            },
+        ),
+        (
+            "Metadata",
+            {
+                "fields": (
+                    "id",
+                    "created_at",
+                    "updated_at",
+                ),
+                "classes": ["collapse"],
+            },
+        ),
+    ]
+
+    @admin.display(description="User")
+    def user_link(self, obj: DietaryRestriction) -> str:
+        url = reverse("admin:accounts_reveluser_change", args=[obj.user.id])
+        return format_html('<a href="{}">{}</a>', url, obj.user.username)
+
+    @admin.display(description="Food Item")
+    def food_item_link(self, obj: DietaryRestriction) -> str:
+        url = reverse("admin:accounts_fooditem_change", args=[obj.food_item.id])
+        return format_html('<a href="{}">{}</a>', url, obj.food_item.name)
+
+    @admin.display(description="Severity")
+    def restriction_type_display(self, obj: DietaryRestriction) -> str:
+        colors = {
+            DietaryRestriction.RestrictionType.DISLIKE: "gray",
+            DietaryRestriction.RestrictionType.INTOLERANT: "orange",
+            DietaryRestriction.RestrictionType.ALLERGY: "red",
+            DietaryRestriction.RestrictionType.SEVERE_ALLERGY: "darkred",
+        }
+        color = colors.get(obj.restriction_type, "gray")  # type: ignore[call-overload]
+        return mark_safe(
+            f'<span style="color: {color}; font-weight: bold;">{obj.get_restriction_type_display()}</span>'
+        )
+
+
+@admin.register(DietaryPreference)
+class DietaryPreferenceAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for DietaryPreference model (system-managed)."""
+
+    list_display = ["name", "user_count", "created_at"]
+    search_fields = ["name"]
+    readonly_fields = ["id", "created_at", "updated_at"]
+    ordering = ["name"]
+    date_hierarchy = "created_at"
+
+    @admin.display(description="Users")
+    def user_count(self, obj: DietaryPreference) -> int:
+        return obj.users.count()
+
+    def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        # System-managed preferences should not be easily deleted
+        return t.cast(bool, request.user.is_superuser)
+
+
+@admin.register(UserDietaryPreference)
+class UserDietaryPreferenceAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for UserDietaryPreference model."""
+
+    list_display = [
+        "__str__",
+        "user_link",
+        "preference_link",
+        "comment_preview",
+        "is_public",
+        "created_at",
+    ]
+    list_filter = ["preference__name", "is_public", "created_at"]
+    search_fields = ["user__username", "user__email", "preference__name", "comment"]
+    autocomplete_fields = ["user", "preference"]
+    readonly_fields = ["id", "created_at", "updated_at"]
+    date_hierarchy = "created_at"
+    ordering = ["-created_at"]
+
+    fieldsets = [
+        (
+            "Basic Information",
+            {
+                "fields": (
+                    "user",
+                    "preference",
+                )
+            },
+        ),
+        (
+            "Details",
+            {
+                "fields": (
+                    "comment",
+                    "is_public",
+                )
+            },
+        ),
+        (
+            "Metadata",
+            {
+                "fields": (
+                    "id",
+                    "created_at",
+                    "updated_at",
+                ),
+                "classes": ["collapse"],
+            },
+        ),
+    ]
+
+    @admin.display(description="User")
+    def user_link(self, obj: UserDietaryPreference) -> str:
+        url = reverse("admin:accounts_reveluser_change", args=[obj.user.id])
+        return format_html('<a href="{}">{}</a>', url, obj.user.username)
+
+    @admin.display(description="Preference")
+    def preference_link(self, obj: UserDietaryPreference) -> str:
+        url = reverse("admin:accounts_dietarypreference_change", args=[obj.preference.id])
+        return format_html('<a href="{}">{}</a>', url, obj.preference.name)
+
+    @admin.display(description="Comment")
+    def comment_preview(self, obj: UserDietaryPreference) -> str:
+        if obj.comment:
+            return obj.comment[:50] + ("..." if len(obj.comment) > 50 else "")
+        return "—"
