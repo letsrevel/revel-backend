@@ -198,8 +198,9 @@ def notify_admin_new_user_joined(self: t.Any, user_id: str, user_email: str, is_
         return {"status": "skipped", "reason": "pushover_not_configured"}
 
     # Build notification message
-    user_type = "Guest User" if is_guest else "User"
-    message = f"New {user_type.lower()} joined: {user_email}"
+    user_type_label = "guest user" if is_guest else "user"
+    message = f"New {user_type_label} joined: {user_email}"
+    title = "New Guest User" if is_guest else "New User"
 
     # Prepare Pushover API request
     pushover_url = "https://api.pushover.net/1/messages.json"
@@ -207,7 +208,7 @@ def notify_admin_new_user_joined(self: t.Any, user_id: str, user_email: str, is_
         "token": settings.PUSHOVER_APP_TOKEN,
         "user": settings.PUSHOVER_USER_KEY,
         "message": message,
-        "title": f"New {user_type} User",
+        "title": title,
         "priority": 0,  # Normal priority
     }
 
@@ -231,38 +232,12 @@ def notify_admin_new_user_joined(self: t.Any, user_id: str, user_email: str, is_
             "is_guest": is_guest,
         }
 
-    except httpx.HTTPStatusError as e:
+    except (httpx.HTTPStatusError, httpx.RequestError, httpx.TimeoutException) as e:
         logger.error(
-            "pushover_http_error",
-            user_id=user_id,
-            status_code=e.response.status_code,
-            response_text=e.response.text,
-            retry_count=self.request.retries,
-        )
-
-        # Retry with exponential backoff
-        if self.request.retries < self.max_retries:
-            countdown = 2**self.request.retries * 60  # 1min, 2min, 4min
-            logger.info(
-                "retrying_pushover_notification",
-                user_id=user_id,
-                countdown=countdown,
-                retry_count=self.request.retries,
-            )
-            raise self.retry(exc=e, countdown=countdown)
-        else:
-            # Let it fail loudly after max retries
-            raise
-
-    except (httpx.RequestError, httpx.TimeoutException) as e:
-        logger.error(
-            "pushover_request_error",
+            "pushover_error",
             user_id=user_id,
             error=str(e),
-            retry_count=self.request.retries,
         )
-
-        # Retry with exponential backoff
         if self.request.retries < self.max_retries:
             countdown = 2**self.request.retries * 60  # 1min, 2min, 4min
             logger.info(
@@ -273,5 +248,9 @@ def notify_admin_new_user_joined(self: t.Any, user_id: str, user_email: str, is_
             )
             raise self.retry(exc=e, countdown=countdown)
         else:
-            # Let it fail loudly after max retries
+            logger.exception(
+                "pushover_exception",
+                user_id=user_id,
+                error=str(e),
+            )
             raise
