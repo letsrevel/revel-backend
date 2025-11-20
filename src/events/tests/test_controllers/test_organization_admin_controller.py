@@ -354,7 +354,7 @@ def test_create_event_by_owner(organization_owner_client: Client, organization: 
         "status": "open",
         "event_type": "public",
         "waitlist_open": False,
-        "requires_ticket": False,
+        # "requires_ticket": False,  we test default behavior
         "address": "123 Main St",
         "start": timezone.now().timestamp(),
     }
@@ -365,6 +365,7 @@ def test_create_event_by_owner(organization_owner_client: Client, organization: 
     data = response.json()
     assert data["name"] == "New Event"
     assert data["organization"]["slug"] == organization.slug
+    assert data["requires_ticket"] is False
 
 
 def test_create_event_by_staff_with_permission(
