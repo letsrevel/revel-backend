@@ -15,6 +15,7 @@ from common.models import SiteSettings
 from events.models import Event, Organization
 from notifications.enums import DeliveryStatus
 from notifications.models import NotificationDelivery
+from telegram.models import TelegramUser
 
 
 def _get_user_growth_data(days: int = 30) -> dict[str, t.Any]:
@@ -197,6 +198,7 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
 
     # Quick stats
     total_users = RevelUser.objects.count()
+    connected_telegram = TelegramUser.objects.filter(user__isnull=False).count()
     total_organizations = Organization.objects.count()
     total_events = Event.objects.count()
 
@@ -238,6 +240,7 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
                 "quick_actions": quick_actions,
                 "quick_stats": {
                     "total_users": total_users,
+                    "connected_telegram": connected_telegram,
                     "total_organizations": total_organizations,
                     "total_events": total_events,
                 },

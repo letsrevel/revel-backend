@@ -30,9 +30,18 @@
             {# Total Users #}
             <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6">
                 <h2 class="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-200">Total Users</h2>
-                <div class="flex items-center justify-between">
+                <div class="flex items-center justify-between mb-2">
                     <p class="text-3xl font-bold text-primary-600 dark:text-primary-500">{{ dashboard.quick_stats.total_users }}</p>
                     <span class="text-4xl">👥</span>
+                </div>
+                <div class="mt-3 pt-3 border-t border-base-200 dark:border-base-700">
+                    <div class="flex items-center justify-between text-sm">
+                        <span class="text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                            <span>💬</span>
+                            <span>Connected Telegram</span>
+                        </span>
+                        <span class="font-semibold text-gray-900 dark:text-gray-100">{{ dashboard.quick_stats.connected_telegram }}</span>
+                    </div>
                 </div>
             </div>
 
