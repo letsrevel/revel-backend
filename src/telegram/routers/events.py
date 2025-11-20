@@ -16,7 +16,8 @@ from events.models import (
     Organization,
 )
 from events.service import event_service, organization_service
-from events.service.event_manager import EventManager, UserIsIneligibleError
+from events.service.event_manager import EventManager, NextStep, UserIsIneligibleError
+from telegram.keyboards import get_event_eligible_keyboard
 from telegram.middleware import AuthorizationMiddleware
 from telegram.models import TelegramUser
 
@@ -54,12 +55,33 @@ async def cb_handle_rsvp(callback: CallbackQuery, user: RevelUser, tg_user: Tele
             username=user.username,
             event_id=str(event.id),
             reason=e.eligibility.reason,
-        )
-        await callback.answer(
-            f"Sorry, you are not eligible to RSVP (yet). Reason: {e.eligibility.reason}", show_alert=False
+            next_step=e.eligibility.next_step,
         )
 
+        # Handle JOIN_WAITLIST case with appropriate keyboard
+        if e.eligibility.next_step == NextStep.JOIN_WAITLIST:
+            keyboard = await sync_to_async(get_event_eligible_keyboard)(event, e.eligibility, user)
+            await callback.message.answer(
+                f"⌛ Sorry, <b>{event.name}</b> is currently full.\n\n"
+                f"{e.eligibility.reason}\n\n"
+                f"You can join the waitlist to be notified when spots become available.",
+                reply_markup=keyboard,
+                parse_mode="HTML",
+            )
+            await callback.answer()
+            return
+
+        # For other ineligibility cases, show a generic message
+        await callback.message.answer(
+            f"❌ Sorry, you are not eligible to RSVP for <b>{event.name}</b>.\n\nReason: {e.eligibility.reason}",
+            parse_mode="HTML",
+        )
+        await callback.answer()
+        return
+
+    # Only send success message if RSVP actually succeeded
     await callback.message.answer(_get_rsvp_response_text(status).format(event.name))  # type: ignore[arg-type]
+    await callback.answer()
 
 
 def _get_rsvp_response_text(rsvp: t.Literal["yes", "no", "maybe"]) -> str:
@@ -130,15 +152,29 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
 
     try:
         event = await Event.objects.aget(id=event_id)
+
+        # Check if waitlist is open (mirror validation from /waitlist/join endpoint)
+        if not event.waitlist_open:
+            await callback.message.answer(
+                f"❌ The waitlist for <b>{event.name}</b> is not currently open.",
+                parse_mode="HTML",
+            )
+            await callback.answer()
+            return
+
         _, created = await EventWaitList.objects.aget_or_create(event_id=event_id, user=user)
 
         if created:
-            await callback.message.answer(f"✅ You are on the waitlist for {event.name}!")
+            await callback.message.answer(f"✅ You are on the waitlist for <b>{event.name}</b>!", parse_mode="HTML")
         else:
-            await callback.message.answer(f"ℹ️ You are already on the waitlist for {event.name}!")
+            await callback.message.answer(
+                f"ℹ️ You are already on the waitlist for <b>{event.name}</b>!", parse_mode="HTML"
+            )
+        await callback.answer()
     except Exception as e:
         logger.exception("failed_to_join_waitlist", event_id=str(event_id), user_id=str(user.id), error=str(e))
         await callback.message.answer("❌ Sorry, something went wrong. Please try again later.")
+        await callback.answer()
 
 
 @router.callback_query(F.data.startswith("invitation_request_accept:"), flags={"requires_linked_user": True})
