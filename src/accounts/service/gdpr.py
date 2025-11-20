@@ -7,6 +7,7 @@ import zipfile
 from uuid import UUID
 
 import structlog
+from django.contrib.gis.geos import Point
 from django.core.files.base import ContentFile
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import ManyToManyRel, ManyToOneRel, OneToOneRel
@@ -21,6 +22,19 @@ from questionnaires.models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+class GDPRJSONEncoder(DjangoJSONEncoder):
+    """Custom JSON encoder that handles PostGIS Point objects."""
+
+    def default(self, obj: t.Any) -> t.Any:
+        """Serialize PostGIS Point to GeoJSON format."""
+        if isinstance(obj, Point):
+            return {
+                "type": "Point",
+                "coordinates": [obj.x, obj.y],
+            }
+        return super().default(obj)
 
 
 def generate_user_data_export(user: RevelUser) -> UserDataExport:
@@ -71,7 +85,7 @@ def generate_user_data_export(user: RevelUser) -> UserDataExport:
 
         # 3. Create the JSON file in memory
         json_buffer = io.StringIO()
-        json.dump(export_data, json_buffer, cls=DjangoJSONEncoder, indent=2)
+        json.dump(export_data, json_buffer, cls=GDPRJSONEncoder, indent=2)
         json_buffer.seek(0)
 
         # 4. Create a ZIP archive in memory

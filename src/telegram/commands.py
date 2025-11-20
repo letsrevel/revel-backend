@@ -8,8 +8,6 @@ DEFAULT_COMMANDS = [
     BotCommand(command="preferences", description="⚙️ Manage your preferences"),
     BotCommand(command="unsubscribe", description="🔕 Turn off all Telegram notifications"),
     BotCommand(command="cancel", description="🔙 Cancel the current action"),
-    BotCommand(command="toc", description="📜 View Terms and Conditions"),
-    BotCommand(command="privacy", description="🔒 View Privacy Policy"),
     # Add other commands like /help if you implement them
     # BotCommand(command="help", description="Show help information"),
 ]
