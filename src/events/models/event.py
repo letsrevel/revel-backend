@@ -193,8 +193,6 @@ class Event(
     check_in_ends_at = models.DateTimeField(
         null=True, blank=True, db_index=True, help_text="When check-in closes for this event"
     )
-    free_for_members = models.BooleanField(default=False)
-    free_for_staff = models.BooleanField(default=True)
     requires_ticket = models.BooleanField(default=True)  # If False, managed via RSVPs
     potluck_open = models.BooleanField(default=False)
     accept_invitation_requests = models.BooleanField(default=False)
@@ -222,9 +220,26 @@ class Event(
     objects = EventManager()
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
-        """Override save to set default end date if not provided."""
+        """Override save to set default end date if not provided.
+
+        Only sets the default end date during:
+        1. Initial creation (no pk), OR
+        2. When start field is explicitly being updated and end is not set
+
+        This prevents spurious changes to the end field when updating other fields.
+        """
+        update_fields = kwargs.get("update_fields")
+
+        # Only set default end if:
+        # 1. This is a new instance (no pk), OR
+        # 2. We're explicitly updating the start field but end is not set
         if self.start and not self.end:
-            self.end = self.start + timedelta(days=1)
+            if not self.pk or (update_fields and "start" in update_fields):
+                self.end = self.start + timedelta(days=1)
+                # If we're using update_fields, add 'end' to the list
+                if update_fields and "end" not in update_fields:
+                    kwargs["update_fields"] = list(update_fields) + ["end"]
+
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:

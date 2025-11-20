@@ -221,8 +221,6 @@ class EventEditSchema(CityEditMixin):
     check_in_starts_at: AwareDatetime | None = Field(None, description="When check-in opens for this event")
     check_in_ends_at: AwareDatetime | None = Field(None, description="When check-in closes for this event")
     event_series_id: UUID | None = None
-    free_for_members: bool = False
-    free_for_staff: bool = True
     # requires_ticket: bool = False
     potluck_open: bool = False
     accept_invitation_requests: bool = False
@@ -254,8 +252,6 @@ class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
     rsvp_before: datetime | None = None
     logo: str | None = None
     cover_art: str | None = None
-    free_for_members: bool
-    free_for_staff: bool
     requires_ticket: bool
     potluck_open: bool
     attendee_count: int
