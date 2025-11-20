@@ -8,6 +8,7 @@ import typing as t
 
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django.db.models import Count
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -320,9 +321,14 @@ class FoodItemAdmin(ModelAdmin):  # type: ignore[misc]
     ordering = ["name"]
     date_hierarchy = "created_at"
 
-    @admin.display(description="Restrictions")
+    def get_queryset(self, request: t.Any) -> t.Any:
+        """Override to annotate restriction count."""
+        qs = super().get_queryset(request)
+        return qs.annotate(restrictions_count=Count("user_restrictions"))
+
+    @admin.display(description="Restrictions", ordering="restrictions_count")
     def restriction_count(self, obj: FoodItem) -> int:
-        return obj.user_restrictions.count()
+        return obj.restrictions_count  # type: ignore[attr-defined]
 
     def has_add_permission(self, request: t.Any) -> bool:
         # Food items are created through dietary restrictions
@@ -405,8 +411,10 @@ class DietaryRestrictionAdmin(ModelAdmin):  # type: ignore[misc]
             DietaryRestriction.RestrictionType.SEVERE_ALLERGY: "darkred",
         }
         color = colors.get(obj.restriction_type, "gray")  # type: ignore[call-overload]
-        return mark_safe(
-            f'<span style="color: {color}; font-weight: bold;">{obj.get_restriction_type_display()}</span>'
+        return format_html(
+            '<span style="color: {}; font-weight: bold;">{}</span>',
+            color,
+            obj.get_restriction_type_display(),
         )
 
 
@@ -420,9 +428,14 @@ class DietaryPreferenceAdmin(ModelAdmin):  # type: ignore[misc]
     ordering = ["name"]
     date_hierarchy = "created_at"
 
-    @admin.display(description="Users")
+    def get_queryset(self, request: t.Any) -> t.Any:
+        """Override to annotate user count."""
+        qs = super().get_queryset(request)
+        return qs.annotate(users_count=Count("users"))
+
+    @admin.display(description="Users", ordering="users_count")
     def user_count(self, obj: DietaryPreference) -> int:
-        return obj.users.count()
+        return obj.users_count  # type: ignore[attr-defined]
 
     def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
         # System-managed preferences should not be easily deleted

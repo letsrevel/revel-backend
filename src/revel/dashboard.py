@@ -1,8 +1,7 @@
 """Dashboard callback for Django Unfold admin interface."""
 
 import typing as t
-from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count
@@ -35,21 +34,20 @@ def _get_user_growth_data(days: int = 30) -> dict[str, t.Any]:
         "date_joined", flat=True
     )
 
-    # Group by week
-    weekly_counts: dict[str, int] = defaultdict(int)
+    # Group by week, storing both the date and count
+    weekly_data: dict[date, int] = {}
     for date_joined in users:
         # Get the start of the week (Monday)
         week_start = date_joined - timedelta(days=date_joined.weekday())
-        week_label = week_start.strftime("%b %d")
-        weekly_counts[week_label] += 1
+        # Use date only (no time) as key
+        week_key = week_start.date()
+        weekly_data[week_key] = weekly_data.get(week_key, 0) + 1
 
-    # Sort by date
-    sorted_weeks = sorted(
-        weekly_counts.items(), key=lambda x: datetime.strptime(x[0], "%b %d").replace(year=end_date.year)
-    )
+    # Sort by actual date and format labels
+    sorted_weeks = sorted(weekly_data.items(), key=lambda x: x[0])
 
     return {
-        "labels": [week[0] for week in sorted_weeks],
+        "labels": [week[0].strftime("%b %d") for week in sorted_weeks],
         "data": [week[1] for week in sorted_weeks],
     }
 
