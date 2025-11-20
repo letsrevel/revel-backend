@@ -1,7 +1,7 @@
 """Dashboard callback for Django Unfold admin interface."""
 
 import typing as t
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count

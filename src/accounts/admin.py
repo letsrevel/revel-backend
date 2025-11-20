@@ -328,7 +328,7 @@ class FoodItemAdmin(ModelAdmin):  # type: ignore[misc]
 
     @admin.display(description="Restrictions", ordering="restrictions_count")
     def restriction_count(self, obj: FoodItem) -> int:
-        return obj.restrictions_count  # type: ignore[attr-defined]
+        return obj.restrictions_count  # type: ignore[no-any-return, attr-defined]
 
     def has_add_permission(self, request: t.Any) -> bool:
         # Food items are created through dietary restrictions
@@ -435,7 +435,7 @@ class DietaryPreferenceAdmin(ModelAdmin):  # type: ignore[misc]
 
     @admin.display(description="Users", ordering="users_count")
     def user_count(self, obj: DietaryPreference) -> int:
-        return obj.users_count  # type: ignore[attr-defined]
+        return obj.users_count  # type: ignore[no-any-return, attr-defined]
 
     def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
         # System-managed preferences should not be easily deleted
