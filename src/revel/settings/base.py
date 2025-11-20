@@ -297,6 +297,10 @@ IP2LOCATION_TOKEN = config("IP2LOCATION_TOKEN", default=None)
 # NOTIFICATIONS
 NOTIFICATION_RETENTION_DAYS = config("NOTIFICATION_RETENTION_DAYS", default=90, cast=int)
 
+# PUSHOVER
+PUSHOVER_USER_KEY = config("PUSHOVER_USER_KEY", default=None)
+PUSHOVER_APP_TOKEN = config("PUSHOVER_APP_TOKEN", default=None)
+
 DEPLOYMENT_ENVIRONMENT = config(
     "DEPLOYMENT_ENVIRONMENT", default="development" if config("DEBUG", default=False, cast=bool) else "production"
 )

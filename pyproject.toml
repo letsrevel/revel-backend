@@ -1,6 +1,6 @@
 [project]
 name = "revel"
-version = "1.3.0"
+version = "1.4.0"
 description = "The Revel Event Manager"
 readme = "README.md"
 license = "MIT"
@@ -47,6 +47,7 @@ dependencies = [
     "flower>=2.0.1",
     "freezegun>=1.5.2",
     "gunicorn>=23.0.0",
+    "httpx>=0.28.1",
     "ics>=0.7.2",
     "ip2location>=8.10.5",
     "markdown>=3.8.1",
