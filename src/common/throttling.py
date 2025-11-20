@@ -13,6 +13,10 @@ class AuthThrottle(AnonRateThrottle):
     rate = "100/min"
 
 
+class UserRegistrationThrottle(AnonRateThrottle):
+    rate = "100/day"
+
+
 class WriteThrottle(UserRateThrottle):
     rate = "100/min"
 
