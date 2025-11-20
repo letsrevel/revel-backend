@@ -221,7 +221,6 @@ class EventEditSchema(CityEditMixin):
     check_in_starts_at: AwareDatetime | None = Field(None, description="When check-in opens for this event")
     check_in_ends_at: AwareDatetime | None = Field(None, description="When check-in closes for this event")
     event_series_id: UUID | None = None
-    requires_ticket: bool = False
     potluck_open: bool = False
     accept_invitation_requests: bool = False
     can_attend_without_login: bool = False
@@ -230,6 +229,7 @@ class EventEditSchema(CityEditMixin):
 class EventCreateSchema(EventEditSchema):
     name: OneToOneFiftyString
     start: AwareDatetime
+    requires_ticket: bool = False
 
 
 class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
