@@ -75,7 +75,12 @@ def build_attendee_visibility_flags(event_id: str) -> None:
                     )
                 )
 
-        AttendeeVisibilityFlag.objects.bulk_create(flags)
+        AttendeeVisibilityFlag.objects.bulk_create(
+            flags,
+            update_conflicts=True,
+            update_fields=["is_visible"],
+            unique_fields=["user", "event", "target"],
+        )
 
 
 @shared_task(name="events.cleanup_expired_payments")
