@@ -68,7 +68,7 @@ def format_org_signature(
     """
     from common.models import SiteSettings
 
-    org_url = f"{SiteSettings.get_solo().frontend_base_url}/organizations/{org_slug}"
+    org_url = f"{SiteSettings.get_solo().frontend_base_url}/org/{org_slug}"
 
     if channel == "email":
         # HTML format for email
@@ -237,9 +237,7 @@ def get_formatted_context_for_template(
             from common.models import SiteSettings
 
             site_settings = SiteSettings.get_solo()
-            enriched["organization_url"] = (
-                f"{site_settings.frontend_base_url}/organizations/{enriched['organization_slug']}"
-            )
+            enriched["organization_url"] = f"{site_settings.frontend_base_url}/org/{enriched['organization_slug']}"
 
         # Add event link if event info is present
         if "event_name" in enriched and "event_id" in enriched:

@@ -79,7 +79,7 @@ def approve_membership_request(
             context={
                 "organization_id": str(membership_request.organization_id),
                 "organization_name": membership_request.organization.name,
-                "frontend_url": f"{frontend_base_url}/organizations/{membership_request.organization_id}",
+                "frontend_url": f"{frontend_base_url}/org/{membership_request.organization.slug}",
             },
         )
 

@@ -195,7 +195,7 @@ def _get_organization_link(org_id: str) -> InlineKeyboardMarkup:
     """
     org = Organization.objects.only("id", "slug").get(pk=org_id)
     site_settings = SiteSettings.get_solo()
-    frontend_url = f"{site_settings.frontend_base_url}/organizations/{org.slug}"
+    frontend_url = f"{site_settings.frontend_base_url}/org/{org.slug}"
 
     builder = InlineKeyboardBuilder()
     builder.button(text="🏢 View Organization", url=frontend_url)

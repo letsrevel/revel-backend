@@ -177,7 +177,7 @@ def handle_membership_granted(
                 "organization_name": instance.organization.name,
                 "role": "member",
                 "action": "granted",
-                "frontend_url": f"{frontend_base_url}/organizations/{instance.organization_id}",
+                "frontend_url": f"{frontend_base_url}/org/{instance.organization.slug}",
             },
         )
 
@@ -239,7 +239,7 @@ def handle_membership_promoted(
                 "organization_name": instance.organization.name,
                 "role": "staff",
                 "action": "promoted",
-                "frontend_url": f"{frontend_base_url}/organizations/{instance.organization_id}",
+                "frontend_url": f"{frontend_base_url}/org/{instance.organization.slug}",
             },
         )
 
