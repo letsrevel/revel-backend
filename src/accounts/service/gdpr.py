@@ -1,16 +1,16 @@
 """Privacy utils."""
 
 import io
-import json
 import typing as t
 import zipfile
 from uuid import UUID
 
+import orjson
 import structlog
 from django.contrib.gis.geos import Point
 from django.core.files.base import ContentFile
-from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import ManyToManyRel, ManyToOneRel, OneToOneRel
+from django.db.models.fields.files import FieldFile
 from django.forms.models import model_to_dict
 from django.utils import timezone
 
@@ -24,17 +24,73 @@ from questionnaires.models import (
 logger = structlog.get_logger(__name__)
 
 
-class GDPRJSONEncoder(DjangoJSONEncoder):
-    """Custom JSON encoder that handles PostGIS Point objects."""
+def _sanitize_dict_keys(data: t.Any) -> t.Any:
+    """Recursively convert all dict keys to strings for orjson compatibility.
 
-    def default(self, obj: t.Any) -> t.Any:
-        """Serialize PostGIS Point to GeoJSON format."""
-        if isinstance(obj, Point):
-            return {
-                "type": "Point",
-                "coordinates": [obj.x, obj.y],
-            }
-        return super().default(obj)
+    orjson requires all dict keys to be strings. Django's model_to_dict can return
+    non-string keys (e.g., FK ids), so we need to stringify them.
+
+    Args:
+        data: Data structure to sanitize
+
+    Returns:
+        Data with all dict keys as strings
+    """
+    if isinstance(data, dict):
+        return {str(k): _sanitize_dict_keys(v) for k, v in data.items()}
+    if isinstance(data, (list, tuple)):
+        return [_sanitize_dict_keys(item) for item in data]
+    return data
+
+
+def _default_serializer(obj: t.Any) -> t.Any:
+    """Handle Django-specific types for orjson serialization.
+
+    orjson natively handles: str, int, float, bool, None, dict, list, tuple,
+    datetime, date, time, UUID, bytes, and more.
+
+    This function only needs to handle Django-specific types that orjson
+    doesn't know about.
+
+    Args:
+        obj: Object to serialize
+
+    Returns:
+        JSON-serializable representation
+
+    Raises:
+        TypeError: If object type cannot be serialized (required by orjson)
+    """
+    # Handle FileField/ImageField - convert to URL
+    if isinstance(obj, FieldFile):
+        try:
+            # Return URL if file exists
+            if obj:
+                return obj.url
+        except Exception:
+            # File doesn't exist or storage issue
+            pass
+        return "[This field could not be exported]"
+
+    # Handle PostGIS Point - convert to GeoJSON
+    if isinstance(obj, Point):
+        return {
+            "type": "Point",
+            "coordinates": [obj.x, obj.y],
+        }
+
+    # Fallback: try string representation
+    try:
+        return str(obj)
+    except Exception:
+        # If even str() fails, use generic fallback
+        # We must raise TypeError to tell orjson we can't handle this,
+        # but we want to be permissive for GDPR exports
+        logger.warning(
+            "gdpr_export_field_serialization_fallback",
+            object_type=type(obj).__name__,
+        )
+        return "[This field could not be exported]"
 
 
 def generate_user_data_export(user: RevelUser) -> UserDataExport:
@@ -83,15 +139,18 @@ def generate_user_data_export(user: RevelUser) -> UserDataExport:
                 elif isinstance(rel, (ManyToOneRel, ManyToManyRel)):
                     export_data[accessor_name] = [model_to_dict(obj) for obj in value.all()]
 
-        # 3. Create the JSON file in memory
-        json_buffer = io.StringIO()
-        json.dump(export_data, json_buffer, cls=GDPRJSONEncoder, indent=2)
-        json_buffer.seek(0)
+        # 3. Sanitize dict keys (orjson requires string keys) and serialize
+        sanitized_data = _sanitize_dict_keys(export_data)
+        json_bytes = orjson.dumps(
+            sanitized_data,
+            default=_default_serializer,
+            option=orjson.OPT_INDENT_2,  # Pretty print with 2-space indent
+        )
 
         # 4. Create a ZIP archive in memory
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            zip_file.writestr("revel_user_data.json", json_buffer.read())
+            zip_file.writestr("revel_user_data.json", json_bytes)
 
         zip_buffer.seek(0)
 
