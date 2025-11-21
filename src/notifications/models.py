@@ -158,6 +158,7 @@ def get_default_notification_type_settings() -> dict[NotificationType, Notificat
         NotificationType.POTLUCK_ITEM_UNCLAIMED: NotificationTypeSetting(
             enabled=True, channels=[DeliveryChannel.IN_APP]
         ),
+        NotificationType.POTLUCK_ITEM_DELETED: NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP]),
     }
 
 
