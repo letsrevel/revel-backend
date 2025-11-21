@@ -22,6 +22,7 @@ def update_db_instance(
     data = payload.model_dump(exclude_unset=exclude_unset, exclude_defaults=exclude_defaults) if payload else {}
     data.update(**kwargs)
     for key, value in data.items():
+        print(key, value)
         setattr(instance, key, value)
     instance.save()
     return instance

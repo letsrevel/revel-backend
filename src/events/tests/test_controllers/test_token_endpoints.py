@@ -20,7 +20,9 @@ def test_get_event_token_returns_token_details(
 ) -> None:
     """Test that GET /events/tokens/{token_id} returns token details without authentication."""
     # Arrange
-    token = event_service.create_event_token(event=event, issuer=organization_owner_user, name="Test Token")
+    token = event_service.create_event_token(
+        event=event, issuer=organization_owner_user, name="Test Token", grants_invitation=True
+    )
     url = reverse("api:get_event_token", kwargs={"token_id": token.id})
 
     # Act

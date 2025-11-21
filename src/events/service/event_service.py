@@ -47,9 +47,10 @@ def create_event_token(
     event: Event,
     issuer: RevelUser,
     duration: timedelta | int = 60,
-    invitation: InvitationBaseSchema | None = None,
+    invitation_payload: InvitationBaseSchema | None = None,
     ticket_tier_id: UUID | None = None,
     name: str | None = None,
+    grants_invitation: bool = False,
     max_uses: int = 0,
 ) -> EventToken:
     """Get a temporary JWT.
@@ -64,7 +65,8 @@ def create_event_token(
         expires_at=timezone.now() + duration,
         max_uses=max_uses,
         ticket_tier_id=ticket_tier_id,
-        invitation_payload=invitation.model_dump(mode="json") if invitation is not None else None,
+        grants_invitation=grants_invitation,
+        invitation_payload=invitation_payload.model_dump(mode="json") if invitation_payload is not None else None,
     )
 
 
