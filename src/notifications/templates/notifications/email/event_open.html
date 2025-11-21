@@ -30,9 +30,9 @@
                 {% if context.event_location %}<div class="info-row">📍 {{ context.event_location }}</div>{% endif %}
             </div>
 
-            {% if context.event_description %}
+            {% if context.event_description_html %}
             <div class="card">
-                <p>{{ context.event_description }}</p>
+                {{ context.event_description_html|safe }}
             </div>
             {% endif %}
 

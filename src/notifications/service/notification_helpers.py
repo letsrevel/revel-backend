@@ -44,6 +44,7 @@ def notify_event_opened(event: Event) -> int:
                 "event_id": str(event.id),
                 "event_name": event.name,
                 "event_description": event.description or "",
+                "event_description_html": event.description_html or "",  # type: ignore[attr-defined]
                 "event_start": event.start.isoformat() if event.start else "",
                 "event_end": event.end.isoformat() if event.end else "",
                 "event_location": event_location,

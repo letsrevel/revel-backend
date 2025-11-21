@@ -14,7 +14,7 @@ def update_db_instance(
     payload: BaseModel | None = None,
     *,
     exclude_unset: bool = True,
-    exclude_defaults: bool = True,
+    exclude_defaults: bool = False,
     **kwargs: t.Any,
 ) -> T:
     """Updates a DB instance given a Pydantic payload, safely within a select_for_update lock."""
