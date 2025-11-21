@@ -431,6 +431,7 @@ class TestListWaitlist:
         The waitlist endpoint should support searching by user email.
         """
         # Arrange
+        EventWaitList.objects.all().delete()
         user1 = revel_user_factory(email="john@example.com")
         user2 = revel_user_factory(email="jane@example.com")
         EventWaitList.objects.create(event=public_event, user=user1)
