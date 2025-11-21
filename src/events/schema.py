@@ -706,7 +706,8 @@ class EventTokenSchema(ModelSchema):
 class EventTokenBaseSchema(Schema):
     name: OneToOneFiftyString | None = None
     max_uses: int = 1
-    invitation: InvitationBaseSchema | None = None
+    grants_invitation: bool = False
+    invitation_payload: InvitationBaseSchema | None = None
     ticket_tier_id: UUID | None = None
 
 
