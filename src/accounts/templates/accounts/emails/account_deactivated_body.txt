@@ -1,0 +1,14 @@
+{% load i18n %}{% trans "Hi," %}
+
+{% blocktrans %}Your Revel account has been deactivated because your email address was not verified.{% endblocktrans %}
+
+{% blocktrans %}You can still verify your email to reactivate your account:{% endblocktrans %}
+{{ verification_link }}
+
+{% blocktrans %}If you don't verify within 60 days, your account and all associated data will be permanently deleted.{% endblocktrans %}
+
+{% blocktrans %}If you didn't sign up for Revel, you can delete your account immediately:{% endblocktrans %}
+{{ deletion_link }}
+
+{% blocktrans %}Thank you,
+The Revel Team{% endblocktrans %}

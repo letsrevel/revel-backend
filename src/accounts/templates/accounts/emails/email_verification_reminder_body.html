@@ -1,0 +1,21 @@
+{% load i18n %}<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{% trans "Verify Your Email" %}</title>
+</head>
+<body>
+    <h2>{% trans "Reminder: Verify your email" %}</h2>
+    <p>{% blocktrans %}You haven't verified your email address yet. Please verify your email to fully activate your Revel account.{% endblocktrans %}</p>
+    <p>
+        <a href="{{ verification_link }}" style="display: inline-block; padding: 10px 20px; background-color: #007bff; color: #ffffff; text-decoration: none; border-radius: 5px;">
+            {% trans "Verify Email" %}
+        </a>
+    </p>
+    <hr>
+    <p style="color: #666; font-size: 0.9em;">
+        {% blocktrans %}If you didn't sign up for Revel, you can <a href="{{ deletion_link }}">delete your account</a>.{% endblocktrans %}
+    </p>
+    <p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
+</body>
+</html>

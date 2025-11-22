@@ -87,6 +87,44 @@ class UserDataExport(TimeStampedModel):
         return f"Data export for {self.user.username}"
 
 
+class EmailVerificationReminderTracking(models.Model):
+    """Tracks email verification reminder state for unverified users.
+
+    This model is created on-demand when the first reminder is sent and deleted
+    when the user successfully verifies their email. It prevents spam by tracking
+    when reminders were sent and ensures the exponential backoff schedule is followed.
+    """
+
+    user = models.OneToOneField(
+        RevelUser, on_delete=models.CASCADE, related_name="verification_reminder_tracking", primary_key=True
+    )
+    last_reminder_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Timestamp when the last verification reminder email was sent",
+    )
+    final_warning_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Timestamp when the final 30-day warning was sent (sent only once)",
+    )
+    deactivation_email_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Timestamp when the account deactivation email was sent (sent only once)",
+    )
+
+    class Meta:
+        verbose_name = "Email Verification Reminder Tracking"
+        verbose_name_plural = "Email Verification Reminder Tracking"
+
+    def __str__(self) -> str:
+        return f"Verification tracking for {self.user.username}"
+
+
 class FoodItem(TimeStampedModel):
     """Stores reusable food/ingredient names that users can create and search.
 

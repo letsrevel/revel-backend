@@ -50,15 +50,44 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
     return send_verification_email_for_user(new_user)
 
 
-def send_verification_email_for_user(user: RevelUser) -> tuple[RevelUser, str]:
-    """Send a verification email for a user."""
-    logger.info("verification_email_requested", user_id=str(user.id), email=user.email)
+def create_verification_token(user: RevelUser) -> str:
+    """Create a verification token for a user without sending email.
+
+    Args:
+        user (RevelUser): The user to create a token for.
+
+    Returns:
+        str: The verification token.
+    """
     verification_payload = schema.VerifyEmailJWTPayloadSchema(
         user_id=user.id,
         email=user.email,
         exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
     )
-    token = create_token(verification_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    return create_token(verification_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+
+
+def create_deletion_token(user: RevelUser) -> str:
+    """Create an account deletion token for a user without sending email.
+
+    Args:
+        user (RevelUser): The user to create a token for.
+
+    Returns:
+        str: The deletion token.
+    """
+    payload = schema.DeleteAccountJWTPayloadSchema(
+        user_id=user.id,
+        email=user.email,
+        exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
+    )
+    return create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+
+
+def send_verification_email_for_user(user: RevelUser) -> tuple[RevelUser, str]:
+    """Send a verification email for a user."""
+    logger.info("verification_email_requested", user_id=str(user.id), email=user.email)
+    token = create_verification_token(user)
     tasks.send_verification_email.delay(user.email, token)
     return user, token
 
@@ -67,19 +96,29 @@ def send_verification_email_for_user(user: RevelUser) -> tuple[RevelUser, str]:
 def verify_email(token: str) -> RevelUser:
     """Verify a user's email.
 
+    Automatically reactivates deactivated accounts upon verification and clears
+    any reminder tracking to prevent further emails.
+
     Args:
         token (str): The verification token.
 
     Returns:
         RevelUser: The verified user.
     """
+    from accounts.models import EmailVerificationReminderTracking
+
     payload = token_to_payload(token, schema.VerifyEmailJWTPayloadSchema)
     check_blacklist(payload.jti)
     if user := RevelUser.objects.filter(id=payload.user_id).first():
         blacklist_token(token)
+        was_inactive = not user.is_active
         user.is_active = user.email_verified = True
-        user.save()
-        logger.info("email_verified", user_id=str(user.id), email=user.email)
+        user.save(update_fields=["is_active", "email_verified"])
+
+        # Delete reminder tracking record to stop all reminder emails
+        EmailVerificationReminderTracking.objects.filter(user=user).delete()
+
+        logger.info("email_verified", user_id=str(user.id), email=user.email, was_reactivated=was_inactive)
         return user
     logger.warning("email_verification_failed_user_not_found", user_id=str(payload.user_id))
     raise HttpError(400, str(_("A user with this email no longer exists.")))
@@ -150,12 +189,7 @@ def request_account_deletion(user: RevelUser) -> str:
         str: The token.
     """
     logger.info("account_deletion_requested", user_id=str(user.id), email=user.email)
-    payload = schema.DeleteAccountJWTPayloadSchema(
-        user_id=user.id,
-        email=user.email,
-        exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
-    )
-    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    token = create_deletion_token(user)
     tasks.send_account_deletion_link.delay(user.email, token)
     return token
 

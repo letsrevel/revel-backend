@@ -18,6 +18,7 @@ from unfold.admin import ModelAdmin, TabularInline
 from accounts.models import (
     DietaryPreference,
     DietaryRestriction,
+    EmailVerificationReminderTracking,
     FoodItem,
     RevelUser,
     UserDataExport,
@@ -71,6 +72,16 @@ class UserDietaryPreferenceInline(TabularInline):  # type: ignore[misc]
     extra = 0
     autocomplete_fields = ["preference"]
     fields = ["preference", "comment", "is_public"]
+
+
+class EmailVerificationReminderTrackingInline(TabularInline):  # type: ignore[misc]
+    """Inline for email verification reminder tracking."""
+
+    model = EmailVerificationReminderTracking
+    extra = 0
+    can_delete = False
+    readonly_fields = ["last_reminder_sent_at", "final_warning_sent_at", "deactivation_email_sent_at"]
+    fields = ["last_reminder_sent_at", "final_warning_sent_at", "deactivation_email_sent_at"]
 
 
 @admin.register(RevelUser)
@@ -165,6 +176,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         DietaryRestrictionInline,
         UserDietaryPreferenceInline,
         UserDataExportInline,
+        EmailVerificationReminderTrackingInline,
     ]
 
     # Autocomplete
