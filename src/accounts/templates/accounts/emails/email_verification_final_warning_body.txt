@@ -1,0 +1,12 @@
+{% load i18n %}{% trans "Hi," %}
+
+{% blocktrans %}Your Revel account has not been verified and will be deactivated shortly if you don't verify your email address.{% endblocktrans %}
+
+{% blocktrans %}Please verify your email now to keep your account active:{% endblocktrans %}
+{{ verification_link }}
+
+{% blocktrans %}If you didn't sign up for Revel, you can delete your account:{% endblocktrans %}
+{{ deletion_link }}
+
+{% blocktrans %}Thank you,
+The Revel Team{% endblocktrans %}

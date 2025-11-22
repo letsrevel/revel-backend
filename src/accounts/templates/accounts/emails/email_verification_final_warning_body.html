@@ -1,0 +1,22 @@
+{% load i18n %}<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{% trans "Urgent: Verify Your Email" %}</title>
+</head>
+<body>
+    <h2 style="color: #dc3545;">{% trans "URGENT: Your account will be deactivated soon" %}</h2>
+    <p><strong>{% blocktrans %}Your Revel account has not been verified and will be deactivated shortly if you don't verify your email address.{% endblocktrans %}</strong></p>
+    <p>{% trans "Please verify your email now to keep your account active:" %}</p>
+    <p>
+        <a href="{{ verification_link }}" style="display: inline-block; padding: 10px 20px; background-color: #dc3545; color: #ffffff; text-decoration: none; border-radius: 5px;">
+            {% trans "Verify Email Now" %}
+        </a>
+    </p>
+    <hr>
+    <p style="color: #666; font-size: 0.9em;">
+        {% blocktrans with link=deletion_link %}If you didn't sign up for Revel, you can <a href="{{ link }}">delete your account</a>.{% endblocktrans %}
+    </p>
+    <p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
+</body>
+</html>

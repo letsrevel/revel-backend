@@ -1,0 +1,1 @@
+{% load i18n %}{% trans "Your Revel account has been deactivated" %}

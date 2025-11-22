@@ -1,0 +1,1 @@
+{% load i18n %}{% trans "Reminder: Verify your Revel account" %}

@@ -166,6 +166,7 @@ class AccountController(ControllerBase):
         tags=["Account"],
         response=ResponseMessage,
         url_name="reset-password-request",
+        throttle=UserRegistrationThrottle(),
     )
     def reset_password_request(self, payload: schema.PasswordResetRequestSchema) -> ResponseMessage:
         """Request a password reset by email.
