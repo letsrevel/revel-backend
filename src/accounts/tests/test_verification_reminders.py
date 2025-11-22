@@ -304,6 +304,27 @@ def test_deactivate_unverified_accounts(
 
 @pytest.mark.django_db
 @patch("accounts.tasks.send_email.delay")
+def test_deactivate_respects_grace_period(
+    mock_send_email: MagicMock,
+    old_unverified_user_31d: RevelUser,
+) -> None:
+    """Test that deactivation respects 24h grace period after final warning."""
+    # Create tracking with final warning sent less than 24h ago
+    EmailVerificationReminderTracking.objects.create(
+        user=old_unverified_user_31d,
+        final_warning_sent_at=timezone.now() - timedelta(hours=12),
+    )
+    result = deactivate_unverified_accounts()
+    assert result["count"] == 0
+    assert mock_send_email.call_count == 0
+
+    # User should still be active
+    old_unverified_user_31d.refresh_from_db()
+    assert old_unverified_user_31d.is_active
+
+
+@pytest.mark.django_db
+@patch("accounts.tasks.send_email.delay")
 def test_deactivate_only_once(
     mock_send_email: MagicMock,
     old_unverified_user_31d: RevelUser,
