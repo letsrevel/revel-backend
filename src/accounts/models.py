@@ -49,6 +49,12 @@ class RevelUser(AbstractUser):
 
     class Meta:
         ordering = ["username"]
+        indexes = [
+            models.Index(
+                fields=["email_verified", "is_active", "guest", "date_joined"],
+                name="user_unverified_lookup_idx",
+            ),
+        ]
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
         """Override save method to call clean()."""
