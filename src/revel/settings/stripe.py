@@ -8,6 +8,7 @@ DEFAULT_PLATFORM_FEE_FIXED = config("DEFAULT_PLATFORM_FEE_FIXED", cast=Decimal, 
 STRIPE_SECRET_KEY = config("STRIPE_SECRET_KEY", default="sk_test_...")
 STRIPE_PUBLISHABLE_KEY = config("STRIPE_PUBLISHABLE_KEY", default="pk_test_...")
 STRIPE_WEBHOOK_SECRET = config("STRIPE_WEBHOOK_SECRET", default="whsec_...")
+STRIPE_ACCOUNT = config("STRIPE_ACCOUNT", default="test_...")
 # Note: minimum 30 minutes
 PAYMENT_DEFAULT_EXPIRY_MINUTES = config("PAYMENT_DEFAULT_EXPIRY_MINUTES", cast=int, default=45)
 # Test Stripe Connect account ID for bootstrap data

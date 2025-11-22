@@ -1,5 +1,5 @@
 import typing as t
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 import stripe
@@ -60,6 +60,74 @@ def stripe_verify_account(organization: Organization) -> Organization:
     return organization
 
 
+def _create_stripe_checkout_session(
+    event: Event,
+    tier: TicketTier,
+    user: RevelUser,
+    ticket: Ticket,
+    effective_price: Decimal,
+    application_fee_amount: int,
+    expires_at: datetime,
+) -> Session:
+    """Create a Stripe Checkout Session.
+
+    Args:
+        event: The event for which the ticket is being purchased.
+        tier: The ticket tier being purchased.
+        user: The user purchasing the ticket.
+        ticket: The pending ticket created for this purchase.
+        effective_price: The final price for the ticket (after PWYC override).
+        application_fee_amount: Platform fee in cents.
+        expires_at: Session expiration timestamp.
+
+    Returns:
+        The created Stripe Checkout Session.
+
+    Raises:
+        HttpError: If Stripe API call fails.
+    """
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    session_data = dict(  # noqa: C408
+        customer_email=user.email,
+        line_items=[
+            {
+                "price_data": {
+                    "currency": tier.currency.lower(),
+                    "product_data": {
+                        "name": f"Ticket: {event.name} ({tier.name})",
+                    },
+                    "unit_amount": int(effective_price * 100),  # Amount in cents
+                },
+                "quantity": 1,
+            }
+        ],
+        mode="payment",
+        success_url=f"{frontend_base_url}/events/{event.organization.slug}/{event.slug}?payment_success=true",
+        cancel_url=f"{frontend_base_url}/events/{event.organization.slug}/{event.slug}?payment_cancelled=true",
+        payment_intent_data={
+            "application_fee_amount": application_fee_amount,
+        },
+        stripe_account=event.organization.stripe_account_id,
+        metadata={
+            "ticket_id": str(ticket.id),
+            "event_id": str(event.id),
+            "user_id": str(user.id),
+        },
+        expires_at=int(expires_at.timestamp()),
+    )
+
+    # If the organization is using the platform's own Stripe account,
+    # remove connected account parameters (no fee to ourselves)
+    if settings.STRIPE_ACCOUNT == event.organization.stripe_account_id:
+        session_data.pop("stripe_account")
+        session_data["payment_intent_data"].pop("application_fee_amount")  # type: ignore[union-attr]
+
+    try:
+        return Session.create(**session_data)  # type: ignore[arg-type]
+    except Exception as e:
+        raise HttpError(500, str(_("Stripe API error: {error}")).format(error=e)) from e
+
+
 @transaction.atomic
 def create_checkout_session(
     event: Event, tier: TicketTier, user: RevelUser, price_override: Decimal | None = None
@@ -110,39 +178,20 @@ def create_checkout_session(
     fixed_fee = event.organization.platform_fee_fixed
     application_fee_amount = int((platform_fee + fixed_fee) * 100)
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+
     try:
-        session = Session.create(
-            customer_email=user.email,
-            line_items=[
-                {
-                    "price_data": {
-                        "currency": tier.currency.lower(),
-                        "product_data": {
-                            "name": f"Ticket: {event.name} ({tier.name})",
-                        },
-                        "unit_amount": int(effective_price * 100),  # Amount in cents
-                    },
-                    "quantity": 1,
-                }
-            ],
-            mode="payment",
-            success_url=f"{frontend_base_url}/events/{event.organization.slug}/{event.slug}?payment_success=true",
-            cancel_url=f"{frontend_base_url}/events/{event.organization.slug}/{event.slug}?payment_cancelled=true",
-            payment_intent_data={
-                "application_fee_amount": application_fee_amount,
-            },
-            stripe_account=event.organization.stripe_account_id,
-            metadata={
-                "ticket_id": str(ticket.id),
-                "event_id": str(event.id),
-                "user_id": str(user.id),
-            },
-            expires_at=int(expires_at.timestamp()),
+        session = _create_stripe_checkout_session(
+            event=event,
+            tier=tier,
+            user=user,
+            ticket=ticket,
+            effective_price=effective_price,
+            application_fee_amount=application_fee_amount,
+            expires_at=expires_at,
         )
-    except Exception as e:
+    except HttpError:
         ticket.delete()
-        raise HttpError(500, str(_("Stripe API error: {error}")).format(error=e))
+        raise
 
     # application_fee_amount is in cents.
     db_platform_fee = (Decimal(application_fee_amount) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
