@@ -1,6 +1,7 @@
 """Common tasks."""
 
 import hashlib
+import importlib
 import typing as t
 from datetime import timedelta
 from pathlib import Path
@@ -25,39 +26,110 @@ from common.models import EmailLog, FileUploadAudit, QuarantinedFile, SiteSettin
 logger = structlog.get_logger(__name__)
 
 
-@shared_task
-def send_email(*, to: str | list[str], subject: str, body: str, html_body: str | None = None) -> None:
-    """Send an email with a token link.
+def _execute_email_callback(callback_data: dict[str, t.Any], success: bool, error_message: str | None) -> None:
+    """Execute callback function after email delivery attempt.
 
     Args:
-        to (str): The email address.
-        subject (str): The email subject.
-        body (str): The email body.
-        html_body (str | None): The HTML email body.
-
-    Returns:
-        None
+        callback_data: Callback configuration with module, function, and kwargs
+        success: Whether email was sent successfully
+        error_message: Error message if sending failed
     """
-    site_settings = SiteSettings.get_solo()
-    recipients = [to] if isinstance(to, str) else to
-    recipients = [to_safe_email_address(email, site_settings=site_settings) for email in recipients]
-    email_msg = EmailMultiAlternatives(
-        subject=subject,
-        body=body,
-        from_email=settings.DEFAULT_FROM_EMAIL,
-        bcc=recipients,
-    )
-    if html_body:  # pragma: no branch
-        email_msg.attach_alternative(html_body, "text/html")
-    email_msg.send(fail_silently=False)
-    email_logs: list[EmailLog] = []
-    for recipient in recipients:
-        el = EmailLog(to=recipient, subject=subject)
-        el.set_body(body=body)
+    try:
+        module_path = callback_data.get("module")
+        function_name = callback_data.get("function")
+        kwargs = callback_data.get("kwargs", {})
+
+        if not module_path or not function_name:
+            logger.error("Invalid callback_data: missing module or function", callback_data=callback_data)
+            return
+
+        # Import module and get function
+        module = importlib.import_module(module_path)
+        callback_function = getattr(module, function_name)
+
+        # Add status and error_message to kwargs
+        kwargs["success"] = success
+        if not success:
+            kwargs["error_message"] = error_message
+
+        # Execute callback
+        callback_function(**kwargs)
+
+        logger.info(
+            "email_callback_executed",
+            module=module_path,
+            function=function_name,
+            success=success,
+        )
+    except Exception as callback_error:
+        logger.error(
+            "email_callback_failed",
+            callback_data=callback_data,
+            error=str(callback_error),
+            exc_info=True,
+        )
+
+
+@shared_task
+def send_email(
+    *,
+    to: str | list[str],
+    subject: str,
+    body: str,
+    html_body: str | None = None,
+    callback_data: dict[str, t.Any] | None = None,
+) -> None:
+    """Send an email with optional callback for delivery tracking.
+
+    Args:
+        to: Email address(es)
+        subject: Email subject
+        body: Plain text body
+        html_body: HTML body (optional)
+        callback_data: Optional callback configuration with:
+            - module: Python module path (e.g., "accounts.tasks")
+            - function: Function name to call (e.g., "mark_reminder_sent")
+            - kwargs: Dict of keyword arguments to pass to the function
+    """
+    success = False
+    error_message = None
+
+    try:
+        site_settings = SiteSettings.get_solo()
+        recipients = [to] if isinstance(to, str) else to
+        recipients = [to_safe_email_address(email, site_settings=site_settings) for email in recipients]
+        email_msg = EmailMultiAlternatives(
+            subject=subject,
+            body=body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            bcc=recipients,
+        )
         if html_body:  # pragma: no branch
-            el.set_html(html_body=html_body)
-        email_logs.append(el)
-    EmailLog.objects.bulk_create(email_logs)
+            email_msg.attach_alternative(html_body, "text/html")
+        email_msg.send(fail_silently=False)
+
+        # Create email logs
+        email_logs: list[EmailLog] = []
+        for recipient in recipients:
+            el = EmailLog(to=recipient, subject=subject)
+            el.set_body(body=body)
+            if html_body:  # pragma: no branch
+                el.set_html(html_body=html_body)
+            email_logs.append(el)
+        EmailLog.objects.bulk_create(email_logs)
+
+        success = True
+        logger.info("email_sent", to=recipients, subject=subject)
+
+    except Exception as e:
+        error_message = str(e)
+        logger.error("email_send_failed", to=to, subject=subject, error=error_message, exc_info=True)
+        raise  # Re-raise so Celery can retry if needed
+
+    finally:
+        # Execute callback if provided (even if failed)
+        if callback_data:
+            _execute_email_callback(callback_data, success, error_message)
 
 
 @shared_task

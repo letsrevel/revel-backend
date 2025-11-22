@@ -240,9 +240,8 @@ def test_send_final_warning_30d_old(
     assert result["count"] == 1
     assert mock_send_email.call_count == 1
 
-    # Check tracking was created
-    tracking = EmailVerificationReminderTracking.objects.get(user=old_unverified_user_31d)
-    assert tracking.final_warning_sent_at is not None
+    # Note: tracking.final_warning_sent_at is now updated in the callback,
+    # which doesn't execute when send_email.delay is mocked
 
 
 @pytest.mark.django_db
@@ -299,9 +298,8 @@ def test_deactivate_unverified_accounts(
     old_unverified_user_31d.refresh_from_db()
     assert not old_unverified_user_31d.is_active
 
-    # Check tracking was updated
-    tracking = EmailVerificationReminderTracking.objects.get(user=old_unverified_user_31d)
-    assert tracking.deactivation_email_sent_at is not None
+    # Note: tracking.deactivation_email_sent_at is now updated in the callback,
+    # which doesn't execute when send_email.delay is mocked
 
 
 @pytest.mark.django_db

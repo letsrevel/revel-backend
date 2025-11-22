@@ -261,6 +261,49 @@ def notify_admin_new_user_joined(self: t.Any, user_id: str, user_email: str, is_
 # Email verification reminder tasks
 
 
+def mark_reminder_sent(*, user_id: str, reminder_type: str, success: bool, error_message: str | None = None) -> None:
+    """Callback function to update tracking after reminder email send attempt.
+
+    Args:
+        user_id: UUID of the user.
+        reminder_type: Either "early", "final_warning", or "deactivation".
+        success: Whether the email was sent successfully.
+        error_message: Error message if sending failed.
+    """
+    if not success:
+        logger.warning(
+            "reminder_email_failed",
+            user_id=user_id,
+            reminder_type=reminder_type,
+            error=error_message,
+        )
+        return
+
+    try:
+        user = RevelUser.objects.get(id=user_id)
+        tracking, _ = EmailVerificationReminderTracking.objects.get_or_create(user=user)
+        now = timezone.now()
+
+        if reminder_type == "early":
+            tracking.last_reminder_sent_at = now
+            tracking.save(update_fields=["last_reminder_sent_at"])
+        elif reminder_type == "final_warning":
+            tracking.final_warning_sent_at = now
+            tracking.last_reminder_sent_at = now
+            tracking.save(update_fields=["final_warning_sent_at", "last_reminder_sent_at"])
+        elif reminder_type == "deactivation":
+            tracking.deactivation_email_sent_at = now
+            tracking.save(update_fields=["deactivation_email_sent_at"])
+
+        logger.info(
+            "reminder_tracking_updated",
+            user_id=user_id,
+            reminder_type=reminder_type,
+        )
+    except RevelUser.DoesNotExist:
+        logger.warning("reminder_callback_user_not_found", user_id=user_id)
+
+
 def _send_reminder_email(user: RevelUser, reminder_type: str) -> None:
     """Send verification reminder email with both verification and deletion links.
 
@@ -278,10 +321,10 @@ def _send_reminder_email(user: RevelUser, reminder_type: str) -> None:
     deletion_link = site_settings.frontend_base_url + f"/account/confirm-deletion?token={deletion_token}"
 
     if reminder_type == "final_warning":
-        subject = str(render_to_string("accounts/emails/email_verification_final_warning_subject.txt"))
+        subject = render_to_string("accounts/emails/email_verification_final_warning_subject.txt").strip()
         template_base = "accounts/emails/email_verification_final_warning"
     else:
-        subject = str(render_to_string("accounts/emails/email_verification_reminder_subject.txt"))
+        subject = render_to_string("accounts/emails/email_verification_reminder_subject.txt").strip()
         template_base = "accounts/emails/email_verification_reminder"
 
     context = {
@@ -293,8 +336,17 @@ def _send_reminder_email(user: RevelUser, reminder_type: str) -> None:
     body = render_to_string(f"{template_base}_body.txt", context)
     html_body = render_to_string(f"{template_base}_body.html", context)
 
-    send_email.delay(to=user.email, subject=subject, body=body, html_body=html_body)
-    logger.info("verification_reminder_sent", user_id=str(user.id), email=user.email, reminder_type=reminder_type)
+    callback_data = {
+        "module": "accounts.tasks",
+        "function": "mark_reminder_sent",
+        "kwargs": {
+            "user_id": str(user.id),
+            "reminder_type": reminder_type,
+        },
+    }
+
+    send_email.delay(to=user.email, subject=subject, body=body, html_body=html_body, callback_data=callback_data)
+    logger.info("verification_reminder_queued", user_id=str(user.id), email=user.email, reminder_type=reminder_type)
 
 
 def _send_deactivation_email(user: RevelUser) -> None:
@@ -312,7 +364,7 @@ def _send_deactivation_email(user: RevelUser) -> None:
     verification_link = site_settings.frontend_base_url + f"/login/confirm-email?token={verification_token}"
     deletion_link = site_settings.frontend_base_url + f"/account/confirm-deletion?token={deletion_token}"
 
-    subject = str(render_to_string("accounts/emails/account_deactivated_subject.txt"))
+    subject = render_to_string("accounts/emails/account_deactivated_subject.txt").strip()
     context = {
         "verification_link": verification_link,
         "deletion_link": deletion_link,
@@ -322,8 +374,17 @@ def _send_deactivation_email(user: RevelUser) -> None:
     body = render_to_string("accounts/emails/account_deactivated_body.txt", context)
     html_body = render_to_string("accounts/emails/account_deactivated_body.html", context)
 
-    send_email.delay(to=user.email, subject=subject, body=body, html_body=html_body)
-    logger.info("deactivation_email_sent", user_id=str(user.id), email=user.email)
+    callback_data = {
+        "module": "accounts.tasks",
+        "function": "mark_reminder_sent",
+        "kwargs": {
+            "user_id": str(user.id),
+            "reminder_type": "deactivation",
+        },
+    }
+
+    send_email.delay(to=user.email, subject=subject, body=body, html_body=html_body, callback_data=callback_data)
+    logger.info("deactivation_email_queued", user_id=str(user.id), email=user.email)
 
 
 @shared_task
@@ -357,8 +418,6 @@ def send_early_verification_reminders() -> dict[str, int]:
         # Send if never sent OR sent more than 24h ago
         if not tracking.last_reminder_sent_at or tracking.last_reminder_sent_at <= day_ago:
             _send_reminder_email(user, "early")
-            tracking.last_reminder_sent_at = now
-            tracking.save(update_fields=["last_reminder_sent_at"])
             stats["24h"] += 1
 
     # 3-day reminders (account 3d-7d old, last reminder >48h ago)
@@ -371,11 +430,9 @@ def send_early_verification_reminders() -> dict[str, int]:
         # Skip if final warning already sent
         if tracking.final_warning_sent_at:
             continue
-        # Send if last reminder was sent more than 48h ago
-        if tracking.last_reminder_sent_at and tracking.last_reminder_sent_at <= two_days_ago:
+        # Send if never sent OR last reminder was sent more than 48h ago
+        if not tracking.last_reminder_sent_at or tracking.last_reminder_sent_at <= two_days_ago:
             _send_reminder_email(user, "early")
-            tracking.last_reminder_sent_at = now
-            tracking.save(update_fields=["last_reminder_sent_at"])
             stats["3d"] += 1
 
     # 7-day reminders (account 7d-30d old, last reminder >7d ago)
@@ -388,11 +445,9 @@ def send_early_verification_reminders() -> dict[str, int]:
         # Skip if final warning already sent
         if tracking.final_warning_sent_at:
             continue
-        # Send if last reminder was sent more than 7d ago
-        if tracking.last_reminder_sent_at and tracking.last_reminder_sent_at <= week_ago:
+        # Send if never sent OR last reminder was sent more than 7d ago
+        if not tracking.last_reminder_sent_at or tracking.last_reminder_sent_at <= week_ago:
             _send_reminder_email(user, "early")
-            tracking.last_reminder_sent_at = now
-            tracking.save(update_fields=["last_reminder_sent_at"])
             stats["7d"] += 1
 
     logger.info("early_verification_reminders_sent", **stats)
@@ -422,11 +477,8 @@ def send_final_verification_warnings() -> dict[str, int]:
         # Only send if final warning hasn't been sent yet
         if not tracking.final_warning_sent_at:
             _send_reminder_email(user, "final_warning")
-            tracking.final_warning_sent_at = now
-            tracking.last_reminder_sent_at = now  # Also update this
-            tracking.save(update_fields=["final_warning_sent_at", "last_reminder_sent_at"])
             count += 1
-            logger.info("final_verification_warning_sent", user_id=str(user.id), email=user.email)
+            logger.info("final_verification_warning_queued", user_id=str(user.id), email=user.email)
 
     logger.info("final_verification_warnings_sent", count=count)
     return {"count": count}
@@ -456,9 +508,6 @@ def deactivate_unverified_accounts() -> dict[str, int]:
         if not user.email_verified and user.is_active:
             user.is_active = False
             user.save(update_fields=["is_active"])
-
-            tracking.deactivation_email_sent_at = now
-            tracking.save(update_fields=["deactivation_email_sent_at"])
 
             _send_deactivation_email(user)
             count += 1

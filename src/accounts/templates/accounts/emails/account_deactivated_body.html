@@ -18,7 +18,7 @@
     </p>
     <hr>
     <p style="color: #666; font-size: 0.9em;">
-        {% blocktrans %}If you didn't sign up for Revel, you can <a href="{{ deletion_link }}">delete your account immediately</a>.{% endblocktrans %}
+        {% blocktrans with link=deletion_link %}If you didn't sign up for Revel, you can <a href="{{ link }}">delete your account immediately</a>.{% endblocktrans %}
     </p>
     <p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
 </body>
