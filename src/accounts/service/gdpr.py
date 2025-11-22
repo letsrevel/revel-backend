@@ -93,10 +93,69 @@ def _default_serializer(obj: t.Any) -> t.Any:
         return "[This field could not be exported]"
 
 
+def _serialize_related_objects(user: RevelUser) -> dict[str, t.Any]:
+    """Serialize all related objects for a user.
+
+    Args:
+        user: The user whose related objects to serialize
+
+    Returns:
+        Dictionary with all related object data
+    """
+    export_data: dict[str, t.Any] = {}
+
+    # Automatically discover related objects (depth 1)
+    related_objects = [
+        f
+        for f in user._meta.get_fields()
+        if isinstance(f, (OneToOneRel, ManyToOneRel, ManyToManyRel)) and f.related_model
+    ]
+
+    # Fields to skip from export (internal/privacy-sensitive)
+    skip_fields = {
+        "data_export",
+        "outstandingtoken_set",
+        "visible_attendees",
+        "visible_to",
+        "notifications",
+    }
+
+    for rel in related_objects:
+        accessor_name = rel.get_accessor_name()
+        if not accessor_name or accessor_name in skip_fields:
+            continue
+
+        # Handle the questionnaire special case
+        if accessor_name == "questionnaire_submissions":
+            export_data.update(_serialize_questionnaire_data(user.id))
+            continue
+
+        # Handle dietary restrictions - expand food_item details
+        if accessor_name == "dietary_restrictions":
+            export_data[accessor_name] = _serialize_dietary_restrictions(user)
+            continue
+
+        # Handle dietary preferences - expand preference details
+        if accessor_name == "dietary_preferences":
+            export_data[accessor_name] = _serialize_dietary_preferences(user)
+            continue
+
+        value = getattr(user, accessor_name, None)
+
+        if value is not None:
+            if isinstance(rel, OneToOneRel):
+                export_data[accessor_name] = model_to_dict(value)
+            elif isinstance(rel, (ManyToOneRel, ManyToManyRel)):
+                export_data[accessor_name] = [model_to_dict(obj) for obj in value.all()]
+
+    return export_data
+
+
 def generate_user_data_export(user: RevelUser) -> UserDataExport:
     """Generate a data export for a user."""
     logger.info("gdpr_export_started", user_id=str(user.id), email=user.email)
 
+    export: UserDataExport | None = None
     try:
         export, created = UserDataExport.objects.get_or_create(user=user)
         if created:
@@ -105,39 +164,16 @@ def generate_user_data_export(user: RevelUser) -> UserDataExport:
         export.status = UserDataExport.Status.PROCESSING
         export.save(update_fields=["status"])
 
-        export_data: dict[str, t.Any] = {}
-
+        # 1. Serialize user profile fields
         user_fields = {
             f.name: getattr(user, f.name)
             for f in user._meta.fields
-            if f.name not in ["password", "totp_secret_encrypted"]
+            if f.name not in ["password", "totp_secret_encrypted", "totp_secret"]
         }
-        export_data["profile"] = user_fields
+        export_data = {"profile": user_fields}
 
-        # 2. Automatically discover and serialize related objects (depth 1)
-        related_objects = [
-            f
-            for f in user._meta.get_fields()
-            if isinstance(f, (OneToOneRel, ManyToOneRel, ManyToManyRel)) and f.related_model
-        ]
-
-        for rel in related_objects:
-            accessor_name = rel.get_accessor_name()
-            if not accessor_name or accessor_name == "data_export":
-                continue
-
-            # Handle the questionnaire special case
-            if accessor_name == "questionnaire_submissions":
-                export_data.update(_serialize_questionnaire_data(user.id))
-                continue
-
-            value = getattr(user, accessor_name, None)
-
-            if value is not None:
-                if isinstance(rel, OneToOneRel):
-                    export_data[accessor_name] = model_to_dict(value)
-                elif isinstance(rel, (ManyToOneRel, ManyToManyRel)):
-                    export_data[accessor_name] = [model_to_dict(obj) for obj in value.all()]
+        # 2. Serialize related objects
+        export_data.update(_serialize_related_objects(user))
 
         # 3. Sanitize dict keys (orjson requires string keys) and serialize
         sanitized_data = _sanitize_dict_keys(export_data)
@@ -181,6 +217,49 @@ def generate_user_data_export(user: RevelUser) -> UserDataExport:
             export.status = UserDataExport.Status.FAILED
             export.save(update_fields=["status"])
         raise
+
+
+def _serialize_dietary_restrictions(user: RevelUser) -> list[dict[str, t.Any]]:
+    """Serialize dietary restrictions with expanded food_item details.
+
+    Args:
+        user: The user whose restrictions to serialize
+
+    Returns:
+        List of restrictions with food_item name included
+    """
+    restrictions = user.dietary_restrictions.select_related("food_item").all()
+    return [
+        {
+            "food_item_name": restriction.food_item.name,
+            "restriction_type": restriction.restriction_type,
+            "notes": restriction.notes,
+            "is_public": restriction.is_public,
+            "created_at": restriction.created_at,
+        }
+        for restriction in restrictions
+    ]
+
+
+def _serialize_dietary_preferences(user: RevelUser) -> list[dict[str, t.Any]]:
+    """Serialize dietary preferences with expanded preference details.
+
+    Args:
+        user: The user whose preferences to serialize
+
+    Returns:
+        List of preferences with preference name included
+    """
+    preferences = user.dietary_preferences.select_related("preference").all()
+    return [
+        {
+            "preference_name": pref.preference.name,
+            "comment": pref.comment,
+            "is_public": pref.is_public,
+            "created_at": pref.created_at,
+        }
+        for pref in preferences
+    ]
 
 
 def _serialize_questionnaire_data(user_id: UUID) -> dict[str, list[dict[str, t.Any]]]:

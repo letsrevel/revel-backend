@@ -1,6 +1,6 @@
 [project]
 name = "revel"
-version = "1.4.4"
+version = "1.4.5"
 description = "The Revel Event Manager"
 readme = "README.md"
 license = "MIT"
