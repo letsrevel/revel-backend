@@ -2,98 +2,240 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Your Ticket for {{ event_name }}</title>
+    <title>Ticket - {{ event_name }}</title>
     <style>
         @page {
             size: A4;
-            /* Reduced page margins to create more content area */
-            margin: 0.7cm;
+            margin: 0;
         }
         body {
-            font-family: sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             color: #333;
-            /* Removed default body margin */
             margin: 0;
+            padding: 0;
         }
-        .container {
-            /* Added a height and flexbox to better control element distribution */
+        .ticket-container {
+            width: 100%;
+            height: 100%;
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
-            height: 100%;
-            width: 100%;
-            border: 1px solid #ccc;
-            padding: 10px;
-            border-radius: 8px;
-            text-align: center;
-            box-sizing: border-box;
-            /* Added a hint to the renderer to avoid breaking this container */
             page-break-inside: avoid;
         }
-        h1 {
-            color: #000;
-            /* Slightly reduced font size and margin */
-            font-size: 16px;
-            margin: 0 0 5px 0;
+
+        /* Cover Art Banner */
+        .cover-banner {
+            width: 100%;
+            height: 180px;
+            background: linear-gradient(135deg, {{ primary_color }} 0%, {{ secondary_color }} 100%);
+            position: relative;
+            overflow: hidden;
         }
-        h2 {
-            /* Reduced font size and bottom margin */
+        .cover-banner img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .cover-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%);
+            padding: 20px 30px;
+            color: white;
+        }
+        .cover-overlay h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .cover-overlay .org-name {
+            margin: 5px 0 0 0;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        /* Logo Section */
+        .logo-section {
+            display: flex;
+            align-items: center;
+            padding: 25px 30px;
+            background: white;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        .logo-container {
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            background: {{ primary_color }};
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 15px;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+        .logo-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .logo-initials {
+            color: white;
+            font-size: 24px;
+            font-weight: 700;
+        }
+        .ticket-type {
+            flex: 1;
+        }
+        .ticket-type .tier {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin: 0;
+        }
+        .ticket-type .status {
+            font-size: 12px;
+            color: #666;
+            margin: 3px 0 0 0;
+        }
+
+        /* Content Section */
+        .content-section {
+            padding: 25px 30px;
+            background: white;
+            flex: 1;
+        }
+        .info-card {
+            background: #f8f9fa;
+            border-left: 4px solid {{ primary_color }};
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        .info-row {
+            display: flex;
+            margin: 8px 0;
             font-size: 13px;
-            color: #555;
-            margin: 0 0 15px 0;
-            font-weight: normal;
         }
-        .details {
-            text-align: left;
-            /* Reduced bottom margin */
-            margin-bottom: 15px;
+        .info-label {
+            font-weight: 600;
+            color: #666;
+            min-width: 90px;
         }
-        .details p {
-            /* Reduced font size and vertical margin */
-            margin: 3px 0;
-            font-size: 11px;
+        .info-value {
+            color: #333;
+            flex: 1;
         }
-        .details strong {
+
+        /* QR Code Section */
+        .qr-section {
+            text-align: center;
+            padding: 20px 30px;
+            background: white;
+        }
+        .qr-code-container {
             display: inline-block;
-            width: 70px; /* Adjusted width */
+            padding: 15px;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
         }
-        .qr-code {
-            /* Removed unnecessary margin, flexbox will handle spacing */
-            margin: 0;
+        .qr-code-container img {
+            display: block;
         }
-        .footer {
-            /* Reduced top margin and font size */
-            margin-top: 15px;
-            font-size: 9px;
-            color: #777;
+        .qr-instruction {
+            margin-top: 12px;
+            font-size: 11px;
+            color: #666;
         }
-        .footer p {
-            margin: 0;
+
+        /* Footer Section */
+        .footer-section {
+            padding: 20px 30px;
+            background: #f8f9fa;
+            border-top: 1px solid #e0e0e0;
+            text-align: center;
+        }
+        .footer-section p {
+            margin: 4px 0;
+            font-size: 10px;
+            color: #888;
+        }
+        .ticket-id {
+            font-family: monospace;
+            color: #666;
+        }
+
+        /* Decorative elements */
+        .accent-bar {
+            height: 4px;
+            background: linear-gradient(to right, {{ primary_color }}, {{ secondary_color }});
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Grouped header for better spacing control -->
-        <div class="header">
-            <h1>{{ event_name }}</h1>
-            <h2>Presented by {{ organization_name }}</h2>
+    <div class="ticket-container">
+        <!-- Cover Art Banner -->
+        <div class="cover-banner">
+            {% if cover_art_url %}
+            <img src="{{ cover_art_url }}" alt="Event Cover">
+            {% endif %}
+            <div class="cover-overlay">
+                <h1>{{ event_name }}</h1>
+                <p class="org-name">{{ organization_name }}</p>
+            </div>
         </div>
 
-        <div class="details">
-            <p><strong>Attendee:</strong> {{ user_display_name }}</p>
-            <p><strong>Ticket:</strong> {{ tier_name }}</p>
-            <p><strong>Date:</strong> {{ start_datetime }}</p>
-            {% if address %}<p><strong>Location:</strong> {{ address }}{% endif %}</p>
+        <div class="accent-bar"></div>
+
+        <!-- Logo and Ticket Type -->
+        <div class="logo-section">
+            <div class="logo-container">
+                {% if logo_url %}
+                <img src="{{ logo_url }}" alt="Logo">
+                {% else %}
+                <span class="logo-initials">{{ logo_initials }}</span>
+                {% endif %}
+            </div>
+            <div class="ticket-type">
+                <p class="tier">{{ tier_name }}</p>
+                <p class="status">Ticket ID: {{ ticket_id_short }}</p>
+            </div>
         </div>
 
-        <div class="qr-code">
-            <img src="data:image/png;base64,{{ qr_code_base64 }}" alt="Ticket QR Code" width="140" height="140">
+        <!-- Event Details -->
+        <div class="content-section">
+            <div class="info-card">
+                <div class="info-row">
+                    <span class="info-label">🎫 Attendee</span>
+                    <span class="info-value">{{ user_display_name }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">📅 Date & Time</span>
+                    <span class="info-value">{{ start_datetime }}</span>
+                </div>
+                {% if address %}
+                <div class="info-row">
+                    <span class="info-label">📍 Location</span>
+                    <span class="info-value">{{ address }}</span>
+                </div>
+                {% endif %}
+            </div>
         </div>
 
-        <div class="footer">
-            <p>Please present this ticket at the event entrance for scanning.</p>
-            <p>Ticket ID: {{ ticket_id }}</p>
+        <!-- QR Code -->
+        <div class="qr-section">
+            <div class="qr-code-container">
+                <img src="data:image/png;base64,{{ qr_code_base64 }}" alt="Ticket QR Code" width="140" height="140">
+            </div>
+            <p class="qr-instruction">Present this QR code at the event entrance</p>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer-section">
+            <p>This ticket is valid for one person only and must be presented for entry.</p>
+            <p class="ticket-id">{{ ticket_id }}</p>
         </div>
     </div>
 </body>

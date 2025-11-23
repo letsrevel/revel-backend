@@ -42,7 +42,7 @@ def notify_event_opened(event: Event) -> int:
 
     # Format registration opens date if available
     registration_opens_at = None
-    if hasattr(event, 'registration_opens_at') and event.registration_opens_at:
+    if hasattr(event, "registration_opens_at") and event.registration_opens_at:
         registration_opens_at = date_format(event.registration_opens_at, "l, F j, Y \\a\\t g:i A T")
 
     count = 0

@@ -19,6 +19,7 @@ logger = structlog.get_logger(__name__)
 def _build_rsvp_context(rsvp: EventRSVP) -> dict[str, t.Any]:
     """Build notification context for RSVP."""
     from django.utils.dateformat import format as date_format
+
     from common.models import SiteSettings
 
     event = rsvp.event
@@ -41,9 +42,9 @@ def _build_rsvp_context(rsvp: EventRSVP) -> dict[str, t.Any]:
     }
 
     # Add optional fields if available in the model
-    if hasattr(rsvp, 'guest_count'):
+    if hasattr(rsvp, "guest_count"):
         context["guest_count"] = rsvp.guest_count
-    if hasattr(rsvp, 'dietary_restrictions') and rsvp.dietary_restrictions:
+    if hasattr(rsvp, "dietary_restrictions") and rsvp.dietary_restrictions:
         context["dietary_restrictions"] = rsvp.dietary_restrictions
 
     return context
@@ -70,6 +71,7 @@ def _send_rsvp_confirmation_notifications(rsvp: EventRSVP) -> None:
 def _send_rsvp_updated_notifications(rsvp: EventRSVP) -> None:
     """Send notifications when RSVP is updated."""
     from django.utils.dateformat import format as date_format
+
     from common.models import SiteSettings
 
     # Check if old status was captured in pre_save
@@ -102,7 +104,7 @@ def _send_rsvp_updated_notifications(rsvp: EventRSVP) -> None:
     }
 
     # Add optional fields if available
-    if hasattr(rsvp, 'guest_count'):
+    if hasattr(rsvp, "guest_count"):
         context["guest_count"] = rsvp.guest_count
 
     _notify_staff_about_rsvp(rsvp, NotificationType.RSVP_UPDATED, context)
@@ -171,7 +173,7 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
         }
 
         # Add optional cancellation_reason if available
-        if hasattr(instance, 'cancellation_reason') and instance.cancellation_reason:
+        if hasattr(instance, "cancellation_reason") and instance.cancellation_reason:
             context["cancellation_reason"] = instance.cancellation_reason
 
         # Notify organization staff and owners only (user already knows they cancelled)

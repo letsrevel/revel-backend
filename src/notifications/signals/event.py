@@ -54,9 +54,9 @@ def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
 
             # These fields could be added by admin in future enhancements
             # For now, they're optional and only included if set
-            if hasattr(instance, 'cancellation_reason') and instance.cancellation_reason:
+            if hasattr(instance, "cancellation_reason") and instance.cancellation_reason:
                 context["cancellation_reason"] = instance.cancellation_reason
-            if hasattr(instance, 'alternative_event_url') and instance.alternative_event_url:
+            if hasattr(instance, "alternative_event_url") and instance.alternative_event_url:
                 context["alternative_event_url"] = instance.alternative_event_url
 
             notification_requested.send(
