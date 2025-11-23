@@ -10,4 +10,4 @@
 {% if context.quantity %}• {% trans "Quantity:" %} {{ context.quantity }}{% endif %}
 {% if context.is_organizer and context.actor_name %}• {% trans "Claimed by:" %} {{ context.actor_name }}{% endif %}
 
-<a href="{{ context.frontend_url }}">{% trans "View Potluck List" %}</a>
+<a href="{{ context.event_url }}">{% trans "View Potluck List" %}</a>

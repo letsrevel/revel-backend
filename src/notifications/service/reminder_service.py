@@ -106,7 +106,7 @@ class EventReminderService:
         event_url = f"{self.frontend_base_url}/events/{event.id}"
         event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
         event_end_formatted = date_format(event.end, "l, F j, Y \\a\\t g:i A T") if event.end else None
-        event_location = event.address or (event.city.name if event.city else "")
+        event_location = event.full_address()
 
         context: dict[str, t.Any] = {
             "event_id": str(event.id),

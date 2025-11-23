@@ -61,12 +61,21 @@ def _send_payment_confirmation(payment: Payment) -> None:
     Args:
         payment: The successful payment instance
     """
+    from django.utils.dateformat import format as date_format
+
     ticket = payment.ticket
     event = ticket.event
 
     # Build frontend URL
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     frontend_url = f"{frontend_base_url}/events/{event.id}"
+
+    # Format event details
+    event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T") if event.start else ""
+    event_location = event.full_address()
+
+    # Format payment date
+    payment_date = date_format(payment.created_at, "l, F j, Y \\a\\t g:i A T")
 
     notification_requested.send(
         sender=_send_payment_confirmation,
@@ -78,9 +87,15 @@ def _send_payment_confirmation(payment: Payment) -> None:
             "event_id": str(event.id),
             "event_name": event.name,
             "event_start": event.start.isoformat() if event.start else "",
-            "payment_amount": f"{payment.amount} {payment.currency}",
+            "event_start_formatted": event_start_formatted,
+            "event_location": event_location,
+            "event_url": frontend_url,
+            "tier_name": ticket.tier.name,
+            "payment_amount": str(payment.amount),
+            "payment_currency": payment.currency,
+            "payment_id": str(payment.id),
+            "payment_date": payment_date,
             "payment_method": "card",  # Stripe payments are card-based
-            "frontend_url": frontend_url,
         },
     )
 

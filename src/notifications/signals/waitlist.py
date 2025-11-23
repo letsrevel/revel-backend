@@ -53,7 +53,7 @@ def _build_waitlist_spot_context(event: Event, spots_available: int) -> dict[str
         Context dictionary for notification
     """
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    event_location = event.address or (event.city.name if event.city else "")
+    event_location = event.full_address()
     event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T") if event.start else ""
 
     return {

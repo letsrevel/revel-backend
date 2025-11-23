@@ -23,23 +23,47 @@ _event_previous_state: dict[UUID, dict[str, t.Any]] = {}
 
 def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
     """Handle EVENT_CANCELLED notification."""
+    from django.utils.dateformat import format as date_format
 
     def send_cancellation_notifications() -> None:
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
         eligible_users = get_eligible_users_for_event_notification(instance, NotificationType.EVENT_CANCELLED)
 
+        # Format event details
+        event_start_formatted = date_format(instance.start, "l, F j, Y \\a\\t g:i A T") if instance.start else ""
+        event_location = instance.full_address()
+
+        # Prepare refund info if tickets are required
+        refund_info = None
+        if instance.requires_ticket:
+            refund_info = "Refunds will be processed according to the organizer's refund policy."
+
         for user in eligible_users:
+            context = {
+                "event_id": str(instance.id),
+                "event_name": instance.name,
+                "event_start": instance.start.isoformat() if instance.start else "",
+                "event_start_formatted": event_start_formatted,
+                "event_location": event_location,
+                "event_url": f"{frontend_base_url}/events/{instance.id}",
+            }
+
+            # Add optional fields
+            if refund_info:
+                context["refund_info"] = refund_info
+
+            # These fields could be added by admin in future enhancements
+            # For now, they're optional and only included if set
+            if hasattr(instance, "cancellation_reason") and instance.cancellation_reason:
+                context["cancellation_reason"] = instance.cancellation_reason
+            if hasattr(instance, "alternative_event_url") and instance.alternative_event_url:
+                context["alternative_event_url"] = instance.alternative_event_url
+
             notification_requested.send(
                 sender=sender,
                 user=user,
                 notification_type=NotificationType.EVENT_CANCELLED,
-                context={
-                    "event_id": str(instance.id),
-                    "event_name": instance.name,
-                    "event_start": instance.start.isoformat() if instance.start else "",
-                    "refund_available": instance.requires_ticket,
-                    "frontend_url": f"{frontend_base_url}/events/{instance.id}",
-                },
+                context=context,
             )
 
         logger.info(
@@ -60,6 +84,7 @@ def _handle_event_updated(
 ) -> None:
     """Handle EVENT_UPDATED notification."""
     from django.utils.dateformat import format as date_format
+    from django.utils.translation import gettext as _
 
     def send_update_notifications() -> None:
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
@@ -67,7 +92,19 @@ def _handle_event_updated(
 
         event_start_formatted = date_format(instance.start, "l, F j, Y \\a\\t g:i A T") if instance.start else ""
         event_end_formatted = date_format(instance.end, "l, F j, Y \\a\\t g:i A T") if instance.end else None
-        event_location = instance.address or (instance.city.name if instance.city else "")
+        event_location = instance.full_address()
+
+        # Build human-readable summary and message
+        changes_summary = ", ".join(changed_fields)
+
+        # Build a detailed update message
+        update_parts = []
+        for field in changed_fields:
+            old_val = old_values.get(field, "Not set")
+            new_val = new_values.get(field, "Not set")
+            update_parts.append(f"{field.capitalize()}: {old_val} → {new_val}")
+
+        update_message = "; ".join(update_parts) if update_parts else _("Event details have been updated.")
 
         for user in eligible_users:
             context = {
@@ -79,6 +116,8 @@ def _handle_event_updated(
                 "changed_fields": changed_fields,
                 "old_values": old_values,
                 "new_values": new_values,
+                "changes_summary": changes_summary,
+                "update_message": update_message,
             }
             if event_end_formatted:
                 context["event_end_formatted"] = event_end_formatted

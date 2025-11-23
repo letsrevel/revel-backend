@@ -18,17 +18,36 @@ logger = structlog.get_logger(__name__)
 
 def _build_rsvp_context(rsvp: EventRSVP) -> dict[str, t.Any]:
     """Build notification context for RSVP."""
-    return {
+    from django.utils.dateformat import format as date_format
+
+    from common.models import SiteSettings
+
+    event = rsvp.event
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+
+    event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T") if event.start else ""
+    event_location = event.full_address()
+
+    context = {
         "rsvp_id": str(rsvp.id),
-        "event_id": str(rsvp.event.id),
-        "event_name": rsvp.event.name,
-        "event_start": rsvp.event.start.isoformat(),
-        "event_location": rsvp.event.address or (rsvp.event.city.name if rsvp.event.city else ""),
+        "event_id": str(event.id),
+        "event_name": event.name,
+        "event_start": event.start.isoformat() if event.start else "",
+        "event_start_formatted": event_start_formatted,
+        "event_location": event_location,
+        "event_url": f"{frontend_base_url}/events/{event.id}",
         "response": rsvp.status,
-        "plus_ones": 0,  # EventRSVP doesn't have plus_ones field yet
         "user_name": rsvp.user.get_display_name(),
         "user_email": rsvp.user.email,
     }
+
+    # Add optional fields if available in the model
+    if hasattr(rsvp, "guest_count"):
+        context["guest_count"] = rsvp.guest_count
+    if hasattr(rsvp, "dietary_restrictions") and rsvp.dietary_restrictions:
+        context["dietary_restrictions"] = rsvp.dietary_restrictions
+
+    return context
 
 
 def _notify_staff_about_rsvp(rsvp: EventRSVP, notification_type: str, context: dict[str, t.Any]) -> None:
@@ -51,6 +70,10 @@ def _send_rsvp_confirmation_notifications(rsvp: EventRSVP) -> None:
 
 def _send_rsvp_updated_notifications(rsvp: EventRSVP) -> None:
     """Send notifications when RSVP is updated."""
+    from django.utils.dateformat import format as date_format
+
+    from common.models import SiteSettings
+
     # Check if old status was captured in pre_save
     if not hasattr(rsvp, "_old_status"):
         return  # No status change
@@ -61,15 +84,28 @@ def _send_rsvp_updated_notifications(rsvp: EventRSVP) -> None:
     if old_status == rsvp.status:
         return
 
+    event = rsvp.event
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+
+    event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T") if event.start else ""
+    event_location = event.full_address()
+
     context = {
         "rsvp_id": str(rsvp.id),
-        "event_id": str(rsvp.event.id),
-        "event_name": rsvp.event.name,
+        "event_id": str(event.id),
+        "event_name": event.name,
+        "event_start_formatted": event_start_formatted,
+        "event_location": event_location,
+        "event_url": f"{frontend_base_url}/events/{event.id}",
         "old_response": old_status,
         "new_response": rsvp.status,
         "user_name": rsvp.user.get_display_name(),
         "user_email": rsvp.user.email,
     }
+
+    # Add optional fields if available
+    if hasattr(rsvp, "guest_count"):
+        context["guest_count"] = rsvp.guest_count
 
     _notify_staff_about_rsvp(rsvp, NotificationType.RSVP_UPDATED, context)
 
@@ -111,15 +147,34 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
     Sends notifications to:
     - Organization staff and owners (the user already knows they cancelled)
     """
+    from django.utils.dateformat import format as date_format
+
     build_attendee_visibility_flags.delay(str(instance.event_id))
 
     # Send notifications after transaction commits
     def send_notifications() -> None:
+        from common.models import SiteSettings
+
         event = instance.event
         user = instance.user
+        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+
+        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T") if event.start else ""
+        event_location = event.full_address()
 
         notification_type = NotificationType.RSVP_CANCELLED
-        context = {"event_id": str(event.id), "event_name": event.name, "user_name": user.display_name}
+        context = {
+            "event_id": str(event.id),
+            "event_name": event.name,
+            "event_start_formatted": event_start_formatted,
+            "event_location": event_location,
+            "event_url": f"{frontend_base_url}/events/{event.id}",
+            "user_name": user.display_name,
+        }
+
+        # Add optional cancellation_reason if available
+        if hasattr(instance, "cancellation_reason") and instance.cancellation_reason:
+            context["cancellation_reason"] = instance.cancellation_reason
 
         # Notify organization staff and owners only (user already knows they cancelled)
         staff_and_owners = get_organization_staff_and_owners(event.organization_id)

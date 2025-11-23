@@ -7,6 +7,6 @@
 - {% trans "Category:" %} {{ context.item_type }}
 {% if context.quantity %}- {% trans "Quantity:" %} {{ context.quantity }}{% endif %}
 
-{% trans "Claim this item:" %} {{ context.frontend_url }}
+{% trans "Claim this item:" %} {{ context.event_url }}
 
 {% include "notifications/email/_footer.txt" %}

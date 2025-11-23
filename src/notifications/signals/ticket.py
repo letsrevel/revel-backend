@@ -46,7 +46,7 @@ def _build_base_event_context(event: Event) -> dict[str, t.Any]:
     """
     from django.utils.dateformat import format as date_format
 
-    event_location = event.address or (event.city.name if event.city else "")
+    event_location = event.full_address()
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     frontend_url = f"{frontend_base_url}/events/{event.id}"
 
@@ -96,6 +96,15 @@ def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, 
     event = ticket.event
     base_context = _build_base_event_context(event)
 
+    # Determine action based on status change
+    action = "updated"
+    if old_status == Ticket.TicketStatus.PENDING and ticket.status == Ticket.TicketStatus.ACTIVE:
+        action = "activated"
+    elif ticket.status == Ticket.TicketStatus.CANCELLED:
+        action = "cancelled"
+    elif ticket.status == Ticket.TicketStatus.CHECKED_IN:
+        action = "checked in"
+
     return {
         **base_context,
         "ticket_id": str(ticket.id),
@@ -104,6 +113,7 @@ def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, 
         "ticket_status": ticket.status,
         "old_status": old_status,
         "new_status": ticket.status,
+        "action": action,
     }
 
 
@@ -159,11 +169,13 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
         context=context,
     )
 
-    # Notify staff/owners with additional context
+    # Notify staff/owners with additional context (no attachments for staff)
     staff_context = {
         **context,
         "ticket_holder_name": ticket.user.get_display_name(),
         "ticket_holder_email": ticket.user.email,
+        "include_pdf": False,
+        "include_ics": False,
     }
     staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
     for staff_user in staff_and_owners:
@@ -180,11 +192,17 @@ def _send_ticket_activated_notification(ticket: Ticket, old_status: str) -> None
     """Send notification when ticket is activated.
 
     Notifies the ticket holder when their ticket status changes to ACTIVE.
+    For online payments (PENDING→ACTIVE), skip this notification as the user
+    already receives PAYMENT_CONFIRMATION from the payment service.
 
     Args:
         ticket: The ticket being activated
         old_status: The previous ticket status
     """
+    # Skip notification for online payment activations (user gets PAYMENT_CONFIRMATION instead)
+    if old_status == Ticket.TicketStatus.PENDING and ticket.tier.payment_method == TicketTier.PaymentMethod.ONLINE:
+        return
+
     context = _build_ticket_updated_context(ticket, old_status)
 
     notification_requested.send(
@@ -300,6 +318,8 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
                 **context,
                 "ticket_holder_name": ticket.user.get_display_name(),
                 "ticket_holder_email": ticket.user.email,
+                "include_pdf": False,
+                "include_ics": False,
             }
             staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
             for staff_user in list(staff_and_owners):

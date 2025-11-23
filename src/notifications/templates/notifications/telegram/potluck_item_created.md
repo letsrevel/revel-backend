@@ -14,4 +14,4 @@
 <b>{% trans "Description:" %}</b> {{ context.note }}
 {% endif %}
 
-<a href="{{ context.frontend_url }}">{% trans "Claim Item" %}</a>
+<a href="{{ context.event_url }}">{% trans "Claim Item" %}</a>
