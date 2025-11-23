@@ -24,7 +24,7 @@ Unlike monolithic, corporate platforms that treat events as transactions, Revel 
 
 ---
 
-### ✨ Live Demo (Alpha)
+### ✨ Live Demo
 
 You can try out an early version of Revel yourself at https://demo.letsrevel.io
 
