@@ -16,6 +16,6 @@
 {% trans "Description:" %} {{ context.note }}
 {% endif %}
 
-{% trans "Claim this item or view the potluck list:" %} {{ context.frontend_url }}
+{% trans "Claim this item or view the potluck list:" %} {{ context.event_url }}
 
 {% include "notifications/email/_footer.txt" %}

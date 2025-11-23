@@ -4,4 +4,4 @@
 🔄 {% blocktranslate with item=context.item_name event=context.event_name %}<b>"{{ item }}"</b> has been updated for {{ event }}.{% endblocktranslate %}
 {% endif %}
 
-<a href="{{ context.frontend_url }}">{% trans "View Potluck List" %}</a>
+<a href="{{ context.event_url }}">{% trans "View Potluck List" %}</a>

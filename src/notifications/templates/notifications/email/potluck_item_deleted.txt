@@ -4,6 +4,6 @@
 
 {% trans "Item:" %} {{ context.item_name }}
 
-{% trans "View potluck list:" %} {{ context.frontend_url }}
+{% trans "View potluck list:" %} {{ context.event_url }}
 
 {% include "notifications/email/_footer.txt" %}

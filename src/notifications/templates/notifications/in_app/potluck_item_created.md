@@ -2,12 +2,12 @@
 
 **{% trans "Item Details:" %}**
 - {% trans "Item:" %} {{ context.item_name }}
-- {% trans "Category:" %} {{ context.item_category }}
-- {% trans "Quantity:" %} {{ context.quantity_needed }}
-{% if context.created_by_name %}- {% trans "Added by:" %} {{ context.created_by_name }}{% endif %}
+- {% trans "Category:" %} {{ context.item_type }}
+{% if context.quantity %}- {% trans "Quantity:" %} {{ context.quantity }}{% endif %}
+{% if context.actor_name %}- {% trans "Added by:" %} {{ context.actor_name }}{% endif %}
 
-{% if context.item_description %}
-**{% trans "Description:" %}** {{ context.item_description }}
+{% if context.note %}
+**{% trans "Description:" %}** {{ context.note }}
 {% endif %}
 
 [{% trans "Claim Item" %}]({{ context.event_url }})

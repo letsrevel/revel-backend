@@ -52,6 +52,20 @@ class LocationMixin(models.Model):
             self.location = self.city.location
         super().save(*args, **kwargs)
 
+    def full_address(self) -> str:
+        """Get the full address combining address and city.
+
+        Returns:
+            Full address string, or empty string if no location info available.
+        """
+        if self.address and self.city:
+            return f"{self.address}, {self.city}"
+        if self.address:
+            return self.address
+        if self.city:
+            return self.city.name
+        return ""
+
 
 ALLOWED_IMAGE_EXTENSIONS: list[str] = ["jpg", "jpeg", "png", "gif", "webp"]
 MAX_IMAGE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5MB

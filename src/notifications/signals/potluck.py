@@ -37,7 +37,7 @@ def _build_potluck_context(instance: PotluckItem, action: str, user: RevelUser) 
         "event_id": str(event.id),
         "event_name": event.name,
         "action": action,
-        "frontend_url": f"{frontend_base_url}/events/{event.id}",
+        "event_url": f"{frontend_base_url}/events/{event.id}",
     }
 
     # Add item details

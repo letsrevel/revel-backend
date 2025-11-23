@@ -12,6 +12,6 @@
 {% if context.quantity %}- {% trans "Quantity:" %} {{ context.quantity }}{% endif %}
 {% if context.is_organizer and context.actor_name %}- {% trans "Claimed by:" %} {{ context.actor_name }}{% endif %}
 
-{% trans "View potluck list:" %} {{ context.frontend_url }}
+{% trans "View potluck list:" %} {{ context.event_url }}
 
 {% include "notifications/email/_footer.txt" %}

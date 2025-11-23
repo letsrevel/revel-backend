@@ -31,7 +31,7 @@ def handle_invitation_save(
         event = instance.event
 
         # Build location string
-        event_location = event.address or (event.city.name if event.city else "")
+        event_location = event.full_address()
 
         # Build frontend URL
         frontend_base_url = SiteSettings.get_solo().frontend_base_url

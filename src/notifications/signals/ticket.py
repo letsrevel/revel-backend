@@ -46,7 +46,7 @@ def _build_base_event_context(event: Event) -> dict[str, t.Any]:
     """
     from django.utils.dateformat import format as date_format
 
-    event_location = event.address or (event.city.name if event.city else "")
+    event_location = event.full_address()
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     frontend_url = f"{frontend_base_url}/events/{event.id}"
 

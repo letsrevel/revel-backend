@@ -5,4 +5,4 @@
 • {% trans "Category:" %} {{ context.item_type }}
 {% if context.quantity %}• {% trans "Quantity:" %} {{ context.quantity }}{% endif %}
 
-<a href="{{ context.frontend_url }}">{% trans "Claim Item" %}</a>
+<a href="{{ context.event_url }}">{% trans "Claim Item" %}</a>
