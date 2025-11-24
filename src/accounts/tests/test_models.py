@@ -61,4 +61,4 @@ def test_reveluser_get_display_name_empty_preferred_name() -> None:
 def test_reveluser_get_display_name_no_names() -> None:
     """Test that get_display_name() returns username when no other names are available."""
     user = RevelUser.objects.create_user(username="test_user", password="password")
-    assert user.get_display_name() == "Test User"
+    assert user.get_display_name() == "test_user"

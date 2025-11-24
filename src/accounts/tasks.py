@@ -436,7 +436,7 @@ def send_early_verification_reminders() -> dict[str, int]:
     stats = {"24h": 0, "3d": 0, "7d": 0}
 
     # Base queryset: unverified, active, non-guest users with tracking prefetched
-    base_qs = RevelUser.objects.filter(email_verified=False, is_active=True, guest=False).prefetch_related(
+    base_qs = RevelUser.objects.filter(email_verified=False, is_active=True, guest=False).select_related(
         "verification_reminder_tracking"
     )
 
@@ -477,7 +477,7 @@ def send_final_verification_warnings() -> dict[str, int]:
 
     users_needing_final_warning = RevelUser.objects.filter(
         email_verified=False, is_active=True, guest=False, date_joined__lte=month_ago
-    ).prefetch_related("verification_reminder_tracking")
+    ).select_related("verification_reminder_tracking")
 
     count = 0
     for user in users_needing_final_warning:

@@ -94,7 +94,7 @@ def handle_invitation_request_created(
                     "event_id": str(event.id),
                     "event_name": event.name,
                     "requester_email": requester.email,
-                    "requester_name": requester.get_full_name() or requester.username,
+                    "requester_name": requester.display_name,
                     "request_message": instance.message or "",
                     "frontend_url": frontend_url,
                 },
