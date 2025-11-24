@@ -1,4 +1,3 @@
-import re
 import secrets
 import typing as t
 import uuid
@@ -69,9 +68,7 @@ class RevelUser(AbstractUser):
 
     def get_display_name(self) -> str:
         """Returns the user's preferred name, or their full name as a fallback."""
-        return (
-            self.preferred_name or self.get_full_name() or re.sub(r"(\W|_)+", " ", self.username.split("@")[0]).title()
-        )
+        return self.preferred_name or self.get_full_name() or self.username
 
 
 class UserDataExport(TimeStampedModel):

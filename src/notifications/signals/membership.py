@@ -51,7 +51,7 @@ def handle_membership_request_created(
                     "organization_id": str(organization.id),
                     "organization_name": organization.name,
                     "requester_id": str(requester.id),
-                    "requester_name": requester.get_full_name() or requester.username,
+                    "requester_name": requester.display_name,
                     "requester_email": requester.email,
                     "request_message": instance.message or "",
                     "frontend_url": frontend_url,
