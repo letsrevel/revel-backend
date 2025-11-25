@@ -1,4 +1,4 @@
-# Revel
+# Revel Backend
 
 **An open-source, community-focused event management platform.**
 
@@ -16,7 +16,17 @@
 [![Test](https://github.com/letsrevel/revel-backend/actions/workflows/test.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/test.yaml)
 [![Build](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/tests.yaml)
 
+---
 
+## 🔗 Related Repositories
+
+This repository contains the **backend API and business logic** for Revel. The complete platform consists of:
+
+- **[revel-backend](https://github.com/letsrevel/revel-backend)** (this repository) - Django REST API, business logic, database models
+- **[revel-frontend](https://github.com/letsrevel/revel-frontend)** - SvelteKit web application, user interface
+- **[infra](https://github.com/letsrevel/infra)** - Docker Compose setup, reverse proxy, observability stack, deployment configurations
+
+---
 
 Revel is an event management and ticketing platform designed with community at its heart. Initially created to serve the specific needs of queer, LGBTQ+, and sex-positive communities, it is built to be event-agnostic, scalable, and a powerful tool for any group that values privacy, control, and transparency.
 
