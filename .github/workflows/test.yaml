@@ -74,7 +74,7 @@ jobs:
 
       - name: Check for missing migrations
         working-directory: src
-        run: uv run manage.py makemigrations --check --dry-run
+        run: uv run manage.py makemigrations --check --dry-run --no-input
 
       - name: Check i18n compiled messages
         run: |
