@@ -30,7 +30,7 @@ from questionnaires.models import Questionnaire, QuestionnaireEvaluation, Questi
 @pytest.fixture
 def organization_owner_user(django_user_model: t.Type[RevelUser]) -> RevelUser:
     return django_user_model.objects.create_user(
-        username="organization_owner_user", email="a@example.com", password="pass"
+        username="organization_owner_user", email="a@example.com", password="pass", email_verified=True
     )
 
 

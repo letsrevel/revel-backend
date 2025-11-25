@@ -187,3 +187,114 @@ class TestCreateMembershipRequest:
         url = reverse("api:create_membership_request", kwargs={"slug": organization.slug})
         response = member_client.post(url)
         assert response.status_code == 400
+
+
+class TestCreateOrganization:
+    """Tests for POST /organizations/ endpoint."""
+
+    def test_create_organization_success_with_verified_email(
+        self, nonmember_client: Client, nonmember_user: RevelUser
+    ) -> None:
+        """Test that a user with verified email can create an organization."""
+        # Arrange
+        nonmember_user.email_verified = True
+        nonmember_user.save()
+
+        url = reverse("api:create_organization")
+        payload = {
+            "name": "New Test Organization",
+            "description": "A test organization description",
+            "contact_email": "contact@neworg.com",
+        }
+
+        # Act
+        response = nonmember_client.post(url, data=payload, content_type="application/json")
+
+        # Assert
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "New Test Organization"
+        assert data["description"] == "A test organization description"
+        assert data["contact_email"] == "contact@neworg.com"
+        assert data["contact_email_verified"] is False
+        assert data["visibility"] == Organization.Visibility.STAFF_ONLY
+        assert Organization.objects.filter(name="New Test Organization", owner=nonmember_user).exists()
+
+    def test_create_organization_with_owner_email_auto_verifies(
+        self, nonmember_client: Client, nonmember_user: RevelUser
+    ) -> None:
+        """Test that contact email is auto-verified when it matches owner's verified email."""
+        # Arrange
+        nonmember_user.email_verified = True
+        nonmember_user.email = "owner@example.com"
+        nonmember_user.save()
+
+        url = reverse("api:create_organization")
+        payload = {
+            "name": "Auto Verify Org",
+            "contact_email": "owner@example.com",  # Same as owner's email
+        }
+
+        # Act
+        response = nonmember_client.post(url, data=payload, content_type="application/json")
+
+        # Assert
+        assert response.status_code == 201
+        data = response.json()
+        assert data["contact_email"] == "owner@example.com"
+        assert data["contact_email_verified"] is True
+
+    def test_create_organization_without_verified_email_fails(
+        self, nonmember_client: Client, nonmember_user: RevelUser
+    ) -> None:
+        """Test that a user without verified email cannot create an organization."""
+        # Arrange
+        nonmember_user.email_verified = False
+        nonmember_user.save()
+
+        url = reverse("api:create_organization")
+        payload = {"name": "Should Fail Org", "contact_email": "contact@fail.com"}
+
+        # Act
+        response = nonmember_client.post(url, data=payload, content_type="application/json")
+
+        # Assert
+        assert response.status_code == 403
+        assert "Email verification required" in response.json().get("detail", "")
+
+    def test_create_organization_user_already_owns_one_fails(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        """Test that a user cannot create a second organization."""
+        url = reverse("api:create_organization")
+        payload = {"name": "Second Organization", "contact_email": "second@org.com"}
+
+        # Act
+        response = organization_owner_client.post(url, data=payload, content_type="application/json")
+
+        # Assert
+        assert response.status_code == 400
+        assert "already own an organization" in response.json().get("detail", "")
+
+    def test_create_organization_unauthenticated_fails(self, client: Client) -> None:
+        """Test that an unauthenticated user cannot create an organization."""
+        url = reverse("api:create_organization")
+        payload = {"name": "Unauth Org", "contact_email": "unauth@org.com"}
+
+        response = client.post(url, data=payload, content_type="application/json")
+        assert response.status_code == 401
+
+    def test_create_organization_invalid_email_fails(self, nonmember_client: Client, nonmember_user: RevelUser) -> None:
+        """Test that invalid email format is rejected."""
+        # Arrange
+        nonmember_user.email_verified = True
+        nonmember_user.save()
+
+        url = reverse("api:create_organization")
+        payload = {"name": "Bad Email Org", "contact_email": "not-an-email"}
+
+        # Act
+        response = nonmember_client.post(url, data=payload, content_type="application/json")
+
+        # Assert
+        assert response.status_code == 422  # Validation error

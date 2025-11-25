@@ -77,11 +77,37 @@ class TaggableSchemaMixin(Schema):
         return [ta.tag.name for ta in obj.tags.all()]
 
 
+class OrganizationCreateSchema(Schema):
+    """Schema for creating a new organization."""
+
+    name: OneToOneFiftyString
+    description: StrippedString | None = None
+    contact_email: EmailStr
+
+
+class OrganizationContactEmailUpdateSchema(Schema):
+    """Schema for updating organization contact email."""
+
+    contact_email: EmailStr
+
+
+class VerifyOrganizationContactEmailJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+    """JWT payload schema for organization contact email verification."""
+
+    type: t.Literal["org_contact_email_verification"] = "org_contact_email_verification"
+    organization_id: UUID4
+
+
 class OrganizationEditSchema(CityEditMixin):
+    """Schema for editing an existing organization.
+
+    Note: contact_email is excluded from this schema as it requires
+    a separate verification flow via the update-contact-email endpoint.
+    """
+
     description: StrippedString = ""
     visibility: Organization.Visibility
     accept_membership_requests: bool = False
-    contact_email: EmailStr | None = None
 
 
 class MinimalOrganizationSchema(Schema):

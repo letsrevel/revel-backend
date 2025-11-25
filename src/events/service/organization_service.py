@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
@@ -7,9 +8,12 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
+from accounts.jwt import blacklist as blacklist_token
+from accounts.jwt import check_blacklist, create_token
 from accounts.models import RevelUser
+from accounts.service.account import token_to_payload
 from common.models import SiteSettings
-from events import models
+from events import models, schema, tasks
 from events.exceptions import AlreadyMemberError, PendingMembershipRequestExistsError
 from events.models import (
     MembershipTier,
@@ -23,6 +27,91 @@ from events.models import (
 from events.models.organization import _get_default_permissions
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
+
+
+def _create_and_send_contact_email_verification(
+    organization: Organization,
+    email: str,
+    user: RevelUser,
+) -> str:
+    """Create verification token and send verification email.
+
+    Args:
+        organization: The organization
+        email: The email to verify
+        user: The user associated with the verification
+
+    Returns:
+        The verification token
+    """
+    verification_payload = schema.VerifyOrganizationContactEmailJWTPayloadSchema(
+        organization_id=organization.id,
+        user_id=user.id,
+        email=email,
+        exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
+    )
+    token = create_token(verification_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+
+    # Send verification email
+    def send_verification_email() -> None:
+        tasks.send_organization_contact_email_verification.delay(
+            email=email,
+            token=token,
+            organization_name=organization.name,
+            organization_slug=organization.slug,
+        )
+
+    transaction.on_commit(send_verification_email)
+    return token
+
+
+@transaction.atomic
+def create_organization(
+    owner: RevelUser,
+    name: str,
+    contact_email: str,
+    description: str | None = None,
+) -> Organization:
+    """Create a new organization.
+
+    Args:
+        owner: The user who will own the organization
+        name: The name of the organization
+        contact_email: The contact email for the organization
+        description: Optional description for the organization
+
+    Returns:
+        The created Organization instance
+
+    Raises:
+        HttpError: If the user already owns an organization
+    """
+    # Check if user already owns an organization
+    if Organization.objects.filter(owner=owner).exists():
+        raise HttpError(
+            400, str(_("You already own an organization. Only one organization per user as owner is allowed."))
+        )
+
+    # Check if contact email matches user email and is verified
+    contact_email_verified = False
+    if contact_email.lower() == owner.email.lower() and owner.email_verified:
+        contact_email_verified = True
+
+    # Create the organization
+    organization = Organization.objects.create(
+        name=name,
+        owner=owner,
+        description=description or "",
+        contact_email=contact_email,
+        contact_email_verified=contact_email_verified,
+        visibility=Organization.Visibility.STAFF_ONLY,  # Default to staff only
+    )
+
+    # Send verification email if contact email is not auto-verified
+    if not contact_email_verified:
+        _create_and_send_contact_email_verification(organization, contact_email, owner)
+
+    return organization
 
 
 def create_membership_request(
@@ -249,3 +338,71 @@ def update_staff_permissions(staff_member: OrganizationStaff, permissions: Permi
     staff_member.permissions = permissions.model_dump(mode="json")
     staff_member.save()
     return staff_member
+
+
+@transaction.atomic
+def update_contact_email(organization: Organization, new_email: str, requester: RevelUser) -> str:
+    """Update organization contact email and send verification.
+
+    Args:
+        organization: The organization to update
+        new_email: The new contact email address
+        requester: The user requesting the change
+
+    Returns:
+        The verification token to be sent via email
+
+    Raises:
+        HttpError: If the email is the same as current one
+    """
+    # Check if email is different from current
+    if organization.contact_email and organization.contact_email.lower() == new_email.lower():
+        raise HttpError(400, str(_("This is already the contact email for this organization.")))
+
+    # Check if new email matches requester's verified email
+    if new_email.lower() == requester.email.lower() and requester.email_verified:
+        # Automatically verify since it matches the user's verified email
+        organization.contact_email = new_email
+        organization.contact_email_verified = True
+        organization.save(update_fields=["contact_email", "contact_email_verified"])
+        return ""  # No token needed
+
+    # Update the email but mark as unverified
+    organization.contact_email = new_email
+    organization.contact_email_verified = False
+    organization.save(update_fields=["contact_email", "contact_email_verified"])
+
+    # Create verification token and send email
+    return _create_and_send_contact_email_verification(organization, new_email, requester)
+
+
+@transaction.atomic
+def verify_contact_email(token: str) -> Organization:
+    """Verify an organization's contact email.
+
+    Args:
+        token: The verification token
+
+    Returns:
+        The organization with verified contact email
+
+    Raises:
+        HttpError: If token is invalid or organization not found
+    """
+    payload = token_to_payload(token, schema.VerifyOrganizationContactEmailJWTPayloadSchema)
+    check_blacklist(payload.jti)
+
+    organization = Organization.objects.filter(id=payload.organization_id).first()
+    if not organization:
+        raise HttpError(400, str(_("Organization not found.")))
+
+    # Check that the email in the token matches the current contact email
+    if not organization.contact_email or organization.contact_email.lower() != payload.email.lower():
+        raise HttpError(400, str(_("This verification link is for a different email address.")))
+
+    # Mark as verified
+    blacklist_token(token)
+    organization.contact_email_verified = True
+    organization.save(update_fields=["contact_email_verified"])
+
+    return organization
