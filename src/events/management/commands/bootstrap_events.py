@@ -177,6 +177,7 @@ class Command(BaseCommand):
                 username=email,
                 password="password123",
                 email=email,
+                email_verified=True,
             )
             # Set first/last name if possible
             name_parts = full_name.split()
