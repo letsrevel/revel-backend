@@ -21,6 +21,7 @@ from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
+from common.tasks import send_email
 from events.service import update_db_instance
 
 from .models import (
@@ -153,8 +154,6 @@ def send_guest_rsvp_confirmation(email: str, token: str, event_name: str) -> Non
         token: JWT confirmation token
         event_name: Name of the event
     """
-    from common.tasks import send_email
-
     logger.info("guest_rsvp_confirmation_sending", email=email, event_name=event_name)
     subject = _("Confirm your RSVP to %(event_name)s") % {"event_name": event_name}
     confirmation_link = SiteSettings.get_solo().frontend_base_url + f"/events/confirm-action?token={token}"
@@ -178,8 +177,6 @@ def send_guest_ticket_confirmation(email: str, token: str, event_name: str, tier
         event_name: Name of the event
         tier_name: Name of the ticket tier
     """
-    from common.tasks import send_email
-
     logger.info("guest_ticket_confirmation_sending", email=email, event_name=event_name, tier_name=tier_name)
     subject = _("Confirm your ticket for %(event_name)s") % {"event_name": event_name}
     confirmation_link = SiteSettings.get_solo().frontend_base_url + f"/events/confirm-action?token={token}"
@@ -189,3 +186,44 @@ def send_guest_ticket_confirmation(email: str, token: str, event_name: str, tier
     )
     send_email(to=email, subject=subject, body=body)
     logger.info("guest_ticket_confirmation_sent", email=email)
+
+
+@shared_task
+def send_organization_contact_email_verification(
+    email: str, token: str, organization_name: str, organization_slug: str
+) -> None:
+    """Send organization contact email verification.
+
+    Args:
+        email: The new contact email to verify
+        token: JWT verification token
+        organization_name: Name of the organization
+        organization_slug: Slug of the organization
+    """
+    logger.info(
+        "organization_contact_email_verification_sending",
+        email=email,
+        organization_name=organization_name,
+    )
+    subject = _("Verify contact email for %(organization_name)s") % {"organization_name": organization_name}
+    verification_link = (
+        SiteSettings.get_solo().frontend_base_url + f"/org/{organization_slug}/verify-contact-email?token={token}"
+    )
+    body = render_to_string(
+        "events/emails/organization_contact_email_verification_body.txt",
+        {
+            "verification_link": verification_link,
+            "organization_name": organization_name,
+            "contact_email": email,
+        },
+    )
+    html_body = render_to_string(
+        "events/emails/organization_contact_email_verification_body.html",
+        {
+            "verification_link": verification_link,
+            "organization_name": organization_name,
+            "contact_email": email,
+        },
+    )
+    send_email(to=email, subject=subject, body=body, html_body=html_body)
+    logger.info("organization_contact_email_verification_sent", email=email)

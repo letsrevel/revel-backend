@@ -15,6 +15,7 @@ from common.controllers import UserAwareController
 from common.schema import ResponseMessage
 from common.throttling import (
     UserRequestThrottle,
+    WriteThrottle,
 )
 from events import filters, models, schema
 from events.service import organization_service
@@ -69,6 +70,38 @@ class OrganizationController(UserAwareController):
         if order_by == "distance":
             return order_by_distance(self.user_location(), qs)
         return qs.order_by(order_by)
+
+    @route.post(
+        "/",
+        url_name="create_organization",
+        response={201: schema.OrganizationRetrieveSchema},
+        auth=I18nJWTAuth(requires_verified_email=True),
+        throttle=WriteThrottle(),
+    )
+    def create_organization(self, payload: schema.OrganizationCreateSchema) -> tuple[int, models.Organization]:
+        """Create a new organization.
+
+        Creates a new organization with the authenticated user as the owner. Each user
+        can only own one organization.
+
+        **Requirements:**
+        - User must have a verified email address
+        - User cannot already own an organization
+
+        **Parameters:**
+        - `name`: Organization name (max 150 characters, must be unique)
+        - `description`: Optional description
+        - `contact_email`: Contact email for the organization (will be verified if it matches user's verified email)
+
+        **Returns:**
+        - 201: The created organization
+
+        **Error Cases:**
+        - 400: User already owns an organization
+        - 403: Email not verified
+        """
+        organization = organization_service.create_organization(owner=self.user(), **payload.model_dump())
+        return 201, organization
 
     @route.get("/{slug}", url_name="get_organization", response=schema.OrganizationRetrieveSchema)
     def get_organization(self, slug: str) -> models.Organization:

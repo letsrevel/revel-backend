@@ -1,7 +1,6 @@
 """OpenTelemetry distributed tracing setup."""
 
-import logging
-
+import structlog
 from django.conf import settings
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -14,7 +13,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import ParentBasedTraceIdRatio
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def init_tracing() -> None:

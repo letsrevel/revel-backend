@@ -1,6 +1,6 @@
-import logging
 from uuid import UUID
 
+import structlog
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
@@ -15,6 +15,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
+from accounts.schema import VerifyEmailSchema
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.models import Tag
@@ -27,7 +28,7 @@ from events.service import organization_service, resource_service, stripe_servic
 
 from .permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
@@ -58,9 +59,81 @@ class OrganizationAdminController(UserAwareController):
         permissions=[OrganizationPermission("edit_organization")],
     )
     def update_organization(self, slug: str, payload: schema.OrganizationEditSchema) -> models.Organization:
-        """Update organization by slug."""
+        """Update organization by slug.
+
+        Note: contact_email cannot be updated through this endpoint.
+        Use the update-contact-email endpoint instead for email changes.
+        """
         organization = self.get_one(slug)
         return update_db_instance(organization, payload)
+
+    @route.post(
+        "/update-contact-email",
+        url_name="update_contact_email",
+        response={200: schema.OrganizationRetrieveSchema},
+        permissions=[OrganizationPermission("edit_organization")],
+    )
+    def update_contact_email(
+        self, slug: str, payload: schema.OrganizationContactEmailUpdateSchema
+    ) -> models.Organization:
+        """Update organization contact email with verification.
+
+        Updates the contact email for the organization and triggers an email
+        verification flow. The email will be marked as unverified until the
+        verification link is clicked.
+
+        **Special Case:**
+        If the new email matches the requester's verified email address,
+        it will be automatically verified without requiring a verification link.
+
+        **Parameters:**
+        - `contact_email`: The new contact email address
+
+        **Returns:**
+        - 200: The updated organization (contact_email_verified will be False unless auto-verified)
+
+        **Verification Flow:**
+        1. Email is updated but marked as unverified
+        2. Verification email is sent to the new address
+        3. User clicks verification link
+        4. Email is marked as verified
+
+        **Error Cases:**
+        - 400: Email is the same as current contact email
+        - 403: User lacks edit_organization permission
+        """
+        organization = self.get_one(slug)
+        organization_service.update_contact_email(
+            organization=organization,
+            new_email=payload.contact_email,
+            requester=self.user(),
+        )
+        return organization
+
+    @route.post(
+        "/verify-contact-email",
+        url_name="verify_contact_email",
+        response={200: schema.OrganizationRetrieveSchema},
+    )
+    def verify_contact_email(self, slug: str, payload: VerifyEmailSchema) -> models.Organization:
+        """Verify organization contact email using token from email link.
+
+        Completes the contact email verification process. This endpoint is
+        typically called when a user clicks the verification link in their email.
+
+        **Parameters:**
+        - `token`: The verification token from the email (passed in request body)
+
+        **Returns:**
+        - 200: The organization with contact_email_verified = True
+        - 400: Invalid token or verification failed
+
+        **Error Cases:**
+        - 400: Token is invalid, expired, or already used
+        - 400: Organization not found
+        - 400: Email address has changed since verification was sent
+        """
+        return organization_service.verify_contact_email(payload.token)
 
     @route.post(
         "/stripe/connect",

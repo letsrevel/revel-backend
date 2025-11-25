@@ -1,22 +1,23 @@
-import logging
 import typing as t
 
+import structlog
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest
 from django.utils import translation
-from ninja_jwt.authentication import AsyncJWTAuth, JWTAuth
 
-logger = logging.getLogger(__name__)
+from .auth_base import BaseJWTAuth
+
+logger = structlog.get_logger(__name__)
 
 
-class I18nJWTAuth(JWTAuth):
+class I18nJWTAuth(BaseJWTAuth):
     """JWT authentication that activates user's preferred language.
 
-    This authentication class extends JWTAuth to automatically activate
+    This authentication class extends BaseJWTAuth to automatically activate
     the authenticated user's preferred language for the request. This allows
     all API responses, error messages, and emails to be sent in the user's
-    chosen language.
+    chosen language. Also inherits permission checking capabilities from BaseJWTAuth.
 
     The language is activated immediately after successful JWT validation,
     before the view handler executes, ensuring all translations work correctly.
@@ -26,6 +27,12 @@ class I18nJWTAuth(JWTAuth):
         def my_endpoint(request):
             # User's language is already activated
             return {"message": str(_("Hello!"))}
+
+        # With email verification requirement:
+        @route.post("/create-org", auth=I18nJWTAuth(requires_verified_email=True))
+        def create_org(request):
+            # Only users with verified emails can access this
+            ...
     """
 
     def authenticate(self, request: HttpRequest, token: str) -> t.Any:
@@ -41,47 +48,9 @@ class I18nJWTAuth(JWTAuth):
         Raises:
             AuthenticationFailed: If authentication fails
             InvalidToken: If the token is invalid
+            PermissionDenied: If user doesn't meet required criteria
         """
         user = super().authenticate(request, token)
-
-        # Activate user's preferred language if set
-        if user and hasattr(user, "language"):
-            user_language = getattr(user, "language", None)
-            if user_language:
-                translation.activate(user_language)
-                request.LANGUAGE_CODE = user_language
-
-        return user
-
-
-class AsyncI18nJWTAuth(AsyncJWTAuth):
-    """Async JWT authentication that activates user's preferred language.
-
-    This is the async version of I18nJWTAuth for use with async view handlers.
-    It provides the same language activation functionality in an async context.
-
-    Usage:
-        @route.get("/endpoint", auth=AsyncI18nJWTAuth())
-        async def my_async_endpoint(request):
-            # User's language is already activated
-            return {"message": str(_("Hello!"))}
-    """
-
-    async def authenticate(self, request: HttpRequest, token: str) -> t.Any:
-        """Authenticate the request asynchronously and activate user's language.
-
-        Args:
-            request: The HTTP request object
-            token: The JWT token string
-
-        Returns:
-            The authenticated user object
-
-        Raises:
-            AuthenticationFailed: If authentication fails
-            InvalidToken: If the token is invalid
-        """
-        user = await super().authenticate(request, token)
 
         # Activate user's preferred language if set
         if user and hasattr(user, "language"):

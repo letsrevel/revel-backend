@@ -247,3 +247,14 @@ dump-openapi:
 .PHONY: dump-issues
 dump-issues:
 	gh issue list --state open --limit 1000 --json number,title,labels,body,url --jq '.[] | "## \(.title) (#\(.number))\n\n- URL: \(.url)\n- Labels: \(.labels | map(.name) | join(", "))\n\n\(.body)\n\n---\n"' > issues.md
+
+
+.PHONY: release
+release:
+	@VERSION=$$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/'); \
+	echo "Current version: $$VERSION"; \
+	read -p "Do you want to create a release v$$VERSION? (y/n): " confirm && if [ "$$confirm" = "y" ]; then \
+		gh release create "v$$VERSION" --generate-notes; \
+	else \
+		echo "Release aborted."; \
+	fi

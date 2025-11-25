@@ -2,13 +2,16 @@ from datetime import datetime, timedelta
 
 import orjson
 import pytest
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
 from django.utils import timezone
 
+from accounts.jwt import create_token
 from accounts.models import RevelUser
 from common.utils import assert_image_equal
+from events import schema
 from events.models import (
     MembershipTier,
     Organization,
@@ -1157,3 +1160,149 @@ def test_update_member_invalid_status_fails(
     response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 422
+
+
+# --- Tests for POST /organization-admin/{slug}/update-contact-email ---
+
+
+@pytest.mark.django_db(transaction=True)
+class TestUpdateContactEmail:
+    """Tests for the update-contact-email endpoint."""
+
+    def test_update_contact_email_success(
+        self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
+    ) -> None:
+        """Test updating contact email successfully."""
+        url = reverse("api:update_contact_email", kwargs={"slug": organization.slug})
+        payload = {"contact_email": "newemail@example.com"}
+
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["contact_email"] == "newemail@example.com"
+        assert data["contact_email_verified"] is False
+
+    def test_update_contact_email_auto_verifies_with_owner_email(
+        self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
+    ) -> None:
+        """Test that contact email is auto-verified when it matches owner's verified email."""
+        organization_owner_user.email_verified = True
+        organization_owner_user.email = "owner@example.com"
+        organization_owner_user.save()
+
+        url = reverse("api:update_contact_email", kwargs={"slug": organization.slug})
+        payload = {"contact_email": "owner@example.com"}
+
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["contact_email"] == "owner@example.com"
+        assert data["contact_email_verified"] is True
+
+    def test_update_contact_email_same_email_fails(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        """Test that updating to the same email fails."""
+        organization.contact_email = "existing@example.com"
+        organization.save()
+
+        url = reverse("api:update_contact_email", kwargs={"slug": organization.slug})
+        payload = {"contact_email": "existing@example.com"}
+
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 400
+        assert "already the contact email" in response.json()["detail"]
+
+    def test_update_contact_email_requires_permission(self, member_client: Client, organization: Organization) -> None:
+        """Test that updating contact email requires edit_organization permission."""
+        url = reverse("api:update_contact_email", kwargs={"slug": organization.slug})
+        payload = {"contact_email": "newemail@example.com"}
+
+        response = member_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 403
+
+    def test_update_contact_email_unauthenticated_fails(self, client: Client, organization: Organization) -> None:
+        """Test that unauthenticated users cannot update contact email."""
+        url = reverse("api:update_contact_email", kwargs={"slug": organization.slug})
+        payload = {"contact_email": "newemail@example.com"}
+
+        response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 401
+
+
+# --- Tests for POST /organization-admin/{slug}/verify-contact-email ---
+
+
+@pytest.mark.django_db(transaction=True)
+class TestVerifyContactEmail:
+    """Tests for the verify-contact-email endpoint."""
+
+    def test_verify_contact_email_success(
+        self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
+    ) -> None:
+        """Test verifying contact email with valid token."""
+
+        organization.contact_email = "test@example.com"
+        organization.contact_email_verified = False
+        organization.save()
+
+        # Create a valid token
+        from django.utils import timezone
+
+        verification_payload = schema.VerifyOrganizationContactEmailJWTPayloadSchema(
+            organization_id=organization.id,
+            user_id=organization_owner_user.id,
+            email="test@example.com",
+            exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
+        )
+        token = create_token(verification_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+
+        url = reverse("api:verify_contact_email", kwargs={"slug": organization.slug})
+
+        response = organization_owner_client.post(url, data={"token": token}, content_type="application/json")
+
+        assert response.status_code == 200, response.content
+        data = response.json()
+        assert data["contact_email_verified"] is True
+
+    def test_verify_contact_email_invalid_token_fails(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        """Test that invalid token returns 400."""
+        url = reverse("api:verify_contact_email", kwargs={"slug": organization.slug})
+
+        response = organization_owner_client.post(url, data={"token": "invalid-token"}, content_type="application/json")
+
+        assert response.status_code == 400, response.content
+
+    def test_verify_contact_email_wrong_email_fails(
+        self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
+    ) -> None:
+        """Test that verification fails when email has changed."""
+
+        organization.contact_email = "current@example.com"
+        organization.contact_email_verified = False
+        organization.save()
+
+        # Create a token for a different email
+        from django.utils import timezone
+
+        verification_payload = schema.VerifyOrganizationContactEmailJWTPayloadSchema(
+            organization_id=organization.id,
+            user_id=organization_owner_user.id,
+            email="old@example.com",
+            exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
+        )
+        token = create_token(verification_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+
+        url = reverse("api:verify_contact_email", kwargs={"slug": organization.slug})
+
+        response = organization_owner_client.post(url, data={"token": token}, content_type="application/json")
+
+        assert response.status_code == 400, response.content
+        assert "different email address" in response.json()["detail"]

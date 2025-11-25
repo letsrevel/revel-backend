@@ -25,11 +25,10 @@ Manual Profiling (development alternative):
 See OBSERVABILITY_SPEC.md and observability/PROFILING_SETUP.md for details.
 """
 
-import logging
-
+import structlog
 from django.conf import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def init_profiling() -> None:

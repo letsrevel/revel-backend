@@ -1,0 +1,11 @@
+Hello,
+
+You have been designated as the contact email for {{ organization_name }}.
+
+Please click the link below to verify this email address:
+{{ verification_link }}
+
+If you did not request this verification, please ignore this email.
+
+Thank you,
+The Revel Team
