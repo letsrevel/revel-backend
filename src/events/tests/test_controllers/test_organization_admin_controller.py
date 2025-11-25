@@ -2,13 +2,16 @@ from datetime import datetime, timedelta
 
 import orjson
 import pytest
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
 from django.utils import timezone
 
+from accounts.jwt import create_token
 from accounts.models import RevelUser
 from common.utils import assert_image_equal
+from events import schema
 from events.models import (
     MembershipTier,
     Organization,
@@ -1243,10 +1246,6 @@ class TestVerifyContactEmail:
         self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
     ) -> None:
         """Test verifying contact email with valid token."""
-        from django.conf import settings
-
-        from accounts.jwt import create_token
-        from events import schema
 
         organization.contact_email = "test@example.com"
         organization.contact_email_verified = False
@@ -1285,10 +1284,6 @@ class TestVerifyContactEmail:
         self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
     ) -> None:
         """Test that verification fails when email has changed."""
-        from django.conf import settings
-
-        from accounts.jwt import create_token
-        from events import schema
 
         organization.contact_email = "current@example.com"
         organization.contact_email_verified = False
