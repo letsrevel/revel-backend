@@ -71,6 +71,8 @@ def create_organization(
     name: str,
     contact_email: str,
     description: str | None = None,
+    city_id: int | None = None,
+    address: str | None = None,
 ) -> Organization:
     """Create a new organization.
 
@@ -79,6 +81,8 @@ def create_organization(
         name: The name of the organization
         contact_email: The contact email for the organization
         description: Optional description for the organization
+        city_id: Optional city id for the organization
+        address: Optional address for the organization
 
     Returns:
         The created Organization instance
@@ -105,6 +109,8 @@ def create_organization(
         contact_email=contact_email,
         contact_email_verified=contact_email_verified,
         visibility=Organization.Visibility.STAFF_ONLY,  # Default to staff only
+        city_id=city_id,
+        address=address,
     )
 
     # Send verification email if contact email is not auto-verified

@@ -77,7 +77,7 @@ class TaggableSchemaMixin(Schema):
         return [ta.tag.name for ta in obj.tags.all()]
 
 
-class OrganizationCreateSchema(Schema):
+class OrganizationCreateSchema(CityEditMixin):
     """Schema for creating a new organization."""
 
     name: OneToOneFiftyString
