@@ -4,9 +4,9 @@ This module contains functions for checking user participation in events/organiz
 and determining which users should receive specific notification types.
 """
 
-import logging
 from uuid import UUID
 
+import structlog
 from django.db.models import Q, QuerySet
 
 from accounts.models import RevelUser
@@ -14,7 +14,7 @@ from events.models import Event, EventInvitation, EventRSVP, Organization, Organ
 from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def has_active_rsvp(user: RevelUser, event: Event) -> bool:
@@ -307,13 +307,20 @@ def log_notification_attempt(
         success: Whether the notification was sent successfully
         error_message: Error message if notification failed
     """
-    level = logging.INFO if success else logging.ERROR
-    message = f"Notification {notification_type.value} {'sent to' if success else 'failed for'} user {user.email}"
+    log_kwargs = {
+        "notification_type": notification_type.value,
+        "user_email": user.email,
+        "success": success,
+    }
 
     if event:
-        message += f" for event {event.name} (ID: {event.id})"
+        log_kwargs["event_name"] = event.name
+        log_kwargs["event_id"] = str(event.id)
 
     if error_message:
-        message += f" - Error: {error_message}"
+        log_kwargs["error"] = error_message
 
-    logger.log(level, message)
+    if success:
+        logger.info("notification_sent", **log_kwargs)
+    else:
+        logger.error("notification_failed", **log_kwargs)

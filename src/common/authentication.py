@@ -1,6 +1,6 @@
-import logging
 import typing as t
 
+import structlog
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest
@@ -8,7 +8,7 @@ from django.utils import translation
 
 from .auth_base import BaseJWTAuth
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class I18nJWTAuth(BaseJWTAuth):

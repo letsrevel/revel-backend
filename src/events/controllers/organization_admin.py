@@ -1,6 +1,6 @@
-import logging
 from uuid import UUID
 
+import structlog
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
@@ -28,7 +28,7 @@ from events.service import organization_service, resource_service, stripe_servic
 
 from .permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())

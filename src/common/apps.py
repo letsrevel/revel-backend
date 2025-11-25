@@ -1,5 +1,6 @@
 import logging.handlers
 
+import structlog
 from django.apps import AppConfig
 
 
@@ -92,8 +93,6 @@ class CommonConfig(AppConfig):
             respect_handler_level=True,
         )
         self.queue_listener.start()
-
-        import structlog
 
         logger = structlog.get_logger(__name__)
         logger.info(

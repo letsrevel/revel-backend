@@ -1,9 +1,9 @@
 # src/events/management/commands/bootstrap_test_events.py
 
-import logging
 from datetime import timedelta
 from decimal import Decimal
 
+import structlog
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -13,7 +13,7 @@ from events import models as events_models
 from geo.models import City
 from questionnaires import models as questionnaires_models
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):
