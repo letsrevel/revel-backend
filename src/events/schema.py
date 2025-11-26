@@ -88,12 +88,6 @@ class OrganizationCreateSchema(CityEditMixin):
     contact_email: EmailStr
 
 
-class OrganizationContactEmailUpdateSchema(Schema):
-    """Schema for updating organization contact email."""
-
-    contact_email: EmailStr
-
-
 class VerifyOrganizationContactEmailJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
     """JWT payload schema for organization contact email verification."""
 
@@ -181,6 +175,7 @@ class OrganizationAdminDetailSchema(CityRetrieveMixin, TaggableSchemaMixin):
     platform_fee_percent: Decimal
     platform_fee_fixed: Decimal
     is_stripe_connected: bool
+    stripe_account_email: str | None = None
     stripe_account_id: str | None = None
     stripe_charges_enabled: bool
     stripe_details_submitted: bool

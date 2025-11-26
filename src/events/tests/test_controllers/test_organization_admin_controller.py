@@ -1174,7 +1174,7 @@ class TestUpdateContactEmail:
     ) -> None:
         """Test updating contact email successfully."""
         url = reverse("api:update_contact_email", kwargs={"slug": organization.slug})
-        payload = {"contact_email": "newemail@example.com"}
+        payload = {"email": "newemail@example.com"}
 
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
@@ -1192,7 +1192,7 @@ class TestUpdateContactEmail:
         organization_owner_user.save()
 
         url = reverse("api:update_contact_email", kwargs={"slug": organization.slug})
-        payload = {"contact_email": "owner@example.com"}
+        payload = {"email": "owner@example.com"}
 
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
@@ -1209,7 +1209,7 @@ class TestUpdateContactEmail:
         organization.save()
 
         url = reverse("api:update_contact_email", kwargs={"slug": organization.slug})
-        payload = {"contact_email": "existing@example.com"}
+        payload = {"email": "existing@example.com"}
 
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
@@ -1219,7 +1219,7 @@ class TestUpdateContactEmail:
     def test_update_contact_email_requires_permission(self, member_client: Client, organization: Organization) -> None:
         """Test that updating contact email requires edit_organization permission."""
         url = reverse("api:update_contact_email", kwargs={"slug": organization.slug})
-        payload = {"contact_email": "newemail@example.com"}
+        payload = {"email": "newemail@example.com"}
 
         response = member_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
@@ -1228,7 +1228,7 @@ class TestUpdateContactEmail:
     def test_update_contact_email_unauthenticated_fails(self, client: Client, organization: Organization) -> None:
         """Test that unauthenticated users cannot update contact email."""
         url = reverse("api:update_contact_email", kwargs={"slug": organization.slug})
-        payload = {"contact_email": "newemail@example.com"}
+        payload = {"email": "newemail@example.com"}
 
         response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
