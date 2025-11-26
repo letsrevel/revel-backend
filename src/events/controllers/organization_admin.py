@@ -140,8 +140,7 @@ class OrganizationAdminController(UserAwareController):
         permissions=[IsOrganizationOwner()],
     )
     def stripe_connect(self, slug: str, payload: EmailSchema) -> schema.StripeOnboardingLinkSchema:
-        """
-        Get a link to onboard the organization to Stripe.
+        """Get a link to onboard the organization to Stripe.
 
         **Parameters:**
         - `email`: The email address to associate with the Stripe Connect account (passed in request body)
