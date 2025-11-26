@@ -48,9 +48,8 @@ def ensure_url(value: str) -> str:
     return value
 
 
-class CityEditMixin(Schema):
+class CityBaseMixin(Schema):
     city_id: int | None = None
-    address: StrippedString | None = None
 
     @field_validator("city_id", mode="after")
     @classmethod
@@ -59,6 +58,10 @@ class CityEditMixin(Schema):
         if v is not None and not City.objects.filter(pk=v).exists():
             raise ValueError(f"City with ID {v} does not exist.")
         return v
+
+
+class CityEditMixin(CityBaseMixin):
+    address: StrippedString | None = None
 
 
 class CityRetrieveMixin(Schema):
@@ -993,11 +996,10 @@ class GeneralUserPreferencesSchema(Schema):
     city: CitySchema | None = None
 
 
-class GeneralUserPreferencesUpdateSchema(Schema):
+class GeneralUserPreferencesUpdateSchema(CityBaseMixin):
     """Schema for updating general user preferences."""
 
     show_me_on_attendee_list: models.BaseUserPreferences.VisibilityPreference = DEFAULT_VISIBILITY_PREFERENCE
-    city_id: int | None = None
 
 
 # --- Stripe Schemas ---

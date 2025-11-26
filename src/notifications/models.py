@@ -221,14 +221,6 @@ class NotificationPreference(TimeStampedModel):
         default=True, help_text="Receive reminders 14, 7, 1 days before events"
     )
 
-    # Visibility (from old preferences)
-    show_me_on_attendee_list = models.CharField(
-        choices=VisibilityPreference.choices,
-        max_length=20,
-        default=VisibilityPreference.NEVER,
-        help_text="Attendee list visibility preference",
-    )
-
     class Meta:
         verbose_name = "Notification Preference"
         verbose_name_plural = "Notification Preferences"
