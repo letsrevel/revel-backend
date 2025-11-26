@@ -226,7 +226,6 @@ class NotificationPreferenceAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "silence_all_notifications",
         "digest_frequency",
         "event_reminders_enabled",
-        "show_me_on_attendee_list",
     ]
     search_fields = [
         "user__email",
@@ -263,13 +262,7 @@ class NotificationPreferenceAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         ),
         (
             "Event Settings",
-            {
-                "fields": (
-                    "event_reminders_enabled",
-                    "show_me_on_attendee_list",
-                    "city",
-                )
-            },
+            {"fields": ("event_reminders_enabled",)},
         ),
         (
             "Advanced",

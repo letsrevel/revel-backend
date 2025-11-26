@@ -56,7 +56,6 @@ class NotificationPreferenceSchema(ModelSchema):
     # Only declare fields that need special handling (enum/type conversion)
     digest_frequency: str
     digest_send_time: time
-    show_me_on_attendee_list: str
     enabled_channels: list[ChannelType]
     notification_type_settings: dict[NotificationType, NotificationTypeSettings]
 
@@ -69,7 +68,6 @@ class NotificationPreferenceSchema(ModelSchema):
             "digest_send_time",
             "event_reminders_enabled",
             "notification_type_settings",
-            "show_me_on_attendee_list",
         ]
 
 
