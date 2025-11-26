@@ -3,7 +3,7 @@
 import typing as t
 
 from ninja import Field, ModelSchema, Schema
-from pydantic import StringConstraints
+from pydantic import EmailStr, StringConstraints
 
 from .models import Tag, TagAssignment
 
@@ -12,6 +12,12 @@ UserIdType = t.Annotated[str, Field(..., description="The user ID", max_length=1
 StrippedString = t.Annotated[str, StringConstraints(strip_whitespace=True)]
 OneToSixtyFourString = t.Annotated[str, StringConstraints(min_length=1, max_length=64, strip_whitespace=True)]
 OneToOneFiftyString = t.Annotated[str, StringConstraints(min_length=1, max_length=150, strip_whitespace=True)]
+
+
+class EmailSchema(Schema):
+    """Common schema for email-only requests."""
+
+    email: EmailStr
 
 
 class VersionResponse(Schema):

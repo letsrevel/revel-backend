@@ -19,7 +19,7 @@ from accounts.schema import VerifyEmailSchema
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.models import Tag
-from common.schema import TagSchema, ValidationErrorResponse
+from common.schema import EmailSchema, TagSchema, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from common.utils import safe_save_uploaded_file
 from events import filters, models, schema
@@ -73,9 +73,7 @@ class OrganizationAdminController(UserAwareController):
         response={200: schema.OrganizationRetrieveSchema},
         permissions=[OrganizationPermission("edit_organization")],
     )
-    def update_contact_email(
-        self, slug: str, payload: schema.OrganizationContactEmailUpdateSchema
-    ) -> models.Organization:
+    def update_contact_email(self, slug: str, payload: EmailSchema) -> models.Organization:
         """Update organization contact email with verification.
 
         Updates the contact email for the organization and triggers an email
@@ -105,7 +103,7 @@ class OrganizationAdminController(UserAwareController):
         organization = self.get_one(slug)
         organization_service.update_contact_email(
             organization=organization,
-            new_email=payload.contact_email,
+            new_email=payload.email,
             requester=self.user(),
         )
         return organization
@@ -141,10 +139,22 @@ class OrganizationAdminController(UserAwareController):
         response=schema.StripeOnboardingLinkSchema,
         permissions=[IsOrganizationOwner()],
     )
-    def stripe_connect(self, slug: str) -> schema.StripeOnboardingLinkSchema:
-        """Get a link to onboard the organization to Stripe."""
+    def stripe_connect(self, slug: str, payload: EmailSchema) -> schema.StripeOnboardingLinkSchema:
+        """Get a link to onboard the organization to Stripe.
+
+        **Parameters:**
+        - `email`: The email address to associate with the Stripe Connect account (passed in request body)
+
+        **Returns:**
+        - 200: Onboarding URL for Stripe Connect
+
+        **Permissions:**
+        - Requires organization owner permission
+        """
         organization = self.get_one(slug)
-        account_id = organization.stripe_account_id or stripe_service.create_connect_account(organization)
+        account_id = organization.stripe_account_id or stripe_service.create_connect_account(
+            organization, payload.email
+        )
         onboarding_url = stripe_service.create_account_link(account_id, organization)
         return schema.StripeOnboardingLinkSchema(onboarding_url=onboarding_url)
 

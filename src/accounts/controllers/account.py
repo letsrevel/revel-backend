@@ -14,7 +14,7 @@ from accounts.schema import (
 from accounts.service import account as account_service
 from accounts.service.auth import get_token_pair_for_user
 from common.authentication import I18nJWTAuth
-from common.schema import ResponseMessage
+from common.schema import EmailSchema, ResponseMessage
 from common.throttling import AuthThrottle, UserDataExportThrottle, UserRegistrationThrottle
 
 
@@ -115,7 +115,7 @@ class AccountController(ControllerBase):
         url_name="resend-verification-email",
         throttle=UserRegistrationThrottle(),
     )
-    def resend_verification_email(self, payload: schema.ResendVerificationEmailSchema) -> ResponseMessage:
+    def resend_verification_email(self, payload: EmailSchema) -> ResponseMessage:
         """Resend the email verification link for a given email address.
 
         Use this if the original verification email was lost or expired. Always returns a
@@ -168,7 +168,7 @@ class AccountController(ControllerBase):
         url_name="reset-password-request",
         throttle=UserRegistrationThrottle(),
     )
-    def reset_password_request(self, payload: schema.PasswordResetRequestSchema) -> ResponseMessage:
+    def reset_password_request(self, payload: EmailSchema) -> ResponseMessage:
         """Request a password reset by email.
 
         Sends a password reset link to the provided email if an account exists. Always returns

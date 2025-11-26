@@ -49,14 +49,14 @@ class TestOrganizationAdminStripe:
 
         # Act
         url = reverse("api:stripe_connect", kwargs={"slug": organization.slug})
-        response = authenticated_client.post(url)
+        response = authenticated_client.post(url, data={"email": "test@example.com"}, content_type="application/json")
 
         # Assert
-        assert response.status_code == 200
+        assert response.status_code == 200, response.content
         response_data = response.json()
         assert response_data["onboarding_url"] == "https://stripe.com/connect/acct_new123"
 
-        mock_create_account.assert_called_once_with(organization)
+        mock_create_account.assert_called_once_with(organization, "test@example.com")
         mock_create_link.assert_called_once_with("acct_new123", organization)
 
     @patch("events.service.stripe_service.create_account_link")
@@ -74,7 +74,7 @@ class TestOrganizationAdminStripe:
 
         # Act
         url = reverse("api:stripe_connect", kwargs={"slug": organization.slug})
-        response = authenticated_client.post(url)
+        response = authenticated_client.post(url, data={"email": "test@example.com"}, content_type="application/json")
 
         # Assert
         assert response.status_code == 200
@@ -91,7 +91,7 @@ class TestOrganizationAdminStripe:
         """Test that only organization owners can access Stripe Connect."""
         # Act
         url = reverse("api:stripe_connect", kwargs={"slug": organization.slug})
-        response = non_owner_client.post(url)
+        response = non_owner_client.post(url, data={"email": "test@example.com"}, content_type="application/json")
 
         # Assert
         assert response.status_code == 403
@@ -106,7 +106,7 @@ class TestOrganizationAdminStripe:
 
         # Act
         url = reverse("api:stripe_connect", kwargs={"slug": organization.slug})
-        response = client.post(url)
+        response = client.post(url, data={"email": "test@example.com"}, content_type="application/json")
 
         # Assert
         assert response.status_code == 401
@@ -124,7 +124,7 @@ class TestOrganizationAdminStripe:
 
         # Act
         url = reverse("api:stripe_connect", kwargs={"slug": organization.slug})
-        response = authenticated_client.post(url)
+        response = authenticated_client.post(url, data={"email": "test@example.com"}, content_type="application/json")
 
         # Assert
         assert response.status_code == 500
@@ -241,7 +241,9 @@ class TestOrganizationAdminStripe:
         connect_url = reverse("api:stripe_connect", kwargs={"slug": "nonexistent"})
         verify_url = reverse("api:stripe_account_verify", kwargs={"slug": "nonexistent"})
 
-        connect_response = authenticated_client.post(connect_url)
+        connect_response = authenticated_client.post(
+            connect_url, data={"email": "test@example.com"}, content_type="application/json"
+        )
         verify_response = authenticated_client.post(verify_url)
 
         # Assert
@@ -291,7 +293,9 @@ class TestStripePermissions:
         connect_url = reverse("api:stripe_connect", kwargs={"slug": organization_with_different_owner.slug})
         verify_url = reverse("api:stripe_account_verify", kwargs={"slug": organization_with_different_owner.slug})
 
-        connect_response = staff_as_owner_client.post(connect_url)
+        connect_response = staff_as_owner_client.post(
+            connect_url, data={"email": "test@example.com"}, content_type="application/json"
+        )
         verify_response = staff_as_owner_client.post(verify_url)
 
         # Assert

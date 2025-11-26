@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
+from pydantic import EmailStr
 from stripe.checkout import Session
 
 from accounts.models import RevelUser
@@ -22,11 +23,12 @@ logger = structlog.get_logger(__name__)
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
-def create_connect_account(organization: Organization) -> str:
+def create_connect_account(organization: Organization, stripe_account_email: EmailStr) -> str:
     """Create a Stripe Connect Standard account for an organization."""
-    account = stripe.Account.create(type="standard", email=organization.owner.email)
+    account = stripe.Account.create(type="standard", email=stripe_account_email)
     organization.stripe_account_id = account.id
-    organization.save(update_fields=["stripe_account_id"])
+    organization.stripe_account_email = stripe_account_email
+    organization.save(update_fields=["stripe_account_id", "stripe_account_email"])
     return t.cast(str, account.id)
 
 

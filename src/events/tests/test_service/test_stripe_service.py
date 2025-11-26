@@ -35,7 +35,7 @@ class TestCreateConnectAccount:
         mock_stripe_create.return_value = mock_account
 
         # Act
-        result = stripe_service.create_connect_account(organization)
+        result = stripe_service.create_connect_account(organization, organization.owner.email)
 
         # Assert
         mock_stripe_create.assert_called_once_with(type="standard", email=organization.owner.email)
@@ -55,7 +55,7 @@ class TestCreateConnectAccount:
 
         # Act & Assert
         with pytest.raises(stripe.error.APIError):
-            stripe_service.create_connect_account(organization)
+            stripe_service.create_connect_account(organization, organization.owner.email)
 
         # Verify organization wasn't modified
         organization.refresh_from_db()

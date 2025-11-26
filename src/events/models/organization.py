@@ -170,6 +170,7 @@ class Organization(
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="The fixed platform fee for this organization.",
     )
+    stripe_account_email = models.EmailField(null=True, blank=True, db_index=True)
     stripe_account_id = models.CharField(
         max_length=255,
         blank=True,
