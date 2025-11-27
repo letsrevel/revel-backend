@@ -52,7 +52,7 @@ Revel is being built to address the shortcomings of existing event platforms, es
 
 *   **For Communities, Not Corporations:** Mainstream platforms often have restrictive content policies or a lack of privacy features, creating challenges for adult, queer, or activist-oriented events. Revel is explicitly designed to support these communities.
 *   **Open, Transparent & Self-Hostable:** Avoid vendor lock-in. You can host Revel on your own infrastructure for free, giving you complete control over your data and eliminating platform commissions. Its open-source nature means you can trust the code you run.
-*   **Fair & Simple Pricing:** For those who choose our future hosted version, the model is simple: **no charge for free events or events where you handle payments yourself**; a **1.5% + 0.25 cents commission** on paid tickets sold and bought through Revel. This significantly undercuts the high fees of major platforms and helps us keep the platform online, free and open source.
+*   **Fair & Simple Pricing:** For those who choose our future hosted version, the model is simple: **no charge for free events or events where you handle payments yourself**; a **1.5% + 0.25€ commission** on paid tickets sold and bought through Revel. This significantly undercuts the high fees of major platforms and helps us keep the platform online, free and open source.
 
 ## 🚀 Key Features
 
