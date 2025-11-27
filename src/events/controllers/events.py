@@ -121,6 +121,38 @@ class EventController(UserAwareController):
             return event_service.order_by_distance(self.user_location(), qs)
         return qs.order_by(order_by)
 
+    @route.get("/calendar", url_name="calendar_events", response=list[schema.EventInListSchema])
+    def calendar_events(
+        self,
+        params: filters.EventFilterSchema = Query(...),  # type: ignore[type-arg]
+        week: int | None = None,
+        month: int | None = None,
+        year: int | None = None,
+    ) -> QuerySet[models.Event]:
+        """Get events for a calendar view (week, month, or year).
+
+        Returns a flat list of events for the specified time period. If no time parameters are
+        provided, defaults to the current month.
+
+        **Time Parameters:**
+        - `week`: ISO week number (1-53) - requires year parameter or defaults to current year.
+        - `month`: Month number (1-12) - requires year parameter or defaults to current year.
+        - `year`: Year (e.g., 2025) - returns all events in that year. Defaults to the current year.
+
+        **Examples:**
+        - `/calendar` - Current month's events
+        - `/calendar?month=12&year=2025` - December 2025 events
+        - `/calendar?week=1&year=2025` - Week 1 of 2025
+        - `/calendar?year=2025` - All 2025 events
+
+        Supports all EventFilterSchema filters (organization, tags, event_type, etc.).
+        Results are ordered by start time ascending.
+        """
+        start_datetime, end_datetime = event_service.calculate_calendar_date_range(week, month, year)
+        qs = self.get_queryset(include_past=True).filter(start__gte=start_datetime, start__lt=end_datetime)
+        qs = params.filter(qs).distinct()
+        return qs.order_by("start")
+
     @route.get(
         "/tokens/{token_id}",
         url_name="get_event_token",

@@ -7,6 +7,7 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 from ninja import Field, FilterSchema, Schema
+from pydantic import AwareDatetime
 
 from events.models import (
     AdditionalResource,
@@ -47,6 +48,9 @@ class EventFilterSchema(CityFilterMixin):
     past_events: bool | None = None
     status: Event.EventStatus | None = None
     tags: list[str] | None = None
+    date: AwareDatetime | None = None
+    start_after: AwareDatetime | None = None
+    start_before: AwareDatetime | None = None
 
     def filter_next_events(self, next_events: bool) -> Q:
         """Helper to find next events only."""
@@ -59,6 +63,24 @@ class EventFilterSchema(CityFilterMixin):
         if past_events:
             return Q(start__lt=timezone.now())
         return Q()
+
+    def filter_date(self, date: AwareDatetime | None) -> Q:
+        """Filter for events on a specific date (time component is ignored)."""
+        if not date:
+            return Q()
+        return Q(start__date=date.date())
+
+    def filter_start_after(self, start_after: AwareDatetime | None) -> Q:
+        """Filter for events starting on or after the given datetime."""
+        if not start_after:
+            return Q()
+        return Q(start__gte=start_after)
+
+    def filter_start_before(self, start_before: AwareDatetime | None) -> Q:
+        """Filter for events starting before the given datetime."""
+        if not start_before:
+            return Q()
+        return Q(start__lt=start_before)
 
     def filter_tags(self, tags: list[str] | None) -> Q:
         """Helper to find tags only."""
