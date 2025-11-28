@@ -16,6 +16,7 @@ from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from events import filters, models, schema
+from events.service import event_service
 
 
 @api_controller("/dashboard", auth=I18nJWTAuth())
@@ -35,6 +36,29 @@ class DashboardController(UserAwareController):
     def get_organization_queryset(self) -> QuerySet[models.Organization]:
         """Get the organization queryset."""
         return models.Organization.objects.for_user(self.user())
+
+    def get_user_related_events(self, params: filters.DashboardEventsFiltersSchema) -> QuerySet[models.Event]:
+        """Get events filtered by user's relationship and authorization.
+
+        Returns the intersection of:
+        1. Events the user is authorized to see (visibility permissions)
+        2. Events matching the user's relationship filters (owner/staff/member/rsvp/tickets/invitations)
+
+        This is the core filtering logic shared by dashboard_events and dashboard_calendar.
+        """
+        user = self.user()
+
+        # 1. Get IDs of all events the user is AUTHORIZED to see
+        authorized_event_ids = self.get_event_queryset().values("id")
+
+        # 2. Get IDs of all events that match the dashboard's relationship filters
+        relationship_event_ids = params.get_events_queryset(user.id).values("id")
+
+        # 3. Find the INTERSECTION of the two sets of IDs
+        final_event_ids = authorized_event_ids.intersection(relationship_event_ids)
+
+        # 4. Return the base queryset filtered by these IDs
+        return models.Event.objects.full().filter(id__in=final_event_ids)
 
     @route.get(
         "/organizations",
@@ -92,27 +116,55 @@ class DashboardController(UserAwareController):
         requested invitations to. Only shows future events you have permission to view. Use this to
         display "My Events" sections in the UI.
         """
-        user = self.user()
+        # Get base queryset of user-related events
+        qs = self.get_user_related_events(params)
 
-        # 1. Get IDs of all events the user is AUTHORIZED to see.
-        authorized_event_ids = self.get_event_queryset().values("id")
-
-        # 2. Get IDs of all events that match the dashboard's relationship filters.
-        relationship_event_ids = params.get_events_queryset(user.id).values("id")
-
-        # 3. Find the INTERSECTION of the two sets of IDs.
-        final_event_ids = authorized_event_ids.intersection(relationship_event_ids)
-
-        # 4. Fetch the final, full Event objects based on the correct IDs.
-        qs = models.Event.objects.full().filter(id__in=final_event_ids)
-
+        # Filter to upcoming events only
         today = timezone.now().date()
         qs = qs.filter(Q(start__date__gte=today) | Q(start__isnull=True))
 
-        if not user.is_staff:
-            qs = qs.exclude(status=models.Event.EventStatus.DRAFT)
-
         return qs.distinct().order_by(order_by)
+
+    @route.get("/calendar", url_name="dashboard_calendar", response=list[schema.EventInListSchema])
+    def dashboard_calendar(
+        self,
+        params: filters.DashboardEventsFiltersSchema = Query(...),  # type: ignore[type-arg]
+        calendar_params: filters.CalendarParamsSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[models.Event]:
+        """View events in a calendar view filtered by your relationship to them.
+
+        Returns events for the specified time period (week, month, or year) that you have a
+        relationship with. If no time parameters are provided, defaults to the current month.
+
+        **Time Parameters:**
+        - `week`: ISO week number (1-53) - uses current year if year parameter not provided.
+        - `month`: Month number (1-12) - uses current year if year parameter not provided.
+        - `year`: Year (e.g., 2025) - returns all events in that year if month/week not specified.
+
+        **Examples:**
+        - `/dashboard/calendar` - Current month's events you're involved with
+        - `/dashboard/calendar?month=12&year=2025` - December 2025 events
+        - `/dashboard/calendar?week=1&year=2025` - Week 1 of 2025
+        - `/dashboard/calendar?year=2025` - All 2025 events
+
+        **Relationship Filters:**
+        Filter by your relationship to events using DashboardEventsFiltersSchema parameters:
+        - `owner`, `staff`, `member` - Events in organizations you have these roles in
+        - `rsvp_yes`, `rsvp_maybe`, `rsvp_no` - Events you've RSVP'd to
+        - `got_ticket`, `got_invitation` - Events you have tickets or invitations for
+
+        Results include both past and future events within the time range, ordered by start time.
+        """
+        # Calculate the date range for calendar view
+        start_datetime, end_datetime = event_service.calculate_calendar_date_range(**calendar_params.model_dump())
+
+        # Get base queryset of user-related events
+        qs = self.get_user_related_events(params)
+
+        # Filter to events within the calendar date range
+        qs = qs.filter(start__gte=start_datetime, start__lt=end_datetime)
+
+        return qs.distinct().order_by("start")
 
     @route.get(
         "/event_series",

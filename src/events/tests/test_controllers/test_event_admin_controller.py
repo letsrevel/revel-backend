@@ -325,15 +325,15 @@ def test_update_event_status_to_deleted_by_owner(organization_owner_client: Clie
     event.status = Event.EventStatus.OPEN
     event.save()
 
-    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.DELETED})
+    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.CANCELLED})
     response = organization_owner_client.post(url)
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == Event.EventStatus.DELETED
+    assert data["status"] == Event.EventStatus.CANCELLED
 
     event.refresh_from_db()
-    assert event.status == Event.EventStatus.DELETED
+    assert event.status == Event.EventStatus.CANCELLED
     # Verify event still exists in database (soft delete)
     assert Event.objects.filter(pk=event.pk).exists()
 
@@ -371,7 +371,7 @@ def test_update_event_status_by_staff_without_permission(
 
     original_status = event.status
 
-    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.DELETED})
+    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.CANCELLED})
     response = organization_staff_client.post(url)
 
     assert response.status_code == 403
@@ -2210,3 +2210,73 @@ def test_delete_nonexistent_invitation(organization_owner_client: Client, event:
     response = organization_owner_client.delete(url)
 
     assert response.status_code == 404
+
+
+# --- Tests for DELETE /event-admin/{event_id} ---
+
+
+def test_delete_event_by_owner(organization_owner_client: Client, event: Event) -> None:
+    """Test that an event's organization owner can successfully delete it."""
+    event_id = event.pk
+    url = reverse("api:delete_event", kwargs={"event_id": event_id})
+
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 204
+    assert not Event.objects.filter(pk=event_id).exists()
+
+
+def test_delete_event_by_staff_with_permission(
+    organization_staff_client: Client, event: Event, staff_member: OrganizationStaff
+) -> None:
+    """Test that a staff member with 'delete_event' permission can delete."""
+    # Grant delete_event permission
+    perms = staff_member.permissions
+    perms["default"]["delete_event"] = True
+    staff_member.permissions = perms
+    staff_member.save()
+
+    event_id = event.pk
+    url = reverse("api:delete_event", kwargs={"event_id": event_id})
+
+    response = organization_staff_client.delete(url)
+
+    assert response.status_code == 204
+    assert not Event.objects.filter(pk=event_id).exists()
+
+
+def test_delete_event_by_staff_without_permission(
+    organization_staff_client: Client, event: Event, staff_member: OrganizationStaff
+) -> None:
+    """Test that a staff member without 'delete_event' permission gets a 403."""
+    # Remove the 'delete_event' permission
+    perms = staff_member.permissions
+    perms["default"]["delete_event"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+
+    event_id = event.pk
+    url = reverse("api:delete_event", kwargs={"event_id": event_id})
+    response = organization_staff_client.delete(url)
+
+    assert response.status_code == 403
+    # Event should still exist
+    assert Event.objects.filter(pk=event_id).exists()
+
+
+@pytest.mark.parametrize(
+    "client_fixture,expected_status_code", [("member_client", 403), ("nonmember_client", 403), ("client", 401)]
+)
+def test_delete_event_by_unauthorized_users(
+    request: pytest.FixtureRequest, client_fixture: str, expected_status_code: int, public_event: Event
+) -> None:
+    """Test that users without owner/staff roles get a 403/401 when trying to delete."""
+    client: Client = request.getfixturevalue(client_fixture)
+    event_id = public_event.pk
+    url = reverse("api:delete_event", kwargs={"event_id": event_id})
+
+    response = client.delete(url)
+
+    assert response.status_code == expected_status_code
+    # Event should still exist
+    assert Event.objects.filter(pk=event_id).exists()

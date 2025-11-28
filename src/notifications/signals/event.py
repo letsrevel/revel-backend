@@ -233,11 +233,11 @@ def handle_event_notification(sender: type[Event], instance: Event, created: boo
     # Handle EVENT_CANCELLED and EVENT_UPDATED
     if not created and previous_state:
         # Event was cancelled (status changed to DELETED)
-        if previous_state["status"] != Event.EventStatus.DELETED and instance.status == Event.EventStatus.DELETED:
+        if previous_state["status"] != Event.EventStatus.CANCELLED and instance.status == Event.EventStatus.CANCELLED:
             _handle_event_cancelled(sender, instance)
 
         # Event was updated (important fields changed, not deleted)
-        if instance.status != Event.EventStatus.DELETED:
+        if instance.status != Event.EventStatus.CANCELLED:
             changed_fields, old_values, new_values = _detect_field_changes(instance, previous_state)
             if changed_fields:
                 _handle_event_updated(sender, instance, changed_fields, old_values, new_values)

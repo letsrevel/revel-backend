@@ -207,7 +207,16 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
 class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin model for Events."""
 
-    list_display = ["name", "organization_link", "event_type", "start", "attendee_count", "requires_ticket"]
+    list_display = [
+        "name",
+        "organization_link",
+        "event_type",
+        "visibility",
+        "status",
+        "start",
+        "attendee_count",
+        "requires_ticket",
+    ]
     list_filter = ["event_type", "organization", "start", "requires_ticket", "waitlist_open"]
     search_fields = ["name", "slug", "organization__name"]
     autocomplete_fields = ["organization", "event_series", "city"]

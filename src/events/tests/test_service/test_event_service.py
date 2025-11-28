@@ -1,10 +1,13 @@
 """Tests for the event service."""
 
+from datetime import datetime
 from unittest.mock import Mock
+from zoneinfo import ZoneInfo
 
 import pytest
 from django.contrib.gis.geos import Point
 from django.db.models import QuerySet
+from freezegun import freeze_time
 
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, EventInvitationRequest, EventToken, TicketTier
@@ -181,3 +184,108 @@ def test_reject_invitation_request_does_not_create_invitation(
     ).exists()
     assert event_invitation_request.status == EventInvitationRequest.InvitationRequestStatus.REJECTED
     assert event_invitation_request.decided_by == organization_staff_user
+
+
+class TestCalculateCalendarDateRange:
+    """Tests for calculate_calendar_date_range service function."""
+
+    def test_week_view_with_year(self) -> None:
+        """Test week view with explicit year."""
+        start, end = event_service.calculate_calendar_date_range(week=1, year=2025)
+
+        # Week 1 of 2025: Jan 4 is Saturday, so Week 1 starts Monday Dec 30, 2024
+        assert start == datetime(2024, 12, 30, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+        assert end == datetime(2025, 1, 6, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+    def test_week_view_without_year_uses_current_year(self) -> None:
+        """Test week view defaults to current year when year is not provided."""
+        with freeze_time("2025-11-27"):
+            start, end = event_service.calculate_calendar_date_range(week=48)
+
+            # Week 48 of 2025
+            assert start.year == 2025
+            assert end.year == 2025
+            assert (end - start).days == 7
+
+    def test_week_52_spans_correctly(self) -> None:
+        """Test that week 52 calculation works correctly."""
+        start, end = event_service.calculate_calendar_date_range(week=52, year=2025)
+
+        assert start.year == 2025
+        assert start.month == 12
+        assert (end - start).days == 7
+
+    def test_month_view_with_year(self) -> None:
+        """Test month view with explicit year."""
+        start, end = event_service.calculate_calendar_date_range(month=12, year=2025)
+
+        assert start == datetime(2025, 12, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+        assert end == datetime(2026, 1, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+    def test_month_view_without_year_uses_current_year(self) -> None:
+        """Test month view defaults to current year when year is not provided."""
+        with freeze_time("2025-11-27"):
+            start, end = event_service.calculate_calendar_date_range(month=6)
+
+            assert start == datetime(2025, 6, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+            assert end == datetime(2025, 7, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+    def test_december_month_view_spans_to_next_year(self) -> None:
+        """Test that December correctly spans into next year."""
+        start, end = event_service.calculate_calendar_date_range(month=12, year=2025)
+
+        assert start == datetime(2025, 12, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+        assert end == datetime(2026, 1, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+    def test_january_month_view(self) -> None:
+        """Test January month view."""
+        start, end = event_service.calculate_calendar_date_range(month=1, year=2025)
+
+        assert start == datetime(2025, 1, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+        assert end == datetime(2025, 2, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+    def test_year_view(self) -> None:
+        """Test year view."""
+        start, end = event_service.calculate_calendar_date_range(year=2025)
+
+        assert start == datetime(2025, 1, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+        assert end == datetime(2026, 1, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+    def test_default_to_current_month(self) -> None:
+        """Test that no parameters defaults to current month."""
+        with freeze_time("2025-11-27"):
+            start, end = event_service.calculate_calendar_date_range()
+
+            assert start == datetime(2025, 11, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+            assert end == datetime(2025, 12, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+    def test_default_to_current_month_in_december(self) -> None:
+        """Test that default in December spans into next year."""
+        with freeze_time("2025-12-25"):
+            start, end = event_service.calculate_calendar_date_range()
+
+            assert start == datetime(2025, 12, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+            assert end == datetime(2026, 1, 1, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+    def test_week_takes_priority_over_month(self) -> None:
+        """Test that week parameter takes priority over month."""
+        start, end = event_service.calculate_calendar_date_range(week=1, month=12, year=2025)
+
+        # Should return Week 1, not December
+        assert start.month == 12
+        assert start.year == 2024  # Week 1 of 2025 starts in Dec 2024
+
+    def test_week_takes_priority_over_year(self) -> None:
+        """Test that week parameter takes priority over bare year."""
+        start, end = event_service.calculate_calendar_date_range(week=1, year=2025)
+
+        # Should return Week 1, not entire year
+        assert (end - start).days == 7
+
+    def test_month_takes_priority_over_year(self) -> None:
+        """Test that month parameter takes priority over bare year."""
+        start, end = event_service.calculate_calendar_date_range(month=6, year=2025)
+
+        # Should return June, not entire year
+        assert start.month == 6
+        assert end.month == 7

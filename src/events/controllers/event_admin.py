@@ -342,6 +342,18 @@ class EventAdminController(UserAwareController):
         event = self.get_one(event_id)
         return update_db_instance(event, payload)
 
+    @route.delete(
+        "",
+        url_name="delete_event",
+        response={204: None},
+        permissions=[EventPermission("delete_event")],
+    )
+    def delete_event(self, event_id: UUID) -> tuple[int, None]:
+        """Delete event by ID."""
+        event = self.get_one(event_id)
+        event.delete()
+        return 204, None
+
     @route.post(
         "/actions/update-status/{status}",
         url_name="update_event_status",
