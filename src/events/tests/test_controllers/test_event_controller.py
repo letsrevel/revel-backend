@@ -1189,7 +1189,7 @@ class TestCalendarEndpoint:
 
     def test_calendar_week_view(self, client: Client, organization: Organization) -> None:
         """Test week view returns events in specified ISO week."""
-        # Week 1 of 2026: Dec 30, 2024 - Jan 5, 2025
+        # Week 1 of 2026: Dec 29, 2025 - Jan 4, 2026
         week_1_event = Event.objects.create(
             organization=organization,
             name="Week 1 Event",
@@ -1292,3 +1292,61 @@ class TestCalendarEndpoint:
         assert len(data) == 2
         assert data[0]["id"] == str(event_early.id)
         assert data[1]["id"] == str(event_late.id)
+
+    def test_calendar_invalid_week_number(self, client: Client) -> None:
+        """Test that invalid week number returns validation error."""
+        url = reverse("api:calendar_events")
+
+        # Test week = 0
+        response = client.get(url, {"week": "0", "year": "2025"})
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+        # Test week = 54
+        response = client.get(url, {"week": "54", "year": "2025"})
+        assert response.status_code == 422
+
+        # Test negative week
+        response = client.get(url, {"week": "-1", "year": "2025"})
+        assert response.status_code == 422
+
+    def test_calendar_invalid_month_number(self, client: Client) -> None:
+        """Test that invalid month number returns validation error."""
+        url = reverse("api:calendar_events")
+
+        # Test month = 0
+        response = client.get(url, {"month": "0", "year": "2025"})
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+        # Test month = 13
+        response = client.get(url, {"month": "13", "year": "2025"})
+        assert response.status_code == 422
+
+        # Test negative month
+        response = client.get(url, {"month": "-1", "year": "2025"})
+        assert response.status_code == 422
+
+    def test_calendar_invalid_year(self, client: Client) -> None:
+        """Test that invalid year returns validation error."""
+        url = reverse("api:calendar_events")
+
+        # Test year = 0
+        response = client.get(url, {"year": "0"})
+        assert response.status_code == 422
+        data = response.json()
+        assert "detail" in data
+
+        # Test year too far in past
+        response = client.get(url, {"year": "1899"})
+        assert response.status_code == 422
+
+        # Test year too far in future
+        response = client.get(url, {"year": "3001"})
+        assert response.status_code == 422
+
+        # Test negative year
+        response = client.get(url, {"year": "-2025"})
+        assert response.status_code == 422

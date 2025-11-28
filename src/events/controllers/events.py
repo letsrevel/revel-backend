@@ -125,9 +125,7 @@ class EventController(UserAwareController):
     def calendar_events(
         self,
         params: filters.EventFilterSchema = Query(...),  # type: ignore[type-arg]
-        week: int | None = None,
-        month: int | None = None,
-        year: int | None = None,
+        calendar_params: filters.CalendarParamsSchema = Query(...),  # type: ignore[type-arg]
     ) -> QuerySet[models.Event]:
         """Get events for a calendar view (week, month, or year).
 
@@ -135,9 +133,9 @@ class EventController(UserAwareController):
         provided, defaults to the current month.
 
         **Time Parameters:**
-        - `week`: ISO week number (1-53) - requires year parameter or defaults to current year.
-        - `month`: Month number (1-12) - requires year parameter or defaults to current year.
-        - `year`: Year (e.g., 2025) - returns all events in that year. Defaults to the current year.
+        - `week`: ISO week number (1-53) - uses current year if year parameter not provided.
+        - `month`: Month number (1-12) - uses current year if year parameter not provided.
+        - `year`: Year (e.g., 2025) - returns all events in that year if month/week not specified.
 
         **Examples:**
         - `/calendar` - Current month's events
@@ -145,10 +143,16 @@ class EventController(UserAwareController):
         - `/calendar?week=1&year=2025` - Week 1 of 2025
         - `/calendar?year=2025` - All 2025 events
 
+        **Additional Filters:**
         Supports all EventFilterSchema filters (organization, tags, event_type, etc.).
+        Note: Date-related filters (`next_events`, `past_events`, `date`, `start_after`, `start_before`)
+        work as additional constraints on top of the calendar's date range. For example,
+        `/calendar?month=12&year=2025&next_events=true` will show December 2025 events that are
+        also in the future relative to the current time.
+
         Results are ordered by start time ascending.
         """
-        start_datetime, end_datetime = event_service.calculate_calendar_date_range(week, month, year)
+        start_datetime, end_datetime = event_service.calculate_calendar_date_range(**calendar_params.model_dump())
         qs = self.get_queryset(include_past=True).filter(start__gte=start_datetime, start__lt=end_datetime)
         qs = params.filter(qs).distinct()
         return qs.order_by("start")

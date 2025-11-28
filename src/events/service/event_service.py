@@ -34,6 +34,7 @@ T = t.TypeVar("T", bound=LocationMixin)
 
 
 def calculate_calendar_date_range(
+    *,
     week: int | None = None,
     month: int | None = None,
     year: int | None = None,
@@ -41,8 +42,8 @@ def calculate_calendar_date_range(
     """Calculate start and end datetime for calendar views.
 
     Args:
-        week: ISO week number (1-53), requires year
-        month: Month number (1-12), requires year
+        week: ISO week number (1-53), uses current year if year not provided
+        month: Month number (1-12), uses current year if year not provided
         year: Year (e.g., 2025)
 
     Returns:

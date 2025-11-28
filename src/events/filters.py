@@ -24,6 +24,14 @@ from events.models import (
 from questionnaires.models import QuestionnaireEvaluation
 
 
+class CalendarParamsSchema(Schema):
+    """Schema for calendar view query parameters with validation."""
+
+    week: int | None = Field(None, description="ISO week number (1-53)", ge=1, le=53)
+    month: int | None = Field(None, description="Month number (1-12)", ge=1, le=12)
+    year: int | None = Field(None, description="Year (e.g., 2025)", ge=2025, le=2100)
+
+
 class CityFilterMixin(FilterSchema):
     country: str | None = Field(None, q="city__country")  # type: ignore[call-overload]
     city_id: int | None = None
