@@ -161,7 +161,7 @@ class Event(
         OPEN = "open"
         CLOSED = "closed"
         DRAFT = "draft"
-        DELETED = "deleted"
+        CANCELLED = "cancelled"
 
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="events")
     status = models.CharField(choices=EventStatus.choices, max_length=10, default=EventStatus.DRAFT)
