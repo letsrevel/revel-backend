@@ -311,6 +311,10 @@ if DEPLOYMENT_ENVIRONMENT == "production":
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True  # Apply to all subdomains
     SECURE_HSTS_PRELOAD = True  # Submit for HSTS preload list
     SECURE_SSL_REDIRECT = True  # Redirect all HTTP requests to HTTPS
+    SECURE_REDIRECT_EXEMPT = [
+        r"^metrics/$",  # Allow Prometheus to scrape metrics via HTTP
+        r"^api/healthcheck$",  # Allow health checks via HTTP
+    ]
     SESSION_COOKIE_SECURE = True  # Only send session cookies over HTTPS
     CSRF_COOKIE_SECURE = True  # Only send CSRF cookies over HTTPS
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
