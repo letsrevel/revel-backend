@@ -927,6 +927,21 @@ A complete ML pipeline from data preprocessing to model deployment.
 
         now = timezone.now()
 
+        # Delete auto-created default tiers for events that will have custom tiers
+        # (except summer_festival which uses the default "General Admission" tier)
+        events_with_custom_tiers = [
+            self.events["wine_tasting"],
+            self.events["tech_conference"],
+            self.events["wellness_retreat"],
+            self.events["past_event"],
+            self.events["sold_out_workshop"],
+            self.events["draft_event"],
+        ]
+        events_models.TicketTier.objects.filter(
+            event__in=events_with_custom_tiers,
+            name=events_models.DEFAULT_TICKET_TIER_NAME,
+        ).delete()
+
         # Summer Festival - Multiple tiers
         events_models.TicketTier.objects.create(
             event=self.events["summer_festival"],

@@ -25,9 +25,9 @@ class DashboardController(UserAwareController):
         """Get the user for this request."""
         return t.cast(RevelUser, self.context.request.user)  # type: ignore[union-attr]
 
-    def get_event_queryset(self) -> QuerySet[models.Event]:
+    def get_event_queryset(self, *, include_past: bool = False) -> QuerySet[models.Event]:
         """Get the event queryset."""
-        return models.Event.objects.for_user(self.user())
+        return models.Event.objects.for_user(self.user(), include_past=include_past)
 
     def get_event_series_queryset(self) -> QuerySet[models.EventSeries]:
         """Get the event series queryset."""
@@ -37,7 +37,9 @@ class DashboardController(UserAwareController):
         """Get the organization queryset."""
         return models.Organization.objects.for_user(self.user())
 
-    def get_user_related_events(self, params: filters.DashboardEventsFiltersSchema) -> QuerySet[models.Event]:
+    def get_user_related_events(
+        self, params: filters.DashboardEventsFiltersSchema, *, include_past: bool = False
+    ) -> QuerySet[models.Event]:
         """Get events filtered by user's relationship and authorization.
 
         Returns the intersection of:
@@ -49,7 +51,7 @@ class DashboardController(UserAwareController):
         user = self.user()
 
         # 1. Get IDs of all events the user is AUTHORIZED to see
-        authorized_event_ids = self.get_event_queryset().values("id")
+        authorized_event_ids = self.get_event_queryset(include_past=include_past).values("id")
 
         # 2. Get IDs of all events that match the dashboard's relationship filters
         relationship_event_ids = params.get_events_queryset(user.id).values("id")
@@ -109,6 +111,7 @@ class DashboardController(UserAwareController):
         self,
         params: filters.DashboardEventsFiltersSchema = Query(...),  # type: ignore[type-arg]
         order_by: t.Literal["start", "-start"] = "start",
+        include_past: bool = False,
     ) -> QuerySet[models.Event]:
         """View upcoming events for your dashboard filtered by your relationship to them.
 
@@ -117,7 +120,7 @@ class DashboardController(UserAwareController):
         display "My Events" sections in the UI.
         """
         # Get base queryset of user-related events
-        qs = self.get_user_related_events(params)
+        qs = self.get_user_related_events(params, include_past=include_past)
 
         # Filter to upcoming events only
         today = timezone.now().date()
@@ -159,7 +162,7 @@ class DashboardController(UserAwareController):
         start_datetime, end_datetime = event_service.calculate_calendar_date_range(**calendar_params.model_dump())
 
         # Get base queryset of user-related events
-        qs = self.get_user_related_events(params)
+        qs = self.get_user_related_events(params, include_past=True)
 
         # Filter to events within the calendar date range
         qs = qs.filter(start__gte=start_datetime, start__lt=end_datetime)
