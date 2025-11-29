@@ -1,16 +1,27 @@
 """Tests for the event service."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import Mock
 from zoneinfo import ZoneInfo
 
 import pytest
 from django.contrib.gis.geos import Point
 from django.db.models import QuerySet
+from django.utils import timezone
 from freezegun import freeze_time
 
 from accounts.models import RevelUser
-from events.models import Event, EventInvitation, EventInvitationRequest, EventToken, TicketTier
+from events.models import (
+    AdditionalResource,
+    Event,
+    EventInvitation,
+    EventInvitationRequest,
+    EventToken,
+    Organization,
+    OrganizationQuestionnaire,
+    PotluckItem,
+    TicketTier,
+)
 from events.models.mixins import LocationMixin
 from events.schema import InvitationBaseSchema
 from events.service import event_service
@@ -289,3 +300,249 @@ class TestCalculateCalendarDateRange:
         # Should return June, not entire year
         assert start.month == 6
         assert end.month == 7
+
+
+class TestDuplicateEvent:
+    """Tests for duplicate_event service function."""
+
+    def test_duplicate_event_basic_fields(self, public_event: Event) -> None:
+        """Test that basic fields are copied correctly."""
+        new_start = public_event.start + timedelta(days=30)
+
+        new_event = event_service.duplicate_event(
+            template_event=public_event,
+            new_name="Duplicated Event",
+            new_start=new_start,
+        )
+
+        assert new_event.id != public_event.id
+        assert new_event.name == "Duplicated Event"
+        assert new_event.organization == public_event.organization
+        assert new_event.event_type == public_event.event_type
+        assert new_event.visibility == public_event.visibility
+        assert new_event.max_attendees == public_event.max_attendees
+        assert new_event.status == Event.EventStatus.DRAFT
+
+    def test_duplicate_event_date_shifting(self, organization: Organization) -> None:
+        """Test that date fields are shifted correctly."""
+        original_start = timezone.now()
+        original_end = original_start + timedelta(hours=3)
+        original_rsvp = original_start - timedelta(days=1)
+        original_checkin_start = original_start - timedelta(hours=1)
+        original_checkin_end = original_end + timedelta(hours=1)
+
+        template = Event.objects.create(
+            organization=organization,
+            name="Template Event",
+            start=original_start,
+            end=original_end,
+            rsvp_before=original_rsvp,
+            check_in_starts_at=original_checkin_start,
+            check_in_ends_at=original_checkin_end,
+            requires_ticket=False,
+        )
+
+        # Shift by 7 days
+        new_start = original_start + timedelta(days=7)
+        new_event = event_service.duplicate_event(
+            template_event=template,
+            new_name="Shifted Event",
+            new_start=new_start,
+        )
+
+        assert new_event.start == new_start
+        assert new_event.end == original_end + timedelta(days=7)
+        assert new_event.rsvp_before == original_rsvp + timedelta(days=7)
+        assert new_event.check_in_starts_at == original_checkin_start + timedelta(days=7)
+        assert new_event.check_in_ends_at == original_checkin_end + timedelta(days=7)
+
+    def test_duplicate_event_copies_ticket_tiers(self, public_event: Event) -> None:
+        """Test that ticket tiers are duplicated with shifted dates."""
+        # Create a tier with dates
+        original_tier = TicketTier.objects.create(
+            event=public_event,
+            name="Early Bird",
+            price=25.00,
+            total_quantity=50,
+            quantity_sold=10,
+            sales_start_at=public_event.start - timedelta(days=14),
+            sales_end_at=public_event.start - timedelta(days=1),
+        )
+
+        new_start = public_event.start + timedelta(days=30)
+        new_event = event_service.duplicate_event(
+            template_event=public_event,
+            new_name="Duplicated Event",
+            new_start=new_start,
+        )
+
+        new_tiers = list(new_event.ticket_tiers.all())
+        # Should have the Early Bird tier (default tier excluded because of signal disconnect)
+        early_bird_tier = next((t for t in new_tiers if t.name == "Early Bird"), None)
+        assert early_bird_tier is not None
+        assert early_bird_tier.price == original_tier.price
+        assert early_bird_tier.total_quantity == original_tier.total_quantity
+        assert early_bird_tier.quantity_sold == 0  # Reset!
+        assert early_bird_tier.sales_start_at == original_tier.sales_start_at + timedelta(days=30)  # type: ignore[operator]
+        assert early_bird_tier.sales_end_at == original_tier.sales_end_at + timedelta(days=30)  # type: ignore[operator]
+
+    def test_duplicate_event_copies_suggested_potluck_items(self, organization: Organization) -> None:
+        """Test that suggested potluck items are copied but user items are not."""
+        template = Event.objects.create(
+            organization=organization,
+            name="Potluck Event",
+            start=timezone.now(),
+            potluck_open=True,
+            requires_ticket=False,
+        )
+
+        # Create a suggested item (host-created)
+        PotluckItem.objects.create(
+            event=template,
+            name="Chips",
+            item_type=PotluckItem.ItemTypes.FOOD,
+            is_suggested=True,
+        )
+
+        # Create a user-contributed item
+        PotluckItem.objects.create(
+            event=template,
+            name="Homemade Cookies",
+            item_type=PotluckItem.ItemTypes.DESSERT,
+            is_suggested=False,
+        )
+
+        new_event = event_service.duplicate_event(
+            template_event=template,
+            new_name="Duplicated Potluck",
+            new_start=template.start + timedelta(days=7),
+        )
+
+        new_items = list(new_event.potluck_items.all())
+        assert len(new_items) == 1
+        assert new_items[0].name == "Chips"
+        assert new_items[0].is_suggested is True
+
+    def test_duplicate_event_copies_tags(self, public_event: Event) -> None:
+        """Test that tags are copied to the new event."""
+        public_event.tags_manager.add("music", "outdoor")
+
+        new_event = event_service.duplicate_event(
+            template_event=public_event,
+            new_name="Duplicated Event",
+            new_start=public_event.start + timedelta(days=30),
+        )
+
+        new_tags = [tag.name for tag in new_event.tags_manager.all()]
+        assert "music" in new_tags
+        assert "outdoor" in new_tags
+
+    def test_duplicate_event_links_questionnaires(
+        self, public_event: Event, org_questionnaire: OrganizationQuestionnaire
+    ) -> None:
+        """Test that the new event is linked to the same questionnaires."""
+        org_questionnaire.events.add(public_event)
+
+        new_event = event_service.duplicate_event(
+            template_event=public_event,
+            new_name="Duplicated Event",
+            new_start=public_event.start + timedelta(days=30),
+        )
+
+        assert new_event in org_questionnaire.events.all()
+
+    def test_duplicate_event_links_resources(self, public_event: Event) -> None:
+        """Test that the new event is linked to the same resources."""
+        resource = AdditionalResource.objects.create(
+            organization=public_event.organization,
+            resource_type=AdditionalResource.ResourceTypes.LINK,
+            name="Event Guide",
+            link="https://example.com/guide",
+        )
+        resource.events.add(public_event)
+
+        new_event = event_service.duplicate_event(
+            template_event=public_event,
+            new_name="Duplicated Event",
+            new_start=public_event.start + timedelta(days=30),
+        )
+
+        assert new_event in resource.events.all()
+
+    def test_duplicate_event_does_not_copy_user_data(self, public_event: Event, public_user: RevelUser) -> None:
+        """Test that user-specific data is not copied."""
+        # Create some user-specific data
+        EventInvitation.objects.create(event=public_event, user=public_user)
+
+        new_event = event_service.duplicate_event(
+            template_event=public_event,
+            new_name="Duplicated Event",
+            new_start=public_event.start + timedelta(days=30),
+        )
+
+        assert new_event.invitations.count() == 0
+        assert new_event.tokens.count() == 0
+
+    def test_duplicate_event_negative_delta(self, public_event: Event) -> None:
+        """Test that duplicating to an earlier date works correctly."""
+        new_start = public_event.start - timedelta(days=7)
+
+        new_event = event_service.duplicate_event(
+            template_event=public_event,
+            new_name="Earlier Event",
+            new_start=new_start,
+        )
+
+        assert new_event.start == new_start
+        # End should also be shifted backward
+        expected_end = public_event.end - timedelta(days=7)
+        assert new_event.end == expected_end
+
+    def test_duplicate_event_preserves_event_series(self, event: Event) -> None:
+        """Test that event_series reference is preserved."""
+        assert event.event_series is not None
+
+        new_event = event_service.duplicate_event(
+            template_event=event,
+            new_name="Duplicated Series Event",
+            new_start=event.start + timedelta(days=30),
+        )
+
+        assert new_event.event_series == event.event_series
+
+    def test_duplicate_event_slug_collision_handled(self, organization: Organization) -> None:
+        """Test that duplicating with same name generates unique slug via collision handling."""
+        from django.utils import timezone
+
+        # Create an event - slug will be auto-generated as "weekly-reading-circle"
+        template_event = Event.objects.create(
+            organization=organization,
+            name="Weekly Reading Circle",
+            start=timezone.now() + timedelta(days=7),
+            end=timezone.now() + timedelta(days=7, hours=2),
+        )
+        base_slug = template_event.slug
+        assert base_slug == "weekly-reading-circle"
+
+        # Duplicate with the same name - should trigger slug collision handling
+        new_event = event_service.duplicate_event(
+            template_event=template_event,
+            new_name=template_event.name,
+            new_start=template_event.start + timedelta(days=7),
+        )
+
+        # New event should have a different slug (with random suffix appended)
+        assert new_event.slug != base_slug
+        assert new_event.slug.startswith(base_slug + "-")
+        assert len(new_event.slug) == len(base_slug) + 1 + 5  # base + hyphen + 5 char suffix
+
+        # Duplicate again - should also get a unique slug
+        third_event = event_service.duplicate_event(
+            template_event=template_event,
+            new_name=template_event.name,
+            new_start=template_event.start + timedelta(days=14),
+        )
+
+        assert third_event.slug != base_slug
+        assert third_event.slug != new_event.slug
+        assert third_event.slug.startswith(base_slug + "-")

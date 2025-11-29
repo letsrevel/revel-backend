@@ -134,6 +134,34 @@ class IsOrganizationStaff(RootPermission):
         raise PermissionDenied("You must be the owner of this organization.")
 
 
+class CanDuplicateEvent(RootPermission):
+    """Permission to duplicate an event.
+
+    Requires create_event permission on the event's organization.
+    This ensures the user can create new events in the same organization.
+    """
+
+    def __init__(self) -> None:
+        """Initialize with create_event action."""
+        super().__init__(action="create_event")
+
+    def has_object_permission(
+        self,
+        request: HttpRequest,
+        controller: ControllerBase,
+        obj: models.Event,
+    ) -> bool:
+        """Check if user can duplicate this event (create new event in same org)."""
+        if obj.organization.owner_id == request.user.id:
+            return True
+        if staff_member := models.OrganizationStaff.objects.filter(
+            organization=obj.organization,
+            user_id=request.user.id,
+        ).first():
+            return staff_member.has_permission(self.action)
+        return False
+
+
 class ManagePotluckPermission(RootPermission):
     def __init__(self) -> None:
         """Init PotluckPermission."""

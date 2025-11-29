@@ -256,6 +256,23 @@ class EventCreateSchema(EventEditSchema):
     requires_ticket: bool = False
 
 
+class EventDuplicateSchema(Schema):
+    """Schema for duplicating an event."""
+
+    name: OneToOneFiftyString
+    start: AwareDatetime
+
+
+# Slug must be lowercase alphanumeric with hyphens, 1-255 chars
+SlugString = t.Annotated[str, StringConstraints(min_length=1, max_length=255, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")]
+
+
+class EventEditSlugSchema(Schema):
+    """Schema for editing an event's slug."""
+
+    slug: SlugString
+
+
 class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
     id: UUID
     event_type: Event.EventType

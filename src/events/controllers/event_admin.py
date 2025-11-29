@@ -31,7 +31,7 @@ from events.service.invitation_service import (
 from events.service.ticket_service import check_in_ticket
 
 from ..models import EventInvitationRequest
-from .permissions import EventPermission
+from .permissions import CanDuplicateEvent, EventPermission
 
 
 class All(Schema):
@@ -353,6 +353,55 @@ class EventAdminController(UserAwareController):
         event = self.get_one(event_id)
         event.delete()
         return 204, None
+
+    @route.patch(
+        "/slug",
+        url_name="edit_event_slug",
+        response={200: schema.EventDetailSchema},
+        permissions=[EventPermission("edit_event")],
+    )
+    def edit_slug(self, event_id: UUID, payload: schema.EventEditSlugSchema) -> models.Event:
+        """Update the event's slug (URL-friendly identifier).
+
+        The slug must be unique within the organization and must be a valid slug format
+        (lowercase letters, numbers, and hyphens only).
+        """
+        event = self.get_one(event_id)
+
+        # Check if slug already exists for this organization
+        if (
+            models.Event.objects.filter(organization_id=event.organization_id, slug=payload.slug)
+            .exclude(pk=event.pk)
+            .exists()
+        ):
+            raise HttpError(400, str(_("An event with this slug already exists in your organization.")))
+
+        event.slug = payload.slug
+        event.save(update_fields=["slug"])
+        return event
+
+    @route.post(
+        "/duplicate",
+        url_name="duplicate_event",
+        response={200: schema.EventDetailSchema},
+        permissions=[CanDuplicateEvent()],
+    )
+    def duplicate_event(self, event_id: UUID, payload: schema.EventDuplicateSchema) -> models.Event:
+        """Create a copy of this event with a new name and start date.
+
+        All date fields are shifted relative to the new start date. The new event
+        is created in DRAFT status. Ticket tiers, suggested potluck items, tags,
+        questionnaire links, and resource links are copied. User-specific data
+        (tickets, RSVPs, invitations, etc.) is NOT copied.
+
+        Requires create_event permission on the event's organization.
+        """
+        event = self.get_one(event_id)
+        return event_service.duplicate_event(
+            template_event=event,
+            new_name=payload.name,
+            new_start=payload.start,
+        )
 
     @route.post(
         "/actions/update-status/{status}",

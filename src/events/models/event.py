@@ -152,6 +152,9 @@ class EventManager(models.Manager["Event"]):
 class Event(
     SlugFromNameMixin, TimeStampedModel, VisibilityMixin, LocationMixin, LogoCoverValidationMixin, TaggableMixin
 ):
+    # Slug uniqueness is scoped to organization
+    slug_scope_field = "organization"
+
     class EventType(models.TextChoices):
         PUBLIC = "public"
         PRIVATE = "private"
@@ -204,7 +207,6 @@ class Event(
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["organization", "name"], name="unique_organization_name"),
             models.UniqueConstraint(fields=["organization", "slug"], name="unique_organization_slug"),
         ]
         indexes = [
