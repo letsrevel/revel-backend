@@ -116,6 +116,7 @@ class EventController(UserAwareController):
         soonest first, '-start' shows latest first. Supports filtering by organization, series,
         tags, and text search.
         """
+        params.next_events = not include_past
         qs = params.filter(self.get_queryset(include_past=include_past or params.past_events is True)).distinct()
         if order_by == "distance":
             return event_service.order_by_distance(self.user_location(), qs)
