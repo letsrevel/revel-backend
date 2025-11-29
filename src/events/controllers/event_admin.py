@@ -354,6 +354,32 @@ class EventAdminController(UserAwareController):
         event.delete()
         return 204, None
 
+    @route.patch(
+        "/slug",
+        url_name="edit_event_slug",
+        response={200: schema.EventDetailSchema},
+        permissions=[EventPermission("edit_event")],
+    )
+    def edit_slug(self, event_id: UUID, payload: schema.EventEditSlugSchema) -> models.Event:
+        """Update the event's slug (URL-friendly identifier).
+
+        The slug must be unique within the organization and must be a valid slug format
+        (lowercase letters, numbers, and hyphens only).
+        """
+        event = self.get_one(event_id)
+
+        # Check if slug already exists for this organization
+        if (
+            models.Event.objects.filter(organization_id=event.organization_id, slug=payload.slug)
+            .exclude(pk=event.pk)
+            .exists()
+        ):
+            raise HttpError(400, str(_("An event with this slug already exists in your organization.")))
+
+        event.slug = payload.slug
+        event.save(update_fields=["slug"])
+        return event
+
     @route.post(
         "/duplicate",
         url_name="duplicate_event",

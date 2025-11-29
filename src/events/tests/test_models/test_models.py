@@ -330,3 +330,119 @@ def test_organization_token_tier_optional_when_not_granting_membership(
     token.full_clean()
     token.save()
     assert token.membership_tier is None
+
+
+# --- Tests for SlugFromNameMixin slug collision handling ---
+
+
+@pytest.mark.django_db
+def test_event_slug_auto_generated(organization: Organization) -> None:
+    """Test that slug is auto-generated from name."""
+    event = Event.objects.create(
+        organization=organization,
+        name="My Test Event",
+        start=timezone.now(),
+    )
+    assert event.slug == "my-test-event"
+
+
+@pytest.mark.django_db
+def test_event_slug_collision_appends_suffix(organization: Organization) -> None:
+    """Test that slug collision appends a random suffix."""
+    event1 = Event.objects.create(
+        organization=organization,
+        name="Weekly Reading Circle",
+        start=timezone.now(),
+    )
+    assert event1.slug == "weekly-reading-circle"
+
+    # Create second event with same name - should get a suffix
+    event2 = Event.objects.create(
+        organization=organization,
+        name="Weekly Reading Circle",
+        start=timezone.now(),
+    )
+    assert event2.slug.startswith("weekly-reading-circle-")
+    assert len(event2.slug) == len("weekly-reading-circle-") + 5  # 5 char suffix
+
+
+@pytest.mark.django_db
+def test_event_slug_collision_different_organizations(
+    organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """Test that same slug can exist in different organizations."""
+    org2 = Organization.objects.create(
+        name="Another Org",
+        slug="another-org",
+        owner=organization_owner_user,
+    )
+
+    event1 = Event.objects.create(
+        organization=organization,
+        name="Weekly Reading Circle",
+        start=timezone.now(),
+    )
+    assert event1.slug == "weekly-reading-circle"
+
+    # Same name in different org should get same slug (no collision)
+    event2 = Event.objects.create(
+        organization=org2,
+        name="Weekly Reading Circle",
+        start=timezone.now(),
+    )
+    assert event2.slug == "weekly-reading-circle"
+
+
+@pytest.mark.django_db
+def test_event_slug_preserved_on_update(organization: Organization) -> None:
+    """Test that existing slug is preserved when updating an event."""
+    event = Event.objects.create(
+        organization=organization,
+        name="Original Name",
+        start=timezone.now(),
+    )
+    original_slug = event.slug
+
+    # Update the name
+    event.name = "New Name"
+    event.save()
+
+    # Slug should not change
+    event.refresh_from_db()
+    assert event.slug == original_slug
+
+
+@pytest.mark.django_db
+def test_event_explicit_slug_preserved(organization: Organization) -> None:
+    """Test that explicitly provided slug is not overwritten."""
+    event = Event.objects.create(
+        organization=organization,
+        name="My Event",
+        slug="custom-slug",
+        start=timezone.now(),
+    )
+    assert event.slug == "custom-slug"
+
+
+@pytest.mark.django_db
+def test_event_multiple_collisions(organization: Organization) -> None:
+    """Test that multiple events with same name all get unique slugs."""
+    events = []
+    for i in range(5):
+        event = Event.objects.create(
+            organization=organization,
+            name="Recurring Event",
+            start=timezone.now(),
+        )
+        events.append(event)
+
+    # All slugs should be unique
+    slugs = [e.slug for e in events]
+    assert len(slugs) == len(set(slugs))
+
+    # First one should be base slug
+    assert events[0].slug == "recurring-event"
+
+    # Rest should have suffixes
+    for event in events[1:]:
+        assert event.slug.startswith("recurring-event-")

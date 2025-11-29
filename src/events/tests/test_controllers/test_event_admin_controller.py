@@ -2481,3 +2481,153 @@ def test_duplicate_event_requires_authentication(event: Event) -> None:
     response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 401
+
+
+# --- Tests for PATCH /event-admin/{event_id}/slug ---
+
+
+def test_edit_slug_by_owner(organization_owner_client: Client, event: Event) -> None:
+    """Test that an event's organization owner can edit its slug."""
+    url = reverse("api:edit_event_slug", kwargs={"event_id": event.pk})
+    payload = {"slug": "custom-event-slug"}
+
+    response = organization_owner_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    assert data["slug"] == "custom-event-slug"
+
+    event.refresh_from_db()
+    assert event.slug == "custom-event-slug"
+
+
+def test_edit_slug_by_staff_with_permission(
+    organization_staff_client: Client, event: Event, staff_member: OrganizationStaff
+) -> None:
+    """Test that a staff member with 'edit_event' permission can edit slug."""
+    url = reverse("api:edit_event_slug", kwargs={"event_id": event.pk})
+    payload = {"slug": "staff-edited-slug"}
+
+    response = organization_staff_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    event.refresh_from_db()
+    assert event.slug == "staff-edited-slug"
+
+
+def test_edit_slug_by_staff_without_permission(
+    organization_staff_client: Client, event: Event, staff_member: OrganizationStaff
+) -> None:
+    """Test that a staff member without 'edit_event' permission gets 403."""
+    # Remove the edit_event permission
+    perms = staff_member.permissions
+    perms["default"]["edit_event"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+
+    url = reverse("api:edit_event_slug", kwargs={"event_id": event.pk})
+    payload = {"slug": "should-fail"}
+
+    response = organization_staff_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 403
+
+
+def test_edit_slug_conflict(organization_owner_client: Client, event: Event, organization: Organization) -> None:
+    """Test that editing to an existing slug returns 400."""
+    # Create another event with a specific slug
+    Event.objects.create(
+        organization=organization,
+        name="Other Event",
+        slug="taken-slug",
+        start=event.start,
+    )
+
+    url = reverse("api:edit_event_slug", kwargs={"event_id": event.pk})
+    payload = {"slug": "taken-slug"}
+
+    response = organization_owner_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+    assert "already exists" in response.json()["detail"]
+
+
+def test_edit_slug_same_slug_allowed(organization_owner_client: Client, event: Event) -> None:
+    """Test that setting the same slug (no change) is allowed."""
+    original_slug = event.slug
+    url = reverse("api:edit_event_slug", kwargs={"event_id": event.pk})
+    payload = {"slug": original_slug}
+
+    response = organization_owner_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    event.refresh_from_db()
+    assert event.slug == original_slug
+
+
+def test_edit_slug_invalid_format(organization_owner_client: Client, event: Event) -> None:
+    """Test that invalid slug formats are rejected."""
+    url = reverse("api:edit_event_slug", kwargs={"event_id": event.pk})
+
+    # Test uppercase
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"slug": "Invalid-Slug"}), content_type="application/json"
+    )
+    assert response.status_code == 422
+
+    # Test spaces
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"slug": "invalid slug"}), content_type="application/json"
+    )
+    assert response.status_code == 422
+
+    # Test special characters
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"slug": "invalid_slug!"}), content_type="application/json"
+    )
+    assert response.status_code == 422
+
+    # Test leading hyphen
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"slug": "-invalid-slug"}), content_type="application/json"
+    )
+    assert response.status_code == 422
+
+
+def test_edit_slug_valid_formats(organization_owner_client: Client, event: Event) -> None:
+    """Test that valid slug formats are accepted."""
+    url = reverse("api:edit_event_slug", kwargs={"event_id": event.pk})
+
+    # Simple slug
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"slug": "simple"}), content_type="application/json"
+    )
+    assert response.status_code == 200
+
+    # With numbers
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"slug": "event2024"}), content_type="application/json"
+    )
+    assert response.status_code == 200
+
+    # With hyphens
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"slug": "my-cool-event"}), content_type="application/json"
+    )
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "client_fixture,expected_status_code", [("member_client", 403), ("nonmember_client", 403), ("client", 401)]
+)
+def test_edit_slug_by_unauthorized_users(
+    request: pytest.FixtureRequest, client_fixture: str, expected_status_code: int, public_event: Event
+) -> None:
+    """Test that users without owner/staff roles get appropriate error."""
+    client: Client = request.getfixturevalue(client_fixture)
+    url = reverse("api:edit_event_slug", kwargs={"event_id": public_event.pk})
+    payload = {"slug": "unauthorized-slug"}
+
+    response = client.patch(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == expected_status_code

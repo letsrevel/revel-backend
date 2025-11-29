@@ -27,14 +27,74 @@ class VisibilityMixin(models.Model):
         abstract = True
 
 
+SLUG_SUFFIX_ALPHABET = string.ascii_lowercase + string.digits  # [a-z0-9]
+SLUG_SUFFIX_LENGTH = 5
+MAX_SLUG_COLLISION_RETRIES = 10
+
+
+def generate_slug_suffix() -> str:
+    """Generate a short random suffix for slug collision resolution."""
+    return "".join(secrets.choice(SLUG_SUFFIX_ALPHABET) for _ in range(SLUG_SUFFIX_LENGTH))
+
+
 class SlugFromNameMixin(models.Model):
+    """Mixin that auto-generates a slug from the name field.
+
+    Handles slug collisions by appending a random suffix when needed.
+    Subclasses can define `slug_scope_field` to specify a field that
+    defines the uniqueness scope (e.g., 'organization' for Event).
+    """
+
+    # Override in subclass to specify the field that scopes slug uniqueness
+    # e.g., slug_scope_field = "organization" means slug must be unique per organization
+    slug_scope_field: str | None = None
+
     class Meta:
         abstract = True
+
+    def _get_slug_queryset(self) -> models.QuerySet[t.Any]:
+        """Get queryset for checking slug uniqueness within scope."""
+        qs = self.__class__.objects.all()  # type: ignore[attr-defined]
+
+        # Exclude self if already saved
+        if self.pk:
+            qs = qs.exclude(pk=self.pk)
+
+        # Apply scope filter if defined
+        if self.slug_scope_field:
+            scope_value = getattr(self, self.slug_scope_field, None)
+            if scope_value is not None:
+                # Handle both FK and FK_id patterns
+                field_name = self.slug_scope_field
+                if hasattr(scope_value, "pk"):
+                    field_name = f"{self.slug_scope_field}_id"
+                    scope_value = scope_value.pk
+                qs = qs.filter(**{field_name: scope_value})
+
+        return qs  # type: ignore[no-any-return]
+
+    def _generate_unique_slug(self, base_slug: str) -> str:
+        """Generate a unique slug, appending a suffix if necessary."""
+        qs = self._get_slug_queryset()
+
+        # Try the base slug first
+        if not qs.filter(slug=base_slug).exists():
+            return base_slug
+
+        # Collision detected - append random suffix
+        for _ in range(MAX_SLUG_COLLISION_RETRIES):
+            candidate = f"{base_slug}-{generate_slug_suffix()}"
+            if not qs.filter(slug=candidate).exists():
+                return candidate
+
+        # Extremely unlikely - all retries collided
+        raise ValueError(f"Could not generate unique slug after {MAX_SLUG_COLLISION_RETRIES} attempts")
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
         """Override save to auto-create slug."""
         if not self.slug:  # type: ignore[has-type]
-            self.slug = slugify(self.name)  # type: ignore[attr-defined]
+            base_slug = slugify(self.name)  # type: ignore[attr-defined]
+            self.slug = self._generate_unique_slug(base_slug)
         super().save(*args, **kwargs)
 
 
