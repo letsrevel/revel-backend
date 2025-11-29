@@ -2280,3 +2280,204 @@ def test_delete_event_by_unauthorized_users(
     assert response.status_code == expected_status_code
     # Event should still exist
     assert Event.objects.filter(pk=event_id).exists()
+
+
+# --- Tests for POST /event-admin/{event_id}/duplicate ---
+
+
+def test_duplicate_event_by_owner(organization_owner_client: Client, event: Event) -> None:
+    """Test that an event's organization owner can duplicate it."""
+    from datetime import timedelta
+
+    new_start = event.start + timedelta(days=7)
+    url = reverse("api:duplicate_event", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "Duplicated Event",
+        "start": new_start.isoformat(),
+    }
+
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    assert data["name"] == "Duplicated Event"
+    assert data["status"] == Event.EventStatus.DRAFT
+    assert data["organization"]["id"] == str(event.organization.id)
+
+    # Verify the new event exists
+    new_event = Event.objects.get(pk=data["id"])
+    assert new_event.name == "Duplicated Event"
+    assert new_event.organization == event.organization
+
+
+def test_duplicate_event_by_staff_with_permission(
+    organization_staff_client: Client, event: Event, staff_member: OrganizationStaff
+) -> None:
+    """Test that a staff member with 'create_event' permission can duplicate."""
+    from datetime import timedelta
+
+    # Grant create_event permission
+    perms = staff_member.permissions
+    perms["default"]["create_event"] = True
+    staff_member.permissions = perms
+    staff_member.save()
+
+    new_start = event.start + timedelta(days=14)
+    url = reverse("api:duplicate_event", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "Staff Duplicated Event",
+        "start": new_start.isoformat(),
+    }
+
+    response = organization_staff_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    assert data["name"] == "Staff Duplicated Event"
+
+
+def test_duplicate_event_by_staff_without_permission(
+    organization_staff_client: Client, event: Event, staff_member: OrganizationStaff
+) -> None:
+    """Test that a staff member without 'create_event' permission gets 403."""
+    from datetime import timedelta
+
+    # Ensure permission is False
+    perms = staff_member.permissions
+    perms["default"]["create_event"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+
+    new_start = event.start + timedelta(days=7)
+    url = reverse("api:duplicate_event", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "Should Fail",
+        "start": new_start.isoformat(),
+    }
+
+    response = organization_staff_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "client_fixture,expected_status_code", [("member_client", 403), ("nonmember_client", 403), ("client", 401)]
+)
+def test_duplicate_event_by_unauthorized_users(
+    request: pytest.FixtureRequest, client_fixture: str, expected_status_code: int, public_event: Event
+) -> None:
+    """Test that users without owner/staff roles get a 403/401 when trying to duplicate."""
+    from datetime import timedelta
+
+    client: Client = request.getfixturevalue(client_fixture)
+    new_start = public_event.start + timedelta(days=7)
+    url = reverse("api:duplicate_event", kwargs={"event_id": public_event.pk})
+    payload = {
+        "name": "Unauthorized Duplicate",
+        "start": new_start.isoformat(),
+    }
+
+    response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == expected_status_code
+
+
+def test_duplicate_event_preserves_ticket_tiers(
+    organization_owner_client: Client, event: Event, event_ticket_tier: TicketTier
+) -> None:
+    """Test that duplicating an event also duplicates its ticket tiers."""
+    from datetime import timedelta
+
+    new_start = event.start + timedelta(days=7)
+    url = reverse("api:duplicate_event", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "Event With Tiers",
+        "start": new_start.isoformat(),
+    }
+
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+
+    # Verify ticket tiers were copied
+    new_event = Event.objects.get(pk=data["id"])
+    new_tiers = list(new_event.ticket_tiers.all())
+
+    # Should have the default tier plus our event_ticket_tier copy
+    assert len(new_tiers) >= 1
+
+    # Find the copied tier (by name match)
+    copied_tier = next((t for t in new_tiers if t.name == event_ticket_tier.name), None)
+    assert copied_tier is not None
+    assert copied_tier.price == event_ticket_tier.price
+    assert copied_tier.quantity_sold == 0  # Should be reset
+
+
+def test_duplicate_event_shifts_dates(organization_owner_client: Client, event: Event) -> None:
+    """Test that duplicating an event shifts all date fields correctly."""
+    from datetime import timedelta
+
+    # Set up various date fields
+    event.rsvp_before = event.start - timedelta(days=1)
+    event.check_in_starts_at = event.start - timedelta(hours=1)
+    event.check_in_ends_at = event.end + timedelta(hours=1)
+    event.save()
+
+    delta = timedelta(days=7)
+    new_start = event.start + delta
+    url = reverse("api:duplicate_event", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "Date-Shifted Event",
+        "start": new_start.isoformat(),
+    }
+
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+
+    # Verify date fields were shifted
+    new_event = Event.objects.get(pk=data["id"])
+    assert new_event.start == new_start
+    assert new_event.end == event.end + delta
+    assert new_event.rsvp_before == event.rsvp_before + delta
+    assert new_event.check_in_starts_at == event.check_in_starts_at + delta
+    assert new_event.check_in_ends_at == event.check_in_ends_at + delta
+
+
+def test_duplicate_event_nonexistent(organization_owner_client: Client) -> None:
+    """Test duplicating a non-existent event returns 404."""
+    from datetime import timedelta
+    from uuid import uuid4
+
+    from django.utils import timezone
+
+    fake_event_id = uuid4()
+    new_start = timezone.now() + timedelta(days=30)
+    url = reverse("api:duplicate_event", kwargs={"event_id": fake_event_id})
+    payload = {
+        "name": "Should Not Work",
+        "start": new_start.isoformat(),
+    }
+
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 404
+
+
+def test_duplicate_event_requires_authentication(event: Event) -> None:
+    """Test that duplicating an event requires authentication."""
+    from datetime import timedelta
+
+    new_start = event.start + timedelta(days=7)
+    client = Client()
+    url = reverse("api:duplicate_event", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "Unauthenticated",
+        "start": new_start.isoformat(),
+    }
+
+    response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 401

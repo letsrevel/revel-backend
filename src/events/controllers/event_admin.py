@@ -31,7 +31,7 @@ from events.service.invitation_service import (
 from events.service.ticket_service import check_in_ticket
 
 from ..models import EventInvitationRequest
-from .permissions import EventPermission
+from .permissions import CanDuplicateEvent, EventPermission
 
 
 class All(Schema):
@@ -353,6 +353,29 @@ class EventAdminController(UserAwareController):
         event = self.get_one(event_id)
         event.delete()
         return 204, None
+
+    @route.post(
+        "/duplicate",
+        url_name="duplicate_event",
+        response={200: schema.EventDetailSchema},
+        permissions=[CanDuplicateEvent()],
+    )
+    def duplicate_event(self, event_id: UUID, payload: schema.EventDuplicateSchema) -> models.Event:
+        """Create a copy of this event with a new name and start date.
+
+        All date fields are shifted relative to the new start date. The new event
+        is created in DRAFT status. Ticket tiers, suggested potluck items, tags,
+        questionnaire links, and resource links are copied. User-specific data
+        (tickets, RSVPs, invitations, etc.) is NOT copied.
+
+        Requires create_event permission on the event's organization.
+        """
+        event = self.get_one(event_id)
+        return event_service.duplicate_event(
+            template_event=event,
+            new_name=payload.name,
+            new_start=payload.start,
+        )
 
     @route.post(
         "/actions/update-status/{status}",

@@ -256,6 +256,13 @@ class EventCreateSchema(EventEditSchema):
     requires_ticket: bool = False
 
 
+class EventDuplicateSchema(Schema):
+    """Schema for duplicating an event."""
+
+    name: OneToOneFiftyString
+    start: AwareDatetime
+
+
 class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
     id: UUID
     event_type: Event.EventType
