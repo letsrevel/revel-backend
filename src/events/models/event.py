@@ -19,6 +19,7 @@ from .event_series import EventSeries
 from .mixins import (
     LocationMixin,
     LogoCoverValidationMixin,
+    ResourceVisibility,
     SlugFromNameMixin,
     TokenMixin,
     UserRequestMixin,
@@ -203,6 +204,12 @@ class Event(
     can_attend_without_login = models.BooleanField(
         default=True, help_text="Allow users to RSVP or purchase tickets without creating an account"
     )
+    address_visibility = models.CharField(
+        choices=ResourceVisibility.choices,
+        max_length=20,
+        default=ResourceVisibility.PUBLIC,
+        help_text="Controls who can see the event address. Uses same rules as resource visibility.",
+    )
 
     attendee_count = models.PositiveIntegerField(default=0, editable=False)
 
@@ -230,6 +237,70 @@ class Event(
 
     def __str__(self) -> str:
         return f"{self.name} ({self.organization.name})"
+
+    def can_user_see_address(self, user: RevelUser | AnonymousUser) -> bool:
+        """Check if the user can see the event address based on address_visibility.
+
+        Uses the same visibility rules as ResourceVisibility:
+        - PUBLIC: Everyone can see
+        - PRIVATE: Invited users, ticket holders, or RSVPs
+        - MEMBERS_ONLY: Organization members
+        - STAFF_ONLY: Organization staff/owners
+        - ATTENDEES_ONLY: Only ticket holders or RSVPs (not just invited)
+
+        Args:
+            user: The user to check access for.
+
+        Returns:
+            True if the user can see the address, False otherwise.
+        """
+        # Staff/superusers always see everything
+        if user.is_superuser or user.is_staff:
+            return True
+
+        # PUBLIC is visible to everyone
+        if self.address_visibility == ResourceVisibility.PUBLIC:
+            return True
+
+        # Anonymous users can only see PUBLIC addresses
+        if user.is_anonymous:
+            return False
+
+        # Check organization roles
+        is_owner = self.organization.owner_id == user.id
+        is_staff_member = self.organization.staff_members.filter(id=user.id).exists()
+
+        # STAFF_ONLY: Only staff/owners
+        if self.address_visibility == ResourceVisibility.STAFF_ONLY:
+            return is_owner or is_staff_member
+
+        # Staff and owners can see everything
+        if is_owner or is_staff_member:
+            return True
+
+        # Check if user is an organization member
+        is_org_member = (
+            OrganizationMember.objects.for_visibility().filter(user=user, organization=self.organization).exists()
+        )
+
+        # MEMBERS_ONLY: Organization members
+        if self.address_visibility == ResourceVisibility.MEMBERS_ONLY:
+            return is_org_member
+
+        # Check event relationships
+        has_ticket = Ticket.objects.filter(user=user, event=self).exclude(status=Ticket.TicketStatus.CANCELLED).exists()
+        has_rsvp = EventRSVP.objects.filter(user=user, event=self, status=EventRSVP.RsvpStatus.YES).exists()
+        has_invitation = EventInvitation.objects.filter(user=user, event=self).exists()
+
+        # ATTENDEES_ONLY: Only ticket holders or RSVPs (not just invited)
+        if self.address_visibility == ResourceVisibility.ATTENDEES_ONLY:
+            return has_ticket or has_rsvp
+
+        # PRIVATE: Invited users, ticket holders, or RSVPs
+        if self.address_visibility == ResourceVisibility.PRIVATE:
+            return has_ticket or has_rsvp or has_invitation
+
+        return False
 
     def attendees(self, viewer: RevelUser) -> models.QuerySet[RevelUser]:
         """Return attendees based on who wants to see them."""
