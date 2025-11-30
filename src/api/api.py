@@ -35,6 +35,7 @@ from questionnaires.exceptions import (
     SectionIntegrityError,
 )
 from telegram.controllers import TelegramController
+from wallet.controllers import TicketWalletController, TicketWalletPublicController, apple_router
 
 from .exception_handlers import (
     handle_already_member_error,
@@ -124,6 +125,9 @@ api.register_controllers(
     NotificationPreferenceController,
     # Telegram controllers
     TelegramController,
+    # Wallet controllers
+    TicketWalletController,
+    TicketWalletPublicController,
 )
 
 EXCEPTION_HANDLERS = {
@@ -141,3 +145,7 @@ EXCEPTION_HANDLERS = {
 
 for exc, handler in EXCEPTION_HANDLERS.items():
     api.add_exception_handler(exc, handler)
+
+# Add Apple Wallet web service router at /wallet prefix
+# These endpoints are called by Apple Wallet, not by our frontend
+api.add_router("/wallet", apple_router)
