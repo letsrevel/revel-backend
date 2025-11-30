@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import MinValueValidator
 from django.db.models import Prefetch, Q
 from django.utils import timezone
+from django.utils.functional import cached_property
 
 from accounts.models import RevelUser
 from common.fields import MarkdownField
@@ -544,6 +545,50 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         return f"{self.name} for event {self.event.name}"
 
 
+class TicketQuerySet(models.QuerySet["Ticket"]):
+    """Custom queryset for Ticket model with common prefetch patterns."""
+
+    def with_event(self) -> t.Self:
+        """Select the related event and its organization."""
+        return self.select_related("event", "event__organization")
+
+    def with_tier(self) -> t.Self:
+        """Select the related tier."""
+        return self.select_related("tier")
+
+    def with_user(self) -> t.Self:
+        """Select the related user."""
+        return self.select_related("user")
+
+    def full(self) -> t.Self:
+        """Select all commonly needed related objects."""
+        return self.select_related("event", "event__organization", "tier", "user")
+
+
+class TicketManager(models.Manager["Ticket"]):
+    """Custom manager for Ticket with convenience methods for related object selection."""
+
+    def get_queryset(self) -> TicketQuerySet:
+        """Get base queryset."""
+        return TicketQuerySet(self.model, using=self._db)
+
+    def with_event(self) -> TicketQuerySet:
+        """Returns a queryset with event and organization selected."""
+        return self.get_queryset().with_event()
+
+    def with_tier(self) -> TicketQuerySet:
+        """Returns a queryset with the tier selected."""
+        return self.get_queryset().with_tier()
+
+    def with_user(self) -> TicketQuerySet:
+        """Returns a queryset with the user selected."""
+        return self.get_queryset().with_user()
+
+    def full(self) -> TicketQuerySet:
+        """Returns a queryset with all related objects selected."""
+        return self.get_queryset().full()
+
+
 class Ticket(TimeStampedModel):
     """A ticket for a specific user to a specific event."""
 
@@ -567,6 +612,8 @@ class Ticket(TimeStampedModel):
         editable=False,
     )
 
+    objects = TicketManager()
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -580,6 +627,17 @@ class Ticket(TimeStampedModel):
     def __str__(self) -> str:  # pragma: no cover
         tier_str = f" | {self.tier.name!r}" if self.tier else ""
         return f"Ticket for {self.event.name} for {self.user.username}{tier_str}"
+
+    @cached_property
+    def apple_pass_available(self) -> bool:
+        """Check if apple pass is available."""
+        return bool(
+            settings.APPLE_WALLET_PASS_TYPE_ID
+            and settings.APPLE_WALLET_TEAM_ID
+            and settings.APPLE_WALLET_CERT_PATH
+            and settings.APPLE_WALLET_KEY_PATH
+            and settings.APPLE_WALLET_WWDR_CERT_PATH
+        )
 
 
 def _get_payment_default_expiry() -> datetime:

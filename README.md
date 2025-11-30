@@ -72,6 +72,7 @@ Revel combines the ticketing power of platforms like Eventbrite with the communi
 *   **Event & Series Management:** Easily create single events or recurring event series under your organization.
 *   **Ticketing & RSVPs:** Support for both paid/free ticketed events (powered by Stripe) and simpler RSVP-based gatherings.
 *   **QR Code Check-In:** Manage event entry smoothly with QR code tickets and a staff-facing check-in flow.
+*   **Apple Wallet Integration:** Tickets can be added to Apple Wallet for easy access at events (optional, requires Apple Developer certificate).
 *   **Potluck Coordination:** A unique, built-in system for attendees to coordinate bringing items, dietary restrictions and preferences, moving logistics off messy spreadsheets.
 
 ---
