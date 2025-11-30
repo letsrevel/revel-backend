@@ -566,11 +566,15 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
 
 
 class TicketManager(models.Manager["Ticket"]):
-    """Custom manager for Ticket that always selects related event and organization."""
+    """Custom manager for Ticket with convenience methods for related object selection."""
 
     def get_queryset(self) -> TicketQuerySet:
-        """Get base queryset with event and organization pre-selected."""
-        return TicketQuerySet(self.model, using=self._db).with_event()
+        """Get base queryset."""
+        return TicketQuerySet(self.model, using=self._db)
+
+    def with_event(self) -> TicketQuerySet:
+        """Returns a queryset with event and organization selected."""
+        return self.get_queryset().with_event()
 
     def with_tier(self) -> TicketQuerySet:
         """Returns a queryset with the tier selected."""
