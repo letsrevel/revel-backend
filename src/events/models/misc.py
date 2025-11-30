@@ -11,7 +11,7 @@ from common.models import TimeStampedModel
 from .. import exceptions
 from .event import Event, EventInvitation, EventRSVP, Ticket
 from .event_series import EventSeries
-from .mixins import VisibilityMixin
+from .mixins import ResourceVisibility, VisibilityMixin
 from .organization import Organization
 
 
@@ -31,6 +31,8 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
         3. Crucially, it adds a specific check for `PRIVATE` resources, making them visible
            *only if* the user has a direct relationship (invitation, ticket, or RSVP)
            to an event linked to that resource.
+        4. For `ATTENDEES_ONLY` resources, only users with tickets or RSVPs (not just invitations)
+           can see them.
         """
         # --- Fast paths for special users ---
         qs = self.all()
@@ -41,7 +43,7 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
         if user.is_anonymous:
             # Anonymous users can only see PUBLIC resources in PUBLIC organizations.
             # The visible_org_ids check already handles the org's public status.
-            return qs.filter(visibility=self.model.Visibility.PUBLIC)
+            return qs.filter(visibility=ResourceVisibility.PUBLIC)
 
         # --- Authenticated User ---
         # A user's visibility is the sum of several permissions. We build a
@@ -56,14 +58,19 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
         # Staff and owners see everything up to 'staff-only'.
         role_based_q = is_owner | is_staff_member
         # Regular members see 'members-only' and 'public' resources.
-        role_based_q |= is_org_member & Q(visibility=self.model.Visibility.MEMBERS_ONLY)
+        role_based_q |= is_org_member & Q(visibility=ResourceVisibility.MEMBERS_ONLY)
         # Any authenticated user with access to the org can see public resources.
-        role_based_q |= Q(visibility=self.model.Visibility.PUBLIC)
+        role_based_q |= Q(visibility=ResourceVisibility.PUBLIC)
 
         # 2. Visibility for PRIVATE resources based on event relationship.
         # Gather all event IDs the user is directly connected to.
         invited_event_ids = EventInvitation.objects.filter(user=user).values_list("event_id", flat=True)
-        ticketed_event_ids = Ticket.objects.filter(user=user).values_list("event_id", flat=True)
+        # Only consider valid tickets (exclude cancelled ones)
+        ticketed_event_ids = (
+            Ticket.objects.filter(user=user)
+            .exclude(status=Ticket.TicketStatus.CANCELLED)
+            .values_list("event_id", flat=True)
+        )
         rsvpd_event_ids = EventRSVP.objects.filter(user=user, status=EventRSVP.RsvpStatus.YES).values_list(
             "event_id", flat=True
         )
@@ -74,11 +81,21 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
         if related_event_ids:
             # If the user is connected to any events, build the query to find
             # private resources linked to those specific events.
-            private_resources_q = Q(visibility=self.model.Visibility.PRIVATE, events__id__in=list(related_event_ids))
+            private_resources_q = Q(visibility=ResourceVisibility.PRIVATE, events__id__in=list(related_event_ids))
 
-        # 3. Combine the role-based and private-event-based queries.
-        # A resource is visible if it matches EITHER the role criteria OR the private event criteria.
-        final_q = role_based_q | private_resources_q
+        # 3. Visibility for ATTENDEES_ONLY resources based on ticket/RSVP only (not invitation).
+        # Only users with actual tickets or RSVPs can see these, not just invited users.
+        attendee_event_ids = set(ticketed_event_ids) | set(rsvpd_event_ids)
+        attendees_only_resources_q = Q()
+        if attendee_event_ids:
+            attendees_only_resources_q = Q(
+                visibility=ResourceVisibility.ATTENDEES_ONLY, events__id__in=list(attendee_event_ids)
+            )
+
+        # 4. Combine the role-based, private-event-based, and attendees-only queries.
+        # A resource is visible if it matches EITHER the role criteria OR the private event criteria
+        # OR the attendees-only criteria.
+        final_q = role_based_q | private_resources_q | attendees_only_resources_q
 
         return qs.filter(final_q).distinct()
 
@@ -107,6 +124,10 @@ class AdditionalResource(TimeStampedModel, VisibilityMixin):
         choices=ResourceTypes.choices,
         max_length=255,
         db_index=True,
+    )
+    # Override visibility field to use ResourceVisibility instead of base Visibility
+    visibility = models.CharField(
+        choices=ResourceVisibility.choices, max_length=20, db_index=True, default=ResourceVisibility.PRIVATE
     )
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="additional_resources")
     display_on_organization_page = models.BooleanField(

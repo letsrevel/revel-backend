@@ -55,6 +55,38 @@ def private_resource_for_event(
     return resource
 
 
+@pytest.fixture
+def attendees_only_resource_for_event(
+    organization: models.Organization, private_event: models.Event
+) -> models.AdditionalResource:
+    """An attendees-only resource linked to a specific event."""
+    resource = models.AdditionalResource.objects.create(
+        organization=organization,
+        name="Attendees Only Info",
+        resource_type="text",
+        text="For ticket holders and RSVPs only",
+        visibility=models.ResourceVisibility.ATTENDEES_ONLY,
+    )
+    resource.events.add(private_event)
+    return resource
+
+
+@pytest.fixture
+def attendees_only_resource_for_public_event(
+    organization: models.Organization, public_event: models.Event
+) -> models.AdditionalResource:
+    """An attendees-only resource linked to a public event."""
+    resource = models.AdditionalResource.objects.create(
+        organization=organization,
+        name="Attendees Only Info",
+        resource_type="text",
+        text="For ticket holders and RSVPs only",
+        visibility=models.ResourceVisibility.ATTENDEES_ONLY,
+    )
+    resource.events.add(public_event)
+    return resource
+
+
 class TestPublicResourceEndpoints:
     def test_list_organization_resources_visibility(
         self,
@@ -130,6 +162,175 @@ class TestPublicResourceEndpoints:
         assert response.status_code == 200
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "Public Document"
+
+    def test_attendees_only_resource_with_ticket(
+        self,
+        nonmember_client: Client,
+        nonmember_user: RevelUser,
+        private_event: models.Event,
+        attendees_only_resource_for_event: models.AdditionalResource,
+    ) -> None:
+        """Test that a user with a ticket can see attendees-only resources."""
+        # Give the user a ticket to the event
+        tier = private_event.ticket_tiers.first()
+        assert tier is not None
+        models.Ticket.objects.create(
+            user=nonmember_user, event=private_event, tier=tier, status=models.Ticket.TicketStatus.ACTIVE
+        )
+        url = reverse("api:list_event_resources", kwargs={"event_id": private_event.id})
+
+        response = nonmember_client.get(url)
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["name"] == "Attendees Only Info"
+
+    def test_attendees_only_resource_with_pending_ticket(
+        self,
+        nonmember_client: Client,
+        nonmember_user: RevelUser,
+        private_event: models.Event,
+        attendees_only_resource_for_event: models.AdditionalResource,
+    ) -> None:
+        """Test that a user with a pending ticket can see attendees-only resources."""
+        # Give the user a pending ticket
+        tier = private_event.ticket_tiers.first()
+        assert tier is not None
+        models.Ticket.objects.create(
+            user=nonmember_user, event=private_event, tier=tier, status=models.Ticket.TicketStatus.PENDING
+        )
+        url = reverse("api:list_event_resources", kwargs={"event_id": private_event.id})
+
+        response = nonmember_client.get(url)
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["name"] == "Attendees Only Info"
+
+    def test_attendees_only_resource_with_rsvp_yes(
+        self,
+        nonmember_client: Client,
+        nonmember_user: RevelUser,
+        private_event: models.Event,
+        attendees_only_resource_for_event: models.AdditionalResource,
+    ) -> None:
+        """Test that a user with YES RSVP can see attendees-only resources."""
+        # Create a YES RSVP for the user
+        models.EventRSVP.objects.create(
+            user=nonmember_user, event=private_event, status=models.EventRSVP.RsvpStatus.YES
+        )
+        url = reverse("api:list_event_resources", kwargs={"event_id": private_event.id})
+
+        response = nonmember_client.get(url)
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["name"] == "Attendees Only Info"
+
+    def test_attendees_only_resource_with_rsvp_no_denied(
+        self,
+        nonmember_client: Client,
+        nonmember_user: RevelUser,
+        private_event: models.Event,
+        attendees_only_resource_for_event: models.AdditionalResource,
+    ) -> None:
+        """Test that a user with NO RSVP cannot see attendees-only resources."""
+        # Create a NO RSVP for the user
+        models.EventRSVP.objects.create(user=nonmember_user, event=private_event, status=models.EventRSVP.RsvpStatus.NO)
+        url = reverse("api:list_event_resources", kwargs={"event_id": private_event.id})
+
+        response = nonmember_client.get(url)
+        assert response.status_code == 200
+        assert response.json()["count"] == 0
+
+    def test_attendees_only_resource_with_rsvp_maybe_denied(
+        self,
+        nonmember_client: Client,
+        nonmember_user: RevelUser,
+        private_event: models.Event,
+        attendees_only_resource_for_event: models.AdditionalResource,
+    ) -> None:
+        """Test that a user with MAYBE RSVP cannot see attendees-only resources."""
+        # Create a MAYBE RSVP for the user
+        models.EventRSVP.objects.create(
+            user=nonmember_user, event=private_event, status=models.EventRSVP.RsvpStatus.MAYBE
+        )
+        url = reverse("api:list_event_resources", kwargs={"event_id": private_event.id})
+
+        response = nonmember_client.get(url)
+        assert response.status_code == 200
+        assert response.json()["count"] == 0
+
+    def test_attendees_only_resource_with_invitation_only_denied(
+        self,
+        nonmember_client: Client,
+        nonmember_user: RevelUser,
+        private_event: models.Event,
+        attendees_only_resource_for_event: models.AdditionalResource,
+    ) -> None:
+        """Test that a user with only an invitation (no ticket/RSVP) cannot see attendees-only resources."""
+        # Create an invitation for the user (but no ticket or RSVP)
+        models.EventInvitation.objects.create(user=nonmember_user, event=private_event)
+        url = reverse("api:list_event_resources", kwargs={"event_id": private_event.id})
+
+        response = nonmember_client.get(url)
+        assert response.status_code == 200
+        # User should not see the attendees-only resource
+        assert response.json()["count"] == 0
+
+    def test_attendees_only_vs_private_visibility(
+        self,
+        nonmember_client: Client,
+        nonmember_user: RevelUser,
+        private_event: models.Event,
+        private_resource_for_event: models.AdditionalResource,
+        attendees_only_resource_for_event: models.AdditionalResource,
+    ) -> None:
+        """Test the difference between PRIVATE and ATTENDEES_ONLY visibility.
+
+        PRIVATE: Accessible with invitation OR ticket OR RSVP
+        ATTENDEES_ONLY: Accessible only with ticket OR RSVP (not invitation alone)
+        """
+        # User has only an invitation
+        models.EventInvitation.objects.create(user=nonmember_user, event=private_event)
+        url = reverse("api:list_event_resources", kwargs={"event_id": private_event.id})
+
+        response = nonmember_client.get(url)
+        assert response.status_code == 200
+        # Should only see the PRIVATE resource, not the ATTENDEES_ONLY one
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["name"] == "Private Event Info"
+
+    def test_attendees_only_anonymous_user_denied(
+        self,
+        client: Client,
+        public_event: models.Event,
+        attendees_only_resource_for_public_event: models.AdditionalResource,
+    ) -> None:
+        """Test that anonymous users cannot see attendees-only resources."""
+        url = reverse("api:list_event_resources", kwargs={"event_id": public_event.id})
+
+        response = client.get(url)
+        assert response.status_code == 200
+        assert response.json()["count"] == 0
+
+    def test_attendees_only_cancelled_ticket_denied(
+        self,
+        nonmember_client: Client,
+        nonmember_user: RevelUser,
+        private_event: models.Event,
+        attendees_only_resource_for_event: models.AdditionalResource,
+    ) -> None:
+        """Test that a user with a cancelled ticket cannot see attendees-only resources."""
+        # Give the user a cancelled ticket
+        tier = private_event.ticket_tiers.first()
+        assert tier is not None
+        models.Ticket.objects.create(
+            user=nonmember_user, event=private_event, tier=tier, status=models.Ticket.TicketStatus.CANCELLED
+        )
+        url = reverse("api:list_event_resources", kwargs={"event_id": private_event.id})
+
+        response = nonmember_client.get(url)
+        assert response.status_code == 200
+        # Cancelled tickets should not grant access
+        assert response.json()["count"] == 0
 
 
 class TestAdminResourceEndpoints:

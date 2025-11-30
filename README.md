@@ -240,6 +240,8 @@ The codebase is organized into a `src` directory with a clear separation of conc
 *   `src/accounts/`: User authentication, registration, and profile management.
 *   `src/events/`: The core logic for organizations, events, tickets, and memberships.
 *   `src/questionnaires/`: The questionnaire building, submission, and evaluation system. [📖 Read more](src/questionnaires/README.md)
+*   `src/notifications/`: Multi-channel notification system (in-app, email, Telegram) with user preferences, digest support, and event-driven delivery.
+*   `src/wallet/`: Apple Wallet pass generation for event tickets (.pkpass files).
 *   `src/geo/`: Geolocation features (cities, IP lookups).
 *   `src/telegram/`: Integration with the Telegram Bot API (note: this is a broken early prototype).
 *   `src/api/`: Main API configuration, exception handlers, and global endpoints.
