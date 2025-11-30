@@ -15,6 +15,7 @@ from .event import (
 )
 from .event_series import EventSeries
 from .misc import AdditionalResource
+from .mixins import ResourceVisibility
 from .organization import (
     ALLOWED_MEMBERSHIP_REQUEST_METHODS,
     Organization,
@@ -66,4 +67,7 @@ __all__ = [
     "OrganizationQuestionnaire",
     # Misc
     "AdditionalResource",
+    # Mixins / Enums
+    "Visibility",
+    "ResourceVisibility",
 ]

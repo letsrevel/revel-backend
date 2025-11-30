@@ -32,6 +32,7 @@ from events.models import (
     OrganizationQuestionnaire,
     Payment,
     PermissionsSchema,
+    ResourceVisibility,
     Ticket,
     TicketTier,
 )
@@ -884,7 +885,7 @@ class AdditionalResourceCreateSchema(Schema):
     name: str | None = None
     description: str | None = None
     resource_type: AdditionalResource.ResourceTypes
-    visibility: AdditionalResource.Visibility = AdditionalResource.Visibility.MEMBERS_ONLY
+    visibility: ResourceVisibility = ResourceVisibility.MEMBERS_ONLY
     display_on_organization_page: bool = True
     link: str | None = None
     text: str | None = None
@@ -928,7 +929,7 @@ class AdditionalResourceCreateSchema(Schema):
 class AdditionalResourceUpdateSchema(Schema):
     name: str | None = None
     description: str | None = None
-    visibility: AdditionalResource.Visibility | None = None
+    visibility: ResourceVisibility | None = None
     display_on_organization_page: bool | None = None
     link: str | None = None
     text: str | None = None

@@ -14,8 +14,23 @@ from common.models import TimeStampedModel
 from geo.models import City
 
 
+class ResourceVisibility(models.TextChoices):
+    """Visibility enum for resources with attendee-only option.
+
+    Includes all base visibility options plus ATTENDEES_ONLY.
+    """
+
+    PUBLIC = "public"  # everyone can see
+    PRIVATE = "private"  # only invited people can see
+    MEMBERS_ONLY = "members-only"  # only members can see
+    STAFF_ONLY = "staff-only"  # only staff members can see
+    ATTENDEES_ONLY = "attendees-only"  # only users with tickets or RSVPs can see
+
+
 class VisibilityMixin(models.Model):
     class Visibility(models.TextChoices):
+        """Base visibility enum for events and resources."""
+
         PUBLIC = "public"  # everyone can see
         PRIVATE = "private"  # only invited people can see
         MEMBERS_ONLY = "members-only"  # only members can see
