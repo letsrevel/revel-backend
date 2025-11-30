@@ -81,8 +81,9 @@ class PassData:
     event_end: datetime
     location: str | None
     ticket_tier: str
+    ticket_price: str  # Formatted price string e.g. "EUR 25.00" or "Free"
     colors: PassColors
-    logo_image: bytes | None = None
+    logo_image: bytes  # Always provided (from org logo or generated)
     thumbnail_image: bytes | None = None
     barcode_message: str = ""
     relevant_date: datetime | None = None
@@ -193,14 +194,27 @@ class ApplePassGenerator:
         # Resolve logo image
         logo_image = self._resolve_logo_image(ticket)
 
-        # Build location string
-        location = event.full_address() if hasattr(event, "full_address") else event.address
+        # Build location string with proper formatting
+        # Line 1: Venue name/address
+        # Line 2: City, Country
+        location = self._build_location_string(event)
 
         # Generate auth token if not provided
         if auth_token is None:
             from wallet.models import generate_auth_token
 
             auth_token = generate_auth_token()
+
+        # Format price
+        if ticket.tier:
+            if ticket.tier.price == 0:
+                ticket_price = "Free"
+            else:
+                currency = ticket.tier.currency.upper()
+                price_value = ticket.tier.price
+                ticket_price = f"{currency} {price_value:.2f}"
+        else:
+            ticket_price = "Free"
 
         return PassData(
             serial_number=str(ticket.id),
@@ -212,87 +226,137 @@ class ApplePassGenerator:
             event_end=event.end,
             location=location,
             ticket_tier=ticket.tier.name if ticket.tier else "General Admission",
+            ticket_price=ticket_price,
             colors=colors,
             logo_image=logo_image,
             barcode_message=str(ticket.id),
             relevant_date=event.start,
         )
 
-    def _resolve_logo_image(self, ticket: Ticket) -> bytes | None:
+    def _resolve_logo_image(self, ticket: Ticket) -> bytes:
         """Resolve logo image with fallback chain.
 
-        Order: event.logo → series.logo → organization.logo → generated
+        Uses cover_art since the wallet logo area is rectangular.
+        Order: event.cover_art → series.cover_art → organization.cover_art → generated from org ID
 
         Args:
             ticket: The ticket to get logo for.
 
         Returns:
-            Logo image bytes or None if no logo available.
+            Logo image bytes (always returns something - generates fallback if needed).
         """
         event = ticket.event
 
-        # Try event logo
-        if event.logo:
+        # Try event cover_art
+        if event.cover_art:
             try:
-                event.logo.seek(0)
-                logo_bytes: bytes = event.logo.read()
-                return logo_bytes
+                event.cover_art.seek(0)
+                cover_bytes: bytes = event.cover_art.read()
+                return cover_bytes
             except Exception:
                 pass
 
-        # Try series logo
-        if event.event_series and event.event_series.logo:
+        # Try series cover_art
+        if event.event_series and event.event_series.cover_art:
             try:
-                event.event_series.logo.seek(0)
-                series_logo_bytes: bytes = event.event_series.logo.read()
-                return series_logo_bytes
+                event.event_series.cover_art.seek(0)
+                series_cover_bytes: bytes = event.event_series.cover_art.read()
+                return series_cover_bytes
             except Exception:
                 pass
 
-        # Try organization logo
-        if event.organization.logo:
+        # Try organization cover_art
+        if event.organization.cover_art:
             try:
-                event.organization.logo.seek(0)
-                org_logo_bytes: bytes = event.organization.logo.read()
-                return org_logo_bytes
+                event.organization.cover_art.seek(0)
+                org_cover_bytes: bytes = event.organization.cover_art.read()
+                return org_cover_bytes
             except Exception:
                 pass
 
+        # Generate fallback logo based on organization ID
+        return self._generate_org_logo(event.organization)
+
+    def _generate_org_logo(self, organization: Any) -> bytes:
+        """Generate a logo image based on organization ID.
+
+        Creates a visually distinctive logo using a hue derived from the
+        organization's UUID. The logo displays the organization's initial(s)
+        on a colored background.
+
+        Args:
+            organization: The organization model.
+
+        Returns:
+            PNG image bytes for the generated logo.
+        """
+        # Derive a hue from the organization UUID
+        org_uuid = organization.id
+        # Use first 8 bytes of UUID to get a consistent hue
+        hue = (org_uuid.int % 360) / 360.0
+
+        # Create a vibrant but not too saturated color
+        # HSL: hue varies, saturation 60%, lightness 45%
+        rgb = colorsys.hls_to_rgb(hue, 0.45, 0.60)
+        bg_color = (int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255))
+
+        # Get organization initial(s)
+        name = organization.name or "R"
+        # Take first letter of first 1-2 words
+        words = name.split()[:2]
+        initials = "".join(word[0].upper() for word in words if word)
+        if not initials:
+            initials = "R"  # Revel fallback
+
+        # Generate logo at the largest size, then resize for other sizes
+        largest_size = LOGO_SIZES["logo@3x.png"]
+        return self._generate_text_logo(largest_size, initials, bg_color)
+
+    def _build_location_string(self, event: Any) -> str | None:
+        """Build a formatted location string for the pass.
+
+        Args:
+            event: The event model with location info.
+
+        Returns:
+            Address string or None if no location info.
+        """
+        if event.address:
+            return str(event.address)
         return None
 
     def _generate_colors(self, org_id: UUID, event_id: UUID) -> PassColors:
-        """Generate colors based on organization and event UUIDs.
+        """Generate colors matching the Revel dark theme.
 
-        Uses the UUIDs to derive consistent but unique colors for each
-        organization/event combination.
+        Uses the Revel frontend dark color palette (purple-based).
 
         Args:
-            org_id: Organization UUID for base hue.
-            event_id: Event UUID for variation.
+            org_id: Organization UUID (unused, kept for API compatibility).
+            event_id: Event UUID (unused, kept for API compatibility).
 
         Returns:
-            PassColors with background, foreground, and label colors.
+            PassColors with Revel dark theme colors.
         """
-        # Use org UUID to derive base hue (0-1)
-        org_hue = (int(org_id.hex[:8], 16) % 360) / 360.0
+        # Suppress unused variable warnings - kept for future customization
 
-        # Use event UUID to slightly adjust saturation and lightness
-        event_variation = (int(event_id.hex[:4], 16) % 20) / 100.0
+        # Revel dark theme colors (from frontend app.css)
+        # --background: 270 30% 8% (HSL) -> dark purple background
+        # --card: 270 25% 12% -> slightly lighter card background
+        # --foreground: 270 10% 95% -> light text
+        # --muted-foreground: 270 10% 65% -> muted labels
 
-        # Background: desaturated, dark
-        bg_h = org_hue
-        bg_s = 0.3 + event_variation  # 0.3-0.5
-        bg_l = 0.15  # Dark background
-
-        # Convert HSL to RGB
-        bg_rgb = colorsys.hls_to_rgb(bg_h, bg_l, bg_s)
+        # Convert HSL to RGB for background (270, 30%, 8%)
+        # HSL: H=270 (purple), S=30%, L=8%
+        bg_rgb = colorsys.hls_to_rgb(270 / 360, 0.08, 0.30)
         bg_color = f"rgb({int(bg_rgb[0] * 255)}, {int(bg_rgb[1] * 255)}, {int(bg_rgb[2] * 255)})"
 
-        # Foreground: light for contrast
-        fg_color = "rgb(255, 255, 255)"
+        # Foreground: light text (270, 10%, 95%)
+        fg_rgb = colorsys.hls_to_rgb(270 / 360, 0.95, 0.10)
+        fg_color = f"rgb({int(fg_rgb[0] * 255)}, {int(fg_rgb[1] * 255)}, {int(fg_rgb[2] * 255)})"
 
-        # Label: slightly dimmed
-        label_color = "rgb(200, 200, 200)"
+        # Label: muted foreground (270, 10%, 65%)
+        label_rgb = colorsys.hls_to_rgb(270 / 360, 0.65, 0.10)
+        label_color = f"rgb({int(label_rgb[0] * 255)}, {int(label_rgb[1] * 255)}, {int(label_rgb[2] * 255)})"
 
         return PassColors(background=bg_color, foreground=fg_color, label=label_color)
 
@@ -315,18 +379,9 @@ class ApplePassGenerator:
         for filename, size in ICON_SIZES.items():
             files[filename] = self._generate_colored_icon(size, icon_color)
 
-        # Generate logo images
-        if pass_data.logo_image:
-            for filename, size in LOGO_SIZES.items():
-                files[filename] = self._resize_image(pass_data.logo_image, size)
-        else:
-            # Generate placeholder logo with org name initial
-            for filename, size in LOGO_SIZES.items():
-                files[filename] = self._generate_text_logo(
-                    size,
-                    pass_data.organization_name[0].upper(),
-                    icon_color,
-                )
+        # Generate logo images (always available - either from org logo or generated)
+        for filename, size in LOGO_SIZES.items():
+            files[filename] = self._resize_image(pass_data.logo_image, size)
 
         return files
 
@@ -351,9 +406,25 @@ class ApplePassGenerator:
                 formatted = formatted[:-2] + ":" + formatted[-2:]
             return formatted
 
-        # Format time for display
+        # Format date/time for header (compact: "Jan 3, 2025 19:00")
+        def format_date_time_compact(dt: datetime) -> str:
+            return dt.strftime("%b %-d, %Y %H:%M")
+
+        # Format time for display (full format for back fields)
         def format_time_display(dt: datetime) -> str:
             return dt.strftime("%b %d, %Y %I:%M %p")
+
+        # Build secondary fields (venue)
+        secondary_fields: list[dict[str, Any]] = []
+        if pass_data.location:
+            secondary_fields.append(
+                {
+                    "key": "venue",
+                    "label": "VENUE",
+                    "value": pass_data.location,
+                    "changeMessage": "Venue changed to %@",
+                }
+            )
 
         pass_json: dict[str, Any] = {
             "formatVersion": 1,
@@ -374,13 +445,30 @@ class ApplePassGenerator:
                 }
             ],
             # Event ticket structure
+            # Layout:
+            # [Organizer Name]                    [Date]
+            #                           Jan 3, 2025 19:00
+            # EVENT
+            # Name of the Event
+            #
+            # VENUE
+            # Full address here
+            #
+            # TICKET                              PRICE
+            # Tier Name                        EUR 25.00
             "eventTicket": {
                 "headerFields": [
                     {
                         "key": "organization",
-                        "label": "ORGANIZER",
                         "value": pass_data.organization_name,
-                    }
+                    },
+                    {
+                        "key": "date",
+                        "label": "DATE",
+                        "value": format_date_time_compact(pass_data.event_start),
+                        "textAlignment": "PKTextAlignmentRight",
+                        "changeMessage": "Event date changed to %@",
+                    },
                 ],
                 "primaryFields": [
                     {
@@ -389,19 +477,18 @@ class ApplePassGenerator:
                         "value": pass_data.event_name,
                     }
                 ],
-                "secondaryFields": [
-                    {
-                        "key": "date",
-                        "label": "DATE & TIME",
-                        "value": format_time_display(pass_data.event_start),
-                        "changeMessage": "Event time changed to %@",
-                    },
-                ],
+                "secondaryFields": secondary_fields,
                 "auxiliaryFields": [
                     {
                         "key": "tier",
-                        "label": "TICKET TYPE",
+                        "label": "TICKET",
                         "value": pass_data.ticket_tier,
+                    },
+                    {
+                        "key": "price",
+                        "label": "PRICE",
+                        "value": pass_data.ticket_price,
+                        "textAlignment": "PKTextAlignmentRight",
                     },
                 ],
                 "backFields": [
@@ -421,17 +508,8 @@ class ApplePassGenerator:
             },
         }
 
-        # Add location if available
+        # Add full location to back fields if available
         if pass_data.location:
-            pass_json["eventTicket"]["secondaryFields"].append(
-                {
-                    "key": "location",
-                    "label": "LOCATION",
-                    "value": pass_data.location,
-                    "changeMessage": "Location changed to %@",
-                }
-            )
-            # Also add to back fields for full address
             pass_json["eventTicket"]["backFields"].append(
                 {
                     "key": "full_location",
@@ -499,6 +577,8 @@ class ApplePassGenerator:
         Returns:
             PNG image as bytes.
         """
+        from PIL import ImageFont
+
         # Create image with transparent background for logo
         img = Image.new("RGBA", size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
@@ -511,14 +591,28 @@ class ApplePassGenerator:
             fill=bg_color + (255,),  # Add alpha
         )
 
+        # Use a larger font for the text
+        # Target font size is about 40% of the smaller dimension
+        font_size = int(min(size) * 0.4)
+        font: ImageFont.FreeTypeFont | ImageFont.ImageFont
+        try:
+            # Try to load a system font
+            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+        except (OSError, IOError):
+            try:
+                # Fallback for Linux
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+            except (OSError, IOError):
+                # Last resort: use default font (will be small)
+                font = ImageFont.load_default()
+
         # Draw text centered
-        # Use default font (PIL doesn't have great font support without external fonts)
-        bbox = draw.textbbox((0, 0), text)
+        bbox = draw.textbbox((0, 0), text, font=font)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
         text_x = (size[0] - text_width) // 2
         text_y = (size[1] - text_height) // 2
-        draw.text((text_x, text_y), text, fill=(255, 255, 255, 255))
+        draw.text((text_x, text_y), text, fill=(255, 255, 255, 255), font=font)
 
         buffer = io.BytesIO()
         img.save(buffer, format="PNG")
