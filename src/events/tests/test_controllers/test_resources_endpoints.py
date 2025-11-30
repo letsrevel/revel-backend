@@ -65,7 +65,7 @@ def attendees_only_resource_for_event(
         name="Attendees Only Info",
         resource_type="text",
         text="For ticket holders and RSVPs only",
-        visibility="attendees-only",  # Using the new ResourceVisibility.ATTENDEES_ONLY
+        visibility=models.ResourceVisibility.ATTENDEES_ONLY,
     )
     resource.events.add(private_event)
     return resource
@@ -81,7 +81,7 @@ def attendees_only_resource_for_public_event(
         name="Attendees Only Info",
         resource_type="text",
         text="For ticket holders and RSVPs only",
-        visibility="attendees-only",
+        visibility=models.ResourceVisibility.ATTENDEES_ONLY,
     )
     resource.events.add(public_event)
     return resource
