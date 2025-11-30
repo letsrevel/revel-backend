@@ -30,7 +30,7 @@ class TicketWalletController(UserAwareController):
 
     def get_queryset(self) -> QuerySet[Ticket]:
         """Get tickets owned by the current user."""
-        return Ticket.objects.filter(
+        return Ticket.objects.full().filter(
             user=self.user(),
             status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.PENDING],
         )

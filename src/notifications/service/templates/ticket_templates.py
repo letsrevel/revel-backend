@@ -96,7 +96,8 @@ def _load_ticket(ticket_id: str) -> Ticket | None:
         Ticket instance or None if not found.
     """
     try:
-        return Ticket.objects.select_related("event", "user", "tier").get(pk=ticket_id)
+        # TicketManager already selects event and event__organization by default
+        return Ticket.objects.full().get(pk=ticket_id)
     except Ticket.DoesNotExist:
         logger.warning("Ticket %s not found for attachment generation", ticket_id)
         return None

@@ -23,8 +23,6 @@ logger = structlog.get_logger(__name__)
 class ApplePassSignerError(Exception):
     """Raised when pass signing fails."""
 
-    pass
-
 
 class ApplePassSigner:
     """Signs Apple Wallet passes using PKCS#7.
