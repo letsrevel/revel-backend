@@ -68,6 +68,5 @@ __all__ = [
     # Misc
     "AdditionalResource",
     # Mixins / Enums
-    "Visibility",
     "ResourceVisibility",
 ]
