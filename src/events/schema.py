@@ -503,6 +503,7 @@ class UserTicketSchema(ModelSchema):
     event: "MinimalEventSchema"
     tier: TicketTierSchema
     status: Ticket.TicketStatus
+    apple_pass_available: bool
 
     class Meta:
         model = Ticket
