@@ -478,6 +478,7 @@ class EventTicketSchema(ModelSchema):
     event_id: UUID | None
     tier: TicketTierSchema | None = None
     status: Ticket.TicketStatus
+    apple_pass_available: bool
 
     class Meta:
         model = Ticket

@@ -15,7 +15,7 @@ generator = ApplePassGenerator()
 apple_pass = generator.generate_pass(ticket)
 
 import pathlib
-path = pathlib.Path("/Users/biagio/Desktop/event4.pkpass")
+path = pathlib.Path("/Users/biagio/Desktop/event11.pkpass")
 path.write_bytes(apple_pass)
 print(f"Pass saved: {len(apple_pass)} bytes")
 

@@ -4,22 +4,17 @@ This module handles the cryptographic signing of Apple Wallet passes.
 A .pkpass file requires a PKCS#7 detached signature of the manifest.json
 file, signed with the Pass Type ID certificate and including the Apple
 WWDR (Worldwide Developer Relations) intermediate certificate.
-
-NOTE: Apple Wallet requires SHA-1 for PKCS#7 signatures. Since the Python
-cryptography library doesn't support SHA-1 for PKCS#7 (deprecated for
-security reasons), we use OpenSSL via subprocess for signing.
 """
 
 import hashlib
 import json
-import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any
 
 import structlog
 from cryptography import x509
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.serialization import Encoding, pkcs7
 from django.conf import settings
 
 logger = structlog.get_logger(__name__)
@@ -154,8 +149,7 @@ class ApplePassSigner:
     def sign_manifest(self, manifest_data: bytes) -> bytes:
         """Create a PKCS#7 detached signature of the manifest.
 
-        Uses OpenSSL command line because Apple Wallet requires SHA-1,
-        which the Python cryptography library doesn't support for PKCS#7.
+        Uses the cryptography library to create a PKCS#7 signature with SHA-256.
 
         Args:
             manifest_data: The manifest.json content to sign.
@@ -167,76 +161,22 @@ class ApplePassSigner:
             ApplePassSignerError: If signing fails.
         """
         try:
-            # Create temporary files for the signing process
-            with (
-                tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as manifest_file,
-                tempfile.NamedTemporaryFile(mode="wb", suffix=".sig", delete=False) as sig_file,
-            ):
-                manifest_path = manifest_file.name
-                sig_path = sig_file.name
-                manifest_file.write(manifest_data)
+            signature = (
+                pkcs7.PKCS7SignatureBuilder()
+                .set_data(manifest_data)
+                .add_signer(self.certificate, self.private_key, hashes.SHA256())
+                .add_certificate(self.wwdr_certificate)
+                .sign(Encoding.DER, [pkcs7.PKCS7Options.DetachedSignature, pkcs7.PKCS7Options.Binary])
+            )
 
-            try:
-                # Build OpenSSL command
-                # openssl smime -sign -signer cert.pem -inkey key.pem -certfile wwdr.pem
-                #   -in manifest.json -out signature -outform DER -binary
-                cmd = [
-                    "openssl",
-                    "smime",
-                    "-sign",
-                    "-signer",
-                    self.cert_path,
-                    "-inkey",
-                    self.key_path,
-                    "-certfile",
-                    self.wwdr_cert_path,
-                    "-in",
-                    manifest_path,
-                    "-out",
-                    sig_path,
-                    "-outform",
-                    "DER",
-                    "-binary",
-                ]
+            logger.debug(
+                "manifest_signed",
+                manifest_size=len(manifest_data),
+                signature_size=len(signature),
+            )
 
-                # Add password if provided
-                if self.key_password:
-                    cmd.extend(["-passin", f"pass:{self.key_password}"])
+            return signature
 
-                # Run OpenSSL
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-
-                if result.returncode != 0:
-                    logger.error(
-                        "openssl_signing_failed",
-                        returncode=result.returncode,
-                        stderr=result.stderr,
-                    )
-                    raise ApplePassSignerError(f"OpenSSL signing failed: {result.stderr}")
-
-                # Read the signature
-                signature = Path(sig_path).read_bytes()
-
-                logger.debug(
-                    "manifest_signed",
-                    manifest_size=len(manifest_data),
-                    signature_size=len(signature),
-                )
-
-                return signature
-
-            finally:
-                # Clean up temporary files
-                Path(manifest_path).unlink(missing_ok=True)
-                Path(sig_path).unlink(missing_ok=True)
-
-        except ApplePassSignerError:
-            raise
         except Exception as e:
             logger.error("manifest_signing_failed", error=str(e))
             raise ApplePassSignerError(f"Failed to sign manifest: {e}")
@@ -247,12 +187,7 @@ class ApplePassSigner:
         Returns:
             True if all certificate paths are set and non-empty.
         """
-        return bool(
-            self.cert_path
-            and self.key_path
-            and self.wwdr_cert_path
-            and settings.APPLE_WALLET_PASS_TYPE_ID
-        )
+        return bool(self.cert_path and self.key_path and self.wwdr_cert_path and settings.APPLE_WALLET_PASS_TYPE_ID)
 
     def validate_configuration(self) -> None:
         """Validate that certificates can be loaded.

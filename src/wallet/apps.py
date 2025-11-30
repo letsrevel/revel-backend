@@ -9,7 +9,3 @@ class WalletConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "wallet"
     verbose_name = "Wallet Passes"
-
-    def ready(self) -> None:
-        """Import signals when app is ready."""
-        import wallet.signals  # noqa: F401

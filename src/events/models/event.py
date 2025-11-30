@@ -581,6 +581,17 @@ class Ticket(TimeStampedModel):
         tier_str = f" | {self.tier.name!r}" if self.tier else ""
         return f"Ticket for {self.event.name} for {self.user.username}{tier_str}"
 
+    @property
+    def apple_pass_available(self) -> bool:
+        """Check if apple pass is available."""
+        return bool(
+            settings.APPLE_WALLET_PASS_TYPE_ID
+            and settings.APPLE_WALLET_TEAM_ID
+            and settings.APPLE_WALLET_CERT_PATH
+            and settings.APPLE_WALLET_KEY_PATH
+            and settings.APPLE_WALLET_WWDR_CERT_PATH
+        )
+
 
 def _get_payment_default_expiry() -> datetime:
     return timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
