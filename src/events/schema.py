@@ -279,6 +279,7 @@ class EventBaseSchema(TaggableSchemaMixin):
     id: UUID
     event_type: Event.EventType
     visibility: Event.Visibility
+    address_visibility: ResourceVisibility = ResourceVisibility.PUBLIC
     organization: MinimalOrganizationSchema
     status: Event.EventStatus
     event_series: MinimalEventSeriesSchema | None = None
