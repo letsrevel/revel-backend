@@ -7,3 +7,4 @@ from .sso import *  # noqa: F403, F401
 from .stripe import *  # noqa: F403, F401
 from .telegram import *  # noqa: F403, F401
 from .unfold import *  # noqa: F403, F401
+from .wallet import *  # noqa: F403, F401
