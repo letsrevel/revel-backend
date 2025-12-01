@@ -8,6 +8,7 @@ from ninja_extra import ControllerBase, api_controller, route, status
 from accounts import schema, tasks
 from accounts.models import RevelUser
 from accounts.schema import (
+    LanguageUpdateSchema,
     ProfileUpdateSchema,
     RevelUserSchema,
 )
@@ -72,6 +73,23 @@ class AccountController(ControllerBase):
             setattr(user, key, value)
         user.save(update_fields=list(payload.dict().keys()))
         return user
+
+    @route.put(
+        "/language",
+        response={200: None},
+        url_name="update-language",
+        auth=I18nJWTAuth(),
+    )
+    def update_language(self, payload: LanguageUpdateSchema) -> tuple[int, None]:
+        """Update the authenticated user's preferred language.
+
+        Sets the user's preferred language for UI and communications.
+        Returns status 200 on success.
+        """
+        user = self.user()
+        user.language = payload.language
+        user.save(update_fields=["language"])
+        return 200, None
 
     @route.post(
         "/register",
