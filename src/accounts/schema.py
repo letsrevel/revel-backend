@@ -190,6 +190,9 @@ class ChangePasswordSchema(PasswordMixin):
     old_password: str
 
 
+SupportedLanguage = t.Literal["en", "de", "it"]
+
+
 class ProfileUpdateSchema(Schema):
     """Schema for updating user profile information."""
 
@@ -197,9 +200,7 @@ class ProfileUpdateSchema(Schema):
     pronouns: str = Field(..., max_length=10, description="User's pronouns")
     first_name: str = Field(..., max_length=30, description="User's first name")
     last_name: str = Field(..., max_length=150, description="User's last name")
-    language: t.Literal["en", "de", "it"] | None = Field(
-        None, max_length=7, description="User's preferred language (en, de, it)"
-    )
+    language: SupportedLanguage = Field("en", max_length=7, description="User's preferred language (en, de, it)")
 
     @model_validator(mode="after")
     def validate_language(self) -> t.Self:
@@ -210,6 +211,12 @@ class ProfileUpdateSchema(Schema):
         if self.language not in supported_languages:
             raise ValueError(f"Language must be one of: {', '.join(supported_languages)}")
         return self
+
+
+class LanguageUpdateSchema(Schema):
+    """Schema for updating user's preferred language."""
+
+    language: SupportedLanguage = Field(..., description="User's preferred language (en, de, it)")
 
 
 class VerifyEmailResponseSchema(Schema):

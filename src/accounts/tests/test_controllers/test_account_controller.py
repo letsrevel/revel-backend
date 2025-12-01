@@ -198,3 +198,37 @@ def test_update_profile_success(auth_client: Client, user: RevelUser) -> None:
     assert user.pronouns == "they/them"
     assert user.first_name == "Alexander"
     assert user.last_name == "Smith Jr."
+
+
+def test_update_language_success(auth_client: Client, user: RevelUser) -> None:
+    """Test successful language update returns 200."""
+    url = reverse("api:update-language")
+    payload = {"language": "de"}
+
+    response = auth_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+
+    # Verify the user was actually updated in the database
+    user.refresh_from_db()
+    assert user.language == "de"
+
+
+def test_update_language_invalid_language(auth_client: Client) -> None:
+    """Test language update with invalid language returns 422."""
+    url = reverse("api:update-language")
+    payload = {"language": "fr"}  # Not in supported languages
+
+    response = auth_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 422
+
+
+def test_update_language_unauthenticated(client: Client) -> None:
+    """Test language update without authentication returns 401."""
+    url = reverse("api:update-language")
+    payload = {"language": "en"}
+
+    response = client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 401
