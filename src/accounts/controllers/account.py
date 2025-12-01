@@ -84,7 +84,7 @@ class AccountController(ControllerBase):
         """Update the authenticated user's preferred language.
 
         Sets the user's preferred language for UI and communications.
-        Returns the updated user profile.
+        Returns status 200 on success.
         """
         user = self.user()
         user.language = payload.language
