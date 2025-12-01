@@ -233,6 +233,7 @@ class EventSeriesEditSchema(Schema):
 
 class EventEditSchema(CityEditMixin):
     name: OneToOneFiftyString | None = None
+    address_visibility: ResourceVisibility = ResourceVisibility.PUBLIC
     description: StrippedString | None = None
     event_type: Event.EventType | None = None
     status: Event.EventStatus = Event.EventStatus.DRAFT
@@ -274,10 +275,11 @@ class EventEditSlugSchema(Schema):
     slug: SlugString
 
 
-class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
+class EventBaseSchema(TaggableSchemaMixin):
     id: UUID
     event_type: Event.EventType
     visibility: Event.Visibility
+    address_visibility: ResourceVisibility = ResourceVisibility.PUBLIC
     organization: MinimalOrganizationSchema
     status: Event.EventStatus
     event_series: MinimalEventSeriesSchema | None = None
@@ -304,12 +306,22 @@ class EventBaseSchema(CityRetrieveMixin, TaggableSchemaMixin):
 
 
 class EventInListSchema(EventBaseSchema):
-    pass
+    city: CitySchema | None = None
 
 
 class EventDetailSchema(EventBaseSchema):
+    city: CitySchema | None = None
+    address: str | None = None
     description_html: str = ""
     invitation_message_html: str = ""
+
+    @staticmethod
+    def resolve_address(obj: Event, context: t.Any) -> str | None:
+        """Conditionally return address based on address_visibility setting."""
+        user = context["request"].user
+        if obj.can_user_see_address(user):
+            return obj.address
+        return None
 
 
 class EventRSVPSchema(ModelSchema):
