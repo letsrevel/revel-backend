@@ -1250,8 +1250,9 @@ class TestGuestEmailTasks:
         sent_email = mail.outbox[0]
 
         # Check email attributes - email is transformed by catchall system
+        # Single recipients go to 'to', not 'bcc'
         safe_email = to_safe_email_address(email)
-        assert safe_email in sent_email.bcc
+        assert safe_email in sent_email.to
         assert event_name in sent_email.subject
         assert "confirm" in sent_email.subject.lower() or "rsvp" in sent_email.subject.lower()
         assert token in sent_email.body
@@ -1280,8 +1281,9 @@ class TestGuestEmailTasks:
         sent_email = mail.outbox[0]
 
         # Check email attributes - email is transformed by catchall system
+        # Single recipients go to 'to', not 'bcc'
         safe_email = to_safe_email_address(email)
-        assert safe_email in sent_email.bcc
+        assert safe_email in sent_email.to
         assert event_name in sent_email.subject
         assert "confirm" in sent_email.subject.lower() or "ticket" in sent_email.subject.lower()
         assert token in sent_email.body

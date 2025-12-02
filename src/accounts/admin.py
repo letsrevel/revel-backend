@@ -6,12 +6,14 @@ including user management, authentication, and security features.
 
 import typing as t
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
-from django.db.models import Count
+from django.db.models import Count, QuerySet
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from django.utils.translation import ngettext
 from django_google_sso.admin import GoogleSSOInlineAdmin, get_current_user_and_admin
 from unfold.admin import ModelAdmin, TabularInline
 
@@ -24,6 +26,7 @@ from accounts.models import (
     UserDataExport,
     UserDietaryPreference,
 )
+from accounts.service.account import request_password_reset, send_verification_email_for_user
 from events.models import GeneralUserPreferences
 
 # Monkey patch the missing attribute
@@ -181,6 +184,79 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
 
     # Autocomplete
     autocomplete_fields = ["groups"]
+
+    # Actions
+    actions = ["send_verification_email", "send_password_reset_email"]
+
+    @admin.action(description="Send verification email")
+    def send_verification_email(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
+        """Send verification email to selected users."""
+        sent_count = 0
+        skipped_count = 0
+        for user in queryset:
+            if user.email_verified:
+                skipped_count += 1
+                continue
+            send_verification_email_for_user(user)
+            sent_count += 1
+
+        if sent_count:
+            self.message_user(
+                request,
+                ngettext(
+                    "Verification email sent to %d user.",
+                    "Verification emails sent to %d users.",
+                    sent_count,
+                )
+                % sent_count,
+                messages.SUCCESS,
+            )
+        if skipped_count:
+            self.message_user(
+                request,
+                ngettext(
+                    "Skipped %d user (already verified).",
+                    "Skipped %d users (already verified).",
+                    skipped_count,
+                )
+                % skipped_count,
+                messages.WARNING,
+            )
+
+    @admin.action(description="Send password reset email")
+    def send_password_reset_email(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
+        """Send password reset email to selected users."""
+        sent_count = 0
+        skipped_count = 0
+        for user in queryset:
+            result = request_password_reset(user.email)
+            if result:
+                sent_count += 1
+            else:
+                skipped_count += 1
+
+        if sent_count:
+            self.message_user(
+                request,
+                ngettext(
+                    "Password reset email sent to %d user.",
+                    "Password reset emails sent to %d users.",
+                    sent_count,
+                )
+                % sent_count,
+                messages.SUCCESS,
+            )
+        if skipped_count:
+            self.message_user(
+                request,
+                ngettext(
+                    "Skipped %d user (Google SSO or not found).",
+                    "Skipped %d users (Google SSO or not found).",
+                    skipped_count,
+                )
+                % skipped_count,
+                messages.WARNING,
+            )
 
     # Custom displays
     @admin.display(description="Display Name", ordering="preferred_name")
