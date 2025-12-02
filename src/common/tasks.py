@@ -98,12 +98,24 @@ def send_email(
         site_settings = SiteSettings.get_solo()
         recipients = [to] if isinstance(to, str) else to
         recipients = [to_safe_email_address(email, site_settings=site_settings) for email in recipients]
-        email_msg = EmailMultiAlternatives(
-            subject=subject,
-            body=body,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            bcc=recipients,
-        )
+
+        # RFC 5322 requires a valid "To" header. For single recipients, use "to" directly.
+        # For multiple recipients, use BCC to protect privacy and set "to" to the sender.
+        if len(recipients) == 1:
+            email_msg = EmailMultiAlternatives(
+                subject=subject,
+                body=body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=recipients,
+            )
+        else:
+            email_msg = EmailMultiAlternatives(
+                subject=subject,
+                body=body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                to=[settings.DEFAULT_FROM_EMAIL],
+                bcc=recipients,
+            )
         if html_body:  # pragma: no branch
             email_msg.attach_alternative(html_body, "text/html")
         email_msg.send(fail_silently=False)
