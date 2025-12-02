@@ -28,10 +28,12 @@ def test_generate_user_data_export_sends_failure_email(
     admin_email_sent = False
 
     for email in mailoutbox:
-        if user.email in email.bcc:
+        # Single recipients go to 'to', multiple recipients use 'bcc'
+        recipients = email.to + email.bcc
+        if user.email in recipients:
             assert email.subject == "Your Revel Data Export has Failed"
             user_email_sent = True
-        if staff_user.email in email.bcc:
+        if staff_user.email in recipients:
             assert email.subject == "User Data Export Failed"
             admin_email_sent = True
 
