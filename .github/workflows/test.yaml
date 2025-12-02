@@ -87,7 +87,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          uv run pytest --cov=src --cov-report=term --cov-report=html --cov-branch --cov-fail-under=90 --junitxml=test-results/unit-tests.xml -v src
+          uv run pytest -n auto --cov=src --cov-report=term --cov-report=html --cov-branch --cov-fail-under=90 --junitxml=test-results/unit-tests.xml -v src
 
       - name: Teardown docker
         run: docker compose -f docker-compose-ci.yml down
