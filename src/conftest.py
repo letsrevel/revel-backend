@@ -9,8 +9,6 @@ from datetime import datetime, time, timedelta
 
 import faker
 import pytest
-import redis
-from django.conf import settings
 from django.utils import timezone
 from pytest import MonkeyPatch
 
@@ -72,20 +70,18 @@ def enable_celery_eager_mode(settings: t.Any) -> None:
 
 
 @pytest.fixture(autouse=True)
-def flush_redis() -> None:
-    """Flush Redis before each test to ensure clean state.
+def use_locmem_cache(settings: t.Any) -> None:
+    """Use in-memory cache for tests to avoid Redis sharing issues in parallel runs.
 
-    This is especially important for rate limiting errors we might encounter.
+    This ensures each test worker has its own isolated cache, preventing race
+    conditions when running tests in parallel with pytest-xdist.
     """
-
-    # Connect to Redis using Django settings
-    redis_client = redis.Redis(
-        host=settings.REDIS_HOST,
-        port=settings.REDIS_PORT,
-        db=0,  # Default database
-        decode_responses=True,
-    )
-    redis_client.flushdb()
+    settings.CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "test-cache",
+        }
+    }
 
 
 @pytest.fixture
