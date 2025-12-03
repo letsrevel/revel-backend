@@ -84,6 +84,18 @@ def use_locmem_cache(settings: t.Any) -> None:
     }
 
 
+@pytest.fixture(autouse=True)
+def use_fast_password_hasher(settings: t.Any) -> None:
+    """Use MD5 password hasher for faster user creation in tests.
+
+    The default PBKDF2 hasher is intentionally slow for security, but this
+    adds unnecessary overhead in tests. MD5 is ~100x faster.
+    """
+    settings.PASSWORD_HASHERS = [
+        "django.contrib.auth.hashers.MD5PasswordHasher",
+    ]
+
+
 @pytest.fixture
 def questionnaire() -> Questionnaire:
     """Provides a basic Questionnaire instance."""
