@@ -75,7 +75,7 @@ Set `ENABLE_OBSERVABILITY=False` in CI pipeline:
 
 ### CI Pipeline
 
-**File**: `docker-compose-ci.yml`
+**File**: `docker-compose-dev.yml`
 
 **Services**:
 - ✅ PostgreSQL (for Django ORM)
@@ -137,13 +137,13 @@ else:
 echo "ENABLE_OBSERVABILITY=False" >> .env
 
 # 2. Start minimal services
-docker compose -f docker-compose-ci.yml up -d
+docker compose -f docker-compose-dev.yml up -d
 
 # 3. Run tests
 uv run pytest src
 
 # 4. Cleanup
-docker compose -f docker-compose-ci.yml down
+docker compose -f docker-compose-dev.yml down
 ```
 
 **Expected**: Console logs only, no connection errors
@@ -178,8 +178,8 @@ docker compose -f docker-compose-dev.yml down
 
 | Environment | `ENABLE_OBSERVABILITY` | Docker Compose File | Services Count |
 |-------------|----------------------|-------------------|----------------|
-| **CI/CD** | `False` (forced) | `docker-compose-ci.yml` | 3 |
-| **Local Testing** | `False` (optional) | `docker-compose-ci.yml` | 3 |
+| **CI/CD** | `False` (forced) | `docker-compose-dev.yml` | 3 |
+| **Local Testing** | `False` (optional) | `docker-compose-dev.yml` | 3 |
 | **Local Development** | `True` | `docker-compose-dev.yml` | ~12 |
 | **Production** | `True` | `/infra/docker-compose.yaml` | ~15 |
 
@@ -238,7 +238,7 @@ docker compose -f docker-compose-dev.yml logs loki
 
 **Solution**:
 - CI always uses `ENABLE_OBSERVABILITY=False` (automatic)
-- CI uses `docker-compose-ci.yml` (minimal)
+- CI uses `docker-compose-dev.yml` (minimal)
 - Don't rely on observability services in tests
 
 ---
@@ -297,7 +297,7 @@ logger.info("user_created", user_id=user.id)
 ✅ **DO** use minimal Docker Compose:
 ```yaml
 - name: Spin up docker
-  run: docker compose -f docker-compose-ci.yml up -d
+  run: docker compose -f docker-compose-dev.yml up -d
 ```
 
 ---
@@ -332,10 +332,10 @@ After making changes to observability configuration, verify:
 
 ```bash
 echo "ENABLE_OBSERVABILITY=False" >> .env
-docker compose -f docker-compose-ci.yml up -d
+docker compose -f docker-compose-dev.yml up -d
 uv run pytest src -v
 # ✅ Should pass without connection errors
-docker compose -f docker-compose-ci.yml down
+docker compose -f docker-compose-dev.yml down
 ```
 
 ### 2. Local Tests (With Observability)
@@ -362,8 +362,8 @@ git push origin your-branch
 ## Related Files
 
 - `.github/workflows/test.yaml` - CI pipeline (disables observability)
-- `docker-compose-ci.yml` - Minimal services for CI
-- `docker-compose-dev.yml` - Full stack with observability
+- `docker-compose-dev.yml` - Minimal services for CI
+- `docker-compose-observability.yml` - Full stack with observability
 - `src/revel/settings/observability.py` - Observability configuration
 - `.env.example` - Template with `ENABLE_OBSERVABILITY=True`
 

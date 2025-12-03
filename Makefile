@@ -9,7 +9,7 @@ setup:
 	docker compose -f docker-compose-dev.yml up -d; \
 	sleep 3; \
 	$(MAKE) bootstrap; \
-	$(MAKE) run
+	$(MAKE) ENABLE_OBSERVABILITY=False run
 
 .PHONY: format
 format:
