@@ -26,6 +26,7 @@ from .mixins import (
     VisibilityMixin,
 )
 from .organization import MembershipTier, Organization, OrganizationMember
+from .venue import Venue, VenueSeat, VenueSector
 
 
 class EventQuerySet(models.QuerySet["Event"]):
@@ -213,6 +214,15 @@ class Event(
 
     attendee_count = models.PositiveIntegerField(default=0, editable=False)
 
+    venue = models.ForeignKey(
+        Venue,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="events",
+        help_text="Optional venue for this event.",
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["organization", "slug"], name="unique_organization_slug"),
@@ -338,6 +348,11 @@ class Event(
                 raise DjangoValidationError(
                     {"check_in_ends_at": "Check-in end time must be after check-in start time."}
                 )
+
+        # Validate venue belongs to the same organization
+        venue = self.venue
+        if venue and venue.organization_id != self.organization_id:
+            raise DjangoValidationError({"venue": "Venue must belong to the same organization as the event."})
 
     def is_check_in_open(self) -> bool:
         """Check if check-in is currently open for this event."""
@@ -487,6 +502,11 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         FIXED = "fixed", "Fixed Price"
         PWYC = "pwyc", "Pay What You Can"
 
+    class SeatAssignmentMode(models.TextChoices):
+        NONE = "none", "No seat assignment (GA/standing)"
+        RANDOM = "random", "Random assignment at purchase"
+        USER_CHOICE = "user_choice", "User chooses seat"
+
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="ticket_tiers")
     name = models.CharField(max_length=255, db_index=True)
     visibility = models.CharField(
@@ -545,40 +565,57 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         help_text="If set, only members of these tiers can purchase this ticket.",
     )
 
+    # Venue/seating configuration
+    venue = models.ForeignKey(
+        Venue,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticket_tiers",
+        help_text="Venue for this tier. Must match event venue if event has one.",
+    )
+    sector = models.ForeignKey(
+        VenueSector,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="ticket_tiers",
+        help_text="Specific sector for this tier.",
+    )
+    seat_assignment_mode = models.CharField(
+        choices=SeatAssignmentMode.choices,
+        default=SeatAssignmentMode.NONE,
+        max_length=20,
+        db_index=True,
+        help_text="How seats are assigned for tickets in this tier.",
+    )
+
     objects = TicketTierManager()
 
-    def clean(self) -> None:
-        """Validate sales window constraints and PWYC fields."""
-        super().clean()
-
-        # Validate sales_start_at is before or equal to event start
+    def _validate_sales_window(self) -> None:
+        """Validate sales window constraints."""
         if self.sales_start_at and self.sales_start_at > self.event.start:
             raise DjangoValidationError(
                 {"sales_start_at": "Ticket sales must start before or at the event start time."}
             )
-
-        # Validate sales_end_at is after sales_start_at
         if self.sales_start_at and self.sales_end_at and self.sales_end_at <= self.sales_start_at:
             raise DjangoValidationError({"sales_end_at": "Ticket sales end time must be after the sales start time."})
 
-        if self.sales_start_at and self.sales_end_at and self.sales_end_at < self.sales_start_at:
-            raise DjangoValidationError({"sales_end_at": "Ticket sales end time must be after the sales start time."})
-
-        # Validate PWYC fields
+    def _validate_pwyc(self) -> None:
+        """Validate pay-what-you-can pricing constraints."""
         if self.price_type == self.PriceType.PWYC:
             if self.pwyc_max and self.pwyc_max < self.pwyc_min:
                 raise DjangoValidationError(
                     {"pwyc_max": "Maximum pay-what-you-can amount must be greater than or equal to minimum amount."}
                 )
 
-        # Check if all selected MembershipTiers belong to the Event's Organization
+    def _validate_membership_tiers(self) -> None:
+        """Validate membership tier restrictions."""
         for membership_tier in self.restricted_to_membership_tiers.all():
             if membership_tier.organization_id != self.event.organization_id:
                 raise DjangoValidationError(
                     {"restricted_to_tiers": "All linked membership tiers must belong to the event's organization."}
                 )
-
-        # Enforce logic consistency
         if self.restricted_to_membership_tiers.exists() and self.purchasable_by not in [
             self.PurchasableBy.MEMBERS,
             self.PurchasableBy.INVITED_AND_MEMBERS,
@@ -589,6 +626,37 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
                     "to 'Members only' or 'Invited and Members only'."
                 }
             )
+
+    def _validate_venue_sector(self) -> None:
+        """Validate and auto-fill venue/sector constraints."""
+        sector = self.sector  # Fetch once to satisfy mypy
+        venue = self.venue
+
+        # Auto-fill venue from sector if sector is set but venue is not
+        if sector and not self.venue_id:
+            self.venue_id = sector.venue_id
+            venue = sector.venue
+
+        if sector and self.venue_id and sector.venue_id != self.venue_id:
+            raise DjangoValidationError({"sector": "Sector must belong to the specified venue."})
+
+        # Validate venue belongs to the same organization as the event
+        if venue and venue.organization_id != self.event.organization_id:
+            raise DjangoValidationError({"venue": "Venue must belong to the same organization as the event."})
+
+        if self.venue_id and self.event.venue_id and self.venue_id != self.event.venue_id:
+            raise DjangoValidationError({"venue": "Tier venue must match the event venue."})
+
+        if self.seat_assignment_mode != self.SeatAssignmentMode.NONE and not self.sector_id:
+            raise DjangoValidationError({"sector": "A sector is required when seat assignment mode is not 'none'."})
+
+    def clean(self) -> None:
+        """Validate sales window, PWYC, membership tier, and venue/sector constraints."""
+        super().clean()
+        self._validate_sales_window()
+        self._validate_pwyc()
+        self._validate_membership_tiers()
+        self._validate_venue_sector()
 
     def can_purchase(self) -> bool:
         """Check if the ticket can be purchased."""
@@ -683,6 +751,29 @@ class Ticket(TimeStampedModel):
         editable=False,
     )
 
+    # Venue/seating (denormalized for fast access, validated for consistency)
+    venue = models.ForeignKey(
+        Venue,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tickets",
+    )
+    sector = models.ForeignKey(
+        VenueSector,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tickets",
+    )
+    seat = models.ForeignKey(
+        VenueSeat,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tickets",
+    )
+
     objects = TicketManager()
 
     class Meta:
@@ -691,9 +782,45 @@ class Ticket(TimeStampedModel):
                 fields=["event", "user", "tier"],
                 condition=models.Q(status="pending"),
                 name="unique_ticket_event_user_tier",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["event", "seat"],
+                condition=models.Q(seat__isnull=False) & ~models.Q(status="cancelled"),
+                name="unique_ticket_event_seat",
+            ),
         ]
         ordering = ["-created_at"]
+
+    def _validate_seat(self) -> VenueSector | None:
+        """Validate and auto-fill sector from seat. Returns the sector for chaining."""
+        seat = self.seat
+        sector = self.sector
+
+        if seat:
+            if not seat.is_active:
+                raise DjangoValidationError({"seat": "Cannot assign an inactive seat."})
+
+            if not self.sector_id:
+                self.sector_id = seat.sector_id
+                sector = seat.sector
+            elif seat.sector_id != self.sector_id:
+                raise DjangoValidationError({"seat": "Seat must belong to the specified sector."})
+
+        return sector
+
+    def _validate_sector(self, sector: VenueSector | None) -> None:
+        """Validate and auto-fill venue from sector."""
+        if sector:
+            if not self.venue_id:
+                self.venue_id = sector.venue_id
+            elif sector.venue_id != self.venue_id:
+                raise DjangoValidationError({"sector": "Sector must belong to the specified venue."})
+
+    def clean(self) -> None:
+        """Validate and auto-fill venue/sector/seat consistency."""
+        super().clean()
+        sector = self._validate_seat()
+        self._validate_sector(sector)
 
     def __str__(self) -> str:  # pragma: no cover
         tier_str = f" | {self.tier.name!r}" if self.tier else ""
