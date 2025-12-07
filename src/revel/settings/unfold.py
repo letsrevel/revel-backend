@@ -123,6 +123,28 @@ UNFOLD = {
                 ],
             },
             {
+                "title": _("Venues & Seating"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Venues"),
+                        "icon": "place",
+                        "link": reverse_lazy("admin:events_venue_changelist"),
+                    },
+                    {
+                        "title": _("Venue Sectors"),
+                        "icon": "grid_view",
+                        "link": reverse_lazy("admin:events_venuesector_changelist"),
+                    },
+                    {
+                        "title": _("Venue Seats"),
+                        "icon": "event_seat",
+                        "link": reverse_lazy("admin:events_venueseat_changelist"),
+                    },
+                ],
+            },
+            {
                 "title": _("Events"),
                 "separator": True,
                 "collapsible": True,

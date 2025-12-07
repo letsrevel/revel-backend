@@ -4,7 +4,7 @@ from django.db import models
 
 from common.models import TimeStampedModel
 
-from .mixins import SlugFromNameMixin
+from .mixins import LocationMixin, SlugFromNameMixin
 from .organization import Organization
 
 
@@ -44,7 +44,7 @@ class VenueManager(models.Manager["Venue"]):
         return self.get_queryset().full()
 
 
-class Venue(SlugFromNameMixin, TimeStampedModel):
+class Venue(SlugFromNameMixin, TimeStampedModel, LocationMixin):
     """A physical venue belonging to an organization.
 
     Layout (sectors/seats) is optional and FE-defined.
@@ -67,9 +67,6 @@ class Venue(SlugFromNameMixin, TimeStampedModel):
 
     # Allows GA-only venues
     capacity = models.PositiveIntegerField(null=True, blank=True)
-
-    has_sectors = models.BooleanField(default=False, db_index=True)
-    has_seats = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         constraints = [
@@ -109,8 +106,6 @@ class VenueSector(TimeStampedModel):
     )
 
     capacity = models.PositiveIntegerField(null=True, blank=True)
-
-    has_seats = models.BooleanField(default=False, db_index=True)
 
     # Controls ordering in FE lists
     display_order = models.PositiveIntegerField(default=0, db_index=True)

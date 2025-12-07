@@ -49,6 +49,18 @@ class EventLinkMixin:
     event_link.short_description = "Event"  # type: ignore[attr-defined]
 
 
+class VenueLinkMixin:
+    """Mixin to add a link to a venue."""
+
+    def venue_link(self, obj: t.Any) -> str | None:
+        if not hasattr(obj, "venue") or not obj.venue:
+            return None
+        url = reverse("admin:events_venue_change", args=[obj.venue.id])
+        return format_html('<a href="{}">{}</a>', url, obj.venue.name)
+
+    venue_link.short_description = "Venue"  # type: ignore[attr-defined]
+
+
 # --- Custom Forms ---
 class OrganizationStaffForm(forms.ModelForm):  # type: ignore[type-arg]
     """Custom form to manage the 'permissions' JSONField for OrganizationStaff."""
@@ -127,6 +139,28 @@ class MembershipTierInline(TabularInline):  # type: ignore[misc]
     fields = ["name", "description"]
 
 
+class VenueInline(TabularInline):  # type: ignore[misc]
+    model = models.Venue
+    extra = 0
+    show_change_link = True
+    fields = ["name", "slug", "capacity"]
+    prepopulated_fields = {"slug": ("name",)}
+
+
+class VenueSectorInline(TabularInline):  # type: ignore[misc]
+    model = models.VenueSector
+    extra = 1
+    fields = ["name", "code", "capacity", "display_order"]
+    ordering = ["display_order", "name"]
+
+
+class VenueSeatInline(TabularInline):  # type: ignore[misc]
+    model = models.VenueSeat
+    extra = 1
+    fields = ["label", "row", "number", "is_accessible", "is_obstructed_view", "is_active"]
+    ordering = ["row", "number", "label"]
+
+
 class TicketTierInline(TabularInline):  # type: ignore[misc]
     model = models.TicketTier
     extra = 1
@@ -161,17 +195,23 @@ class EventWaitListInline(TabularInline):  # type: ignore[misc]
 
 # --- ModelAdmins ---
 @admin.register(models.TicketTier)
-class TicketTierAdmin(ModelAdmin):  # type: ignore[misc]
+class TicketTierAdmin(ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
     """Admin view for TicketTier."""
 
-    list_display = ["__str__", "name", "event", "short_description"]
-    list_filter = ["event"]
+    list_display = ["__str__", "name", "event_link", "venue_link", "sector_name", "short_description"]
+    list_filter = ["event", "venue", "sector"]
     search_fields = ["name", "event__name", "description"]
+    autocomplete_fields = ["event", "venue", "sector"]
+    filter_horizontal = ["restricted_to_membership_tiers"]
 
     def short_description(self, obj: models.TicketTier) -> str:
         return obj.description[:100] if obj.description else "-"
 
     short_description.short_description = "Description"  # type: ignore[attr-defined]
+
+    @admin.display(description="Sector")
+    def sector_name(self, obj: models.TicketTier) -> str:
+        return obj.sector.name if obj.sector else "—"
 
 
 @admin.register(models.Organization)
@@ -186,7 +226,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     tabs = [
         ("Settings", ["Settings"]),
         ("People", ["Staff", "Members", "Tiers"]),
-        ("Content", ["Series", "Questionnaires"]),
+        ("Content", ["Series", "Questionnaires", "Venues"]),
     ]
 
     inlines = [
@@ -195,6 +235,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         MembershipTierInline,
         EventSeriesInline,
         OrganizationQuestionnaireInline,
+        VenueInline,
     ]
 
     def owner_link(self, obj: models.Organization) -> str:
@@ -219,7 +260,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     ]
     list_filter = ["event_type", "organization", "start", "requires_ticket", "waitlist_open"]
     search_fields = ["name", "slug", "organization__name"]
-    autocomplete_fields = ["organization", "event_series", "city"]
+    autocomplete_fields = ["organization", "event_series", "city", "venue"]
     prepopulated_fields = {"slug": ("name",)}
     date_hierarchy = "start"
 
@@ -236,6 +277,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
                 "fields": (
                     "organization",
                     ("name", "slug"),
+                    "venue",
                     ("city", "address"),
                     "description",
                     "invitation_message",
@@ -285,18 +327,169 @@ class EventSeriesAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     prepopulated_fields = {"slug": ("name",)}
 
 
+# --- Venue Model Admins ---
+
+
+@admin.register(models.Venue)
+class VenueAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+    """Admin for Venue model."""
+
+    list_display = ["name", "slug", "organization_link", "capacity", "city_name"]
+    list_filter = ["organization__name", "city__country"]
+    search_fields = ["name", "slug", "organization__name", "address"]
+    autocomplete_fields = ["organization", "city"]
+    prepopulated_fields = {"slug": ("name",)}
+    readonly_fields = ["created_at", "updated_at"]
+
+    fieldsets = [
+        (
+            "Basic Information",
+            {
+                "fields": (
+                    "organization",
+                    ("name", "slug"),
+                    "description",
+                    "capacity",
+                )
+            },
+        ),
+        (
+            "Location",
+            {
+                "fields": (
+                    "city",
+                    "address",
+                    "location",
+                )
+            },
+        ),
+        (
+            "Metadata",
+            {"fields": (("created_at", "updated_at"),)},
+        ),
+    ]
+
+    inlines = [VenueSectorInline]
+
+    @admin.display(description="City")
+    def city_name(self, obj: models.Venue) -> str:
+        return str(obj.city) if obj.city else "—"
+
+
+@admin.register(models.VenueSector)
+class VenueSectorAdmin(ModelAdmin, VenueLinkMixin):  # type: ignore[misc]
+    """Admin for VenueSector model."""
+
+    list_display = ["name", "venue_link", "code", "capacity", "display_order"]
+    list_filter = ["venue__organization__name"]
+    search_fields = ["name", "code", "venue__name"]
+    autocomplete_fields = ["venue"]
+    readonly_fields = ["created_at", "updated_at"]
+    ordering = ["venue", "display_order", "name"]
+
+    fieldsets = [
+        (
+            "Basic Information",
+            {
+                "fields": (
+                    "venue",
+                    ("name", "code"),
+                    "capacity",
+                )
+            },
+        ),
+        (
+            "Display Configuration",
+            {
+                "fields": (
+                    "display_order",
+                    "shape",
+                )
+            },
+        ),
+        (
+            "Metadata",
+            {"fields": (("created_at", "updated_at"),)},
+        ),
+    ]
+
+    inlines = [VenueSeatInline]
+
+
+@admin.register(models.VenueSeat)
+class VenueSeatAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for VenueSeat model."""
+
+    list_display = ["label", "sector_link", "row", "number", "is_accessible", "is_obstructed_view", "is_active"]
+    list_filter = ["sector__venue__organization__name", "is_accessible", "is_obstructed_view", "is_active"]
+    search_fields = ["label", "row", "sector__name", "sector__venue__name"]
+    autocomplete_fields = ["sector"]
+    readonly_fields = ["created_at", "updated_at"]
+    ordering = ["sector", "row", "number", "label"]
+
+    fieldsets = [
+        (
+            "Basic Information",
+            {
+                "fields": (
+                    "sector",
+                    "label",
+                    ("row", "number"),
+                )
+            },
+        ),
+        (
+            "Position & Properties",
+            {
+                "fields": (
+                    "position",
+                    ("is_accessible", "is_obstructed_view"),
+                    "is_active",
+                )
+            },
+        ),
+        (
+            "Metadata",
+            {"fields": (("created_at", "updated_at"),)},
+        ),
+    ]
+
+    @admin.display(description="Sector")
+    def sector_link(self, obj: models.VenueSeat) -> str:
+        url = reverse("admin:events_venuesector_change", args=[obj.sector.id])
+        return format_html('<a href="{}">{}</a>', url, str(obj.sector))
+
+
 @admin.register(models.Ticket)
-class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
-    list_display = ["id", "event_link", "user_link", "tier_name", "status", "checked_in_at"]
-    list_filter = ["status", "event__name", "tier__name"]
-    search_fields = ["event__name", "user__username"]
-    autocomplete_fields = ["event", "user", "tier", "checked_in_by"]
+class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
+    list_display = [
+        "id",
+        "event_link",
+        "user_link",
+        "tier_name",
+        "venue_link",
+        "sector_name",
+        "seat_label",
+        "status",
+        "checked_in_at",
+    ]
+    list_filter = ["status", "event__name", "tier__name", "venue", "sector"]
+    search_fields = ["event__name", "user__username", "seat__label"]
+    autocomplete_fields = ["event", "user", "tier", "checked_in_by", "venue", "sector", "seat"]
     readonly_fields = ["id", "checked_in_at", "checked_in_by"]
     date_hierarchy = "created_at"
 
     @admin.display(description="Tier")
     def tier_name(self, obj: models.Ticket) -> str | None:
         return obj.tier.name if obj.tier else "—"
+
+    @admin.display(description="Sector")
+    def sector_name(self, obj: models.Ticket) -> str | None:
+        return obj.sector.name if obj.sector else "—"
+
+    @admin.display(description="Seat")
+    def seat_label(self, obj: models.Ticket) -> str | None:
+        return obj.seat.label if obj.seat else "—"
 
 
 @admin.register(models.EventInvitation)
