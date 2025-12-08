@@ -110,6 +110,14 @@ class VenueSector(TimeStampedModel):
     # Controls ordering in FE lists
     display_order = models.PositiveIntegerField(default=0, db_index=True)
 
+    # Arbitrary metadata for FE rendering (e.g., aisle positions, labels, etc.)
+    metadata = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Arbitrary JSON metadata for frontend rendering (e.g., aisle positions).",
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(

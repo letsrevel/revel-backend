@@ -402,6 +402,7 @@ class VenueSectorAdmin(ModelAdmin, VenueLinkMixin):  # type: ignore[misc]
             "Display Configuration",
             {
                 "fields": (
+                    "metadata",
                     "display_order",
                     "shape",
                 )
