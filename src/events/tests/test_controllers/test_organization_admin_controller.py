@@ -1980,7 +1980,7 @@ class TestVenueSeatManagement:
             organization=organization,
             name="Past Concert",
             start=timezone.now() - timedelta(days=7),
-            end=timezone.now() - timedelta(days=7, hours=-3),  # 3 hours after start, still in the past
+            end=timezone.now() - timedelta(days=7) + timedelta(hours=3),  # 3 hours after start, still in the past
             status=Event.EventStatus.CLOSED,
         )
         tier = TicketTier.objects.create(event=past_event, name="General", price=50)
