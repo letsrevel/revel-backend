@@ -32,6 +32,7 @@ from .preferences import (
     GeneralUserPreferences,
 )
 from .questionnaire import OrganizationQuestionnaire
+from .venue import Venue, VenueSector, VenueSeat
 
 __all__ = [
     # Events
@@ -69,4 +70,8 @@ __all__ = [
     "AdditionalResource",
     # Mixins / Enums
     "ResourceVisibility",
+    # Venues
+    "Venue",
+    "VenueSector",
+    "VenueSeat",
 ]

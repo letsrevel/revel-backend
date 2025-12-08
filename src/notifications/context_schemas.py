@@ -200,7 +200,6 @@ class RSVPConfirmationContext(BaseNotificationContext):
     event_start: str
     event_location: str
     response: str  # YES, NO, MAYBE
-    plus_ones: int
     user_name: str  # Name of person who RSVP'd (for staff notifications)
     user_email: str  # Email of person who RSVP'd (for staff notifications)
 
