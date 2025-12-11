@@ -243,6 +243,7 @@ class EventEditSchema(CityEditMixin):
     visibility: Event.Visibility | None = None
     invitation_message: StrippedString | None = Field(None, description="Invitation message")
     max_attendees: int = 0
+    max_tickets_per_user: int | None = Field(None, description="Max tickets per user (null = unlimited)")
     waitlist_open: bool = False
     start: AwareDatetime | None = None
     end: AwareDatetime | None = None
@@ -250,6 +251,7 @@ class EventEditSchema(CityEditMixin):
     check_in_starts_at: AwareDatetime | None = Field(None, description="When check-in opens for this event")
     check_in_ends_at: AwareDatetime | None = Field(None, description="When check-in closes for this event")
     event_series_id: UUID | None = None
+    venue_id: UUID | None = None
     potluck_open: bool = False
     accept_invitation_requests: bool = False
     can_attend_without_login: bool = False
@@ -286,6 +288,7 @@ class EventBaseSchema(TaggableSchemaMixin):
     organization: MinimalOrganizationSchema
     status: Event.EventStatus
     event_series: MinimalEventSeriesSchema | None = None
+    venue: "VenueSchema | None" = None
     name: str
     slug: str
     description: str | None = None
@@ -293,6 +296,7 @@ class EventBaseSchema(TaggableSchemaMixin):
     invitation_message: str | None = None
     # invitation_message_html: str = ""
     max_attendees: int = 0
+    max_tickets_per_user: int | None = None
     waitlist_open: bool | None = None
     start: AwareDatetime
     end: AwareDatetime
@@ -403,6 +407,10 @@ class TicketTierSchema(ModelSchema):
     total_available: int | None
     description_html: str = ""
     restricted_to_membership_tiers: list["MembershipTierSchema"] | None = None
+    seat_assignment_mode: TicketTier.SeatAssignmentMode
+    max_tickets_per_user: int | None = None
+    venue: "VenueSchema | None" = None
+    sector: "VenueSectorSchema | None" = None
 
     class Meta:
         model = TicketTier
@@ -420,6 +428,8 @@ class TicketTierSchema(ModelSchema):
             "purchasable_by",
             "payment_method",
             "manual_payment_instructions",
+            "seat_assignment_mode",
+            "max_tickets_per_user",
         ]
 
 
@@ -490,40 +500,67 @@ class PaymentSchema(ModelSchema):
         exclude = ["user", "ticket", "raw_response"]
 
 
-class EventTicketSchema(ModelSchema):
-    event_id: UUID | None
-    tier: TicketTierSchema | None = None
-    status: Ticket.TicketStatus
-    apple_pass_available: bool
+class MinimalPaymentSchema(ModelSchema):
+    """Minimal payment info for inclusion in ticket schemas."""
+
+    status: Payment.PaymentStatus
 
     class Meta:
-        model = Ticket
-        fields = ["id", "status", "tier", "checked_in_at"]
+        model = Payment
+        fields = ["id", "status"]
+
+
+class MinimalSeatSchema(ModelSchema):
+    """Minimal seat schema for ticket responses."""
+
+    class Meta:
+        model = VenueSeat
+        fields = ["id", "label", "row", "number", "is_accessible", "is_obstructed_view"]
 
 
 class AdminTicketSchema(ModelSchema):
-    """Schema for pending tickets in admin interface."""
+    """Schema for pending tickets in admin interface.
+
+    Venue and sector info comes from tier (tier.venue, tier.sector).
+    Only seat is included at ticket level for assigned seating.
+    """
 
     user: MemberUserSchema
     tier: TicketTierSchema
     payment: PaymentSchema | None = None
+    guest_name: str
+    seat: MinimalSeatSchema | None = None
 
     class Meta:
         model = Ticket
-        fields = ["id", "status", "tier", "created_at"]
+        fields = ["id", "status", "tier", "created_at", "guest_name", "seat"]
 
 
 class UserTicketSchema(ModelSchema):
-    """Schema for user's own tickets with event details."""
+    """Schema for user's own tickets with event details.
+
+    Venue and sector info comes from tier (tier.venue, tier.sector).
+    Only seat is included at ticket level for assigned seating.
+    """
 
     event: "MinimalEventSchema"
     tier: TicketTierSchema
     status: Ticket.TicketStatus
     apple_pass_available: bool
+    guest_name: str
+    payment: MinimalPaymentSchema | None = None
+    seat: MinimalSeatSchema | None = None
 
     class Meta:
         model = Ticket
-        fields = ["id", "status", "tier", "created_at", "checked_in_at"]
+        fields = ["id", "status", "tier", "created_at", "checked_in_at", "guest_name", "seat"]
+
+    @staticmethod
+    def resolve_payment(obj: Ticket) -> Payment | None:
+        """Resolve payment for pending tickets."""
+        if hasattr(obj, "payment"):
+            return obj.payment
+        return None
 
 
 class CheckInRequestSchema(Schema):
@@ -548,7 +585,20 @@ class OrganizationPermissionsSchema(Schema):
     organization_permissions: dict[str, PermissionsSchema | t.Literal["owner"]] | None = None
 
 
-EventUserStatusSchema = EventRSVPSchema | EventTicketSchema
+class EventUserStatusResponse(Schema):
+    """Response for user's status at an event.
+
+    This is a unified response that includes:
+    - Tickets: List of user's tickets for this event (if any)
+    - RSVP: User's RSVP status (for non-ticketed events)
+    - Eligibility: Whether user can purchase tickets and why not
+    - Purchase limits: How many more tickets can be purchased
+    """
+
+    tickets: list[UserTicketSchema] = Field(default_factory=list)
+    rsvp: EventRSVPSchema | None = None
+    can_purchase_more: bool = True
+    remaining_tickets: int | None = None  # None = unlimited
 
 
 class InvitationBaseSchema(Schema):
@@ -655,6 +705,7 @@ class MinimalEventSchema(Schema):
     end: AwareDatetime
     logo: str | None = None
     cover_art: str | None = None
+    venue: "VenueSchema | None" = None
 
 
 class BaseOrganizationQuestionnaireSchema(Schema):
@@ -1055,6 +1106,37 @@ class PWYCCheckoutPayloadSchema(Schema):
     pwyc: Decimal = Field(..., ge=1, description="Pay what you can amount, minimum 1")
 
 
+# ---- Batch Checkout Schemas ----
+
+
+class TicketPurchaseItem(Schema):
+    """Single ticket item in a batch purchase."""
+
+    guest_name: StrippedString = Field(..., min_length=1, max_length=255, description="Name of the ticket holder")
+    seat_id: UUID | None = Field(default=None, description="Seat ID for USER_CHOICE seat assignment mode")
+
+
+class BatchCheckoutPayload(Schema):
+    """Payload for batch ticket checkout (authenticated users)."""
+
+    tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
+
+
+class BatchCheckoutPWYCPayload(BatchCheckoutPayload):
+    """Payload for batch PWYC ticket checkout."""
+
+    price_per_ticket: Decimal = Field(..., ge=1, description="Pay what you can amount per ticket (same for all)")
+
+
+class BatchCheckoutResponse(Schema):
+    """Response for batch checkout operations."""
+
+    checkout_url: str | None = Field(None, description="Stripe checkout URL (for online payment)")
+    tickets: list[UserTicketSchema] = Field(
+        default_factory=list, description="Created tickets (for free/offline payments)"
+    )
+
+
 # ---- Guest User Schemas ----
 
 
@@ -1070,6 +1152,18 @@ class GuestPWYCCheckoutSchema(GuestUserDataSchema):
     """Schema for guest PWYC ticket checkout."""
 
     pwyc: Decimal = Field(..., ge=1, description="Pay what you can amount, minimum 1")
+
+
+class GuestBatchCheckoutPayload(GuestUserDataSchema):
+    """Payload for batch checkout by guest (unauthenticated) users."""
+
+    tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
+
+
+class GuestBatchCheckoutPWYCPayload(GuestBatchCheckoutPayload):
+    """Payload for batch PWYC checkout by guest users."""
+
+    price_per_ticket: Decimal = Field(..., ge=1, description="Pay what you can amount per ticket (same for all)")
 
 
 class GuestActionResponseSchema(Schema):
@@ -1148,12 +1242,25 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
 
+    # Venue/seating configuration
+    seat_assignment_mode: TicketTier.SeatAssignmentMode = TicketTier.SeatAssignmentMode.NONE
+    max_tickets_per_user: int | None = None
+    venue_id: UUID | None = None
+    sector_id: UUID | None = None
+
     @model_validator(mode="after")
     def validate_pwyc_fields(self) -> t.Self:
         """Validate PWYC fields consistency."""
         if self.price_type == TicketTier.PriceType.PWYC:
             if self.pwyc_max and self.pwyc_max < self.pwyc_min:
                 raise ValueError("PWYC maximum must be greater than or equal to minimum.")
+        return self
+
+    @model_validator(mode="after")
+    def validate_seat_assignment_requires_sector(self) -> t.Self:
+        """Validate that seat assignment modes require a sector."""
+        if self.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE and self.sector_id is None:
+            raise ValueError("Sector is required when seat assignment mode is not NONE.")
         return self
 
 
@@ -1171,6 +1278,12 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
 
+    # Venue/seating configuration
+    seat_assignment_mode: TicketTier.SeatAssignmentMode | None = None
+    max_tickets_per_user: int | None = None
+    venue_id: UUID | None = None
+    sector_id: UUID | None = None
+
     @model_validator(mode="after")
     def validate_pwyc_fields(self) -> t.Self:
         """Validate PWYC fields consistency."""
@@ -1179,11 +1292,27 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
                 raise ValueError("PWYC maximum must be greater than or equal to minimum.")
         return self
 
+    @model_validator(mode="after")
+    def validate_seat_assignment_requires_sector(self) -> t.Self:
+        """Validate that seat assignment modes require a sector when being set."""
+        # Only validate if seat_assignment_mode is being explicitly set to a non-NONE value
+        if (
+            self.seat_assignment_mode is not None
+            and self.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE
+            and self.sector_id is None
+        ):
+            raise ValueError("Sector is required when seat assignment mode is not NONE.")
+        return self
+
 
 class TicketTierDetailSchema(ModelSchema):
     event_id: UUID
     total_available: int | None = None
     restricted_to_membership_tiers: list[MembershipTierSchema] | None = None
+    seat_assignment_mode: TicketTier.SeatAssignmentMode
+    max_tickets_per_user: int | None = None
+    venue: "VenueSchema | None" = None
+    sector: "VenueSectorSchema | None" = None
 
     class Meta:
         model = TicketTier
@@ -1207,6 +1336,8 @@ class TicketTierDetailSchema(ModelSchema):
             "quantity_sold",
             "manual_payment_instructions",
             "restricted_to_membership_tiers",
+            "seat_assignment_mode",
+            "max_tickets_per_user",
         ]
 
 
@@ -1297,9 +1428,14 @@ def point_in_polygon(point: Coordinate2D, polygon: list[Coordinate2D]) -> bool:
 
 
 class VenueSeatSchema(ModelSchema):
-    """Schema for venue seat response."""
+    """Schema for venue seat response.
+
+    The `available` field defaults to True and can be overridden when returning
+    seat availability for ticket purchase (e.g., via annotate or manual setting).
+    """
 
     position: Coordinate2D | None = None
+    available: bool = True  # For availability endpoints: False if taken by PENDING/ACTIVE ticket
 
     class Meta:
         model = VenueSeat
@@ -1365,6 +1501,38 @@ class VenueWithSeatsSchema(VenueSchema):
     """Schema for venue with all sectors and seats."""
 
     sectors: list[VenueSectorWithSeatsSchema] = Field(default_factory=list)
+
+
+# ---- Venue Availability Schemas (for ticket purchase flow) ----
+
+
+class SectorAvailabilitySchema(Schema):
+    """Sector with seat availability info.
+
+    Extends VenueSectorSchema fields with availability counts.
+    Uses VenueSeatSchema with `available` field for seat status.
+    """
+
+    id: UUID
+    name: str
+    code: str | None = None
+    shape: list[Coordinate2D] | None = None
+    capacity: int | None = None
+    display_order: int = 0
+    metadata: dict[str, t.Any] | None = None  # For frontend rendering (e.g., aisle positions)
+    seats: list[VenueSeatSchema] = Field(default_factory=list)
+    available_count: int = 0  # Number of available seats
+    total_count: int = 0  # Total active seats
+
+
+class VenueAvailabilitySchema(Schema):
+    """Venue layout with seat availability for ticket purchase."""
+
+    id: UUID
+    name: str
+    sectors: list[SectorAvailabilitySchema] = Field(default_factory=list)
+    total_available: int = 0  # Total available seats across all sectors
+    total_capacity: int = 0  # Total seats across all sectors
 
 
 class VenueCreateSchema(CityEditMixin):

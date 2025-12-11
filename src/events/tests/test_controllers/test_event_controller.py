@@ -374,13 +374,17 @@ def free_tier(public_event: Event) -> TicketTier:
 def test_ticket_checkout_success(nonmember_client: Client, public_event: Event, free_tier: TicketTier) -> None:
     """Test that an eligible user can successfully obtain a ticket."""
     url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": free_tier.pk})
-    response = nonmember_client.post(url)
+    payload = {"tickets": [{"guest_name": "Test Guest"}]}
+    response = nonmember_client.post(url, data=payload, content_type="application/json")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "active"
-    assert data["event_id"] == str(public_event.pk)
-    assert data["tier"]["name"] == free_tier.name
+    assert data["checkout_url"] is None  # Free tier returns tickets directly
+    assert len(data["tickets"]) == 1
+    ticket_data = data["tickets"][0]
+    assert ticket_data["status"] == "active"
+    assert ticket_data["event"]["id"] == str(public_event.pk)
+    assert ticket_data["tier"]["name"] == free_tier.name
 
     assert Ticket.objects.filter(event=public_event, user__username="nonmember_user").exists()
 
@@ -388,11 +392,13 @@ def test_ticket_checkout_success(nonmember_client: Client, public_event: Event, 
 def test_ticket_checkout_for_member_success(member_client: Client, public_event: Event, free_tier: TicketTier) -> None:
     """Test that an eligible member user gets a ticket with the correct 'member' tier."""
     url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": free_tier.pk})
-    response = member_client.post(url)
+    payload = {"tickets": [{"guest_name": "Member Guest"}]}
+    response = member_client.post(url, data=payload, content_type="application/json")
 
     assert response.status_code == 200
     data = response.json()
-    assert data["tier"]["name"] == free_tier.name
+    assert len(data["tickets"]) == 1
+    assert data["tickets"][0]["tier"]["name"] == free_tier.name
 
     ticket = Ticket.objects.get(event=public_event, user__username="member_user")
     assert ticket.tier
@@ -404,7 +410,8 @@ def test_ticket_checkout_for_rsvp_only_event_fails(
 ) -> None:
     """Test that trying to get a ticket for an RSVP-only event fails correctly."""
     url = reverse("api:ticket_checkout", kwargs={"event_id": rsvp_only_public_event.pk, "tier_id": free_tier.pk})
-    response = nonmember_client.post(url)
+    payload = {"tickets": [{"guest_name": "Test Guest"}]}
+    response = nonmember_client.post(url, data=payload, content_type="application/json")
 
     assert response.status_code == 404  # there is no tier-event pair
 
@@ -419,10 +426,11 @@ def test_ticket_checkout_for_full_event_fails(
     # First user takes the spot
     tier = public_event.ticket_tiers.first()
     assert tier is not None
-    Ticket.objects.create(user=public_user, event=public_event, tier=tier)
+    Ticket.objects.create(guest_name="Test Guest", user=public_user, event=public_event, tier=tier)
 
     url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": free_tier.pk})
-    response = nonmember_client.post(url)
+    payload = {"tickets": [{"guest_name": "Test Guest"}]}
+    response = nonmember_client.post(url, data=payload, content_type="application/json")
 
     assert response.status_code == 400
     data = response.json()
@@ -434,7 +442,8 @@ def test_ticket_checkout_for_full_event_fails(
 def test_ticket_checkout_anonymous_fails(client: Client, public_event: Event, free_tier: TicketTier) -> None:
     """Test that an anonymous user cannot obtain a ticket."""
     url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": free_tier.pk})
-    response = client.post(url)
+    payload = {"tickets": [{"guest_name": "Test Guest"}]}
+    response = client.post(url, data=payload, content_type="application/json")
 
     assert response.status_code == 401
 
@@ -448,13 +457,17 @@ def test_get_my_event_status_with_ticket(
     """Test status returns a ticket if one exists for the user."""
     tier = public_event.ticket_tiers.first()
     assert tier is not None
-    ticket = Ticket.objects.create(event=public_event, user=nonmember_user, tier=tier)
+    ticket = Ticket.objects.create(guest_name="Test Guest", event=public_event, user=nonmember_user, tier=tier)
     url = reverse("api:get_my_event_status", kwargs={"event_id": public_event.pk})
     response = nonmember_client.get(url)
     assert response.status_code == 200
     data = response.json()
-    assert data["id"] == str(ticket.id)
-    assert data["status"] == "active"
+    # Response now returns tickets list with purchase limits
+    assert len(data["tickets"]) == 1
+    assert data["tickets"][0]["id"] == str(ticket.id)
+    assert data["tickets"][0]["status"] == "active"
+    assert data["can_purchase_more"] is False  # max_tickets_per_user defaults to 1
+    assert data["remaining_tickets"] == 0
 
 
 def test_get_my_event_status_with_rsvp(
@@ -466,8 +479,10 @@ def test_get_my_event_status_with_rsvp(
     response = nonmember_client.get(url)
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == rsvp.status
-    assert data["event_id"] == str(rsvp_only_public_event.pk)
+    # Response now wraps rsvp in EventUserStatusResponse
+    assert data["rsvp"]["status"] == rsvp.status
+    assert data["rsvp"]["event_id"] == str(rsvp_only_public_event.pk)
+    assert data["tickets"] == []
 
 
 def test_get_my_event_status_is_eligible(nonmember_client: Client, public_event: Event) -> None:
@@ -839,10 +854,10 @@ def test_get_event_attendees(
     # 2. Make them attendees of the public event
     tier = public_event.ticket_tiers.first()
     assert tier is not None
-    Ticket.objects.create(event=public_event, user=nonmember_user, tier=tier)
-    Ticket.objects.create(event=public_event, user=attendee_always, tier=tier)
-    Ticket.objects.create(event=public_event, user=attendee_never, tier=tier)
-    Ticket.objects.create(event=public_event, user=attendee_members, tier=tier)
+    Ticket.objects.create(guest_name="Test Guest", event=public_event, user=nonmember_user, tier=tier)
+    Ticket.objects.create(guest_name="Test Guest", event=public_event, user=attendee_always, tier=tier)
+    Ticket.objects.create(guest_name="Test Guest", event=public_event, user=attendee_never, tier=tier)
+    Ticket.objects.create(guest_name="Test Guest", event=public_event, user=attendee_members, tier=tier)
 
     # 3. For 'to_members' visibility to work, the viewer and target must be members.
     # member_user is already a member via the member_client fixture.
@@ -912,8 +927,12 @@ def test_get_dietary_summary_as_organizer(
         payment_method=TicketTier.PaymentMethod.FREE,
         price=0,
     )
-    Ticket.objects.create(event=event, user=attendee1, tier=tier, status=Ticket.TicketStatus.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee2, tier=tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee1, tier=tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee2, tier=tier, status=Ticket.TicketStatus.ACTIVE
+    )
 
     # Add dietary restrictions
     peanuts, _ = FoodItem.objects.get_or_create(name="Peanuts")
@@ -983,9 +1002,15 @@ def test_get_dietary_summary_as_regular_attendee(
         payment_method=TicketTier.PaymentMethod.FREE,
         price=0,
     )
-    Ticket.objects.create(event=event, user=nonmember_user, tier=tier, status=Ticket.TicketStatus.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee1, tier=tier, status=Ticket.TicketStatus.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee2, tier=tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=nonmember_user, tier=tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee1, tier=tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee2, tier=tier, status=Ticket.TicketStatus.ACTIVE
+    )
 
     # Add dietary restrictions
     peanuts, _ = FoodItem.objects.get_or_create(name="Peanuts")

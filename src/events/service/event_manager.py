@@ -335,7 +335,7 @@ class AvailabilityGate(BaseEligibilityGate):
         """Count attendees using prefetched data.
 
         Uses the same counting logic as EventManager._assert_capacity():
-        - For ticket events: count unique users with non-cancelled tickets
+        - For ticket events: count non-cancelled tickets (each ticket = one attendee)
         - For RSVP events: count YES RSVPs
 
         This operates on prefetched data for performance, while _assert_capacity()
@@ -343,11 +343,7 @@ class AvailabilityGate(BaseEligibilityGate):
         """
         if self.event.requires_ticket:
             return len(
-                {
-                    ticket.user_id
-                    for ticket in self.event.tickets.all()
-                    if ticket.status != Ticket.TicketStatus.CANCELLED
-                }
+                [ticket for ticket in self.event.tickets.all() if ticket.status != Ticket.TicketStatus.CANCELLED]
             )
         return len([rsvp for rsvp in self.event.rsvps.all() if rsvp.status == EventRSVP.RsvpStatus.YES])
 
@@ -635,22 +631,31 @@ class EventManager:
         TicketTier.objects.select_for_update().filter(pk=tier.pk).update(quantity_sold=F("quantity_sold") + 1)
 
         # Create an ACTIVE ticket directly, bypassing the payment flow
-        ticket = Ticket.objects.create(event=self.event, tier=tier, user=self.user, status=Ticket.TicketStatus.ACTIVE)
+        ticket = Ticket.objects.create(
+            event=self.event,
+            tier=tier,
+            user=self.user,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name=self.user.get_display_name(),
+        )
 
         return ticket
 
     def _assert_capacity(self, use_tickets: bool, tier: TicketTier | None) -> None:
-        """Raises if the event has no more available attendee slots."""
+        """Raises if the event has no more available attendee slots.
+
+        For ticket events, counts total non-cancelled tickets (each ticket = one attendee).
+        For RSVP events, counts YES RSVPs.
+        """
         if self.event.max_attendees == 0 or self.eligibility_service.overrides_max_attendees():
             return
 
         if use_tickets:
+            # Count all non-cancelled tickets (each ticket represents one attendee)
             count = (
                 Ticket.objects.select_for_update()
                 .filter(event=self.event)
                 .exclude(status=Ticket.TicketStatus.CANCELLED)
-                .values("user_id")
-                .distinct()
                 .count()
             )
             if not tier:

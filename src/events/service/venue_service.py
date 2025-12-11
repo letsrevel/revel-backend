@@ -1,6 +1,7 @@
 """Service layer for venue management operations."""
 
 from django.db import transaction
+from django.db.models import Case, Exists, OuterRef, Value, When
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -382,3 +383,81 @@ def bulk_update_seats(
         models.VenueSeat.objects.bulk_update(updated_seats, list(update_fields))
 
     return updated_seats
+
+
+def get_tier_seat_availability(
+    event: models.Event,
+    tier: models.TicketTier,
+) -> schema.SectorAvailabilitySchema:
+    """Get seat availability for a ticket tier with seat assignment.
+
+    Returns sector info with all seats and their availability status.
+    Seats taken by PENDING or ACTIVE tickets are marked as available=False.
+
+    Args:
+        event: The event to check availability for
+        tier: The ticket tier (must have sector assigned and seat_assignment_mode != NONE)
+
+    Returns:
+        SectorAvailabilitySchema with seats and availability counts
+
+    Raises:
+        HttpError: If tier doesn't have seat assignment or no sector is assigned
+    """
+    # Validate tier has seat assignment
+    if tier.seat_assignment_mode == models.TicketTier.SeatAssignmentMode.NONE:
+        raise HttpError(404, str(_("This tier does not have seat assignment.")))
+
+    if not tier.sector_id:
+        raise HttpError(404, str(_("This tier does not have an assigned sector.")))
+
+    # Get sector
+    sector = models.VenueSector.objects.get(pk=tier.sector_id)
+
+    # Subquery to check if a seat is taken
+    taken_ticket_exists = models.Ticket.objects.filter(
+        event=event,
+        seat_id=OuterRef("pk"),
+        status__in=[models.Ticket.TicketStatus.PENDING, models.Ticket.TicketStatus.ACTIVE],
+    )
+
+    # Annotate seats with availability status
+    seats_with_availability = (
+        models.VenueSeat.objects.filter(sector=sector, is_active=True)
+        .annotate(
+            available=Case(
+                When(Exists(taken_ticket_exists), then=Value(False)),
+                default=Value(True),
+            )
+        )
+        .order_by("row", "number", "label")
+    )
+
+    # Build response with availability counts
+    seats: list[schema.VenueSeatSchema] = []
+    available_count = 0
+
+    for seat in seats_with_availability:
+        seat_schema = schema.VenueSeatSchema.from_orm(seat)
+        seat_schema.available = seat.available
+        seats.append(seat_schema)
+        if seat.available:
+            available_count += 1
+
+    # Convert shape to Coordinate2D if present
+    shape: list[schema.Coordinate2D] | None = None
+    if sector.shape:
+        shape = _convert_shape_to_coordinates(sector.shape)
+
+    return schema.SectorAvailabilitySchema(
+        id=sector.id,
+        name=sector.name,
+        code=sector.code,
+        shape=shape,
+        capacity=sector.capacity,
+        display_order=sector.display_order,
+        metadata=sector.metadata,
+        seats=seats,
+        available_count=available_count,
+        total_count=len(seats),
+    )

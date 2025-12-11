@@ -517,7 +517,12 @@ class EventAdminController(UserAwareController):
     def list_ticket_tiers(self, event_id: UUID) -> QuerySet[models.TicketTier]:
         """List all ticket tiers for an event."""
         self.get_one(event_id)
-        return models.TicketTier.objects.filter(event_id=event_id).distinct().order_by("price", "name")
+        return (
+            models.TicketTier.objects.with_venue_and_sector()
+            .filter(event_id=event_id)
+            .distinct()
+            .order_by("price", "name")
+        )
 
     @route.post(
         "/ticket-tier",
@@ -539,9 +544,11 @@ class EventAdminController(UserAwareController):
         restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
 
         # Create ticket tier with M2M handling in service layer
-        return ticket_service.create_ticket_tier(
+        tier = ticket_service.create_ticket_tier(
             event=event, tier_data=payload_dict, restricted_to_membership_tiers_ids=restricted_to_membership_tiers_ids
         )
+        # Refetch with venue/sector for response serialization
+        return models.TicketTier.objects.with_venue_and_sector().get(pk=tier.pk)
 
     @route.put(
         "/ticket-tier/{tier_id}",
@@ -567,9 +574,11 @@ class EventAdminController(UserAwareController):
         restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
 
         # Update ticket tier with M2M handling in service layer
-        return ticket_service.update_ticket_tier(
+        updated_tier = ticket_service.update_ticket_tier(
             tier=tier, tier_data=payload_dict, restricted_to_membership_tiers_ids=restricted_to_membership_tiers_ids
         )
+        # Refetch with venue/sector for response serialization
+        return models.TicketTier.objects.with_venue_and_sector().get(pk=updated_tier.pk)
 
     @route.delete(
         "/ticket-tier/{tier_id}",
@@ -611,7 +620,16 @@ class EventAdminController(UserAwareController):
         - tier__payment_method: Filter by payment method (ONLINE, OFFLINE, AT_THE_DOOR, FREE)
         """
         event = self.get_one(event_id)
-        qs = models.Ticket.objects.select_related("user", "tier", "payment").filter(event=event)
+        # Include tier with venue/sector/city for AdminTicketSchema, plus seat and payment
+        qs = models.Ticket.objects.select_related(
+            "user",
+            "tier",
+            "tier__venue",
+            "tier__venue__city",
+            "tier__sector",
+            "seat",
+            "payment",
+        ).filter(event=event)
         return params.filter(qs).distinct()
 
     @route.get(
@@ -624,12 +642,24 @@ class EventAdminController(UserAwareController):
     def get_ticket(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
         """Get a ticket by its ID."""
         event = self.get_one(event_id)
-        return get_object_or_404(models.Ticket, pk=ticket_id, event=event)
+        return get_object_or_404(
+            models.Ticket.objects.select_related(
+                "user",
+                "tier",
+                "tier__venue",
+                "tier__venue__city",
+                "tier__sector",
+                "seat",
+                "payment",
+            ),
+            pk=ticket_id,
+            event=event,
+        )
 
     @route.post(
         "/tickets/{ticket_id}/confirm-payment",
         url_name="confirm_ticket_payment",
-        response={200: schema.EventTicketSchema},
+        response={200: schema.UserTicketSchema},
         permissions=[EventPermission("manage_tickets")],
     )
     def confirm_ticket_payment(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
@@ -650,12 +680,13 @@ class EventAdminController(UserAwareController):
         ticket.save(update_fields=["status"])
 
         # Notification sent automatically via signal handler
-        return ticket
+        # Re-fetch with full() to include all related objects for UserTicketSchema
+        return models.Ticket.objects.full().get(pk=ticket.pk)
 
     @route.post(
         "/tickets/{ticket_id}/mark-refunded",
         url_name="mark_ticket_refunded",
-        response={200: schema.EventTicketSchema},
+        response={200: schema.UserTicketSchema},
         permissions=[EventPermission("manage_tickets")],
     )
     def mark_ticket_refunded(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
@@ -666,7 +697,7 @@ class EventAdminController(UserAwareController):
         """
         event = self.get_one(event_id)
         ticket = get_object_or_404(
-            models.Ticket,
+            models.Ticket.objects.select_related("tier", "payment"),
             pk=ticket_id,
             event=event,
             tier__payment_method__in=[
@@ -689,12 +720,13 @@ class EventAdminController(UserAwareController):
                 ticket.payment.save(update_fields=["status"])
 
         # Refund notification sent automatically by stripe webhook handler
-        return ticket
+        # Re-fetch with full() to include all related objects for UserTicketSchema
+        return models.Ticket.objects.full().get(pk=ticket.pk)
 
     @route.post(
         "/tickets/{ticket_id}/cancel",
         url_name="cancel_ticket",
-        response={200: schema.EventTicketSchema},
+        response={200: schema.UserTicketSchema},
         permissions=[EventPermission("manage_tickets")],
     )
     def cancel_ticket(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
@@ -705,7 +737,7 @@ class EventAdminController(UserAwareController):
         """
         event = self.get_one(event_id)
         ticket = get_object_or_404(
-            models.Ticket,
+            models.Ticket.objects.select_related("tier"),
             pk=ticket_id,
             event=event,
             tier__payment_method__in=[
@@ -728,7 +760,8 @@ class EventAdminController(UserAwareController):
             ticket.save(update_fields=["status"])
 
         # Notification sent automatically via signal handler
-        return ticket
+        # Re-fetch with full() to include all related objects for UserTicketSchema
+        return models.Ticket.objects.full().get(pk=ticket.pk)
 
     @route.post(
         "/tickets/{ticket_id}/check-in",

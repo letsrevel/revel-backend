@@ -336,6 +336,7 @@ def ticket(event: Any, member_user: Any, event_ticket_tier: Any) -> Any:
         user=member_user,
         tier=event_ticket_tier,
         status=Ticket.TicketStatus.ACTIVE,
+        guest_name=member_user.get_display_name(),
     )
 
 

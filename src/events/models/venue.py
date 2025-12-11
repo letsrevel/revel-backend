@@ -48,6 +48,13 @@ class Venue(SlugFromNameMixin, TimeStampedModel, LocationMixin):
     """A physical venue belonging to an organization.
 
     Layout (sectors/seats) is optional and FE-defined.
+
+    Note:
+        The `capacity` field is informational only and is NOT enforced during
+        ticket sales. Actual capacity enforcement happens via:
+        - Event.max_attendees (enforced during ticket purchase)
+        - TicketTier.total_quantity (enforced during ticket purchase)
+        - Materialized seats in sectors (enforced for seated events)
     """
 
     # Slug must be unique per organization, same convention as Event
@@ -66,7 +73,11 @@ class Venue(SlugFromNameMixin, TimeStampedModel, LocationMixin):
     description = models.TextField(blank=True, null=True)
 
     # Allows GA-only venues
-    capacity = models.PositiveIntegerField(null=True, blank=True)
+    capacity = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Informational only. Not enforced during ticket sales.",
+    )
 
     class Meta:
         constraints = [
@@ -87,7 +98,13 @@ class Venue(SlugFromNameMixin, TimeStampedModel, LocationMixin):
 
 
 class VenueSector(TimeStampedModel):
-    """A logical area inside a venue (e.g. Balcony, Floor Left)."""
+    """A logical area inside a venue (e.g. Balcony, Floor Left).
+
+    Note:
+        The `capacity` field is informational only and is NOT enforced during
+        ticket sales. For seated events, capacity is implicitly enforced by the
+        number of materialized VenueSeat objects in this sector.
+    """
 
     venue = models.ForeignKey(
         Venue,
@@ -105,7 +122,11 @@ class VenueSector(TimeStampedModel):
         help_text="Arbitrary polygon for FE rendering (list of points: [[x,y],...]).",
     )
 
-    capacity = models.PositiveIntegerField(null=True, blank=True)
+    capacity = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Informational only. Actual capacity enforced by materialized seats.",
+    )
 
     # Controls ordering in FE lists
     display_order = models.PositiveIntegerField(default=0, db_index=True)

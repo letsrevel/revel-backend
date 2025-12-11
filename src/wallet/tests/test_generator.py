@@ -63,6 +63,7 @@ def wallet_ticket(event_with_address: Event, member_user: RevelUser, paid_ticket
         user=member_user,
         tier=paid_ticket_tier,
         status=Ticket.TicketStatus.ACTIVE,
+        guest_name=member_user.get_display_name(),
     )
 
 
@@ -74,6 +75,7 @@ def wallet_free_ticket(event_with_address: Event, member_user: RevelUser, free_t
         user=member_user,
         tier=free_ticket_tier,
         status=Ticket.TicketStatus.ACTIVE,
+        guest_name=member_user.get_display_name(),
     )
 
 

@@ -58,6 +58,9 @@ class PassData:
     logo_image: bytes
     barcode_message: str = ""
     relevant_date: datetime | None = None
+    guest_name: str | None = None
+    seat_label: str | None = None
+    sector_name: str | None = None
 
 
 class ApplePassGeneratorError(Exception):
@@ -132,6 +135,10 @@ class ApplePassGenerator:
         else:
             ticket_price = "Free"
 
+        # Extract seat and sector info
+        seat_label = ticket.seat.label if ticket.seat else None
+        sector_name = ticket.sector.name if ticket.sector else None
+
         return PassData(
             serial_number=str(ticket.id),
             description=f"Ticket for {event.name}",
@@ -146,6 +153,9 @@ class ApplePassGenerator:
             logo_image=logo_image,
             barcode_message=str(ticket.id),
             relevant_date=event.start,
+            guest_name=ticket.guest_name,
+            seat_label=seat_label,
+            sector_name=sector_name,
         )
 
     def _generate_files(self, pass_data: PassData) -> dict[str, bytes]:
@@ -168,7 +178,7 @@ class ApplePassGenerator:
 
     def _build_pass_json(self, data: PassData) -> bytes:
         """Build the pass.json content."""
-        # Build secondary fields (venue)
+        # Build secondary fields (venue, sector, seat)
         secondary_fields: list[dict[str, Any]] = []
         if data.venue:
             secondary_fields.append(
@@ -178,6 +188,43 @@ class ApplePassGenerator:
                     "value": data.venue,
                 }
             )
+
+        # Add sector and seat info if available
+        if data.sector_name:
+            secondary_fields.append(
+                {
+                    "key": "sector",
+                    "label": "SECTION",
+                    "value": data.sector_name,
+                }
+            )
+        if data.seat_label:
+            secondary_fields.append(
+                {
+                    "key": "seat",
+                    "label": "SEAT",
+                    "value": data.seat_label,
+                    "textAlignment": "PKTextAlignmentRight",
+                }
+            )
+
+        # Build auxiliary fields
+        auxiliary_fields: list[dict[str, Any]] = [
+            {"key": "tier", "label": "TICKET", "value": data.ticket_tier},
+        ]
+
+        # Add guest name if different from default
+        if data.guest_name:
+            auxiliary_fields.append({"key": "guest", "label": "GUEST", "value": data.guest_name})
+
+        auxiliary_fields.append(
+            {
+                "key": "price",
+                "label": "PRICE",
+                "value": data.ticket_price,
+                "textAlignment": "PKTextAlignmentRight",
+            }
+        )
 
         pass_dict: dict[str, Any] = {
             "formatVersion": 1,
@@ -210,15 +257,7 @@ class ApplePassGenerator:
                     {"key": "event", "label": "EVENT", "value": data.event_name},
                 ],
                 "secondaryFields": secondary_fields,
-                "auxiliaryFields": [
-                    {"key": "tier", "label": "TICKET", "value": data.ticket_tier},
-                    {
-                        "key": "price",
-                        "label": "PRICE",
-                        "value": data.ticket_price,
-                        "textAlignment": "PKTextAlignmentRight",
-                    },
-                ],
+                "auxiliaryFields": auxiliary_fields,
                 "backFields": self._build_back_fields(data),
             },
         }
@@ -231,8 +270,15 @@ class ApplePassGenerator:
 
     def _build_back_fields(self, data: PassData) -> list[dict[str, str]]:
         """Build the back fields for the pass."""
-        fields = [
+        fields: list[dict[str, str]] = [
             {"key": "ticket_id", "label": "Ticket ID", "value": data.serial_number},
+        ]
+
+        # Add guest name
+        if data.guest_name:
+            fields.append({"key": "guest_name", "label": "Guest", "value": data.guest_name})
+
+        fields.append(
             {
                 "key": "event_details",
                 "label": "Event Details",
@@ -241,8 +287,8 @@ class ApplePassGenerator:
                     f"Start: {format_date_full(data.event_start)}\n"
                     f"End: {format_date_full(data.event_end)}"
                 ),
-            },
-        ]
+            }
+        )
 
         if data.venue:
             fields.append(
@@ -250,6 +296,21 @@ class ApplePassGenerator:
                     "key": "full_location",
                     "label": "Full Address",
                     "value": data.venue,
+                }
+            )
+
+        # Add seating info
+        if data.sector_name or data.seat_label:
+            seating_parts = []
+            if data.sector_name:
+                seating_parts.append(f"Section: {data.sector_name}")
+            if data.seat_label:
+                seating_parts.append(f"Seat: {data.seat_label}")
+            fields.append(
+                {
+                    "key": "seating",
+                    "label": "Seating",
+                    "value": "\n".join(seating_parts),
                 }
             )
 

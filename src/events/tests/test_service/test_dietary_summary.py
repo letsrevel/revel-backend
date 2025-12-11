@@ -70,7 +70,9 @@ def test_get_event_dietary_summary_single_restriction(
 ) -> None:
     """Test dietary summary with one attendee having one restriction."""
     # Arrange
-    Ticket.objects.create(event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
 
     food, _ = FoodItem.objects.get_or_create(name="Peanuts")
     DietaryRestriction.objects.create(
@@ -101,8 +103,12 @@ def test_get_event_dietary_summary_aggregates_same_restriction(
 ) -> None:
     """Test that multiple attendees with same restriction are aggregated."""
     # Arrange
-    Ticket.objects.create(event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
 
     food, _ = FoodItem.objects.get_or_create(name="Peanuts")
     DietaryRestriction.objects.create(
@@ -140,8 +146,12 @@ def test_get_event_dietary_summary_different_severity_separate(
 ) -> None:
     """Test that same food with different severity levels are separate entries."""
     # Arrange
-    Ticket.objects.create(event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
 
     food, _ = FoodItem.objects.get_or_create(name="Peanuts")
     DietaryRestriction.objects.create(
@@ -174,7 +184,9 @@ def test_get_event_dietary_summary_omits_empty_notes(
 ) -> None:
     """Test that empty notes are not included in the summary."""
     # Arrange
-    Ticket.objects.create(event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
 
     food, _ = FoodItem.objects.get_or_create(name="Peanuts")
     DietaryRestriction.objects.create(
@@ -201,7 +213,9 @@ def test_get_event_dietary_summary_single_preference(
 ) -> None:
     """Test dietary summary with one attendee having one preference."""
     # Arrange
-    Ticket.objects.create(event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
 
     # Use existing seeded preference
     pref = DietaryPreference.objects.get(name="Vegetarian")
@@ -232,9 +246,15 @@ def test_get_event_dietary_summary_aggregates_preferences(
 ) -> None:
     """Test that multiple attendees with same preference are aggregated."""
     # Arrange
-    Ticket.objects.create(event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee_user3, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user3, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
 
     # Use existing seeded preference
     pref = DietaryPreference.objects.get(name="Vegetarian")
@@ -263,8 +283,12 @@ def test_get_event_dietary_summary_visibility_organizer_sees_all(
 ) -> None:
     """Test that organizers see both public and private dietary info."""
     # Arrange
-    Ticket.objects.create(event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
 
     food, _ = FoodItem.objects.get_or_create(name="Peanuts")
     DietaryRestriction.objects.create(
@@ -297,9 +321,15 @@ def test_get_event_dietary_summary_visibility_attendee_sees_public_only(
 ) -> None:
     """Test that regular attendees only see public dietary info."""
     # Arrange
-    Ticket.objects.create(event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee_user3, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user3, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
 
     food, _ = FoodItem.objects.get_or_create(name="Peanuts")
     DietaryRestriction.objects.create(
@@ -333,8 +363,12 @@ def test_get_event_dietary_summary_staff_sees_all(
 ) -> None:
     """Test that organization staff see all dietary info."""
     # Arrange
-    Ticket.objects.create(event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
 
     food, _ = FoodItem.objects.get_or_create(name="Peanuts")
     DietaryRestriction.objects.create(
@@ -367,8 +401,12 @@ def test_get_event_dietary_summary_mixed_restrictions_and_preferences(
 ) -> None:
     """Test summary with both restrictions and preferences."""
     # Arrange
-    Ticket.objects.create(event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
-    Ticket.objects.create(event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE)
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user1, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee_user2, tier=general_tier, status=Ticket.TicketStatus.ACTIVE
+    )
 
     # Add restrictions
     food1, _ = FoodItem.objects.get_or_create(name="Peanuts")

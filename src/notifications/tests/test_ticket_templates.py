@@ -90,6 +90,7 @@ def active_ticket(
 ) -> Ticket:
     """An active ticket for testing."""
     return Ticket.objects.create(
+        guest_name="Test Guest",
         user=ticket_holder,
         event=ticket_event,
         tier=ticket_tier,
@@ -105,6 +106,7 @@ def pending_ticket(
 ) -> Ticket:
     """A pending ticket for testing."""
     return Ticket.objects.create(
+        guest_name="Test Guest",
         user=ticket_holder,
         event=ticket_event,
         tier=ticket_tier,

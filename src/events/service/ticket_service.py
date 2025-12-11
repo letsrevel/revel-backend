@@ -50,7 +50,11 @@ class TicketService:
     def _offline_checkout(self) -> Ticket:
         TicketTier.objects.select_for_update().filter(pk=self.tier.pk).update(quantity_sold=F("quantity_sold") + 1)
         ticket = Ticket.objects.create(
-            event=self.event, tier=self.tier, user=self.user, status=Ticket.TicketStatus.PENDING
+            event=self.event,
+            tier=self.tier,
+            user=self.user,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name=self.user.get_display_name(),
         )
         # Notification sent automatically via post_save signal
         return ticket
@@ -59,7 +63,11 @@ class TicketService:
     def _free_checkout(self) -> Ticket:
         TicketTier.objects.select_for_update().filter(pk=self.tier.pk).update(quantity_sold=F("quantity_sold") + 1)
         ticket = Ticket.objects.create(
-            event=self.event, tier=self.tier, user=self.user, status=Ticket.TicketStatus.ACTIVE
+            event=self.event,
+            tier=self.tier,
+            user=self.user,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name=self.user.get_display_name(),
         )
         # Notification sent automatically via post_save signal
         return ticket

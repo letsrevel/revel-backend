@@ -1308,15 +1308,18 @@ A complete ML pipeline from data preprocessing to model deployment.
 
         # Active tickets
         for user_key in ["attendee_1", "attendee_2", "attendee_3", "multi_org_user"]:
+            user = self.users[user_key]
             events_models.Ticket.objects.create(
+                guest_name=user.get_display_name(),
                 event=self.events["summer_festival"],
-                user=self.users[user_key],
+                user=user,
                 tier=festival_early_bird,
                 status=events_models.Ticket.TicketStatus.ACTIVE,
             )
 
         # VIP tickets
         events_models.Ticket.objects.create(
+            guest_name=self.users["org_alpha_owner"].get_display_name(),
             event=self.events["summer_festival"],
             user=self.users["org_alpha_owner"],
             tier=festival_vip,
@@ -1325,6 +1328,7 @@ A complete ML pipeline from data preprocessing to model deployment.
 
         # Pending ticket (payment not completed)
         pending_ticket = events_models.Ticket.objects.create(
+            guest_name=self.users["attendee_4"].get_display_name(),
             event=self.events["summer_festival"],
             user=self.users["attendee_4"],
             tier=festival_general,
@@ -1347,6 +1351,7 @@ A complete ML pipeline from data preprocessing to model deployment.
         past_tier = events_models.TicketTier.objects.get(event=self.events["past_event"], name="Gala Ticket")
 
         checked_in_ticket = events_models.Ticket.objects.create(
+            guest_name=self.users["attendee_1"].get_display_name(),
             event=self.events["past_event"],
             user=self.users["attendee_1"],
             tier=past_tier,
@@ -1369,6 +1374,7 @@ A complete ML pipeline from data preprocessing to model deployment.
 
         # Cancelled ticket
         cancelled_ticket = events_models.Ticket.objects.create(
+            guest_name=self.users["pending_user"].get_display_name(),
             event=self.events["summer_festival"],
             user=self.users["pending_user"],
             tier=festival_early_bird,
@@ -1390,6 +1396,7 @@ A complete ML pipeline from data preprocessing to model deployment.
         wellness_tier = events_models.TicketTier.objects.get(event=self.events["wellness_retreat"], name="Shared Room")
 
         events_models.Ticket.objects.create(
+            guest_name=self.users["attendee_2"].get_display_name(),
             event=self.events["wellness_retreat"],
             user=self.users["attendee_2"],
             tier=wellness_tier,
@@ -1402,6 +1409,7 @@ A complete ML pipeline from data preprocessing to model deployment.
         )
 
         events_models.Ticket.objects.create(
+            guest_name=self.users["org_beta_member"].get_display_name(),
             event=self.events["tech_conference"],
             user=self.users["org_beta_member"],
             tier=conf_member_tier,

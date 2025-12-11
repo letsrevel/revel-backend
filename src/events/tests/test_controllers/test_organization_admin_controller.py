@@ -1878,6 +1878,7 @@ class TestVenueSeatManagement:
         )
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,
@@ -1915,6 +1916,7 @@ class TestVenueSeatManagement:
         )
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,
@@ -1950,6 +1952,7 @@ class TestVenueSeatManagement:
         )
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,
@@ -1985,6 +1988,7 @@ class TestVenueSeatManagement:
         )
         tier = TicketTier.objects.create(event=past_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=past_event,
             user=organization_owner_user,
             tier=tier,
@@ -2021,6 +2025,7 @@ class TestVenueSeatManagement:
         )
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,
@@ -2129,6 +2134,7 @@ class TestVenueSeatManagement:
         )
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,

@@ -325,6 +325,7 @@ class TestDeleteSeat:
         )
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,
@@ -358,6 +359,7 @@ class TestDeleteSeat:
         )
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,
@@ -391,6 +393,7 @@ class TestDeleteSeat:
         )
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,
@@ -422,6 +425,7 @@ class TestDeleteSeat:
         )
         tier = TicketTier.objects.create(event=past_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=past_event,
             user=organization_owner_user,
             tier=tier,
@@ -453,6 +457,7 @@ class TestDeleteSeat:
         )
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,
@@ -530,6 +535,7 @@ class TestBulkDeleteSeats:
         )
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,
@@ -566,6 +572,7 @@ class TestBulkDeleteSeats:
         )
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,
@@ -575,6 +582,7 @@ class TestBulkDeleteSeats:
             status=Ticket.TicketStatus.ACTIVE,
         )
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,
@@ -612,6 +620,7 @@ class TestBulkDeleteSeats:
         tier = TicketTier.objects.create(event=future_event, name="General", price=50)
         # Cancelled ticket - should not block
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,
@@ -622,6 +631,7 @@ class TestBulkDeleteSeats:
         )
         # Checked-in ticket - should not block
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event,
             user=organization_owner_user,
             tier=tier,

@@ -48,6 +48,10 @@ class EventQuerySet(models.QuerySet["Event"]):
         """Returns a queryset prefetching an organization and its members."""
         return self.select_related("organization").prefetch_related("organization__staff_members")
 
+    def with_venue(self) -> t.Self:
+        """Select the venue (without sectors/seats) to avoid N+1."""
+        return self.select_related("venue")
+
     def for_user(
         self, user: RevelUser | AnonymousUser, include_past: bool = False, allowed_ids: list[UUID] | None = None
     ) -> t.Self:
@@ -58,7 +62,7 @@ class EventQuerySet(models.QuerySet["Event"]):
         - CANCELLED users: Treated as if they have no membership
         - PAUSED/ACTIVE users: Can see events based on visibility rules
         """
-        base_qs = self.select_related("organization", "event_series")
+        base_qs = self.select_related("organization", "event_series", "venue")
 
         is_allowed_special = Q(id__in=allowed_ids) if allowed_ids else Q()
 
@@ -141,9 +145,13 @@ class EventManager(models.Manager["Event"]):
         """Returns a queryset prefetching the tags."""
         return self.get_queryset().with_tags()
 
+    def with_venue(self) -> EventQuerySet:
+        """Returns a queryset selecting the related venue (without sectors/seats)."""
+        return self.get_queryset().with_venue()
+
     def full(self) -> EventQuerySet:
         """Returns a queryset prefetching the full events."""
-        return self.get_queryset().with_organization().with_city().with_tags()
+        return self.get_queryset().with_organization().with_city().with_tags().with_venue()
 
     def for_user(
         self, user: RevelUser | AnonymousUser, include_past: bool = False, allowed_ids: list[UUID] | None = None
@@ -213,6 +221,12 @@ class Event(
     )
 
     attendee_count = models.PositiveIntegerField(default=0, editable=False)
+    max_tickets_per_user = models.PositiveIntegerField(
+        default=1,
+        null=True,
+        blank=True,
+        help_text="Maximum tickets a user can purchase for this event. Null = unlimited.",
+    )
 
     venue = models.ForeignKey(
         Venue,
@@ -400,6 +414,10 @@ DEFAULT_TICKET_TIER_NAME = "General Admission"
 
 
 class TicketTierQuerySet(models.QuerySet["TicketTier"]):
+    def with_venue_and_sector(self) -> t.Self:
+        """Select venue and sector for serialization (not for transactional queries)."""
+        return self.select_related("venue", "sector")
+
     def for_user(self, user: RevelUser | AnonymousUser) -> t.Self:
         """Return ticket tiers visible to a given user, combining event and tier-level access.
 
@@ -464,8 +482,12 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
 
 class TicketTierManager(models.Manager["TicketTier"]):
     def get_queryset(self) -> TicketTierQuerySet:
-        """Get a QS for ticket tiers."""
+        """Get base queryset for ticket tiers."""
         return TicketTierQuerySet(self.model, using=self._db).prefetch_related("restricted_to_membership_tiers")
+
+    def with_venue_and_sector(self) -> TicketTierQuerySet:
+        """Return queryset with venue and sector prefetched for API serialization."""
+        return self.get_queryset().with_venue_and_sector()
 
     def for_user(self, user: RevelUser | AnonymousUser) -> TicketTierQuerySet:
         """Return ticket tiers visible to a given user, combining event and tier-level access."""
@@ -589,8 +611,23 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         db_index=True,
         help_text="How seats are assigned for tickets in this tier.",
     )
+    max_tickets_per_user = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Override event's max_tickets_per_user for this tier. Null = inherit from event.",
+    )
 
     objects = TicketTierManager()
+
+    def get_max_tickets_per_user(self) -> int | None:
+        """Return tier limit or fall back to event limit.
+
+        Returns:
+            The maximum tickets per user for this tier, or None if unlimited.
+        """
+        if self.max_tickets_per_user is not None:
+            return self.max_tickets_per_user
+        return self.event.max_tickets_per_user
 
     def _validate_sales_window(self) -> None:
         """Validate sales window constraints."""
@@ -692,16 +729,39 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
         return self.select_related("event", "event__organization")
 
     def with_tier(self) -> t.Self:
-        """Select the related tier."""
-        return self.select_related("tier")
+        """Select the related tier with venue/sector and city for N+1 prevention."""
+        return self.select_related(
+            "tier",
+            "tier__venue",
+            "tier__venue__city",
+            "tier__sector",
+        )
+
+    def with_seat(self) -> t.Self:
+        """Select the related seat for assigned seating."""
+        return self.select_related("seat")
 
     def with_user(self) -> t.Self:
         """Select the related user."""
         return self.select_related("user")
 
+    def with_payment(self) -> t.Self:
+        """Select the related payment (OneToOne reverse relation)."""
+        return self.select_related("payment")
+
     def full(self) -> t.Self:
-        """Select all commonly needed related objects."""
-        return self.select_related("event", "event__organization", "tier", "user")
+        """Select all commonly needed related objects for user-facing ticket views."""
+        return self.select_related(
+            "event",
+            "event__organization",
+            "tier",
+            "tier__venue",
+            "tier__venue__city",
+            "tier__sector",
+            "seat",
+            "user",
+            "payment",
+        )
 
 
 class TicketManager(models.Manager["Ticket"]):
@@ -716,12 +776,20 @@ class TicketManager(models.Manager["Ticket"]):
         return self.get_queryset().with_event()
 
     def with_tier(self) -> TicketQuerySet:
-        """Returns a queryset with the tier selected."""
+        """Returns a queryset with tier, venue/sector, and city selected."""
         return self.get_queryset().with_tier()
+
+    def with_seat(self) -> TicketQuerySet:
+        """Returns a queryset with the seat selected."""
+        return self.get_queryset().with_seat()
 
     def with_user(self) -> TicketQuerySet:
         """Returns a queryset with the user selected."""
         return self.get_queryset().with_user()
+
+    def with_payment(self) -> TicketQuerySet:
+        """Returns a queryset with the payment selected."""
+        return self.get_queryset().with_payment()
 
     def full(self) -> TicketQuerySet:
         """Returns a queryset with all related objects selected."""
@@ -749,6 +817,10 @@ class Ticket(TimeStampedModel):
         blank=True,
         related_name="checked_in_tickets",
         editable=False,
+    )
+    guest_name = models.CharField(
+        max_length=255,
+        help_text="Name of the ticket holder (may differ from purchasing user).",
     )
 
     # Venue/seating (denormalized for fast access, validated for consistency)
@@ -778,11 +850,9 @@ class Ticket(TimeStampedModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=["event", "user", "tier"],
-                condition=models.Q(status="pending"),
-                name="unique_ticket_event_user_tier",
-            ),
+            # Note: unique_ticket_event_user_tier constraint was removed to allow
+            # multi-ticket purchases. Overbooking is now prevented at the service layer
+            # by checking max_tickets_per_user limits.
             models.UniqueConstraint(
                 fields=["event", "seat"],
                 condition=models.Q(seat__isnull=False) & ~models.Q(status="cancelled"),
@@ -854,7 +924,8 @@ class Payment(TimeStampedModel):
     # In the future, a more complex solution will be proposed
     ticket = models.OneToOneField(Ticket, on_delete=models.CASCADE, related_name="payment")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="payments")
-    stripe_session_id = models.CharField(max_length=255, unique=True, db_index=True)
+    # Not unique: batch purchases share the same session_id across multiple tickets
+    stripe_session_id = models.CharField(max_length=255, db_index=True)
     stripe_payment_intent_id = models.CharField(
         max_length=255, null=True, blank=True, db_index=True, help_text="Stripe PaymentIntent ID for refund processing"
     )
@@ -864,6 +935,14 @@ class Payment(TimeStampedModel):
     currency = models.CharField(max_length=3, default=settings.DEFAULT_CURRENCY)
     raw_response = models.JSONField(blank=True, default=dict)  # To store the full webhook event for auditing
     expires_at = models.DateTimeField(default=_get_payment_default_expiry, db_index=True, editable=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["stripe_session_id", "ticket"],
+                name="unique_payment_per_session_ticket",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Payment {self.id} for Ticket {self.ticket.id}"

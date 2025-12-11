@@ -139,7 +139,7 @@ class TestResolveVisibility:
         # Viewer is an attendee (via ticket)
         tier = event.ticket_tiers.first()
         assert tier is not None
-        models.Ticket.objects.create(event=event, user=viewer, tier=tier)
+        models.Ticket.objects.create(guest_name="Test Guest", event=event, user=viewer, tier=tier)
         assert (
             resolve_visibility(
                 viewer=viewer,

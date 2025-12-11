@@ -1133,6 +1133,7 @@ def at_door_tier(event: Event) -> TicketTier:
 def pending_offline_ticket(public_user: RevelUser, event: Event, offline_tier: TicketTier) -> Ticket:
     """Create a pending ticket for offline payment."""
     return Ticket.objects.create(
+        guest_name="Test Guest",
         user=public_user,
         event=event,
         tier=offline_tier,
@@ -1144,6 +1145,7 @@ def pending_offline_ticket(public_user: RevelUser, event: Event, offline_tier: T
 def pending_at_door_ticket(member_user: RevelUser, event: Event, at_door_tier: TicketTier) -> Ticket:
     """Create a pending ticket for at-the-door payment."""
     return Ticket.objects.create(
+        guest_name="Test Guest",
         user=member_user,
         event=event,
         tier=at_door_tier,
@@ -1155,6 +1157,7 @@ def pending_at_door_ticket(member_user: RevelUser, event: Event, at_door_tier: T
 def active_online_ticket(organization_staff_user: RevelUser, event: Event, event_ticket_tier: TicketTier) -> Ticket:
     """Create an active ticket for online payment (should not appear in pending list)."""
     return Ticket.objects.create(
+        guest_name="Test Guest",
         user=organization_staff_user,
         event=event,
         tier=event_ticket_tier,
@@ -1307,6 +1310,7 @@ def test_list_tickets_pagination(organization_owner_client: Client, event: Event
         )
         users.append(user)
         Ticket.objects.create(
+            guest_name="Test Guest",
             user=user,
             event=event,
             tier=offline_tier,
@@ -1450,6 +1454,7 @@ def test_confirm_ticket_payment_online_payment_method(
     """Test confirming payment for online payment method ticket returns 404."""
     # Create a pending ticket with online payment method (edge case)
     online_pending_ticket = Ticket.objects.create(
+        guest_name="Test Guest",
         user=public_user,
         event=event,
         tier=event_ticket_tier,  # This has ONLINE payment method

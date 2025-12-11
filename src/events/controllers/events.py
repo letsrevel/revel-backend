@@ -20,8 +20,9 @@ from common.controllers import UserAwareController
 from common.schema import ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle
 from events import filters, models, schema
-from events.service import event_service
+from events.service import event_service, stripe_service
 from events.service import guest as guest_service
+from events.service.batch_ticket_service import BatchTicketService
 from events.service.event_manager import EventManager, EventUserEligibility
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 from questionnaires.schema import (
@@ -264,26 +265,57 @@ class EventController(UserAwareController):
     @route.get(
         "/{event_id}/my-status",
         url_name="get_my_event_status",
-        response=schema.EventUserStatusSchema | EventUserEligibility,
+        response=schema.EventUserStatusResponse | EventUserEligibility,
         auth=I18nJWTAuth(),
     )
-    def get_my_event_status(self, event_id: UUID) -> schema.EventUserStatusSchema | EventUserEligibility:
+    def get_my_event_status(self, event_id: UUID) -> schema.EventUserStatusResponse | EventUserEligibility:
         """Check the authenticated user's current status and eligibility for an event.
 
-        Returns either the user's RSVP/ticket status if they've already joined, or an eligibility
-        check result explaining what steps are needed to attend. The eligibility check validates:
-        event status, RSVP deadline, invitations, organization membership, required questionnaires,
-        capacity limits, and ticket availability. Use this to determine which action to show users
-        (RSVP button, buy ticket, fill questionnaire, etc.).
+        Returns user's tickets, RSVP status, and purchase limits. For events requiring tickets,
+        returns all user's tickets for this event along with remaining purchase capacity.
+        For non-ticketed events, returns RSVP status. If user has no status yet, returns
+        eligibility check result explaining what steps are needed to attend.
+
+        **Response Fields:**
+        - `tickets`: List of user's tickets (PENDING, ACTIVE, or CANCELLED)
+        - `rsvp`: User's RSVP status (for non-ticketed events)
+        - `can_purchase_more`: Whether user can purchase additional tickets
+        - `remaining_tickets`: How many more tickets user can purchase (null = unlimited)
+
+        Use this to determine which action to show users (buy more tickets, view tickets,
+        RSVP, fill questionnaire, etc.).
         """
         event = self.get_one(event_id)
-        if (
-            ticket := models.Ticket.objects.select_related("tier").filter(event=event, user_id=self.user().id).first()
-        ) and event.requires_ticket:
-            return schema.EventTicketSchema.from_orm(ticket)
-        elif rsvp := models.EventRSVP.objects.filter(event=event, user_id=self.user().id).first():
-            return schema.EventRSVPSchema.from_orm(rsvp)
-        return EventManager(self.user(), event).check_eligibility()
+        user = self.user()
+
+        # Get all user's tickets for this event using the optimized full() queryset
+        # which includes: event, organization, tier (with venue/sector/city), seat, payment
+        tickets = list(models.Ticket.objects.full().filter(event=event, user_id=user.id).order_by("-created_at"))
+
+        if tickets and event.requires_ticket:
+            # Calculate remaining purchase capacity (use first tier for default limits)
+            # The frontend can check individual tiers via the tiers endpoint
+            first_tier = tickets[0].tier
+            if first_tier:
+                service = BatchTicketService(event, first_tier, user)
+                remaining = service.get_remaining_tickets()
+            else:
+                remaining = None
+
+            return schema.EventUserStatusResponse(
+                tickets=[schema.UserTicketSchema.from_orm(t) for t in tickets],
+                can_purchase_more=remaining is None or remaining > 0,
+                remaining_tickets=remaining,
+            )
+
+        # Check for RSVP (non-ticketed events)
+        if rsvp := models.EventRSVP.objects.filter(event=event, user_id=user.id).first():
+            return schema.EventUserStatusResponse(
+                rsvp=schema.EventRSVPSchema.from_orm(rsvp),
+            )
+
+        # No tickets or RSVP - return eligibility check
+        return EventManager(user, event).check_eligibility()
 
     @route.post(
         "/{event_id}/invitation-requests",
@@ -365,12 +397,12 @@ class EventController(UserAwareController):
     @route.post(
         "/guest-actions/confirm",
         url_name="confirm_guest_action",
-        response={200: schema.EventRSVPSchema | schema.EventTicketSchema, 400: ResponseMessage},
+        response={200: schema.EventRSVPSchema | schema.UserTicketSchema, 400: ResponseMessage},
         throttle=WriteThrottle(),
     )
     def confirm_guest_action(
         self, payload: schema.GuestActionConfirmSchema
-    ) -> schema.EventRSVPSchema | schema.EventTicketSchema:
+    ) -> schema.EventRSVPSchema | schema.UserTicketSchema:
         """Confirm a guest action (RSVP or ticket purchase) via JWT token from email.
 
         Validates the token, executes the action (creates RSVP or ticket), and blacklists the token
@@ -378,6 +410,57 @@ class EventController(UserAwareController):
         invalid, expired, already used, or if eligibility checks fail (e.g., event became full).
         """
         return guest_service.confirm_guest_action(payload.token)
+
+    # ---- Checkout Management Endpoints ----
+    # These must be defined BEFORE /{event_id} routes to avoid path conflicts
+
+    @route.get(
+        "/checkout/{payment_id}/resume",
+        url_name="resume_checkout",
+        response={200: schema.StripeCheckoutSessionSchema, 404: ResponseMessage},
+        auth=I18nJWTAuth(),
+    )
+    def resume_checkout(
+        self,
+        payment_id: UUID,
+    ) -> schema.StripeCheckoutSessionSchema:
+        """Resume a pending Stripe checkout session.
+
+        Returns the Stripe checkout URL for an existing pending payment. Use this when a user
+        started a checkout but didn't complete payment (e.g., closed the browser, session timeout).
+
+        The payment_id can be obtained from the ticket's payment field via GET /{event_id}/my-status.
+
+        If the checkout session has expired, cleans up the pending tickets and returns 404.
+        The user should then start a new purchase via the /checkout endpoint.
+        """
+        checkout_url = stripe_service.resume_pending_checkout(str(payment_id), self.user())
+        return schema.StripeCheckoutSessionSchema(checkout_url=checkout_url)
+
+    @route.delete(
+        "/checkout/{payment_id}/cancel",
+        url_name="cancel_checkout",
+        response={200: ResponseMessage, 400: ResponseMessage, 404: ResponseMessage},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def cancel_checkout(
+        self,
+        payment_id: UUID,
+    ) -> ResponseMessage:
+        """Cancel a pending Stripe checkout and delete associated tickets.
+
+        Cancels the pending payment and deletes all tickets in the same batch. Use this when
+        the user wants to abandon their cart and start fresh.
+
+        The payment_id can be obtained from the ticket's payment field via GET /{event_id}/my-status.
+
+        Only works for PENDING payments. Once a payment is completed, use the refund flow instead.
+        """
+        tickets_cancelled = stripe_service.cancel_pending_checkout(str(payment_id), self.user())
+        return ResponseMessage(message=f"{tickets_cancelled} ticket(s) cancelled successfully.")
+
+    # ---- Event Detail Endpoints (catch-all routes must be last) ----
 
     @route.get("/{org_slug}/{event_slug}", url_name="get_event_by_slug", response=schema.EventDetailSchema)
     def get_event_by_slugs(self, org_slug: str, event_slug: str) -> models.Event:
@@ -487,12 +570,47 @@ class EventController(UserAwareController):
         settings and sales_start_at/sales_end_at to determine which are currently on sale.
         """
         event = self.get_one(event_id)
-        return models.TicketTier.objects.for_user(self.maybe_user()).filter(event=event).distinct()
+        return (
+            models.TicketTier.objects.for_user(self.maybe_user()).filter(event=event).with_venue_and_sector().distinct()
+        )
+
+    @route.get(
+        "/{event_id}/tickets/{tier_id}/seats",
+        url_name="tier_seat_availability",
+        response={200: schema.SectorAvailabilitySchema, 404: ResponseMessage},
+    )
+    def get_tier_seat_availability(self, event_id: UUID, tier_id: UUID) -> schema.SectorAvailabilitySchema:
+        """Get available seats for a ticket tier with seat assignment.
+
+        Returns seat availability for tiers that have seat assignment (RANDOM or USER_CHOICE mode).
+        Useful for displaying a seat map where users can select seats.
+
+        **Returns:**
+        - Sector info with shape coordinates and metadata for rendering
+        - List of all seats with their availability status (available=True/False)
+        - Available/total seat counts
+
+        **Seat Status:**
+        - `available=True`: Seat can be selected
+        - `available=False`: Already taken by PENDING or ACTIVE ticket
+
+        Returns 404 if the tier doesn't have seat assignment (NONE mode) or no sector is assigned.
+        """
+        from events.service import venue_service
+
+        event = self.get_one(event_id)
+        tier = get_object_or_404(
+            models.TicketTier.objects.for_user(self.maybe_user()),
+            pk=tier_id,
+            event=event,
+        )
+
+        return venue_service.get_tier_seat_availability(event, tier)
 
     @route.post(
         "/{event_id}/tickets/{tier_id}/checkout",
         url_name="ticket_checkout",
-        response={200: schema.StripeCheckoutSessionSchema | schema.EventTicketSchema, 400: EventUserEligibility},
+        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
@@ -501,37 +619,59 @@ class EventController(UserAwareController):
         self,
         event_id: UUID,
         tier_id: UUID,
-    ) -> schema.StripeCheckoutSessionSchema | schema.EventTicketSchema:
-        """Purchase a fixed-price event ticket.
+        payload: schema.BatchCheckoutPayload,
+    ) -> schema.BatchCheckoutResponse:
+        """Purchase one or more fixed-price event tickets.
 
-        Runs eligibility checks before allowing purchase. For online payment: returns Stripe
-        checkout URL to redirect user for payment. For free/offline/at-the-door tickets: creates
-        ticket immediately and returns it. Cannot be used for pay-what-you-can (PWYC) tiers -
-        use POST /{event_id}/tickets/{tier_id}/checkout/pwyc instead. On eligibility failure,
-        returns 400 with eligibility details explaining what's blocking you and what next_step
-        to take (e.g., complete questionnaire, request invitation, wait for tickets to go on sale).
+        Supports batch purchases with individual guest names per ticket. Runs eligibility checks
+        before allowing purchase. For online payment: returns Stripe checkout URL to redirect
+        user for payment. For free/offline/at-the-door tickets: creates tickets immediately.
+
+        Cannot be used for pay-what-you-can (PWYC) tiers - use the /checkout/pwyc endpoint instead.
+
+        **Request Body:**
+        - `tickets`: List of tickets to purchase, each with:
+          - `guest_name`: Name of the ticket holder (required)
+          - `seat_id`: Seat UUID for USER_CHOICE seat assignment mode (optional)
+
+        **Seat Assignment Modes:**
+        - `NONE`: No seat assigned (general admission)
+        - `RANDOM`: System auto-assigns available seats
+        - `USER_CHOICE`: User must provide seat_id for each ticket
+
+        On eligibility failure, returns 400 with eligibility details explaining what's blocking
+        you and what next_step to take.
         """
-        # Note: calling get one will cause to call Event.for_user();
-        # then TicketTier.for_user() will call Event.for_user() as well.
-        # This is convenient from a code flow perspective but maybe not the best performance wise
         event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
+        user = self.user()
         tier = get_object_or_404(
-            models.TicketTier.objects.for_user(self.user()),
+            models.TicketTier.objects.for_user(user),
             pk=tier_id,
             event=event,
         )
+
         if tier.price_type == models.TicketTier.PriceType.PWYC:
-            raise HttpError(400, str(_("Ticket price type PWYC")))
-        manager = EventManager(self.user(), event)
-        ticket_or_url = manager.create_ticket(tier)
-        if isinstance(ticket_or_url, models.Ticket):
-            return schema.EventTicketSchema.from_orm(ticket_or_url)
-        return schema.StripeCheckoutSessionSchema(checkout_url=ticket_or_url)
+            raise HttpError(400, str(_("Use /checkout/pwyc endpoint for pay-what-you-can tickets")))
+
+        # Run eligibility check
+        manager = EventManager(user, event)
+        manager.check_eligibility(raise_on_false=True)
+
+        # Create batch of tickets
+        service = BatchTicketService(event, tier, user)
+        result = service.create_batch(payload.tickets)
+
+        if isinstance(result, str):
+            return schema.BatchCheckoutResponse(checkout_url=result, tickets=[])
+        return schema.BatchCheckoutResponse(
+            checkout_url=None,
+            tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+        )
 
     @route.post(
         "/{event_id}/tickets/{tier_id}/checkout/pwyc",
         url_name="ticket_pwyc_checkout",
-        response={200: schema.StripeCheckoutSessionSchema | schema.EventTicketSchema, 400: EventUserEligibility},
+        response={200: schema.BatchCheckoutResponse, 400: EventUserEligibility},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
         permissions=[CanPurchaseTicket()],
@@ -540,19 +680,28 @@ class EventController(UserAwareController):
         self,
         event_id: UUID,
         tier_id: UUID,
-        payload: schema.PWYCCheckoutPayloadSchema,
-    ) -> schema.StripeCheckoutSessionSchema | schema.EventTicketSchema:
-        """Purchase a pay-what-you-can (PWYC) ticket with a user-specified amount.
+        payload: schema.BatchCheckoutPWYCPayload,
+    ) -> schema.BatchCheckoutResponse:
+        """Purchase one or more pay-what-you-can (PWYC) tickets.
 
-        Only works for ticket tiers with price_type=PWYC. Validates the amount is within the
-        tier's min/max bounds. Returns Stripe checkout URL for online payment, or creates ticket
-        immediately for free/offline payment methods. Returns 400 for non-PWYC tiers, if amount
-        is out of bounds, or on eligibility failure (with eligibility details explaining what's
-        blocking you and what next_step to take).
+        Only works for ticket tiers with price_type=PWYC. All tickets in the batch are purchased
+        at the same price_per_ticket amount. Validates the amount is within the tier's min/max
+        bounds.
+
+        **Request Body:**
+        - `tickets`: List of tickets to purchase, each with:
+          - `guest_name`: Name of the ticket holder (required)
+          - `seat_id`: Seat UUID for USER_CHOICE seat assignment mode (optional)
+        - `price_per_ticket`: PWYC amount per ticket (same for all tickets in batch)
+
+        Returns Stripe checkout URL for online payment, or creates tickets immediately for
+        free/offline payment methods. Returns 400 for non-PWYC tiers, if amount is out of
+        bounds, or on eligibility failure.
         """
         event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
+        user = self.user()
         tier = get_object_or_404(
-            models.TicketTier.objects.for_user(self.user()),
+            models.TicketTier.objects.for_user(user),
             pk=tier_id,
             event=event,
         )
@@ -562,17 +711,32 @@ class EventController(UserAwareController):
             raise HttpError(400, str(_("This endpoint is only for pay-what-you-can tickets")))
 
         # Validate PWYC amount is within bounds
-        if payload.pwyc < tier.pwyc_min:
-            raise HttpError(400, str(_("PWYC amount must be at least {min_amount}")).format(min_amount=tier.pwyc_min))
+        if payload.price_per_ticket < tier.pwyc_min:
+            raise HttpError(
+                400,
+                str(_("PWYC amount must be at least {min_amount}")).format(min_amount=tier.pwyc_min),
+            )
 
-        if tier.pwyc_max and payload.pwyc > tier.pwyc_max:
-            raise HttpError(400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max))
+        if tier.pwyc_max and payload.price_per_ticket > tier.pwyc_max:
+            raise HttpError(
+                400,
+                str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max),
+            )
 
-        manager = EventManager(self.user(), event)
-        ticket_or_url = manager.create_ticket(tier, price_override=payload.pwyc)
-        if isinstance(ticket_or_url, models.Ticket):
-            return schema.EventTicketSchema.from_orm(ticket_or_url)
-        return schema.StripeCheckoutSessionSchema(checkout_url=ticket_or_url)
+        # Run eligibility check
+        manager = EventManager(user, event)
+        manager.check_eligibility(raise_on_false=True)
+
+        # Create batch of tickets
+        service = BatchTicketService(event, tier, user)
+        result = service.create_batch(payload.tickets, price_override=payload.price_per_ticket)
+
+        if isinstance(result, str):
+            return schema.BatchCheckoutResponse(checkout_url=result, tickets=[])
+        return schema.BatchCheckoutResponse(
+            checkout_url=None,
+            tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+        )
 
     @route.get(
         "/{event_id}/questionnaire/{questionnaire_id}", url_name="get_questionnaire", response=QuestionnaireSchema

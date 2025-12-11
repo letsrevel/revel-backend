@@ -166,7 +166,7 @@ class TestCreatePotluckItemPermissions:
         """Test that an attendee with a ticket can create a potluck item."""
         tier = event.ticket_tiers.first()
         assert tier is not None
-        models.Ticket.objects.create(event=event, user=nonmember_user, tier=tier)
+        models.Ticket.objects.create(guest_name="Test Guest", event=event, user=nonmember_user, tier=tier)
         url = reverse("api:create_potluck_item", kwargs={"event_id": event.id})
         event.potluck_open = True
         event.save()

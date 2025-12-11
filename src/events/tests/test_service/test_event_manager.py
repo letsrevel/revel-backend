@@ -101,7 +101,7 @@ def test_event_is_full(public_user: RevelUser, member_user: RevelUser, public_ev
 
     # The first user takes the only spot
     general_tier = TicketTier.objects.create(event=public_event, name="General")
-    Ticket.objects.create(event=public_event, user=public_user, tier=general_tier)
+    Ticket.objects.create(guest_name="Test Guest", event=public_event, user=public_user, tier=general_tier)
 
     # The second user should be denied access
     handler = EligibilityService(user=member_user, event=public_event)
@@ -370,7 +370,7 @@ def test_invitation_overrides_max_attendees(
 
     # A different user takes the only spot
     general_tier = TicketTier.objects.create(event=private_event, name="General")
-    Ticket.objects.create(event=private_event, user=member_user, tier=general_tier)
+    Ticket.objects.create(guest_name="Test Guest", event=private_event, user=member_user, tier=general_tier)
 
     # The invited user should still be allowed
     handler = EligibilityService(user=public_user, event=private_event)
