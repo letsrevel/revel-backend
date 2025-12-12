@@ -20,7 +20,7 @@ from django.utils import timezone
 from ninja_jwt.token_blacklist.models import BlacklistedToken
 
 from accounts.models import RevelUser
-from events import schema
+from events import models, schema
 from events.models import Event, EventRSVP, Organization, Ticket, TicketTier
 from events.service import guest as guest_service
 from events.service.event_manager import UserIsIneligibleError
@@ -359,6 +359,7 @@ class TestGuestTicketCheckout:
             "email": "freeticket@example.com",
             "first_name": "Free",
             "last_name": "Ticket",
+            "tickets": [{"guest_name": "Free Ticket"}],
         }
 
         # Act
@@ -383,7 +384,7 @@ class TestGuestTicketCheckout:
         # Verify ticket was NOT created yet
         assert not Ticket.objects.filter(user=guest_user, event=guest_event_with_tickets).exists()
 
-    @patch("events.service.stripe_service.create_checkout_session")
+    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_guest_checkout_online_payment_returns_stripe_url(
         self,
         mock_stripe: Mock,
@@ -393,8 +394,7 @@ class TestGuestTicketCheckout:
         """Test guest checkout for online payment returns Stripe URL immediately."""
         # Arrange
         checkout_url = "https://checkout.stripe.com/pay/cs_test123"
-        mock_payment = Mock()
-        mock_stripe.return_value = (checkout_url, mock_payment)
+        mock_stripe.return_value = checkout_url
 
         client = Client()
         url = reverse(
@@ -405,6 +405,7 @@ class TestGuestTicketCheckout:
             "email": "onlineguest@example.com",
             "first_name": "Online",
             "last_name": "Guest",
+            "tickets": [{"guest_name": "Online Guest"}],
         }
 
         # Act
@@ -436,6 +437,7 @@ class TestGuestTicketCheckout:
             "email": "auth@example.com",
             "first_name": "Auth",
             "last_name": "User",
+            "tickets": [{"guest_name": "Auth User"}],
         }
 
         # Act
@@ -466,6 +468,7 @@ class TestGuestTicketCheckout:
             "email": "guest@example.com",
             "first_name": "Guest",
             "last_name": "User",
+            "tickets": [{"guest_name": "Guest User"}],
         }
 
         # Act
@@ -490,6 +493,7 @@ class TestGuestTicketCheckout:
             "email": existing_regular_user.email,
             "first_name": "Different",
             "last_name": "Name",
+            "tickets": [{"guest_name": "Different Name"}],
         }
 
         # Act
@@ -512,6 +516,7 @@ class TestGuestTicketCheckout:
             "email": "guest@example.com",
             "first_name": "Guest",
             "last_name": "User",
+            "tickets": [{"guest_name": "Guest User"}],
         }
 
         # Act
@@ -546,7 +551,8 @@ class TestGuestPWYCCheckout:
             "email": "pwycguest@example.com",
             "first_name": "PWYC",
             "last_name": "Guest",
-            "pwyc": "15.00",
+            "tickets": [{"guest_name": "PWYC Guest"}],
+            "price_per_ticket": "15.00",
         }
 
         # Act
@@ -559,7 +565,7 @@ class TestGuestPWYCCheckout:
 
         mock_send_email.assert_called_once()
 
-    @patch("events.service.stripe_service.create_checkout_session")
+    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_guest_pwyc_checkout_online_success(
         self,
         mock_stripe: Mock,
@@ -569,8 +575,7 @@ class TestGuestPWYCCheckout:
         """Test successful guest PWYC checkout with online payment."""
         # Arrange
         checkout_url = "https://checkout.stripe.com/pay/cs_test123"
-        mock_payment = Mock()
-        mock_stripe.return_value = (checkout_url, mock_payment)
+        mock_stripe.return_value = checkout_url
 
         client = Client()
         url = reverse(
@@ -581,7 +586,8 @@ class TestGuestPWYCCheckout:
             "email": "pwycstripe@example.com",
             "first_name": "PWYC",
             "last_name": "Stripe",
-            "pwyc": "25.00",
+            "tickets": [{"guest_name": "PWYC Stripe"}],
+            "price_per_ticket": "25.00",
         }
 
         # Act
@@ -607,7 +613,8 @@ class TestGuestPWYCCheckout:
             "email": "lowpwyc@example.com",
             "first_name": "Low",
             "last_name": "PWYC",
-            "pwyc": "2.00",  # Below pwyc_min of 5.00
+            "tickets": [{"guest_name": "Low PWYC"}],
+            "price_per_ticket": "2.00",  # Below pwyc_min of 5.00
         }
 
         # Act
@@ -632,7 +639,8 @@ class TestGuestPWYCCheckout:
             "email": "highpwyc@example.com",
             "first_name": "High",
             "last_name": "PWYC",
-            "pwyc": "100.00",  # Above pwyc_max of 50.00
+            "tickets": [{"guest_name": "High PWYC"}],
+            "price_per_ticket": "100.00",  # Above pwyc_max of 50.00
         }
 
         # Act
@@ -657,7 +665,8 @@ class TestGuestPWYCCheckout:
             "email": "guest@example.com",
             "first_name": "Guest",
             "last_name": "User",
-            "pwyc": "10.00",
+            "tickets": [{"guest_name": "Guest User"}],
+            "price_per_ticket": "10.00",
         }
 
         # Act
@@ -681,7 +690,8 @@ class TestGuestPWYCCheckout:
             "email": "auth@example.com",
             "first_name": "Auth",
             "last_name": "User",
-            "pwyc": "15.00",
+            "tickets": [{"guest_name": "Auth User"}],
+            "price_per_ticket": "15.00",
         }
 
         # Act
@@ -734,7 +744,10 @@ class TestConfirmGuestAction:
     ) -> None:
         """Test successful ticket confirmation via token."""
         # Arrange
-        token = guest_service.create_guest_ticket_token(existing_guest_user, guest_event_with_tickets.id, free_tier.id)
+        tickets = [schema.TicketPurchaseItem(guest_name="Test Guest")]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user, guest_event_with_tickets.id, free_tier.id, tickets
+        )
 
         client = Client()
         url = reverse("api:confirm_guest_action")
@@ -743,16 +756,18 @@ class TestConfirmGuestAction:
         # Act
         response = client.post(url, data=payload, content_type="application/json")
 
-        # Assert
+        # Assert - BatchCheckoutResponse for consistency
         assert response.status_code == 200
         data = response.json()
-        assert "tier" in data
-        assert data["tier"]["name"] == free_tier.name
+        assert "tickets" in data
+        assert len(data["tickets"]) == 1
+        assert data["tickets"][0]["tier"]["name"] == free_tier.name
 
         # Verify ticket was created
         ticket = Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets)
         assert ticket.tier == free_tier
         assert ticket.status == Ticket.TicketStatus.ACTIVE
+        assert ticket.guest_name == "Test Guest"
 
     def test_confirm_guest_action_rejects_expired_token(
         self, guest_event: Event, existing_guest_user: RevelUser
@@ -827,8 +842,9 @@ class TestConfirmGuestAction:
         """Test that discriminated union correctly routes to RSVP vs ticket handlers."""
         # Arrange: Create both types of tokens
         rsvp_token = guest_service.create_guest_rsvp_token(existing_guest_user, guest_event.id, "maybe")
+        tickets = [schema.TicketPurchaseItem(guest_name="Ticket Guest")]
         ticket_token = guest_service.create_guest_ticket_token(
-            existing_guest_user, guest_event_with_tickets.id, free_tier.id
+            existing_guest_user, guest_event_with_tickets.id, free_tier.id, tickets
         )
 
         client = Client()
@@ -845,7 +861,7 @@ class TestConfirmGuestAction:
         response = client.post(url, data={"token": ticket_token}, content_type="application/json")
         assert response.status_code == 200
         data = response.json()
-        assert "tier" in data  # Ticket schema
+        assert "tickets" in data  # BatchCheckoutResponse schema
 
     def test_confirm_guest_action_rechecks_eligibility(
         self, guest_event: Event, existing_guest_user: RevelUser
@@ -948,7 +964,10 @@ class TestGuestServiceLayer:
     ) -> None:
         """Test creating a guest ticket JWT token."""
         # Act
-        token = guest_service.create_guest_ticket_token(existing_guest_user, guest_event_with_tickets.id, free_tier.id)
+        tickets = [schema.TicketPurchaseItem(guest_name="Test Guest")]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user, guest_event_with_tickets.id, free_tier.id, tickets
+        )
 
         # Assert
         assert isinstance(token, str)
@@ -963,6 +982,8 @@ class TestGuestServiceLayer:
         assert payload_decoded["event_id"] == str(guest_event_with_tickets.id)
         assert payload_decoded["tier_id"] == str(free_tier.id)
         assert payload_decoded["pwyc_amount"] is None
+        assert len(payload_decoded["tickets"]) == 1
+        assert payload_decoded["tickets"][0]["guest_name"] == "Test Guest"
 
     def test_create_guest_ticket_token_with_pwyc_amount(
         self, existing_guest_user: RevelUser, guest_event_with_tickets: Event, pwyc_tier: TicketTier
@@ -970,8 +991,9 @@ class TestGuestServiceLayer:
         """Test creating a guest ticket JWT token with PWYC amount."""
         # Act
         pwyc_amount = Decimal("15.00")
+        tickets = [schema.TicketPurchaseItem(guest_name="PWYC Guest")]
         token = guest_service.create_guest_ticket_token(
-            existing_guest_user, guest_event_with_tickets.id, pwyc_tier.id, pwyc_amount
+            existing_guest_user, guest_event_with_tickets.id, pwyc_tier.id, tickets, pwyc_amount
         )
 
         # Assert
@@ -979,6 +1001,7 @@ class TestGuestServiceLayer:
             token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE
         )
         assert payload_decoded["pwyc_amount"] == "15.00"
+        assert len(payload_decoded["tickets"]) == 1
 
     def test_validate_and_decode_guest_token_rsvp(self, existing_guest_user: RevelUser, guest_event: Event) -> None:
         """Test validating and decoding a guest RSVP token."""
@@ -999,7 +1022,10 @@ class TestGuestServiceLayer:
     ) -> None:
         """Test validating and decoding a guest ticket token."""
         # Arrange
-        token = guest_service.create_guest_ticket_token(existing_guest_user, guest_event_with_tickets.id, free_tier.id)
+        tickets = [schema.TicketPurchaseItem(guest_name="Test Guest")]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user, guest_event_with_tickets.id, free_tier.id, tickets
+        )
 
         # Act
         payload = guest_service.validate_and_decode_guest_token(token)
@@ -1009,6 +1035,8 @@ class TestGuestServiceLayer:
         assert payload.user_id == existing_guest_user.id
         assert payload.event_id == guest_event_with_tickets.id
         assert payload.tier_id == free_tier.id
+        assert len(payload.tickets) == 1
+        assert payload.tickets[0].guest_name == "Test Guest"
 
     @patch("events.tasks.send_guest_rsvp_confirmation.delay")
     def test_handle_guest_rsvp(self, mock_send_email: Mock, guest_event: Event) -> None:
@@ -1035,38 +1063,43 @@ class TestGuestServiceLayer:
     ) -> None:
         """Test handle_guest_ticket_checkout for offline payment."""
         # Act
+        tickets = [schema.TicketPurchaseItem(guest_name="Offline Test")]
         result = guest_service.handle_guest_ticket_checkout(
-            guest_event_with_tickets, offline_tier, "offline@test.com", "Offline", "Test"
+            guest_event_with_tickets, offline_tier, "offline@test.com", "Offline", "Test", tickets
         )
 
         # Assert
-        assert isinstance(result, schema.GuestActionResponseSchema)
+        assert isinstance(result, schema.GuestCheckoutResponseSchema)
+        assert result.message is not None
+        assert result.checkout_url is None
         mock_send_email.assert_called_once()
 
-    @patch("events.service.stripe_service.create_checkout_session")
+    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_handle_guest_ticket_checkout_online(
         self, mock_stripe: Mock, guest_event_with_tickets: Event, online_tier: TicketTier
     ) -> None:
         """Test handle_guest_ticket_checkout for online payment."""
         # Arrange
         checkout_url = "https://checkout.stripe.com/test"
-        mock_payment = Mock()
-        mock_stripe.return_value = (checkout_url, mock_payment)
+        mock_stripe.return_value = checkout_url
 
         # Act
+        tickets = [schema.TicketPurchaseItem(guest_name="Stripe Test")]
         result = guest_service.handle_guest_ticket_checkout(
-            guest_event_with_tickets, online_tier, "stripe@test.com", "Stripe", "Test"
+            guest_event_with_tickets, online_tier, "stripe@test.com", "Stripe", "Test", tickets
         )
 
         # Assert
-        assert isinstance(result, schema.StripeCheckoutSessionSchema)
+        assert isinstance(result, schema.GuestCheckoutResponseSchema)
         assert result.checkout_url == checkout_url
+        assert result.message is None
 
     def test_handle_guest_ticket_checkout_validates_pwyc_min(
         self, guest_event_with_tickets: Event, pwyc_tier: TicketTier
     ) -> None:
         """Test that PWYC amount validation works in service layer."""
         # Act & Assert
+        tickets = [schema.TicketPurchaseItem(guest_name="Test User")]
         with pytest.raises(Exception) as exc_info:
             guest_service.handle_guest_ticket_checkout(
                 guest_event_with_tickets,
@@ -1074,6 +1107,7 @@ class TestGuestServiceLayer:
                 "test@test.com",
                 "Test",
                 "User",
+                tickets,
                 pwyc_amount=Decimal("1.00"),  # Below min of 5.00
             )
         assert "at least" in str(exc_info.value).lower()
@@ -1083,6 +1117,7 @@ class TestGuestServiceLayer:
     ) -> None:
         """Test that PWYC max validation works in service layer."""
         # Act & Assert
+        tickets = [schema.TicketPurchaseItem(guest_name="Test User")]
         with pytest.raises(Exception) as exc_info:
             guest_service.handle_guest_ticket_checkout(
                 guest_event_with_tickets,
@@ -1090,6 +1125,7 @@ class TestGuestServiceLayer:
                 "test@test.com",
                 "Test",
                 "User",
+                tickets,
                 pwyc_amount=Decimal("100.00"),  # Above max of 50.00
             )
         assert "at most" in str(exc_info.value).lower()
@@ -1189,7 +1225,8 @@ class TestGuestUserEdgeCases:
             "email": "minpwyc@example.com",
             "first_name": "Min",
             "last_name": "PWYC",
-            "pwyc": str(pwyc_tier.pwyc_min),  # Exactly at minimum
+            "tickets": [{"guest_name": "Min PWYC"}],
+            "price_per_ticket": str(pwyc_tier.pwyc_min),  # Exactly at minimum
         }
 
         # Act
@@ -1211,7 +1248,8 @@ class TestGuestUserEdgeCases:
             "email": "maxpwyc@example.com",
             "first_name": "Max",
             "last_name": "PWYC",
-            "pwyc": str(pwyc_tier.pwyc_max),  # Exactly at maximum
+            "tickets": [{"guest_name": "Max PWYC"}],
+            "price_per_ticket": str(pwyc_tier.pwyc_max),  # Exactly at maximum
         }
 
         # Act
@@ -1401,6 +1439,7 @@ class TestGuestFlowIntegration:
             "email": "ticketflow@example.com",
             "first_name": "Ticket",
             "last_name": "Flow",
+            "tickets": [{"guest_name": "Ticket Flow"}],
         }
         response = client.post(url, data=payload, content_type="application/json")
         assert response.status_code == 200
@@ -1424,16 +1463,16 @@ class TestGuestFlowIntegration:
         ticket = Ticket.objects.get(user=user, event=guest_event_with_tickets)
         assert ticket.tier == free_tier
         assert ticket.status == Ticket.TicketStatus.ACTIVE
+        assert ticket.guest_name == "Ticket Flow"
 
-    @patch("events.service.stripe_service.create_checkout_session")
+    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_complete_online_payment_flow(
         self, mock_stripe: Mock, guest_event_with_tickets: Event, online_tier: TicketTier
     ) -> None:
         """Test complete online payment flow: initiate -> get Stripe URL -> verify ticket created."""
         # Arrange
         checkout_url = "https://checkout.stripe.com/test"
-        mock_payment = Mock()
-        mock_stripe.return_value = (checkout_url, mock_payment)
+        mock_stripe.return_value = checkout_url
 
         # Act: Initiate online payment
         client = Client()
@@ -1445,6 +1484,7 @@ class TestGuestFlowIntegration:
             "email": "stripe@example.com",
             "first_name": "Stripe",
             "last_name": "User",
+            "tickets": [{"guest_name": "Stripe User"}],
         }
         response = client.post(url, data=payload, content_type="application/json")
 
@@ -1549,6 +1589,7 @@ class TestGuestDuplicateActions:
             "email": "dupticket@example.com",
             "first_name": "Dup",
             "last_name": "Ticket",
+            "tickets": [{"guest_name": "Dup Ticket"}],
         }
         response1 = client.post(url, data=payload, content_type="application/json")
         assert response1.status_code == 200
@@ -1865,3 +1906,375 @@ class TestGuestConcurrency:
 
         # Should succeed as capacity check happens at confirmation time
         assert response.status_code == 200
+
+
+# ============================================================================
+# Test Reserved Seating for Public Checkout
+# ============================================================================
+
+
+class TestGuestCheckoutReservedSeating:
+    """Test reserved seating functionality for guest ticket checkout endpoints."""
+
+    @pytest.fixture
+    def venue(self, organization: Organization) -> "models.Venue":
+        """Create a venue for testing."""
+        from events.models import Venue
+
+        return Venue.objects.create(
+            organization=organization,
+            name="Test Venue",
+            capacity=100,
+        )
+
+    @pytest.fixture
+    def sector(self, venue: "models.Venue") -> "models.VenueSector":
+        """Create a sector for testing."""
+        from events.models import VenueSector
+
+        return VenueSector.objects.create(
+            venue=venue,
+            name="Test Sector",
+            capacity=50,
+        )
+
+    @pytest.fixture
+    def seats(self, sector: "models.VenueSector") -> list["models.VenueSeat"]:
+        """Create seats for testing."""
+        from events.models import VenueSeat
+
+        seats = []
+        for i in range(5):
+            seats.append(
+                VenueSeat.objects.create(
+                    sector=sector,
+                    label=f"A{i + 1}",
+                    row="A",
+                    number=str(i + 1),
+                )
+            )
+        return seats
+
+    @pytest.fixture
+    def user_choice_tier(
+        self,
+        guest_event_with_tickets: Event,
+        venue: "models.Venue",
+        sector: "models.VenueSector",
+    ) -> TicketTier:
+        """A tier with USER_CHOICE seat assignment mode."""
+        tier = TicketTier.objects.create(
+            event=guest_event_with_tickets,
+            name="Reserved Seating",
+            price=Decimal("25.00"),
+            payment_method=TicketTier.PaymentMethod.FREE,  # Free for easier testing
+            price_type=TicketTier.PriceType.FIXED,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+            max_tickets_per_user=10,  # Allow multiple tickets per user for testing
+        )
+        return tier
+
+    @pytest.fixture
+    def random_seat_tier(
+        self,
+        guest_event_with_tickets: Event,
+        venue: "models.Venue",
+        sector: "models.VenueSector",
+    ) -> TicketTier:
+        """A tier with RANDOM seat assignment mode."""
+        tier = TicketTier.objects.create(
+            event=guest_event_with_tickets,
+            name="Random Seating",
+            price=Decimal("20.00"),
+            payment_method=TicketTier.PaymentMethod.FREE,  # Free for easier testing
+            price_type=TicketTier.PriceType.FIXED,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.RANDOM,
+        )
+        return tier
+
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_guest_checkout_user_choice_seating_success(
+        self,
+        mock_send_email: Mock,
+        guest_event_with_tickets: Event,
+        user_choice_tier: TicketTier,
+        seats: list["models.VenueSeat"],
+    ) -> None:
+        """Test guest checkout with USER_CHOICE seating includes seat in confirmation."""
+        # Arrange
+        client = Client()
+        url = reverse(
+            "api:guest_ticket_checkout",
+            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": user_choice_tier.pk},
+        )
+        payload = {
+            "email": "reservedseat@example.com",
+            "first_name": "Reserved",
+            "last_name": "Seat",
+            "tickets": [{"guest_name": "Reserved Seat", "seat_id": str(seats[0].id)}],
+        }
+
+        # Act
+        response = client.post(url, data=payload, content_type="application/json")
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert "message" in data  # Email confirmation response
+
+        # Check email was sent
+        mock_send_email.assert_called_once()
+
+    def test_guest_checkout_confirm_with_seat_assignment(
+        self,
+        guest_event_with_tickets: Event,
+        user_choice_tier: TicketTier,
+        seats: list["models.VenueSeat"],
+        existing_guest_user: RevelUser,
+    ) -> None:
+        """Test confirming guest ticket with seat creates ticket with assigned seat."""
+        # Arrange: Create token with seat info
+        tickets = [schema.TicketPurchaseItem(guest_name="Seat Test", seat_id=seats[0].id)]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user, guest_event_with_tickets.id, user_choice_tier.id, tickets
+        )
+
+        # Act: Confirm the token
+        client = Client()
+        url = reverse("api:confirm_guest_action")
+        response = client.post(url, data={"token": token}, content_type="application/json")
+
+        # Assert - BatchCheckoutResponse for consistency
+        assert response.status_code == 200
+        data = response.json()
+        assert "tickets" in data
+        assert len(data["tickets"]) == 1
+        assert data["tickets"][0]["seat"]["id"] == str(seats[0].id)
+        assert data["tickets"][0]["seat"]["label"] == "A1"
+
+        # Verify ticket was created with seat
+        ticket = Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets)
+        assert ticket.seat == seats[0]
+        assert ticket.guest_name == "Seat Test"
+
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_guest_checkout_random_seating_success(
+        self,
+        mock_send_email: Mock,
+        guest_event_with_tickets: Event,
+        random_seat_tier: TicketTier,
+        seats: list["models.VenueSeat"],
+    ) -> None:
+        """Test guest checkout with RANDOM seating mode (no seat_id needed)."""
+        # Arrange
+        client = Client()
+        url = reverse(
+            "api:guest_ticket_checkout",
+            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": random_seat_tier.pk},
+        )
+        payload = {
+            "email": "randomseat@example.com",
+            "first_name": "Random",
+            "last_name": "Seat",
+            "tickets": [{"guest_name": "Random Seat"}],  # No seat_id for RANDOM mode
+        }
+
+        # Act
+        response = client.post(url, data=payload, content_type="application/json")
+
+        # Assert
+        assert response.status_code == 200
+        mock_send_email.assert_called_once()
+
+    def test_guest_checkout_confirm_random_seating(
+        self,
+        guest_event_with_tickets: Event,
+        random_seat_tier: TicketTier,
+        seats: list["models.VenueSeat"],
+        existing_guest_user: RevelUser,
+    ) -> None:
+        """Test confirming guest ticket with RANDOM seating assigns seat automatically."""
+        # Arrange: Create token without seat_id (RANDOM mode)
+        tickets = [schema.TicketPurchaseItem(guest_name="Random Test")]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user, guest_event_with_tickets.id, random_seat_tier.id, tickets
+        )
+
+        # Act: Confirm the token
+        client = Client()
+        url = reverse("api:confirm_guest_action")
+        response = client.post(url, data={"token": token}, content_type="application/json")
+
+        # Assert - BatchCheckoutResponse for consistency
+        assert response.status_code == 200
+        data = response.json()
+        assert "tickets" in data
+        assert len(data["tickets"]) == 1
+        # Seat should be assigned randomly
+        assert data["tickets"][0]["seat"] is not None
+        assert "label" in data["tickets"][0]["seat"]
+
+        # Verify ticket was created with a seat
+        ticket = Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets)
+        assert ticket.seat is not None
+        assert ticket.seat in seats
+
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_guest_checkout_multiple_tickets_with_seats(
+        self,
+        mock_send_email: Mock,
+        guest_event_with_tickets: Event,
+        user_choice_tier: TicketTier,
+        seats: list["models.VenueSeat"],
+    ) -> None:
+        """Test guest checkout with multiple tickets each having their own seat."""
+        # Arrange
+        client = Client()
+        url = reverse(
+            "api:guest_ticket_checkout",
+            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": user_choice_tier.pk},
+        )
+        payload = {
+            "email": "multiticket@example.com",
+            "first_name": "Multi",
+            "last_name": "Ticket",
+            "tickets": [
+                {"guest_name": "Guest 1", "seat_id": str(seats[0].id)},
+                {"guest_name": "Guest 2", "seat_id": str(seats[1].id)},
+                {"guest_name": "Guest 3", "seat_id": str(seats[2].id)},
+            ],
+        }
+
+        # Act
+        response = client.post(url, data=payload, content_type="application/json")
+
+        # Assert
+        assert response.status_code == 200
+        mock_send_email.assert_called_once()
+
+    def test_guest_checkout_confirm_multiple_tickets_with_seats(
+        self,
+        guest_event_with_tickets: Event,
+        user_choice_tier: TicketTier,
+        seats: list["models.VenueSeat"],
+        existing_guest_user: RevelUser,
+    ) -> None:
+        """Test confirming multiple tickets creates all with correct seats."""
+        # Arrange
+        tickets = [
+            schema.TicketPurchaseItem(guest_name="Guest 1", seat_id=seats[0].id),
+            schema.TicketPurchaseItem(guest_name="Guest 2", seat_id=seats[1].id),
+        ]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user, guest_event_with_tickets.id, user_choice_tier.id, tickets
+        )
+
+        # Act
+        client = Client()
+        url = reverse("api:confirm_guest_action")
+        response = client.post(url, data={"token": token}, content_type="application/json")
+
+        # Assert - BatchCheckoutResponse for multiple tickets
+        assert response.status_code == 200
+        data = response.json()
+        assert "tickets" in data
+        assert len(data["tickets"]) == 2
+
+        # Verify all tickets created with correct seats
+        created_tickets = Ticket.objects.filter(user=existing_guest_user, event=guest_event_with_tickets).order_by(
+            "guest_name"
+        )
+        assert created_tickets.count() == 2
+        assert created_tickets[0].guest_name == "Guest 1"
+        assert created_tickets[0].seat == seats[0]
+        assert created_tickets[1].guest_name == "Guest 2"
+        assert created_tickets[1].seat == seats[1]
+
+    def test_guest_checkout_user_choice_requires_seat_id_at_confirmation(
+        self,
+        guest_event_with_tickets: Event,
+        user_choice_tier: TicketTier,
+        seats: list["models.VenueSeat"],
+        existing_guest_user: RevelUser,
+    ) -> None:
+        """Test USER_CHOICE mode requires seat_id - validation happens at confirmation time for non-online."""
+        # For non-online payments, checkout just creates a token (no validation)
+        # Validation happens when the token is confirmed
+
+        # Arrange: Create token without seat_id (invalid for USER_CHOICE mode)
+        tickets = [schema.TicketPurchaseItem(guest_name="No Seat")]  # Missing seat_id
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user, guest_event_with_tickets.id, user_choice_tier.id, tickets
+        )
+
+        # Act: Try to confirm the token
+        client = Client()
+        url = reverse("api:confirm_guest_action")
+        response = client.post(url, data={"token": token}, content_type="application/json")
+
+        # Assert - Should fail because USER_CHOICE requires seat_id
+        assert response.status_code == 400
+        data = response.json()
+        assert "seat" in data["detail"].lower()
+
+    @patch("events.service.stripe_service.create_batch_checkout_session")
+    def test_guest_checkout_online_with_reserved_seating(
+        self,
+        mock_stripe: Mock,
+        guest_event_with_tickets: Event,
+        venue: "models.Venue",
+        sector: "models.VenueSector",
+        seats: list["models.VenueSeat"],
+    ) -> None:
+        """Test guest online checkout with reserved seating creates pending tickets with seats."""
+        # Arrange - Create online tier with USER_CHOICE seating
+        online_user_choice_tier = TicketTier.objects.create(
+            event=guest_event_with_tickets,
+            name="Online Reserved",
+            price=Decimal("50.00"),
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+            price_type=TicketTier.PriceType.FIXED,
+            venue=venue,
+            sector=sector,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+            max_tickets_per_user=10,  # Allow multiple tickets per user
+        )
+
+        checkout_url = "https://checkout.stripe.com/reserved"
+        mock_stripe.return_value = checkout_url
+
+        client = Client()
+        url = reverse(
+            "api:guest_ticket_checkout",
+            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": online_user_choice_tier.pk},
+        )
+        payload = {
+            "email": "onlinereserved@example.com",
+            "first_name": "Online",
+            "last_name": "Reserved",
+            "tickets": [
+                {"guest_name": "Online Guest 1", "seat_id": str(seats[0].id)},
+                {"guest_name": "Online Guest 2", "seat_id": str(seats[1].id)},
+            ],
+        }
+
+        # Act
+        response = client.post(url, data=payload, content_type="application/json")
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert data["checkout_url"] == checkout_url
+
+        # Verify tickets were created with seats (pending until Stripe confirms)
+        user = RevelUser.objects.get(email="onlinereserved@example.com")
+        created_tickets = Ticket.objects.filter(user=user, event=guest_event_with_tickets)
+        assert created_tickets.count() == 2
+        # Check seats are assigned
+        assigned_seats = {t.seat for t in created_tickets}
+        assert seats[0] in assigned_seats
+        assert seats[1] in assigned_seats

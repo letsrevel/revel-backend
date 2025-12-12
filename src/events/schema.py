@@ -1247,6 +1247,18 @@ class GuestActionResponseSchema(Schema):
     message: str = Field(default="Please check your email to confirm your action")
 
 
+class GuestCheckoutResponseSchema(Schema):
+    """Combined response for guest checkout - either email confirmation or Stripe checkout."""
+
+    # For non-online payments (email confirmation)
+    message: str | None = Field(None, description="Confirmation message (for non-online payments)")
+    # For online payments (Stripe checkout)
+    checkout_url: str | None = Field(None, description="Stripe checkout URL (for online payment)")
+    tickets: list["UserTicketSchema"] = Field(
+        default_factory=list, description="Created tickets (for free/offline payments when confirmed)"
+    )
+
+
 class GuestActionConfirmSchema(Schema):
     """Request to confirm a guest action via JWT token."""
 
@@ -1264,6 +1276,13 @@ class GuestRSVPJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
     answer: t.Literal["yes", "no", "maybe"]
 
 
+class GuestTicketItemPayload(Schema):
+    """Ticket item info stored in JWT payload for guest checkout confirmation."""
+
+    guest_name: str
+    seat_id: UUID4 | None = None
+
+
 class GuestTicketJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
     """JWT payload for guest ticket purchase confirmation.
 
@@ -1275,6 +1294,7 @@ class GuestTicketJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
     event_id: UUID4
     tier_id: UUID4
     pwyc_amount: Decimal | None = None
+    tickets: list[GuestTicketItemPayload] = Field(default_factory=list)
 
 
 # Discriminated union for guest action payloads

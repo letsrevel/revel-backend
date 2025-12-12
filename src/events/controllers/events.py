@@ -380,17 +380,20 @@ class EventController(UserAwareController):
     @route.post(
         "/guest-actions/confirm",
         url_name="confirm_guest_action",
-        response={200: schema.EventRSVPSchema | schema.UserTicketSchema, 400: ResponseMessage},
+        response={
+            200: schema.EventRSVPSchema | schema.BatchCheckoutResponse,
+            400: ResponseMessage,
+        },
         throttle=WriteThrottle(),
     )
     def confirm_guest_action(
         self, payload: schema.GuestActionConfirmSchema
-    ) -> schema.EventRSVPSchema | schema.UserTicketSchema:
+    ) -> schema.EventRSVPSchema | schema.BatchCheckoutResponse:
         """Confirm a guest action (RSVP or ticket purchase) via JWT token from email.
 
         Validates the token, executes the action (creates RSVP or ticket), and blacklists the token
-        to prevent reuse. Returns the created RSVP or ticket on success. Returns 400 if token is
-        invalid, expired, already used, or if eligibility checks fail (e.g., event became full).
+        to prevent reuse. Returns the created RSVP or BatchCheckoutResponse with tickets on success.
+        Returns 400 if token is invalid, expired, already used, or if eligibility checks fail (e.g., event became full).
         """
         return guest_service.confirm_guest_action(payload.token)
 
@@ -785,18 +788,32 @@ class EventController(UserAwareController):
     @route.post(
         "/{event_id}/tickets/{tier_id}/checkout/public",
         url_name="guest_ticket_checkout",
-        response={200: schema.StripeCheckoutSessionSchema | schema.GuestActionResponseSchema, 400: ResponseMessage},
+        response={200: schema.GuestCheckoutResponseSchema, 400: ResponseMessage},
         throttle=WriteThrottle(),
     )
     def guest_ticket_checkout(
-        self, event_id: UUID, tier_id: UUID, payload: schema.GuestUserDataSchema
-    ) -> schema.StripeCheckoutSessionSchema | schema.GuestActionResponseSchema:
-        """Purchase a fixed-price ticket without authentication (guest user).
+        self, event_id: UUID, tier_id: UUID, payload: schema.GuestBatchCheckoutPayload
+    ) -> schema.GuestCheckoutResponseSchema:
+        """Purchase fixed-price tickets without authentication (guest user).
 
-        For online payment: creates guest user and returns Stripe checkout URL immediately (no email
-        confirmation). For free/offline/at-the-door tickets: sends confirmation email first. Requires
+        Supports batch purchases with individual guest names per ticket. For online payment: creates
+        guest user and returns Stripe checkout URL immediately (no email confirmation). For
+        free/offline/at-the-door tickets: sends confirmation email first. Requires
         event.can_attend_without_login=True. Returns 400 if event doesn't allow guest access, if a
         non-guest account exists with the email, or for PWYC tiers (use /pwyc endpoint instead).
+
+        **Request Body:**
+        - `email`: Guest user's email address
+        - `first_name`: Guest user's first name
+        - `last_name`: Guest user's last name
+        - `tickets`: List of tickets to purchase, each with:
+          - `guest_name`: Name of the ticket holder (required)
+          - `seat_id`: Seat UUID for USER_CHOICE seat assignment mode (optional)
+
+        **Seat Assignment Modes:**
+        - `NONE`: No seat assigned (general admission)
+        - `RANDOM`: System auto-assigns available seats
+        - `USER_CHOICE`: User must provide seat_id for each ticket
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
@@ -808,24 +825,40 @@ class EventController(UserAwareController):
         if tier.price_type == models.TicketTier.PriceType.PWYC:
             raise HttpError(400, str(_("Use /pwyc endpoint for pay-what-you-can tickets")))
         return guest_service.handle_guest_ticket_checkout(
-            event, tier, payload.email, payload.first_name, payload.last_name
+            event, tier, payload.email, payload.first_name, payload.last_name, payload.tickets
         )
 
     @route.post(
         "/{event_id}/tickets/{tier_id}/checkout/pwyc/public",
         url_name="guest_ticket_pwyc_checkout",
-        response={200: schema.StripeCheckoutSessionSchema | schema.GuestActionResponseSchema, 400: ResponseMessage},
+        response={200: schema.GuestCheckoutResponseSchema, 400: ResponseMessage},
         throttle=WriteThrottle(),
     )
     def guest_ticket_pwyc_checkout(
-        self, event_id: UUID, tier_id: UUID, payload: schema.GuestPWYCCheckoutSchema
-    ) -> schema.StripeCheckoutSessionSchema | schema.GuestActionResponseSchema:
-        """Purchase a PWYC ticket without authentication (guest user).
+        self, event_id: UUID, tier_id: UUID, payload: schema.GuestBatchCheckoutPWYCPayload
+    ) -> schema.GuestCheckoutResponseSchema:
+        """Purchase PWYC tickets without authentication (guest user).
 
-        For online payment: creates guest user and returns Stripe checkout URL immediately. For
-        free/offline/at-the-door tickets: sends confirmation email first. Validates PWYC amount
-        is within tier bounds. Requires event.can_attend_without_login=True. Returns 400 if event
-        doesn't allow guest access, if a non-guest account exists, or if PWYC amount is invalid.
+        Supports batch purchases with individual guest names per ticket. All tickets in the batch are
+        purchased at the same price_per_ticket amount. For online payment: creates guest user and
+        returns Stripe checkout URL immediately. For free/offline/at-the-door tickets: sends
+        confirmation email first. Validates PWYC amount is within tier bounds. Requires
+        event.can_attend_without_login=True. Returns 400 if event doesn't allow guest access, if a
+        non-guest account exists, or if PWYC amount is invalid.
+
+        **Request Body:**
+        - `email`: Guest user's email address
+        - `first_name`: Guest user's first name
+        - `last_name`: Guest user's last name
+        - `tickets`: List of tickets to purchase, each with:
+          - `guest_name`: Name of the ticket holder (required)
+          - `seat_id`: Seat UUID for USER_CHOICE seat assignment mode (optional)
+        - `price_per_ticket`: PWYC amount per ticket (same for all tickets in batch)
+
+        **Seat Assignment Modes:**
+        - `NONE`: No seat assigned (general admission)
+        - `RANDOM`: System auto-assigns available seats
+        - `USER_CHOICE`: User must provide seat_id for each ticket
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
@@ -837,5 +870,11 @@ class EventController(UserAwareController):
         if tier.price_type != models.TicketTier.PriceType.PWYC:
             raise HttpError(400, str(_("This endpoint is only for pay-what-you-can tickets")))
         return guest_service.handle_guest_ticket_checkout(
-            event, tier, payload.email, payload.first_name, payload.last_name, pwyc_amount=payload.pwyc
+            event,
+            tier,
+            payload.email,
+            payload.first_name,
+            payload.last_name,
+            payload.tickets,
+            pwyc_amount=payload.price_per_ticket,
         )
