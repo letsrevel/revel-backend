@@ -279,12 +279,16 @@ def handle_guest_ticket_checkout(
 
         if isinstance(result, str):
             return schema.GuestCheckoutResponseSchema(message=None, checkout_url=result, tickets=[])
-        # This shouldn't happen for ONLINE payment, but handle it
-        return schema.GuestCheckoutResponseSchema(
-            message=None,
-            checkout_url=None,
-            tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+
+        # This shouldn't happen for ONLINE payment; log and raise an error
+        logger.error(
+            "batch_service_returned_tickets_for_online_payment",
+            event_id=str(event.id),
+            tier_id=str(tier.id),
+            user_id=str(user.id),
+            result_type=str(type(result)),
         )
+        raise HttpError(500, str(_("Internal server error: Unexpected ticket result for online payment.")))
     else:
         # Non-online payment: require email confirmation
         # Store ticket info in JWT token for later creation
