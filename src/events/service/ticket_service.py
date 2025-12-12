@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import typing as t
+from dataclasses import dataclass
 from decimal import Decimal
 from uuid import UUID
 
@@ -10,8 +13,64 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, MembershipTier, Ticket, TicketTier
+from events.models import Event, EventRSVP, MembershipTier, Ticket, TicketTier
 from events.service import stripe_service
+
+if t.TYPE_CHECKING:
+    from events.service.event_manager import EventUserEligibility
+
+
+@dataclass
+class UserEventStatus:
+    """User's status for an event including tickets, RSVP, and purchase limits."""
+
+    tickets: list[Ticket]
+    rsvp: EventRSVP | None = None
+    can_purchase_more: bool = True
+    remaining_tickets: int | None = None  # None = unlimited
+
+
+def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | EventUserEligibility:
+    """Get user's current status for an event.
+
+    Returns tickets, RSVP, and purchase limits for users who have already
+    interacted with the event. For users with no interaction, returns
+    eligibility information.
+
+    Args:
+        event: The event to check status for.
+        user: The user to check.
+
+    Returns:
+        UserEventStatus if user has tickets or RSVP, otherwise EventUserEligibility.
+    """
+    from events.service.batch_ticket_service import BatchTicketService
+    from events.service.event_manager import EventManager
+
+    # Get all user's tickets for this event using the optimized full() queryset
+    tickets = list(Ticket.objects.full().filter(event=event, user_id=user.id).order_by("-created_at"))
+
+    if tickets and event.requires_ticket:
+        # Calculate remaining purchase capacity (use first tier for default limits)
+        first_tier = tickets[0].tier
+        remaining: int | None = None
+        if first_tier:
+            service = BatchTicketService(event, first_tier, user)
+            remaining = service.get_remaining_tickets()
+
+        return UserEventStatus(
+            tickets=tickets,
+            can_purchase_more=remaining is None or remaining > 0,
+            remaining_tickets=remaining,
+        )
+
+    # Check for RSVP (non-ticketed events)
+    rsvp = EventRSVP.objects.filter(event=event, user_id=user.id).first()
+    if rsvp:
+        return UserEventStatus(tickets=[], rsvp=rsvp)
+
+    # No tickets or RSVP - return eligibility check
+    return EventManager(user, event).check_eligibility()
 
 
 class TicketService:
@@ -50,7 +109,11 @@ class TicketService:
     def _offline_checkout(self) -> Ticket:
         TicketTier.objects.select_for_update().filter(pk=self.tier.pk).update(quantity_sold=F("quantity_sold") + 1)
         ticket = Ticket.objects.create(
-            event=self.event, tier=self.tier, user=self.user, status=Ticket.TicketStatus.PENDING
+            event=self.event,
+            tier=self.tier,
+            user=self.user,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name=self.user.get_display_name(),
         )
         # Notification sent automatically via post_save signal
         return ticket
@@ -59,7 +122,11 @@ class TicketService:
     def _free_checkout(self) -> Ticket:
         TicketTier.objects.select_for_update().filter(pk=self.tier.pk).update(quantity_sold=F("quantity_sold") + 1)
         ticket = Ticket.objects.create(
-            event=self.event, tier=self.tier, user=self.user, status=Ticket.TicketStatus.ACTIVE
+            event=self.event,
+            tier=self.tier,
+            user=self.user,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name=self.user.get_display_name(),
         )
         # Notification sent automatically via post_save signal
         return ticket

@@ -79,7 +79,7 @@ def dashboard_setup(dashboard_user: RevelUser) -> t.Dict[str, t.Any]:
     )
     tier = evt_ticket.ticket_tiers.first()
     assert tier is not None
-    Ticket.objects.create(event=evt_ticket, user=dashboard_user, tier=tier)
+    Ticket.objects.create(guest_name="Test Guest", event=evt_ticket, user=dashboard_user, tier=tier)
     evt_invite = Event.objects.create(
         name="Invited Event", organization=org_public_ticket, status="open", start=timezone.now()
     )  # another event in a public org
@@ -405,7 +405,9 @@ def test_dashboard_tickets(
     )
     tier = new_event.ticket_tiers.first()
     assert tier is not None
-    ticket2 = Ticket.objects.create(event=new_event, user=dashboard_user, tier=tier, status=Ticket.TicketStatus.PENDING)
+    ticket2 = Ticket.objects.create(
+        guest_name="Test Guest", event=new_event, user=dashboard_user, tier=tier, status=Ticket.TicketStatus.PENDING
+    )
 
     url = reverse("api:dashboard_tickets")
 
@@ -448,7 +450,7 @@ def test_dashboard_tickets_include_past(
     )
     tier_past = past_event.ticket_tiers.first()
     assert tier_past is not None
-    Ticket.objects.create(event=past_event, user=dashboard_user, tier=tier_past)
+    Ticket.objects.create(guest_name="Test Guest", event=past_event, user=dashboard_user, tier=tier_past)
 
     # Create upcoming event
     upcoming_event = Event.objects.create(
@@ -461,7 +463,9 @@ def test_dashboard_tickets_include_past(
     )
     tier_upcoming = upcoming_event.ticket_tiers.first()
     assert tier_upcoming is not None
-    upcoming_ticket = Ticket.objects.create(event=upcoming_event, user=dashboard_user, tier=tier_upcoming)
+    upcoming_ticket = Ticket.objects.create(
+        guest_name="Test Guest", event=upcoming_event, user=dashboard_user, tier=tier_upcoming
+    )
 
     url = reverse("api:dashboard_tickets")
 

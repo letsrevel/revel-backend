@@ -1016,20 +1016,20 @@ class OrganizationAdminController(UserAwareController):
     @route.get(
         "/venues",
         url_name="list_organization_venues",
-        response=PaginatedResponseSchema[schema.VenueSchema],
+        response=PaginatedResponseSchema[schema.VenueDetailSchema],
         permissions=[IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["name", "description", "address"])
     def list_venues(self, slug: str) -> QuerySet[models.Venue]:
-        """List all venues for an organization.
+        """List all venues for an organization with their sectors.
 
-        Returns paginated list of venues with basic information.
-        Use the detail endpoint to get sector information.
+        Returns paginated list of venues with sectors (no seats).
+        Use the sector endpoints to manage seats.
         """
         organization = self.get_one(slug)
-        return models.Venue.objects.filter(organization=organization).select_related("city")
+        return models.Venue.objects.filter(organization=organization).select_related("city").prefetch_related("sectors")
 
     @route.post(
         "/venues",

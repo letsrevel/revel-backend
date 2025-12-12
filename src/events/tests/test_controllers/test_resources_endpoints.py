@@ -123,7 +123,7 @@ class TestPublicResourceEndpoints:
         # Give the user a ticket to the event
         tier = private_event.ticket_tiers.first()
         assert tier is not None
-        models.Ticket.objects.create(user=nonmember_user, event=private_event, tier=tier)
+        models.Ticket.objects.create(guest_name="Test Guest", user=nonmember_user, event=private_event, tier=tier)
         url = reverse("api:list_event_resources", kwargs={"event_id": private_event.id})
 
         response = nonmember_client.get(url)
@@ -175,7 +175,11 @@ class TestPublicResourceEndpoints:
         tier = private_event.ticket_tiers.first()
         assert tier is not None
         models.Ticket.objects.create(
-            user=nonmember_user, event=private_event, tier=tier, status=models.Ticket.TicketStatus.ACTIVE
+            guest_name="Test Guest",
+            user=nonmember_user,
+            event=private_event,
+            tier=tier,
+            status=models.Ticket.TicketStatus.ACTIVE,
         )
         url = reverse("api:list_event_resources", kwargs={"event_id": private_event.id})
 
@@ -196,7 +200,11 @@ class TestPublicResourceEndpoints:
         tier = private_event.ticket_tiers.first()
         assert tier is not None
         models.Ticket.objects.create(
-            user=nonmember_user, event=private_event, tier=tier, status=models.Ticket.TicketStatus.PENDING
+            guest_name="Test Guest",
+            user=nonmember_user,
+            event=private_event,
+            tier=tier,
+            status=models.Ticket.TicketStatus.PENDING,
         )
         url = reverse("api:list_event_resources", kwargs={"event_id": private_event.id})
 
@@ -323,7 +331,11 @@ class TestPublicResourceEndpoints:
         tier = private_event.ticket_tiers.first()
         assert tier is not None
         models.Ticket.objects.create(
-            user=nonmember_user, event=private_event, tier=tier, status=models.Ticket.TicketStatus.CANCELLED
+            guest_name="Test Guest",
+            user=nonmember_user,
+            event=private_event,
+            tier=tier,
+            status=models.Ticket.TicketStatus.CANCELLED,
         )
         url = reverse("api:list_event_resources", kwargs={"event_id": private_event.id})
 

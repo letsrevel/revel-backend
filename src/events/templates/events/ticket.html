@@ -128,6 +128,52 @@
             flex: 1;
         }
 
+        /* Seating Card */
+        .seating-card {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border: 2px solid {{ primary_color }};
+            border-radius: 8px;
+            padding: 15px 20px;
+            margin: 15px 0;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        .seat-icon {
+            width: 50px;
+            height: 50px;
+            background: {{ primary_color }};
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .seat-icon span {
+            font-size: 24px;
+        }
+        .seating-details {
+            flex: 1;
+        }
+        .seating-venue {
+            font-size: 11px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin: 0 0 4px 0;
+        }
+        .seating-main {
+            font-size: 18px;
+            font-weight: 700;
+            color: #333;
+            margin: 0;
+        }
+        .seating-sector {
+            font-size: 12px;
+            color: #555;
+            margin: 4px 0 0 0;
+        }
+
         /* QR Code Section */
         .qr-section {
             text-align: center;
@@ -208,9 +254,15 @@
         <div class="content-section">
             <div class="info-card">
                 <div class="info-row">
-                    <span class="info-label">🎫 Attendee</span>
+                    <span class="info-label">🎫 Guest</span>
+                    <span class="info-value">{{ guest_name }}</span>
+                </div>
+                {% if guest_name != user_display_name %}
+                <div class="info-row">
+                    <span class="info-label">🛒 Purchased by</span>
                     <span class="info-value">{{ user_display_name }}</span>
                 </div>
+                {% endif %}
                 <div class="info-row">
                     <span class="info-label">📅 Date & Time</span>
                     <span class="info-value">{{ start_datetime }}</span>
@@ -222,6 +274,28 @@
                 </div>
                 {% endif %}
             </div>
+
+            {% if seat_label or sector_name or venue_name %}
+            <!-- Seating Information -->
+            <div class="seating-card">
+                <div class="seat-icon">
+                    <span>💺</span>
+                </div>
+                <div class="seating-details">
+                    {% if venue_name %}
+                    <p class="seating-venue">{{ venue_name }}</p>
+                    {% endif %}
+                    {% if seat_label %}
+                    <p class="seating-main">Seat {{ seat_label }}{% if seat_row %} &middot; Row {{ seat_row }}{% endif %}</p>
+                    {% elif sector_name %}
+                    <p class="seating-main">{{ sector_name }}</p>
+                    {% endif %}
+                    {% if sector_name and seat_label %}
+                    <p class="seating-sector">{{ sector_name }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
         </div>
 
         <!-- QR Code -->

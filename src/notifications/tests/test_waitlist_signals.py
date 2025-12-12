@@ -100,6 +100,7 @@ class TestTicketWaitlistRemoval:
 
         # Act - Create PENDING ticket with online payment
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=online_tier,
@@ -125,6 +126,7 @@ class TestTicketWaitlistRemoval:
 
         # Act - Create ACTIVE ticket (payment completed)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=online_tier,
@@ -150,6 +152,7 @@ class TestTicketWaitlistRemoval:
 
         # Act - Create PENDING ticket with offline payment
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=offline_tier,
@@ -175,6 +178,7 @@ class TestTicketWaitlistRemoval:
 
         # Act - Create PENDING ticket with at-the-door payment
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=at_the_door_tier,
@@ -200,6 +204,7 @@ class TestTicketWaitlistRemoval:
 
         # Act - Create free ticket (created as ACTIVE)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=free_tier,
@@ -223,6 +228,7 @@ class TestTicketWaitlistRemoval:
         # Arrange
         EventWaitList.objects.create(event=public_event, user=member_user)
         ticket = Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=online_tier,
@@ -251,6 +257,7 @@ class TestTicketWaitlistRemoval:
 
         # Act - Create ACTIVE ticket
         ticket = Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=online_tier,
@@ -280,12 +287,14 @@ class TestTicketCancellationNotifications:
         """
         # Arrange - Fill event to capacity
         ticket1 = Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=online_tier,
             status=Ticket.TicketStatus.ACTIVE,
         )
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=nonmember_user,
             tier=online_tier,
@@ -328,6 +337,7 @@ class TestTicketCancellationNotifications:
         """
         # Arrange - Event NOT at capacity (only 1 ticket, capacity is 2)
         ticket = Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=online_tier,
@@ -373,12 +383,14 @@ class TestTicketCancellationNotifications:
         """
         # Arrange - Fill event to capacity
         ticket1 = Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=online_tier,
             status=Ticket.TicketStatus.ACTIVE,
         )
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=nonmember_user,
             tier=online_tier,
@@ -710,12 +722,14 @@ class TestWaitlistNotificationEdgeCases:
 
         # Fill event
         ticket1 = Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=online_tier,
             status=Ticket.TicketStatus.ACTIVE,
         )
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=nonmember_user,
             tier=online_tier,
@@ -797,12 +811,14 @@ class TestWaitlistNotificationEdgeCases:
         """
         # Arrange - Fill event
         ticket1 = Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=online_tier,
             status=Ticket.TicketStatus.ACTIVE,
         )
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=nonmember_user,
             tier=online_tier,
@@ -855,12 +871,14 @@ class TestWaitlistNotificationEdgeCases:
         """
         # Arrange - Fill event
         ticket1 = Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=online_tier,
             status=Ticket.TicketStatus.ACTIVE,
         )
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=public_event,
             user=nonmember_user,
             tier=online_tier,

@@ -178,7 +178,12 @@ def event_ticket_tier(event: Event) -> TicketTier:
 
 @pytest.fixture
 def ticket(event: Event, member_user: RevelUser, event_ticket_tier: TicketTier) -> Ticket:
-    return Ticket.objects.create(event=event, user=member_user, tier=event_ticket_tier)
+    return Ticket.objects.create(
+        event=event,
+        user=member_user,
+        tier=event_ticket_tier,
+        guest_name=member_user.get_display_name(),
+    )
 
 
 @pytest.fixture

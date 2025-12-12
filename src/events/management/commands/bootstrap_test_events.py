@@ -603,6 +603,7 @@ This event has:
                 email=f"ticketholder{i}@test.com",
             )
             events_models.Ticket.objects.create(
+                guest_name=ticket_user.get_display_name(),
                 event=self.events["sold_out"],
                 user=ticket_user,
                 tier=sold_out_tier,

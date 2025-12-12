@@ -541,7 +541,7 @@ class TestCanUserSeeAddress:
         event_with_address.address_visibility = ResourceVisibility.PRIVATE
         event_with_address.save()
 
-        Ticket.objects.create(user=nonmember_user, event=event_with_address, tier=ticket_tier)
+        Ticket.objects.create(guest_name="Test Guest", user=nonmember_user, event=event_with_address, tier=ticket_tier)
 
         assert event_with_address.can_user_see_address(nonmember_user) is True
 
@@ -651,7 +651,7 @@ class TestCanUserSeeAddress:
         event_with_address.address_visibility = ResourceVisibility.ATTENDEES_ONLY
         event_with_address.save()
 
-        Ticket.objects.create(user=nonmember_user, event=event_with_address, tier=ticket_tier)
+        Ticket.objects.create(guest_name="Test Guest", user=nonmember_user, event=event_with_address, tier=ticket_tier)
 
         assert event_with_address.can_user_see_address(nonmember_user) is True
 
@@ -690,6 +690,7 @@ class TestCanUserSeeAddress:
         event_with_address.save()
 
         Ticket.objects.create(
+            guest_name="Test Guest",
             user=nonmember_user,
             event=event_with_address,
             tier=ticket_tier,
@@ -707,6 +708,7 @@ class TestCanUserSeeAddress:
         event_with_address.save()
 
         Ticket.objects.create(
+            guest_name="Test Guest",
             user=nonmember_user,
             event=event_with_address,
             tier=ticket_tier,

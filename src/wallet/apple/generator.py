@@ -51,13 +51,17 @@ class PassData:
     event_name: str
     event_start: datetime
     event_end: datetime
-    venue: str | None
+    address: str | None  # Full address for back of pass
     ticket_tier: str
     ticket_price: str
     colors: PassColors
     logo_image: bytes
     barcode_message: str = ""
     relevant_date: datetime | None = None
+    guest_name: str | None = None
+    venue_name: str | None = None  # Venue name for front of pass
+    sector_name: str | None = None
+    seat_label: str | None = None
 
 
 class ApplePassGeneratorError(Exception):
@@ -132,6 +136,25 @@ class ApplePassGenerator:
         else:
             ticket_price = "Free"
 
+        # Extract venue name (from tier's venue, ticket's venue, or event's venue)
+        venue_name: str | None = None
+        if ticket.tier and ticket.tier.venue:
+            venue_name = ticket.tier.venue.name
+        elif ticket.venue:
+            venue_name = ticket.venue.name
+        elif event.venue:
+            venue_name = event.venue.name
+
+        # Extract sector name (from tier's sector or ticket's sector)
+        sector_name: str | None = None
+        if ticket.tier and ticket.tier.sector:
+            sector_name = ticket.tier.sector.name
+        elif ticket.sector:
+            sector_name = ticket.sector.name
+
+        # Extract seat label
+        seat_label = ticket.seat.label if ticket.seat else None
+
         return PassData(
             serial_number=str(ticket.id),
             description=f"Ticket for {event.name}",
@@ -139,13 +162,17 @@ class ApplePassGenerator:
             event_name=event.name,
             event_start=event.start,
             event_end=event.end,
-            venue=event.address or None,
+            address=event.address or None,
             ticket_tier=ticket.tier.name if ticket.tier else "General Admission",
             ticket_price=ticket_price,
             colors=get_theme_colors(),
             logo_image=logo_image,
             barcode_message=str(ticket.id),
             relevant_date=event.start,
+            guest_name=ticket.guest_name,
+            venue_name=venue_name,
+            sector_name=sector_name,
+            seat_label=seat_label,
         )
 
     def _generate_files(self, pass_data: PassData) -> dict[str, bytes]:
@@ -167,15 +194,68 @@ class ApplePassGenerator:
         return files
 
     def _build_pass_json(self, data: PassData) -> bytes:
-        """Build the pass.json content."""
-        # Build secondary fields (venue)
+        """Build the pass.json content.
+
+        Apple Wallet eventTicket layout:
+        - headerFields: Top row (org name, date)
+        - primaryFields: Main content (event name)
+        - secondaryFields: First info row (venue, section, seat)
+        - auxiliaryFields: Second info row (ticket tier, price, guest name)
+        - backFields: Back of pass (full details)
+
+        Guest name is placed at the end of auxiliaryFields to allow it to
+        use remaining space without being squeezed between other fields.
+        """
+        # Build secondary fields: venue > section > seat (left to right)
         secondary_fields: list[dict[str, Any]] = []
-        if data.venue:
+
+        if data.venue_name:
             secondary_fields.append(
                 {
                     "key": "venue",
                     "label": "VENUE",
-                    "value": data.venue,
+                    "value": data.venue_name,
+                }
+            )
+
+        if data.sector_name:
+            secondary_fields.append(
+                {
+                    "key": "sector",
+                    "label": "SECTION",
+                    "value": data.sector_name,
+                }
+            )
+
+        if data.seat_label:
+            secondary_fields.append(
+                {
+                    "key": "seat",
+                    "label": "SEAT",
+                    "value": data.seat_label,
+                    "textAlignment": "PKTextAlignmentRight",
+                }
+            )
+
+        # Build auxiliary fields: ticket tier, price, then guest name (if present)
+        # Guest name is last so it can use more horizontal space for long names
+        auxiliary_fields: list[dict[str, Any]] = [
+            {"key": "tier", "label": "TICKET", "value": data.ticket_tier},
+            {
+                "key": "price",
+                "label": "PRICE",
+                "value": data.ticket_price,
+            },
+        ]
+
+        # Add guest name at the end - right-aligned so it flows naturally
+        if data.guest_name:
+            auxiliary_fields.append(
+                {
+                    "key": "guest",
+                    "label": "GUEST",
+                    "value": data.guest_name,
+                    "textAlignment": "PKTextAlignmentRight",
                 }
             )
 
@@ -210,15 +290,7 @@ class ApplePassGenerator:
                     {"key": "event", "label": "EVENT", "value": data.event_name},
                 ],
                 "secondaryFields": secondary_fields,
-                "auxiliaryFields": [
-                    {"key": "tier", "label": "TICKET", "value": data.ticket_tier},
-                    {
-                        "key": "price",
-                        "label": "PRICE",
-                        "value": data.ticket_price,
-                        "textAlignment": "PKTextAlignmentRight",
-                    },
-                ],
+                "auxiliaryFields": auxiliary_fields,
                 "backFields": self._build_back_fields(data),
             },
         }
@@ -231,8 +303,15 @@ class ApplePassGenerator:
 
     def _build_back_fields(self, data: PassData) -> list[dict[str, str]]:
         """Build the back fields for the pass."""
-        fields = [
+        fields: list[dict[str, str]] = [
             {"key": "ticket_id", "label": "Ticket ID", "value": data.serial_number},
+        ]
+
+        # Add guest name
+        if data.guest_name:
+            fields.append({"key": "guest_name", "label": "Guest", "value": data.guest_name})
+
+        fields.append(
             {
                 "key": "event_details",
                 "label": "Event Details",
@@ -241,15 +320,40 @@ class ApplePassGenerator:
                     f"Start: {format_date_full(data.event_start)}\n"
                     f"End: {format_date_full(data.event_end)}"
                 ),
-            },
-        ]
+            }
+        )
 
-        if data.venue:
+        # Add venue and address
+        if data.venue_name:
             fields.append(
                 {
-                    "key": "full_location",
-                    "label": "Full Address",
-                    "value": data.venue,
+                    "key": "venue_name",
+                    "label": "Venue",
+                    "value": data.venue_name,
+                }
+            )
+
+        if data.address:
+            fields.append(
+                {
+                    "key": "full_address",
+                    "label": "Address",
+                    "value": data.address,
+                }
+            )
+
+        # Add seating info
+        if data.sector_name or data.seat_label:
+            seating_parts = []
+            if data.sector_name:
+                seating_parts.append(f"Section: {data.sector_name}")
+            if data.seat_label:
+                seating_parts.append(f"Seat: {data.seat_label}")
+            fields.append(
+                {
+                    "key": "seating",
+                    "label": "Seating",
+                    "value": "\n".join(seating_parts),
                 }
             )
 

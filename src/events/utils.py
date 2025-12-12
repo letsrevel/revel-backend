@@ -182,6 +182,7 @@ def create_ticket_pdf(ticket: Ticket) -> bytes:
         "event_name": event.name,
         "organization_name": event.organization.name,
         "user_display_name": ticket.user.get_display_name(),
+        "guest_name": ticket.guest_name,
         "tier_name": ticket.tier.name,
         "start_datetime": event.start.strftime("%A, %B %d, %Y at %I:%M %p %Z"),
         "address": event.full_address(),
@@ -193,6 +194,12 @@ def create_ticket_pdf(ticket: Ticket) -> bytes:
         "logo_initials": logo_initials,
         "primary_color": primary_color,
         "secondary_color": secondary_color,
+        # Venue/seating info
+        "venue_name": ticket.venue.name if ticket.venue else None,
+        "sector_name": ticket.sector.name if ticket.sector else None,
+        "seat_label": ticket.seat.label if ticket.seat else None,
+        "seat_row": ticket.seat.row if ticket.seat else None,
+        "seat_number": ticket.seat.number if ticket.seat else None,
     }
 
     # Render and generate PDF

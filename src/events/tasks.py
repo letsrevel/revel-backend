@@ -43,15 +43,19 @@ def build_attendee_visibility_flags(event_id: str) -> None:
 
     event = Event.objects.with_organization().get(pk=event_id)
 
-    # Users attending the event
-
+    # Users attending the event (for visibility purposes)
     attendees_q = Q(tickets__event=event, tickets__status=Ticket.TicketStatus.ACTIVE) | Q(
         rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES
     )
 
     attendees = RevelUser.objects.filter(attendees_q).distinct()
 
-    update_db_instance(event, attendee_count=attendees.count())
+    # Count actual attendees: tickets (each ticket = one person) + YES RSVPs
+    ticket_count = Ticket.objects.filter(event=event, status=Ticket.TicketStatus.ACTIVE).count()
+    rsvp_count = EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).count()
+    attendee_count = ticket_count + rsvp_count
+
+    update_db_instance(event, attendee_count=attendee_count)
 
     # Users invited or attending = potential viewers
     viewers = RevelUser.objects.filter(Q(invitations__event=event) | attendees_q).distinct()

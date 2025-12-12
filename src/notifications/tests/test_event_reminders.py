@@ -269,12 +269,14 @@ class TestSendTicketReminders:
         # Arrange
         ticket_tier = get_or_create_ticket_tier(future_event_14_days)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event_14_days,
             user=ticket_holder_1,
             tier=ticket_tier,
             status=Ticket.TicketStatus.ACTIVE,
         )
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event_14_days,
             user=ticket_holder_2,
             tier=ticket_tier,
@@ -315,12 +317,14 @@ class TestSendTicketReminders:
         # Arrange
         ticket_tier = get_or_create_ticket_tier(future_event_14_days)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event_14_days,
             user=ticket_holder_1,
             tier=ticket_tier,
             status=Ticket.TicketStatus.ACTIVE,
         )
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event_14_days,
             user=disabled_reminders_user,
             tier=ticket_tier,
@@ -360,6 +364,7 @@ class TestSendTicketReminders:
         # Arrange
         ticket_tier = get_or_create_ticket_tier(future_event_14_days)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event_14_days,
             user=ticket_holder_1,
             tier=ticket_tier,
@@ -398,6 +403,7 @@ class TestSendTicketReminders:
         # Arrange
         ticket_tier = get_or_create_ticket_tier(future_event_14_days)
         ticket = Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event_14_days,
             user=ticket_holder_1,
             tier=ticket_tier,
@@ -523,6 +529,7 @@ class TestSendEventReminders:
 
         ticket_tier = get_or_create_ticket_tier(future_event_14_days)
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event_14_days,
             user=ticket_holder_1,
             tier=ticket_tier,
@@ -551,6 +558,7 @@ class TestSendEventReminders:
 
         ticket_tier = get_or_create_ticket_tier(future_event_14_days)
         ticket = Ticket.objects.create(
+            guest_name="Test Guest",
             event=future_event_14_days,
             user=ticket_holder_1,
             tier=ticket_tier,
@@ -603,6 +611,7 @@ class TestSendEventReminders:
         draft_tier = get_or_create_ticket_tier(draft_event)
 
         Ticket.objects.create(
+            guest_name="Test Guest",
             event=draft_event,
             user=ticket_holder_1,
             tier=draft_tier,
@@ -647,6 +656,7 @@ class TestSendEventReminders:
             tier = get_or_create_ticket_tier(event, name=f"GA-{days}")
 
             Ticket.objects.create(
+                guest_name="Test Guest",
                 event=event,
                 user=ticket_holder_1,
                 tier=tier,

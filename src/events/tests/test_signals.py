@@ -230,7 +230,11 @@ class TestTicketSignalUnclaimingBehavior:
 
         # Create ticket with CANCELLED status
         Ticket.objects.create(
-            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.TicketStatus.CANCELLED
+            guest_name="Test Guest",
+            event=event,
+            user=nonmember_user,
+            tier=event_ticket_tier,
+            status=Ticket.TicketStatus.CANCELLED,
         )
 
         # Items should be unclaimed
@@ -248,7 +252,11 @@ class TestTicketSignalUnclaimingBehavior:
 
         # Create active ticket
         Ticket.objects.create(
-            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.TicketStatus.ACTIVE
+            guest_name="Test Guest",
+            event=event,
+            user=nonmember_user,
+            tier=event_ticket_tier,
+            status=Ticket.TicketStatus.ACTIVE,
         )
 
         # Item should still be claimed
@@ -264,7 +272,11 @@ class TestTicketSignalUnclaimingBehavior:
 
         # Create pending ticket
         Ticket.objects.create(
-            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.TicketStatus.PENDING
+            guest_name="Test Guest",
+            event=event,
+            user=nonmember_user,
+            tier=event_ticket_tier,
+            status=Ticket.TicketStatus.PENDING,
         )
 
         # Item should still be claimed
@@ -277,7 +289,11 @@ class TestTicketSignalUnclaimingBehavior:
         """Test that changing ticket from ACTIVE to CANCELLED unclaims items."""
         # Create active ticket
         ticket = Ticket.objects.create(
-            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.TicketStatus.ACTIVE
+            guest_name="Test Guest",
+            event=event,
+            user=nonmember_user,
+            tier=event_ticket_tier,
+            status=Ticket.TicketStatus.ACTIVE,
         )
 
         # Claim items while ticket is active
@@ -297,7 +313,11 @@ class TestTicketSignalUnclaimingBehavior:
         """Test that deleting a ticket unclaims all user's potluck items."""
         # Create active ticket
         ticket = Ticket.objects.create(
-            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.TicketStatus.ACTIVE
+            guest_name="Test Guest",
+            event=event,
+            user=nonmember_user,
+            tier=event_ticket_tier,
+            status=Ticket.TicketStatus.ACTIVE,
         )
 
         # Claim items
@@ -319,7 +339,11 @@ class TestTicketSignalUnclaimingBehavior:
 
         # Create checked-in ticket
         Ticket.objects.create(
-            event=event, user=nonmember_user, tier=event_ticket_tier, status=Ticket.TicketStatus.CHECKED_IN
+            guest_name="Test Guest",
+            event=event,
+            user=nonmember_user,
+            tier=event_ticket_tier,
+            status=Ticket.TicketStatus.CHECKED_IN,
         )
 
         # Item should still be claimed

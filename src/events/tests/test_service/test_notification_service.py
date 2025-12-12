@@ -41,19 +41,25 @@ class TestParticipationHelpers:
     def test_has_active_ticket_with_active_ticket(self, event: Event, nonmember_user: RevelUser) -> None:
         """Test detection of active ticket."""
         tier = TicketTier.objects.create(event=event, name="General", price=10, payment_method="online")
-        Ticket.objects.create(user=nonmember_user, event=event, tier=tier, status=Ticket.TicketStatus.ACTIVE)
+        Ticket.objects.create(
+            guest_name="Test Guest", user=nonmember_user, event=event, tier=tier, status=Ticket.TicketStatus.ACTIVE
+        )
         assert has_active_ticket(nonmember_user, event)
 
     def test_has_active_ticket_with_pending_offline(self, event: Event, nonmember_user: RevelUser) -> None:
         """Test that pending tickets count for offline payment tiers."""
         tier = TicketTier.objects.create(event=event, name="General", price=10, payment_method="offline")
-        Ticket.objects.create(user=nonmember_user, event=event, tier=tier, status=Ticket.TicketStatus.PENDING)
+        Ticket.objects.create(
+            guest_name="Test Guest", user=nonmember_user, event=event, tier=tier, status=Ticket.TicketStatus.PENDING
+        )
         assert has_active_ticket(nonmember_user, event)
 
     def test_has_active_ticket_with_pending_online(self, event: Event, nonmember_user: RevelUser) -> None:
         """Test that pending tickets don't count for online payment tiers."""
         tier = TicketTier.objects.create(event=event, name="General", price=10, payment_method="online")
-        Ticket.objects.create(user=nonmember_user, event=event, tier=tier, status=Ticket.TicketStatus.PENDING)
+        Ticket.objects.create(
+            guest_name="Test Guest", user=nonmember_user, event=event, tier=tier, status=Ticket.TicketStatus.PENDING
+        )
         assert not has_active_ticket(nonmember_user, event)
 
     def test_has_event_invitation(self, event: Event, nonmember_user: RevelUser) -> None:
@@ -87,7 +93,9 @@ class TestIsParticipatingInEvent:
     def test_participating_via_ticket(self, event: Event, nonmember_user: RevelUser) -> None:
         """Test participation through ticket."""
         tier = TicketTier.objects.create(event=event, name="General", price=10)
-        Ticket.objects.create(user=nonmember_user, event=event, tier=tier, status=Ticket.TicketStatus.ACTIVE)
+        Ticket.objects.create(
+            guest_name="Test Guest", user=nonmember_user, event=event, tier=tier, status=Ticket.TicketStatus.ACTIVE
+        )
         assert is_participating_in_event(nonmember_user, event)
 
     def test_participating_via_invitation(self, event: Event, nonmember_user: RevelUser) -> None:
@@ -146,7 +154,9 @@ class TestGetEligibleUsersForEventNotification:
     def test_includes_users_with_tickets(self, event: Event, nonmember_user: RevelUser) -> None:
         """Test that users with tickets are included."""
         tier = TicketTier.objects.create(event=event, name="General", price=10)
-        Ticket.objects.create(user=nonmember_user, event=event, tier=tier, status=Ticket.TicketStatus.ACTIVE)
+        Ticket.objects.create(
+            guest_name="Test Guest", user=nonmember_user, event=event, tier=tier, status=Ticket.TicketStatus.ACTIVE
+        )
         eligible_users = get_eligible_users_for_event_notification(event, NotificationType.EVENT_UPDATED)
         assert nonmember_user in eligible_users
 
@@ -194,7 +204,9 @@ class TestGetEligibleUsersForEventNotification:
         EventRSVP.objects.create(user=nonmember_user, event=event, status=EventRSVP.RsvpStatus.YES)
         EventInvitation.objects.create(user=nonmember_user, event=event)
         tier = TicketTier.objects.create(event=event, name="General", price=10)
-        Ticket.objects.create(user=nonmember_user, event=event, tier=tier, status=Ticket.TicketStatus.ACTIVE)
+        Ticket.objects.create(
+            guest_name="Test Guest", user=nonmember_user, event=event, tier=tier, status=Ticket.TicketStatus.ACTIVE
+        )
 
         eligible_users = get_eligible_users_for_event_notification(event, NotificationType.EVENT_UPDATED)
 

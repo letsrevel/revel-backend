@@ -305,7 +305,12 @@ class Command(BaseCommand):
                 if event.requires_ticket:
                     if self.rand.random() > 0.5:
                         tickets.append(
-                            Ticket(event=event, user=user, status=self.rand.choice(list(Ticket.TicketStatus)))
+                            Ticket(
+                                event=event,
+                                user=user,
+                                status=self.rand.choice(list(Ticket.TicketStatus)),
+                                guest_name=user.get_display_name(),
+                            )
                         )
                 else:
                     if self.rand.random() > 0.5:

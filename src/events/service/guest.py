@@ -275,7 +275,7 @@ def handle_guest_ticket_checkout(
 
 
 @transaction.atomic
-def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.EventTicketSchema:
+def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.UserTicketSchema:
     """Confirm a guest action (RSVP or ticket purchase) via JWT token.
 
     Uses Pydantic's discriminated union to properly decode the token type.
@@ -325,7 +325,7 @@ def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.EventTic
         if isinstance(ticket_or_url, models.Ticket):
             # Blacklist token
             blacklist_token(token)
-            return schema.EventTicketSchema.from_orm(ticket_or_url)
+            return schema.UserTicketSchema.from_orm(ticket_or_url)
 
         raise HttpError(500, str(_("Unexpected response from ticket creation")))
 

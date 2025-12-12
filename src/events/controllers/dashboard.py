@@ -248,7 +248,8 @@ class DashboardController(UserAwareController):
         Supports filtering by status (pending/active/cancelled/checked_in) and
         payment method. Results are ordered by newest first.
         """
-        qs = models.Ticket.objects.select_related("event", "tier").filter(user=self.user()).order_by("-created_at")
+        # Use full() manager which includes: event, organization, tier (with venue/sector/city), seat, payment
+        qs = models.Ticket.objects.full().filter(user=self.user()).order_by("-created_at")
         return params.filter(qs).distinct()
 
     @route.get(
