@@ -99,7 +99,11 @@ def create_guest_rsvp_token(user: RevelUser, event_id: UUID, answer: t.Literal["
 
 
 def create_guest_ticket_token(
-    user: RevelUser, event_id: UUID, tier_id: UUID, pwyc_amount: Decimal | None = None
+    user: RevelUser,
+    event_id: UUID,
+    tier_id: UUID,
+    tickets: list[schema.TicketPurchaseItem],
+    pwyc_amount: Decimal | None = None,
 ) -> str:
     """Create JWT token for guest ticket purchase confirmation.
 
@@ -110,17 +114,22 @@ def create_guest_ticket_token(
         user: The guest user
         event_id: Event ID
         tier_id: Ticket tier ID
+        tickets: List of ticket purchase items with guest_name and optional seat_id
         pwyc_amount: Optional PWYC amount
 
     Returns:
         JWT token string
     """
+    # Convert TicketPurchaseItem to GuestTicketItemPayload for JWT storage
+    ticket_payloads = [schema.GuestTicketItemPayload(guest_name=t.guest_name, seat_id=t.seat_id) for t in tickets]
+
     payload = schema.GuestTicketJWTPayloadSchema(
         user_id=user.id,
         email=user.email,
         event_id=event_id,
         tier_id=tier_id,
         pwyc_amount=pwyc_amount,
+        tickets=ticket_payloads,
         exp=timezone.now() + timedelta(hours=1),
         jti=str(uuid4()),
     )
@@ -130,6 +139,7 @@ def create_guest_ticket_token(
         user_id=str(user.id),
         event_id=str(event_id),
         tier_id=str(tier_id),
+        ticket_count=len(tickets),
         pwyc_amount=str(pwyc_amount) if pwyc_amount else None,
     )
     return token
@@ -219,8 +229,9 @@ def handle_guest_ticket_checkout(
     email: str,
     first_name: str,
     last_name: str,
+    tickets: list[schema.TicketPurchaseItem],
     pwyc_amount: Decimal | None = None,
-) -> schema.StripeCheckoutSessionSchema | schema.GuestActionResponseSchema:
+) -> schema.GuestCheckoutResponseSchema:
     """Handle guest ticket checkout request (business logic extracted from controller).
 
     Args:
@@ -229,14 +240,16 @@ def handle_guest_ticket_checkout(
         email: Guest email
         first_name: Guest first name
         last_name: Guest last name
-        pwyc_amount: Optional PWYC amount
+        tickets: List of ticket purchase items with guest_name and optional seat_id
+        pwyc_amount: Optional PWYC amount (must be the same for all tickets)
 
     Returns:
-        Stripe checkout URL or confirmation message
+        GuestCheckoutResponseSchema with either message (non-online) or checkout_url (online)
 
     Raises:
         HttpError: If event doesn't allow guest access, tier issues, or eligibility checks fail
     """
+    from events.service.batch_ticket_service import BatchTicketService
     from events.tasks import send_guest_ticket_confirmation
 
     # Check if event allows guest access
@@ -260,22 +273,32 @@ def handle_guest_ticket_checkout(
 
     # Branch by payment method
     if tier.payment_method == models.TicketTier.PaymentMethod.ONLINE:
-        # Online payment: create ticket immediately (Stripe provides security)
-        ticket_or_url = manager.create_ticket(tier, price_override=pwyc_amount)
-        if isinstance(ticket_or_url, str):
-            return schema.StripeCheckoutSessionSchema(checkout_url=ticket_or_url)
-        raise HttpError(500, str(_("Unexpected response from ticket creation")))
+        # Online payment: use BatchTicketService (Stripe provides security)
+        service = BatchTicketService(event, tier, user)
+        result = service.create_batch(tickets, price_override=pwyc_amount)
+
+        if isinstance(result, str):
+            return schema.GuestCheckoutResponseSchema(message=None, checkout_url=result, tickets=[])
+        # This shouldn't happen for ONLINE payment, but handle it
+        return schema.GuestCheckoutResponseSchema(
+            message=None,
+            checkout_url=None,
+            tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+        )
     else:
         # Non-online payment: require email confirmation
-        token = create_guest_ticket_token(user, event.id, tier.id, pwyc_amount)
+        # Store ticket info in JWT token for later creation
+        token = create_guest_ticket_token(user, event.id, tier.id, tickets, pwyc_amount)
         send_guest_ticket_confirmation.delay(user.email, token, event.name, tier.name)
-        return schema.GuestActionResponseSchema(
-            message=str(_("Please check your email to confirm your ticket purchase"))
+        return schema.GuestCheckoutResponseSchema(
+            message=str(_("Please check your email to confirm your ticket purchase")),
+            checkout_url=None,
+            tickets=[],
         )
 
 
 @transaction.atomic
-def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.UserTicketSchema:
+def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.UserTicketSchema | schema.BatchCheckoutResponse:
     """Confirm a guest action (RSVP or ticket purchase) via JWT token.
 
     Uses Pydantic's discriminated union to properly decode the token type.
@@ -284,11 +307,13 @@ def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.UserTick
         token: JWT token string
 
     Returns:
-        Created RSVP or ticket
+        Created RSVP or ticket(s)
 
     Raises:
         HttpError: If token is invalid, expired, already used, or eligibility checks fail
     """
+    from events.service.batch_ticket_service import BatchTicketService
+
     # Decode token using discriminated union
     payload = validate_and_decode_guest_token(token)
 
@@ -316,16 +341,38 @@ def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.UserTick
         event = get_object_or_404(models.Event, id=payload.event_id)
         tier = get_object_or_404(models.TicketTier, id=payload.tier_id, event=event)
 
-        # Re-check eligibility
+        # Re-check eligibility (event state may have changed)
         manager = EventManager(user, event)
-        ticket_or_url = manager.create_ticket(tier, price_override=payload.pwyc_amount)
+        manager.check_eligibility(raise_on_false=True)
 
-        # Should always be a ticket for non-online payment (what we use email confirmation for)
-        # For online payments (Stripe) we allow them to be bought directly
-        if isinstance(ticket_or_url, models.Ticket):
-            # Blacklist token
-            blacklist_token(token)
-            return schema.UserTicketSchema.from_orm(ticket_or_url)
+        # Convert JWT payload items back to TicketPurchaseItem for BatchTicketService
+        # Handle legacy tokens that don't have tickets list (backward compatibility)
+        if payload.tickets:
+            ticket_items = [
+                schema.TicketPurchaseItem(guest_name=t.guest_name, seat_id=t.seat_id) for t in payload.tickets
+            ]
+        else:
+            # Legacy token without tickets list - create single ticket with user's name
+            ticket_items = [schema.TicketPurchaseItem(guest_name=user.get_display_name())]
+
+        # Use BatchTicketService for proper seat handling
+        service = BatchTicketService(event, tier, user)
+        result = service.create_batch(ticket_items, price_override=payload.pwyc_amount)
+
+        # Blacklist token after successful creation
+        blacklist_token(token)
+
+        # Should always return tickets for non-online payment (what email confirmation is used for)
+        if isinstance(result, list):
+            # Return first ticket for backward compatibility with single-ticket response
+            # (controller response type expects single ticket for confirm endpoint)
+            if len(result) == 1:
+                return schema.UserTicketSchema.from_orm(result[0])
+            # For multiple tickets, return batch response
+            return schema.BatchCheckoutResponse(
+                checkout_url=None,
+                tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+            )
 
         raise HttpError(500, str(_("Unexpected response from ticket creation")))
 
