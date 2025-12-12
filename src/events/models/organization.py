@@ -20,6 +20,7 @@ from .mixins import (
     LocationMixin,
     LogoCoverValidationMixin,
     SlugFromNameMixin,
+    SocialMediaMixin,
     TokenMixin,
     UserRequestMixin,
     VisibilityMixin,
@@ -134,7 +135,13 @@ class OrganizationManager(models.Manager["Organization"]):
 
 
 class Organization(
-    TaggableMixin, SlugFromNameMixin, TimeStampedModel, VisibilityMixin, LocationMixin, LogoCoverValidationMixin
+    TaggableMixin,
+    SlugFromNameMixin,
+    TimeStampedModel,
+    VisibilityMixin,
+    LocationMixin,
+    LogoCoverValidationMixin,
+    SocialMediaMixin,
 ):
     name = models.CharField(max_length=255, unique=True)
     slug = models.SlugField(max_length=255, unique=True)

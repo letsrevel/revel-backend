@@ -242,3 +242,13 @@ class UserRequestMixin(TimeStampedModel):
 
     class Meta:
         abstract = True
+
+
+class SocialMediaMixin(models.Model):
+    instagram_url = models.URLField("Instagram", blank=True, null=True)
+    facebook_url = models.URLField("Facebook", blank=True, null=True)
+    bluesky_url = models.URLField("Bluesky", blank=True, null=True)
+    telegram_url = models.URLField("Telegram", blank=True, null=True)
+
+    class Meta:
+        abstract = True

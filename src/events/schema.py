@@ -6,6 +6,7 @@ from uuid import UUID
 from ninja import ModelSchema, Schema
 from pydantic import (
     UUID4,
+    AnyUrl,
     AwareDatetime,
     BaseModel,
     Discriminator,
@@ -84,6 +85,80 @@ class TaggableSchemaMixin(Schema):
         return [ta.tag.name for ta in obj.tags.all()]
 
 
+# Social media URL field names
+_SOCIAL_MEDIA_FIELDS = ("instagram_url", "facebook_url", "bluesky_url", "telegram_url")
+
+# Social media platform URL patterns for validation
+_SOCIAL_MEDIA_PATTERNS: dict[str, tuple[str, ...]] = {
+    "instagram_url": ("instagram.com", "www.instagram.com"),
+    "facebook_url": ("facebook.com", "www.facebook.com", "fb.com", "www.fb.com"),
+    "bluesky_url": ("bsky.app", "bsky.social"),
+    "telegram_url": ("t.me", "telegram.me", "telegram.dog"),
+}
+
+
+def _validate_social_media_url(url: str, field_name: str) -> None:
+    """Validate that a URL matches the expected social media platform.
+
+    Args:
+        url: The URL to validate.
+        field_name: The field name to look up allowed domains.
+
+    Raises:
+        ValueError: If the URL doesn't match the expected platform.
+    """
+    from urllib.parse import urlparse
+
+    allowed_domains = _SOCIAL_MEDIA_PATTERNS.get(field_name, ())
+    if not allowed_domains:
+        return
+
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+
+    if hostname not in allowed_domains:
+        platform_name = field_name.replace("_url", "").replace("_", " ").title()
+        raise ValueError(
+            f"URL must be a valid {platform_name} link. Got: url={url} | {hostname!r} not in {allowed_domains}"
+        )
+
+
+class SocialMediaSchemaRetrieveMixin(Schema):
+    """Mixin for reading social media URL fields. No validation needed."""
+
+    instagram_url: str | None = None
+    facebook_url: str | None = None
+    bluesky_url: str | None = None
+    telegram_url: str | None = None
+
+
+class SocialMediaSchemaEditMixin(Schema):
+    """Mixin for editing social media URL fields with platform validation.
+
+    - Automatically prepends https:// if no scheme is provided
+    - Validates that each URL matches its expected platform domain
+    """
+
+    instagram_url: AnyUrl | None = None
+    facebook_url: AnyUrl | None = None
+    bluesky_url: AnyUrl | None = None
+    telegram_url: AnyUrl | None = None
+
+    @field_validator(*_SOCIAL_MEDIA_FIELDS, mode="before")
+    @classmethod
+    def validate_social_media_urls(cls, v: t.Any, info: t.Any) -> str | None:
+        """Prepend https:// if needed and validate platform domain."""
+        if not v or not isinstance(v, str):
+            return None
+
+        # Prepend https:// if no scheme provided
+        url: str = v if v.startswith(("http://", "https://")) else f"https://{v}"
+
+        # Validate platform domain
+        _validate_social_media_url(url, info.field_name)
+        return url
+
+
 class OrganizationCreateSchema(CityEditMixin):
     """Schema for creating a new organization."""
 
@@ -99,7 +174,7 @@ class VerifyOrganizationContactEmailJWTPayloadSchema(_BaseEmailJWTPayloadSchema)
     organization_id: UUID4
 
 
-class OrganizationEditSchema(CityEditMixin):
+class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     """Schema for editing an existing organization.
 
     Note: contact_email is excluded from this schema as it requires
@@ -149,7 +224,7 @@ class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin):
     created_at: AwareDatetime | None = None
 
 
-class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin):
+class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin, SocialMediaSchemaRetrieveMixin):
     id: UUID
     name: str
     slug: str
@@ -165,7 +240,7 @@ class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin):
     contact_email_verified: bool
 
 
-class OrganizationAdminDetailSchema(CityRetrieveMixin, TaggableSchemaMixin):
+class OrganizationAdminDetailSchema(CityRetrieveMixin, TaggableSchemaMixin, SocialMediaSchemaRetrieveMixin):
     """Comprehensive organization schema for admin use with all fields including platform fees and Stripe details."""
 
     id: UUID
