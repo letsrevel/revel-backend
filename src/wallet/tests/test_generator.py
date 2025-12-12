@@ -94,20 +94,22 @@ class TestPassData:
             event_name="Test Event",
             event_start=now,
             event_end=now + timedelta(hours=3),
-            venue="Test Venue",
+            address="123 Test St",
             ticket_tier="VIP",
             ticket_price="EUR 25.00",
             colors=colors,
             logo_image=b"logo_bytes",
             barcode_message="barcode-123",
             relevant_date=now,
+            venue_name="Test Venue",
         )
 
         assert data.serial_number == "test-123"
         assert data.description == "Test ticket"
         assert data.organization_name == "Test Org"
         assert data.event_name == "Test Event"
-        assert data.venue == "Test Venue"
+        assert data.venue_name == "Test Venue"
+        assert data.address == "123 Test St"
         assert data.ticket_tier == "VIP"
         assert data.ticket_price == "EUR 25.00"
         assert data.barcode_message == "barcode-123"
@@ -124,14 +126,15 @@ class TestPassData:
             event_name="Test Event",
             event_start=now,
             event_end=now + timedelta(hours=3),
-            venue=None,
+            address=None,
             ticket_tier="General",
             ticket_price="Free",
             colors=colors,
             logo_image=b"logo_bytes",
         )
 
-        assert data.venue is None
+        assert data.address is None
+        assert data.venue_name is None
         assert data.barcode_message == ""
         assert data.relevant_date is None
 
@@ -189,30 +192,30 @@ class TestApplePassGeneratorBuildPassData:
 
         assert data.ticket_price == "Free"
 
-    def test_builds_pass_data_with_venue(
+    def test_builds_pass_data_with_address(
         self,
         wallet_ticket: Ticket,
         mock_signer: MagicMock,
     ) -> None:
-        """Should include venue when address is present."""
+        """Should include address when event.address is present."""
         generator = ApplePassGenerator(signer=mock_signer)
         data = generator._build_pass_data(wallet_ticket)
 
-        assert data.venue == wallet_ticket.event.address
+        assert data.address == wallet_ticket.event.address
 
-    def test_builds_pass_data_without_venue(
+    def test_builds_pass_data_without_address(
         self,
         wallet_ticket: Ticket,
         mock_signer: MagicMock,
     ) -> None:
-        """Should set venue to None when address is empty."""
+        """Should set address to None when event.address is empty."""
         wallet_ticket.event.address = ""
         wallet_ticket.event.save()
 
         generator = ApplePassGenerator(signer=mock_signer)
         data = generator._build_pass_data(wallet_ticket)
 
-        assert data.venue is None
+        assert data.address is None
 
     def test_builds_pass_data_with_relevant_date(
         self,
@@ -245,7 +248,7 @@ class TestApplePassGeneratorBuildPassJson:
             event_name="Test Event",
             event_start=now,
             event_end=now + timedelta(hours=3),
-            venue="123 Test St",
+            address="123 Test St",
             ticket_tier="VIP",
             ticket_price="EUR 50.00",
             colors=colors,
@@ -280,7 +283,7 @@ class TestApplePassGeneratorBuildPassJson:
             event_name="Event",
             event_start=now,
             event_end=now + timedelta(hours=1),
-            venue=None,
+            address=None,
             ticket_tier="Tier",
             ticket_price="Free",
             colors=colors,
@@ -312,7 +315,7 @@ class TestApplePassGeneratorBuildPassJson:
             event_name="Test Event",
             event_start=now,
             event_end=now + timedelta(hours=1),
-            venue="Test Venue",
+            address="Test Venue",
             ticket_tier="VIP",
             ticket_price="EUR 100.00",
             colors=colors,
@@ -348,7 +351,7 @@ class TestApplePassGeneratorBuildPassJson:
             event_name="Event",
             event_start=now,
             event_end=now + timedelta(hours=1),
-            venue=None,
+            address=None,
             ticket_tier="Tier",
             ticket_price="Free",
             colors=colors,
@@ -377,7 +380,7 @@ class TestApplePassGeneratorBuildPassJson:
             event_name="Event",
             event_start=now,
             event_end=now + timedelta(hours=1),
-            venue=None,
+            address=None,
             ticket_tier="Tier",
             ticket_price="Free",
             colors=colors,
@@ -410,7 +413,7 @@ class TestApplePassGeneratorGenerateFiles:
             event_name="Event",
             event_start=now,
             event_end=now + timedelta(hours=1),
-            venue=None,
+            address=None,
             ticket_tier="Tier",
             ticket_price="Free",
             colors=colors,
@@ -439,7 +442,7 @@ class TestApplePassGeneratorGenerateFiles:
             event_name="Event",
             event_start=now,
             event_end=now + timedelta(hours=1),
-            venue=None,
+            address=None,
             ticket_tier="Tier",
             ticket_price="Free",
             colors=colors,
@@ -469,7 +472,7 @@ class TestApplePassGeneratorGenerateFiles:
             event_name="Event",
             event_start=now,
             event_end=now + timedelta(hours=1),
-            venue=None,
+            address=None,
             ticket_tier="Tier",
             ticket_price="Free",
             colors=colors,

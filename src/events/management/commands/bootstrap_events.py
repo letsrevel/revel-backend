@@ -41,6 +41,7 @@ class Command(BaseCommand):
         self.fake = Faker("en_US")
         self.users: dict[str, RevelUser] = {}
         self.orgs: dict[str, events_models.Organization] = {}
+        self.venues: dict[str, events_models.Venue] = {}
         self.events: dict[str, events_models.Event] = {}
         self.tags: dict[str, Tag] = {}
         self.cities: dict[str, City] = {}
@@ -60,6 +61,9 @@ class Command(BaseCommand):
 
         # Create organizations
         self._create_organizations()
+
+        # Create venues
+        self._create_venues()
 
         # Create event series
         self._create_event_series()
@@ -279,6 +283,55 @@ who want to shape the future.
         self.orgs["beta"] = org_beta
 
         logger.info(f"Created {len(self.orgs)} organizations")
+
+    def _create_venues(self) -> None:
+        """Create venues with sectors and seats for seated events."""
+        logger.info("Creating venues...")
+
+        # Create a venue for Revel Events Collective (org_alpha)
+        concert_hall = events_models.Venue.objects.create(
+            organization=self.orgs["alpha"],
+            name="Revel Concert Hall",
+            slug="revel-concert-hall",
+            description="A modern concert venue with flexible seating arrangements.",
+            city=self.cities["vienna"],
+            address="Musikvereinsplatz 1, 1010 Vienna, Austria",
+            capacity=100,
+        )
+        self.venues["concert_hall"] = concert_hall
+
+        # Create a sector for the main floor
+        main_floor = events_models.VenueSector.objects.create(
+            venue=concert_hall,
+            name="Main Floor",
+            code="MF",
+            capacity=100,
+            display_order=1,
+        )
+
+        # Create 100 seats in a 10x10 grid
+        # Rows A-J (10 rows), seats 1-10 per row
+        # Positions are simple incrementals: (row, col) -> (0,0), (0,1)...(9,9)
+        seats_to_create = []
+        row_labels = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
+        for row_idx, row_label in enumerate(row_labels):
+            for seat_num in range(1, 11):  # Seats 1-10
+                col_idx = seat_num - 1
+                seats_to_create.append(
+                    events_models.VenueSeat(
+                        sector=main_floor,
+                        label=f"{row_label}{seat_num}",
+                        row=row_label,
+                        number=seat_num,
+                        position={"x": col_idx, "y": row_idx},
+                        is_accessible=(row_label == "A"),  # First row is accessible
+                        is_obstructed_view=False,
+                        is_active=True,
+                    )
+                )
+        events_models.VenueSeat.objects.bulk_create(seats_to_create)
+
+        logger.info(f"Created {len(self.venues)} venues with sectors and seats")
 
     def _create_event_series(self) -> None:
         """Create event series for recurring events."""
@@ -919,6 +972,50 @@ A complete ML pipeline from data preprocessing to model deployment.
         sold_out_workshop.add_tags("tech", "workshop", "educational")
         self.events["sold_out_workshop"] = sold_out_workshop
 
+        # Event 13: Seated concert event (with venue and reserved seating)
+        seated_concert = events_models.Event.objects.create(
+            organization=self.orgs["alpha"],
+            name="Classical Music Evening",
+            slug="classical-music-evening",
+            event_type=events_models.Event.EventType.PUBLIC,
+            visibility=events_models.Event.Visibility.PUBLIC,
+            status=events_models.Event.EventStatus.OPEN,
+            city=self.cities["vienna"],
+            venue=self.venues["concert_hall"],
+            requires_ticket=True,
+            start=now + timedelta(days=50),
+            end=now + timedelta(days=50, hours=3),
+            max_attendees=100,
+            description="""# Classical Music Evening 🎻
+
+Join us for an enchanting evening of classical music at the Revel Concert Hall.
+Experience masterpieces from Mozart, Beethoven, and Strauss performed by the
+Vienna Chamber Orchestra.
+
+## Program
+- **Mozart** - Eine kleine Nachtmusik
+- **Beethoven** - Symphony No. 5 (1st Movement)
+- **Strauss** - The Blue Danube Waltz
+
+## Venue
+The Revel Concert Hall features reserved seating in a 10x10 grid layout.
+Choose your preferred seat during checkout for the best viewing experience.
+
+## Dress Code
+Smart casual to formal attire recommended.
+
+## Intermission
+Wine and refreshments available during the 20-minute intermission.
+
+*All seats are reserved - select your seat when purchasing tickets*
+""",
+            address="Musikvereinsplatz 1, 1010 Vienna, Austria",
+            check_in_starts_at=now + timedelta(days=50, hours=-1),
+            check_in_ends_at=now + timedelta(days=50, hours=1),
+        )
+        seated_concert.add_tags("music", "arts", "formal")
+        self.events["seated_concert"] = seated_concert
+
         logger.info(f"Created {len(self.events)} events")
 
     def _create_ticket_tiers(self) -> None:
@@ -936,6 +1033,7 @@ A complete ML pipeline from data preprocessing to model deployment.
             self.events["past_event"],
             self.events["sold_out_workshop"],
             self.events["draft_event"],
+            self.events["seated_concert"],
         ]
         events_models.TicketTier.objects.filter(
             event__in=events_with_custom_tiers,
@@ -1133,6 +1231,29 @@ A complete ML pipeline from data preprocessing to model deployment.
             sales_start_at=now - timedelta(days=10),
             sales_end_at=now + timedelta(days=27),
             description="Intensive workshop - materials included",
+        )
+
+        # Seated Concert - Reserved seating with user seat selection
+        # Get the sector for the concert hall
+        concert_sector = events_models.VenueSector.objects.get(
+            venue=self.venues["concert_hall"], name="Main Floor"
+        )
+        events_models.TicketTier.objects.create(
+            event=self.events["seated_concert"],
+            name="Reserved Seat",
+            visibility=events_models.TicketTier.Visibility.PUBLIC,
+            payment_method=events_models.TicketTier.PaymentMethod.ONLINE,
+            purchasable_by=events_models.TicketTier.PurchasableBy.PUBLIC,
+            price=Decimal("75.00"),
+            currency="EUR",
+            total_quantity=100,
+            quantity_sold=0,
+            sales_start_at=now,
+            sales_end_at=now + timedelta(days=49),
+            description="Reserved seating - select your seat during checkout.",
+            venue=self.venues["concert_hall"],
+            sector=concert_sector,
+            seat_assignment_mode=events_models.TicketTier.SeatAssignmentMode.USER_CHOICE,
         )
 
         logger.info("Created ticket tiers for events with tickets")
