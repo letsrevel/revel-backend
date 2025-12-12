@@ -256,20 +256,20 @@ def handle_guest_ticket_checkout(
     if not event.can_attend_without_login:
         raise HttpError(400, str(_("This event requires login to purchase tickets.")))
 
-    # Validate PWYC amount if provided
+    # Create or update guest user
+    user = get_or_create_guest_user(email, first_name, last_name)
+
+    # Check eligibility (before validating PWYC to prevent information leakage)
+    manager = EventManager(user, event)
+    manager.check_eligibility(raise_on_false=True)
+
+    # Validate PWYC amount if provided (after eligibility confirmed)
     if pwyc_amount is not None:
         if pwyc_amount < tier.pwyc_min:
             raise HttpError(400, str(_("PWYC amount must be at least {min_amount}")).format(min_amount=tier.pwyc_min))
 
         if tier.pwyc_max and pwyc_amount > tier.pwyc_max:
             raise HttpError(400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max))
-
-    # Create or update guest user
-    user = get_or_create_guest_user(email, first_name, last_name)
-
-    # Check eligibility
-    manager = EventManager(user, event)
-    manager.check_eligibility(raise_on_false=True)
 
     # Branch by payment method
     if tier.payment_method == models.TicketTier.PaymentMethod.ONLINE:
@@ -298,7 +298,7 @@ def handle_guest_ticket_checkout(
 
 
 @transaction.atomic
-def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.UserTicketSchema | schema.BatchCheckoutResponse:
+def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.BatchCheckoutResponse:
     """Confirm a guest action (RSVP or ticket purchase) via JWT token.
 
     Uses Pydantic's discriminated union to properly decode the token type.
@@ -307,7 +307,7 @@ def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.UserTick
         token: JWT token string
 
     Returns:
-        Created RSVP or ticket(s)
+        Created RSVP or BatchCheckoutResponse with ticket(s)
 
     Raises:
         HttpError: If token is invalid, expired, already used, or eligibility checks fail
@@ -364,11 +364,7 @@ def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.UserTick
 
         # Should always return tickets for non-online payment (what email confirmation is used for)
         if isinstance(result, list):
-            # Return first ticket for backward compatibility with single-ticket response
-            # (controller response type expects single ticket for confirm endpoint)
-            if len(result) == 1:
-                return schema.UserTicketSchema.from_orm(result[0])
-            # For multiple tickets, return batch response
+            # Always return BatchCheckoutResponse for consistency
             return schema.BatchCheckoutResponse(
                 checkout_url=None,
                 tickets=[schema.UserTicketSchema.from_orm(t) for t in result],

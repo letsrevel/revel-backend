@@ -381,19 +381,19 @@ class EventController(UserAwareController):
         "/guest-actions/confirm",
         url_name="confirm_guest_action",
         response={
-            200: schema.EventRSVPSchema | schema.UserTicketSchema | schema.BatchCheckoutResponse,
+            200: schema.EventRSVPSchema | schema.BatchCheckoutResponse,
             400: ResponseMessage,
         },
         throttle=WriteThrottle(),
     )
     def confirm_guest_action(
         self, payload: schema.GuestActionConfirmSchema
-    ) -> schema.EventRSVPSchema | schema.UserTicketSchema | schema.BatchCheckoutResponse:
+    ) -> schema.EventRSVPSchema | schema.BatchCheckoutResponse:
         """Confirm a guest action (RSVP or ticket purchase) via JWT token from email.
 
         Validates the token, executes the action (creates RSVP or ticket), and blacklists the token
-        to prevent reuse. Returns the created RSVP or ticket on success. Returns 400 if token is
-        invalid, expired, already used, or if eligibility checks fail (e.g., event became full).
+        to prevent reuse. Returns the created RSVP or BatchCheckoutResponse with tickets on success.
+        Returns 400 if token is invalid, expired, already used, or if eligibility checks fail (e.g., event became full).
         """
         return guest_service.confirm_guest_action(payload.token)
 

@@ -756,11 +756,12 @@ class TestConfirmGuestAction:
         # Act
         response = client.post(url, data=payload, content_type="application/json")
 
-        # Assert
+        # Assert - BatchCheckoutResponse for consistency
         assert response.status_code == 200
         data = response.json()
-        assert "tier" in data
-        assert data["tier"]["name"] == free_tier.name
+        assert "tickets" in data
+        assert len(data["tickets"]) == 1
+        assert data["tickets"][0]["tier"]["name"] == free_tier.name
 
         # Verify ticket was created
         ticket = Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets)
@@ -860,7 +861,7 @@ class TestConfirmGuestAction:
         response = client.post(url, data={"token": ticket_token}, content_type="application/json")
         assert response.status_code == 200
         data = response.json()
-        assert "tier" in data  # Ticket schema
+        assert "tickets" in data  # BatchCheckoutResponse schema
 
     def test_confirm_guest_action_rechecks_eligibility(
         self, guest_event: Event, existing_guest_user: RevelUser
@@ -2047,12 +2048,13 @@ class TestGuestCheckoutReservedSeating:
         url = reverse("api:confirm_guest_action")
         response = client.post(url, data={"token": token}, content_type="application/json")
 
-        # Assert
+        # Assert - BatchCheckoutResponse for consistency
         assert response.status_code == 200
         data = response.json()
-        assert "tier" in data
-        assert data["seat"]["id"] == str(seats[0].id)
-        assert data["seat"]["label"] == "A1"
+        assert "tickets" in data
+        assert len(data["tickets"]) == 1
+        assert data["tickets"][0]["seat"]["id"] == str(seats[0].id)
+        assert data["tickets"][0]["seat"]["label"] == "A1"
 
         # Verify ticket was created with seat
         ticket = Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets)
@@ -2107,13 +2109,14 @@ class TestGuestCheckoutReservedSeating:
         url = reverse("api:confirm_guest_action")
         response = client.post(url, data={"token": token}, content_type="application/json")
 
-        # Assert
+        # Assert - BatchCheckoutResponse for consistency
         assert response.status_code == 200
         data = response.json()
-        assert "tier" in data
+        assert "tickets" in data
+        assert len(data["tickets"]) == 1
         # Seat should be assigned randomly
-        assert data["seat"] is not None
-        assert "label" in data["seat"]
+        assert data["tickets"][0]["seat"] is not None
+        assert "label" in data["tickets"][0]["seat"]
 
         # Verify ticket was created with a seat
         ticket = Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets)
