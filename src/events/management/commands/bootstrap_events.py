@@ -1235,9 +1235,7 @@ Wine and refreshments available during the 20-minute intermission.
 
         # Seated Concert - Reserved seating with user seat selection
         # Get the sector for the concert hall
-        concert_sector = events_models.VenueSector.objects.get(
-            venue=self.venues["concert_hall"], name="Main Floor"
-        )
+        concert_sector = events_models.VenueSector.objects.get(venue=self.venues["concert_hall"], name="Main Floor")
         events_models.TicketTier.objects.create(
             event=self.events["seated_concert"],
             name="Reserved Seat",

@@ -620,16 +620,8 @@ class EventAdminController(UserAwareController):
         - tier__payment_method: Filter by payment method (ONLINE, OFFLINE, AT_THE_DOOR, FREE)
         """
         event = self.get_one(event_id)
-        # Include tier with venue/sector/city for AdminTicketSchema, plus seat and payment
-        qs = models.Ticket.objects.select_related(
-            "user",
-            "tier",
-            "tier__venue",
-            "tier__venue__city",
-            "tier__sector",
-            "seat",
-            "payment",
-        ).filter(event=event)
+        # Use full() for AdminTicketSchema (includes user, tier, venue, sector, seat, payment)
+        qs = models.Ticket.objects.full().filter(event=event)
         return params.filter(qs).distinct()
 
     @route.get(
@@ -642,19 +634,7 @@ class EventAdminController(UserAwareController):
     def get_ticket(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
         """Get a ticket by its ID."""
         event = self.get_one(event_id)
-        return get_object_or_404(
-            models.Ticket.objects.select_related(
-                "user",
-                "tier",
-                "tier__venue",
-                "tier__venue__city",
-                "tier__sector",
-                "seat",
-                "payment",
-            ),
-            pk=ticket_id,
-            event=event,
-        )
+        return get_object_or_404(models.Ticket.objects.full(), pk=ticket_id, event=event)
 
     @route.post(
         "/tickets/{ticket_id}/confirm-payment",

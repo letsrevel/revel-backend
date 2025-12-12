@@ -20,10 +20,11 @@ from common.controllers import UserAwareController
 from common.schema import ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle
 from events import filters, models, schema
-from events.service import event_service, stripe_service
+from events.service import event_service, stripe_service, ticket_service
 from events.service import guest as guest_service
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.event_manager import EventManager, EventUserEligibility
+from events.service.ticket_service import UserEventStatus
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 from questionnaires.schema import (
     QuestionnaireSchema,
@@ -286,36 +287,18 @@ class EventController(UserAwareController):
         RSVP, fill questionnaire, etc.).
         """
         event = self.get_one(event_id)
-        user = self.user()
+        status = ticket_service.get_user_event_status(event, self.user())
 
-        # Get all user's tickets for this event using the optimized full() queryset
-        # which includes: event, organization, tier (with venue/sector/city), seat, payment
-        tickets = list(models.Ticket.objects.full().filter(event=event, user_id=user.id).order_by("-created_at"))
-
-        if tickets and event.requires_ticket:
-            # Calculate remaining purchase capacity (use first tier for default limits)
-            # The frontend can check individual tiers via the tiers endpoint
-            first_tier = tickets[0].tier
-            if first_tier:
-                service = BatchTicketService(event, first_tier, user)
-                remaining = service.get_remaining_tickets()
-            else:
-                remaining = None
-
+        if isinstance(status, UserEventStatus):
             return schema.EventUserStatusResponse(
-                tickets=[schema.UserTicketSchema.from_orm(t) for t in tickets],
-                can_purchase_more=remaining is None or remaining > 0,
-                remaining_tickets=remaining,
+                tickets=[schema.UserTicketSchema.from_orm(t) for t in status.tickets],
+                rsvp=schema.EventRSVPSchema.from_orm(status.rsvp) if status.rsvp else None,
+                can_purchase_more=status.can_purchase_more,
+                remaining_tickets=status.remaining_tickets,
             )
 
-        # Check for RSVP (non-ticketed events)
-        if rsvp := models.EventRSVP.objects.filter(event=event, user_id=user.id).first():
-            return schema.EventUserStatusResponse(
-                rsvp=schema.EventRSVPSchema.from_orm(rsvp),
-            )
-
-        # No tickets or RSVP - return eligibility check
-        return EventManager(user, event).check_eligibility()
+        # EventUserEligibility - return as-is
+        return status
 
     @route.post(
         "/{event_id}/invitation-requests",

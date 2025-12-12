@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 
+import structlog
 from django.db import transaction
 from django.db.models import F
 from django.utils.translation import gettext_lazy as _
@@ -10,6 +11,8 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
+
+logger = structlog.get_logger(__name__)
 
 
 class BatchTicketService:
@@ -314,6 +317,18 @@ class BatchTicketService:
 
         # Resolve seats
         seats = self.resolve_seats(items)
+
+        # Log the batch purchase attempt for audit trail
+        logger.info(
+            "batch_ticket_purchase_started",
+            user_id=str(self.user.id),
+            event_id=str(self.event.id),
+            tier_id=str(self.tier.id),
+            ticket_count=len(items),
+            payment_method=locked_tier.payment_method,
+            seat_assignment_mode=self.tier.seat_assignment_mode,
+            has_seats=any(s is not None for s in seats),
+        )
 
         # Delegate to payment-specific method
         match locked_tier.payment_method:
