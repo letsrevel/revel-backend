@@ -126,10 +126,10 @@ def _validate_social_media_url(url: str, field_name: str) -> None:
 class SocialMediaSchemaRetrieveMixin(Schema):
     """Mixin for reading social media URL fields. No validation needed."""
 
-    instagram_url: str = ""
-    facebook_url: str = ""
-    bluesky_url: str = ""
-    telegram_url: str = ""
+    instagram_url: str | None = None
+    facebook_url: str | None = None
+    bluesky_url: str | None = None
+    telegram_url: str | None = None
 
 
 class SocialMediaSchemaEditMixin(Schema):

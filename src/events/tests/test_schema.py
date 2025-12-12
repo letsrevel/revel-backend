@@ -32,9 +32,7 @@ class TestSocialMediaSchemaEditMixin:
         """Test that valid URLs for each platform are accepted."""
         data = {field: url}
         schema = SocialMediaSchemaEditMixin.model_validate(data)
-        result = getattr(schema, field)
-        assert isinstance(result, AnyUrl)
-        assert str(result) == url
+        assert getattr(schema, field) == AnyUrl(url)
 
     @pytest.mark.parametrize(
         ("field", "url", "expected_error"),
@@ -73,7 +71,7 @@ class TestSocialMediaSchemaEditMixin:
         ["instagram_url", "facebook_url", "bluesky_url", "telegram_url"],
     )
     def test_empty_string_returns_none(self, field: str) -> None:
-        """Test that empty strings are converted to None (optional fields)."""
+        """Test that empty strings are converted to None (for DB null=True)."""
         data = {field: ""}
         schema = SocialMediaSchemaEditMixin.model_validate(data)
         assert getattr(schema, field) is None
@@ -96,10 +94,10 @@ class TestSocialMediaSchemaEditMixin:
                 "telegram_url": "https://t.me/channel",
             }
         )
-        assert str(schema.instagram_url) == "https://instagram.com/user"
-        assert str(schema.facebook_url) == "https://facebook.com/page"
-        assert str(schema.bluesky_url) == "https://bsky.app/profile/user"
-        assert str(schema.telegram_url) == "https://t.me/channel"
+        assert schema.instagram_url == AnyUrl("https://instagram.com/user")
+        assert schema.facebook_url == AnyUrl("https://facebook.com/page")
+        assert schema.bluesky_url == AnyUrl("https://bsky.app/profile/user")
+        assert schema.telegram_url == AnyUrl("https://t.me/channel")
 
     @pytest.mark.parametrize(
         ("field", "input_url", "expected_url"),
@@ -116,9 +114,7 @@ class TestSocialMediaSchemaEditMixin:
         """Test that https:// is prepended when no scheme is provided."""
         data = {field: input_url}
         schema = SocialMediaSchemaEditMixin.model_validate(data)
-        result = getattr(schema, field)
-        assert isinstance(result, AnyUrl)
-        assert str(result) == expected_url
+        assert getattr(schema, field) == AnyUrl(expected_url)
 
     @pytest.mark.parametrize(
         ("field", "url"),
@@ -133,9 +129,7 @@ class TestSocialMediaSchemaEditMixin:
         """Test that URLs with existing scheme are not modified."""
         data = {field: url}
         schema = SocialMediaSchemaEditMixin.model_validate(data)
-        result = getattr(schema, field)
-        assert isinstance(result, AnyUrl)
-        assert str(result) == url
+        assert getattr(schema, field) == AnyUrl(url)
 
 
 class TestSocialMediaSchemaRetrieveMixin:
@@ -154,10 +148,10 @@ class TestSocialMediaSchemaRetrieveMixin:
         assert schema.bluesky_url == "invalid-url"
         assert schema.telegram_url == ""
 
-    def test_all_fields_default_to_empty_string(self) -> None:
-        """Test that all social media fields default to empty string."""
+    def test_all_fields_default_to_none(self) -> None:
+        """Test that all social media fields default to None."""
         schema = SocialMediaSchemaRetrieveMixin()
-        assert schema.instagram_url == ""
-        assert schema.facebook_url == ""
-        assert schema.bluesky_url == ""
-        assert schema.telegram_url == ""
+        assert schema.instagram_url is None
+        assert schema.facebook_url is None
+        assert schema.bluesky_url is None
+        assert schema.telegram_url is None
