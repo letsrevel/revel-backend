@@ -9,7 +9,6 @@ from django.dispatch import receiver
 
 from common.models import SiteSettings
 from events.models import Event, Ticket, TicketTier
-from events.tasks import build_attendee_visibility_flags
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_organization_staff_and_owners
 from notifications.signals import notification_requested
@@ -359,11 +358,16 @@ def capture_ticket_old_status(sender: type[Ticket], instance: Ticket, **kwargs: 
 
 
 @receiver(post_save, sender=Ticket)
-def handle_ticket_save_and_notifications(
-    sender: type[Ticket], instance: Ticket, created: bool, **kwargs: t.Any
-) -> None:
-    """Send notifications for ticket lifecycle events."""
-    build_attendee_visibility_flags.delay(str(instance.event_id))
+def handle_ticket_notifications(sender: type[Ticket], instance: Ticket, created: bool, **kwargs: t.Any) -> None:
+    """Send notifications for ticket lifecycle events.
+
+    Note: This is one of multiple post_save handlers for Ticket model:
+    - events.signals.handle_ticket_visibility_and_potluck: Handles visibility flags + potluck unclaiming
+    - notifications.signals.ticket.handle_ticket_notifications: Sends notifications (this handler)
+    - notifications.signals.waitlist.handle_ticket_waitlist_logic: Manages waitlist removal
+
+    Visibility flags are handled by events.signals to avoid duplication.
+    """
 
     def send_notifications() -> None:
         if created:

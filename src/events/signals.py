@@ -119,11 +119,18 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
 
 
 @receiver(post_save, sender=Ticket)
-def handle_ticket_save(sender: type[Ticket], instance: Ticket, created: bool, **kwargs: t.Any) -> None:
+def handle_ticket_visibility_and_potluck(
+    sender: type[Ticket], instance: Ticket, created: bool, **kwargs: t.Any
+) -> None:
     """Trigger visibility task and unclaim potluck items when ticket status becomes CANCELLED.
 
     When a ticket's status changes to CANCELLED, we automatically unclaim all potluck items
     the user had claimed, since they are no longer confirmed to attend.
+
+    Note: This is one of multiple post_save handlers for Ticket model:
+    - events.signals.handle_ticket_visibility_and_potluck: Handles visibility flags + potluck (this handler)
+    - notifications.signals.ticket.handle_ticket_notifications: Sends notifications
+    - notifications.signals.waitlist.handle_ticket_waitlist_logic: Manages waitlist removal
     """
     build_attendee_visibility_flags.delay(str(instance.event_id))
 

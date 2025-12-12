@@ -1255,7 +1255,8 @@ class GuestCheckoutResponseSchema(Schema):
     # For online payments (Stripe checkout)
     checkout_url: str | None = Field(None, description="Stripe checkout URL (for online payment)")
     tickets: list["UserTicketSchema"] = Field(
-        default_factory=list, description="Created tickets (for free/offline payments when confirmed)"
+        default_factory=list,
+        description="Created tickets (only present after guest email confirmation for free/offline payments)",
     )
 
 
