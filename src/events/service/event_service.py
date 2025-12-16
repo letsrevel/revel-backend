@@ -30,7 +30,6 @@ from events.schema import (
     AggregatedDietaryPreferenceSchema,
     AggregatedDietaryRestrictionSchema,
     EventDietarySummarySchema,
-    InvitationBaseSchema,
 )
 
 T = t.TypeVar("T", bound=LocationMixin)
@@ -104,7 +103,7 @@ def create_event_token(
     event: Event,
     issuer: RevelUser,
     duration: timedelta | int = 60,
-    invitation_payload: InvitationBaseSchema | None = None,
+    invitation_payload: dict[str, t.Any] | None = None,
     ticket_tier_id: UUID | None = None,
     name: str | None = None,
     grants_invitation: bool = False,
@@ -123,7 +122,7 @@ def create_event_token(
         max_uses=max_uses,
         ticket_tier_id=ticket_tier_id,
         grants_invitation=grants_invitation,
-        invitation_payload=invitation_payload.model_dump(mode="json") if invitation_payload is not None else None,
+        invitation_payload=invitation_payload,
     )
 
 

@@ -79,7 +79,10 @@ def test_create_event_token_with_invitation(
 
     # Act
     token = event_service.create_event_token(
-        event=event, issuer=organization_owner_user, invitation_payload=invitation, ticket_tier_id=vip_tier.id
+        event=event,
+        issuer=organization_owner_user,
+        invitation_payload=invitation.model_dump(mode="json"),
+        ticket_tier_id=vip_tier.id,
     )
 
     assert token.invitation_payload is not None
@@ -108,7 +111,10 @@ def test_claim_invitation_returns_invitation(
     # Arrange
     invitation_schema = InvitationBaseSchema(waives_questionnaire=True, overrides_max_attendees=False)
     token = event_service.create_event_token(
-        event=event, issuer=organization_owner_user, grants_invitation=True, invitation_payload=invitation_schema
+        event=event,
+        issuer=organization_owner_user,
+        grants_invitation=True,
+        invitation_payload=invitation_schema.model_dump(mode="json"),
     )
 
     # Act
@@ -127,7 +133,10 @@ def test_claim_invitation_increments_uses(
     # Arrange
     invitation_schema = InvitationBaseSchema(waives_questionnaire=True, overrides_max_attendees=False)
     token = event_service.create_event_token(
-        event=event, issuer=organization_owner_user, grants_invitation=True, invitation_payload=invitation_schema
+        event=event,
+        issuer=organization_owner_user,
+        grants_invitation=True,
+        invitation_payload=invitation_schema.model_dump(mode="json"),
     )
     assert token.uses == 0
 
@@ -146,7 +155,10 @@ def test_claim_invitation_with_max_uses(
     # Arrange
     invitation_schema = InvitationBaseSchema(waives_questionnaire=True, overrides_max_attendees=False)
     token = event_service.create_event_token(
-        event=event, issuer=organization_owner_user, invitation_payload=invitation_schema, max_uses=1
+        event=event,
+        issuer=organization_owner_user,
+        invitation_payload=invitation_schema.model_dump(mode="json"),
+        max_uses=1,
     )
     event_service.claim_invitation(public_user, token.id)
 

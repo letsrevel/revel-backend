@@ -1144,7 +1144,11 @@ class TestCalendarEndpoint:
 
     def test_calendar_month_view(self, client: Client, organization: Organization) -> None:
         """Test month view returns only events in specified month."""
-        # Create events in different months of 2025
+        # Ensure organization is visible to anonymous users
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save()
+
+        # Create events in different months (using future dates to avoid past event filtering)
         dec_event = Event.objects.create(
             organization=organization,
             name="December Event",
@@ -1153,8 +1157,8 @@ class TestCalendarEndpoint:
             event_type=Event.EventType.PUBLIC,
             status="open",
             requires_ticket=False,
-            start=datetime(2025, 12, 15, 10, 0, 0, tzinfo=ZoneInfo("UTC")),
-            end=datetime(2025, 12, 15, 12, 0, 0, tzinfo=ZoneInfo("UTC")),
+            start=datetime(2026, 12, 15, 10, 0, 0, tzinfo=ZoneInfo("UTC")),
+            end=datetime(2026, 12, 15, 12, 0, 0, tzinfo=ZoneInfo("UTC")),
         )
         jan_event = Event.objects.create(
             organization=organization,
@@ -1164,12 +1168,12 @@ class TestCalendarEndpoint:
             event_type=Event.EventType.PUBLIC,
             status="open",
             requires_ticket=False,
-            start=datetime(2026, 1, 15, 10, 0, 0, tzinfo=ZoneInfo("UTC")),
-            end=datetime(2026, 1, 15, 12, 0, 0, tzinfo=ZoneInfo("UTC")),
+            start=datetime(2027, 1, 15, 10, 0, 0, tzinfo=ZoneInfo("UTC")),
+            end=datetime(2027, 1, 15, 12, 0, 0, tzinfo=ZoneInfo("UTC")),
         )
 
         url = reverse("api:calendar_events")
-        response = client.get(url, {"month": 12, "year": 2025})
+        response = client.get(url, {"month": 12, "year": 2026})
 
         assert response.status_code == 200
         data = response.json()
