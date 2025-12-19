@@ -124,6 +124,12 @@ class RegisterUserSchema(PasswordMixin):
     last_name: StrippedString = ""
     accept_toc_and_privacy: bool = Field(..., description="Must accept terms of service and privacy policy")
 
+    @field_validator("email")
+    @classmethod
+    def lowercase_email(cls, v: str) -> str:
+        """Normalize email to lowercase."""
+        return v.lower()
+
     @field_validator("accept_toc_and_privacy")
     @classmethod
     def validate_accept_toc_and_privacy(cls, v: bool) -> bool:
@@ -197,7 +203,7 @@ class ProfileUpdateSchema(Schema):
     """Schema for updating user profile information."""
 
     preferred_name: str = Field(..., max_length=255, description="User's preferred name")
-    pronouns: str = Field(..., max_length=10, description="User's pronouns")
+    pronouns: str = Field(..., max_length=100, description="User's pronouns")
     first_name: str = Field(..., max_length=30, description="User's first name")
     last_name: str = Field(..., max_length=150, description="User's last name")
     language: SupportedLanguage = Field("en", max_length=7, description="User's preferred language (en, de, it)")
