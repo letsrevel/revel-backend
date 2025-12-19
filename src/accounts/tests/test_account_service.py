@@ -15,6 +15,54 @@ from accounts.service import account as account_service
 pytestmark = pytest.mark.django_db
 
 
+class TestRegisterUserSchemaEmailNormalization:
+    """Tests for email normalization in RegisterUserSchema."""
+
+    def test_uppercase_email_converted_to_lowercase(self) -> None:
+        """Test that uppercase email is converted to lowercase."""
+        payload = schema.RegisterUserSchema(
+            email="TEST@EXAMPLE.COM",
+            password1="a-Strong-password-123!",
+            password2="a-Strong-password-123!",
+            accept_toc_and_privacy=True,
+        )
+        assert payload.email == "test@example.com"
+
+    def test_mixed_case_email_converted_to_lowercase(self) -> None:
+        """Test that mixed case email is converted to lowercase."""
+        payload = schema.RegisterUserSchema(
+            email="Test.User@Example.COM",
+            password1="a-Strong-password-123!",
+            password2="a-Strong-password-123!",
+            accept_toc_and_privacy=True,
+        )
+        assert payload.email == "test.user@example.com"
+
+    def test_lowercase_email_stays_lowercase(self) -> None:
+        """Test that already lowercase email remains unchanged."""
+        payload = schema.RegisterUserSchema(
+            email="user@example.com",
+            password1="a-Strong-password-123!",
+            password2="a-Strong-password-123!",
+            accept_toc_and_privacy=True,
+        )
+        assert payload.email == "user@example.com"
+
+    @patch("accounts.tasks.send_verification_email.delay")
+    def test_registration_saves_lowercase_email(self, mock_send_email: MagicMock) -> None:
+        """Test that user registration saves email as lowercase in database."""
+        payload = schema.RegisterUserSchema(
+            email="MixedCase@Example.COM",
+            password1="a-Strong-password-123!",
+            password2="a-Strong-password-123!",
+            accept_toc_and_privacy=True,
+        )
+        user, _ = account_service.register_user(payload)
+
+        assert user.email == "mixedcase@example.com"
+        assert user.username == "mixedcase@example.com"
+
+
 @patch("accounts.tasks.send_verification_email.delay")
 def test_register_user_success(mock_send_email: MagicMock, valid_register_payload: schema.RegisterUserSchema) -> None:
     """Test successful user registration creates a user and sends an email."""

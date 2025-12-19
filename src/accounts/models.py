@@ -31,7 +31,7 @@ class RevelUser(AbstractUser):
         max_length=20, unique=True, null=True, blank=True, validators=[validate_phone_number], help_text="Phone number"
     )
     preferred_name = models.CharField(db_index=True, max_length=255, blank=True, help_text="Preferred name")
-    pronouns = models.CharField(max_length=10, blank=True, help_text="Pronouns")
+    pronouns = models.CharField(max_length=100, blank=True, help_text="Pronouns")
     email_verified = models.BooleanField(default=False)
     guest = models.BooleanField(default=False, help_text="True if this is a guest user (not fully registered)")
     totp_secret = EncryptedTextField(default=pyotp.random_base32, editable=False)

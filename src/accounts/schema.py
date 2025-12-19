@@ -124,6 +124,12 @@ class RegisterUserSchema(PasswordMixin):
     last_name: StrippedString = ""
     accept_toc_and_privacy: bool = Field(..., description="Must accept terms of service and privacy policy")
 
+    @field_validator("email")
+    @classmethod
+    def lowercase_email(cls, v: str) -> str:
+        """Normalize email to lowercase."""
+        return v.lower()
+
     @field_validator("accept_toc_and_privacy")
     @classmethod
     def validate_accept_toc_and_privacy(cls, v: bool) -> bool:
