@@ -79,6 +79,43 @@ Revel combines the ticketing power of platforms like Eventbrite with the communi
 
 ---
 
+## 📸 Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/event-detail-page.png" alt="Event Detail Page" width="800"/>
+  <br/>
+  <em>Event detail page with eligibility status, invitation requests, and rich event information</em>
+</p>
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/questionnaire-eligibility.png" alt="Questionnaire Eligibility" width="280"/>
+      <br/>
+      <em>Questionnaire-based screening</em>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/seat-selection.png" alt="Seat Selection" width="340"/>
+      <br/>
+      <em>Interactive seat selection</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/potluck-coordination.png" alt="Potluck Coordination" width="400"/>
+      <br/>
+      <em>Potluck coordination</em>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/dietary-information.png" alt="Dietary Information" width="400"/>
+      <br/>
+      <em>Dietary preferences & restrictions</em>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## 💻 Tech Stack
 
 Revel is built with a modern and robust backend, designed for performance and scalability.
