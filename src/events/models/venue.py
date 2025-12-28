@@ -181,9 +181,9 @@ class VenueSeat(TimeStampedModel):
         help_text="Seat position for FE rendering (pixel-based or relative coordinate).",
     )
 
-    is_accessible = models.BooleanField(default=False, db_index=True)
+    is_accessible = models.BooleanField(default=False)
     is_obstructed_view = models.BooleanField(default=False)
-    is_active = models.BooleanField(default=True, db_index=True)
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         constraints = [

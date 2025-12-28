@@ -171,6 +171,9 @@ class QuestionnaireGate(BaseEligibilityGate):
 
     def check(self) -> EventUserEligibility | None:
         """Check if the questionnaires are in order."""
+        # Invitation can waive all questionnaire requirements
+        if getattr(self.handler.invitation, "waives_questionnaire", False):
+            return None
         if missing := self._check_missing_questionnaires():
             return missing
         if pending_review := self._check_pending_review():
@@ -179,9 +182,40 @@ class QuestionnaireGate(BaseEligibilityGate):
             return failed
         return None
 
+    def _get_applicable_questionnaires(self) -> list[OrganizationQuestionnaire]:
+        """Get questionnaires that apply to this user (excluding waived/exempt ones)."""
+        return [
+            oq
+            for oq in self.handler.event.organization.relevant_org_questionnaires  # type: ignore[attr-defined]
+            if not (oq.members_exempt and self.user.id in self.handler.member_ids)
+        ]
+
+    def _check_retake_eligibility(
+        self,
+        questionnaire: Questionnaire,
+        submission: QuestionnaireSubmission,
+        questionnaires_missing: list[uuid.UUID],
+    ) -> EventUserEligibility | None:
+        """Check if user can retake a rejected questionnaire. Mutates questionnaires_missing list."""
+        if questionnaire.can_retake_after is None:
+            questionnaires_missing.append(questionnaire.id)
+            return None
+        assert submission.submitted_at is not None  # Submissions with evaluations always have submitted_at
+        retry_on = submission.submitted_at + questionnaire.can_retake_after
+        if retry_on < timezone.now():
+            questionnaires_missing.append(questionnaire.id)
+            return None
+        return EventUserEligibility(
+            allowed=False,
+            reason=_(Reasons.QUESTIONNAIRE_FAILED),
+            event_id=self.event.id,
+            next_step=NextStep.WAIT_TO_RETAKE_QUESTIONNAIRE,
+            retry_on=retry_on,
+        )
+
     def _check_missing_questionnaires(self) -> EventUserEligibility | None:
         questionnaires_missing = []
-        for org_questionnaire in self.handler.event.organization.relevant_org_questionnaires:  # type: ignore[attr-defined]
+        for org_questionnaire in self._get_applicable_questionnaires():
             # Look up the submission in our O(1) map. No database query.
             submissions = self.handler.submission_map.get(org_questionnaire.questionnaire_id)
             if (
@@ -202,7 +236,7 @@ class QuestionnaireGate(BaseEligibilityGate):
 
     def _check_pending_review(self) -> EventUserEligibility | None:
         questionnaires_pending_review = []
-        for org_questionnaire in self.handler.event.organization.relevant_org_questionnaires:  # type: ignore[attr-defined]
+        for org_questionnaire in self._get_applicable_questionnaires():
             # Look up the submission in our O(1) map. No database query.
             if submissions := self.handler.submission_map.get(org_questionnaire.questionnaire_id):
                 evaluation = getattr(submissions[0], "evaluation", None)
@@ -222,36 +256,24 @@ class QuestionnaireGate(BaseEligibilityGate):
         return None
 
     def _check_failed(self) -> EventUserEligibility | None:
-        failed_questionnaires = []
-        questionnaires_missing = []
-        for org_questionnaire in self.handler.event.organization.relevant_org_questionnaires:  # type: ignore[attr-defined]
+        failed_questionnaires: list[uuid.UUID] = []
+        questionnaires_missing: list[uuid.UUID] = []
+        for org_questionnaire in self._get_applicable_questionnaires():
             # Look up the submission in our O(1) map. No database query.
             questionnaire = org_questionnaire.questionnaire
             submissions = self.handler.submission_map.get(questionnaire.id)
-            if not submissions:
-                continue
-            submission = submissions[0]
-            evaluation = getattr(submission, "evaluation", None)
-            if evaluation is None:
+            # Skip if no submissions or no evaluation yet
+            if not submissions or not (evaluation := getattr(submissions[0], "evaluation", None)):
                 continue
             if evaluation.status != QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED:
                 continue
+            # At this point we have a rejected evaluation
             if 0 < questionnaire.max_attempts <= len(submissions):
                 failed_questionnaires.append(org_questionnaire.questionnaire_id)
                 continue
-            if questionnaire.can_retake_after is None:
-                questionnaires_missing.append(questionnaire.id)
-            elif submission.submitted_at + questionnaire.can_retake_after < timezone.now():
-                questionnaires_missing.append(questionnaire.id)
-            else:
-                retry_on = submission.submitted_at + questionnaire.can_retake_after
-                return EventUserEligibility(
-                    allowed=False,
-                    reason=_(Reasons.QUESTIONNAIRE_FAILED),
-                    event_id=self.event.id,
-                    next_step=NextStep.WAIT_TO_RETAKE_QUESTIONNAIRE,
-                    retry_on=retry_on,
-                )
+            # Check if user can retake
+            if result := self._check_retake_eligibility(questionnaire, submissions[0], questionnaires_missing):
+                return result
         if failed_questionnaires:
             return EventUserEligibility(
                 allowed=False,
@@ -501,10 +523,6 @@ class EligibilityService:
                 return result
 
         return EventUserEligibility(allowed=True, event_id=self.event.id)
-
-    def waives_questionnaire(self) -> bool:
-        """Overrides questionnaire."""
-        return getattr(self.invitation, "waives_questionnaire", False)
 
     def overrides_max_attendees(self) -> bool:
         """Overrides max attendees."""

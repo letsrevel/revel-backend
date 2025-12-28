@@ -789,6 +789,7 @@ class BaseOrganizationQuestionnaireSchema(Schema):
     event_series: list[MinimalEventSeriesSchema] = Field(default_factory=list)
     max_submission_age: timedelta | int | None = None
     questionnaire_type: OrganizationQuestionnaire.QuestionnaireType
+    members_exempt: bool
 
     @field_serializer("max_submission_age")
     def serialize_max_submission_age(self, value: timedelta | int | None) -> int | None:
@@ -810,12 +811,13 @@ class OrganizationQuestionnaireSchema(BaseOrganizationQuestionnaireSchema):
 
 
 class OrganizationQuestionnaireFieldsMixin(Schema):
-    """Mixin for OrganizationQuestionnaire-specific fields (max_submission_age, questionnaire_type)."""
+    """Mixin for OrganizationQuestionnaire-specific fields (max_submission_age, questionnaire_type, members_exempt)."""
 
     max_submission_age: timedelta | None = None
     questionnaire_type: OrganizationQuestionnaire.QuestionnaireType = (
         OrganizationQuestionnaire.QuestionnaireType.ADMISSION
     )
+    members_exempt: bool = False
 
 
 class OrganizationQuestionnaireCreateSchema(
@@ -850,6 +852,7 @@ class OrganizationQuestionnaireUpdateSchema(Schema):
     # OrganizationQuestionnaire wrapper fields
     max_submission_age: timedelta | None = None
     questionnaire_type: OrganizationQuestionnaire.QuestionnaireType | None = None
+    members_exempt: bool | None = None
 
 
 class EventAssignmentSchema(Schema):
