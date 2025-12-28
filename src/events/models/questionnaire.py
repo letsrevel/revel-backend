@@ -75,6 +75,7 @@ class OrganizationQuestionnaire(TimeStampedModel):
         choices=QuestionnaireType.choices, default=QuestionnaireType.ADMISSION, max_length=20, db_index=True
     )
     max_submission_age = models.DurationField(null=True, blank=True, db_index=True)
+    members_exempt = models.BooleanField(default=False)
 
     objects = OrganizationQuestionnaireManager()
 

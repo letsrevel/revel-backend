@@ -249,6 +249,7 @@ class QuestionnaireService:
                 "freetextquestion_questions",
                 "max_submission_age",
                 "questionnaire_type",
+                "members_exempt",
             }
         )
         questionnaire = Questionnaire.objects.create(**questionnaire_data)
