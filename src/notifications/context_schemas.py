@@ -127,7 +127,6 @@ class EventOpenContext(BaseNotificationContext):
     event_id: str
     event_name: str
     event_description: str
-    event_description_html: str
     event_start: str
     event_end: str
     event_location: str
@@ -281,7 +280,6 @@ class InvitationReceivedContext(BaseNotificationContext):
     event_id: str
     event_name: str
     event_description: str
-    event_description_html: str
     event_start: str
     event_end: str
     event_location: str

@@ -193,7 +193,6 @@ class MinimalOrganizationSchema(Schema):
     name: str
     slug: str
     description: str | None = ""
-    description_html: str = ""
     logo: str | None = None
     cover_art: str | None = None
     visibility: Organization.Visibility
@@ -211,7 +210,6 @@ class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin):
     name: str
     slug: str
     description: str | None = ""
-    description_html: str = ""
     logo: str | None = None
     cover_art: str | None = None
     visibility: Organization.Visibility
@@ -229,7 +227,6 @@ class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin, SocialM
     name: str
     slug: str
     description: str | None = ""
-    description_html: str = ""
     logo: str | None = None
     cover_art: str | None = None
     visibility: Organization.Visibility
@@ -247,7 +244,6 @@ class OrganizationAdminDetailSchema(CityRetrieveMixin, TaggableSchemaMixin, Soci
     name: str
     slug: str
     description: str | None = ""
-    description_html: str = ""
     logo: str | None = None
     cover_art: str | None = None
     visibility: Organization.Visibility
@@ -270,7 +266,6 @@ class MinimalEventSeriesSchema(Schema):
     organization: MinimalOrganizationSchema
     name: str
     description: str | None = None
-    description_html: str = ""
     slug: str
     logo: str | None = None
     cover_art: str | None = None
@@ -283,7 +278,6 @@ class EventSeriesInListSchema(TaggableSchemaMixin):
     organization: MinimalOrganizationSchema
     name: str
     description: str | None = None
-    description_html: str = ""
     slug: str
     logo: str | None = None
     cover_art: str | None = None
@@ -298,7 +292,6 @@ class EventSeriesRetrieveSchema(TaggableSchemaMixin):
     organization: MinimalOrganizationSchema
     name: str
     description: str | None = None
-    description_html: str = ""
     slug: str
     logo: str | None = None
     cover_art: str | None = None
@@ -367,9 +360,7 @@ class EventBaseSchema(TaggableSchemaMixin):
     name: str
     slug: str
     description: str | None = None
-    # description_html: str = ""
     invitation_message: str | None = None
-    # invitation_message_html: str = ""
     max_attendees: int = 0
     max_tickets_per_user: int | None = None
     waitlist_open: bool | None = None
@@ -394,8 +385,6 @@ class EventInListSchema(EventBaseSchema):
 class EventDetailSchema(EventBaseSchema):
     city: CitySchema | None = None
     address: str | None = None
-    description_html: str = ""
-    invitation_message_html: str = ""
 
     @staticmethod
     def resolve_address(obj: Event, context: t.Any) -> str | None:
@@ -480,7 +469,6 @@ class TicketTierSchema(ModelSchema):
     price: Decimal
     currency: str
     total_available: int | None
-    description_html: str = ""
     restricted_to_membership_tiers: list["MembershipTierSchema"] | None = None
     seat_assignment_mode: TicketTier.SeatAssignmentMode
     max_tickets_per_user: int | None = None
@@ -978,7 +966,6 @@ class PotluckItemCreateSchema(ModelSchema):
 class PotluckItemRetrieveSchema(ModelSchema):
     is_assigned: bool = False
     is_owned: bool = False
-    note_html: str = ""
 
     class Meta:
         model = models.PotluckItem
@@ -989,8 +976,6 @@ class PotluckItemRetrieveSchema(ModelSchema):
 
 
 class AdditionalResourceSchema(ModelSchema):
-    description_html: str = ""
-    text_html: str = ""
     event_ids: list[UUID] = Field(default_factory=list)
     event_series_ids: list[UUID] = Field(default_factory=list)
 
@@ -1083,7 +1068,6 @@ class AdditionalResourceUpdateSchema(Schema):
 
 class MembershipTierSchema(ModelSchema):
     description: str | None = None
-    description_html: str | None = None
 
     class Meta:
         model = models.MembershipTier

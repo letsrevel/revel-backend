@@ -133,7 +133,7 @@ def sanitize_for_telegram(html: str) -> str:
     This function converts or removes unsupported tags.
 
     Args:
-        html: HTML string (typically from MarkdownField.body_html)
+        html: HTML or text string to sanitize for Telegram
 
     Returns:
         Telegram-compatible HTML string

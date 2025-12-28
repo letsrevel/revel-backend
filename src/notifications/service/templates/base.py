@@ -14,9 +14,9 @@ class NotificationTemplate(ABC):
 
     This class provides a channel-aware template interface where each notification
     type must implement rendering for three channels:
-    - In-app: Title + markdown body (stored in notification.body, rendered via body_html)
+    - In-app: Title + markdown body (stored in notification.body, sanitized at save time)
     - Email: Subject + text body + HTML body
-    - Telegram: Markdown body (converted to HTML via body_html, then sanitized)
+    - Telegram: Markdown body (sanitized for Telegram HTML subset)
 
     The base class provides default implementations that render Django templates
     from the standard structure:
@@ -117,8 +117,8 @@ class NotificationTemplate(ABC):
         By default, renders the template at:
         notifications/telegram/{notification_type}.md
 
-        The markdown will be converted to HTML via notification.body_html
-        and then sanitized for Telegram in the TelegramChannel.
+        The markdown will be converted to HTML via render_markdown() and then
+        sanitized for Telegram's HTML subset in the TelegramChannel.
 
         Args:
             notification: The notification instance

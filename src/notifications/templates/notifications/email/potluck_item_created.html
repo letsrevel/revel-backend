@@ -1,4 +1,4 @@
-{% load i18n %}<!DOCTYPE html>
+{% load i18n markdown_tags %}<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -34,7 +34,7 @@
                 <div class="info-row"><span class="label">{% trans "Category:" %}</span> {{ context.item_type }}</div>
                 {% if context.quantity %}<div class="info-row"><span class="label">{% trans "Quantity:" %}</span> {{ context.quantity }}</div>{% endif %}
                 {% if context.actor_name %}<div class="info-row"><span class="label">{% trans "Added by:" %}</span> {{ context.actor_name }}</div>{% endif %}
-                {% if context.note %}<div class="info-row" style="margin-top: 10px;"><span class="label">{% trans "Description:" %}</span><br>{{ context.note }}</div>{% endif %}
+                {% if context.note %}<div class="info-row" style="margin-top: 10px;"><span class="label">{% trans "Description:" %}</span><div>{{ context.note|markdown }}</div></div>{% endif %}
             </div>
 
             <center>

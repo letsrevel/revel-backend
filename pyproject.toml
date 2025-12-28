@@ -1,6 +1,6 @@
 [project]
 name = "revel"
-version = "1.13.5"
+version = "1.14.0"
 description = "The Revel Event Manager"
 readme = "README.md"
 license = "MIT"
@@ -21,7 +21,6 @@ classifiers = [
 requires-python = ">=3.13"
 dependencies = [
     "aiogram>=3.20.0.post0",
-    "bleach>=6.2.0",
     "celery>=5.5.3",
     "cryptography>=45.0.4",
     "django==5.2.8",
@@ -51,7 +50,8 @@ dependencies = [
     "httpx[http2]>=0.28.1",
     "ics>=0.7.2",
     "ip2location>=8.10.5",
-    "markdown>=3.8.1",
+    "markdown>=3.7",
+    "nh3>=0.3.2",
     "ninja-schema>=0.14.2",
     "openai>=1.95.1",
     "opentelemetry-api>=1.38.0",
@@ -108,8 +108,7 @@ dev = [
     "pytest-django>=4.11.1",
     "pytest-xdist>=3.8.0",
     "ruff>=0.12.0",
-    "types-bleach>=6.2.0.20250809",
-    "types-markdown>=3.9.0.20250906",
+    "types-markdown>=3.10.0.20251106",
     "types-qrcode>=8.2.0.20250506",
     "types-stripe>=3.5.2.20240106",
 ]

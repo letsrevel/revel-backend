@@ -6,16 +6,26 @@ This module provides custom field types with built-in sanitization and security 
 from __future__ import annotations
 
 import typing as t
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
-import bleach
-import markdown as md
+import nh3
 from django.contrib.gis.db import models
 
-if t.TYPE_CHECKING:
-    pass
+# Registry of all models using MarkdownField
+# Format: {model_class: [field_name1, field_name2, ...]}
+_markdown_field_registry: dict[type[models.Model], list[str]] = {}
 
-# Allowed HTML tags after markdown conversion
+
+def get_markdown_field_registry() -> dict[type[models.Model], list[str]]:
+    """Get the registry of all models using MarkdownField.
+
+    Returns:
+        A dictionary mapping model classes to lists of field names.
+    """
+    return _markdown_field_registry.copy()
+
+
+# Allowed HTML tags for markdown content - intentionally restrictive
 ALLOWED_TAGS = {
     # Text formatting
     "p",
@@ -51,152 +61,105 @@ ALLOWED_TAGS = {
     "tr",
     "th",
     "td",
-    # Images
-    "img",
-    # Embedded content
-    "iframe",
 }
 
-# Allowed domains for iframe embeds
-ALLOWED_IFRAME_DOMAINS = {
-    "www.youtube.com",
-    "youtube.com",
-    "www.youtube-nocookie.com",
-    "youtube-nocookie.com",
-    "player.vimeo.com",
-    "vimeo.com",
+# Allowed URL schemes - no javascript, data, etc.
+ALLOWED_URL_SCHEMES = {"http", "https", "mailto"}
+
+# Allowed attributes per tag
+# Note: "rel" on <a> is handled automatically by nh3's link_rel parameter
+ALLOWED_ATTRIBUTES: dict[str, set[str]] = {
+    "a": {"href", "title"},
+    "abbr": {"title"},
+    "acronym": {"title"},
+    "code": {"class"},  # For syntax highlighting
+    "th": {"align", "valign", "scope"},
+    "td": {"align", "valign"},
 }
 
 
-def _allow_img_attributes(tag: str, name: str, value: str) -> bool:
-    """Validate img tag attributes.
+def _filter_attributes(
+    element: str,
+    attribute: str,
+    value: str,
+) -> str | None:
+    """Filter attributes for HTML elements.
 
-    Only allows safe image sources (https URLs or data URIs).
+    This callback supplements nh3's url_schemes validation by also checking
+    URL-decoded values. While nh3 validates schemes directly, it doesn't
+    decode URLs first, so encoded attacks like "javascript%3Aalert(1)"
+    would bypass the url_schemes check. This filter catches those.
 
     Args:
-        tag: The HTML tag name
-        name: The attribute name
+        element: The HTML element name
+        attribute: The attribute name
         value: The attribute value
 
     Returns:
-        True if the attribute is allowed, False otherwise
+        The value if allowed, None to remove
     """
-    if tag == "img":
-        # Allow alt and title for all images
-        if name in ("alt", "title", "width", "height"):
-            return True
+    if element == "a" and attribute == "href":
+        # Decode URL to catch encoded attacks like javascript%3A -> javascript:
+        decoded_value = unquote(value)
+        parsed = urlparse(decoded_value)
+        if parsed.scheme and parsed.scheme not in ALLOWED_URL_SCHEMES:
+            return None
 
-        # Strict validation for src attribute
-        if name == "src":
-            # Allow data URIs for inline images
-            if value.startswith("data:image/"):
-                return True
-            # Only allow HTTPS URLs for security
-            parsed = urlparse(value)
-            return parsed.scheme == "https"
-
-    return False
+    return value
 
 
-def _allow_iframe_attributes(tag: str, name: str, value: str) -> bool:
-    """Validate iframe tag attributes.
-
-    Only allows embeds from approved domains (YouTube, Vimeo).
-
-    Args:
-        tag: The HTML tag name
-        name: The attribute name
-        value: The attribute value
-
-    Returns:
-        True if the attribute is allowed, False otherwise
-    """
-    if tag == "iframe":
-        # Allow basic iframe attributes
-        if name in ("width", "height", "frameborder", "allowfullscreen", "title"):
-            return True
-
-        # Strict validation for src - only allow approved embed domains
-        if name == "src":
-            parsed = urlparse(value)
-            # Must use https
-            if parsed.scheme != "https":
-                return False
-            # Must be from an approved domain
-            return parsed.netloc in ALLOWED_IFRAME_DOMAINS
-
-    return False
-
-
-def _allow_attributes(tag: str, name: str, value: str) -> bool:
-    """Main attribute validator that combines all validation rules.
-
-    Args:
-        tag: The HTML tag name
-        name: The attribute name
-        value: The attribute value
-
-    Returns:
-        True if the attribute is allowed, False otherwise
-    """
-    # Standard allowed attributes for all tags
-    standard_attrs = {
-        "a": ["href", "title", "rel"],
-        "abbr": ["title"],
-        "acronym": ["title"],
-        "code": ["class"],  # For syntax highlighting
-        "th": ["align", "valign", "scope"],
-        "td": ["align", "valign"],
-    }
-
-    # Check standard attributes first
-    if tag in standard_attrs and name in standard_attrs[tag]:
-        # Additional validation for href to ensure safe protocols
-        if tag == "a" and name == "href":
-            parsed = urlparse(value)
-            return parsed.scheme in ("http", "https", "mailto", "")
-        return True
-
-    # Check img-specific rules
-    if tag == "img":
-        return _allow_img_attributes(tag, name, value)
-
-    # Check iframe-specific rules
-    if tag == "iframe":
-        return _allow_iframe_attributes(tag, name, value)
-
-    return False
-
-
-# Allowed protocols for links
-ALLOWED_PROTOCOLS = {"http", "https", "mailto"}
-
-
-def sanitize_html(html: str) -> str:
-    """Sanitize HTML using bleach with a safe allowlist.
+def sanitize_html(html: str | None) -> str:
+    """Sanitize HTML using nh3 with a safe allowlist.
 
     This function removes potentially dangerous HTML elements and attributes
-    while preserving safe formatting generated from markdown.
+    while preserving safe formatting. Images, iframes, SVGs, and other
+    potentially dangerous elements are not allowed.
 
     Args:
-        html: The HTML string to sanitize
+        html: The HTML string to sanitize (can be None)
 
     Returns:
-        Sanitized HTML string safe for rendering
+        Sanitized HTML string safe for rendering, or empty string if None
     """
-    result: str = bleach.clean(
+    if not html:
+        return ""
+
+    return nh3.clean(
         html,
         tags=ALLOWED_TAGS,
-        attributes=_allow_attributes,
-        protocols=ALLOWED_PROTOCOLS,
-        strip=True,  # Strip disallowed tags instead of escaping them
-        strip_comments=True,  # Remove HTML comments
+        attributes=ALLOWED_ATTRIBUTES,
+        attribute_filter=_filter_attributes,
+        url_schemes=ALLOWED_URL_SCHEMES,
+        strip_comments=True,
     )
-    return result
+
+
+def sanitize_markdown(text: str | None) -> str:
+    """Sanitize markdown text by removing potentially dangerous HTML.
+
+    This sanitizes any HTML that might be embedded in markdown content.
+    The frontend is responsible for rendering the markdown to HTML.
+
+    Args:
+        text: The markdown text to sanitize (can be None)
+
+    Returns:
+        Sanitized markdown string, or empty string if text is None
+    """
+    if not text:
+        return ""
+
+    # Sanitize any embedded HTML in the markdown
+    return sanitize_html(text)
 
 
 def render_markdown(text: str | None) -> str:
-    """Convert markdown to sanitized HTML.
+    """Render markdown to HTML for internal use (emails, Telegram).
+
+    This function is for backend-rendered content only (emails, notifications).
+    API responses should return raw markdown for frontend rendering.
+
+    The output is sanitized to prevent XSS attacks.
 
     Args:
         text: The markdown text to render (can be None)
@@ -207,25 +170,16 @@ def render_markdown(text: str | None) -> str:
     if not text:
         return ""
 
-    # Convert markdown to HTML with extensions
-    html = md.markdown(
+    import markdown
+
+    # Render markdown to HTML
+    html = markdown.markdown(
         text,
-        extensions=[
-            "tables",  # GitHub-style tables
-            "fenced_code",  # Code blocks with ```
-            "nl2br",  # Convert newlines to <br>
-            "codehilite",  # Syntax highlighting for code blocks
-        ],
-        extension_configs={
-            "codehilite": {
-                "css_class": "highlight",
-                "linenums": False,
-            }
-        },
+        extensions=["tables", "fenced_code"],
         output_format="html",
     )
 
-    # Sanitize the HTML to prevent XSS
+    # Sanitize the output to ensure safety
     return sanitize_html(html)
 
 
@@ -238,78 +192,83 @@ if t.TYPE_CHECKING:
 
 else:
 
-    class MarkdownField(models.TextField):  # type: ignore[misc]
-        """A TextField that stores markdown and provides sanitized HTML rendering.
+    class MarkdownField(models.TextField):
+        """A TextField that stores sanitized markdown content.
 
-        This field stores raw markdown in the database and provides a property
-        to render it as safe, sanitized HTML. It prevents XSS attacks by using
-        bleach to sanitize the HTML output.
+        This field stores markdown in the database after sanitizing any embedded
+        HTML to prevent XSS attacks. The frontend is responsible for rendering
+        the markdown to HTML.
+
+        Sanitization happens at save time via the field's pre_save method,
+        so the stored content is always safe.
 
         Usage:
             class MyModel(models.Model):
                 description = MarkdownField(blank=True, null=True)
 
-            # Access raw markdown
-            obj.description  # Returns raw markdown string
+            # Access markdown (already sanitized)
+            obj.description  # Returns sanitized markdown string
 
-            # Access rendered HTML (read-only property added to model instance)
-            obj.description_html  # Returns sanitized HTML
+        Supported Content:
+            - Plain markdown text
+            - Safe HTML tags (headers, lists, links, tables, etc.)
 
-        Supported Markdown Features:
-            - Headers (# ## ###)
-            - Bold, italic, strikethrough
-            - Lists (ordered and unordered)
-            - Links
-            - Images (HTTPS only)
-            - Code blocks with syntax highlighting
-            - Tables
-            - Blockquotes
-            - Embedded content (YouTube, Vimeo iframes)
+        Not Allowed (stripped):
+            - Images (use dedicated image fields instead)
+            - Iframes and embeds
+            - SVG elements
+            - Any JavaScript or event handlers
+            - Data URIs
 
         Security:
-            - All HTML output is sanitized using bleach
+            - All content is sanitized using nh3 at save time
             - Only safe HTML tags and attributes are allowed
-            - Image sources must be HTTPS or data URIs
-            - Iframe embeds limited to approved domains
-            - All JavaScript and unsafe content is stripped
+            - URL schemes restricted to http, https, mailto
         """
 
-        description = "A field that stores markdown and renders safe HTML"
+        description = "A field that stores sanitized markdown content"
 
         def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
             """Initialize the MarkdownField."""
             super().__init__(*args, **kwargs)
 
         def contribute_to_class(self, cls: type[models.Model], name: str, private_only: bool = False) -> None:
-            """Add the field to the model and create a rendered HTML property.
+            """Register this field with the model in the markdown field registry.
 
-            This method is called by Django when the field is added to a model.
-            It creates a property on the model that returns the rendered HTML.
+            This method is called by Django when the field is added to a model class.
+            We use it to track all models that use MarkdownField for re-sanitization.
 
             Args:
                 cls: The model class this field is being added to
-                name: The name of this field
-                private_only: Whether this field is only for private use
+                name: The attribute name of the field on the model
+                private_only: Whether this is a private field
             """
-            super().contribute_to_class(cls, name, private_only=private_only)
+            super().contribute_to_class(cls, name, private_only)
 
-            # Create a property for the rendered HTML
-            html_property_name = f"{name}_html"
+            # Register this model/field combination
+            if cls not in _markdown_field_registry:
+                _markdown_field_registry[cls] = []
+            if name not in _markdown_field_registry[cls]:
+                _markdown_field_registry[cls].append(name)
 
-            def get_html(instance: models.Model) -> str:
-                """Get the rendered HTML for this field (cached per instance)."""
-                # Cache the rendered HTML on the instance to avoid re-rendering
-                cache_attr = f"_cached_{html_property_name}"
+        def pre_save(self, model_instance: models.Model, add: bool) -> str | None:
+            """Sanitize the markdown content before saving.
 
-                # Check if we've already rendered this
-                if hasattr(instance, cache_attr):
-                    return getattr(instance, cache_attr)
+            This method is called by Django just before saving the field value
+            to the database. We use it to sanitize the content.
 
-                # Render and cache
-                value = getattr(instance, name)
-                rendered = render_markdown(value)
-                setattr(instance, cache_attr, rendered)
-                return rendered
+            Args:
+                model_instance: The model instance being saved
+                add: True if this is a new record, False if updating
 
-            # Add the property to the model class
-            setattr(cls, html_property_name, property(get_html))
+            Returns:
+                The sanitized value to be saved
+            """
+            value = getattr(model_instance, self.attname)
+
+            if value is not None:
+                sanitized = sanitize_markdown(value)
+                setattr(model_instance, self.attname, sanitized)
+                return sanitized
+
+            return super().pre_save(model_instance, add)
