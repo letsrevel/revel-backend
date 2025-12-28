@@ -225,9 +225,8 @@ class TelegramChannel(NotificationChannel):
         """Format notification for Telegram using HTML.
 
         The Telegram bot is configured to use HTML parse mode (see telegram/bot.py).
-        We render a Telegram-specific template (markdown), convert it to HTML via
-        MarkdownField's render_markdown(), and then sanitize for Telegram's limited
-        HTML support.
+        We render a Telegram-specific template (markdown), convert it to HTML,
+        and then sanitize for Telegram's limited HTML support.
 
         Telegram supports: <b>, <strong>, <i>, <em>, <u>, <ins>, <s>, <strike>, <del>,
         <code>, <pre>, <a href="">
@@ -266,8 +265,7 @@ class TelegramChannel(NotificationChannel):
                 notification_type=notification.notification_type,
                 error=str(e),
             )
-            # Use notification.body_html as fallback (already rendered markdown)
-            # body_html is a property added dynamically by MarkdownField
-            body_html = getattr(notification, "body_html", notification.body or "")
-            fallback_html = sanitize_for_telegram(str(body_html))
-            return f"<b>{notification.title}</b>\n\n{fallback_html}"
+            # Use notification.body as fallback - render markdown to HTML
+            fallback_html = render_markdown(notification.body or "")
+            fallback_text = sanitize_for_telegram(fallback_html)
+            return f"<b>{notification.title}</b>\n\n{fallback_text}"

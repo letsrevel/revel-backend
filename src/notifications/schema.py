@@ -32,7 +32,6 @@ class NotificationSchema(Schema):
     notification_type: NotificationType
     title: str
     body: str
-    body_html: str
     context: dict[str, t.Any]
     read_at: datetime | None
     created_at: datetime
