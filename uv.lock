@@ -2977,6 +2977,7 @@ dependencies = [
     { name = "httpx", extra = ["http2"] },
     { name = "ics" },
     { name = "ip2location" },
+    { name = "markdown" },
     { name = "nh3" },
     { name = "ninja-schema" },
     { name = "openai" },
@@ -3034,7 +3035,6 @@ dev = [
     { name = "pytest-django" },
     { name = "pytest-xdist" },
     { name = "ruff" },
-    { name = "types-bleach" },
     { name = "types-markdown" },
     { name = "types-qrcode" },
     { name = "types-stripe" },
@@ -3076,6 +3076,7 @@ requires-dist = [
     { name = "httpx", extras = ["http2"], specifier = ">=0.28.1" },
     { name = "ics", specifier = ">=0.7.2" },
     { name = "ip2location", specifier = ">=8.10.5" },
+    { name = "markdown", specifier = ">=3.7" },
     { name = "nh3", specifier = ">=0.3.2" },
     { name = "ninja-schema", specifier = ">=0.14.2" },
     { name = "openai", specifier = ">=1.95.1" },
@@ -3133,7 +3134,6 @@ dev = [
     { name = "pytest-django", specifier = ">=4.11.1" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "ruff", specifier = ">=0.12.0" },
-    { name = "types-bleach", specifier = ">=6.2.0.20250809" },
     { name = "types-markdown", specifier = ">=3.10.0.20251106" },
     { name = "types-qrcode", specifier = ">=8.2.0.20250506" },
     { name = "types-stripe", specifier = ">=3.5.2.20240106" },
@@ -3467,27 +3467,6 @@ dependencies = [
 wheels = [
     { url = "https://files.pythonhosted.org/packages/30/7b/0a685684ed5322d2af0bddefed7906674f67974aa88b0fae6e82e3b766f6/triton-3.4.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:00be2964616f4c619193cb0d1b29a99bd4b001d7dc333816073f92cf2a8ccdeb", size = 155569223, upload-time = "2025-07-30T19:58:44.017Z" },
     { url = "https://files.pythonhosted.org/packages/20/63/8cb444ad5cdb25d999b7d647abac25af0ee37d292afc009940c05b82dda0/triton-3.4.0-cp313-cp313t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7936b18a3499ed62059414d7df563e6c163c5e16c3773678a3ee3d417865035d", size = 155659780, upload-time = "2025-07-30T19:58:51.171Z" },
-]
-
-[[package]]
-name = "types-bleach"
-version = "6.2.0.20250809"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "types-html5lib" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/53/50/f85660f9893da1a2cea3e14675c9ab4a75f2a5c12a8ab79de959e5f3f2ad/types_bleach-6.2.0.20250809.tar.gz", hash = "sha256:188d7a1119f6c953140b513ed57ba4213755695815472c19d0c22ac09c79b90b", size = 11216, upload-time = "2025-08-09T03:16:46.876Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7d/41/51075b7c9fd62f8ea636e6ca619ca25e5617c066a1a19d12e2f7d9343edb/types_bleach-6.2.0.20250809-py3-none-any.whl", hash = "sha256:0b372a75117947d9ac8a31ae733fd0f8d92ec75c4772e7b37093ba3fa5b48fb9", size = 11968, upload-time = "2025-08-09T03:16:46.174Z" },
-]
-
-[[package]]
-name = "types-html5lib"
-version = "1.1.11.20251014"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/8a/b8/0ce98d9b20a4e8bdac4f4914054acadf5b3a36a7a832e11e0d1938e4c3ce/types_html5lib-1.1.11.20251014.tar.gz", hash = "sha256:cc628d626e0111a2426a64f5f061ecfd113958b69ff6b3dc0eaaed2347ba9455", size = 16895, upload-time = "2025-10-14T02:54:50.003Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c9/cb/df12640506b8dbd2f2bd0643c5ef4a72fa6285ec4cd7f4b20457842e7fd5/types_html5lib-1.1.11.20251014-py3-none-any.whl", hash = "sha256:4ff2cf18dfc547009ab6fa4190fc3de464ba815c9090c3dd4a5b65f664bfa76c", size = 22916, upload-time = "2025-10-14T02:54:48.686Z" },
 ]
 
 [[package]]

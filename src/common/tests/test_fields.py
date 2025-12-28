@@ -58,7 +58,7 @@ class TestSanitizeHtml(TestCase):
     def test_empty_input(self) -> None:
         """Test that empty input returns empty string."""
         assert sanitize_html("") == ""
-        assert sanitize_html(None) == ""  # type: ignore[arg-type]
+        assert sanitize_html(None) == ""
 
 
 class TestXSSPrevention(TestCase):

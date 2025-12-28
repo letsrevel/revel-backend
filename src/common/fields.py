@@ -85,9 +85,10 @@ def _filter_attributes(
 ) -> str | None:
     """Filter attributes for HTML elements.
 
-    This is a callback for nh3 that validates attribute values.
-    The base attributes whitelist is handled by ALLOWED_ATTRIBUTES,
-    this function provides additional validation.
+    This callback supplements nh3's url_schemes validation by also checking
+    URL-decoded values. While nh3 validates schemes directly, it doesn't
+    decode URLs first, so encoded attacks like "javascript%3Aalert(1)"
+    would bypass the url_schemes check. This filter catches those.
 
     Args:
         element: The HTML element name
@@ -97,18 +98,17 @@ def _filter_attributes(
     Returns:
         The value if allowed, None to remove
     """
-    # Additional validation for href to ensure safe protocols
     if element == "a" and attribute == "href":
-        # URL-decode the value to catch encoded attacks like javascript%3A
+        # Decode URL to catch encoded attacks like javascript%3A -> javascript:
         decoded_value = unquote(value)
         parsed = urlparse(decoded_value)
-        if parsed.scheme not in ALLOWED_URL_SCHEMES and parsed.scheme != "":
+        if parsed.scheme and parsed.scheme not in ALLOWED_URL_SCHEMES:
             return None
 
     return value
 
 
-def sanitize_html(html: str) -> str:
+def sanitize_html(html: str | None) -> str:
     """Sanitize HTML using nh3 with a safe allowlist.
 
     This function removes potentially dangerous HTML elements and attributes
@@ -116,10 +116,10 @@ def sanitize_html(html: str) -> str:
     potentially dangerous elements are not allowed.
 
     Args:
-        html: The HTML string to sanitize
+        html: The HTML string to sanitize (can be None)
 
     Returns:
-        Sanitized HTML string safe for rendering
+        Sanitized HTML string safe for rendering, or empty string if None
     """
     if not html:
         return ""
@@ -251,7 +251,7 @@ else:
             if name not in _markdown_field_registry[cls]:
                 _markdown_field_registry[cls].append(name)
 
-        def pre_save(self, model_instance: models.Model, add: bool) -> str:
+        def pre_save(self, model_instance: models.Model, add: bool) -> str | None:
             """Sanitize the markdown content before saving.
 
             This method is called by Django just before saving the field value
