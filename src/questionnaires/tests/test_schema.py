@@ -26,37 +26,27 @@ def evaluation_user() -> RevelUser:
     return RevelUser.objects.create_user(username="evaluator", email="evaluator@example.com", password="password")
 
 
-def test_submission_list_item_schema_resolve_user_email(questionnaire: Questionnaire, user: RevelUser) -> None:
-    """Test that SubmissionListItemSchema resolves user email correctly."""
-    submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=questionnaire)
-
-    user_email = SubmissionListItemSchema.resolve_user_email(submission)
-
-    assert user_email == user.email
-
-
-def test_submission_list_item_schema_resolve_user_name_with_preferred_name(questionnaire: Questionnaire) -> None:
-    """Test that SubmissionListItemSchema resolves user name with preferred name."""
+def test_submission_list_item_schema_resolve_user(questionnaire: Questionnaire) -> None:
+    """Test that SubmissionListItemSchema resolves user object correctly."""
     user = RevelUser.objects.create_user(
-        username="testuser", email="test@example.com", first_name="John", last_name="Doe", preferred_name="Johnny"
+        username="testuser",
+        email="test@example.com",
+        first_name="John",
+        last_name="Doe",
+        preferred_name="Johnny",
     )
+    user.pronouns = "he/him"
+    user.save()
     submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=questionnaire)
 
-    user_name = SubmissionListItemSchema.resolve_user_name(submission)
+    user_schema = SubmissionListItemSchema.resolve_user(submission)
 
-    assert user_name == "Johnny"
-
-
-def test_submission_list_item_schema_resolve_user_name_without_preferred_name(questionnaire: Questionnaire) -> None:
-    """Test that SubmissionListItemSchema resolves user name from first/last name."""
-    user = RevelUser.objects.create_user(
-        username="testuser", email="test@example.com", first_name="John", last_name="Doe", preferred_name=""
-    )
-    submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=questionnaire)
-
-    user_name = SubmissionListItemSchema.resolve_user_name(submission)
-
-    assert user_name == "John Doe"
+    assert user_schema.email == "test@example.com"
+    assert user_schema.first_name == "John"
+    assert user_schema.last_name == "Doe"
+    assert user_schema.preferred_name == "Johnny"
+    assert user_schema.pronouns == "he/him"
+    assert user_schema.display_name == "Johnny"  # Uses preferred_name when available
 
 
 def test_submission_list_item_schema_resolve_questionnaire_name(questionnaire: Questionnaire, user: RevelUser) -> None:

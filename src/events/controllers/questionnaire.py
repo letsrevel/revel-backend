@@ -15,6 +15,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
+from accounts.schema import MinimalRevelUserSchema
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ValidationErrorResponse
@@ -373,7 +374,7 @@ class QuestionnaireController(UserAwareController):
         # Transform answers to the schema format
         # Group multiple choice answers by question (to handle multiple selections)
         mc_answers_by_question: dict[UUID, list[dict[str, t.Any]]] = defaultdict(list)
-        mc_question_details: dict[UUID, tuple[str, str]] = {}
+        mc_question_details: dict[UUID, tuple[str, str, str | None]] = {}
 
         for mc_answer in submission.multiplechoiceanswer_answers.all():
             question_id = mc_answer.question.id
@@ -386,19 +387,24 @@ class QuestionnaireController(UserAwareController):
             )
             # Store question details (will be the same for all answers to this question)
             if question_id not in mc_question_details:
-                mc_question_details[question_id] = (mc_answer.question.question, "multiple_choice")
+                mc_question_details[question_id] = (
+                    mc_answer.question.question or "",  # question is required, but MarkdownField types as str | None
+                    "multiple_choice",
+                    mc_answer.question.reviewer_notes,
+                )
 
         # Build the answers list
         answers = []
 
         # Add grouped multiple choice answers
         for question_id, options_list in mc_answers_by_question.items():
-            question_text, question_type = mc_question_details[question_id]
+            question_text, question_type, reviewer_notes = mc_question_details[question_id]
             answers.append(
                 questionnaire_schema.QuestionAnswerDetailSchema(
                     question_id=question_id,
                     question_text=question_text,
                     question_type=question_type,
+                    reviewer_notes=reviewer_notes,
                     answer_content=options_list,
                 )
             )
@@ -408,20 +414,21 @@ class QuestionnaireController(UserAwareController):
             answers.append(
                 questionnaire_schema.QuestionAnswerDetailSchema(
                     question_id=ft_answer.question.id,
-                    question_text=ft_answer.question.question,
+                    question_text=ft_answer.question.question
+                    or "",  # question is required, MarkdownField types as str | None
                     question_type="free_text",
+                    reviewer_notes=ft_answer.question.reviewer_notes,
                     answer_content=[{"answer": ft_answer.answer}],
                 )
             )
 
         return questionnaire_schema.SubmissionDetailSchema(
             id=submission.id,
-            user_email=submission.user.email,
-            user_name=submission.user.preferred_name
-            or f"{submission.user.first_name} {submission.user.last_name}".strip(),
+            user=MinimalRevelUserSchema.from_orm(submission.user),
             questionnaire=questionnaire_schema.QuestionnaireInListSchema(
                 id=submission.questionnaire.id,
                 name=submission.questionnaire.name,
+                description=submission.questionnaire.description,
                 status=submission.questionnaire.status,  # type: ignore[arg-type]
                 min_score=submission.questionnaire.min_score,
                 shuffle_questions=submission.questionnaire.shuffle_questions,
