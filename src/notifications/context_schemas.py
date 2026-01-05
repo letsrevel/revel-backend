@@ -253,6 +253,7 @@ class QuestionnaireSubmittedContext(BaseNotificationContext):
     submitter_name: str
     organization_id: str
     organization_name: str
+    submission_url: str  # URL to view the submission in admin
     event_id: t.NotRequired[str]
     event_name: t.NotRequired[str]
 

@@ -43,7 +43,7 @@ class MultipleChoiceQuestionInline(StackedInline):  # type: ignore[misc]
     ordering = ["order"]
     classes = ["collapse"]
     fieldsets = (
-        (None, {"fields": ("question", "section")}),
+        (None, {"fields": ("question", "hint", "section")}),
         (
             "Configuration",
             {
@@ -64,6 +64,13 @@ class MultipleChoiceQuestionInline(StackedInline):  # type: ignore[misc]
                 "classes": ["collapse"],
             },
         ),
+        (
+            "Reviewer Notes",
+            {
+                "fields": ("reviewer_notes",),
+                "classes": ["collapse"],
+            },
+        ),
     )
 
 
@@ -75,7 +82,7 @@ class FreeTextQuestionInline(StackedInline):  # type: ignore[misc]
     ordering = ["order"]
     classes = ["collapse"]
     fieldsets = (
-        (None, {"fields": ("question", "section")}),
+        (None, {"fields": ("question", "hint", "section")}),
         (
             "Configuration",
             {
@@ -90,15 +97,24 @@ class FreeTextQuestionInline(StackedInline):  # type: ignore[misc]
                 "classes": ["collapse"],
             },
         ),
+        (
+            "Reviewer Notes",
+            {
+                "fields": ("reviewer_notes",),
+                "classes": ["collapse"],
+            },
+        ),
     )
 
 
-class QuestionnaireSectionInline(TabularInline):  # type: ignore[misc]
+class QuestionnaireSectionInline(StackedInline):  # type: ignore[misc]
     """Inline for Sections within a Questionnaire."""
 
     model = models.QuestionnaireSection
     extra = 1
     ordering = ["order"]
+    classes = ["collapse"]
+    fields = ("name", "description", "order")
 
 
 @admin.register(models.Questionnaire)
@@ -122,6 +138,7 @@ class QuestionnaireAdmin(ModelAdmin):  # type: ignore[misc]
             {
                 "fields": (
                     ("name",),
+                    "description",
                     "status",
                     ("shuffle_questions", "shuffle_sections"),
                     ("max_attempts", "can_retake_after"),
@@ -400,15 +417,34 @@ class MultipleChoiceQuestionAdmin(ModelAdmin):  # type: ignore[misc]
         "order",
     ]
     list_filter = ["questionnaire__name", "section__name", "is_mandatory", "is_fatal", "allow_multiple_answers"]
-    search_fields = ["question", "questionnaire__name", "section__name"]
+    search_fields = ["question", "hint", "reviewer_notes", "questionnaire__name", "section__name"]
     autocomplete_fields = ["questionnaire", "section"]
     ordering = ["questionnaire", "section", "order"]
 
     inlines = [MultipleChoiceOptionInline]
 
+    fieldsets = (
+        (None, {"fields": ("questionnaire", "section", "question", "hint")}),
+        (
+            "Configuration",
+            {
+                "fields": (
+                    "allow_multiple_answers",
+                    "shuffle_options",
+                    "is_mandatory",
+                    "is_fatal",
+                    "order",
+                ),
+            },
+        ),
+        ("Scoring", {"fields": ("positive_weight", "negative_weight")}),
+        ("Reviewer Notes", {"fields": ("reviewer_notes",), "classes": ["collapse"]}),
+    )
+
     @admin.display(description="Question")
     def question_short(self, obj: models.MultipleChoiceQuestion) -> str:
-        return obj.question[:100] + "..." if len(obj.question) > 100 else obj.question
+        question = obj.question or ""
+        return question[:100] + "..." if len(question) > 100 else question
 
     @admin.display(description="Questionnaire")
     def questionnaire_link(self, obj: models.MultipleChoiceQuestion) -> str:
@@ -436,13 +472,26 @@ class FreeTextQuestionAdmin(ModelAdmin):  # type: ignore[misc]
         "order",
     ]
     list_filter = ["questionnaire__name", "section__name", "is_mandatory", "is_fatal"]
-    search_fields = ["question", "questionnaire__name", "section__name", "llm_guidelines"]
+    search_fields = ["question", "hint", "reviewer_notes", "questionnaire__name", "section__name", "llm_guidelines"]
     autocomplete_fields = ["questionnaire", "section"]
     ordering = ["questionnaire", "section", "order"]
 
+    fieldsets = (
+        (None, {"fields": ("questionnaire", "section", "question", "hint")}),
+        (
+            "Configuration",
+            {
+                "fields": ("is_mandatory", "is_fatal", "order"),
+            },
+        ),
+        ("Scoring & AI", {"fields": ("positive_weight", "negative_weight", "llm_guidelines")}),
+        ("Reviewer Notes", {"fields": ("reviewer_notes",), "classes": ["collapse"]}),
+    )
+
     @admin.display(description="Question")
     def question_short(self, obj: models.FreeTextQuestion) -> str:
-        return obj.question[:100] + "..." if len(obj.question) > 100 else obj.question
+        question = obj.question or ""
+        return question[:100] + "..." if len(question) > 100 else question
 
     @admin.display(description="Questionnaire")
     def questionnaire_link(self, obj: models.FreeTextQuestion) -> str:
@@ -466,9 +515,10 @@ class QuestionnaireSectionAdmin(ModelAdmin):  # type: ignore[misc]
 
     list_display = ["name", "questionnaire_link", "order", "question_count", "created_at"]
     list_filter = ["questionnaire__name", "created_at"]
-    search_fields = ["name", "questionnaire__name"]
+    search_fields = ["name", "description", "questionnaire__name"]
     autocomplete_fields = ["questionnaire"]
     ordering = ["questionnaire", "order"]
+    fields = ["questionnaire", "name", "description", "order"]
 
     @admin.display(description="Questionnaire")
     def questionnaire_link(self, obj: models.QuestionnaireSection) -> str:

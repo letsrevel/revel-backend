@@ -4,10 +4,31 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import Field, field_serializer, model_validator
+from pydantic import Field, field_serializer, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
+from accounts.schema import MinimalRevelUserSchema
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
+
+
+def seconds_to_timedelta(v: timedelta | int | str | None) -> timedelta | None:
+    """Convert seconds (int or string) to timedelta for storage."""
+    if v is None:
+        return None
+    if isinstance(v, timedelta):
+        return v
+    if isinstance(v, str):
+        v = int(v)
+    return timedelta(seconds=v)
+
+
+def timedelta_to_seconds(value: timedelta | int | None) -> int | None:
+    """Convert timedelta to seconds for serialization."""
+    if value is None:
+        return None
+    if isinstance(value, timedelta):
+        return int(value.total_seconds())
+    return value
 
 
 class BaseUUIDSchema(Schema):
@@ -16,6 +37,7 @@ class BaseUUIDSchema(Schema):
 
 class BaseQuestionSchema(BaseUUIDSchema):
     question: str
+    hint: str | None = None
     is_mandatory: bool
     order: int
 
@@ -36,6 +58,7 @@ class FreeTextQuestionSchema(BaseQuestionSchema):
 
 class QuestionContainerSchema(BaseUUIDSchema):
     name: str
+    description: str | None = None
     multiple_choice_questions: list[MultipleChoiceQuestionSchema] = Field(default_factory=list)
     free_text_questions: list[FreeTextQuestionSchema] = Field(default_factory=list)
 
@@ -117,8 +140,7 @@ class SubmissionListItemSchema(ModelSchema):
     """Schema for listing submissions for organization staff."""
 
     id: UUID
-    user_email: str
-    user_name: str
+    user: MinimalRevelUserSchema
     questionnaire_name: str
     evaluation_status: QuestionnaireEvaluation.QuestionnaireEvaluationStatus | None = None
     evaluation_score: Decimal | None = None
@@ -128,14 +150,9 @@ class SubmissionListItemSchema(ModelSchema):
         fields = ["id", "status", "submitted_at", "created_at"]
 
     @staticmethod
-    def resolve_user_email(obj: QuestionnaireSubmission) -> str:
-        """Resolve user email from submission object."""
-        return obj.user.email
-
-    @staticmethod
-    def resolve_user_name(obj: QuestionnaireSubmission) -> str:
-        """Resolve user name from submission object."""
-        return obj.user.preferred_name or f"{obj.user.first_name} {obj.user.last_name}".strip()
+    def resolve_user(obj: QuestionnaireSubmission) -> MinimalRevelUserSchema:
+        """Resolve user from submission object."""
+        return MinimalRevelUserSchema.from_orm(obj.user)
 
     @staticmethod
     def resolve_questionnaire_name(obj: QuestionnaireSubmission) -> str:
@@ -174,6 +191,7 @@ class QuestionAnswerDetailSchema(Schema):
     question_id: UUID
     question_text: str
     question_type: str  # "multiple_choice" or "free_text"
+    reviewer_notes: str | None = None
     answer_content: list[dict[str, t.Any]]
 
 
@@ -206,8 +224,7 @@ class SubmissionDetailSchema(Schema):
     """Schema for detailed view of a submission."""
 
     id: UUID
-    user_email: str
-    user_name: str
+    user: MinimalRevelUserSchema
     questionnaire: "QuestionnaireInListSchema"
     status: QuestionnaireSubmission.QuestionnaireSubmissionStatus
     submitted_at: datetime | None
@@ -221,6 +238,7 @@ class SubmissionDetailSchema(Schema):
 
 class QuestionnaireBaseSchema(Schema):
     name: str
+    description: str | None = None
     status: Questionnaire.QuestionnaireStatus
     min_score: Decimal = Field(ge=0, le=100)
     shuffle_questions: bool = False
@@ -237,14 +255,8 @@ class QuestionnaireAdminSchema(QuestionnaireInListSchema):
     llm_guidelines: str | None = None
     can_retake_after: timedelta | int | None
 
-    @field_serializer("can_retake_after")
-    def serialize_can_retake_after(self, value: timedelta | int | None) -> int | None:
-        """Convert timedelta to seconds for serialization."""
-        if value is None:
-            return None
-        if isinstance(value, timedelta):
-            return int(value.total_seconds())
-        return value
+    _validate_can_retake_after = field_validator("can_retake_after", mode="before")(seconds_to_timedelta)
+    _serialize_can_retake_after = field_serializer("can_retake_after")(timedelta_to_seconds)
 
 
 class FreeTextQuestionCreateSchema(Schema):
@@ -252,6 +264,8 @@ class FreeTextQuestionCreateSchema(Schema):
 
     section_id: UUID | None = None
     question: str
+    hint: str | None = None
+    reviewer_notes: str | None = None
     is_mandatory: bool = False
     order: int = 0
     positive_weight: Decimal = Field(default=Decimal("1.0"), ge=0, le=100)
@@ -281,6 +295,8 @@ class MultipleChoiceQuestionCreateSchema(Schema):
 
     section_id: UUID | None = None
     question: str
+    hint: str | None = None
+    reviewer_notes: str | None = None
     is_mandatory: bool = False
     order: int = 0
     positive_weight: Decimal = Field(default=Decimal("1.0"), ge=0, le=100)
@@ -309,6 +325,7 @@ class SectionCreateSchema(Schema):
     """Schema for creating a QuestionnaireSection."""
 
     name: str
+    description: str | None = None
     order: int = 0
     multiplechoicequestion_questions: list[MultipleChoiceQuestionCreateSchema] = Field(default_factory=list)
     freetextquestion_questions: list[FreeTextQuestionCreateSchema] = Field(default_factory=list)
@@ -328,14 +345,8 @@ class QuestionnaireCreateSchema(QuestionnaireBaseSchema):
     llm_guidelines: str | None = None
     can_retake_after: timedelta | int | None = None
 
-    @field_serializer("can_retake_after")
-    def serialize_can_retake_after(self, value: timedelta | int | None) -> int | None:
-        """Convert timedelta to seconds for serialization."""
-        if value is None:
-            return None
-        if isinstance(value, timedelta):
-            return int(value.total_seconds())
-        return value
+    _validate_can_retake_after = field_validator("can_retake_after", mode="before")(seconds_to_timedelta)
+    _serialize_can_retake_after = field_serializer("can_retake_after")(timedelta_to_seconds)
 
     @model_validator(mode="after")
     def check_llm_guidelines_for_auto_evaluation(self) -> "QuestionnaireCreateSchema":

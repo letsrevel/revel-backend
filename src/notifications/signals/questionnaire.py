@@ -6,6 +6,7 @@ import structlog
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
+from common.models import SiteSettings
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_organization_staff_and_owners
 from notifications.signals import notification_requested
@@ -33,7 +34,7 @@ def handle_questionnaire_submission(
     org_data = (
         OrganizationQuestionnaire.objects.filter(questionnaire_id=instance.questionnaire_id)
         .select_related("organization")
-        .values_list("organization_id", "organization__name")
+        .values_list("id", "organization_id", "organization__name", "organization__slug")
         .first()
     )
 
@@ -46,7 +47,14 @@ def handle_questionnaire_submission(
         )
         return
 
-    organization_id, organization_name = org_data
+    org_questionnaire_id, organization_id, organization_name, organization_slug = org_data
+
+    # Build submission URL for admin view
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    submission_url = (
+        f"{frontend_base_url}/org/{organization_slug}/admin/questionnaires/"
+        f"{org_questionnaire_id}/submissions/{instance.id}"
+    )
 
     # Get staff and owners with evaluate_questionnaire permission
     staff_and_owners = get_organization_staff_and_owners(organization_id)
@@ -64,6 +72,7 @@ def handle_questionnaire_submission(
                 "submitter_name": instance.user.get_display_name(),
                 "organization_id": str(organization_id),
                 "organization_name": organization_name,
+                "submission_url": submission_url,
             },
         )
 

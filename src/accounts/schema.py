@@ -34,6 +34,11 @@ class RevelUserSchema(ModelSchema):
 
 
 class MinimalRevelUserSchema(ModelSchema):
+    preferred_name: str | None
+    pronouns: str | None
+    first_name: str
+    last_name: str
+    email: str
     display_name: str
 
     class Meta:

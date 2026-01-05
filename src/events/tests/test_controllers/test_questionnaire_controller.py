@@ -370,7 +370,9 @@ def test_get_submission_detail_success(
     data = response.json()
 
     assert data["id"] == str(submission.id)
-    assert data["user_email"] == member_user.email
+    assert data["user"]["email"] == member_user.email
+    assert data["user"]["first_name"] == member_user.first_name
+    assert data["user"]["last_name"] == member_user.last_name
     assert data["status"] == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     assert data["evaluation"]["status"] == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED
     assert data["evaluation"]["score"] == "85.00"

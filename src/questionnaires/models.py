@@ -12,6 +12,7 @@ from django.utils import timezone
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field as PydanticField
 
+from common.fields import MarkdownField
 from common.models import TimeStampedModel
 from questionnaires.llms.llm_interfaces import EvaluationResponse
 
@@ -64,6 +65,11 @@ class Questionnaire(TimeStampedModel):
         SENTINEL = "questionnaires.llms.SentinelChatGPTEvaluator", "Sentinel ChatGPTEvaluator"
 
     name = models.CharField(max_length=255, db_index=True)
+    description = MarkdownField(
+        null=True,
+        blank=True,
+        help_text="Markdown-formatted description shown to users before they start the questionnaire.",
+    )
     min_score = models.DecimalField(
         decimal_places=2, max_digits=5, default=0, validators=[MinValueValidator(0), MaxValueValidator(100)]
     )
@@ -185,6 +191,11 @@ class QuestionnaireSectionManager(models.Manager["QuestionnaireSection"]):
 class QuestionnaireSection(TimeStampedModel):
     questionnaire = models.ForeignKey(Questionnaire, on_delete=models.CASCADE, related_name="sections")
     name = models.CharField(max_length=255)
+    description = MarkdownField(
+        null=True,
+        blank=True,
+        help_text="Markdown-formatted description shown at the top of this section.",
+    )
     order = models.PositiveIntegerField(default=0)
 
     objects = QuestionnaireSectionManager()
@@ -203,7 +214,17 @@ class BaseQuestion(TimeStampedModel):
     section = models.ForeignKey(
         QuestionnaireSection, on_delete=models.CASCADE, related_name="%(class)s_questions", null=True, blank=True
     )
-    question = models.TextField()
+    question = MarkdownField(help_text="The question text. Supports markdown formatting.")
+    hint = MarkdownField(
+        null=True,
+        blank=True,
+        help_text="Markdown-formatted hint or additional context shown to the user below the question.",
+    )
+    reviewer_notes = MarkdownField(
+        null=True,
+        blank=True,
+        help_text="Markdown-formatted notes for reviewers. Not shown to users.",
+    )
     positive_weight = models.DecimalField(
         max_digits=5,
         decimal_places=2,
