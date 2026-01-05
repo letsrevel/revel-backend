@@ -85,7 +85,8 @@ class QuestionnaireService:
 
             return MultipleChoiceQuestionSchema(
                 id=mcq.id,
-                question=mcq.question,
+                question=mcq.question or "",  # question is required, but MarkdownField types as str | None
+                hint=mcq.hint,
                 is_mandatory=mcq.is_mandatory,
                 order=mcq.order,
                 allow_multiple_answers=mcq.allow_multiple_answers,
@@ -129,6 +130,7 @@ class QuestionnaireService:
                 SectionSchema(
                     id=section.id,
                     name=section.name,
+                    description=section.description,
                     order=section.order,
                     multiple_choice_questions=mcq_schemas,
                     free_text_questions=ftq_schemas,
@@ -143,6 +145,7 @@ class QuestionnaireService:
         return QuestionnaireSchema(
             id=q.id,
             name=q.name,
+            description=q.description,
             multiple_choice_questions=mcq_schemas,
             free_text_questions=ftq_schemas,
             sections=section_schemas,
@@ -250,8 +253,11 @@ class QuestionnaireService:
                 "max_submission_age",
                 "questionnaire_type",
                 "members_exempt",
+                "can_retake_after",  # Exclude because serializer converts timedelta to int
             }
         )
+        # Add can_retake_after directly from schema (as timedelta, not serialized int)
+        questionnaire_data["can_retake_after"] = payload.can_retake_after
         questionnaire = Questionnaire.objects.create(**questionnaire_data)
         service = cls(questionnaire.id)
 
