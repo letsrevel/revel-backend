@@ -148,15 +148,17 @@ class EventController(UserAwareController):
 
         **Additional Filters:**
         Supports all EventFilterSchema filters (organization, tags, event_type, etc.).
-        Note: Date-related filters (`next_events`, `past_events`, `date`, `start_after`, `start_before`)
-        work as additional constraints on top of the calendar's date range. For example,
-        `/calendar?month=12&year=2025&next_events=true` will show December 2025 events that are
-        also in the future relative to the current time.
+        Note: The `next_events` filter is disabled by default for calendar views since the date
+        range is explicitly specified. Use `start_after` or `start_before` to filter events
+        within the calendar's date range if needed.
 
         Results are ordered by start time ascending.
         """
         start_datetime, end_datetime = event_service.calculate_calendar_date_range(**calendar_params.model_dump())
         qs = self.get_queryset(include_past=True).filter(start__gte=start_datetime, start__lt=end_datetime)
+        # Disable next_events default filter for calendar views since date range is explicit.
+        # Users can still filter using start_after/start_before if needed.
+        params.next_events = None
         qs = params.filter(qs).distinct()
         return qs.order_by("start")
 

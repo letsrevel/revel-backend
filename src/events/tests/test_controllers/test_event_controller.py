@@ -1227,7 +1227,7 @@ class TestCalendarEndpoint:
             event_type=Event.EventType.PUBLIC,
             status="open",
             requires_ticket=False,
-            start=datetime(2026, 1, 2, 10, 0, 0, tzinfo=ZoneInfo("UTC")),  # Thursday of Week 1
+            start=datetime(2026, 1, 2, 10, 0, 0, tzinfo=ZoneInfo("UTC")),  # Friday of Week 1
             end=datetime(2026, 1, 2, 12, 0, 0, tzinfo=ZoneInfo("UTC")),
         )
         week_2_event = Event.objects.create(
@@ -1238,7 +1238,7 @@ class TestCalendarEndpoint:
             event_type=Event.EventType.PUBLIC,
             status="open",
             requires_ticket=False,
-            start=datetime(2026, 1, 7, 10, 0, 0, tzinfo=ZoneInfo("UTC")),  # Tuesday of Week 2
+            start=datetime(2026, 1, 7, 10, 0, 0, tzinfo=ZoneInfo("UTC")),  # Wednesday of Week 2
             end=datetime(2026, 1, 7, 12, 0, 0, tzinfo=ZoneInfo("UTC")),
         )
 
