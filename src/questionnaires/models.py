@@ -79,7 +79,7 @@ class Questionnaire(TimeStampedModel):
         help_text="LLM guidelines to evaluate automatically text-based answers. Can be overridden ad question-level.",
     )
     llm_backend = models.CharField(
-        choices=QuestionnaireLLMBackend.choices, max_length=255, default=QuestionnaireLLMBackend.MOCK
+        choices=QuestionnaireLLMBackend.choices, max_length=255, default=QuestionnaireLLMBackend.SANITIZING
     )
     shuffle_questions = models.BooleanField(default=False, help_text="Shuffle questions before answering.")
     shuffle_sections = models.BooleanField(default=False, help_text="Shuffle sections before answering.")
@@ -96,7 +96,11 @@ class Questionnaire(TimeStampedModel):
 
     def get_llm_backend(self) -> FreeTextEvaluator:
         """Get the LLM backend."""
-        module_path, _, class_name = self.llm_backend.rpartition(".")
+        backend = self.llm_backend
+        if settings.DEMO_MODE:
+            backend = self.QuestionnaireLLMBackend.MOCK
+
+        module_path, _, class_name = backend.rpartition(".")
         if not module_path:
             raise ImportError(f"No module part in '{self.llm_backend}'")
         module = importlib.import_module(module_path)
