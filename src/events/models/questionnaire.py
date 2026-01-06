@@ -74,7 +74,12 @@ class OrganizationQuestionnaire(TimeStampedModel):
     questionnaire_type = models.CharField(
         choices=QuestionnaireType.choices, default=QuestionnaireType.ADMISSION, max_length=20, db_index=True
     )
-    max_submission_age = models.DurationField(null=True, blank=True, db_index=True)
+    max_submission_age = models.DurationField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="How long a completed submission remains valid before user must retake.",
+    )
     members_exempt = models.BooleanField(default=False)
 
     objects = OrganizationQuestionnaireManager()

@@ -61,7 +61,7 @@ class BaseChatGPTEvaluator(FreeTextEvaluator):
 
     SYSTEM_PROMPT: str = ""
     USER_PROMPT: str = ""
-    MODEL: str = "gpt-4.1"
+    MODEL: str = "gpt-5-mini"
 
     def evaluate(
         self,
@@ -110,7 +110,7 @@ class VulnerableChatGPTEvaluator(BaseChatGPTEvaluator):
     Always reply in the provided JSON schema.
     """)
 
-    MODEL = "gpt-4.1-mini"
+    MODEL = "gpt-5-mini"
 
 
 class IntermediateChatGPTEvaluator(BaseChatGPTEvaluator):

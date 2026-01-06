@@ -90,6 +90,39 @@ class EventController(UserAwareController):
             raise Http404()
         return service
 
+    def get_org_questionnaire_for_event(
+        self, event: models.Event, questionnaire_id: UUID
+    ) -> models.OrganizationQuestionnaire:
+        """Validate that a questionnaire belongs to the given event.
+
+        A questionnaire belongs to an event if there's an OrganizationQuestionnaire linking them
+        via the `events` M2M, OR if the event's `event_series` is in the `event_series` M2M.
+
+        Returns:
+            The OrganizationQuestionnaire if valid.
+
+        Raises:
+            Http404: If the questionnaire doesn't belong to the event.
+        """
+        from django.db.models import Q
+
+        filter_q = Q(events=event)
+        if event.event_series_id:
+            filter_q |= Q(event_series=event.event_series_id)
+
+        org_questionnaire = (
+            models.OrganizationQuestionnaire.objects.filter(
+                questionnaire_id=questionnaire_id,
+            )
+            .filter(filter_q)
+            .first()
+        )
+
+        if org_questionnaire is None:
+            raise Http404(_("Questionnaire not found for this event."))
+
+        return org_questionnaire
+
     @route.get("/", url_name="list_events", response=PaginatedResponseSchema[schema.EventInListSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(
@@ -736,8 +769,8 @@ class EventController(UserAwareController):
         shuffled based on questionnaire settings. Use this to display the form that users must
         complete before accessing the event.
         """
-        self.get_one(event_id)
-        # todo: verify that the questionnaire belongs to the event
+        event = self.get_one(event_id)
+        self.get_org_questionnaire_for_event(event, questionnaire_id)
         questionnaire_service = self.get_questionnaire_service(questionnaire_id)
         return questionnaire_service.build()
 
@@ -758,7 +791,8 @@ class EventController(UserAwareController):
         evaluation_mode (automatic/manual/hybrid), results may be immediate or pending staff review.
         Passing the questionnaire may be required before you can RSVP or purchase tickets.
         """
-        self.get_one(event_id)
+        event = self.get_one(event_id)
+        self.get_org_questionnaire_for_event(event, questionnaire_id)
         questionnaire_service = self.get_questionnaire_service(questionnaire_id)
         db_submission = questionnaire_service.submit(self.user(), submission)
         if submission.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY:

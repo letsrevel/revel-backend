@@ -190,6 +190,34 @@ class QuestionnaireGate(BaseEligibilityGate):
             if not (oq.members_exempt and self.user.id in self.handler.member_ids)
         ]
 
+    def _is_submission_expired(
+        self,
+        org_questionnaire: OrganizationQuestionnaire,
+        submission: QuestionnaireSubmission,
+    ) -> bool:
+        """Check if an approved submission has expired based on max_submission_age.
+
+        An expired submission means the user must retake the questionnaire.
+        Only APPROVED submissions can expire - other states are handled by separate checks.
+
+        Returns:
+            True if submission has an APPROVED evaluation that has expired.
+            False if no expiration configured, or submission is not approved yet.
+        """
+        if org_questionnaire.max_submission_age is None:
+            return False  # No expiration configured
+
+        evaluation: QuestionnaireEvaluation | None = getattr(submission, "evaluation", None)
+        if evaluation is None:
+            return False  # No evaluation yet - let _check_pending_review handle this
+
+        if evaluation.status != QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED:
+            return False  # Not approved - let _check_failed handle this
+
+        # Check if the approved evaluation has expired
+        expiry_time = evaluation.updated_at + org_questionnaire.max_submission_age
+        return bool(expiry_time < timezone.now())
+
     def _check_retake_eligibility(
         self,
         questionnaire: Questionnaire,
@@ -222,6 +250,11 @@ class QuestionnaireGate(BaseEligibilityGate):
                 submissions is None
                 or submissions[0].status != QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
             ):
+                questionnaires_missing.append(org_questionnaire.questionnaire_id)
+                continue
+
+            # Check if the submission's approval has expired
+            if self._is_submission_expired(org_questionnaire, submissions[0]):
                 questionnaires_missing.append(org_questionnaire.questionnaire_id)
 
         if questionnaires_missing:
