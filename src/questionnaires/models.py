@@ -96,7 +96,11 @@ class Questionnaire(TimeStampedModel):
 
     def get_llm_backend(self) -> FreeTextEvaluator:
         """Get the LLM backend."""
-        module_path, _, class_name = self.llm_backend.rpartition(".")
+        backend = self.llm_backend
+        if settings.DEMO_MODE:
+            backend = self.QuestionnaireLLMBackend.MOCK
+
+        module_path, _, class_name = backend.rpartition(".")
         if not module_path:
             raise ImportError(f"No module part in '{self.llm_backend}'")
         module = importlib.import_module(module_path)
