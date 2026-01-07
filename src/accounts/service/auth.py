@@ -8,6 +8,7 @@ import structlog
 from django.conf import settings
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django_google_sso.models import GoogleSSOUser
 from google.auth.exceptions import GoogleAuthError
@@ -66,6 +67,9 @@ def verify_otp_jwt(token: str, otp: str) -> tuple[RevelUser, bool]:
 
 def get_token_pair_for_user(user: RevelUser) -> TokenObtainPairOutputSchema:
     """Get a token pair for the user."""
+    user.last_login = timezone.now()
+    user.save(update_fields=["last_login"])
+
     logger.info("token_pair_generated", user_id=str(user.id), email=user.email)
     token = RefreshToken.for_user(user)
     token.payload.update(schema.RevelUserSchema.from_orm(user).model_dump(mode="json"))

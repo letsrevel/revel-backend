@@ -11,6 +11,9 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
+from events.tasks import build_attendee_visibility_flags
+from notifications.signals.ticket import _send_ticket_created_notifications
+from notifications.signals.waitlist import _remove_user_from_waitlist
 
 logger = structlog.get_logger(__name__)
 
@@ -423,6 +426,32 @@ class BatchTicketService:
 
         return checkout_url
 
+    def _trigger_bulk_create_side_effects(self, tickets: list[Ticket]) -> None:
+        """Trigger side effects that post_save signals would normally handle.
+
+        Django's bulk_create does NOT trigger post_save signals, so we must
+        manually trigger the necessary side effects:
+        - Update attendee_count via build_attendee_visibility_flags task
+        - Send ticket created notifications
+        - Remove user from waitlist
+
+        Args:
+            tickets: List of tickets created via bulk_create.
+        """
+
+        def on_commit() -> None:
+            # Update attendee_count (once per batch, not per ticket)
+            build_attendee_visibility_flags.delay(str(self.event.id))
+
+            # Send notifications for each ticket
+            for ticket in tickets:
+                _send_ticket_created_notifications(ticket)
+
+            # Remove user from waitlist (once per batch)
+            _remove_user_from_waitlist(self.event.id, self.user.id)
+
+        transaction.on_commit(on_commit)
+
     def _offline_checkout(
         self,
         items: list[TicketPurchaseItem],
@@ -446,7 +475,9 @@ class BatchTicketService:
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))
 
-        # Notifications sent via post_save signal
+        # Trigger side effects that bulk_create doesn't handle
+        self._trigger_bulk_create_side_effects(tickets)
+
         return tickets
 
     def _free_checkout(
@@ -472,5 +503,7 @@ class BatchTicketService:
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))
 
-        # Notifications sent via post_save signal
+        # Trigger side effects that bulk_create doesn't handle
+        self._trigger_bulk_create_side_effects(tickets)
+
         return tickets
