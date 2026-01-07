@@ -56,7 +56,11 @@ class BatchTicketService:
         Returns:
             Number of remaining tickets, or None if unlimited.
         """
-        max_allowed = self.tier.get_max_tickets_per_user()
+        # Use tier's limit if set, otherwise fall back to event's limit
+        # Avoid accessing self.tier.event to prevent N+1 queries
+        max_allowed = self.tier.max_tickets_per_user
+        if max_allowed is None:
+            max_allowed = self.event.max_tickets_per_user
         if max_allowed is None:
             return None
         existing = self.get_user_ticket_count()
