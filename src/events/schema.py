@@ -1324,6 +1324,7 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     sales_end_at: AwareDatetime | None = None
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
+    manual_payment_instructions: StrippedString | None = None
 
     # Venue/seating configuration
     seat_assignment_mode: TicketTier.SeatAssignmentMode = TicketTier.SeatAssignmentMode.NONE
@@ -1360,6 +1361,7 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     sales_end_at: AwareDatetime | None = None
     total_quantity: int | None = None
     restricted_to_membership_tiers_ids: list[UUID4] | None = None
+    manual_payment_instructions: StrippedString | None = None
 
     # Venue/seating configuration
     seat_assignment_mode: TicketTier.SeatAssignmentMode | None = None
