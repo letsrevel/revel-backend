@@ -14,6 +14,7 @@ from questionnaires.models import (
     MultipleChoiceQuestion,
     Questionnaire,
     QuestionnaireEvaluation,
+    QuestionnaireSection,
     QuestionnaireSubmission,
 )
 
@@ -260,3 +261,236 @@ def test_evaluation_fails_if_mandatory_question_is_unanswered(
         evaluation.status == QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED
     )  # Assuming AUTOMATIC mode
     assert evaluation.evaluation_data.missing_mandatory == [single_answer_mc_question.id]
+
+
+# --- Conditional Questions Tests ---
+
+
+@pytest.mark.django_db
+def test_conditional_question_not_applicable_when_option_not_selected(
+    submitted_submission: QuestionnaireSubmission,
+    mock_evaluator: MockEvaluator,
+) -> None:
+    """Test that a conditional question is not applicable when its depends_on_option is not selected."""
+    questionnaire = submitted_submission.questionnaire
+    questionnaire.evaluation_mode = Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
+    questionnaire.save()
+
+    # Q1: "Do you have allergies?" with Yes/No options (both are valid answers)
+    q1 = MultipleChoiceQuestion.objects.create(
+        questionnaire=questionnaire, question="Do you have allergies?", order=1, allow_multiple_answers=True
+    )
+    q1_yes = MultipleChoiceOption.objects.create(question=q1, option="Yes", is_correct=True)
+    q1_no = MultipleChoiceOption.objects.create(question=q1, option="No", is_correct=True)
+
+    # Q2: Conditional question that depends on Q1=Yes, mandatory
+    q2 = MultipleChoiceQuestion.objects.create(
+        questionnaire=questionnaire,
+        question="Are any life-threatening?",
+        order=2,
+        is_mandatory=True,
+        depends_on_option=q1_yes,
+        allow_multiple_answers=True,
+    )
+    MultipleChoiceOption.objects.create(question=q2, option="Yes", is_correct=True)
+    MultipleChoiceOption.objects.create(question=q2, option="No", is_correct=True)
+
+    # User answers Q1=No (so Q2 should NOT be applicable)
+    MultipleChoiceAnswer.objects.create(submission=submitted_submission, question=q1, option=q1_no)
+    # User does NOT answer Q2 (which is mandatory but should be skipped)
+
+    # Action
+    evaluator = SubmissionEvaluator(submission=submitted_submission, llm_evaluator=mock_evaluator)
+    evaluation = evaluator.evaluate()
+
+    # Assertions: Q2 is not applicable, so missing mandatory should be empty
+    assert evaluation.evaluation_data.missing_mandatory is None or evaluation.evaluation_data.missing_mandatory == []
+    assert evaluation.score == Decimal("100.00")  # 1/1 questions answered correctly
+    assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.APPROVED
+
+
+@pytest.mark.django_db
+def test_conditional_question_applicable_when_option_selected(
+    submitted_submission: QuestionnaireSubmission,
+    mock_evaluator: MockEvaluator,
+) -> None:
+    """Test that a conditional mandatory question fails submission when applicable but not answered."""
+    questionnaire = submitted_submission.questionnaire
+    questionnaire.evaluation_mode = Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
+    questionnaire.save()
+
+    # Q1: "Do you have allergies?" with Yes/No options
+    q1 = MultipleChoiceQuestion.objects.create(questionnaire=questionnaire, question="Do you have allergies?", order=1)
+    q1_yes = MultipleChoiceOption.objects.create(question=q1, option="Yes", is_correct=True)
+
+    # Q2: Conditional question that depends on Q1=Yes, mandatory
+    q2 = MultipleChoiceQuestion.objects.create(
+        questionnaire=questionnaire,
+        question="Are any life-threatening?",
+        order=2,
+        is_mandatory=True,
+        depends_on_option=q1_yes,
+    )
+    MultipleChoiceOption.objects.create(question=q2, option="Yes", is_correct=True)
+
+    # User answers Q1=Yes (so Q2 SHOULD be applicable)
+    MultipleChoiceAnswer.objects.create(submission=submitted_submission, question=q1, option=q1_yes)
+    # User does NOT answer Q2 (which is mandatory and now applicable)
+
+    # Action
+    evaluator = SubmissionEvaluator(submission=submitted_submission, llm_evaluator=mock_evaluator)
+    evaluation = evaluator.evaluate()
+
+    # Assertions: Q2 is applicable and mandatory but not answered - should fail
+    assert evaluation.evaluation_data.missing_mandatory == [q2.id]
+    assert evaluation.score == Decimal("-100.0")
+    assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.REJECTED
+
+
+@pytest.mark.django_db
+def test_conditional_section_makes_questions_not_applicable(
+    submitted_submission: QuestionnaireSubmission,
+    mock_evaluator: MockEvaluator,
+) -> None:
+    """Test that questions in a conditional section are not applicable when section condition not met."""
+    questionnaire = submitted_submission.questionnaire
+    questionnaire.evaluation_mode = Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
+    questionnaire.save()
+
+    # Q1: "Do you want details?" with Yes/No options (both are valid answers)
+    q1 = MultipleChoiceQuestion.objects.create(
+        questionnaire=questionnaire, question="Do you want details?", order=1, allow_multiple_answers=True
+    )
+    q1_yes = MultipleChoiceOption.objects.create(question=q1, option="Yes", is_correct=True)
+    q1_no = MultipleChoiceOption.objects.create(question=q1, option="No", is_correct=True)
+
+    # Section that depends on Q1=Yes
+    section = QuestionnaireSection.objects.create(
+        questionnaire=questionnaire, name="Details Section", order=1, depends_on_option=q1_yes
+    )
+
+    # Q2: Mandatory question inside the conditional section
+    q2 = MultipleChoiceQuestion.objects.create(
+        questionnaire=questionnaire,
+        section=section,
+        question="Please provide details",
+        order=2,
+        is_mandatory=True,
+    )
+    MultipleChoiceOption.objects.create(question=q2, option="Detail A", is_correct=True)
+
+    # User answers Q1=No (so the section and Q2 should NOT be applicable)
+    MultipleChoiceAnswer.objects.create(submission=submitted_submission, question=q1, option=q1_no)
+    # User does NOT answer Q2
+
+    # Action
+    evaluator = SubmissionEvaluator(submission=submitted_submission, llm_evaluator=mock_evaluator)
+    evaluation = evaluator.evaluate()
+
+    # Assertions: Q2 is in a non-applicable section, so missing mandatory should be empty
+    assert evaluation.evaluation_data.missing_mandatory is None or evaluation.evaluation_data.missing_mandatory == []
+    assert evaluation.score == Decimal("100.00")
+    assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.APPROVED
+
+
+@pytest.mark.django_db
+def test_conditional_section_questions_scored_when_applicable(
+    submitted_submission: QuestionnaireSubmission,
+    mock_evaluator: MockEvaluator,
+) -> None:
+    """Test that questions in a conditional section are scored when the section is applicable."""
+    questionnaire = submitted_submission.questionnaire
+    questionnaire.evaluation_mode = Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
+    questionnaire.save()
+
+    # Q1: "Do you want details?" with Yes/No options
+    q1 = MultipleChoiceQuestion.objects.create(
+        questionnaire=questionnaire, question="Do you want details?", order=1, positive_weight=Decimal("1.0")
+    )
+    q1_yes = MultipleChoiceOption.objects.create(question=q1, option="Yes", is_correct=True)
+
+    # Section that depends on Q1=Yes
+    section = QuestionnaireSection.objects.create(
+        questionnaire=questionnaire, name="Details Section", order=1, depends_on_option=q1_yes
+    )
+
+    # Q2: Question inside the conditional section
+    q2 = MultipleChoiceQuestion.objects.create(
+        questionnaire=questionnaire,
+        section=section,
+        question="Please provide details",
+        order=2,
+        positive_weight=Decimal("2.0"),
+    )
+    q2_correct = MultipleChoiceOption.objects.create(question=q2, option="Detail A", is_correct=True)
+
+    # User answers Q1=Yes (so the section and Q2 ARE applicable)
+    MultipleChoiceAnswer.objects.create(submission=submitted_submission, question=q1, option=q1_yes)
+    # User answers Q2 correctly
+    MultipleChoiceAnswer.objects.create(submission=submitted_submission, question=q2, option=q2_correct)
+
+    # Action
+    evaluator = SubmissionEvaluator(submission=submitted_submission, llm_evaluator=mock_evaluator)
+    evaluation = evaluator.evaluate()
+
+    # Assertions: Both questions are scored
+    assert evaluation.evaluation_data.max_mc_points == Decimal("3.0")  # 1.0 + 2.0
+    assert evaluation.evaluation_data.mc_points_scored == Decimal("3.0")
+    assert evaluation.score == Decimal("100.00")
+    assert evaluation.proposed_status == QuestionnaireEvaluation.QuestionnaireEvaluationProposedStatus.APPROVED
+
+
+@pytest.mark.django_db
+def test_non_applicable_questions_not_counted_in_max_points(
+    submitted_submission: QuestionnaireSubmission,
+    mock_evaluator: MockEvaluator,
+) -> None:
+    """Test that non-applicable questions are not counted in max points calculation."""
+    questionnaire = submitted_submission.questionnaire
+    questionnaire.evaluation_mode = Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
+    questionnaire.save()
+
+    # Q1: Base question (allow multiple so both options can be "correct")
+    q1 = MultipleChoiceQuestion.objects.create(
+        questionnaire=questionnaire,
+        question="Pick one",
+        order=1,
+        positive_weight=Decimal("1.0"),
+        allow_multiple_answers=True,
+    )
+    q1_a = MultipleChoiceOption.objects.create(question=q1, option="A", is_correct=True)
+    q1_b = MultipleChoiceOption.objects.create(question=q1, option="B", is_correct=True)
+
+    # Q2: Conditional on Q1=A, worth 3 points
+    q2 = MultipleChoiceQuestion.objects.create(
+        questionnaire=questionnaire,
+        question="Follow-up for A",
+        order=2,
+        positive_weight=Decimal("3.0"),
+        depends_on_option=q1_a,
+    )
+    q2_correct = MultipleChoiceOption.objects.create(question=q2, option="X", is_correct=True)
+
+    # Q3: Conditional on Q1=B, worth 2 points
+    q3 = MultipleChoiceQuestion.objects.create(
+        questionnaire=questionnaire,
+        question="Follow-up for B",
+        order=3,
+        positive_weight=Decimal("2.0"),
+        depends_on_option=q1_b,
+    )
+    MultipleChoiceOption.objects.create(question=q3, option="Y", is_correct=True)
+
+    # User answers Q1=A and Q2 correctly (so Q2 is applicable, Q3 is not)
+    MultipleChoiceAnswer.objects.create(submission=submitted_submission, question=q1, option=q1_a)
+    MultipleChoiceAnswer.objects.create(submission=submitted_submission, question=q2, option=q2_correct)
+
+    # Action
+    evaluator = SubmissionEvaluator(submission=submitted_submission, llm_evaluator=mock_evaluator)
+    evaluation = evaluator.evaluate()
+
+    # Assertions: Only Q1 and Q2 should be counted (Q3 is not applicable)
+    # Max points should be 1.0 + 3.0 = 4.0 (not 1.0 + 3.0 + 2.0 = 6.0)
+    assert evaluation.evaluation_data.max_mc_points == Decimal("4.0")
+    assert evaluation.evaluation_data.mc_points_scored == Decimal("4.0")  # Q1 + Q2 answered correctly
+    assert evaluation.score == Decimal("100.00")

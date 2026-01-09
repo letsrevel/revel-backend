@@ -15,6 +15,7 @@ from .models import (
     MultipleChoiceQuestion,
     Questionnaire,
     QuestionnaireEvaluation,
+    QuestionnaireSection,
     QuestionnaireSubmission,
 )
 
@@ -47,6 +48,10 @@ class SubmissionEvaluator:
                 "freetextquestion_questions",
                 queryset=FreeTextQuestion.objects.all(),
             ),
+            Prefetch(
+                "sections",
+                queryset=QuestionnaireSection.objects.all(),
+            ),
         ).get(pk=submission.questionnaire_id)
 
         # Initialize state
@@ -57,6 +62,64 @@ class SubmissionEvaluator:
         self.llm_batch_response: EvaluationResponse | None = None
         self.fatal_error = False
         self.missing_mandatory: list[UUID] = []
+
+        # Compute applicable questions based on conditional dependencies
+        self._selected_option_ids: set[UUID] = set()
+        self._applicable_section_ids: set[UUID] = set()
+        self._applicable_mcq_ids: set[UUID] = set()
+        self._applicable_ftq_ids: set[UUID] = set()
+        self._compute_applicable_questions()
+
+    def _compute_applicable_questions(self) -> None:
+        """Compute which questions are applicable based on conditional dependencies.
+
+        A question is applicable if:
+        1. It has no depends_on_option, OR its depends_on_option was selected
+        2. Its section (if any) is also applicable
+
+        A section is applicable if:
+        1. It has no depends_on_option, OR its depends_on_option was selected
+        """
+        # Get all selected option IDs from the submission
+        self._selected_option_ids = set(
+            self.submission.multiplechoiceanswer_answers.values_list("option_id", flat=True)
+        )
+
+        # Determine applicable sections
+        for section in self.questionnaire.sections.all():
+            if section.depends_on_option_id is None or section.depends_on_option_id in self._selected_option_ids:
+                self._applicable_section_ids.add(section.id)
+
+        # Determine applicable MC questions
+        for mc_question in self.questionnaire.multiplechoicequestion_questions.all():
+            if self._is_question_applicable(mc_question):
+                self._applicable_mcq_ids.add(mc_question.id)
+
+        # Determine applicable FT questions
+        for ft_question in self.questionnaire.freetextquestion_questions.all():
+            if self._is_question_applicable(ft_question):
+                self._applicable_ftq_ids.add(ft_question.id)
+
+        logger.debug(
+            "questionnaire_applicable_questions_computed",
+            submission_id=str(self.submission.id),
+            selected_options=len(self._selected_option_ids),
+            applicable_sections=len(self._applicable_section_ids),
+            applicable_mcq=len(self._applicable_mcq_ids),
+            applicable_ftq=len(self._applicable_ftq_ids),
+        )
+
+    def _is_question_applicable(self, question: MultipleChoiceQuestion | FreeTextQuestion) -> bool:
+        """Check if a question is applicable based on its dependencies."""
+        # Check section applicability
+        if question.section_id is not None and question.section_id not in self._applicable_section_ids:
+            return False
+
+        # Check direct option dependency
+        if question.depends_on_option_id is not None and question.depends_on_option_id not in self._selected_option_ids:
+            return False
+
+        return True
 
     @transaction.atomic
     def evaluate(self) -> QuestionnaireEvaluation:
@@ -70,7 +133,7 @@ class SubmissionEvaluator:
             questionnaire_id=str(self.questionnaire.id),
             user_id=str(self.submission.user_id),
         )
-        # NEW: First, check for a hard failure condition: unanswered mandatory questions.
+        # First, check for a hard failure condition: unanswered mandatory questions.
         self._check_for_missing_mandatory_answers()
 
         # We proceed with scoring to provide a partial score for audit purposes,
@@ -87,16 +150,23 @@ class SubmissionEvaluator:
         )
         return evaluation
 
-    # NEW: A new private method to check for unanswered mandatory questions.
     def _check_for_missing_mandatory_answers(self) -> None:
-        """Checks if any mandatory questions were left unanswered and sets the state flag."""
-        # Get IDs of all mandatory questions for this questionnaire
-        mandatory_mcq_ids = set(
-            self.questionnaire.multiplechoicequestion_questions.filter(is_mandatory=True).values_list("id", flat=True)
-        )
-        mandatory_ftq_ids = set(
-            self.questionnaire.freetextquestion_questions.filter(is_mandatory=True).values_list("id", flat=True)
-        )
+        """Checks if any applicable mandatory questions were left unanswered.
+
+        Only checks questions that are applicable based on conditional dependencies.
+        A mandatory question that wasn't shown (condition not met) doesn't fail the submission.
+        """
+        # Get IDs of all mandatory questions that are also applicable
+        mandatory_mcq_ids = {
+            q.id
+            for q in self.questionnaire.multiplechoicequestion_questions.all()
+            if q.is_mandatory and q.id in self._applicable_mcq_ids
+        }
+        mandatory_ftq_ids = {
+            q.id
+            for q in self.questionnaire.freetextquestion_questions.all()
+            if q.is_mandatory and q.id in self._applicable_ftq_ids
+        }
 
         # Get IDs of all answered questions from the submission
         answered_mcq_ids = set(self.submission.multiplechoiceanswer_answers.values_list("question_id", flat=True))
@@ -114,9 +184,12 @@ class SubmissionEvaluator:
             )
 
     def _evaluate_mc_answers(self) -> None:
-        """Scores all multiple-choice answers in the submission."""
+        """Scores all applicable multiple-choice answers in the submission."""
+        # Only count max points for applicable questions
         self.max_mc_points = sum(
-            self.submission.questionnaire.multiplechoicequestion_questions.values_list("positive_weight", flat=True)
+            q.positive_weight
+            for q in self.questionnaire.multiplechoicequestion_questions.all()
+            if q.id in self._applicable_mcq_ids
         ) or Decimal("0.0")
 
         # If we already know the submission fails on a mandatory check, don't bother scoring.
@@ -124,6 +197,9 @@ class SubmissionEvaluator:
             return
 
         for answer in self.submission.multiplechoiceanswer_answers.all().select_related("option", "question"):
+            # Only score applicable questions
+            if answer.question_id not in self._applicable_mcq_ids:
+                continue
             if answer.option.is_correct:
                 self.mc_points_scored += answer.question.positive_weight
             else:
@@ -131,13 +207,21 @@ class SubmissionEvaluator:
                 self._fatalize(answer.question)
 
     def _evaluate_ft_answers_in_batch(self) -> None:
-        """Evaluates all free-text answers in a single batch call."""
-        answers_to_evaluate = list(self.submission.freetextanswer_answers.all().select_related("question"))
+        """Evaluates all applicable free-text answers in a single batch call."""
+        # Only evaluate answers for applicable questions
+        answers_to_evaluate = [
+            answer
+            for answer in self.submission.freetextanswer_answers.all().select_related("question")
+            if answer.question_id in self._applicable_ftq_ids
+        ]
         if not answers_to_evaluate:
             return
 
+        # Only count max points for applicable questions
         self.max_ft_points = sum(
-            self.submission.questionnaire.freetextquestion_questions.values_list("positive_weight", flat=True)
+            q.positive_weight
+            for q in self.questionnaire.freetextquestion_questions.all()
+            if q.id in self._applicable_ftq_ids
         ) or Decimal("0.0")
 
         # If we already know the submission fails on a mandatory check, don't waste tokens.

@@ -91,6 +91,7 @@ class QuestionnaireService:
                 order=mcq.order,
                 allow_multiple_answers=mcq.allow_multiple_answers,
                 options=[MultipleChoiceOptionSchema.from_orm(opt) for opt in options],
+                depends_on_option_id=mcq.depends_on_option_id,
             )
 
         def build_ft_question(ftq: FreeTextQuestion) -> FreeTextQuestionSchema:
@@ -134,6 +135,7 @@ class QuestionnaireService:
                     order=section.order,
                     multiple_choice_questions=mcq_schemas,
                     free_text_questions=ftq_schemas,
+                    depends_on_option_id=section.depends_on_option_id,
                 )
             )
 
@@ -273,10 +275,25 @@ class QuestionnaireService:
         return questionnaire
 
     @transaction.atomic
-    def create_section(self, payload: SectionCreateSchema) -> QuestionnaireSection:
-        """Create a new section for the questionnaire."""
-        section_data = payload.model_dump(exclude={"multiplechoicequestion_questions", "freetextquestion_questions"})
-        section = QuestionnaireSection.objects.create(questionnaire=self.questionnaire, **section_data)
+    def create_section(
+        self,
+        payload: SectionCreateSchema,
+        depends_on_option: MultipleChoiceOption | None = None,
+    ) -> QuestionnaireSection:
+        """Create a new section for the questionnaire.
+
+        Args:
+            payload: The section data.
+            depends_on_option: Optional option that this section depends on (for conditional sections).
+        """
+        section_data = payload.model_dump(
+            exclude={"multiplechoicequestion_questions", "freetextquestion_questions", "depends_on_option_id"}
+        )
+        section = QuestionnaireSection.objects.create(
+            questionnaire=self.questionnaire,
+            depends_on_option=depends_on_option,
+            **section_data,
+        )
 
         for mc_payload in payload.multiplechoicequestion_questions:
             self.create_mc_question(mc_payload, section)
@@ -307,9 +324,18 @@ class QuestionnaireService:
 
     @transaction.atomic
     def create_mc_question(
-        self, payload: MultipleChoiceQuestionCreateSchema, section: QuestionnaireSection | None = None
+        self,
+        payload: MultipleChoiceQuestionCreateSchema,
+        section: QuestionnaireSection | None = None,
+        depends_on_option: MultipleChoiceOption | None = None,
     ) -> MultipleChoiceQuestion:
-        """Create a new multiple choice question for the questionnaire."""
+        """Create a new multiple choice question for the questionnaire.
+
+        Args:
+            payload: The question data.
+            section: Optional section to place the question in.
+            depends_on_option: Optional option that this question depends on (for conditional questions).
+        """
         if payload.section_id and section and payload.section_id != section.id:
             raise SectionIntegrityError("Section ID in payload does not match the provided section.")
 
@@ -320,20 +346,42 @@ class QuestionnaireService:
                 raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
 
         options_data = payload.options
-        mc_question_data = payload.model_dump(exclude={"options", "section_id"})
+        mc_question_data = payload.model_dump(exclude={"options", "section_id", "depends_on_option_id"})
         mc_question = MultipleChoiceQuestion.objects.create(
-            questionnaire=self.questionnaire, section=section, **mc_question_data
+            questionnaire=self.questionnaire,
+            section=section,
+            depends_on_option=depends_on_option,
+            **mc_question_data,
         )
 
-        options_to_create = [MultipleChoiceOption(question=mc_question, **opt.model_dump()) for opt in options_data]
-        MultipleChoiceOption.objects.bulk_create(options_to_create)
+        # Create options and their nested conditional questions/sections
+        for opt_payload in options_data:
+            option = MultipleChoiceOption.objects.create(
+                question=mc_question,
+                option=opt_payload.option,
+                is_correct=opt_payload.is_correct,
+                order=opt_payload.order,
+            )
+            # Create nested conditional questions
+            for cond_mc_payload in opt_payload.conditional_mc_questions:
+                self.create_mc_question(cond_mc_payload, section=None, depends_on_option=option)
+            for cond_ft_payload in opt_payload.conditional_ft_questions:
+                self.create_ft_question(cond_ft_payload, section=None, depends_on_option=option)
+            # Create nested conditional sections
+            for cond_section_payload in opt_payload.conditional_sections:
+                self.create_section(cond_section_payload, depends_on_option=option)
+
         return mc_question
 
     @transaction.atomic
     def update_mc_question(
         self, mc_question: MultipleChoiceQuestion, payload: MultipleChoiceQuestionUpdateSchema
     ) -> MultipleChoiceQuestion:
-        """Update a multiple choice question of the questionnaire."""
+        """Update a multiple choice question of the questionnaire.
+
+        Note: Updating options via this method does not support nested conditional creation.
+        Use the flat depends_on_option_id approach for conditional questions when updating.
+        """
         assert mc_question.questionnaire_id == self.questionnaire.id
 
         if payload.section_id and mc_question.section_id != payload.section_id:
@@ -350,7 +398,13 @@ class QuestionnaireService:
         if payload.options:
             mc_question.options.all().delete()
             options_to_create = [
-                MultipleChoiceOption(question=mc_question, **opt.model_dump()) for opt in payload.options
+                MultipleChoiceOption(
+                    question=mc_question,
+                    option=opt.option,
+                    is_correct=opt.is_correct,
+                    order=opt.order,
+                )
+                for opt in payload.options
             ]
             MultipleChoiceOption.objects.bulk_create(options_to_create)
 
@@ -359,10 +413,27 @@ class QuestionnaireService:
     def create_mc_option(
         self, question: MultipleChoiceQuestion, payload: MultipleChoiceOptionCreateSchema
     ) -> MultipleChoiceOption:
-        """Create a new multiple choice option for a question."""
+        """Create a new multiple choice option for a question.
+
+        Note: This creates just the option. To create an option with nested conditionals,
+        use the nested structure in create_mc_question's payload.
+        """
         if question.questionnaire_id != self.questionnaire.id:
             raise QuestionIntegrityError("Question does not belong to this questionnaire.")
-        return MultipleChoiceOption.objects.create(question=question, **payload.model_dump())
+        option = MultipleChoiceOption.objects.create(
+            question=question,
+            option=payload.option,
+            is_correct=payload.is_correct,
+            order=payload.order,
+        )
+        # Create nested conditional questions/sections if any
+        for cond_mc_payload in payload.conditional_mc_questions:
+            self.create_mc_question(cond_mc_payload, section=None, depends_on_option=option)
+        for cond_ft_payload in payload.conditional_ft_questions:
+            self.create_ft_question(cond_ft_payload, section=None, depends_on_option=option)
+        for cond_section_payload in payload.conditional_sections:
+            self.create_section(cond_section_payload, depends_on_option=option)
+        return option
 
     def update_mc_option(
         self, option: MultipleChoiceOption, payload: MultipleChoiceOptionUpdateSchema
@@ -375,9 +446,18 @@ class QuestionnaireService:
 
     @transaction.atomic
     def create_ft_question(
-        self, payload: FreeTextQuestionCreateSchema, section: QuestionnaireSection | None = None
+        self,
+        payload: FreeTextQuestionCreateSchema,
+        section: QuestionnaireSection | None = None,
+        depends_on_option: MultipleChoiceOption | None = None,
     ) -> FreeTextQuestion:
-        """Create a new free text question for the questionnaire."""
+        """Create a new free text question for the questionnaire.
+
+        Args:
+            payload: The question data.
+            section: Optional section to place the question in.
+            depends_on_option: Optional option that this question depends on (for conditional questions).
+        """
         if payload.section_id and section and payload.section_id != section.id:
             raise SectionIntegrityError("Section ID in payload does not match the provided section.")
 
@@ -388,7 +468,10 @@ class QuestionnaireService:
                 raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
 
         return FreeTextQuestion.objects.create(
-            questionnaire=self.questionnaire, section=section, **payload.model_dump(exclude={"section_id"})
+            questionnaire=self.questionnaire,
+            section=section,
+            depends_on_option=depends_on_option,
+            **payload.model_dump(exclude={"section_id", "depends_on_option_id"}),
         )
 
     @transaction.atomic

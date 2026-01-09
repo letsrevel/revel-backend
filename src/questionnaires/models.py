@@ -201,11 +201,28 @@ class QuestionnaireSection(TimeStampedModel):
         help_text="Markdown-formatted description shown at the top of this section.",
     )
     order = models.PositiveIntegerField(default=0)
+    depends_on_option = models.ForeignKey(
+        "MultipleChoiceOption",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="dependent_sections",
+        help_text="Section is only shown if this option was selected.",
+    )
 
     objects = QuestionnaireSectionManager()
 
     class Meta:
         ordering = ["order"]
+
+    def clean(self) -> None:
+        """Validate that depends_on_option belongs to the same questionnaire."""
+        super().clean()
+        if self.depends_on_option:
+            if self.depends_on_option.question.questionnaire_id != self.questionnaire_id:
+                raise exceptions.CrossQuestionnaireOptionDependencyError(
+                    {"depends_on_option": "The selected option does not belong to this questionnaire."}
+                )
 
 
 # ---- Abstract Base Models ----
@@ -250,14 +267,32 @@ class BaseQuestion(TimeStampedModel):
         db_index=True,
         help_text="The order the questions are displayed. Ignored if questionnaire.shuffle_questions is True.",
     )
+    depends_on_option = models.ForeignKey(
+        "MultipleChoiceOption",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="dependent_%(class)s_questions",
+        help_text="Question is only shown if this option was selected.",
+    )
 
     def clean(self) -> None:
-        """Ensure section's questionnaire and question's questionnaire match."""
+        """Validate section and depends_on_option constraints."""
         super().clean()
         if self.section and self.section.questionnaire != self.questionnaire:
             raise exceptions.CrossQuestionnaireSectionError(
                 {"section": "The selected section does not belong to the question's questionnaire."}
             )
+        if self.depends_on_option:
+            if self.depends_on_option.question.questionnaire_id != self.questionnaire_id:
+                raise exceptions.CrossQuestionnaireOptionDependencyError(
+                    {"depends_on_option": "The selected option does not belong to this questionnaire."}
+                )
+            # Ensure the dependency is on a question with lower order
+            # if self.depends_on_option.question.order >= self.order:
+            #     raise exceptions.InvalidOptionDependencyOrderError(
+            #         {"depends_on_option": "Cannot depend on an option from a question with equal or higher order."}
+            #     )
 
     class Meta:
         abstract = True
