@@ -9,6 +9,7 @@ from accounts.models import RevelUser
 from events.models import (
     Event,
     EventInvitation,
+    EventInvitationRequest,
     EventRSVP,
     EventSeries,
     MembershipTier,
@@ -131,6 +132,51 @@ def test_private_event_requires_invitation(public_user: RevelUser, private_event
     assert eligibility.reason == Reasons.REQUIRES_INVITATION
     assert eligibility.next_step is not None
     assert eligibility.next_step == NextStep.REQUEST_INVITATION
+
+
+def test_private_event_pending_invitation_request(public_user: RevelUser, private_event: Event) -> None:
+    """A user with a pending invitation request should wait for approval."""
+    EventInvitationRequest.objects.create(
+        event=private_event,
+        user=public_user,
+        status=EventInvitationRequest.InvitationRequestStatus.PENDING,
+    )
+
+    handler = EligibilityService(user=public_user, event=private_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.INVITATION_REQUEST_PENDING
+    assert eligibility.next_step == NextStep.WAIT_FOR_INVITATION_APPROVAL
+
+
+def test_private_event_rejected_invitation_request(public_user: RevelUser, private_event: Event) -> None:
+    """A user with a rejected invitation request should have no next step available."""
+    EventInvitationRequest.objects.create(
+        event=private_event,
+        user=public_user,
+        status=EventInvitationRequest.InvitationRequestStatus.REJECTED,
+    )
+
+    handler = EligibilityService(user=public_user, event=private_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.INVITATION_REQUEST_REJECTED
+    assert eligibility.next_step is None
+
+
+def test_private_event_no_invitation_requests_accepted(public_user: RevelUser, private_event: Event) -> None:
+    """When event doesn't accept invitation requests, next_step should be None."""
+    private_event.accept_invitation_requests = False
+    private_event.save()
+
+    handler = EligibilityService(user=public_user, event=private_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.REQUIRES_INVITATION
+    assert eligibility.next_step is None
 
 
 def test_members_only_event_requires_membership(public_user: RevelUser, members_only_event: Event) -> None:
