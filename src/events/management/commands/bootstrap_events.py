@@ -1918,6 +1918,7 @@ Wine and refreshments available during the 20-minute intermission.
             order=3,
         )
 
+        experience_options: dict[str, questionnaires_models.MultipleChoiceOption] = {}
         for idx, option in enumerate(
             [
                 "Beginner - I'm curious to learn",
@@ -1926,12 +1927,31 @@ Wine and refreshments available during the 20-minute intermission.
             ],
             1,
         ):
-            questionnaires_models.MultipleChoiceOption.objects.create(
+            opt = questionnaires_models.MultipleChoiceOption.objects.create(
                 question=experience_q,
                 option=option,
                 is_correct=True,  # All are acceptable
                 order=idx,
             )
+            experience_options[option] = opt
+
+        # Conditional question: shown only if "Advanced" is selected
+        questionnaires_models.FreeTextQuestion.objects.create(
+            questionnaire=wine_questionnaire,
+            section=wine_section,
+            question="As an advanced wine enthusiast, which regions or varietals do you specialize in?",
+            hint="Share your areas of expertise - this helps us tailor the experience for you.",
+            llm_guidelines=(
+                "Look for genuine expertise and passion. The answer should demonstrate "
+                "real knowledge of wine regions, grape varieties, or winemaking techniques."
+            ),
+            positive_weight=2,
+            negative_weight=0,
+            is_fatal=False,
+            is_mandatory=True,  # Mandatory IF shown (condition met)
+            order=4,
+            depends_on_option=experience_options["Advanced - I'm a serious enthusiast"],
+        )
 
         # Link to wine tasting
         org_quest_wine = events_models.OrganizationQuestionnaire.objects.create(
