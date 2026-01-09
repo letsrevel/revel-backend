@@ -45,3 +45,11 @@ class SubmissionDoesNotExistError(QuestionnaireException):
 
 class PromptInjectionDetectedError(QuestionnaireException):
     """Raised when prompt injection is detected by the sentinel model."""
+
+
+class CrossQuestionnaireOptionDependencyError(ValidationError):
+    """Raised when depends_on_option references an option from a different questionnaire."""
+
+
+class InvalidOptionDependencyOrderError(ValidationError):
+    """Raised when depends_on_option references an option from a question with higher order."""

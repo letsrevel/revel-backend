@@ -40,6 +40,7 @@ class BaseQuestionSchema(BaseUUIDSchema):
     hint: str | None = None
     is_mandatory: bool
     order: int
+    depends_on_option_id: UUID | None = None
 
 
 class MultipleChoiceOptionSchema(BaseUUIDSchema):
@@ -65,6 +66,7 @@ class QuestionContainerSchema(BaseUUIDSchema):
 
 class SectionSchema(QuestionContainerSchema):
     order: int
+    depends_on_option_id: UUID | None = None
 
 
 class QuestionnaireSchema(QuestionContainerSchema):
@@ -272,6 +274,7 @@ class FreeTextQuestionCreateSchema(Schema):
     negative_weight: Decimal = Field(default=Decimal("0.0"), ge=-100, le=100)
     is_fatal: bool = False
     llm_guidelines: str | None = None
+    depends_on_option_id: UUID | None = None
 
 
 class FreeTextQuestionUpdateSchema(FreeTextQuestionCreateSchema):
@@ -279,15 +282,27 @@ class FreeTextQuestionUpdateSchema(FreeTextQuestionCreateSchema):
 
 
 class MultipleChoiceOptionCreateSchema(Schema):
-    """Schema for creating a MultipleChoiceOption."""
+    """Schema for creating a MultipleChoiceOption.
+
+    Supports nested conditional questions and sections that will be shown
+    only when this option is selected.
+    """
 
     option: str
     is_correct: bool = False
     order: int = 0
+    # Forward references - resolved via model_rebuild() at module end
+    conditional_mc_questions: list["MultipleChoiceQuestionCreateSchema"] = Field(default_factory=list)
+    conditional_ft_questions: list["FreeTextQuestionCreateSchema"] = Field(default_factory=list)
+    conditional_sections: list["SectionCreateSchema"] = Field(default_factory=list)
 
 
-class MultipleChoiceOptionUpdateSchema(MultipleChoiceOptionCreateSchema):
+class MultipleChoiceOptionUpdateSchema(Schema):
     """Schema for updating a MultipleChoiceOption."""
+
+    option: str
+    is_correct: bool = False
+    order: int = 0
 
 
 class MultipleChoiceQuestionCreateSchema(Schema):
@@ -305,6 +320,7 @@ class MultipleChoiceQuestionCreateSchema(Schema):
     allow_multiple_answers: bool = False
     shuffle_options: bool = True
     options: list[MultipleChoiceOptionCreateSchema]
+    depends_on_option_id: UUID | None = None
 
 
 class MultipleChoiceQuestionUpdateSchema(MultipleChoiceQuestionCreateSchema):
@@ -329,6 +345,7 @@ class SectionCreateSchema(Schema):
     order: int = 0
     multiplechoicequestion_questions: list[MultipleChoiceQuestionCreateSchema] = Field(default_factory=list)
     freetextquestion_questions: list[FreeTextQuestionCreateSchema] = Field(default_factory=list)
+    depends_on_option_id: UUID | None = None
 
 
 class SectionUpdateSchema(SectionCreateSchema):
@@ -372,3 +389,10 @@ class QuestionnaireCreateSchema(QuestionnaireBaseSchema):
                 "of questionnaires with free text questions.",
             )
         return self
+
+
+# Resolve forward references for nested conditional schemas
+MultipleChoiceOptionCreateSchema.model_rebuild()
+MultipleChoiceQuestionCreateSchema.model_rebuild()
+SectionCreateSchema.model_rebuild()
+QuestionnaireCreateSchema.model_rebuild()

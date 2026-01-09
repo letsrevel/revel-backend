@@ -1918,6 +1918,7 @@ Wine and refreshments available during the 20-minute intermission.
             order=3,
         )
 
+        experience_options: dict[str, questionnaires_models.MultipleChoiceOption] = {}
         for idx, option in enumerate(
             [
                 "Beginner - I'm curious to learn",
@@ -1926,12 +1927,31 @@ Wine and refreshments available during the 20-minute intermission.
             ],
             1,
         ):
-            questionnaires_models.MultipleChoiceOption.objects.create(
+            opt = questionnaires_models.MultipleChoiceOption.objects.create(
                 question=experience_q,
                 option=option,
                 is_correct=True,  # All are acceptable
                 order=idx,
             )
+            experience_options[option] = opt
+
+        # Conditional question: shown only if "Advanced" is selected
+        questionnaires_models.FreeTextQuestion.objects.create(
+            questionnaire=wine_questionnaire,
+            section=wine_section,
+            question="As an advanced wine enthusiast, which regions or varietals do you specialize in?",
+            hint="Share your areas of expertise - this helps us tailor the experience for you.",
+            llm_guidelines=(
+                "Look for genuine expertise and passion. The answer should demonstrate "
+                "real knowledge of wine regions, grape varieties, or winemaking techniques."
+            ),
+            positive_weight=2,
+            negative_weight=0,
+            is_fatal=False,
+            is_mandatory=True,  # Mandatory IF shown (condition met)
+            order=4,
+            depends_on_option=experience_options["Advanced - I'm a serious enthusiast"],
+        )
 
         # Link to wine tasting
         org_quest_wine = events_models.OrganizationQuestionnaire.objects.create(
@@ -1997,6 +2017,7 @@ Wine and refreshments available during the 20-minute intermission.
             order=2,
         )
 
+        tech_area_options: dict[str, questionnaires_models.MultipleChoiceOption] = {}
         for idx, area in enumerate(
             [
                 "AI/Machine Learning",
@@ -2010,9 +2031,86 @@ Wine and refreshments available during the 20-minute intermission.
             ],
             1,
         ):
-            questionnaires_models.MultipleChoiceOption.objects.create(
+            opt = questionnaires_models.MultipleChoiceOption.objects.create(
                 question=tech_areas,
                 option=area,
+                is_correct=True,
+                order=idx,
+            )
+            tech_area_options[area] = opt
+
+        # Conditional question: shown only if "AI/Machine Learning" is selected
+        ai_followup_q = questionnaires_models.MultipleChoiceQuestion.objects.create(
+            questionnaire=membership_questionnaire,
+            section=member_section1,
+            question="Which AI/ML areas interest you most? (Select all that apply)",
+            hint="This helps us connect you with relevant community members and events.",
+            allow_multiple_answers=True,
+            shuffle_options=True,
+            positive_weight=1,
+            negative_weight=0,
+            is_fatal=False,
+            is_mandatory=True,  # Mandatory IF shown (condition met)
+            order=3,
+            depends_on_option=tech_area_options["AI/Machine Learning"],
+        )
+
+        for idx, ai_area in enumerate(
+            [
+                "Large Language Models (LLMs)",
+                "Computer Vision",
+                "Reinforcement Learning",
+                "MLOps & Model Deployment",
+                "AI Ethics & Safety",
+                "Generative AI (images, music, etc.)",
+            ],
+            1,
+        ):
+            questionnaires_models.MultipleChoiceOption.objects.create(
+                question=ai_followup_q,
+                option=ai_area,
+                is_correct=True,
+                order=idx,
+            )
+
+        # Conditional section: shown only if "Blockchain/Web3" is selected
+        web3_section = questionnaires_models.QuestionnaireSection.objects.create(
+            questionnaire=membership_questionnaire,
+            name="Web3 Experience",
+            description="Tell us more about your blockchain/Web3 background.",
+            order=3,
+            depends_on_option=tech_area_options["Blockchain/Web3"],
+        )
+
+        questionnaires_models.FreeTextQuestion.objects.create(
+            questionnaire=membership_questionnaire,
+            section=web3_section,
+            question="Describe your experience with blockchain or Web3 technologies.",
+            llm_guidelines="Look for genuine interest or experience. Beginners are welcome too.",
+            positive_weight=1,
+            negative_weight=0,
+            is_fatal=False,
+            is_mandatory=True,
+            order=1,
+        )
+
+        web3_chains_q = questionnaires_models.MultipleChoiceQuestion.objects.create(
+            questionnaire=membership_questionnaire,
+            section=web3_section,
+            question="Which blockchains have you worked with or are interested in?",
+            allow_multiple_answers=True,
+            shuffle_options=True,
+            positive_weight=1,
+            negative_weight=0,
+            is_fatal=False,
+            is_mandatory=False,
+            order=2,
+        )
+
+        for idx, chain in enumerate(["Ethereum", "Solana", "Polygon", "Bitcoin", "Other L1/L2"], 1):
+            questionnaires_models.MultipleChoiceOption.objects.create(
+                question=web3_chains_q,
+                option=chain,
                 is_correct=True,
                 order=idx,
             )
