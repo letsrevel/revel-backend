@@ -1909,7 +1909,7 @@ Wine and refreshments available during the 20-minute intermission.
             questionnaire=wine_questionnaire,
             section=wine_section,
             question="How would you describe your wine knowledge?",
-            allow_multiple_answers=True,
+            allow_multiple_answers=False,
             shuffle_options=False,
             positive_weight=1,
             negative_weight=0,
@@ -1930,7 +1930,7 @@ Wine and refreshments available during the 20-minute intermission.
             opt = questionnaires_models.MultipleChoiceOption.objects.create(
                 question=experience_q,
                 option=option,
-                is_correct=True,  # All are acceptable
+                is_correct=False,  # Doesnt matter
                 order=idx,
             )
             experience_options[option] = opt
