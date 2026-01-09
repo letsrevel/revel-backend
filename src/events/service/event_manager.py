@@ -13,7 +13,14 @@ from pydantic import BaseModel
 
 from accounts.models import RevelUser
 from events import models
-from events.models import EventRSVP, OrganizationMember, OrganizationQuestionnaire, Ticket, TicketTier
+from events.models import (
+    EventInvitationRequest,
+    EventRSVP,
+    OrganizationMember,
+    OrganizationQuestionnaire,
+    Ticket,
+    TicketTier,
+)
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 from .ticket_service import TicketService
@@ -21,6 +28,7 @@ from .ticket_service import TicketService
 
 class NextStep(StrEnum):
     REQUEST_INVITATION = "request_invitation"
+    WAIT_FOR_INVITATION_APPROVAL = "wait_for_invitation_approval"
     BECOME_MEMBER = "become_member"
     COMPLETE_QUESTIONNAIRE = "complete_questionnaire"
     WAIT_FOR_QUESTIONNAIRE_EVALUATION = "wait_for_questionnaire_evaluation"
@@ -45,6 +53,8 @@ class Reasons(StrEnum):
     REQUIRES_TICKET = "Requires a ticket."
     MUST_RSVP = "Must RSVP"
     REQUIRES_INVITATION = "Requires invitation."
+    INVITATION_REQUEST_PENDING = "Your invitation request is pending approval."
+    INVITATION_REQUEST_REJECTED = "Your invitation request was rejected."
     REQUIRES_PURCHASE = "Requires purchase."
     NOTHING_TO_PURCHASE = "Nothing to purchase."
     EVENT_IS_NOT_OPEN = "Event is not open."
@@ -122,14 +132,37 @@ class InvitationGate(BaseEligibilityGate):
 
     def check(self) -> EventUserEligibility | None:
         """Check if invitation is valid."""
-        if self.event.event_type == models.Event.EventType.PRIVATE and not self.handler.invitation:
-            return EventUserEligibility(
-                allowed=False,
-                event_id=self.event.id,
-                reason=_(Reasons.REQUIRES_INVITATION),
-                next_step=NextStep.REQUEST_INVITATION if self.event.accept_invitation_requests else None,
-            )
-        return None
+        if self.event.event_type != models.Event.EventType.PRIVATE:
+            return None
+
+        if self.handler.invitation:
+            return None
+
+        # User needs an invitation but doesn't have one - check for existing request
+        invitation_request = self.handler.invitation_request
+        if invitation_request:
+            if invitation_request.status == EventInvitationRequest.InvitationRequestStatus.PENDING:
+                return EventUserEligibility(
+                    allowed=False,
+                    event_id=self.event.id,
+                    reason=_(Reasons.INVITATION_REQUEST_PENDING),
+                    next_step=NextStep.WAIT_FOR_INVITATION_APPROVAL,
+                )
+            if invitation_request.status == EventInvitationRequest.InvitationRequestStatus.REJECTED:
+                return EventUserEligibility(
+                    allowed=False,
+                    event_id=self.event.id,
+                    reason=_(Reasons.INVITATION_REQUEST_REJECTED),
+                    next_step=None,  # No action available after rejection
+                )
+
+        # No invitation and no request - allow requesting if enabled
+        return EventUserEligibility(
+            allowed=False,
+            event_id=self.event.id,
+            reason=_(Reasons.REQUIRES_INVITATION),
+            next_step=NextStep.REQUEST_INVITATION if self.event.accept_invitation_requests else None,
+        )
 
 
 class MembershipGate(BaseEligibilityGate):
@@ -491,6 +524,10 @@ class EligibilityService:
                     "invitations",
                     queryset=models.EventInvitation.objects.filter(user=user).select_related("tier"),
                 ),
+                Prefetch(
+                    "invitation_requests",
+                    queryset=EventInvitationRequest.objects.filter(user=user),
+                ),
                 # Use .only("id") to fetch lightweight model instances with only the ID populated.
                 Prefetch(
                     "organization__staff_members",
@@ -534,6 +571,7 @@ class EligibilityService:
             self.membership_status_map[membership.user_id] = membership.status
 
         self.invitation = self.event.invitations.first()
+        self.invitation_request = self.event.invitation_requests.first()
         self.submission_map: dict[uuid.UUID, list[QuestionnaireSubmission]] = defaultdict(list)
         for sub in self.user.questionnaire_submissions.all():
             self.submission_map[sub.questionnaire_id].append(sub)
