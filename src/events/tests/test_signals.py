@@ -3,9 +3,10 @@
 import typing as t
 
 import pytest
+from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, EventRSVP, PotluckItem, Ticket, TicketTier
+from events.models import Event, EventInvitation, EventRSVP, PendingEventInvitation, PotluckItem, Ticket, TicketTier
 from events.signals import unclaim_user_potluck_items
 
 pytestmark = pytest.mark.django_db
@@ -66,7 +67,6 @@ class TestUnclaimUserPotluckItems:
         self, event: Event, organization: t.Any, nonmember_user: RevelUser
     ) -> None:
         """Test that unclaiming only affects items from the specified event."""
-        from django.utils import timezone
 
         # Create a second event
         event2 = Event.objects.create(
@@ -358,7 +358,6 @@ class TestCrossEventUnclaimingBehavior:
         self, event: Event, organization: t.Any, nonmember_user: RevelUser
     ) -> None:
         """Test that RSVP change only unclaims items from the same event, not other events."""
-        from django.utils import timezone
 
         # Create a second event
         event2 = Event.objects.create(
@@ -416,3 +415,65 @@ class TestMultipleUsersUnclaimingBehavior:
         item2.refresh_from_db()
         assert item1.assignee == nonmember_user
         assert item2.assignee is None
+
+
+class TestPendingInvitationConversion:
+    """Test that pending invitations are converted to real invitations when user registers.
+
+    The signal `handle_user_creation` converts pending invitations when a new user is created
+    with an email that matches a pending invitation.
+    """
+
+    def test_pending_invitation_copies_waives_apply_deadline_when_user_registers(
+        self, event: Event, django_user_model: type[RevelUser]
+    ) -> None:
+        """Test that waives_apply_deadline is copied from pending to real invitation on registration."""
+        # Create pending invitation FIRST with waives_apply_deadline=True
+        pending = PendingEventInvitation.objects.create(
+            event=event,
+            email="newuser@example.com",
+            waives_questionnaire=True,
+            waives_purchase=True,
+            waives_apply_deadline=True,
+            waives_rsvp_deadline=True,
+            custom_message="Welcome!",
+        )
+
+        # THEN create user with matching email - this triggers the signal
+        user = django_user_model.objects.create_user(
+            username="new_user",
+            email="newuser@example.com",
+            password="pass",
+        )
+
+        # Check that real invitation was created with all flags
+        invitation = EventInvitation.objects.get(event=event, user=user)
+        assert invitation.waives_questionnaire is True
+        assert invitation.waives_purchase is True
+        assert invitation.waives_apply_deadline is True
+        assert invitation.waives_rsvp_deadline is True
+        assert invitation.custom_message == "Welcome!"
+
+        # Pending invitation should be deleted
+        assert not PendingEventInvitation.objects.filter(pk=pending.pk).exists()
+
+    def test_pending_invitation_default_waives_apply_deadline_is_false(
+        self, event: Event, django_user_model: type[RevelUser]
+    ) -> None:
+        """Test that waives_apply_deadline defaults to False when not explicitly set."""
+        # Create pending invitation without waives_apply_deadline
+        PendingEventInvitation.objects.create(
+            event=event,
+            email="newuser2@example.com",
+        )
+
+        # Create user with matching email
+        user = django_user_model.objects.create_user(
+            username="new_user2",
+            email="newuser2@example.com",
+            password="pass",
+        )
+
+        # Check that real invitation has waives_apply_deadline=False (default)
+        invitation = EventInvitation.objects.get(event=event, user=user)
+        assert invitation.waives_apply_deadline is False

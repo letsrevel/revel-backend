@@ -172,10 +172,13 @@ def create_invitation_request(event: Event, user: RevelUser, message: str | None
 
     Raises:
         HttpError: If the event does not accept invitation requests, the user is already invited,
-                  or a pending request already exists.
+                  a pending request already exists, or the application deadline has passed.
     """
     if not event.accept_invitation_requests:
         raise HttpError(400, str(_("This event does not accept invitation requests.")))
+
+    if event.apply_before and timezone.now() > event.apply_before:
+        raise HttpError(400, str(_("The application deadline has passed.")))
 
     if EventInvitation.objects.filter(event=event, user=user).exists():
         raise HttpError(400, str(_("You are already invited to this event.")))
@@ -372,6 +375,7 @@ def duplicate_event(
             start=new_start,
             end=new_end,
             rsvp_before=shift_date(template_event.rsvp_before),
+            apply_before=shift_date(template_event.apply_before),
             check_in_starts_at=shift_date(template_event.check_in_starts_at),
             check_in_ends_at=shift_date(template_event.check_in_ends_at),
             # All other fields (copied as-is)

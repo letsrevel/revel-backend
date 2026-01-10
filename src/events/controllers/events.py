@@ -4,6 +4,7 @@ from uuid import UUID
 from django.db.models import QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
 from ninja.errors import HttpError
@@ -792,6 +793,11 @@ class EventController(UserAwareController):
         Passing the questionnaire may be required before you can RSVP or purchase tickets.
         """
         event = self.get_one(event_id)
+
+        # Check application deadline
+        if event.apply_before and timezone.now() > event.apply_before:
+            raise HttpError(400, str(_("The application deadline has passed.")))
+
         self.get_org_questionnaire_for_event(event, questionnaire_id)
         questionnaire_service = self.get_questionnaire_service(questionnaire_id)
 

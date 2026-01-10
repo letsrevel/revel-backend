@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-10 10:40+0100\n"
+"POT-Creation-Date: 2026-01-10 18:29+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -587,6 +587,9 @@ msgstr "L'importo PWYC deve essere almeno {min_amount}"
 #, python-brace-format
 msgid "PWYC amount must be at most {max_amount}"
 msgstr "L'importo PWYC deve essere al massimo {max_amount}"
+
+msgid "The application deadline has passed."
+msgstr "Il termine per fare domanda è scaduto."
 
 #, fuzzy
 #| msgid "This endpoint is only for pay-what-you-can tickets"

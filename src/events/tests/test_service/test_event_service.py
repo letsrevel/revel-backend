@@ -558,3 +558,136 @@ class TestDuplicateEvent:
         assert third_event.slug != base_slug
         assert third_event.slug != new_event.slug
         assert third_event.slug.startswith(base_slug + "-")
+
+    def test_duplicate_event_shifts_apply_before(self, organization: Organization) -> None:
+        """Test that apply_before deadline is shifted correctly when duplicating."""
+        original_start = timezone.now()
+        original_apply_before = original_start - timedelta(days=2)
+
+        template = Event.objects.create(
+            organization=organization,
+            name="Application Deadline Event",
+            start=original_start,
+            end=original_start + timedelta(hours=3),
+            apply_before=original_apply_before,
+            requires_ticket=False,
+        )
+
+        # Shift by 14 days
+        new_start = original_start + timedelta(days=14)
+        new_event = event_service.duplicate_event(
+            template_event=template,
+            new_name="Shifted Event",
+            new_start=new_start,
+        )
+
+        assert new_event.apply_before == original_apply_before + timedelta(days=14)
+
+    def test_duplicate_event_handles_null_apply_before(self, public_event: Event) -> None:
+        """Test that duplicating an event without apply_before works correctly."""
+        assert public_event.apply_before is None
+
+        new_event = event_service.duplicate_event(
+            template_event=public_event,
+            new_name="Duplicated Event",
+            new_start=public_event.start + timedelta(days=30),
+        )
+
+        assert new_event.apply_before is None
+
+
+class TestCreateInvitationRequest:
+    """Tests for create_invitation_request service function."""
+
+    def test_create_invitation_request_success(self, public_event: Event, public_user: RevelUser) -> None:
+        """Test successful creation of invitation request."""
+        request = event_service.create_invitation_request(public_event, public_user, message="Please invite me!")
+
+        assert request.event == public_event
+        assert request.user == public_user
+        assert request.message == "Please invite me!"
+        assert request.status == EventInvitationRequest.InvitationRequestStatus.PENDING
+
+    def test_create_invitation_request_rejects_when_not_accepting(
+        self, public_event: Event, public_user: RevelUser
+    ) -> None:
+        """Test that request fails when event doesn't accept invitation requests."""
+        from ninja.errors import HttpError
+
+        public_event.accept_invitation_requests = False
+        public_event.save()
+
+        with pytest.raises(HttpError) as exc_info:
+            event_service.create_invitation_request(public_event, public_user)
+
+        assert exc_info.value.status_code == 400
+        assert "does not accept invitation requests" in str(exc_info.value.message)
+
+    def test_create_invitation_request_rejects_when_already_invited(
+        self, public_event: Event, public_user: RevelUser
+    ) -> None:
+        """Test that request fails when user is already invited."""
+        from ninja.errors import HttpError
+
+        EventInvitation.objects.create(event=public_event, user=public_user)
+
+        with pytest.raises(HttpError) as exc_info:
+            event_service.create_invitation_request(public_event, public_user)
+
+        assert exc_info.value.status_code == 400
+        assert "already invited" in str(exc_info.value.message)
+
+    def test_create_invitation_request_rejects_when_pending_request_exists(
+        self, public_event: Event, public_user: RevelUser
+    ) -> None:
+        """Test that request fails when user already has a pending request."""
+        from ninja.errors import HttpError
+
+        EventInvitationRequest.objects.create(
+            event=public_event, user=public_user, status=EventInvitationRequest.InvitationRequestStatus.PENDING
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            event_service.create_invitation_request(public_event, public_user)
+
+        assert exc_info.value.status_code == 400
+        assert "already requested" in str(exc_info.value.message)
+
+    def test_create_invitation_request_rejects_after_deadline(
+        self, public_event: Event, public_user: RevelUser
+    ) -> None:
+        """Test that request fails when application deadline has passed."""
+        from ninja.errors import HttpError
+
+        public_event.apply_before = timezone.now() - timedelta(hours=1)
+        public_event.save()
+
+        with pytest.raises(HttpError) as exc_info:
+            event_service.create_invitation_request(public_event, public_user)
+
+        assert exc_info.value.status_code == 400
+        assert "deadline has passed" in str(exc_info.value.message)
+
+    def test_create_invitation_request_allows_before_deadline(
+        self, public_event: Event, public_user: RevelUser
+    ) -> None:
+        """Test that request succeeds when deadline hasn't passed yet."""
+        public_event.apply_before = timezone.now() + timedelta(hours=1)
+        public_event.save()
+
+        request = event_service.create_invitation_request(public_event, public_user)
+
+        assert request.event == public_event
+        assert request.user == public_user
+
+    def test_create_invitation_request_allows_when_no_deadline(
+        self, public_event: Event, public_user: RevelUser
+    ) -> None:
+        """Test that request succeeds when no deadline is set."""
+        public_event.apply_before = None
+        public_event.save()
+
+        request = event_service.create_invitation_request(public_event, public_user)
+
+        assert request.event == public_event
+        assert request.user == public_user

@@ -322,6 +322,9 @@ class EventEditSchema(CityEditMixin):
     venue_id: UUID | None = None
     potluck_open: bool = False
     accept_invitation_requests: bool = False
+    apply_before: AwareDatetime | None = Field(
+        None, description="Deadline for submitting invitation requests or questionnaires"
+    )
     can_attend_without_login: bool = False
 
 
@@ -373,6 +376,7 @@ class EventBaseSchema(TaggableSchemaMixin):
     potluck_open: bool
     attendee_count: int
     accept_invitation_requests: bool
+    apply_before: AwareDatetime | None = None
     can_attend_without_login: bool
     updated_at: AwareDatetime | None = None
     created_at: AwareDatetime | None = None
@@ -670,6 +674,7 @@ class InvitationBaseSchema(Schema):
     overrides_max_attendees: bool = False
     waives_membership_required: bool = False
     waives_rsvp_deadline: bool = False
+    waives_apply_deadline: bool = False
     custom_message: str | None = None
 
 
@@ -706,6 +711,7 @@ class EventInvitationListSchema(Schema):
     overrides_max_attendees: bool
     waives_membership_required: bool
     waives_rsvp_deadline: bool
+    waives_apply_deadline: bool
     custom_message: str | None = None
     created_at: AwareDatetime
 
@@ -721,6 +727,7 @@ class MyEventInvitationSchema(Schema):
     overrides_max_attendees: bool
     waives_membership_required: bool
     waives_rsvp_deadline: bool
+    waives_apply_deadline: bool
     custom_message: str | None = None
     created_at: AwareDatetime
 
@@ -736,6 +743,7 @@ class PendingEventInvitationListSchema(Schema):
     overrides_max_attendees: bool
     waives_membership_required: bool
     waives_rsvp_deadline: bool
+    waives_apply_deadline: bool
     custom_message: str | None = None
     created_at: AwareDatetime
 
@@ -753,6 +761,7 @@ class CombinedInvitationListSchema(Schema):
     overrides_max_attendees: bool
     waives_membership_required: bool
     waives_rsvp_deadline: bool
+    waives_apply_deadline: bool
     custom_message: str | None = None
     created_at: AwareDatetime
 

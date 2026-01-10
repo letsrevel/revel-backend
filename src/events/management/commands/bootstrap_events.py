@@ -455,6 +455,7 @@ Limited parking available at Copa Cagrana.
             end=now + timedelta(days=30, hours=4),
             max_attendees=40,
             accept_invitation_requests=True,
+            apply_before=now + timedelta(days=27),  # Application deadline: 3 days before event
             description="""# Exclusive Wine Tasting & Pairing Dinner
 
 An intimate evening curated for wine enthusiasts. Join acclaimed sommelier Marcus Rodriguez
@@ -617,6 +618,7 @@ Service animals welcome.
             end=now + timedelta(days=62),
             max_attendees=1000,
             waitlist_open=True,
+            apply_before=now + timedelta(days=57),  # Application deadline: 3 days before event
             description="""# FutureStack 2025: AI & Web3 Conference
 
 Three days of cutting-edge tech insights, hands-on workshops, and networking with 1000+
@@ -1254,6 +1256,36 @@ Wine and refreshments available during the 20-minute intermission.
             seat_assignment_mode=events_models.TicketTier.SeatAssignmentMode.USER_CHOICE,
         )
 
+        # Seated Concert - Standing Room with offline payment (for payment tracking demo)
+        events_models.TicketTier.objects.create(
+            event=self.events["seated_concert"],
+            name="Standing Room",
+            visibility=events_models.TicketTier.Visibility.PUBLIC,
+            payment_method=events_models.TicketTier.PaymentMethod.OFFLINE,
+            purchasable_by=events_models.TicketTier.PurchasableBy.PUBLIC,
+            price=Decimal("35.00"),
+            currency="EUR",
+            total_quantity=50,
+            quantity_sold=8,
+            sales_start_at=now,
+            sales_end_at=now + timedelta(days=49),
+            description="Standing room at the back of the venue. Pay via bank transfer.",
+            manual_payment_instructions="""## Payment Instructions
+
+Please transfer **€35.00** to the following account:
+
+- **Bank**: Revel Events Bank
+- **IBAN**: AT12 3456 7890 1234 5678
+- **BIC**: REVELAT2X
+- **Reference**: Your ticket confirmation number
+
+Once your payment is received, your ticket will be activated within 24 hours.
+You will receive an email confirmation when your ticket is ready.
+
+**Questions?** Contact us at tickets@revelcollective.example.com
+""",
+        )
+
         logger.info("Created ticket tiers for events with tickets")
 
     def _create_potluck_items(self) -> None:
@@ -1533,6 +1565,70 @@ Wine and refreshments available during the 20-minute intermission.
             user=self.users["org_beta_member"],
             tier=conf_member_tier,
             status=events_models.Ticket.TicketStatus.ACTIVE,
+        )
+
+        # --- Classical Music Evening (Offline payment demo) ---
+        # This demonstrates payment tracking for offline payments
+        standing_tier = events_models.TicketTier.objects.get(event=self.events["seated_concert"], name="Standing Room")
+
+        # Tickets with confirmed payment (ACTIVE)
+        events_models.Ticket.objects.create(
+            guest_name=self.users["attendee_3"].get_display_name(),
+            event=self.events["seated_concert"],
+            user=self.users["attendee_3"],
+            tier=standing_tier,
+            status=events_models.Ticket.TicketStatus.ACTIVE,
+        )
+        events_models.Ticket.objects.create(
+            guest_name=self.users["org_alpha_member"].get_display_name(),
+            event=self.events["seated_concert"],
+            user=self.users["org_alpha_member"],
+            tier=standing_tier,
+            status=events_models.Ticket.TicketStatus.ACTIVE,
+        )
+        events_models.Ticket.objects.create(
+            guest_name=self.users["multi_org_user"].get_display_name(),
+            event=self.events["seated_concert"],
+            user=self.users["multi_org_user"],
+            tier=standing_tier,
+            status=events_models.Ticket.TicketStatus.ACTIVE,
+        )
+
+        # Tickets awaiting payment confirmation (PENDING)
+        events_models.Ticket.objects.create(
+            guest_name=self.users["attendee_1"].get_display_name(),
+            event=self.events["seated_concert"],
+            user=self.users["attendee_1"],
+            tier=standing_tier,
+            status=events_models.Ticket.TicketStatus.PENDING,
+        )
+        events_models.Ticket.objects.create(
+            guest_name=self.users["attendee_2"].get_display_name(),
+            event=self.events["seated_concert"],
+            user=self.users["attendee_2"],
+            tier=standing_tier,
+            status=events_models.Ticket.TicketStatus.PENDING,
+        )
+        events_models.Ticket.objects.create(
+            guest_name=self.users["attendee_4"].get_display_name(),
+            event=self.events["seated_concert"],
+            user=self.users["attendee_4"],
+            tier=standing_tier,
+            status=events_models.Ticket.TicketStatus.PENDING,
+        )
+        events_models.Ticket.objects.create(
+            guest_name=self.users["pending_user"].get_display_name(),
+            event=self.events["seated_concert"],
+            user=self.users["pending_user"],
+            tier=standing_tier,
+            status=events_models.Ticket.TicketStatus.PENDING,
+        )
+        events_models.Ticket.objects.create(
+            guest_name=self.users["invited_user"].get_display_name(),
+            event=self.events["seated_concert"],
+            user=self.users["invited_user"],
+            tier=standing_tier,
+            status=events_models.Ticket.TicketStatus.PENDING,
         )
 
         # --- RSVPs (for events without tickets) ---
