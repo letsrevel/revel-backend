@@ -202,9 +202,4 @@ worldcities.csv
 worldcities.full.csv
 .artifacts
 
-# Ai stuff
-CHATGPT_PRELIMINARY_COMPARATIVE_ANALYSIS.md
-GEMINI_REPORT.md
-NOTIFICATIONS.md
-issues.md
 rendered_templates/

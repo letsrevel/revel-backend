@@ -25,7 +25,7 @@ from events.service import guest as guest_service
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.event_manager import EventManager, EventUserEligibility
 from events.service.ticket_service import UserEventStatus
-from questionnaires.models import Questionnaire, QuestionnaireSubmission
+from questionnaires.models import Questionnaire, QuestionnaireSubmission, SubmissionSourceEventMetadata
 from questionnaires.schema import (
     QuestionnaireSchema,
     QuestionnaireSubmissionOrEvaluationSchema,
@@ -794,7 +794,15 @@ class EventController(UserAwareController):
         event = self.get_one(event_id)
         self.get_org_questionnaire_for_event(event, questionnaire_id)
         questionnaire_service = self.get_questionnaire_service(questionnaire_id)
-        db_submission = questionnaire_service.submit(self.user(), submission)
+
+        # Build source event metadata to store with the submission
+        source_event: SubmissionSourceEventMetadata = {
+            "event_id": str(event.id),
+            "event_name": event.name,
+            "event_start": event.start.isoformat() if event.start else "",
+        }
+
+        db_submission = questionnaire_service.submit(self.user(), submission, source_event=source_event)
         if submission.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY:
             evaluate_questionnaire_submission.delay(str(db_submission.pk))
         return QuestionnaireSubmissionResponseSchema.from_orm(db_submission)

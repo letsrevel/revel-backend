@@ -263,12 +263,13 @@ class QuestionnaireEvaluationContext(BaseNotificationContext):
 
     submission_id: str
     questionnaire_name: str
-    evaluation_status: str  # ACCEPTED, REJECTED, PENDING_PAYMENT
+    evaluation_status: str  # APPROVED, REJECTED
     organization_name: str
     evaluation_score: t.NotRequired[str]
     evaluation_comments: t.NotRequired[str]
     event_id: t.NotRequired[str]
     event_name: t.NotRequired[str]
+    event_url: t.NotRequired[str]  # URL to the event page (if questionnaire is event-linked)
 
 
 # ===== Invitation Contexts =====

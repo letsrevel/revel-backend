@@ -19,6 +19,15 @@ from questionnaires.llms.llm_interfaces import EvaluationResponse
 from . import exceptions
 from .llms.llm_interfaces import FreeTextEvaluator
 
+
+class SubmissionSourceEventMetadata(t.TypedDict):
+    """Metadata about the event context when a questionnaire was submitted."""
+
+    event_id: str
+    event_name: str
+    event_start: str  # ISO 8601 datetime string
+
+
 # ---- Questionnaire model ----
 
 
@@ -154,6 +163,11 @@ class QuestionnaireSubmission(TimeStampedModel):
         db_index=True,
     )
     submitted_at = models.DateTimeField(db_index=True, null=True, blank=True)
+    metadata = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Optional metadata about the submission context (e.g., source event).",
+    )
 
     submission_count: int
 
@@ -175,6 +189,13 @@ class QuestionnaireSubmission(TimeStampedModel):
         if self.status == self.QuestionnaireSubmissionStatus.READY and not self.submitted_at:
             # We could also use django.utils.timezone.now here
             self.submitted_at = timezone.now()
+
+    @property
+    def source_event(self) -> SubmissionSourceEventMetadata | None:
+        """Get the source event metadata if available."""
+        if self.metadata and "source_event" in self.metadata:
+            return t.cast(SubmissionSourceEventMetadata, self.metadata["source_event"])
+        return None
 
 
 # ---- QuestionnaireSection model ----

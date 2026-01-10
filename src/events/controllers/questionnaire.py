@@ -446,6 +446,7 @@ class QuestionnaireController(UserAwareController):
             ),
             answers=answers,
             created_at=submission.created_at,
+            metadata=submission.metadata,
         )
 
     @route.post(

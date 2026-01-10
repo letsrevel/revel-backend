@@ -1,7 +1,13 @@
-{%load i18n %}{%trans "Hello" %} {{ user.display_name }},
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
 
-📝 {%blocktranslate%}New Submission{%endblocktranslate%}
+📝 {% blocktranslate with name=context.submitter_name questionnaire=context.questionnaire_name %}{{ name }} has submitted the questionnaire {{ questionnaire }}.{% endblocktranslate %}
 
-{%trans "View details:" %} {{ context.submission_url }}
+{% trans "Submission Details:" %}
+- {% trans "Submitted by:" %} {{ context.submitter_name }} ({{ context.submitter_email }})
+- {% trans "Questionnaire:" %} {{ context.questionnaire_name }}
+- {% trans "Organization:" %} {{ context.organization_name }}
+{% if context.event_name %}- {% trans "For Event:" %} {{ context.event_name }}{% endif %}
+
+{% trans "Review the submission:" %} {{ context.submission_url }}
 
 {% include "notifications/email/_footer.txt" %}

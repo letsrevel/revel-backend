@@ -8,7 +8,7 @@ from django.dispatch import receiver
 
 from common.models import SiteSettings
 from notifications.enums import NotificationType
-from notifications.service.eligibility import get_organization_staff_and_owners
+from notifications.service.eligibility import get_staff_for_notification
 from notifications.signals import notification_requested
 from questionnaires.models import QuestionnaireEvaluation, QuestionnaireSubmission
 
@@ -57,7 +57,24 @@ def handle_questionnaire_submission(
     )
 
     # Get staff and owners with evaluate_questionnaire permission
-    staff_and_owners = get_organization_staff_and_owners(organization_id)
+    staff_and_owners = get_staff_for_notification(organization_id, NotificationType.QUESTIONNAIRE_SUBMITTED)
+
+    # Build base context
+    context: dict[str, t.Any] = {
+        "submission_id": str(instance.id),
+        "questionnaire_name": instance.questionnaire.name,
+        "submitter_email": instance.user.email,
+        "submitter_name": instance.user.get_display_name(),
+        "organization_id": str(organization_id),
+        "organization_name": organization_name,
+        "submission_url": submission_url,
+    }
+
+    # Add event info from submission metadata if available
+    source_event = instance.source_event
+    if source_event:
+        context["event_id"] = source_event["event_id"]
+        context["event_name"] = source_event["event_name"]
 
     # Send notification to all eligible users
     for staff_user in staff_and_owners:
@@ -65,15 +82,7 @@ def handle_questionnaire_submission(
             sender=sender,
             user=staff_user,
             notification_type=NotificationType.QUESTIONNAIRE_SUBMITTED,
-            context={
-                "submission_id": str(instance.id),
-                "questionnaire_name": instance.questionnaire.name,
-                "submitter_email": instance.user.email,
-                "submitter_name": instance.user.get_display_name(),
-                "organization_id": str(organization_id),
-                "organization_name": organization_name,
-                "submission_url": submission_url,
-            },
+            context=context,
         )
 
     logger.info(
@@ -127,17 +136,17 @@ def handle_questionnaire_evaluation(
         ]:
             return
 
-    # Get organization name
+    # Get organization questionnaire with related data
     from events.models import OrganizationQuestionnaire
 
-    organization_name = (
+    org_questionnaire = (
         OrganizationQuestionnaire.objects.filter(questionnaire_id=instance.submission.questionnaire_id)
         .select_related("organization")
-        .values_list("organization__name", flat=True)
+        .prefetch_related("events")
         .first()
     )
 
-    if not organization_name:
+    if not org_questionnaire:
         logger.debug(
             "questionnaire_evaluation_no_org",
             evaluation_id=str(instance.id),
@@ -145,19 +154,39 @@ def handle_questionnaire_evaluation(
         )
         return
 
+    # Build context
+    context: dict[str, t.Any] = {
+        "submission_id": str(instance.submission_id),
+        "questionnaire_name": instance.submission.questionnaire.name,
+        "evaluation_status": instance.status.upper(),
+        "evaluation_score": str(instance.score) if instance.score else None,
+        "evaluation_comments": instance.comments,
+        "organization_name": org_questionnaire.organization.name,
+    }
+
+    # Add event info from submission metadata (source_event) if available
+    # This captures the exact event context where the questionnaire was submitted
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    source_event = instance.submission.source_event
+    if source_event:
+        context["event_id"] = source_event["event_id"]
+        context["event_name"] = source_event["event_name"]
+        context["event_url"] = f"{frontend_base_url}/events/{source_event['event_id']}"
+    else:
+        # Fallback: Get the first linked event from org_questionnaire
+        # (for submissions created before metadata was added)
+        first_event = org_questionnaire.events.first()
+        if first_event:
+            context["event_id"] = str(first_event.id)
+            context["event_name"] = first_event.name
+            context["event_url"] = f"{frontend_base_url}/events/{first_event.id}"
+
     # Send notification to the submitter
     notification_requested.send(
         sender=sender,
         user=instance.submission.user,
         notification_type=NotificationType.QUESTIONNAIRE_EVALUATION_RESULT,
-        context={
-            "submission_id": str(instance.submission_id),
-            "questionnaire_name": instance.submission.questionnaire.name,
-            "evaluation_status": instance.status.upper(),
-            "evaluation_score": str(instance.score) if instance.score else None,
-            "evaluation_comments": instance.comments,
-            "organization_name": organization_name,
-        },
+        context=context,
     )
 
     logger.info(
