@@ -60,6 +60,7 @@ class Reasons(StrEnum):
     EVENT_IS_NOT_OPEN = "Event is not open."
     EVENT_HAS_FINISHED = "Event has finished."
     RSVP_DEADLINE_PASSED = "The RSVP deadline has passed."
+    APPLICATION_DEADLINE_PASSED = "The application deadline has passed."
     NO_TICKETS_ON_SALE = "Tickets are not currently on sale."
     MEMBERSHIP_TIER_REQUIRED = "This ticket tier requires a specific membership tier."
 
@@ -387,6 +388,115 @@ class RSVPDeadlineGate(BaseEligibilityGate):
         return None
 
 
+class ApplyDeadlineGate(BaseEligibilityGate):
+    """Gate: Checks if application deadline has passed for users who still need to apply.
+
+    This gate blocks users who haven't yet submitted an invitation request or completed
+    a required questionnaire when the apply_before deadline has passed.
+    """
+
+    def check(self) -> EventUserEligibility | None:
+        """Check if application deadline has passed and user still needs to apply."""
+        # No deadline set
+        if not self.event.apply_before:
+            return None
+
+        # Deadline hasn't passed yet
+        if timezone.now() <= self.event.apply_before:
+            return None
+
+        # Check if user has invitation that waives application deadline
+        if self.handler.invitation and self.handler.invitation.waives_apply_deadline:
+            return None
+
+        # Check if user still needs to apply
+        if not self._user_needs_to_apply():
+            return None
+
+        # Deadline passed and user needs to apply
+        return EventUserEligibility(
+            allowed=False,
+            event_id=self.event.id,
+            reason=_(Reasons.APPLICATION_DEADLINE_PASSED),
+            next_step=None,
+        )
+
+    def _user_needs_to_apply(self) -> bool:
+        """Check if user still needs to submit invitation request or questionnaire.
+
+        Returns True if user needs to apply (hasn't yet completed required steps).
+        """
+        # Check if user needs to submit an invitation request
+        if self._needs_invitation_request():
+            return True
+
+        # Check if user needs to complete a questionnaire
+        if self._needs_questionnaire():
+            return True
+
+        return False
+
+    def _needs_invitation_request(self) -> bool:
+        """Check if user needs to submit an invitation request."""
+        # Only relevant for private events that accept invitation requests
+        if self.event.event_type != models.Event.EventType.PRIVATE:
+            return False
+
+        if not self.event.accept_invitation_requests:
+            return False
+
+        # User already has an invitation
+        if self.handler.invitation:
+            return False
+
+        # User already submitted a request (pending or rejected)
+        if self.handler.invitation_request:
+            return False
+
+        return True
+
+    def _needs_questionnaire(self) -> bool:
+        """Check if user needs to complete an admission questionnaire."""
+        # Get relevant questionnaires for this event
+        relevant_questionnaires: list[OrganizationQuestionnaire] = getattr(
+            self.event.organization, "relevant_org_questionnaires", []
+        )
+
+        if not relevant_questionnaires:
+            return False
+
+        # Check if invitation waives questionnaire
+        if getattr(self.handler.invitation, "waives_questionnaire", False):
+            return False
+
+        # Get user's submissions
+        user_submissions = {sub.questionnaire_id: sub for sub in self.user.questionnaire_submissions.all()}
+
+        for org_questionnaire in relevant_questionnaires:
+            # Skip if user is member-exempt
+            if org_questionnaire.members_exempt and self.user.id in self.handler.member_ids:
+                continue
+
+            questionnaire_id = org_questionnaire.questionnaire_id
+            submission = user_submissions.get(questionnaire_id)
+
+            # No submission - needs to complete questionnaire
+            if not submission:
+                return True
+
+            # Check if submission is approved
+            evaluation = getattr(submission, "evaluation", None)
+            if not evaluation:
+                # Pending review - already submitted, doesn't need to apply
+                continue
+
+            if evaluation.status != QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED:
+                # Failed - may need to retake, which counts as needing to apply
+                return True
+
+        return False
+
+
 class AvailabilityGate(BaseEligibilityGate):
     """Gate #7: Checks if the event has space available for another attendee.
 
@@ -485,6 +595,7 @@ class EligibilityService:
         PrivilegedAccessGate,
         EventStatusGate,
         RSVPDeadlineGate,
+        ApplyDeadlineGate,
         InvitationGate,
         MembershipGate,
         QuestionnaireGate,

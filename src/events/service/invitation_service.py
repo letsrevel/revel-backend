@@ -58,6 +58,7 @@ def _get_invitation_fields(invitation_data: DirectInvitationCreateSchema, tier: 
         "overrides_max_attendees": invitation_data.overrides_max_attendees,
         "waives_membership_required": invitation_data.waives_membership_required,
         "waives_rsvp_deadline": invitation_data.waives_rsvp_deadline,
+        "waives_apply_deadline": invitation_data.waives_apply_deadline,
         "custom_message": invitation_data.custom_message,
         "tier": tier,
     }

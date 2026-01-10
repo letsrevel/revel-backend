@@ -210,6 +210,9 @@ class Event(
     requires_ticket = models.BooleanField(default=True)  # If False, managed via RSVPs
     potluck_open = models.BooleanField(default=False)
     accept_invitation_requests = models.BooleanField(default=False)
+    apply_before = models.DateTimeField(
+        null=True, blank=True, db_index=True, help_text="Deadline for submitting invitation requests or questionnaires"
+    )
     can_attend_without_login = models.BooleanField(
         default=True, help_text="Allow users to RSVP or purchase tickets without creating an account"
     )
@@ -1020,6 +1023,9 @@ class AbstractEventInvitation(TimeStampedModel):
     overrides_max_attendees = models.BooleanField(default=False)
     waives_membership_required = models.BooleanField(default=False)
     waives_rsvp_deadline = models.BooleanField(default=False, help_text="Waives RSVP deadline check for this user")
+    waives_apply_deadline = models.BooleanField(
+        default=False, help_text="Waives application deadline check for this user"
+    )
     custom_message = models.TextField(null=True, blank=True)
     tier = models.ForeignKey(TicketTier, on_delete=models.SET_NULL, null=True, blank=True)
 

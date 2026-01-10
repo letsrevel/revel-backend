@@ -87,6 +87,7 @@ def handle_user_creation(sender: type[RevelUser], instance: RevelUser, created: 
                     overrides_max_attendees=pending.overrides_max_attendees,
                     waives_membership_required=pending.waives_membership_required,
                     waives_rsvp_deadline=pending.waives_rsvp_deadline,
+                    waives_apply_deadline=pending.waives_apply_deadline,
                     custom_message=pending.custom_message,
                     tier=pending.tier,
                 )
