@@ -10,7 +10,7 @@ from django.dispatch import receiver
 from common.models import SiteSettings
 from events.models import Event, Ticket, TicketTier
 from notifications.enums import NotificationType
-from notifications.service.eligibility import get_organization_staff_and_owners
+from notifications.service.eligibility import get_staff_for_notification
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -176,7 +176,7 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
         "include_pdf": False,
         "include_ics": False,
     }
-    staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
+    staff_and_owners = get_staff_for_notification(ticket.event.organization_id, NotificationType.TICKET_CREATED)
     for staff_user in staff_and_owners:
         if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.TICKET_CREATED):
             notification_requested.send(
@@ -237,7 +237,7 @@ def _send_ticket_cancelled_notifications(ticket: Ticket, old_status: str) -> Non
         "ticket_holder_name": ticket.user.get_display_name(),
         "ticket_holder_email": ticket.user.email,
     }
-    staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
+    staff_and_owners = get_staff_for_notification(ticket.event.organization_id, NotificationType.TICKET_CANCELLED)
     for staff_user in staff_and_owners:
         if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.TICKET_CANCELLED):
             notification_requested.send(
@@ -275,7 +275,7 @@ def _send_ticket_refunded_notifications(ticket: Ticket) -> None:
         "ticket_holder_name": ticket.user.get_display_name(),
         "ticket_holder_email": ticket.user.email,
     }
-    staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
+    staff_and_owners = get_staff_for_notification(ticket.event.organization_id, NotificationType.TICKET_REFUNDED)
     for staff_user in staff_and_owners:
         if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.TICKET_REFUNDED):
             notification_requested.send(
@@ -320,7 +320,7 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
                 "include_pdf": False,
                 "include_ics": False,
             }
-            staff_and_owners = get_organization_staff_and_owners(ticket.event.organization_id)
+            staff_and_owners = get_staff_for_notification(ticket.event.organization_id, NotificationType.TICKET_CREATED)
             for staff_user in list(staff_and_owners):
                 prefs = getattr(staff_user, "notification_preferences", None)
                 if prefs and prefs.is_notification_type_enabled(NotificationType.TICKET_CREATED):

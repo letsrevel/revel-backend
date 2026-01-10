@@ -1,4 +1,4 @@
-{%load i18n %}<!DOCTYPE html>
+{% load i18n %}<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -11,23 +11,29 @@
         .card {background:#f8f9fa;border-left:4px solid #2196F3;padding:20px;margin:20px 0;border-radius:4px;}
         .button {display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white!important;text-decoration:none;border-radius:6px;margin:20px 0;font-weight:600;}
         .footer {background:#f8f9fa;padding:20px;text-align:center;color:#666;font-size:14px;}
+        .detail-row {margin:8px 0;color:#333;}
+        .detail-label {font-weight:600;color:#555;}
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1 style="margin:0;font-size:28px;">📝 {%trans "New Submission"%}</h1>
+            <h1 style="margin:0;font-size:28px;">📝 {% trans "New Questionnaire Submission" %}</h1>
         </div>
         <div class="content">
-            <p>{%trans "Hello"%} {{user.display_name}},</p>
+            <p>{% trans "Hello" %} {{ user.display_name }},</p>
+            <p>{% blocktranslate with name=context.submitter_name questionnaire=context.questionnaire_name %}<strong>{{ name }}</strong> has submitted the questionnaire <strong>{{ questionnaire }}</strong>.{% endblocktranslate %}</p>
             <div class="card">
-                <p>{%trans "Please check the details of this notification."%}</p>
+                <div class="detail-row"><span class="detail-label">{% trans "Submitted by:" %}</span> {{ context.submitter_name }} ({{ context.submitter_email }})</div>
+                <div class="detail-row"><span class="detail-label">{% trans "Questionnaire:" %}</span> {{ context.questionnaire_name }}</div>
+                <div class="detail-row"><span class="detail-label">{% trans "Organization:" %}</span> {{ context.organization_name }}</div>
+                {% if context.event_name %}<div class="detail-row"><span class="detail-label">{% trans "For Event:" %}</span> {{ context.event_name }}</div>{% endif %}
             </div>
             <center>
-                <a href="{{context.submission_url}}" class="button">{%trans "View Details"%}</a>
+                <a href="{{ context.submission_url }}" class="button">{% trans "Review Submission" %}</a>
             </center>
         </div>
-        {%include "notifications/email/_footer.html"%}
+        {% include "notifications/email/_footer.html" %}
     </div>
 </body>
 </html>

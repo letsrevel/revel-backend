@@ -11,7 +11,7 @@ from common.models import SiteSettings
 from events.models import EventInvitation, EventInvitationRequest
 from events.tasks import build_attendee_visibility_flags
 from notifications.enums import NotificationType
-from notifications.service.eligibility import get_organization_staff_and_owners
+from notifications.service.eligibility import get_staff_for_notification
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -80,8 +80,10 @@ def handle_invitation_request_created(
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
         frontend_url = f"{frontend_base_url}/org/{event.organization.slug}/admin/events/{event.id}/invitations"
 
-        # Notify all staff and owners of the event's organization
-        staff_and_owners = get_organization_staff_and_owners(event.organization.id)
+        # Notify staff and owners with invite_to_event permission
+        staff_and_owners = get_staff_for_notification(
+            event.organization.id, NotificationType.INVITATION_REQUEST_CREATED
+        )
 
         for staff_member in staff_and_owners:
             notification_requested.send(

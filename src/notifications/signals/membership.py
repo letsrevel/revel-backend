@@ -10,7 +10,7 @@ from django.dispatch import receiver
 from common.models import SiteSettings
 from events.models import OrganizationMembershipRequest
 from notifications.enums import NotificationType
-from notifications.service.eligibility import get_organization_staff_and_owners
+from notifications.service.eligibility import get_staff_for_notification
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -38,8 +38,8 @@ def handle_membership_request_created(
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
         frontend_url = f"{frontend_base_url}/org/{organization.slug}/admin/members?tab=requests"
 
-        # Notify all staff and owners of the organization
-        staff_and_owners = get_organization_staff_and_owners(organization.id)
+        # Notify staff and owners with manage_members permission
+        staff_and_owners = get_staff_for_notification(organization.id, NotificationType.MEMBERSHIP_REQUEST_CREATED)
 
         for staff_member in staff_and_owners:
             notification_requested.send(

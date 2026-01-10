@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-11-07 15:03+0100\n"
+"POT-Creation-Date: 2026-01-10 10:40+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -18,11 +18,35 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+#, fuzzy, python-format
+#| msgid "Verification email sent."
+msgid "Verification email sent to %d user."
+msgid_plural "Verification emails sent to %d users."
+msgstr[0] "Email di verifica inviata."
+msgstr[1] "Email di verifica inviata."
+
+#, fuzzy, python-format
+#| msgid "Email already verified."
+msgid "Skipped %d user (already verified)."
+msgid_plural "Skipped %d users (already verified)."
+msgstr[0] "Email già verificata."
+msgstr[1] "Email già verificata."
+
+#, fuzzy, python-format
+#| msgid "Password reset request."
+msgid "Password reset email sent to %d user."
+msgid_plural "Password reset emails sent to %d users."
+msgstr[0] "Richiesta reimpostazione password."
+msgstr[1] "Richiesta reimpostazione password."
+
+#, python-format
+msgid "Skipped %d user (Google SSO or not found)."
+msgid_plural "Skipped %d users (Google SSO or not found)."
+msgstr[0] ""
+msgstr[1] ""
+
 msgid "Your data export has been initiated."
 msgstr "L'esportazione dei tuoi dati è stata avviata."
-
-msgid "Email already verified."
-msgstr "Email già verificata."
 
 msgid "Verification email sent."
 msgstr "Email di verifica inviata."
@@ -46,6 +70,16 @@ msgstr "Accesso tramite SSO."
 msgid "Invalid OTP."
 msgstr "OTP non valido."
 
+#, fuzzy
+#| msgid "You already have a ticket."
+msgid "You already have a restriction for this food item."
+msgstr "Hai già un biglietto."
+
+#, fuzzy
+#| msgid "You are already invited to this event."
+msgid "You have already added this dietary preference."
+msgstr "Sei già invitato a questo evento."
+
 msgid "Password must contain at least one uppercase letter."
 msgstr "La password deve contenere almeno una lettera maiuscola."
 
@@ -55,8 +89,13 @@ msgstr "La password deve contenere almeno una lettera minuscola."
 msgid "Password must contain at least one digit."
 msgstr "La password deve contenere almeno una cifra."
 
+#, fuzzy
+#| msgid ""
+#| "Password must contain at least one special character (!@#$%^&*(),.?\":{}|"
+#| "<>)."
 msgid ""
-"Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>)."
+"Password must contain at least one special character (!@#$%^&*(),.?\":{}|<>)"
+"[]=."
 msgstr ""
 "La password deve contenere almeno un carattere speciale (!@#$%^&*(),.?\":{}|"
 "<>)."
@@ -98,6 +137,62 @@ msgstr "Tipo di token non valido."
 msgid "Invalid Google ID Token."
 msgstr "Token ID Google non valido."
 
+msgid "Account Deactivated"
+msgstr ""
+
+#, fuzzy
+#| msgid "Your data export has been initiated."
+msgid "Your account has been deactivated"
+msgstr "L'esportazione dei tuoi dati è stata avviata."
+
+msgid ""
+"Your Revel account has been deactivated because your email address was not "
+"verified."
+msgstr ""
+
+#, fuzzy
+#| msgid "Please verify your email and finish setting up your account."
+msgid "You can still verify your email to reactivate your account:"
+msgstr "Verifica la tua email e completa la configurazione del tuo account."
+
+#, fuzzy
+#| msgid "Verify Email"
+msgid "Verify Email & Reactivate"
+msgstr "Verifica email"
+
+msgid ""
+"If you don't verify within 60 days, your account and all associated data "
+"will be permanently deleted."
+msgstr ""
+
+#, python-format
+msgid ""
+"If you didn't sign up for Revel, you can <a href=\"%(link)s\">delete your "
+"account immediately</a>."
+msgstr ""
+
+msgid "Thank you,<br>The Revel Team"
+msgstr "Grazie,<br>Il Team di Revel"
+
+msgid "Hi,"
+msgstr ""
+
+msgid ""
+"If you didn't sign up for Revel, you can delete your account immediately:"
+msgstr ""
+
+msgid ""
+"Thank you,\n"
+"The Revel Team"
+msgstr ""
+"Grazie,\n"
+"Il Team di Revel"
+
+#, fuzzy
+#| msgid "Your data export has been initiated."
+msgid "Your Revel account has been deactivated"
+msgstr "L'esportazione dei tuoi dati è stata avviata."
+
 msgid "Confirm Account Deletion"
 msgstr "Conferma cancellazione account"
 
@@ -118,9 +213,6 @@ msgid "To confirm the deletion of your account, click the link below:"
 msgstr ""
 "Per confermare la cancellazione del tuo account, clicca il link qui sotto:"
 
-msgid "Thank you,<br>The Revel Team"
-msgstr "Grazie,<br>Il Team di Revel"
-
 msgid "Confirm Account Deletion."
 msgstr "Conferma cancellazione account."
 
@@ -131,13 +223,6 @@ msgid ""
 msgstr ""
 "Hai ricevuto questa email perché hai richiesto di eliminare il tuo account "
 "su %(frontend_base_url)s."
-
-msgid ""
-"Thank you,\n"
-"The Revel Team"
-msgstr ""
-"Grazie,\n"
-"Il Team di Revel"
 
 msgid "A user data export has failed."
 msgstr "L'esportazione dei dati di un utente è fallita."
@@ -244,6 +329,59 @@ msgstr "Verifica email"
 msgid "Verify your email."
 msgstr "Verifica la tua email."
 
+#, fuzzy
+#| msgid "Verify Your Email"
+msgid "Urgent: Verify Your Email"
+msgstr "Verifica la tua email"
+
+msgid "URGENT: Your account will be deactivated soon"
+msgstr ""
+
+msgid ""
+"Your Revel account has not been verified and will be deactivated shortly if "
+"you don't verify your email address."
+msgstr ""
+
+#, fuzzy
+#| msgid "Please verify your email and finish setting up your account."
+msgid "Please verify your email now to keep your account active:"
+msgstr "Verifica la tua email e completa la configurazione del tuo account."
+
+#, fuzzy
+#| msgid "Verify Email"
+msgid "Verify Email Now"
+msgstr "Verifica email"
+
+#, python-format
+msgid ""
+"If you didn't sign up for Revel, you can <a href=\"%(link)s\">delete your "
+"account</a>."
+msgstr ""
+
+msgid "If you didn't sign up for Revel, you can delete your account:"
+msgstr ""
+
+msgid "Your Revel account will be deactivated soon"
+msgstr ""
+
+#, fuzzy
+#| msgid "Verify your email"
+msgid "Reminder: Verify your email"
+msgstr "Verifica la tua email"
+
+msgid ""
+"You haven't verified your email address yet. Please verify your email to "
+"fully activate your Revel account."
+msgstr ""
+
+#, fuzzy
+#| msgid "Verify your email"
+msgid "Verify your email:"
+msgstr "Verifica la tua email"
+
+msgid "Reminder: Verify your Revel account"
+msgstr ""
+
 msgid "Password Reset Request"
 msgstr "Richiesta reimpostazione password"
 
@@ -258,6 +396,9 @@ msgstr "Richiesta reimpostazione password."
 
 msgid "Password reset request"
 msgstr "Richiesta reimpostazione password"
+
+msgid "Email already verified."
+msgstr "Email già verificata."
 
 msgid "Phone number must be a string."
 msgstr "Il numero di telefono deve essere una stringa."
@@ -283,51 +424,117 @@ msgstr "Sei già membro di questa organizzazione."
 msgid "You have a pending membership request for this organization."
 msgstr "Hai una richiesta di iscrizione in sospeso per questa organizzazione."
 
-msgid "Malware detected"
-msgstr "Malware rilevato"
+msgid "Permission denied"
+msgstr ""
 
-msgid "Malware has been detected in a file upload."
-msgstr "È stato rilevato un malware in un file caricato."
+#, fuzzy
+#| msgid "Verification email sent."
+msgid "Email verification required."
+msgstr "Email di verifica inviata."
 
-msgid "Details"
-msgstr "Dettagli"
+msgid "Staff access required."
+msgstr ""
 
-msgid "Uploader"
-msgstr "Caricato da"
+msgid "Superuser access required."
+msgstr ""
 
-msgid "App"
-msgstr "App"
+msgid "You cannot use this endpoint while authenticated."
+msgstr ""
 
-msgid "Model"
-msgstr "Modello"
-
-msgid "Instance PK"
-msgstr "PK istanza"
-
-msgid "Field"
-msgstr "Campo"
-
-msgid "Findings"
-msgstr "Rilevamenti"
-
-msgid "Quarantined file"
-msgstr "File in quarantena"
-
-msgid "Malware detected in your upload"
+#, fuzzy
+#| msgid "Malware detected in your upload"
+msgid "Malware Detected - Admin Alert"
 msgstr "Malware rilevato nel tuo caricamento"
 
+msgid "Dear Administrator,"
+msgstr ""
+
+#, fuzzy
+#| msgid "Malware has been detected in a file upload."
+msgid "Malware has been detected in a file upload:"
+msgstr "È stato rilevato un malware in un file caricato."
+
+msgid "App:"
+msgstr ""
+
+#, fuzzy
+#| msgid "Model"
+msgid "Model:"
+msgstr "Modello"
+
+#, fuzzy
+#| msgid "Field"
+msgid "Field:"
+msgstr "Campo"
+
+#, fuzzy
+#| msgid "Instance PK"
+msgid "Instance ID:"
+msgstr "PK istanza"
+
+#, fuzzy
+#| msgid "Uploader"
+msgid "Uploader:"
+msgstr "Caricato da"
+
+#, fuzzy
+#| msgid "Findings"
+msgid "Findings:"
+msgstr "Rilevamenti"
+
+#, fuzzy
+#| msgid "Quarantined file"
+msgid "View quarantined file"
+msgstr "File in quarantena"
+
+msgid "Please review and take appropriate action."
+msgstr ""
+
+msgid "Best regards,"
+msgstr ""
+
+#, fuzzy
+#| msgid "Revel Event Management System"
+msgid "Revel Security System"
+msgstr "Sistema di gestione eventi Revel"
+
+#, fuzzy
+#| msgid "Quarantined file"
+msgid "View quarantined file:"
+msgstr "File in quarantena"
+
+#, fuzzy
+#| msgid "Malware detected"
+msgid "Malware Detected"
+msgstr "Malware rilevato"
+
+msgid "Dear"
+msgstr ""
+
+#, fuzzy
+#| msgid ""
+#| "We have detected malware in a file you recently uploaded. The file has "
+#| "been quarantined and our staff has been notified."
 msgid ""
-"We have detected malware in a file you recently uploaded. The file has been "
-"quarantined and our staff has been notified."
+"We detected malware in a file you recently uploaded. For security reasons, "
+"the file has been quarantined and removed from the system."
 msgstr ""
 "Abbiamo rilevato un malware in un file che hai caricato di recente. Il file "
 "è stato messo in quarantena e il nostro staff è stato notificato."
 
-msgid "We will investigate the issue and get back to you as soon as possible."
-msgstr "Investigheremo il problema e ti contatteremo al più presto."
+msgid "If you believe this is an error, please contact support."
+msgstr ""
+
+msgid "The Revel Team"
+msgstr "Il Team di Revel"
 
 msgid "ticket_tier_id is required for events that require tickets."
 msgstr "ticket_tier_id è obbligatorio per eventi che richiedono biglietti."
+
+#, fuzzy
+#| msgid "A user with this email already exists."
+msgid "An event with this slug already exists in your organization."
+msgstr "Esiste già un utente con questa email."
 
 msgid "You must connect to Stripe first."
 msgstr "Devi prima connetterti a Stripe."
@@ -338,14 +545,37 @@ msgstr "Biglietto già annullato"
 msgid "Invitation not found."
 msgstr "Invito non trovato."
 
+#, fuzzy
+#| msgid "Check-in is not currently open for this event."
+msgid "Questionnaire not found for this event."
+msgstr "Il check-in non è attualmente aperto per questo evento."
+
 msgid "Token not found or expired."
 msgstr "Token non trovato o scaduto."
 
 msgid "The token is invalid or expired."
 msgstr "Il token non è valido o è scaduto."
 
-msgid "Ticket price type PWYC"
-msgstr "Tipo di prezzo biglietto PWYC"
+#, fuzzy
+#| msgid "This event does not accept invitation requests."
+msgid "This event does not have an open waitlist."
+msgstr "Questo evento non accetta richieste di invito."
+
+#, fuzzy
+#| msgid "You are already invited to this event."
+msgid "You are already on the waitlist for this event."
+msgstr "Sei già invitato a questo evento."
+
+msgid "Successfully joined the waitlist."
+msgstr ""
+
+msgid "Successfully left the waitlist."
+msgstr ""
+
+#, fuzzy
+#| msgid "This endpoint is only for pay-what-you-can tickets"
+msgid "Use /checkout/pwyc endpoint for pay-what-you-can tickets"
+msgstr "Questo endpoint è solo per biglietti a offerta libera"
 
 msgid "This endpoint is only for pay-what-you-can tickets"
 msgstr "Questo endpoint è solo per biglietti a offerta libera"
@@ -357,9 +587,6 @@ msgstr "L'importo PWYC deve essere almeno {min_amount}"
 #, python-brace-format
 msgid "PWYC amount must be at most {max_amount}"
 msgstr "L'importo PWYC deve essere al massimo {max_amount}"
-
-msgid "You cannot use this endpoint while authenticated."
-msgstr ""
 
 #, fuzzy
 #| msgid "This endpoint is only for pay-what-you-can tickets"
@@ -386,6 +613,56 @@ msgstr ""
 
 msgid "Invalid Stripe signature"
 msgstr "Firma Stripe non valida"
+
+msgid "Membership tier is required when granting membership."
+msgstr ""
+
+msgid "Membership tier must belong to the same organization as the token."
+msgstr ""
+
+msgid "You have reached the maximum number of tickets for this tier."
+msgstr ""
+
+#, python-brace-format
+msgid "You can only purchase {remaining} more ticket(s) for this tier."
+msgstr ""
+
+#, python-brace-format
+msgid "Not enough seats available. Only {available} seat(s) remaining."
+msgstr ""
+
+msgid "Seat selection is required for this ticket tier."
+msgstr ""
+
+msgid "One or more selected seats are invalid or not in the correct sector."
+msgstr ""
+
+msgid "One or more selected seats are no longer available."
+msgstr ""
+
+#, fuzzy
+#| msgid "Unknown payment method."
+msgid "Unknown seat assignment mode."
+msgstr "Metodo di pagamento sconosciuto."
+
+msgid "This ticket tier is sold out."
+msgstr "Questo livello di biglietto è esaurito."
+
+#, python-brace-format
+msgid "Only {available} ticket(s) remaining for this tier."
+msgstr ""
+
+#, fuzzy
+#| msgid "This ticket tier is sold out."
+msgid "This event is sold out."
+msgstr "Questo livello di biglietto è esaurito."
+
+#, python-brace-format
+msgid "Only {available} spot(s) remaining for this event."
+msgstr ""
+
+msgid "Unknown payment method."
+msgstr "Metodo di pagamento sconosciuto."
 
 msgid "You are not eligible."
 msgstr ""
@@ -420,16 +697,24 @@ msgstr ""
 msgid "This event requires login to purchase tickets."
 msgstr "Questo endpoint è solo per biglietti a offerta libera"
 
-msgid "Unexpected response from ticket creation"
+msgid "Internal server error: Unexpected ticket result for online payment."
 msgstr ""
 
 msgid "Please check your email to confirm your ticket purchase"
+msgstr ""
+
+msgid "Unexpected response from ticket creation"
 msgstr ""
 
 #, fuzzy
 #| msgid "Invalid token type."
 msgid "Invalid token type"
 msgstr "Tipo di token non valido."
+
+msgid ""
+"You already own an organization. Only one organization per user as owner is "
+"allowed."
+msgstr ""
 
 msgid "The organization does not accept new members."
 msgstr "L'organizzazione non accetta nuovi membri."
@@ -440,11 +725,28 @@ msgstr "L'utente è già membro di questa organizzazione."
 msgid "User is already a staff member of this organization."
 msgstr "L'utente è già un membro dello staff di questa organizzazione."
 
+#, fuzzy
+#| msgid "User is already a member of this organization."
+msgid "This is already the contact email for this organization."
+msgstr "L'utente è già membro di questa organizzazione."
+
+#, fuzzy
+#| msgid "Invitation not found."
+msgid "Organization not found."
+msgstr "Invito non trovato."
+
+msgid "This verification link is for a different email address."
+msgstr ""
+
 msgid "A file must be provided when resource_type is 'file'."
 msgstr "È necessario fornire un file quando resource_type è 'file'."
 
 msgid "You must connect your Stripe account first."
 msgstr "Devi prima connettere il tuo account Stripe."
+
+#, python-brace-format
+msgid "Stripe API error: {error}"
+msgstr "Errore API Stripe: {error}"
 
 msgid "This organization is not configured to accept payments."
 msgstr "Questa organizzazione non è configurata per accettare pagamenti."
@@ -455,18 +757,37 @@ msgstr "Questo livello di biglietto non può essere acquistato."
 msgid "You already have a ticket"
 msgstr "Hai già un biglietto"
 
-msgid "This ticket tier is sold out."
-msgstr "Questo livello di biglietto è esaurito."
+#, fuzzy
+#| msgid "This ticket tier cannot be purchased."
+msgid "This ticket tier cannot be purchased online."
+msgstr "Questo livello di biglietto non può essere acquistato."
 
-#, python-brace-format
-msgid "Stripe API error: {error}"
-msgstr "Errore API Stripe: {error}"
+#, fuzzy
+#| msgid "This ticket is pending payment confirmation."
+msgid "No pending payment found."
+msgstr "Questo biglietto è in attesa di conferma del pagamento."
+
+msgid "Checkout session has expired. Please start a new purchase."
+msgstr ""
+
+msgid "Checkout session is no longer valid."
+msgstr ""
+
+#, fuzzy
+#| msgid "Invitation not found."
+msgid "Checkout session not found."
+msgstr "Invito non trovato."
+
+#, fuzzy
+#| msgid "Payment Information"
+msgid "Payment not found."
+msgstr "Informazioni pagamento"
+
+msgid "Only pending payments can be cancelled."
+msgstr ""
 
 msgid "You already have a ticket."
 msgstr "Hai già un biglietto."
-
-msgid "Unknown payment method."
-msgstr "Metodo di pagamento sconosciuto."
 
 msgid "This ticket has already been checked in."
 msgstr "Questo biglietto è già stato registrato."
@@ -484,6 +805,43 @@ msgstr "Stato del biglietto non valido: {status}"
 msgid "Check-in is not currently open for this event."
 msgstr "Il check-in non è attualmente aperto per questo evento."
 
+#, fuzzy
+#| msgid "One or more events do not exist or belong to this organization."
+msgid ""
+"One or more membership tier IDs are invalid or don't belong to the event's "
+"organization."
+msgstr ""
+"Uno o più eventi non esistono o non appartengono a questa organizzazione."
+
+msgid "Seat '{}' position is outside the sector shape."
+msgstr ""
+
+msgid "Seat with label '{}' not found in this sector."
+msgstr ""
+
+msgid "Seat position is outside the sector shape."
+msgstr ""
+
+msgid ""
+"Cannot delete seat '{}' because it has active or pending tickets for future "
+"events."
+msgstr ""
+
+msgid "Seats not found in this sector: {}"
+msgstr ""
+
+msgid ""
+"Cannot delete seats with active or pending tickets for future events: {}"
+msgstr ""
+
+msgid "This tier does not have seat assignment."
+msgstr ""
+
+#, fuzzy
+#| msgid "This event does not accept invitation requests."
+msgid "This tier does not have an assigned sector."
+msgstr "Questo evento non accetta richieste di invito."
+
 #, python-format
 msgid "Confirm your RSVP to %(event_name)s"
 msgstr ""
@@ -494,66 +852,14 @@ msgid "Confirm your ticket for %(event_name)s"
 msgstr "Aggiornamento biglietto: %(event_name)s"
 
 #, python-format
-msgid "New Event: %(event_name)s"
-msgstr "Nuovo evento: %(event_name)s"
-
-msgid "🎉 New Event Available!"
-msgstr "🎉 Nuovo evento disponibile!"
-
-#, python-format
-msgid "Hi %(user_name)s, %(organization_name)s has a new event for you"
-msgstr "Ciao %(user_name)s, %(organization_name)s ha un nuovo evento per te"
-
-msgid "📅 Date:"
-msgstr "📅 Data:"
-
-msgid "📍 Location:"
-msgstr "📍 Luogo:"
-
-msgid "🎫 Tickets:"
-msgstr "🎫 Biglietti:"
-
-msgid "Required - Register soon as spots may be limited"
+msgid "Verify contact email for %(organization_name)s"
 msgstr ""
-"Richiesto - Registrati presto perché i posti potrebbero essere limitati"
 
-msgid "✅ RSVP:"
-msgstr "✅ RSVP:"
-
-msgid "Please let us know you're coming"
-msgstr "Facci sapere che parteciperai"
-
-msgid "About this event"
-msgstr "Info su questo evento"
-
-msgid "Ready to join us?"
-msgstr "Pronto a unirti a noi?"
-
-msgid "Get Your Ticket"
-msgstr "Ottieni il tuo biglietto"
-
-msgid "RSVP Now"
-msgstr "Conferma ora"
-
-#, python-format
-msgid ""
-"You're receiving this notification because you're subscribed to updates from "
-"%(organization_name)s."
-msgstr ""
-"Stai ricevendo questa notifica perché sei iscritto agli aggiornamenti di "
-"%(organization_name)s."
-
-msgid ""
-"To manage your notification preferences, please visit your account settings."
-msgstr ""
-"Per gestire le tue preferenze di notifica, visita le impostazioni del tuo "
-"account."
-
-msgid "Hello!"
+msgid "Confirm your RSVP"
 msgstr ""
 
 #, python-format
-msgid "You've requested to RSVP to %(event_name)s."
+msgid "You've indicated your interest in attending %(event_name)s."
 msgstr ""
 
 #, fuzzy
@@ -562,22 +868,21 @@ msgid "To confirm your RSVP, please click the link below:"
 msgstr ""
 "Per confermare la cancellazione del tuo account, clicca il link qui sotto:"
 
-msgid "This link will expire in 1 hour."
+msgid "This link will expire in 24 hours."
 msgstr ""
 
 #, fuzzy
 #| msgid "If you did not request this, please ignore this email."
-msgid "If you didn't request this, you can safely ignore this email."
+msgid "If you didn't make this request, you can safely ignore this email."
 msgstr "Se non hai richiesto questa operazione, ignora questa email."
 
-msgid "Thanks,"
-msgstr ""
-
-msgid "The Revel Team"
-msgstr "Il Team di Revel"
+#, fuzzy
+#| msgid "Ticket Update: %(event_name)s"
+msgid "Confirm your ticket purchase"
+msgstr "Aggiornamento biglietto: %(event_name)s"
 
 #, python-format
-msgid "You've requested to get a ticket for %(event_name)s (%(tier_name)s)."
+msgid "You've requested a ticket for %(event_name)s (%(tier_name)s)."
 msgstr ""
 
 #, fuzzy
@@ -586,76 +891,682 @@ msgid "To confirm your ticket purchase, please click the link below:"
 msgstr ""
 "Per confermare la cancellazione del tuo account, clicca il link qui sotto:"
 
+msgid "Immediate"
+msgstr ""
+
+msgid "Hourly digest"
+msgstr ""
+
+msgid "Daily digest"
+msgstr ""
+
+msgid "Weekly digest"
+msgstr ""
+
+msgid "Always display"
+msgstr ""
+
+msgid "Never display"
+msgstr ""
+
+msgid "Visible to other organization members"
+msgstr ""
+
+msgid "Visible to other invitees at the same event"
+msgstr ""
+
+msgid "Visible to both"
+msgstr ""
+
+#, python-format
+msgid "%(count)d new notification%(plural)s"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "New Event: %(event_name)s"
+msgid "New Event: %(event)s"
+msgstr "Nuovo evento: %(event_name)s"
+
+#, python-format
+msgid "%(org)s has published a new event"
+msgstr ""
+
+#, python-format
+msgid "Reminder: %(event)s is tomorrow!"
+msgstr ""
+
+#, python-format
+msgid "Reminder: %(event)s in %(days)d days"
+msgstr ""
+
+#, python-format
+msgid "Tomorrow: %(event)s"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Ticket Update: %(event_name)s"
+msgid "Event Updated: %(event)s"
+msgstr "Aggiornamento biglietto: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "Potluck Update: %(event_name)s"
+msgid "Important Update: %(event)s"
+msgstr "Aggiornamento Potluck: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "New Event: %(event_name)s"
+msgid "Event Cancelled: %(event)s"
+msgstr "Nuovo evento: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "You are already invited to this event."
+msgid "You're invited to %(event)s"
+msgstr "Sei già invitato a questo evento."
+
+#, fuzzy, python-format
+#| msgid "You are already invited to this event."
+msgid "You're invited: %(event)s"
+msgstr "Sei già invitato a questo evento."
+
+#, fuzzy, python-format
+#| msgid "You have already requested an invitation to this event."
+msgid "%(email)s requested invitation to %(event)s"
+msgstr "Hai già richiesto un invito per questo evento."
+
+#, fuzzy, python-format
+#| msgid "New Event: %(event_name)s"
+msgid "New invitation request: %(event)s"
+msgstr "Nuovo evento: %(event_name)s"
+
+#, python-format
+msgid "You're now a %(role)s of %(org)s"
+msgstr ""
+
+#, python-format
+msgid "Welcome to %(org)s"
+msgstr ""
+
+#, python-format
+msgid "You've been promoted to %(role)s in %(org)s"
+msgstr ""
+
+#, python-format
+msgid "Role Updated: %(role)s - %(org)s"
+msgstr ""
+
+#, python-format
+msgid "Membership Removed: %(org)s"
+msgstr ""
+
+#, python-format
+msgid "Membership Request Approved: %(org)s"
+msgstr ""
+
+#, python-format
+msgid "Welcome to %(org)s - Request Approved"
+msgstr ""
+
+#, python-format
+msgid "%(user)s requested to join %(org)s"
+msgstr ""
+
+#, python-format
+msgid "New membership request: %(org)s"
+msgstr ""
+
+#, python-format
+msgid "Membership Request Declined: %(org)s"
+msgstr ""
+
+#, python-format
+msgid "Membership Request Update: %(org)s"
+msgstr ""
+
+#, python-format
+msgid "%(org)s: %(title)s"
+msgstr ""
+
+#, python-format
+msgid "%(org)s - %(title)s"
+msgstr ""
+
+#, python-format
+msgid "%(actor)s added %(item)s"
+msgstr ""
+
+#, python-format
+msgid "%(actor)s claimed %(item)s"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Potluck Update: %(event_name)s"
+msgid "New Potluck Item: %(item)s"
+msgstr "Aggiornamento Potluck: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "Potluck Update: %(event_name)s"
+msgid "Potluck Item Claimed: %(item)s"
+msgstr "Aggiornamento Potluck: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "Item Available Again"
+msgid "Potluck Item Available: %(item)s"
+msgstr "Elemento di nuovo disponibile"
+
+#, fuzzy, python-format
+#| msgid "Potluck Update: %(event_name)s"
+msgid "Potluck Item Removed: %(item)s"
+msgstr "Aggiornamento Potluck: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "Potluck Update: %(event_name)s"
+msgid "Potluck Update: %(item)s"
+msgstr "Aggiornamento Potluck: %(event_name)s"
+
+#, python-format
+msgid "%(actor)s added %(item)s - %(event)s"
+msgstr ""
+
+#, python-format
+msgid "%(actor)s claimed %(item)s - %(event)s"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Potluck Update: %(event_name)s"
+msgid "Potluck Item Removed - %(event)s"
+msgstr "Aggiornamento Potluck: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "Potluck Update: %(event_name)s"
+msgid "Potluck Update - %(event)s"
+msgstr "Aggiornamento Potluck: %(event_name)s"
+
+#, python-format
+msgid "New Questionnaire Submission: %(name)s"
+msgstr "Nuovo questionario ricevuto: %(name)s"
+
+#, python-format
+msgid "New Questionnaire Submission - %(name)s"
+msgstr "Nuovo questionario ricevuto: %(name)s"
+
+#, python-format
+msgid "✅ Questionnaire Approved: %(name)s"
+msgstr "✅ Questionario approvato: %(name)s"
+
+#, python-format
+msgid "❌ Questionnaire Not Approved: %(name)s"
+msgstr "❌ Questionario non approvato: %(name)s"
+
+#, python-format
+msgid "Questionnaire Evaluation: %(name)s"
+msgstr "Valutazione questionario: %(name)s"
+
+#, python-format
+msgid "Questionnaire Evaluation Result - %(name)s"
+msgstr "Risultato valutazione questionario: %(name)s"
+
+#, python-format
+msgid "RSVP Confirmed: %(event)s (%(user)s: %(response)s)"
+msgstr ""
+
+#, python-format
+msgid "RSVP Confirmed: %(event)s (%(response)s)"
+msgstr ""
+
+#, python-format
+msgid "RSVP Confirmed: %(event)s (%(user)s)"
+msgstr ""
+
+#, python-format
+msgid "RSVP Confirmed: %(event)s"
+msgstr ""
+
+#, python-format
+msgid "RSVP Updated: %(event)s (%(user)s: %(response)s)"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Potluck Update: %(event_name)s"
+msgid "RSVP Updated: %(event)s (%(response)s)"
+msgstr "Aggiornamento Potluck: %(event_name)s"
+
+#, python-format
+msgid "RSVP Updated: %(event)s (%(user)s: %(new_response)s)"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Potluck Update: %(event_name)s"
+msgid "RSVP Updated: %(event)s"
+msgstr "Aggiornamento Potluck: %(event_name)s"
+
+#, python-format
+msgid "RSVP Cancelled: %(event)s"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "New Ticket Issued: %(event_name)s"
+msgid "New Ticket: %(holder)s - %(event)s"
+msgstr "Nuovo biglietto emesso: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "Ticket Update: %(event_name)s"
+msgid "Ticket Pending for %(event)s"
+msgstr "Aggiornamento biglietto: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "Ticket Confirmed"
+msgid "Ticket Confirmed for %(event)s"
+msgstr "Biglietto confermato"
+
+#, fuzzy, python-format
+#| msgid "Ticket Update: %(event_name)s"
+msgid "Ticket Pending - %(event)s"
+msgstr "Aggiornamento biglietto: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "Ticket Confirmed"
+msgid "Ticket Confirmed - %(event)s"
+msgstr "Biglietto confermato"
+
+#, python-format
+msgid "Ticket %(action)s: %(holder)s - %(event)s"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Ticket Update: %(event_name)s"
+msgid "Ticket Update for %(event)s"
+msgstr "Aggiornamento biglietto: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "Ticket Update: %(event_name)s"
+msgid "Ticket Update - %(event)s"
+msgstr "Aggiornamento biglietto: %(event_name)s"
+
 msgid "Payment Confirmation"
 msgstr "Conferma pagamento"
 
-msgid "Payment Successful!"
-msgstr "Pagamento riuscito!"
+#, fuzzy, python-format
+#| msgid "Payment Confirmation"
+msgid "Payment Confirmation - %(event)s"
+msgstr "Conferma pagamento"
 
 #, python-format
-msgid "Hi %(user_name)s,"
-msgstr "Ciao %(user_name)s,"
+msgid "Checked in for %(event)s"
+msgstr ""
+
+#, python-format
+msgid "Checked in - %(event)s"
+msgstr ""
+
+#, python-format
+msgid "Spot available for %(event)s!"
+msgstr ""
+
+#, python-format
+msgid "%d spot available for %s!"
+msgid_plural "%d spots available for %s!"
+msgstr[0] ""
+msgstr[1] ""
+
+#, python-format
+msgid "Spot Available: %(event)s"
+msgstr ""
+
+#, fuzzy
+#| msgid "An email has been sent."
+msgid "Event details have been updated."
+msgstr "È stata inviata un'email."
+
+msgid "Unsubscribe or manage notification preferences"
+msgstr ""
+
+msgid "Unsubscribe or manage notification preferences:"
+msgstr ""
+
+#, fuzzy
+#| msgid "Event Date:"
+msgid "Event Cancelled"
+msgstr "Data evento:"
+
+msgid "Hello"
+msgstr ""
 
 #, python-format
 msgid ""
-"Your payment for <strong>%(event_name)s</strong> was successful and your "
-"ticket is now active!"
+"We regret to inform you that <strong>%(event)s</strong> has been cancelled."
+msgstr ""
+
+msgid "Event Details"
+msgstr "Dettagli evento"
+
+msgid "Reason"
+msgstr ""
+
+#, fuzzy
+#| msgid "Event Information"
+msgid "Refund Information"
+msgstr "Informazioni evento"
+
+msgid "View Alternative Event"
+msgstr ""
+
+#, fuzzy
+#| msgid "We apologize for any inconvenience."
+msgid "We apologize for any inconvenience this may cause."
+msgstr "Ci scusiamo per l'inconveniente."
+
+#, python-format
+msgid "We regret to inform you that %(event)s has been cancelled."
+msgstr ""
+
+#, fuzzy
+#| msgid "Event Details"
+msgid "Event Details:"
+msgstr "Dettagli evento"
+
+msgid "Reason:"
+msgstr ""
+
+#, fuzzy
+#| msgid "Event Information"
+msgid "Refund Information:"
+msgstr "Informazioni evento"
+
+msgid "Alternative event:"
+msgstr ""
+
+msgid "New Event Published"
+msgstr ""
+
+#, python-format
+msgid ""
+"<strong>%(org)s</strong> has published a new event: <strong>%(event)s</"
+"strong>!"
+msgstr ""
+
+msgid "Until:"
+msgstr ""
+
+msgid "Registration opens:"
+msgstr ""
+
+msgid "Registration is now open!"
+msgstr ""
+
+#, fuzzy
+#| msgid "View Event Details"
+msgid "View Event & Register"
+msgstr "Visualizza dettagli evento"
+
+#, python-format
+msgid "%(org)s has published a new event: %(event)s!"
+msgstr ""
+
+#, fuzzy
+#| msgid "View Event Details"
+msgid "View event details and register:"
+msgstr "Visualizza dettagli evento"
+
+msgid "Event Reminder"
+msgstr ""
+
+#, python-format
+msgid "Reminder: <strong>%(event)s</strong> is tomorrow!"
+msgstr ""
+
+#, python-format
+msgid ""
+"Reminder: <strong>%(event)s</strong> is in <strong>%(days)s days</strong>"
+msgstr ""
+
+#, fuzzy
+#| msgid "Get Your Ticket"
+msgid "Your Ticket"
+msgstr "Ottieni il tuo biglietto"
+
+#, fuzzy
+#| msgid "Ticket Tier:"
+msgid "Ticket ID:"
+msgstr "Livello biglietto:"
+
+msgid "Tier:"
+msgstr ""
+
+msgid "View Event Details"
+msgstr "Visualizza dettagli evento"
+
+msgid "See you there!"
+msgstr ""
+
+#, python-format
+msgid "Reminder: %(event)s is in %(days)s days"
+msgstr ""
+
+#, fuzzy
+#| msgid "Get Your Ticket"
+msgid "Your Ticket:"
+msgstr "Ottieni il tuo biglietto"
+
+#, fuzzy
+#| msgid "View Event Details"
+msgid "View event details:"
+msgstr "Visualizza dettagli evento"
+
+#, fuzzy
+#| msgid "Event Date:"
+msgid "Event Updated"
+msgstr "Data evento:"
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been activated for <strong>%(event_name)s</strong>."
+msgid "Important update about <strong>%(event)s</strong>"
+msgstr ""
+"Un nuovo biglietto è stato attivato per <strong>%(event_name)s</strong>."
+
+msgid "What Changed"
+msgstr ""
+
+msgid "Message from Organizers"
+msgstr ""
+
+msgid "View Updated Event"
+msgstr ""
+
+#, python-format
+msgid "Important update about %(event)s"
+msgstr ""
+
+msgid "What Changed:"
+msgstr ""
+
+msgid "Message from organizers:"
+msgstr ""
+
+#, fuzzy
+#| msgid "View Event Details"
+msgid "View updated event details:"
+msgstr "Visualizza dettagli evento"
+
+msgid "You're Invited"
+msgstr ""
+
+msgid "Please check the details of this notification."
+msgstr ""
+
+#, fuzzy
+#| msgid "View Event Details"
+msgid "View Details"
+msgstr "Visualizza dettagli evento"
+
+#, fuzzy
+#| msgid "View Event Details"
+msgid "View details:"
+msgstr "Visualizza dettagli evento"
+
+msgid "New Invitation Request"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been activated for <strong>%(event_name)s</strong>."
+msgid ""
+"<strong>%(email)s</strong> has requested an invitation to <strong>%(event)s</"
+"strong>."
+msgstr ""
+"Un nuovo biglietto è stato attivato per <strong>%(event_name)s</strong>."
+
+#, fuzzy
+#| msgid "Event Details"
+msgid "Request Details:"
+msgstr "Dettagli evento"
+
+msgid "Email:"
+msgstr "Email:"
+
+msgid "Name:"
+msgstr "Nome:"
+
+msgid "Message:"
+msgstr ""
+
+msgid "View Request"
+msgstr ""
+
+msgid "This is an automated notification from your event management system."
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "You have already requested an invitation to this event."
+msgid "%(email)s has requested an invitation to %(event)s."
+msgstr "Hai già richiesto un invito per questo evento."
+
+msgid "View and manage this request:"
+msgstr ""
+
+msgid "Membership Granted"
+msgstr ""
+
+msgid "Role Updated"
+msgstr ""
+
+#, fuzzy
+#| msgid "Item Removed"
+msgid "Membership Removed"
+msgstr "Elemento rimosso"
+
+msgid "Request Approved"
+msgstr ""
+
+msgid "New Membership Request"
+msgstr ""
+
+#, python-format
+msgid ""
+"<strong>%(name)s</strong> has requested to join <strong>%(org)s</strong>."
+msgstr ""
+
+msgid ""
+"This is an automated notification from your organization management system."
+msgstr ""
+
+#, python-format
+msgid "%(name)s has requested to join %(org)s."
+msgstr ""
+
+msgid "Request Declined"
+msgstr ""
+
+msgid "Announcement"
+msgstr ""
+
+#, fuzzy
+#| msgid "Payment Confirmation"
+msgid "Payment Confirmed"
+msgstr "Conferma pagamento"
+
+#, fuzzy, python-format
+#| msgid ""
+#| "Your payment for <strong>%(event_name)s</strong> was successful and your "
+#| "ticket is now active!"
+msgid ""
+"Thank you! Your payment for <strong>%(event)s</strong> has been confirmed. 🎉"
 msgstr ""
 "Il tuo pagamento per <strong>%(event_name)s</strong> è andato a buon fine e "
 "il tuo biglietto è ora attivo!"
 
-msgid "Transaction Details"
-msgstr "Dettagli transazione"
+#, fuzzy
+#| msgid "Event Details"
+msgid "Payment Details"
+msgstr "Dettagli evento"
 
-msgid "Event:"
-msgstr "Evento:"
-
-msgid "Ticket Tier:"
-msgstr "Livello biglietto:"
-
-msgid "Amount Paid:"
+#, fuzzy
+#| msgid "Amount Paid:"
+msgid "Amount:"
 msgstr "Importo pagato:"
 
 msgid "Payment ID:"
 msgstr "ID pagamento:"
 
-msgid "View Event Details"
-msgstr "Visualizza dettagli evento"
+msgid "Date:"
+msgstr "Data:"
 
-msgid "We're excited to see you there!"
-msgstr "Non vediamo l'ora di vederti!"
+msgid "Ticket Information"
+msgstr "Informazioni biglietto"
 
-msgid "Cheers,"
-msgstr "A presto,"
+msgid "Status:"
+msgstr "Stato:"
 
-msgid "You are receiving this email because you purchased a ticket on Revel."
+msgid "Active"
 msgstr ""
-"Stai ricevendo questa email perché hai acquistato un biglietto su Revel."
+
+#, fuzzy
+#| msgid "📎 Your ticket is attached to this email as a PDF."
+msgid ""
+"Your ticket is now active and attached to this email. Present it at the "
+"event entrance."
+msgstr "📎 Il tuo biglietto è allegato a questa email in formato PDF."
 
 #, python-format
-msgid "Potluck Update: %(event_name)s"
-msgstr "Aggiornamento Potluck: %(event_name)s"
+msgid "Thank you! Your payment for %(event)s has been confirmed. 🎉"
+msgstr ""
 
-msgid "🥘 Potluck Update"
-msgstr "🥘 Aggiornamento Potluck"
+#, fuzzy
+#| msgid "Event Details"
+msgid "Payment Details:"
+msgstr "Dettagli evento"
 
-msgid "New Item Added"
-msgstr "Nuovo elemento aggiunto"
+#, fuzzy
+#| msgid "Ticket Information"
+msgid "Ticket Information:"
+msgstr "Informazioni biglietto"
 
-msgid "Item Claimed"
-msgstr "Elemento riservato"
+#, fuzzy
+#| msgid "Claimed by:"
+msgid "Claimed"
+msgstr "Riservato da:"
 
-msgid "Item Available Again"
-msgstr "Elemento di nuovo disponibile"
+#, python-format
+msgid ""
+"<strong>%(actor)s</strong> claimed <strong>\"%(item)s\"</strong> for "
+"<strong>%(event)s</strong>."
+msgstr ""
 
-msgid "Item Removed"
-msgstr "Elemento rimosso"
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid ""
+"<strong>\"%(item)s\"</strong> has been claimed for <strong>%(event)s</"
+"strong>."
+msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
 
-msgid "Description:"
-msgstr "Descrizione:"
+#, fuzzy
+#| msgid "Details"
+msgid "Item Details"
+msgstr "Dettagli"
 
-msgid "Type:"
-msgstr "Tipo:"
+msgid "Item:"
+msgstr ""
+
+msgid "Category:"
+msgstr ""
 
 msgid "Quantity:"
 msgstr "Quantità:"
@@ -663,286 +1574,809 @@ msgstr "Quantità:"
 msgid "Claimed by:"
 msgstr "Riservato da:"
 
-msgid "Note:"
-msgstr "Nota:"
-
-msgid "Event Information"
-msgstr "Informazioni evento"
-
-msgid "Date:"
-msgstr "Data:"
-
-msgid "Location:"
-msgstr "Luogo:"
+msgid "View Potluck List"
+msgstr ""
 
 #, python-format
-msgid "Updated by %(changed_by_name)s"
-msgstr "Aggiornato da %(changed_by_name)s"
-
-msgid ""
-"You're receiving this notification because you have potluck updates enabled."
+msgid "%(actor)s claimed \"%(item)s\" for %(event)s."
 msgstr ""
-"Stai ricevendo questa notifica perché hai abilitato gli aggiornamenti "
-"potluck."
 
 #, python-format
-msgid "Questionnaire Evaluation Result: %(event_name)s"
-msgstr "Risultato valutazione questionario: %(event_name)s"
-
-msgid "📋 Questionnaire Evaluation"
-msgstr "📋 Valutazione questionario"
-
-msgid "APPROVED"
-msgstr "APPROVATO"
-
-msgid "Congratulations! Your questionnaire submission has been approved."
-msgstr "Congratulazioni! La tua risposta al questionario è stata approvata."
-
-msgid "NOT APPROVED"
-msgstr "NON APPROVATO"
-
-msgid "Your questionnaire submission was not approved at this time."
+msgid "\"%(item)s\" has been claimed for %(event)s."
 msgstr ""
-"La tua risposta al questionario non è stata approvata in questo momento."
 
-msgid "Submission Details"
-msgstr "Dettagli invio"
+#, fuzzy
+#| msgid "Details"
+msgid "Item Details:"
+msgstr "Dettagli"
 
-msgid "Organization:"
-msgstr "Organizzazione:"
-
-msgid "Questionnaire:"
-msgstr "Questionario:"
-
-msgid "Score:"
-msgstr "Punteggio:"
-
-msgid "Evaluated by:"
-msgstr "Valutato da:"
-
-msgid "Evaluation Date:"
-msgstr "Data valutazione:"
-
-msgid "Evaluator Comments"
-msgstr "Commenti del valutatore"
-
-msgid "✅ What's Next?"
-msgstr "✅ Cosa fare ora?"
-
-msgid "ℹ️ What's Next?"
-msgstr "ℹ️ Cosa fare ora?"
-
-msgid ""
-"Your questionnaire submission has been approved! You can now proceed with "
-"your event registration or participation as outlined in the event details."
+msgid "View potluck list:"
 msgstr ""
-"La tua risposta al questionario è stata approvata! Puoi ora procedere con la "
-"registrazione all'evento o la partecipazione come indicato nei dettagli "
-"dell'evento."
 
-msgid ""
-"If you have questions about this evaluation or would like to understand what "
-"you can do differently, please contact the event organizers directly."
-msgstr ""
-"Se hai domande su questa valutazione o vuoi capire cosa puoi fare "
-"diversamente, contatta direttamente gli organizzatori dell'evento."
-
-msgid "Event Date:"
-msgstr "Data evento:"
+#, fuzzy
+#| msgid "🥘 Potluck Update"
+msgid "New Potluck Item"
+msgstr "🥘 Aggiornamento Potluck"
 
 #, python-format
 msgid ""
-"This evaluation was conducted as part of the application process for "
-"%(event_name)s."
+"<strong>%(actor)s</strong> added <strong>\"%(item)s\"</strong> to the "
+"potluck for <strong>%(event)s</strong>."
 msgstr ""
-"Questa valutazione è stata condotta come parte del processo di candidatura "
-"per %(event_name)s."
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid ""
+"A new potluck item <strong>\"%(item)s\"</strong> has been added to "
+"<strong>%(event)s</strong>."
+msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+
+#, fuzzy
+#| msgid "Claimed by:"
+msgid "Added by:"
+msgstr "Riservato da:"
+
+msgid "Description:"
+msgstr "Descrizione:"
+
+msgid "Claim Item"
+msgstr ""
 
 #, python-format
-msgid "New Questionnaire Submission: %(questionnaire_name)s"
-msgstr "Nuovo questionario inviato: %(questionnaire_name)s"
-
-msgid "📋 Questionnaire Review Required"
-msgstr "📋 Revisione questionario richiesta"
-
-msgid "New submission awaiting your review"
-msgstr "Nuovo invio in attesa della tua revisione"
-
-msgid ""
-"A new questionnaire submission has been received and requires manual review "
-"before it can be processed."
+msgid "%(actor)s added \"%(item)s\" to the potluck for %(event)s."
 msgstr ""
-"È stata ricevuta una nuova risposta al questionario che richiede una "
-"revisione manuale prima di poter essere elaborata."
-
-msgid "Submitted By"
-msgstr "Inviato da"
-
-msgid "Name:"
-msgstr "Nome:"
-
-msgid "Email:"
-msgstr "Email:"
-
-msgid "Submitted:"
-msgstr "Inviato:"
-
-msgid "Questionnaire Details"
-msgstr "Dettagli questionario"
-
-msgid "Mode:"
-msgstr "Modalità:"
-
-msgid "⚠️ Action Required"
-msgstr "⚠️ Azione richiesta"
-
-msgid ""
-"Please log in to the admin panel to review this questionnaire submission and "
-"make a decision."
-msgstr ""
-"Accedi al pannello di amministrazione per revisionare questo questionario e "
-"prendere una decisione."
-
-msgid ""
-"The submission needs to be either <strong>approved</strong> or "
-"<strong>rejected</strong> before the submitter can proceed."
-msgstr ""
-"L'invio deve essere <strong>approvato</strong> o <strong>rifiutato</strong> "
-"prima che chi l'ha inviato possa procedere."
 
 #, python-format
-msgid ""
-"You're receiving this notification because you have permission to evaluate "
-"questionnaires for <strong>%(organization_name)s</strong>."
+msgid "A new potluck item \"%(item)s\" has been added to %(event)s."
 msgstr ""
-"Stai ricevendo questa notifica perché hai i permessi per valutare "
-"questionari per <strong>%(organization_name)s</strong>."
 
-msgid "Revel Event Management System"
-msgstr "Sistema di gestione eventi Revel"
+msgid "Claim this item or view the potluck list:"
+msgstr ""
 
-#, python-format
-msgid "New Ticket Issued: %(event_name)s"
-msgstr "Nuovo biglietto emesso: %(event_name)s"
+#, fuzzy
+#| msgid "Item Removed"
+msgid "Removed"
+msgstr "Elemento rimosso"
 
-msgid "🎫 New Ticket Issued"
-msgstr "🎫 Nuovo biglietto emesso"
-
-msgid "Staff Notification"
-msgstr "Notifica per lo staff"
-
-#, python-format
-msgid "A new ticket has been activated for <strong>%(event_name)s</strong>."
+#, fuzzy, python-format
+#| msgid "A new ticket has been activated for <strong>%(event_name)s</strong>."
+msgid ""
+"<strong>\"%(item)s\"</strong> has been removed from the potluck for "
+"<strong>%(event)s</strong>."
 msgstr ""
 "Un nuovo biglietto è stato attivato per <strong>%(event_name)s</strong>."
 
 #, python-format
-msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid "\"%(item)s\" has been removed from the potluck for %(event)s."
+msgstr ""
+
+#, fuzzy
+#| msgid "Item Available Again"
+msgid "Available"
+msgstr "Elemento di nuovo disponibile"
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been activated for <strong>%(event_name)s</strong>."
+msgid ""
+"<strong>\"%(item)s\"</strong> is now available for <strong>%(event)s</"
+"strong>."
+msgstr ""
+"Un nuovo biglietto è stato attivato per <strong>%(event_name)s</strong>."
+
+#, python-format
+msgid "\"%(item)s\" is now available for %(event)s."
+msgstr ""
+
+msgid "Claim this item:"
+msgstr ""
+
+msgid "Updated"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid ""
+"<strong>\"%(item)s\"</strong> has been updated for <strong>%(event)s</"
+"strong>."
 msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
 
-msgid "Ticket Holder"
-msgstr "Titolare del biglietto"
+#, python-format
+msgid "\"%(item)s\" has been updated for %(event)s."
+msgstr ""
 
-msgid "Ticket Information"
-msgstr "Informazioni biglietto"
+msgid "Questionnaire Approved"
+msgstr "Questionario approvato"
 
-msgid "Ticket Type:"
-msgstr "Tipo di biglietto:"
-
-msgid "Price:"
-msgstr "Prezzo:"
-
-msgid "Free"
-msgstr "Gratuito"
-
-msgid "Status:"
-msgstr "Stato:"
-
-msgid "Event Details"
-msgstr "Dettagli evento"
+msgid "Questionnaire Not Approved"
+msgstr "Questionario non approvato"
 
 #, python-format
 msgid ""
-"You're receiving this notification as a staff member of "
-"<strong>%(organization_name)s</strong>."
+"Great news! Your questionnaire <strong>%(questionnaire)s</strong> for "
+"<strong>%(org)s</strong> has been approved."
 msgstr ""
-"Stai ricevendo questa notifica come membro dello staff di "
-"<strong>%(organization_name)s</strong>."
+"Ottime notizie! Il tuo questionario <strong>%(questionnaire)s</strong> per "
+"<strong>%(org)s</strong> è stato approvato."
 
 #, python-format
-msgid "Ticket Update: %(event_name)s"
-msgstr "Aggiornamento biglietto: %(event_name)s"
+msgid ""
+"Your questionnaire <strong>%(questionnaire)s</strong> for <strong>%(org)s</"
+"strong> was not approved."
+msgstr ""
+"Il tuo questionario <strong>%(questionnaire)s</strong> per <strong>%(org)s</"
+"strong> non è stato approvato."
 
-msgid "Your Free Ticket is Ready!"
-msgstr "Il tuo biglietto gratuito è pronto!"
+msgid "Questionnaire:"
+msgstr "Questionario:"
 
-msgid "Payment Required"
-msgstr "Pagamento richiesto"
+msgid "Organization:"
+msgstr "Organizzazione:"
 
-msgid "Pay at the Door"
-msgstr "Pagamento all'ingresso"
+msgid "Approved"
+msgstr "Approvato"
+
+msgid "Not Approved"
+msgstr "Non approvato"
+
+msgid "Score:"
+msgstr "Punteggio:"
+
+msgid "Evaluator Comments:"
+msgstr "Commenti:"
+
+msgid "View Event"
+msgstr "Vai all'evento"
+
+#, python-format
+msgid "Your questionnaire %(questionnaire)s has been approved!"
+msgstr "Il tuo questionario %(questionnaire)s è stato approvato!"
+
+#, python-format
+msgid "Your questionnaire %(questionnaire)s was not approved."
+msgstr "Il tuo questionario %(questionnaire)s non è stato approvato."
+
+msgid "Details:"
+msgstr "Dettagli:"
+
+msgid "View event:"
+msgstr "Vai all'evento:"
+
+msgid "New Questionnaire Submission"
+msgstr "Nuovo questionario ricevuto"
+
+#, python-format
+msgid ""
+"<strong>%(name)s</strong> has submitted the questionnaire "
+"<strong>%(questionnaire)s</strong>."
+msgstr ""
+"<strong>%(name)s</strong> ha compilato il questionario "
+"<strong>%(questionnaire)s</strong>."
+
+msgid "Submitted by:"
+msgstr "Compilato da:"
+
+msgid "For Event:"
+msgstr "Per l'evento:"
+
+msgid "Review Submission"
+msgstr "Valuta questionario"
+
+#, python-format
+msgid "%(name)s has submitted the questionnaire %(questionnaire)s."
+msgstr "%(name)s ha compilato il questionario %(questionnaire)s."
+
+msgid "Submission Details:"
+msgstr "Dettagli:"
+
+msgid "Review the submission:"
+msgstr "Valuta il questionario:"
+
+msgid "RSVP Cancelled"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid ""
+#| "Your payment for <strong>%(event_name)s</strong> was successful and your "
+#| "ticket is now active!"
+msgid "Your RSVP for <strong>%(event)s</strong> has been cancelled."
+msgstr ""
+"Il tuo pagamento per <strong>%(event_name)s</strong> è andato a buon fine e "
+"il tuo biglietto è ora attivo!"
+
+msgid "You can RSVP again anytime if you change your mind."
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "This ticket has been cancelled."
+msgid "Your RSVP for %(event)s has been cancelled."
+msgstr "Questo biglietto è stato annullato."
+
+#, fuzzy
+#| msgid "Ticket Confirmed"
+msgid "RSVP Confirmed"
+msgstr "Biglietto confermato"
+
+#, python-format
+msgid ""
+"<strong>%(user)s</strong> has RSVP'd <strong>%(response)s</strong> for "
+"<strong>%(event)s</strong>."
+msgstr ""
+
+#, fuzzy
+#| msgid "Details"
+msgid "RSVP Details"
+msgstr "Dettagli"
+
+msgid "Response:"
+msgstr ""
+
+#, python-format
+msgid ""
+"Your RSVP (<strong>%(response)s</strong>) for <strong>%(event)s</strong> has "
+"been confirmed! ✅"
+msgstr ""
+
+msgid "Your Response"
+msgstr ""
+
+msgid "Guests:"
+msgstr ""
+
+#, fuzzy
+#| msgid "Description:"
+msgid "Dietary restrictions:"
+msgstr "Descrizione:"
+
+#, python-format
+msgid "%(user)s has RSVP'd %(response)s for %(event)s."
+msgstr ""
+
+#, fuzzy
+#| msgid "Details"
+msgid "RSVP Details:"
+msgstr "Dettagli"
+
+#, python-format
+msgid "Your RSVP (%(response)s) for %(event)s has been confirmed! ✅"
+msgstr ""
+
+msgid "Your Response:"
+msgstr ""
+
+msgid "RSVP Updated"
+msgstr ""
+
+#, python-format
+msgid ""
+"<strong>%(user)s</strong> has changed their RSVP from <strong>%(old)s</"
+"strong> to <strong>%(new)s</strong> for <strong>%(event)s</strong>."
+msgstr ""
+
+msgid "Updated RSVP Details"
+msgstr ""
+
+msgid "Previous Response:"
+msgstr ""
+
+msgid "New Response:"
+msgstr ""
+
+#, python-format
+msgid ""
+"Your RSVP for <strong>%(event)s</strong> has been updated from "
+"<strong>%(old)s</strong> to <strong>%(new)s</strong>."
+msgstr ""
+
+msgid "Updated Response"
+msgstr ""
+
+#, python-format
+msgid "%(user)s has changed their RSVP from %(old)s to %(new)s for %(event)s."
+msgstr ""
+
+msgid "Updated RSVP Details:"
+msgstr ""
+
+#, python-format
+msgid "Your RSVP for %(event)s has been updated from %(old)s to %(new)s."
+msgstr ""
+
+msgid "Updated Response:"
+msgstr ""
+
+#, fuzzy
+#| msgid "Ticket already cancelled"
+msgid "Ticket Cancelled"
+msgstr "Biglietto già annullato"
+
+#, fuzzy, python-format
+#| msgid ""
+#| "Your payment for <strong>%(event_name)s</strong> was successful and your "
+#| "ticket is now active!"
+msgid "Your ticket for <strong>%(event)s</strong> has been cancelled."
+msgstr ""
+"Il tuo pagamento per <strong>%(event_name)s</strong> è andato a buon fine e "
+"il tuo biglietto è ora attivo!"
+
+msgid "Cancelled Ticket"
+msgstr ""
+
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
+"your original payment method within 5-10 business days."
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "This ticket has been cancelled."
+msgid "Your ticket for %(event)s has been cancelled."
+msgstr "Questo biglietto è stato annullato."
+
+msgid "Cancelled Ticket:"
+msgstr ""
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s will be processed to your original "
+"payment method within 5-10 business days."
+msgstr ""
+
+msgid "Checked In!"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid "You have been checked in for <strong>%(event)s</strong>!"
+msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+
+#, fuzzy
+#| msgid "About this event"
+msgid "Enjoy the event!"
+msgstr "Info su questo evento"
+
+#, python-format
+msgid "You have been checked in for %(event)s!"
+msgstr ""
+
+#, fuzzy
+#| msgid "🎫 New Ticket Issued"
+msgid "New Ticket Registered"
+msgstr "🎫 Nuovo biglietto emesso"
 
 msgid "Ticket Confirmed"
 msgstr "Biglietto confermato"
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid ""
+"<strong>%(holder)s</strong> has registered for <strong>%(event)s</strong>."
+msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+
+#, fuzzy
+#| msgid "Event Details"
+msgid "Ticket Details"
+msgstr "Dettagli evento"
+
+#, fuzzy
+#| msgid "Ticket Holder"
+msgid "Holder:"
+msgstr "Titolare del biglietto"
+
+#, fuzzy, python-format
+#| msgid "This ticket is pending payment confirmation."
+msgid ""
+"Your ticket for <strong>%(event)s</strong> is pending payment confirmation."
+msgstr "Questo biglietto è in attesa di conferma del pagamento."
+
+#, fuzzy
+#| msgid "Findings"
+msgid "Pending"
+msgstr "Rilevamenti"
+
+msgid "Payment Instructions"
+msgstr "Istruzioni per il pagamento"
+
+#, fuzzy
+#| msgid "Please contact the event organizers for payment instructions."
+msgid "Please contact the organizer to complete the payment."
+msgstr "Contatta gli organizzatori dell'evento per le istruzioni di pagamento."
+
+#, fuzzy, python-format
+#| msgid "Your ticket reservation is confirmed"
+msgid "Your ticket for <strong>%(event)s</strong> is confirmed! 🎉"
+msgstr "La tua prenotazione del biglietto è confermata"
+
+#, python-format
+msgid "%(holder)s has registered for %(event)s."
+msgstr ""
+
+#, fuzzy
+#| msgid "Event Details"
+msgid "Ticket Details:"
+msgstr "Dettagli evento"
+
+#, fuzzy, python-format
+#| msgid "This ticket is pending payment confirmation."
+msgid "Your ticket for %(event)s is pending payment confirmation."
+msgstr "Questo biglietto è in attesa di conferma del pagamento."
+
+#, fuzzy
+#| msgid "Payment Instructions"
+msgid "Payment Instructions:"
+msgstr "Istruzioni per il pagamento"
+
+#, fuzzy, python-format
+#| msgid "Your ticket reservation is confirmed"
+msgid "Your ticket for %(event)s is confirmed! 🎉"
+msgstr "La tua prenotazione del biglietto è confermata"
+
+msgid "Refund Processed"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid "Your ticket refund for <strong>%(event)s</strong> has been processed."
+msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+
+msgid ""
+"The refund will appear in your original payment method within <strong>5-10 "
+"business days</strong>, depending on your bank or card issuer."
+msgstr ""
+
+#, python-format
+msgid "Your ticket refund for %(event)s has been processed."
+msgstr ""
+
+msgid ""
+"The refund will appear in your original payment method within 5-10 business "
+"days, depending on your bank or card issuer."
+msgstr ""
+
+#, fuzzy
+#| msgid "Ticket Type:"
+msgid "Ticket Updated"
+msgstr "Tipo di biglietto:"
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has been "
+"<strong>%(action)s</strong>."
+msgstr ""
+
+#, python-format
+msgid ""
+"Your ticket for <strong>%(event)s</strong> has been <strong>%(action)s</"
+"strong>."
+msgstr ""
+
+#, fuzzy
+#| msgid "Ticket Information"
+msgid "Updated Ticket Information"
+msgstr "Informazioni biglietto"
+
+#, python-format
+msgid "%(holder)s's ticket for %(event)s has been %(action)s."
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Your ticket reservation is confirmed"
+msgid "Your ticket for %(event)s has been confirmed! 🎉"
+msgstr "La tua prenotazione del biglietto è confermata"
+
+#, fuzzy
+#| msgid ""
+#| "Your payment for <strong>%(event_name)s</strong> was successful and your "
+#| "ticket is now active!"
+msgid "Your payment has been confirmed. Your ticket is now active!"
+msgstr ""
+"Il tuo pagamento per <strong>%(event_name)s</strong> è andato a buon fine e "
+"il tuo biglietto è ora attivo!"
+
+#, fuzzy, python-format
+#| msgid "Your data export has been initiated."
+msgid "Your ticket for %(event)s has been updated."
+msgstr "L'esportazione dei tuoi dati è stata avviata."
+
+#, fuzzy
+#| msgid "Ticket Information"
+msgid "Updated Ticket Information:"
+msgstr "Informazioni biglietto"
+
+#, fuzzy
+#| msgid "Item Available Again"
+msgid "Spot Available!"
+msgstr "Elemento di nuovo disponibile"
 
 msgid "Great news!"
 msgstr "Ottime notizie!"
 
 #, python-format
 msgid ""
-"Your free ticket for %(event_name)s is ready. Your ticket is attached to "
-"this email as a PDF."
+"<strong>%(count)s spot</strong> is now available for <strong>%(event)s</"
+"strong>!"
 msgstr ""
-"Il tuo biglietto gratuito per %(event_name)s è pronto. Il tuo biglietto è "
-"allegato a questa email in formato PDF."
 
-msgid "Your ticket reservation is confirmed"
-msgstr "La tua prenotazione del biglietto è confermata"
-
-msgid "but payment is still needed to complete your registration."
+#, python-format
+msgid ""
+"<strong>%(count)s spots</strong> are now available for <strong>%(event)s</"
+"strong>!"
 msgstr ""
-"ma il pagamento è ancora necessario per completare la tua registrazione."
 
-msgid "Your spot is reserved!"
-msgstr "Il tuo posto è riservato!"
-
-msgid "Please bring payment to the event. Your ticket is attached as a PDF."
+msgid "Act fast!"
 msgstr ""
-"Porta il pagamento all'evento. Il tuo biglietto è allegato in formato PDF."
 
-msgid "All set!"
-msgstr "Tutto pronto!"
+msgid "Spots are limited and available on a first-come, first-served basis."
+msgstr ""
 
-msgid "Your ticket is now active and ready to use."
-msgstr "Il tuo biglietto è ora attivo e pronto all'uso."
+msgid "Claim Your Spot Now"
+msgstr ""
 
-msgid "Payment Instructions"
+#, fuzzy
+#| msgid ""
+#| "You are receiving this email because you purchased a ticket on Revel."
+msgid "You're receiving this because you're on the waitlist for this event."
+msgstr ""
+"Stai ricevendo questa email perché hai acquistato un biglietto su Revel."
+
+#, python-format
+msgid "%(count)s spot is now available for %(event)s!"
+msgstr ""
+
+#, python-format
+msgid "%(count)s spots are now available for %(event)s!"
+msgstr ""
+
+msgid "Claim your spot now:"
+msgstr ""
+
+#, fuzzy
+#| msgid "Staff Notification"
+msgid "Notification Digest"
+msgstr "Notifica per lo staff"
+
+msgid "Here's a summary of your recent notifications:"
+msgstr ""
+
+#, fuzzy
+#| msgid "Staff Notification"
+msgid "View all notifications"
+msgstr "Notifica per lo staff"
+
+#, fuzzy
+#| msgid "Staff Notification"
+msgid "View all notifications:"
+msgstr "Notifica per lo staff"
+
+msgid "Dashboard"
+msgstr ""
+
+msgid "Users & Accounts"
+msgstr ""
+
+#, fuzzy
+#| msgid "User:"
+msgid "Users"
+msgstr "Utente:"
+
+#, fuzzy
+#| msgid "User Data Export Failed"
+msgid "User Data Exports"
+msgstr "Esportazione dati utente fallita"
+
+msgid "Dietary Management"
+msgstr ""
+
+#, fuzzy
+#| msgid "Payment Instructions"
+msgid "Dietary Restrictions"
 msgstr "Istruzioni per il pagamento"
 
-msgid "Payment Information"
-msgstr "Informazioni pagamento"
-
-msgid ""
-"Please arrive with enough time to complete payment before the event starts."
+msgid "Dietary Preferences"
 msgstr ""
-"Arriva con abbastanza anticipo per completare il pagamento prima dell'inizio "
-"dell'evento."
 
-msgid "Please contact the event organizers for payment instructions."
-msgstr "Contatta gli organizzatori dell'evento per le istruzioni di pagamento."
-
-msgid ""
-"Please bring payment to the event. Contact the organizers if you have "
-"questions about payment methods."
+msgid "User Preferences"
 msgstr ""
-"Porta il pagamento all'evento. Contatta gli organizzatori se hai domande sui "
-"metodi di pagamento."
 
-msgid "📎 Your ticket is attached to this email as a PDF."
-msgstr "📎 Il tuo biglietto è allegato a questa email in formato PDF."
+msgid "Food Items"
+msgstr ""
 
-msgid "Please save this email and bring your ticket to the event."
-msgstr "Salva questa email e porta il tuo biglietto all'evento."
+#, fuzzy
+#| msgid "Organization:"
+msgid "Organizations"
+msgstr "Organizzazione:"
 
-msgid "Looking forward to seeing you at the event!"
-msgstr "Non vediamo l'ora di vederti all'evento!"
+msgid "Members"
+msgstr ""
+
+msgid "Staff"
+msgstr ""
+
+msgid "Membership Tiers"
+msgstr ""
+
+msgid "Membership Requests"
+msgstr ""
+
+#, fuzzy
+#| msgid "Organization:"
+msgid "Organization Tokens"
+msgstr "Organizzazione:"
+
+msgid "Venues & Seating"
+msgstr ""
+
+msgid "Venues"
+msgstr ""
+
+msgid "Venue Sectors"
+msgstr ""
+
+msgid "Venue Seats"
+msgstr ""
+
+#, fuzzy
+#| msgid "Event:"
+msgid "Events"
+msgstr "Evento:"
+
+#, fuzzy
+#| msgid "Event Details"
+msgid "Event Series"
+msgstr "Dettagli evento"
+
+#, fuzzy
+#| msgid "🎫 Tickets:"
+msgid "Tickets"
+msgstr "🎫 Biglietti:"
+
+#, fuzzy
+#| msgid "Ticket Tier:"
+msgid "Ticket Tiers"
+msgstr "Livello biglietto:"
+
+#, fuzzy
+#| msgid "RSVP Now"
+msgid "RSVPs"
+msgstr "Conferma ora"
+
+#, fuzzy
+#| msgid "Invitation not found."
+msgid "Invitations"
+msgstr "Invito non trovato."
+
+#, fuzzy
+#| msgid "Invitation not found."
+msgid "Invitation Requests"
+msgstr "Invito non trovato."
+
+msgid "Waitlists"
+msgstr ""
+
+#, fuzzy
+#| msgid "Payment Instructions"
+msgid "Pending Invitations"
+msgstr "Istruzioni per il pagamento"
+
+#, fuzzy
+#| msgid "Event Details"
+msgid "Event Tokens"
+msgstr "Dettagli evento"
+
+#, fuzzy
+#| msgid "🥘 Potluck Update"
+msgid "Potluck Items"
+msgstr "🥘 Aggiornamento Potluck"
+
+msgid "Additional Resources"
+msgstr ""
+
+#, fuzzy
+#| msgid "Payment ID:"
+msgid "Payments"
+msgstr "ID pagamento:"
+
+msgid "Preferences"
+msgstr ""
+
+msgid "Attendee Visibility"
+msgstr ""
+
+#, fuzzy
+#| msgid "Questionnaire:"
+msgid "Questionnaires"
+msgstr "Questionario:"
+
+#, fuzzy
+#| msgid "Questionnaire:"
+msgid "Organization Questionnaires"
+msgstr "Questionario:"
+
+#, fuzzy
+#| msgid "Submission Details"
+msgid "Submissions"
+msgstr "Dettagli invio"
+
+#, fuzzy
+#| msgid "Evaluation Date:"
+msgid "Evaluations"
+msgstr "Data valutazione:"
+
+#, fuzzy
+#| msgid "Description:"
+msgid "Sections"
+msgstr "Descrizione:"
+
+msgid "Multiple Choice Questions"
+msgstr ""
+
+msgid "Free Text Questions"
+msgstr ""
+
+#, fuzzy
+#| msgid "Staff Notification"
+msgid "Notifications"
+msgstr "Notifica per lo staff"
+
+msgid "Notification Deliveries"
+msgstr ""
+
+msgid "Notification Preferences"
+msgstr ""
+
+msgid "Geography"
+msgstr ""
+
+msgid "Cities"
+msgstr ""
+
+msgid "Telegram"
+msgstr ""
+
+msgid "Telegram Users"
+msgstr ""
+
+msgid "System"
+msgstr ""
+
+msgid "Site Settings"
+msgstr ""
+
+msgid "Legal Documents"
+msgstr ""
+
+#, fuzzy
+#| msgid "Email:"
+msgid "Email Logs"
+msgstr "Email:"
+
+msgid "Tags"
+msgstr ""
+
+msgid "Tag Assignments"
+msgstr ""
+
+msgid "File Upload Audits"
+msgstr ""
+
+#, fuzzy
+#| msgid "Quarantined file"
+msgid "Quarantined Files"
+msgstr "File in quarantena"
+
+msgid "Celery Tasks"
+msgstr ""
+
+msgid "Periodic Tasks"
+msgstr ""
+
+msgid "Task Results"
+msgstr ""
+
+msgid "Authentication"
+msgstr ""
+
+msgid "Groups"
+msgstr ""
+
+msgid "Django site admin"
+msgstr ""

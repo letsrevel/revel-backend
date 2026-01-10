@@ -8,7 +8,11 @@ from pydantic import Field, field_serializer, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 from accounts.schema import MinimalRevelUserSchema
-from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
+from questionnaires.models import (
+    Questionnaire,
+    QuestionnaireEvaluation,
+    QuestionnaireSubmission,
+)
 
 
 def seconds_to_timedelta(v: timedelta | int | str | None) -> timedelta | None:
@@ -146,6 +150,7 @@ class SubmissionListItemSchema(ModelSchema):
     questionnaire_name: str
     evaluation_status: QuestionnaireEvaluation.QuestionnaireEvaluationStatus | None = None
     evaluation_score: Decimal | None = None
+    metadata: dict[str, t.Any] | None = None
 
     class Meta:
         model = QuestionnaireSubmission
@@ -233,6 +238,7 @@ class SubmissionDetailSchema(Schema):
     evaluation: EvaluationResponseSchema | None = None
     answers: list[QuestionAnswerDetailSchema]
     created_at: datetime
+    metadata: dict[str, t.Any] | None = None
 
 
 # Admin schemas

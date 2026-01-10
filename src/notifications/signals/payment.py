@@ -10,7 +10,7 @@ from django.dispatch import receiver
 from common.models import SiteSettings
 from events.models import Payment
 from notifications.enums import NotificationType
-from notifications.service.eligibility import get_organization_staff_and_owners
+from notifications.service.eligibility import get_staff_for_notification
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -141,7 +141,7 @@ def _send_refund_notifications(payment: Payment) -> None:
         "ticket_holder_email": payment.user.email,
     }
 
-    staff_and_owners = get_organization_staff_and_owners(event.organization_id)
+    staff_and_owners = get_staff_for_notification(event.organization_id, NotificationType.TICKET_REFUNDED)
     for staff_user in staff_and_owners:
         prefs = getattr(staff_user, "notification_preferences", None)
         if prefs and prefs.is_notification_type_enabled(NotificationType.TICKET_REFUNDED):

@@ -16,6 +16,18 @@ from notifications.models import NotificationPreference
 
 logger = structlog.get_logger(__name__)
 
+# Mapping from notification types to required staff permissions.
+# Only notification types that require specific permissions are listed here.
+# If a notification type is not in this mapping, all staff/owners receive it.
+NOTIFICATION_REQUIRED_PERMISSIONS: dict[NotificationType, str] = {
+    NotificationType.QUESTIONNAIRE_SUBMITTED: "evaluate_questionnaire",
+    NotificationType.TICKET_CREATED: "manage_tickets",
+    NotificationType.TICKET_CANCELLED: "manage_tickets",
+    NotificationType.TICKET_REFUNDED: "manage_tickets",
+    NotificationType.INVITATION_REQUEST_CREATED: "invite_to_event",
+    NotificationType.MEMBERSHIP_REQUEST_CREATED: "manage_members",
+}
+
 
 def has_active_rsvp(user: RevelUser, event: Event) -> bool:
     """Check if user has an active RSVP (YES or MAYBE) for an event.
@@ -273,6 +285,64 @@ def get_organization_staff_and_owners(organization_id: UUID) -> QuerySet[RevelUs
         .select_related("notification_preferences")
         .distinct()
     )
+
+
+def get_organization_staff_with_permission(
+    organization_id: UUID,
+    permission: str,
+) -> QuerySet[RevelUser]:
+    """Get staff members and owners with a specific permission for an organization.
+
+    Owners always have all permissions. Staff members are filtered by their
+    permission settings stored in the JSON permissions field.
+
+    Args:
+        organization_id: The organization ID
+        permission: The permission string to check (e.g., "evaluate_questionnaire")
+
+    Returns:
+        QuerySet of users with the specified permission, with notification preferences prefetched
+    """
+    # Owners always have all permissions
+    owners_q = Q(owned_organizations=organization_id)
+
+    # Staff with specific permission enabled in their default permissions
+    # Uses JSONField lookup to check permissions.default.{permission} = true
+    staff_with_permission_q = Q(
+        organization_staff_memberships__organization_id=organization_id,
+        **{f"organization_staff_memberships__permissions__default__{permission}": True},
+    )
+
+    return (
+        RevelUser.objects.filter(owners_q | staff_with_permission_q)
+        .select_related("notification_preferences")
+        .distinct()
+    )
+
+
+def get_staff_for_notification(
+    organization_id: UUID,
+    notification_type: NotificationType,
+) -> QuerySet[RevelUser]:
+    """Get staff members eligible to receive a specific notification type.
+
+    Uses the NOTIFICATION_REQUIRED_PERMISSIONS mapping to determine which
+    permission is required. If no specific permission is required, returns
+    all staff and owners.
+
+    Args:
+        organization_id: The organization ID
+        notification_type: The type of notification being sent
+
+    Returns:
+        QuerySet of eligible users with notification preferences prefetched
+    """
+    required_permission = NOTIFICATION_REQUIRED_PERMISSIONS.get(notification_type)
+
+    if required_permission:
+        return get_organization_staff_with_permission(organization_id, required_permission)
+
+    return get_organization_staff_and_owners(organization_id)
 
 
 def should_notify_user_for_questionnaire(
