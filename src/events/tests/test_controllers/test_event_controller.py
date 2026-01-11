@@ -707,13 +707,13 @@ def test_submit_questionnaire_succeeds_before_deadline(
 
 
 @patch("events.controllers.events.evaluate_questionnaire_submission.delay")
-def test_submit_questionnaire_succeeds_without_deadline(
+def test_submit_questionnaire_succeeds_without_deadline_when_event_in_future(
     mock_evaluate_task: MagicMock,
     nonmember_client: Client,
     public_event: Event,
     event_questionnaire: Questionnaire,
 ) -> None:
-    """Test submitting a questionnaire succeeds when no deadline is set."""
+    """Test submitting a questionnaire succeeds when no deadline is set and event is in future."""
     assert public_event.apply_before is None
 
     mcq = event_questionnaire.multiplechoicequestion_questions.first()
@@ -732,6 +732,37 @@ def test_submit_questionnaire_succeeds_without_deadline(
 
     assert response.status_code == 200
     assert QuestionnaireSubmission.objects.count() == 1
+
+
+@patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+def test_submit_questionnaire_fails_when_event_start_passed(
+    mock_evaluate_task: MagicMock,
+    nonmember_client: Client,
+    public_event: Event,
+    event_questionnaire: Questionnaire,
+) -> None:
+    """Test submitting a questionnaire fails when apply_before is None but event start has passed."""
+    public_event.apply_before = None
+    public_event.start = timezone.now() - timedelta(hours=1)
+    public_event.end = timezone.now() + timedelta(hours=23)
+    public_event.save()
+
+    mcq = event_questionnaire.multiplechoicequestion_questions.first()
+    option = mcq.options.first()  # type: ignore[union-attr]
+    url = reverse(
+        "api:submit_questionnaire",
+        kwargs={"event_id": public_event.pk, "questionnaire_id": event_questionnaire.pk},
+    )
+    payload = {
+        "questionnaire_id": str(event_questionnaire.pk),
+        "status": "ready",
+        "multiple_choice_answers": [{"question_id": str(mcq.id), "options_id": [str(option.id)]}],  # type: ignore[union-attr]
+        "free_text_answers": [],
+    }
+    response = nonmember_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+    assert "deadline" in response.json()["detail"].lower()
 
 
 # --- Tests for POST /events/{event_id}/invitation-requests ---

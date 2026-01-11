@@ -1821,3 +1821,56 @@ def test_apply_deadline_members_exempt_questionnaire(
 
     # Member is exempt from questionnaire, so they don't need to apply
     assert eligibility.allowed is True
+
+
+# --- Test Cases for effective_apply_deadline Property ---
+
+
+def test_effective_apply_deadline_returns_apply_before_when_set(private_event: Event) -> None:
+    """Test that effective_apply_deadline returns apply_before when explicitly set."""
+    deadline = timezone.now() + timedelta(days=5)
+    private_event.apply_before = deadline
+    private_event.save()
+
+    assert private_event.effective_apply_deadline == deadline
+
+
+def test_effective_apply_deadline_returns_event_start_when_not_set(private_event: Event) -> None:
+    """Test that effective_apply_deadline falls back to event start when apply_before is None."""
+    private_event.apply_before = None
+    private_event.save()
+
+    assert private_event.effective_apply_deadline == private_event.start
+
+
+def test_apply_deadline_fallback_to_event_start_blocks_user(public_user: RevelUser, private_event: Event) -> None:
+    """Test that when apply_before is None, event start is used as deadline fallback."""
+    # Set event start to the past (deadline has passed)
+    private_event.start = timezone.now() - timedelta(hours=1)
+    private_event.end = timezone.now() + timedelta(hours=23)
+    private_event.apply_before = None
+    private_event.save()
+
+    handler = EligibilityService(user=public_user, event=private_event)
+    eligibility = handler.check_eligibility()
+
+    # User needs invitation but deadline (event start) has passed
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.APPLICATION_DEADLINE_PASSED
+
+
+def test_apply_deadline_fallback_allows_user_with_invitation(
+    public_user: RevelUser, private_event: Event, invitation: EventInvitation
+) -> None:
+    """Test that deadline fallback still allows users who already have invitation."""
+    # Set event start to the past (deadline has passed)
+    private_event.start = timezone.now() - timedelta(hours=1)
+    private_event.end = timezone.now() + timedelta(hours=23)
+    private_event.apply_before = None
+    private_event.save()
+
+    handler = EligibilityService(user=public_user, event=private_event)
+    eligibility = handler.check_eligibility()
+
+    # User has invitation, deadline doesn't block them
+    assert eligibility.allowed is True

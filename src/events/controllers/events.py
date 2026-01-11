@@ -794,8 +794,8 @@ class EventController(UserAwareController):
         """
         event = self.get_one(event_id)
 
-        # Check application deadline
-        if event.apply_before and timezone.now() > event.apply_before:
+        # Check application deadline (falls back to event start if not set)
+        if timezone.now() > event.effective_apply_deadline:
             raise HttpError(400, str(_("The application deadline has passed.")))
 
         self.get_org_questionnaire_for_event(event, questionnaire_id)

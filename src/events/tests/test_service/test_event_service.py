@@ -9,6 +9,7 @@ from django.contrib.gis.geos import Point
 from django.db.models import QuerySet
 from django.utils import timezone
 from freezegun import freeze_time
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import (
@@ -680,10 +681,10 @@ class TestCreateInvitationRequest:
         assert request.event == public_event
         assert request.user == public_user
 
-    def test_create_invitation_request_allows_when_no_deadline(
+    def test_create_invitation_request_allows_when_no_deadline_and_event_in_future(
         self, public_event: Event, public_user: RevelUser
     ) -> None:
-        """Test that request succeeds when no deadline is set."""
+        """Test that request succeeds when no deadline is set and event is in the future."""
         public_event.apply_before = None
         public_event.save()
 
@@ -691,3 +692,18 @@ class TestCreateInvitationRequest:
 
         assert request.event == public_event
         assert request.user == public_user
+
+    def test_create_invitation_request_rejected_when_event_start_passed(
+        self, public_event: Event, public_user: RevelUser
+    ) -> None:
+        """Test that request fails when apply_before is None but event start has passed."""
+        public_event.apply_before = None
+        public_event.start = timezone.now() - timedelta(hours=1)
+        public_event.end = timezone.now() + timedelta(hours=23)
+        public_event.save()
+
+        with pytest.raises(HttpError) as exc_info:
+            event_service.create_invitation_request(public_event, public_user)
+
+        assert exc_info.value.status_code == 400
+        assert "deadline" in str(exc_info.value.message).lower()

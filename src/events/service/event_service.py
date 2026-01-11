@@ -177,7 +177,7 @@ def create_invitation_request(event: Event, user: RevelUser, message: str | None
     if not event.accept_invitation_requests:
         raise HttpError(400, str(_("This event does not accept invitation requests.")))
 
-    if event.apply_before and timezone.now() > event.apply_before:
+    if timezone.now() > event.effective_apply_deadline:
         raise HttpError(400, str(_("The application deadline has passed.")))
 
     if EventInvitation.objects.filter(event=event, user=user).exists():
