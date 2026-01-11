@@ -213,6 +213,12 @@ class Event(
     apply_before = models.DateTimeField(
         null=True, blank=True, db_index=True, help_text="Deadline for submitting invitation requests or questionnaires"
     )
+
+    @property
+    def effective_apply_deadline(self) -> datetime:
+        """Return the apply deadline, falling back to event start if not set."""
+        return self.apply_before or self.start
+
     can_attend_without_login = models.BooleanField(
         default=True, help_text="Allow users to RSVP or purchase tickets without creating an account"
     )

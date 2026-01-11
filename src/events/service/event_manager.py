@@ -397,12 +397,8 @@ class ApplyDeadlineGate(BaseEligibilityGate):
 
     def check(self) -> EventUserEligibility | None:
         """Check if application deadline has passed and user still needs to apply."""
-        # No deadline set
-        if not self.event.apply_before:
-            return None
-
-        # Deadline hasn't passed yet
-        if timezone.now() <= self.event.apply_before:
+        # Deadline hasn't passed yet (falls back to event start if apply_before is not set)
+        if timezone.now() <= self.event.effective_apply_deadline:
             return None
 
         # Check if user has invitation that waives application deadline
