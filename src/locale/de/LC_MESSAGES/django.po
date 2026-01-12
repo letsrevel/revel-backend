@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-10 18:29+0100\n"
+"POT-Creation-Date: 2026-01-12 15:23+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -628,6 +628,18 @@ msgid "Membership tier is required when granting membership."
 msgstr ""
 
 msgid "Membership tier must belong to the same organization as the token."
+msgstr ""
+
+msgid "Address visible to invited guests only"
+msgstr ""
+
+msgid "Address visible to organization members only"
+msgstr ""
+
+msgid "Address visible to staff only"
+msgstr ""
+
+msgid "Address visible to attendees only"
 msgstr ""
 
 msgid "You have reached the maximum number of tickets for this tier."
