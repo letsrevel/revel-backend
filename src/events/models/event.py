@@ -281,12 +281,29 @@ class Event(
         - STAFF_ONLY: Organization staff/owners
         - ATTENDEES_ONLY: Only ticket holders or RSVPs (not just invited)
 
+        Results are cached on the instance to avoid repeated queries when called
+        multiple times (e.g., from schema resolution). Cache resets when instance
+        is re-fetched from DB.
+
         Args:
             user: The user to check access for.
 
         Returns:
             True if the user can see the address, False otherwise.
         """
+        # Instance-level cache keyed by user id
+        cache_key = getattr(user, "id", None)
+        if not hasattr(self, "_address_visibility_cache"):
+            self._address_visibility_cache: dict[t.Any, bool] = {}
+        if cache_key in self._address_visibility_cache:
+            return self._address_visibility_cache[cache_key]
+
+        result = self._compute_can_user_see_address(user)
+        self._address_visibility_cache[cache_key] = result
+        return result
+
+    def _compute_can_user_see_address(self, user: RevelUser | AnonymousUser) -> bool:
+        """Compute address visibility without caching."""
         # Staff/superusers always see everything
         if user.is_superuser or user.is_staff:
             return True
