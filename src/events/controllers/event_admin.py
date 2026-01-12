@@ -621,7 +621,8 @@ class EventAdminController(UserAwareController):
         """
         event = self.get_one(event_id)
         # Use full() for AdminTicketSchema (includes user, tier, venue, sector, seat, payment)
-        qs = models.Ticket.objects.full().filter(event=event)
+        # with_org_membership() prefetches user's membership for "Make Member" feature
+        qs = models.Ticket.objects.full().with_org_membership(event.organization_id).filter(event=event)
         return params.filter(qs).distinct()
 
     @route.get(
@@ -835,7 +836,12 @@ class EventAdminController(UserAwareController):
         Supports filtering by status and user_id.
         """
         event = self.get_one(event_id)
-        qs = models.EventRSVP.objects.select_related("user").filter(event=event).order_by("-created_at")
+        qs = (
+            models.EventRSVP.objects.with_user()
+            .with_org_membership(event.organization_id)
+            .filter(event=event)
+            .order_by("-created_at")
+        )
         return params.filter(qs).distinct()
 
     @route.get(

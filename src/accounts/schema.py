@@ -43,7 +43,7 @@ class MinimalRevelUserSchema(ModelSchema):
 
     class Meta:
         model = RevelUser
-        fields = ["preferred_name", "pronouns", "first_name", "last_name", "email"]
+        fields = ["id", "preferred_name", "pronouns", "first_name", "last_name", "email"]
 
 
 class MemberUserSchema(ModelSchema):

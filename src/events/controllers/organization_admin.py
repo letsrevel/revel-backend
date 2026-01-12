@@ -858,6 +858,21 @@ class OrganizationAdminController(UserAwareController):
         organization_service.remove_member(organization, user_to_remove)
         return 204, None
 
+    @route.post(
+        "/members/{user_id}",
+        url_name="create_organization_member",
+        response={201: schema.OrganizationMemberSchema},
+        permissions=[OrganizationPermission("manage_members")],
+    )
+    def add_member(
+        self, slug: str, user_id: UUID, payload: schema.MemberAddSchema
+    ) -> tuple[int, models.OrganizationMember]:
+        """Add a member to an organization."""
+        organization = self.get_one(slug)
+        user_to_add = get_object_or_404(RevelUser, id=user_id)
+        tier = get_object_or_404(models.MembershipTier, pk=payload.tier_id, organization=organization)
+        return 201, organization_service.add_member(organization, user_to_add, tier)
+
     @route.get(
         "/membership-tiers",
         url_name="list_membership_tiers",

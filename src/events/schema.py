@@ -3,6 +3,7 @@ from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID
 
+from django.utils.translation import gettext as _
 from ninja import ModelSchema, Schema
 from pydantic import (
     UUID4,
@@ -392,11 +393,23 @@ class EventDetailSchema(EventBaseSchema):
 
     @staticmethod
     def resolve_address(obj: Event, context: t.Any) -> str | None:
-        """Conditionally return address based on address_visibility setting."""
+        """Conditionally return address based on address_visibility setting.
+
+        If the user cannot see the address, returns an explanatory message
+        about who can see it based on the address_visibility setting.
+        """
         user = context["request"].user
         if obj.can_user_see_address(user):
             return obj.address
-        return None
+
+        # Return explanation based on visibility setting
+        visibility_messages: dict[str, str] = {
+            ResourceVisibility.PRIVATE: _("Address visible to invited guests only"),
+            ResourceVisibility.MEMBERS_ONLY: _("Address visible to organization members only"),
+            ResourceVisibility.STAFF_ONLY: _("Address visible to staff only"),
+            ResourceVisibility.ATTENDEES_ONLY: _("Address visible to attendees only"),
+        }
+        return visibility_messages.get(obj.address_visibility)
 
 
 class EventRSVPSchema(ModelSchema):
@@ -420,10 +433,17 @@ class RSVPDetailSchema(ModelSchema):
     status: EventRSVP.RsvpStatus
     created_at: AwareDatetime
     updated_at: AwareDatetime
+    membership: "MinimalOrganizationMemberSchema | None" = None
 
     class Meta:
         model = EventRSVP
         fields = ["id", "status", "created_at", "updated_at"]
+
+    @staticmethod
+    def resolve_membership(obj: EventRSVP) -> models.OrganizationMember | None:
+        """Resolve membership from prefetched org_membership_list."""
+        memberships = getattr(obj.user, "org_membership_list", None)
+        return memberships[0] if memberships else None
 
 
 class RSVPCreateSchema(Schema):
@@ -597,10 +617,17 @@ class AdminTicketSchema(ModelSchema):
     payment: PaymentSchema | None = None
     guest_name: str
     seat: MinimalSeatSchema | None = None
+    membership: "MinimalOrganizationMemberSchema | None" = None
 
     class Meta:
         model = Ticket
         fields = ["id", "status", "tier", "created_at", "guest_name", "seat"]
+
+    @staticmethod
+    def resolve_membership(obj: Ticket) -> models.OrganizationMember | None:
+        """Resolve membership from prefetched org_membership_list."""
+        memberships = getattr(obj.user, "org_membership_list", None)
+        return memberships[0] if memberships else None
 
 
 class UserTicketSchema(ModelSchema):
@@ -1123,7 +1150,7 @@ class OrganizationStaffSchema(Schema):
 
 
 class MemberAddSchema(Schema):
-    user_id: UUID
+    tier_id: UUID
 
 
 class StaffAddSchema(Schema):

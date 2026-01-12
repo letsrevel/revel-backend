@@ -772,6 +772,16 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
             "payment",
         )
 
+    def with_org_membership(self, organization_id: UUID) -> t.Self:
+        """Prefetch user's membership for a specific organization."""
+        return self.prefetch_related(
+            Prefetch(
+                "user__organization_memberships",
+                queryset=OrganizationMember.objects.filter(organization_id=organization_id).select_related("tier"),
+                to_attr="org_membership_list",
+            )
+        )
+
 
 class TicketManager(models.Manager["Ticket"]):
     """Custom manager for Ticket with convenience methods for related object selection."""
@@ -803,6 +813,10 @@ class TicketManager(models.Manager["Ticket"]):
     def full(self) -> TicketQuerySet:
         """Returns a queryset with all related objects selected."""
         return self.get_queryset().full()
+
+    def with_org_membership(self, organization_id: UUID) -> TicketQuerySet:
+        """Returns a queryset with org membership prefetched."""
+        return self.get_queryset().with_org_membership(organization_id)
 
 
 class Ticket(TimeStampedModel):
@@ -1076,6 +1090,40 @@ class PendingEventInvitation(AbstractEventInvitation):
         return f"Pending invitation for {self.email} to {self.event.name}"
 
 
+class EventRSVPQuerySet(models.QuerySet["EventRSVP"]):
+    """Custom queryset for EventRSVP model."""
+
+    def with_user(self) -> t.Self:
+        """Select the related user."""
+        return self.select_related("user")
+
+    def with_org_membership(self, organization_id: UUID) -> t.Self:
+        """Prefetch user's membership for a specific organization."""
+        return self.prefetch_related(
+            Prefetch(
+                "user__organization_memberships",
+                queryset=OrganizationMember.objects.filter(organization_id=organization_id).select_related("tier"),
+                to_attr="org_membership_list",
+            )
+        )
+
+
+class EventRSVPManager(models.Manager["EventRSVP"]):
+    """Custom manager for EventRSVP."""
+
+    def get_queryset(self) -> EventRSVPQuerySet:
+        """Get base queryset."""
+        return EventRSVPQuerySet(self.model, using=self._db)
+
+    def with_user(self) -> EventRSVPQuerySet:
+        """Returns a queryset with the user selected."""
+        return self.get_queryset().with_user()
+
+    def with_org_membership(self, organization_id: UUID) -> EventRSVPQuerySet:
+        """Returns a queryset with org membership prefetched."""
+        return self.get_queryset().with_org_membership(organization_id)
+
+
 class EventRSVP(TimeStampedModel):
     class RsvpStatus(models.TextChoices):
         YES = "yes", "Yes"
@@ -1087,6 +1135,8 @@ class EventRSVP(TimeStampedModel):
     status = models.CharField(
         max_length=20, choices=RsvpStatus.choices, default=None, null=True, blank=True, db_index=True
     )
+
+    objects = EventRSVPManager()
 
     class Meta:
         constraints = [

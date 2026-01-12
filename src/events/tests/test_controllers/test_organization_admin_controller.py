@@ -581,6 +581,62 @@ class TestManageMembersAndStaff:
         assert response.status_code == 204
         assert not OrganizationMember.objects.filter(organization=organization, user=member_user).exists()
 
+    def test_add_member(
+        self, organization_owner_client: Client, organization: Organization, nonmember_user: RevelUser
+    ) -> None:
+        """Test adding a new member to an organization."""
+        tier = MembershipTier.objects.create(organization=organization, name="Gold")
+        url = reverse(
+            "api:create_organization_member", kwargs={"slug": organization.slug, "user_id": nonmember_user.id}
+        )
+        payload = {"tier_id": str(tier.id)}
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 201, response.content
+        member = OrganizationMember.objects.filter(organization=organization, user=nonmember_user).first()
+        assert member is not None
+        assert member.tier == tier
+
+    def test_add_member_already_exists(
+        self, organization_owner_client: Client, organization: Organization, member_user: RevelUser
+    ) -> None:
+        """Test that adding an existing member returns an error."""
+        tier = MembershipTier.objects.create(organization=organization, name="Silver")
+        OrganizationMember.objects.create(organization=organization, user=member_user, tier=tier)
+        url = reverse("api:create_organization_member", kwargs={"slug": organization.slug, "user_id": member_user.id})
+        payload = {"tier_id": str(tier.id)}
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 400
+
+    def test_add_member_with_invalid_tier(
+        self, organization_owner_client: Client, organization: Organization, nonmember_user: RevelUser
+    ) -> None:
+        """Test that adding a member with an invalid tier returns 404."""
+        import uuid
+
+        url = reverse(
+            "api:create_organization_member", kwargs={"slug": organization.slug, "user_id": nonmember_user.id}
+        )
+        payload = {"tier_id": str(uuid.uuid4())}
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 404
+
+    def test_add_member_with_tier_from_other_org(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        nonmember_user: RevelUser,
+    ) -> None:
+        """Test that adding a member with a tier from another organization returns 404."""
+        other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+        other_tier = MembershipTier.objects.create(organization=other_org, name="Other Tier")
+        url = reverse(
+            "api:create_organization_member", kwargs={"slug": organization.slug, "user_id": nonmember_user.id}
+        )
+        payload = {"tier_id": str(other_tier.id)}
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 404
+
     def test_add_staff(
         self, organization_owner_client: Client, organization: Organization, nonmember_user: RevelUser
     ) -> None:

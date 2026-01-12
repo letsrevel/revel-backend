@@ -271,11 +271,23 @@ def claim_invitation(user: RevelUser, token: str) -> Organization | None:
     return organization_token.organization
 
 
-def add_member(organization: Organization, user: RevelUser) -> OrganizationMember:
-    """Add a member to an organization."""
+def add_member(organization: Organization, user: RevelUser, tier: MembershipTier) -> OrganizationMember:
+    """Add a member to an organization.
+
+    Args:
+        organization: The organization to add the member to.
+        user: The user to add as a member.
+        tier: The membership tier to assign to the member.
+
+    Returns:
+        The created OrganizationMember instance.
+
+    Raises:
+        AlreadyMemberError: If the user is already a member of the organization.
+    """
     if OrganizationMember.objects.filter(organization=organization, user=user).exists():
         raise AlreadyMemberError(str(_("User is already a member of this organization.")))
-    return OrganizationMember.objects.create(organization=organization, user=user)
+    return OrganizationMember.objects.create(organization=organization, user=user, tier=tier)
 
 
 def remove_member(organization: Organization, user: RevelUser) -> None:
