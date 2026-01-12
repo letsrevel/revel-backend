@@ -1123,7 +1123,7 @@ class OrganizationStaffSchema(Schema):
 
 
 class MemberAddSchema(Schema):
-    user_id: UUID
+    tier_id: UUID
 
 
 class StaffAddSchema(Schema):
