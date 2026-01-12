@@ -117,6 +117,17 @@ class LocationMixin(models.Model):
     city = models.ForeignKey(City, on_delete=models.SET_NULL, null=True, blank=True)
     location = models.PointField(geography=True, db_index=True, null=True, blank=True)
     address = models.CharField(blank=True, null=True, max_length=255)
+    location_maps_url = models.URLField(
+        blank=True,
+        null=True,
+        help_text="Shareable link to Google Maps (e.g., https://goo.gl/maps/...)",
+    )
+    location_maps_embed = models.URLField(
+        blank=True,
+        null=True,
+        max_length=2048,
+        help_text="Embed URL for iframe src (e.g., https://www.google.com/maps/embed?pb=...)",
+    )
 
     class Meta:
         abstract = True

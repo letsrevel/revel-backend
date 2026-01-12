@@ -281,12 +281,29 @@ class Event(
         - STAFF_ONLY: Organization staff/owners
         - ATTENDEES_ONLY: Only ticket holders or RSVPs (not just invited)
 
+        Results are cached on the instance to avoid repeated queries when called
+        multiple times (e.g., from schema resolution). Cache resets when instance
+        is re-fetched from DB.
+
         Args:
             user: The user to check access for.
 
         Returns:
             True if the user can see the address, False otherwise.
         """
+        # Instance-level cache keyed by user id
+        cache_key = getattr(user, "id", None)
+        if not hasattr(self, "_address_visibility_cache"):
+            self._address_visibility_cache: dict[t.Any, bool] = {}
+        if cache_key in self._address_visibility_cache:
+            return self._address_visibility_cache[cache_key]
+
+        result = self._compute_can_user_see_address(user)
+        self._address_visibility_cache[cache_key] = result
+        return result
+
+    def _compute_can_user_see_address(self, user: RevelUser | AnonymousUser) -> bool:
+        """Compute address visibility without caching."""
         # Staff/superusers always see everything
         if user.is_superuser or user.is_staff:
             return True
@@ -301,7 +318,9 @@ class Event(
 
         # Check organization roles
         is_owner = self.organization.owner_id == user.id
-        is_staff_member = self.organization.staff_members.filter(id=user.id).exists()
+        # Use .all() to leverage prefetched data when available (from with_organization())
+        # instead of .filter().exists() which always creates a new query
+        is_staff_member = any(m.id == user.id for m in self.organization.staff_members.all())
 
         # STAFF_ONLY: Only staff/owners
         if self.address_visibility == ResourceVisibility.STAFF_ONLY:
@@ -337,12 +356,9 @@ class Event(
 
     def attendees(self, viewer: RevelUser) -> models.QuerySet[RevelUser]:
         """Return attendees based on who wants to see them."""
-        if (
-            viewer.is_superuser
-            or viewer.is_staff
-            or self.organization.owner_id == viewer.id
-            or self.organization.staff_members.filter(id=viewer.id).exists()
-        ):
+        # Use .all() to leverage prefetched data when available (from with_organization())
+        is_staff_member = any(m.id == viewer.id for m in self.organization.staff_members.all())
+        if viewer.is_superuser or viewer.is_staff or self.organization.owner_id == viewer.id or is_staff_member:
             return RevelUser.objects.filter(
                 Q(tickets__event=self, tickets__status=Ticket.TicketStatus.ACTIVE)
                 | Q(rsvps__event=self, rsvps__status=EventRSVP.RsvpStatus.YES)

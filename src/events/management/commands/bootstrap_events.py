@@ -600,6 +600,13 @@ Service animals welcome.
 *RSVP required for headcount planning*
 """,
             address="Augarten, Obere Augartenstraße, 1020 Vienna, Austria",
+            location_maps_url="https://maps.app.goo.gl/HLZE9e3mzrxZBoyR8",
+            location_maps_embed=(
+                "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d9387.125669096846"
+                "!2d16.374930297504203!3d48.22007689713033!2m3!1f0!2f0!3f0!3m2!1i1024!2i768"
+                "!4f13.1!3m3!1m2!1s0x476d07a8bcc2f5cf%3A0x1cf8f8c0a86e2304!2sAugartenspitz"
+                "!5e1!3m2!1sen!2sat!4v1768233815811!5m2!1sen!2sat"
+            ),
         )
         spring_potluck.add_tags("food", "community", "casual")
         self.events["spring_potluck"] = spring_potluck
