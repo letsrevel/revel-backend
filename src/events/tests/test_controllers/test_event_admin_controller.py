@@ -8,7 +8,18 @@ from django.test.client import Client
 
 from accounts.models import RevelUser
 from common.utils import assert_image_equal
-from events.models import Event, EventInvitationRequest, EventToken, Organization, OrganizationStaff, Ticket, TicketTier
+from events.models import (
+    Event,
+    EventInvitationRequest,
+    EventRSVP,
+    EventToken,
+    MembershipTier,
+    Organization,
+    OrganizationMember,
+    OrganizationStaff,
+    Ticket,
+    TicketTier,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -2672,3 +2683,131 @@ def test_edit_slug_by_unauthorized_users(
     response = client.patch(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == expected_status_code
+
+
+# --- Tests for membership field in list endpoints ---
+
+
+def test_list_tickets_membership_null_for_non_member(
+    organization_owner_client: Client,
+    event: Event,
+    offline_tier: TicketTier,
+    nonmember_user: RevelUser,
+) -> None:
+    """Test that ticket list returns membership=null for non-members."""
+    # Create ticket for non-member user
+    ticket = Ticket.objects.create(
+        guest_name="Test Guest",
+        user=nonmember_user,
+        event=event,
+        tier=offline_tier,
+        status=Ticket.TicketStatus.PENDING,
+    )
+
+    url = reverse("api:list_tickets", kwargs={"event_id": event.pk})
+    response = organization_owner_client.get(url, {"status": Ticket.TicketStatus.PENDING})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] >= 1
+
+    # Find our ticket in the results
+    ticket_data = next((t for t in data["results"] if t["id"] == str(ticket.id)), None)
+    assert ticket_data is not None
+    assert ticket_data["membership"] is None
+
+
+def test_list_tickets_membership_present_for_member(
+    organization_owner_client: Client,
+    organization: Organization,
+    event: Event,
+    offline_tier: TicketTier,
+    nonmember_user: RevelUser,
+) -> None:
+    """Test that ticket list returns membership object for organization members."""
+    # Create membership tier and make user a member
+    tier = MembershipTier.objects.create(organization=organization, name="Gold")
+    membership = OrganizationMember.objects.create(organization=organization, user=nonmember_user, tier=tier)
+
+    # Create ticket for member user
+    ticket = Ticket.objects.create(
+        guest_name="Test Guest",
+        user=nonmember_user,
+        event=event,
+        tier=offline_tier,
+        status=Ticket.TicketStatus.PENDING,
+    )
+
+    url = reverse("api:list_tickets", kwargs={"event_id": event.pk})
+    response = organization_owner_client.get(url, {"status": Ticket.TicketStatus.PENDING})
+
+    assert response.status_code == 200
+    data = response.json()
+
+    # Find our ticket in the results
+    ticket_data = next((t for t in data["results"] if t["id"] == str(ticket.id)), None)
+    assert ticket_data is not None
+    assert ticket_data["membership"] is not None
+    assert ticket_data["membership"]["status"] == membership.status
+    assert ticket_data["membership"]["tier"]["name"] == tier.name
+
+
+def test_list_rsvps_membership_null_for_non_member(
+    organization_owner_client: Client,
+    event: Event,
+    nonmember_user: RevelUser,
+    staff_member: OrganizationStaff,
+) -> None:
+    """Test that RSVP list returns membership=null for non-members."""
+    # Grant invite permission to staff so we can access endpoint
+    perms = staff_member.permissions
+    perms["default"]["invite_to_event"] = True
+    staff_member.permissions = perms
+    staff_member.save()
+
+    # Create RSVP for non-member user
+    rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES)
+
+    url = reverse("api:list_rsvps", kwargs={"event_id": event.pk})
+    response = organization_owner_client.get(url)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] >= 1
+
+    # Find our RSVP in the results
+    rsvp_data = next((r for r in data["results"] if r["id"] == str(rsvp.id)), None)
+    assert rsvp_data is not None
+    assert rsvp_data["membership"] is None
+    # Also verify user ID is present
+    assert rsvp_data["user"]["id"] == str(nonmember_user.id)
+
+
+def test_list_rsvps_membership_present_for_member(
+    organization_owner_client: Client,
+    organization: Organization,
+    event: Event,
+    nonmember_user: RevelUser,
+) -> None:
+    """Test that RSVP list returns membership object for organization members."""
+    # Create membership tier and make user a member
+    tier = MembershipTier.objects.create(organization=organization, name="Silver")
+    membership = OrganizationMember.objects.create(organization=organization, user=nonmember_user, tier=tier)
+
+    # Create RSVP for member user
+    rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES)
+
+    url = reverse("api:list_rsvps", kwargs={"event_id": event.pk})
+    response = organization_owner_client.get(url)
+
+    assert response.status_code == 200
+    data = response.json()
+
+    # Find our RSVP in the results
+    rsvp_data = next((r for r in data["results"] if r["id"] == str(rsvp.id)), None)
+    assert rsvp_data is not None
+    assert rsvp_data["membership"] is not None
+    assert rsvp_data["membership"]["status"] == membership.status
+    assert rsvp_data["membership"]["tier"]["name"] == tier.name
+    # Also verify user ID is present
+    assert rsvp_data["user"]["id"] == str(nonmember_user.id)

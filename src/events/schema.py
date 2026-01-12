@@ -420,10 +420,17 @@ class RSVPDetailSchema(ModelSchema):
     status: EventRSVP.RsvpStatus
     created_at: AwareDatetime
     updated_at: AwareDatetime
+    membership: "MinimalOrganizationMemberSchema | None" = None
 
     class Meta:
         model = EventRSVP
         fields = ["id", "status", "created_at", "updated_at"]
+
+    @staticmethod
+    def resolve_membership(obj: EventRSVP) -> models.OrganizationMember | None:
+        """Resolve membership from prefetched org_membership_list."""
+        memberships = getattr(obj.user, "org_membership_list", None)
+        return memberships[0] if memberships else None
 
 
 class RSVPCreateSchema(Schema):
@@ -597,10 +604,17 @@ class AdminTicketSchema(ModelSchema):
     payment: PaymentSchema | None = None
     guest_name: str
     seat: MinimalSeatSchema | None = None
+    membership: "MinimalOrganizationMemberSchema | None" = None
 
     class Meta:
         model = Ticket
         fields = ["id", "status", "tier", "created_at", "guest_name", "seat"]
+
+    @staticmethod
+    def resolve_membership(obj: Ticket) -> models.OrganizationMember | None:
+        """Resolve membership from prefetched org_membership_list."""
+        memberships = getattr(obj.user, "org_membership_list", None)
+        return memberships[0] if memberships else None
 
 
 class UserTicketSchema(ModelSchema):
