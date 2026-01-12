@@ -1,3 +1,4 @@
+import re
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
@@ -13,6 +14,7 @@ from pydantic import (
     Discriminator,
     EmailStr,
     Field,
+    HttpUrl,
     StringConstraints,
     Tag,
     field_serializer,
@@ -68,11 +70,39 @@ class CityBaseMixin(Schema):
 
 class CityEditMixin(CityBaseMixin):
     address: StrippedString | None = None
+    location_maps_url: HttpUrl | None = None
+    location_maps_embed: StrippedString | None = None
+
+    @field_validator("location_maps_embed", mode="after")
+    @classmethod
+    def extract_src_from_iframe(cls, v: str | None) -> str | None:
+        """Extract src URL from iframe HTML, or pass through if already a URL.
+
+        Users paste the full iframe from Google Maps share dialog.
+        We extract and store just the src URL for cleaner data storage
+        and frontend flexibility.
+
+        Also accepts already-extracted URLs (for re-saving existing data).
+        """
+        if not v:
+            return None
+        # Already a URL (re-saving existing data) - pass through
+        if v.startswith(("http://", "https://")):
+            return v
+        # Must be an iframe
+        if not v.lower().startswith("<iframe"):
+            raise ValueError("Must be an iframe element (paste the embed code from Google Maps)")
+        match = re.search(r'src=["\']([^"\']+)["\']', v)
+        if not match:
+            raise ValueError("Could not extract src URL from iframe")
+        return match.group(1)
 
 
 class CityRetrieveMixin(Schema):
     city: CitySchema | None = None
     address: str | None = None
+    location_maps_url: str | None = None
+    location_maps_embed: str | None = None
 
 
 class TaggableSchemaMixin(Schema):
@@ -390,6 +420,8 @@ class EventInListSchema(EventBaseSchema):
 class EventDetailSchema(EventBaseSchema):
     city: CitySchema | None = None
     address: str | None = None
+    location_maps_url: str | None = None
+    location_maps_embed: str | None = None
 
     @staticmethod
     def resolve_address(obj: Event, context: t.Any) -> str | None:
@@ -410,6 +442,22 @@ class EventDetailSchema(EventBaseSchema):
             ResourceVisibility.ATTENDEES_ONLY: _("Address visible to attendees only"),
         }
         return visibility_messages.get(obj.address_visibility)
+
+    @staticmethod
+    def resolve_location_maps_url(obj: Event, context: t.Any) -> str | None:
+        """Return maps URL only if user can see the address."""
+        user = context["request"].user
+        if obj.can_user_see_address(user):
+            return obj.location_maps_url
+        return None
+
+    @staticmethod
+    def resolve_location_maps_embed(obj: Event, context: t.Any) -> str | None:
+        """Return maps embed URL only if user can see the address."""
+        user = context["request"].user
+        if obj.can_user_see_address(user):
+            return obj.location_maps_embed
+        return None
 
 
 class EventRSVPSchema(ModelSchema):
@@ -1609,6 +1657,8 @@ class VenueSchema(ModelSchema, CityRetrieveMixin):
             "description",
             "capacity",
             "address",
+            "location_maps_url",
+            "location_maps_embed",
         ]
 
 

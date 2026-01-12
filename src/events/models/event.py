@@ -301,7 +301,9 @@ class Event(
 
         # Check organization roles
         is_owner = self.organization.owner_id == user.id
-        is_staff_member = self.organization.staff_members.filter(id=user.id).exists()
+        # Use .all() to leverage prefetched data when available (from with_organization())
+        # instead of .filter().exists() which always creates a new query
+        is_staff_member = any(m.id == user.id for m in self.organization.staff_members.all())
 
         # STAFF_ONLY: Only staff/owners
         if self.address_visibility == ResourceVisibility.STAFF_ONLY:
@@ -337,12 +339,9 @@ class Event(
 
     def attendees(self, viewer: RevelUser) -> models.QuerySet[RevelUser]:
         """Return attendees based on who wants to see them."""
-        if (
-            viewer.is_superuser
-            or viewer.is_staff
-            or self.organization.owner_id == viewer.id
-            or self.organization.staff_members.filter(id=viewer.id).exists()
-        ):
+        # Use .all() to leverage prefetched data when available (from with_organization())
+        is_staff_member = any(m.id == viewer.id for m in self.organization.staff_members.all())
+        if viewer.is_superuser or viewer.is_staff or self.organization.owner_id == viewer.id or is_staff_member:
             return RevelUser.objects.filter(
                 Q(tickets__event=self, tickets__status=Ticket.TicketStatus.ACTIVE)
                 | Q(rsvps__event=self, rsvps__status=EventRSVP.RsvpStatus.YES)

@@ -73,6 +73,8 @@ def create_organization(
     description: str | None = None,
     city_id: int | None = None,
     address: str | None = None,
+    location_maps_url: str | None = None,
+    location_maps_embed: str | None = None,
 ) -> Organization:
     """Create a new organization.
 
@@ -83,6 +85,8 @@ def create_organization(
         description: Optional description for the organization
         city_id: Optional city id for the organization
         address: Optional address for the organization
+        location_maps_url: Optional shareable Google Maps URL
+        location_maps_embed: Optional Google Maps embed URL for iframe
 
     Returns:
         The created Organization instance
@@ -111,6 +115,8 @@ def create_organization(
         visibility=Organization.Visibility.STAFF_ONLY,  # Default to staff only
         city_id=city_id,
         address=address,
+        location_maps_url=location_maps_url,
+        location_maps_embed=location_maps_embed,
     )
 
     # Send verification email if contact email is not auto-verified

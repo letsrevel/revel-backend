@@ -1,7 +1,7 @@
 import pytest
 from pydantic import AnyUrl, ValidationError
 
-from events.schema import SocialMediaSchemaEditMixin, SocialMediaSchemaRetrieveMixin
+from events.schema import CityEditMixin, SocialMediaSchemaEditMixin, SocialMediaSchemaRetrieveMixin
 
 
 class TestSocialMediaSchemaEditMixin:
@@ -155,3 +155,41 @@ class TestSocialMediaSchemaRetrieveMixin:
         assert schema.facebook_url is None
         assert schema.bluesky_url is None
         assert schema.telegram_url is None
+
+
+class TestCityEditMixinIframeExtraction:
+    """Tests for CityEditMixin.extract_src_from_iframe validator."""
+
+    def test_extracts_src_from_iframe(self) -> None:
+        """Test extraction from iframe element."""
+        iframe = '<iframe src="https://www.google.com/maps/embed?pb=123"></iframe>'
+        schema = CityEditMixin.model_validate({"location_maps_embed": iframe})
+        assert schema.location_maps_embed == "https://www.google.com/maps/embed?pb=123"
+
+    def test_extracts_src_from_real_google_maps_iframe(self) -> None:
+        """Test extraction from a real Google Maps embed iframe."""
+        iframe = (
+            '<iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2969.6'
+            "!2d12.4963655!3d41.9027835!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2"
+            '!1s0x132f6053e!2sColosseum!5e0!3m2!1sen!2sit!4v1234567890" '
+            'width="600" height="450" style="border:0;" allowfullscreen="" '
+            'loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>'
+        )
+        schema = CityEditMixin.model_validate({"location_maps_embed": iframe})
+        assert schema.location_maps_embed is not None
+        assert schema.location_maps_embed.startswith("https://www.google.com/maps/embed?pb=")
+
+    def test_passes_through_existing_url(self) -> None:
+        """Test that already-extracted URLs pass through (re-save scenario)."""
+        url = "https://www.google.com/maps/embed?pb=123"
+        schema = CityEditMixin.model_validate({"location_maps_embed": url})
+        assert schema.location_maps_embed == url
+
+    def test_rejects_iframe_without_src(self) -> None:
+        """Test that iframe without src attribute raises ValidationError."""
+        iframe = '<iframe width="600" height="450"></iframe>'
+        with pytest.raises(ValidationError) as exc_info:
+            CityEditMixin.model_validate({"location_maps_embed": iframe})
+
+        errors = exc_info.value.errors()
+        assert "src" in str(errors[0]["msg"]).lower()
