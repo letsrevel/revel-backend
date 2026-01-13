@@ -9,10 +9,13 @@ from common.fields import MarkdownField
 from common.models import TimeStampedModel
 
 from .. import exceptions
-from .event import Event, EventInvitation, EventRSVP, Ticket
+from .event import Event
 from .event_series import EventSeries
+from .invitation import EventInvitation
 from .mixins import ResourceVisibility, VisibilityMixin
 from .organization import Organization
+from .rsvp import EventRSVP
+from .ticket import Ticket
 
 
 class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
