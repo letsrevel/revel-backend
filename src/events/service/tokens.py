@@ -86,7 +86,8 @@ def claim_invitation(user: RevelUser, token: str) -> EventInvitation | None:
         return None
     if event_token.max_uses and event_token.uses >= event_token.max_uses:
         return None
-    # warning: do not save the event_token object now. If pop() is removed get_or_create will fail)
+    # Warning: do not save the event_token object directly here.
+    # Use update() after get_or_create to avoid race conditions.
     invitation, created = EventInvitation.objects.get_or_create(
         event=event_token.event,
         user=user,
