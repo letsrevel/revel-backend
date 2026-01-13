@@ -809,7 +809,11 @@ class EventController(UserAwareController):
         }
 
         db_submission = questionnaire_service.submit(self.user(), submission, source_event=source_event)
-        if submission.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY:
+        evaluation_mode = questionnaire_service.questionnaire.evaluation_mode
+        if submission.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY and evaluation_mode in (
+            Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
+            Questionnaire.QuestionnaireEvaluationMode.HYBRID,
+        ):
             evaluate_questionnaire_submission.delay(str(db_submission.pk))
         return QuestionnaireSubmissionResponseSchema.from_orm(db_submission)
 
