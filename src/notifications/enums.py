@@ -58,6 +58,11 @@ class NotificationType(TextChoices):
     # Waitlist notifications
     WAITLIST_SPOT_AVAILABLE = "waitlist_spot_available"
 
+    # Whitelist notifications (blacklist verification flow)
+    WHITELIST_REQUEST_CREATED = "whitelist_request_created"  # User requests whitelist - notify org admins
+    WHITELIST_REQUEST_APPROVED = "whitelist_request_approved"  # Notify user when approved
+    WHITELIST_REQUEST_REJECTED = "whitelist_request_rejected"  # Notify user when rejected
+
 
 class DeliveryChannel(TextChoices):
     """Notification delivery channels."""

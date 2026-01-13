@@ -18,7 +18,7 @@ from common.throttling import (
     WriteThrottle,
 )
 from events import filters, models, schema
-from events.service import organization_service
+from events.service import blacklist_service, organization_service, whitelist_service
 
 from ..service.event_service import order_by_distance
 
@@ -244,3 +244,56 @@ class OrganizationController(UserAwareController):
         if organization := organization_service.claim_invitation(self.user(), token):
             return 200, organization
         return 400, ResponseMessage(message="The token is invalid or expired.")
+
+    @route.post(
+        "/{slug}/whitelist-request",
+        url_name="create_whitelist_request",
+        response={201: schema.WhitelistRequestSchema},
+        auth=I18nJWTAuth(),
+        throttle=UserRequestThrottle(),
+    )
+    def create_whitelist_request(
+        self, slug: str, payload: schema.WhitelistRequestCreateSchema
+    ) -> tuple[int, models.WhitelistRequest]:
+        """Request whitelisting for an organization.
+
+        If your name fuzzy-matches a blacklist entry, you may need to request
+        verification (whitelisting) to access the organization. This endpoint
+        creates a whitelist request that organization admins will review.
+
+        **When to use:**
+        This endpoint should be called when attempting to access an organization
+        returns a "verification required" status in the eligibility check.
+
+        **Parameters:**
+        - `message`: Optional explanation for why you should be whitelisted
+
+        **Returns:**
+        - 201: The created whitelist request
+
+        **Error Cases:**
+        - 400: Already whitelisted, request already exists, or no matching blacklist entries
+        - 404: Organization not found
+        """
+        # Get organization (even if user is soft-blocked, they need to create a request)
+        organization = self.get_object_or_exception(models.Organization.objects.all(), slug=slug)
+
+        # Get fuzzy matches for this user
+        fuzzy_matches = blacklist_service.get_fuzzy_blacklist_matches(self.user(), organization)
+
+        if not fuzzy_matches:
+            from ninja.errors import HttpError
+
+            raise HttpError(400, "No matching blacklist entries found.")
+
+        # Extract blacklist entries from matches
+        matched_entries = [entry for entry, _ in fuzzy_matches]
+
+        request = whitelist_service.create_whitelist_request(
+            user=self.user(),
+            organization=organization,
+            matched_entries=matched_entries,
+            message=payload.message,
+        )
+
+        return 201, models.WhitelistRequest.objects.select_related("user").get(pk=request.pk)

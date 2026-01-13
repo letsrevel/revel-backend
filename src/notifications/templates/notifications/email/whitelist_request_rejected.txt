@@ -1,0 +1,9 @@
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
+
+{% trans "Verification Update" %}
+
+{% blocktranslate with org=context.organization_name %}Your verification request for {{ org }} was not approved at this time.{% endblocktranslate %}
+
+{% trans "If you believe this is an error, please contact the organization directly." %}
+
+{% include "notifications/email/_footer.txt" %}

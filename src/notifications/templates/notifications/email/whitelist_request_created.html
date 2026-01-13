@@ -1,0 +1,26 @@
+{% load i18n %}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <h2>{% trans "New Verification Request" %}</h2>
+
+    <p>{% blocktranslate with name=context.requester_name org=context.organization_name %}<strong>{{ name }}</strong> has requested verification for <strong>{{ org }}</strong>.{% endblocktranslate %}</p>
+
+    <h3>{% trans "Request Details:" %}</h3>
+    <ul>
+        <li><strong>{% trans "Name:" %}</strong> {{ context.requester_name }}</li>
+        <li><strong>{% trans "Email:" %}</strong> {{ context.requester_email }}</li>
+        <li><strong>{% trans "Matched Entries:" %}</strong> {{ context.matched_entries_count }}</li>
+        {% if context.request_message %}
+        <li><strong>{% trans "Message:" %}</strong><br>{{ context.request_message }}</li>
+        {% endif %}
+    </ul>
+
+    <p><a href="{{ context.frontend_url }}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">{% trans "Review Request" %}</a></p>
+
+    <p style="color: #666; font-size: 12px;">{% trans "This user matched entries in your blacklist and is requesting verification to access your organization." %}</p>
+</body>
+</html>

@@ -26,6 +26,7 @@ NOTIFICATION_REQUIRED_PERMISSIONS: dict[NotificationType, str] = {
     NotificationType.TICKET_REFUNDED: "manage_tickets",
     NotificationType.INVITATION_REQUEST_CREATED: "invite_to_event",
     NotificationType.MEMBERSHIP_REQUEST_CREATED: "manage_members",
+    NotificationType.WHITELIST_REQUEST_CREATED: "manage_members",
 }
 
 

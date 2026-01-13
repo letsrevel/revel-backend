@@ -11,6 +11,7 @@ from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import (
     DEFAULT_TICKET_TIER_NAME,
+    Blacklist,
     Event,
     EventInvitation,
     EventRSVP,
@@ -23,6 +24,7 @@ from events.models import (
     TicketTier,
 )
 from events.models.organization import MembershipTier
+from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
 from events.service.potluck_service import unclaim_user_potluck_items
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
 from events.tasks import build_attendee_visibility_flags
@@ -60,11 +62,15 @@ def handle_organization_creation(
 
 @receiver(post_save, sender=RevelUser)
 def handle_user_creation(sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: t.Any) -> None:
-    """Creates GeneralUserPreferences and processes pending invitations when a new RevelUser is created."""
+    """Creates GeneralUserPreferences, links blacklist entries, and processes pending invitations."""
     if not created:
         return
     logger.info("revel_user_created", user_id=str(instance.id))
     GeneralUserPreferences.objects.create(user=instance)
+
+    # Link any existing blacklist entries that match this user's identifiers
+    if linked_count := link_blacklist_entries_for_user(instance):
+        logger.info("blacklist_entries_linked", user_id=str(instance.id), count=linked_count)
 
     # Convert any pending invitations for this email to real invitations
     pending_invitations = PendingEventInvitation.objects.filter(email__iexact=instance.email)
@@ -258,3 +264,23 @@ def handle_membership_promoted(
         )
 
     transaction.on_commit(send_promotion_notification)
+
+
+@receiver(post_save, sender=Blacklist)
+def handle_blacklist_user_linked(sender: type[Blacklist], instance: Blacklist, created: bool, **kwargs: t.Any) -> None:
+    """Handle consequences when a user is linked to a blacklist entry.
+
+    When a blacklist entry has a user FK set on creation, we apply
+    blacklist consequences:
+    1. Remove them from OrganizationStaff (if they are staff)
+    2. Set their OrganizationMember status to BANNED (or create one with BANNED)
+
+    Note: Auto-linking via `link_blacklist_entries_for_user` handles its own
+    consequences since .update() doesn't trigger signals.
+    """
+    # Only act on creation with a user FK set
+    # (Updates via link_blacklist_entries_for_user handle their own consequences)
+    if not created or instance.user is None:
+        return
+
+    apply_blacklist_consequences(instance.user, instance.organization)

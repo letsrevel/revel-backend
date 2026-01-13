@@ -1,7 +1,7 @@
 ---
 name: test-engineer
 description: Use this agent when you need to write comprehensive tests for new features, existing code, or when test coverage needs improvement. This agent should be invoked proactively after implementing new functionality, refactoring code, or when the user explicitly requests test creation. Examples:\n\n<example>\nContext: User has just implemented a new service method for event creation.\nuser: "I've added a new create_event method in events/service/event.py that handles event creation with organization validation"\nassistant: "Let me use the test-engineer agent to write comprehensive tests for the new event creation functionality."\n<uses Task tool to launch test-engineer agent>\n</example>\n\n<example>\nContext: User has refactored authentication logic.\nuser: "I've refactored the JWT authentication to support refresh token rotation"\nassistant: "I'll use the test-engineer agent to ensure we have thorough test coverage for the refactored authentication, including edge cases for token rotation."\n<uses Task tool to launch test-engineer agent>\n</example>\n\n<example>\nContext: User mentions low test coverage in a review.\nuser: "The coverage report shows accounts/service/user.py only has 45% coverage"\nassistant: "Let me invoke the test-engineer agent to write additional tests for the user service to improve coverage with meaningful business assertions."\n<uses Task tool to launch test-engineer agent>\n</example>
-model: sonnet
+model: opus
 color: blue
 ---
 

@@ -45,6 +45,12 @@ def connect_accounts(user: RevelUser, otp: str) -> None:
         tg_user.save(update_fields=["user", "updated_at"])
         AccountOTP.objects.filter(otp=otp).update(used_at=timezone.now())
 
+        # Link any existing blacklist entries that match this telegram username
+        if tg_user.telegram_username:
+            from events.service.blacklist_service import link_blacklist_entries_by_telegram
+
+            link_blacklist_entries_by_telegram(user, tg_user.telegram_username)
+
     # Send confirmation message to Telegram
     send_message_task.delay(
         tg_user.telegram_id,

@@ -24,7 +24,15 @@ from common.throttling import UserDefaultThrottle, WriteThrottle
 from common.utils import safe_save_uploaded_file
 from events import filters, models, schema
 from events.models import OrganizationMembershipRequest
-from events.service import organization_service, resource_service, stripe_service, update_db_instance, venue_service
+from events.service import (
+    blacklist_service,
+    organization_service,
+    resource_service,
+    stripe_service,
+    update_db_instance,
+    venue_service,
+    whitelist_service,
+)
 
 from .permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
 
@@ -1321,4 +1329,267 @@ class OrganizationAdminController(UserAwareController):
         sector = get_object_or_404(models.VenueSector, pk=sector_id, venue=venue)
         seat = venue_service.get_seat_by_label(sector, label)
         venue_service.delete_seat(seat)
+        return 204, None
+
+    # ---- Blacklist Management ----
+
+    @route.get(
+        "/blacklist",
+        url_name="list_blacklist_entries",
+        response=PaginatedResponseSchema[schema.BlacklistEntrySchema],
+        permissions=[OrganizationPermission("manage_members")],
+        throttle=UserDefaultThrottle(),
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(
+        Searching,
+        search_fields=["email", "telegram_username", "first_name", "last_name", "preferred_name", "user__email"],
+    )
+    def list_blacklist(
+        self,
+        slug: str,
+        params: filters.BlacklistFilterSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[models.Blacklist]:
+        """List all blacklist entries for the organization.
+
+        Supports filtering by:
+        - has_user: Whether entry is linked to a registered user
+        - has_email: Whether entry has an email address
+        - has_telegram: Whether entry has a telegram username
+
+        Supports searching by email, telegram username, and name fields.
+        """
+        organization = self.get_one(slug)
+        qs = models.Blacklist.objects.filter(organization=organization).select_related("user", "created_by")
+        return params.filter(qs).distinct()
+
+    @route.post(
+        "/blacklist",
+        url_name="create_blacklist_entry",
+        response={201: schema.BlacklistEntrySchema},
+        permissions=[OrganizationPermission("manage_members")],
+    )
+    def create_blacklist_entry(self, slug: str, payload: schema.BlacklistCreateSchema) -> tuple[int, models.Blacklist]:
+        """Add an entry to the organization blacklist.
+
+        **Quick Mode:**
+        Provide `user_id` to auto-populate all fields from the user's profile.
+        Returns 404 if the user_id doesn't correspond to an existing user.
+
+        **Manual Mode:**
+        Provide individual fields (email, telegram_username, phone_number, names).
+        At least one identifier or name is required.
+
+        If the provided identifiers match an existing registered user, the entry
+        will be automatically linked to them.
+        """
+        organization = self.get_one(slug)
+        current_user = self.user()
+
+        if payload.user_id:
+            # Quick mode - blacklist by user ID
+            entry = blacklist_service.add_user_to_blacklist(
+                organization=organization,
+                user_id=payload.user_id,
+                created_by=current_user,
+                reason=payload.reason,
+            )
+        else:
+            # Manual mode
+            entry = blacklist_service.add_to_blacklist(
+                organization=organization,
+                created_by=current_user,
+                email=payload.email,
+                telegram_username=payload.telegram_username,
+                phone_number=payload.phone_number,
+                first_name=payload.first_name,
+                last_name=payload.last_name,
+                preferred_name=payload.preferred_name,
+                reason=payload.reason,
+            )
+
+        # Refetch with user relationship (may have been auto-linked)
+        # created_by is already available from current request
+        entry = models.Blacklist.objects.select_related("user").get(pk=entry.pk)
+        entry.created_by = current_user
+        return 201, entry
+
+    @route.get(
+        "/blacklist/{entry_id}",
+        url_name="get_blacklist_entry",
+        response=schema.BlacklistEntrySchema,
+        permissions=[OrganizationPermission("manage_members")],
+        throttle=UserDefaultThrottle(),
+    )
+    def get_blacklist_entry(self, slug: str, entry_id: UUID) -> models.Blacklist:
+        """Get details of a specific blacklist entry."""
+        organization = self.get_one(slug)
+        return get_object_or_404(
+            models.Blacklist.objects.select_related("user", "created_by"),
+            pk=entry_id,
+            organization=organization,
+        )
+
+    @route.patch(
+        "/blacklist/{entry_id}",
+        url_name="update_blacklist_entry",
+        response=schema.BlacklistEntrySchema,
+        permissions=[OrganizationPermission("manage_members")],
+    )
+    def update_blacklist_entry(
+        self, slug: str, entry_id: UUID, payload: schema.BlacklistUpdateSchema
+    ) -> models.Blacklist:
+        """Update a blacklist entry.
+
+        Only the reason and name fields can be updated.
+        Hard identifiers (email, telegram, phone) cannot be changed after creation.
+        """
+        organization = self.get_one(slug)
+        entry = get_object_or_404(models.Blacklist, pk=entry_id, organization=organization)
+
+        update_data = payload.model_dump(exclude_unset=True)
+        if update_data:
+            entry = blacklist_service.update_blacklist_entry(entry, **update_data)
+
+        return models.Blacklist.objects.select_related("user", "created_by").get(pk=entry.pk)
+
+    @route.delete(
+        "/blacklist/{entry_id}",
+        url_name="delete_blacklist_entry",
+        response={204: None},
+        permissions=[OrganizationPermission("manage_members")],
+    )
+    def delete_blacklist_entry(self, slug: str, entry_id: UUID) -> tuple[int, None]:
+        """Remove an entry from the blacklist.
+
+        This permanently removes the blacklist entry. The user (if linked)
+        will regain access to the organization.
+        """
+        organization = self.get_one(slug)
+        entry = get_object_or_404(models.Blacklist, pk=entry_id, organization=organization)
+        blacklist_service.remove_from_blacklist(entry)
+        return 204, None
+
+    # ---- Whitelist Request Management ----
+
+    @route.get(
+        "/whitelist-requests",
+        url_name="list_whitelist_requests",
+        response=PaginatedResponseSchema[schema.WhitelistRequestSchema],
+        permissions=[OrganizationPermission("manage_members")],
+        throttle=UserDefaultThrottle(),
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    def list_whitelist_requests(
+        self,
+        slug: str,
+        params: filters.WhitelistRequestFilterSchema = Query(...),  # type: ignore[type-arg]
+    ) -> QuerySet[models.WhitelistRequest]:
+        """List whitelist requests for the organization.
+
+        By default shows all requests. Use ?status=pending to filter by status.
+
+        Whitelist requests are created when a user's name fuzzy-matches a blacklist
+        entry. Approving a request adds the user to the whitelist, allowing them
+        full access despite the name match.
+        """
+        organization = self.get_one(slug)
+        qs = models.WhitelistRequest.objects.filter(organization=organization).select_related("user", "decided_by")
+        return params.filter(qs).distinct()
+
+    @route.get(
+        "/whitelist-requests/{request_id}",
+        url_name="get_whitelist_request",
+        response=schema.WhitelistRequestSchema,
+        permissions=[OrganizationPermission("manage_members")],
+        throttle=UserDefaultThrottle(),
+    )
+    def get_whitelist_request(self, slug: str, request_id: UUID) -> models.WhitelistRequest:
+        """Get details of a whitelist request including matched blacklist entries."""
+        organization = self.get_one(slug)
+        return get_object_or_404(
+            models.WhitelistRequest.objects.select_related("user", "decided_by").prefetch_related(
+                "matched_blacklist_entries"
+            ),
+            pk=request_id,
+            organization=organization,
+        )
+
+    @route.post(
+        "/whitelist-requests/{request_id}/approve",
+        url_name="approve_whitelist_request",
+        response={204: None},
+        permissions=[OrganizationPermission("manage_members")],
+    )
+    def approve_whitelist_request(self, slug: str, request_id: UUID) -> tuple[int, None]:
+        """Approve a whitelist request.
+
+        Creates a whitelist entry for the user, granting them full access
+        to the organization despite any fuzzy name matches.
+        """
+        organization = self.get_one(slug)
+        request = get_object_or_404(models.WhitelistRequest, pk=request_id, organization=organization)
+        whitelist_service.approve_whitelist_request(request, self.user())
+        return 204, None
+
+    @route.post(
+        "/whitelist-requests/{request_id}/reject",
+        url_name="reject_whitelist_request",
+        response={204: None},
+        permissions=[OrganizationPermission("manage_members")],
+    )
+    def reject_whitelist_request(self, slug: str, request_id: UUID) -> tuple[int, None]:
+        """Reject a whitelist request.
+
+        The user will remain blocked from the organization due to the
+        fuzzy name match with blacklist entries.
+        """
+        organization = self.get_one(slug)
+        request = get_object_or_404(models.WhitelistRequest, pk=request_id, organization=organization)
+        whitelist_service.reject_whitelist_request(request, self.user())
+        return 204, None
+
+    # ---- Whitelist Management ----
+
+    @route.get(
+        "/whitelist",
+        url_name="list_whitelist_entries",
+        response=PaginatedResponseSchema[schema.WhitelistEntrySchema],
+        permissions=[OrganizationPermission("manage_members")],
+        throttle=UserDefaultThrottle(),
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(Searching, search_fields=["user__email", "user__first_name", "user__last_name", "user__preferred_name"])
+    def list_whitelist(self, slug: str) -> QuerySet[models.WhitelistRequest]:
+        """List all whitelisted users for the organization.
+
+        These are users who were cleared despite fuzzy-matching blacklist entries.
+        Whitelisted users are those with an APPROVED whitelist request.
+        """
+        organization = self.get_one(slug)
+        return models.WhitelistRequest.objects.filter(
+            organization=organization,
+            status=models.WhitelistRequest.Status.APPROVED,
+        ).select_related("user", "decided_by")
+
+    @route.delete(
+        "/whitelist/{entry_id}",
+        url_name="delete_whitelist_entry",
+        response={204: None},
+        permissions=[OrganizationPermission("manage_members")],
+    )
+    def delete_whitelist_entry(self, slug: str, entry_id: UUID) -> tuple[int, None]:
+        """Remove a user from the whitelist.
+
+        After removal, if the user still fuzzy-matches blacklist entries,
+        they will need to request whitelisting again.
+        """
+        organization = self.get_one(slug)
+        entry = get_object_or_404(
+            models.WhitelistRequest,
+            pk=entry_id,
+            organization=organization,
+            status=models.WhitelistRequest.Status.APPROVED,
+        )
+        whitelist_service.remove_from_whitelist(entry)
         return 204, None

@@ -61,6 +61,7 @@ def _is_organizer_action_notification(notification_type: str) -> bool:
     return notification_type in (
         NotificationType.INVITATION_REQUEST_CREATED,
         NotificationType.MEMBERSHIP_REQUEST_CREATED,
+        NotificationType.WHITELIST_REQUEST_CREATED,
     )
 
 
@@ -107,6 +108,9 @@ def _build_organizer_action_keyboard(notification_type: str, context: dict[str, 
 
     if notification_type == NotificationType.MEMBERSHIP_REQUEST_CREATED:
         return _get_membership_request_keyboard(request_id)
+
+    if notification_type == NotificationType.WHITELIST_REQUEST_CREATED:
+        return _get_whitelist_request_keyboard(request_id)
 
     return None
 
@@ -163,6 +167,22 @@ def _get_membership_request_keyboard(request_id: str) -> InlineKeyboardMarkup:
     url = site_settings.frontend_base_url + f"/org/{organization.slug}/admin/members"
     builder.button(text="✅ View", url=url)
     builder.adjust(1)  # Two buttons in one row
+    return builder.as_markup()
+
+
+def _get_whitelist_request_keyboard(request_id: str) -> InlineKeyboardMarkup:
+    """Build Approve/Reject keyboard for whitelist requests.
+
+    Args:
+        request_id: WhitelistRequest UUID
+
+    Returns:
+        InlineKeyboardMarkup with Approve/Reject buttons
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="✅ Approve", callback_data=f"whitelist_request_approve:{request_id}")
+    builder.button(text="❌ Reject", callback_data=f"whitelist_request_reject:{request_id}")
+    builder.adjust(2)  # Two buttons in one row
     return builder.as_markup()
 
 
