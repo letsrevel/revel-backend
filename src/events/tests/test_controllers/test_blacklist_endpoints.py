@@ -18,7 +18,7 @@ from django.test.client import Client
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-from events.models import Blacklist, Organization, Whitelist, WhitelistRequest
+from events.models import Blacklist, Organization, WhitelistRequest
 
 pytestmark = pytest.mark.django_db
 
@@ -347,7 +347,6 @@ class TestWhitelistRequestManagement:
         assert response.status_code == 204
         request.refresh_from_db()
         assert request.status == WhitelistRequest.Status.APPROVED
-        assert Whitelist.objects.filter(organization=organization, user=public_user).exists()
 
     @patch("events.service.whitelist_service.notification_requested")
     def test_reject_whitelist_request(
@@ -379,7 +378,7 @@ class TestWhitelistRequestManagement:
 
 
 class TestWhitelistEntryManagement:
-    """Tests for whitelist entry listing and deletion."""
+    """Tests for whitelist entry listing and deletion (APPROVED requests)."""
 
     def test_list_whitelist_entries(
         self,
@@ -387,11 +386,12 @@ class TestWhitelistEntryManagement:
         organization: Organization,
         public_user: RevelUser,
     ) -> None:
-        """Should list whitelist entries."""
-        Whitelist.objects.create(
+        """Should list whitelist entries (APPROVED requests)."""
+        WhitelistRequest.objects.create(
             organization=organization,
             user=public_user,
-            approved_by=organization.owner,
+            status=WhitelistRequest.Status.APPROVED,
+            decided_by=organization.owner,
         )
 
         url = reverse("api:list_whitelist_entries", kwargs={"slug": organization.slug})
@@ -401,27 +401,90 @@ class TestWhitelistEntryManagement:
         data = response.json()
         assert data["count"] == 1
 
+    def test_list_whitelist_excludes_pending_and_rejected(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        public_user: RevelUser,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """Should only list APPROVED requests, not PENDING or REJECTED."""
+        # Create APPROVED request
+        WhitelistRequest.objects.create(
+            organization=organization,
+            user=public_user,
+            status=WhitelistRequest.Status.APPROVED,
+            decided_by=organization.owner,
+        )
+        # Create PENDING request for another user
+        pending_user = django_user_model.objects.create_user(
+            username="pending_user", email="pending@example.com", password="pass"
+        )
+        WhitelistRequest.objects.create(
+            organization=organization,
+            user=pending_user,
+            status=WhitelistRequest.Status.PENDING,
+        )
+        # Create REJECTED request for another user
+        rejected_user = django_user_model.objects.create_user(
+            username="rejected_user", email="rejected@example.com", password="pass"
+        )
+        WhitelistRequest.objects.create(
+            organization=organization,
+            user=rejected_user,
+            status=WhitelistRequest.Status.REJECTED,
+        )
+
+        url = reverse("api:list_whitelist_entries", kwargs={"slug": organization.slug})
+        response = organization_owner_client.get(url)
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 1  # Only APPROVED
+
     def test_delete_whitelist_entry(
         self,
         organization_owner_client: Client,
         organization: Organization,
         public_user: RevelUser,
     ) -> None:
-        """Should delete a whitelist entry."""
-        whitelist = Whitelist.objects.create(
+        """Should delete a whitelist entry (APPROVED request)."""
+        whitelist_request = WhitelistRequest.objects.create(
             organization=organization,
             user=public_user,
-            approved_by=organization.owner,
+            status=WhitelistRequest.Status.APPROVED,
+            decided_by=organization.owner,
         )
 
         url = reverse(
             "api:delete_whitelist_entry",
-            kwargs={"slug": organization.slug, "entry_id": whitelist.id},
+            kwargs={"slug": organization.slug, "entry_id": whitelist_request.id},
         )
         response = organization_owner_client.delete(url)
 
         assert response.status_code == 204
-        assert not Whitelist.objects.filter(id=whitelist.id).exists()
+        assert not WhitelistRequest.objects.filter(id=whitelist_request.id).exists()
+
+    def test_delete_non_approved_entry_returns_404(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        public_user: RevelUser,
+    ) -> None:
+        """Should return 404 when trying to delete a non-approved request via whitelist endpoint."""
+        pending_request = WhitelistRequest.objects.create(
+            organization=organization,
+            user=public_user,
+            status=WhitelistRequest.Status.PENDING,
+        )
+
+        url = reverse(
+            "api:delete_whitelist_entry",
+            kwargs={"slug": organization.slug, "entry_id": pending_request.id},
+        )
+        response = organization_owner_client.delete(url)
+
+        assert response.status_code == 404
 
 
 # --- User-Facing Whitelist Request Tests ---
@@ -485,7 +548,7 @@ class TestCreateWhitelistRequestEndpoint:
         organization: Organization,
         public_user: RevelUser,
     ) -> None:
-        """Should return 400 when user is already whitelisted."""
+        """Should return 400 when user is already whitelisted (has APPROVED request)."""
         public_user.first_name = "John"
         public_user.last_name = "Smith"
         public_user.save()
@@ -498,11 +561,12 @@ class TestCreateWhitelistRequestEndpoint:
             created_by=organization.owner,
         )
 
-        # Already whitelisted
-        Whitelist.objects.create(
+        # Already whitelisted (has APPROVED request)
+        WhitelistRequest.objects.create(
             organization=organization,
             user=public_user,
-            approved_by=organization.owner,
+            status=WhitelistRequest.Status.APPROVED,
+            decided_by=organization.owner,
         )
 
         url = reverse("api:create_whitelist_request", kwargs={"slug": organization.slug})

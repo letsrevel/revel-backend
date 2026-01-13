@@ -1986,7 +1986,7 @@ class WhitelistRequestCreateSchema(Schema):
 
 
 class WhitelistEntrySchema(ModelSchema):
-    """Schema for retrieving a whitelist entry."""
+    """Schema for retrieving a whitelist entry (an APPROVED WhitelistRequest)."""
 
     user_id: UUID
     user_display_name: str
@@ -1995,32 +1995,32 @@ class WhitelistEntrySchema(ModelSchema):
     matched_entries_count: int
 
     class Meta:
-        model = models.Whitelist
-        fields = ["id", "created_at"]
+        model = models.WhitelistRequest
+        fields = ["id", "created_at", "decided_at"]
 
     @staticmethod
-    def resolve_user_id(obj: models.Whitelist) -> UUID:
+    def resolve_user_id(obj: models.WhitelistRequest) -> UUID:
         """Return the whitelisted user's ID."""
         return obj.user_id
 
     @staticmethod
-    def resolve_user_display_name(obj: models.Whitelist) -> str:
+    def resolve_user_display_name(obj: models.WhitelistRequest) -> str:
         """Return the display name of the whitelisted user."""
         return obj.user.get_display_name()
 
     @staticmethod
-    def resolve_user_email(obj: models.Whitelist) -> str:
+    def resolve_user_email(obj: models.WhitelistRequest) -> str:
         """Return the email of the whitelisted user."""
         return obj.user.email
 
     @staticmethod
-    def resolve_approved_by_name(obj: models.Whitelist) -> str | None:
+    def resolve_approved_by_name(obj: models.WhitelistRequest) -> str | None:
         """Return the display name of who approved the whitelist entry."""
-        if obj.approved_by:
-            return obj.approved_by.get_display_name()
+        if obj.decided_by:
+            return obj.decided_by.get_display_name()
         return None
 
     @staticmethod
-    def resolve_matched_entries_count(obj: models.Whitelist) -> int:
+    def resolve_matched_entries_count(obj: models.WhitelistRequest) -> int:
         """Return the count of matched blacklist entries."""
         return obj.matched_blacklist_entries.count()

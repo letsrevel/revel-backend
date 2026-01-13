@@ -1,8 +1,10 @@
 """Service layer for whitelist management.
 
-This module provides functions for managing whitelist requests and
-whitelist entries, which allow users to be cleared despite fuzzy-matching
-blacklist entries.
+This module provides functions for managing whitelist requests,
+which allow users to be cleared despite fuzzy-matching blacklist entries.
+
+The WhitelistRequest model serves as both the request workflow and the
+whitelist itself - an APPROVED request means the user is whitelisted.
 """
 
 from django.db import transaction
@@ -12,13 +14,15 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
-from events.models import Blacklist, Organization, Whitelist, WhitelistRequest
+from events.models import Blacklist, Organization, WhitelistRequest
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
 
 def is_user_whitelisted(user: RevelUser, organization: Organization) -> bool:
     """Check if a user is whitelisted for an organization.
+
+    A user is whitelisted if they have an APPROVED whitelist request.
 
     Args:
         user: The user to check
@@ -27,7 +31,11 @@ def is_user_whitelisted(user: RevelUser, organization: Organization) -> bool:
     Returns:
         True if user is whitelisted, False otherwise
     """
-    return Whitelist.objects.filter(organization=organization, user=user).exists()
+    return WhitelistRequest.objects.filter(
+        organization=organization,
+        user=user,
+        status=WhitelistRequest.Status.APPROVED,
+    ).exists()
 
 
 def get_whitelist_request(
@@ -68,25 +76,19 @@ def create_whitelist_request(
         The created WhitelistRequest
 
     Raises:
-        HttpError: If request already exists or user is already whitelisted
+        HttpError: If user already has a pending request or is already whitelisted
     """
-    # Check if already whitelisted
+    # Check if already whitelisted (has an APPROVED request)
     if is_user_whitelisted(user, organization):
         raise HttpError(400, str(_("You are already whitelisted for this organization.")))
 
-    # Check if request already exists
-    existing = WhitelistRequest.objects.filter(
+    # Check if pending request already exists
+    if WhitelistRequest.objects.filter(
         organization=organization,
         user=user,
-    ).first()
-
-    if existing:
-        if existing.status == WhitelistRequest.Status.PENDING:
-            raise HttpError(400, str(_("You already have a pending whitelist request.")))
-        if existing.status == WhitelistRequest.Status.REJECTED:
-            raise HttpError(400, str(_("Your whitelist request was rejected.")))
-        if existing.status == WhitelistRequest.Status.APPROVED:
-            raise HttpError(400, str(_("Your whitelist request was already approved.")))
+        status=WhitelistRequest.Status.PENDING,
+    ).exists():
+        raise HttpError(400, str(_("You already have a pending whitelist request.")))
 
     # Create request
     request = WhitelistRequest.objects.create(
@@ -136,17 +138,17 @@ def create_whitelist_request(
 def approve_whitelist_request(
     request: WhitelistRequest,
     decided_by: RevelUser,
-) -> Whitelist:
+) -> WhitelistRequest:
     """Approve a whitelist request.
 
-    Creates a Whitelist entry and updates the request status.
+    Updates the request status to APPROVED, which grants the user whitelist access.
 
     Args:
         request: The WhitelistRequest to approve
         decided_by: The user approving the request
 
     Returns:
-        The created Whitelist entry
+        The updated WhitelistRequest
 
     Raises:
         HttpError: If request is not pending
@@ -159,16 +161,6 @@ def approve_whitelist_request(
     request.decided_by = decided_by
     request.decided_at = timezone.now()
     request.save(update_fields=["status", "decided_by", "decided_at"])
-
-    # Create whitelist entry
-    whitelist = Whitelist.objects.create(
-        organization=request.organization,
-        user=request.user,
-        approved_by=decided_by,
-    )
-
-    # Copy matched entries
-    whitelist.matched_blacklist_entries.set(request.matched_blacklist_entries.all())
 
     # Send notification to user
     def send_notification() -> None:
@@ -186,7 +178,7 @@ def approve_whitelist_request(
 
     transaction.on_commit(send_notification)
 
-    return whitelist
+    return request
 
 
 @transaction.atomic
@@ -233,10 +225,18 @@ def reject_whitelist_request(
     return request
 
 
-def remove_from_whitelist(entry: Whitelist) -> None:
-    """Remove a user from the whitelist.
+def remove_from_whitelist(request: WhitelistRequest) -> None:
+    """Remove a user from the whitelist by deleting their approved request.
+
+    After deletion, if the user still fuzzy-matches blacklist entries,
+    they will be prompted to submit a new whitelist request.
 
     Args:
-        entry: The Whitelist entry to remove
+        request: The WhitelistRequest to remove (must be APPROVED)
+
+    Raises:
+        HttpError: If request is not approved
     """
-    entry.delete()
+    if request.status != WhitelistRequest.Status.APPROVED:
+        raise HttpError(400, str(_("Only approved requests can be removed from whitelist.")))
+    request.delete()

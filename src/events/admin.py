@@ -981,39 +981,3 @@ class WhitelistRequestAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  
             return "—"
         url = reverse("admin:accounts_reveluser_change", args=[obj.decided_by.id])
         return format_html('<a href="{}">{}</a>', url, obj.decided_by.username)
-
-
-@admin.register(models.Whitelist)
-class WhitelistAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
-    """Admin for Whitelist model."""
-
-    list_display = [
-        "__str__",
-        "user_link",
-        "organization_link",
-        "matched_count",
-        "approved_by_link",
-        "created_at",
-    ]
-    list_filter = ["organization__name", "created_at"]
-    search_fields = ["user__username", "user__email", "organization__name"]
-    autocomplete_fields = ["organization", "user", "approved_by"]
-    readonly_fields = ["created_at", "updated_at"]
-    filter_horizontal = ["matched_blacklist_entries"]
-    date_hierarchy = "created_at"
-    fieldsets = [
-        (None, {"fields": ["organization", "user", "approved_by"]}),
-        ("Matched Entries", {"fields": ["matched_blacklist_entries"]}),
-        ("Metadata", {"fields": [("created_at", "updated_at")]}),
-    ]
-
-    @admin.display(description="Matched")
-    def matched_count(self, obj: models.Whitelist) -> int:
-        return obj.matched_blacklist_entries.count()
-
-    @admin.display(description="Approved By")
-    def approved_by_link(self, obj: models.Whitelist) -> str | None:
-        if not obj.approved_by:
-            return "—"
-        url = reverse("admin:accounts_reveluser_change", args=[obj.approved_by.id])
-        return format_html('<a href="{}">{}</a>', url, obj.approved_by.username)

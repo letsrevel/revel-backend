@@ -3,10 +3,10 @@
 """Tests for whitelist_service module.
 
 Tests cover:
-- Whitelist status checking
+- Whitelist status checking (via APPROVED WhitelistRequest)
 - Creating whitelist requests
 - Approving/rejecting whitelist requests
-- Whitelist entry management
+- Removing from whitelist (deleting APPROVED requests)
 - Notification dispatching
 """
 
@@ -16,7 +16,7 @@ import pytest
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Blacklist, Organization, Whitelist, WhitelistRequest
+from events.models import Blacklist, Organization, WhitelistRequest
 from events.service import whitelist_service
 
 pytestmark = pytest.mark.django_db
@@ -80,11 +80,12 @@ class TestIsUserWhitelisted:
         whitelist_admin: RevelUser,
         requester_user: RevelUser,
     ) -> None:
-        """Should return True when user has whitelist entry."""
-        Whitelist.objects.create(
+        """Should return True when user has an APPROVED whitelist request."""
+        WhitelistRequest.objects.create(
             organization=whitelist_org,
             user=requester_user,
-            approved_by=whitelist_admin,
+            status=WhitelistRequest.Status.APPROVED,
+            decided_by=whitelist_admin,
         )
 
         assert whitelist_service.is_user_whitelisted(requester_user, whitelist_org) is True
@@ -94,7 +95,35 @@ class TestIsUserWhitelisted:
         whitelist_org: Organization,
         requester_user: RevelUser,
     ) -> None:
-        """Should return False when user has no whitelist entry."""
+        """Should return False when user has no whitelist request."""
+        assert whitelist_service.is_user_whitelisted(requester_user, whitelist_org) is False
+
+    def test_returns_false_when_request_pending(
+        self,
+        whitelist_org: Organization,
+        requester_user: RevelUser,
+    ) -> None:
+        """Should return False when request is pending (not yet approved)."""
+        WhitelistRequest.objects.create(
+            organization=whitelist_org,
+            user=requester_user,
+            status=WhitelistRequest.Status.PENDING,
+        )
+
+        assert whitelist_service.is_user_whitelisted(requester_user, whitelist_org) is False
+
+    def test_returns_false_when_request_rejected(
+        self,
+        whitelist_org: Organization,
+        requester_user: RevelUser,
+    ) -> None:
+        """Should return False when request was rejected."""
+        WhitelistRequest.objects.create(
+            organization=whitelist_org,
+            user=requester_user,
+            status=WhitelistRequest.Status.REJECTED,
+        )
+
         assert whitelist_service.is_user_whitelisted(requester_user, whitelist_org) is False
 
     def test_returns_false_for_different_org(
@@ -110,10 +139,11 @@ class TestIsUserWhitelisted:
             owner=whitelist_admin,
         )
 
-        Whitelist.objects.create(
+        WhitelistRequest.objects.create(
             organization=other_org,
             user=requester_user,
-            approved_by=whitelist_admin,
+            status=WhitelistRequest.Status.APPROVED,
+            decided_by=whitelist_admin,
         )
 
         assert whitelist_service.is_user_whitelisted(requester_user, whitelist_org) is False
@@ -186,11 +216,12 @@ class TestCreateWhitelistRequest:
         requester_user: RevelUser,
         fuzzy_blacklist_entry: Blacklist,
     ) -> None:
-        """Should raise error when user is already whitelisted."""
-        Whitelist.objects.create(
+        """Should raise error when user is already whitelisted (has APPROVED request)."""
+        WhitelistRequest.objects.create(
             organization=whitelist_org,
             user=requester_user,
-            approved_by=whitelist_admin,
+            status=WhitelistRequest.Status.APPROVED,
+            decided_by=whitelist_admin,
         )
 
         with pytest.raises(HttpError) as exc_info:
@@ -224,27 +255,32 @@ class TestCreateWhitelistRequest:
         assert exc_info.value.status_code == 400
         assert "pending" in str(exc_info.value.message)
 
-    def test_raises_error_when_request_rejected(
+    @patch("events.service.whitelist_service.notification_requested")
+    def test_allows_new_request_after_rejection(
         self,
+        mock_notification: object,
         whitelist_org: Organization,
         requester_user: RevelUser,
         fuzzy_blacklist_entry: Blacklist,
     ) -> None:
-        """Should raise error when previous request was rejected."""
+        """Should allow creating a new request after previous was rejected."""
+        # Create a rejected request
         WhitelistRequest.objects.create(
             organization=whitelist_org,
             user=requester_user,
             status=WhitelistRequest.Status.REJECTED,
         )
 
-        with pytest.raises(HttpError) as exc_info:
-            whitelist_service.create_whitelist_request(
-                user=requester_user,
-                organization=whitelist_org,
-                matched_entries=[fuzzy_blacklist_entry],
-            )
-        assert exc_info.value.status_code == 400
-        assert "rejected" in str(exc_info.value.message)
+        # Should be able to create a new request
+        request = whitelist_service.create_whitelist_request(
+            user=requester_user,
+            organization=whitelist_org,
+            matched_entries=[fuzzy_blacklist_entry],
+            message="Please reconsider",
+        )
+
+        assert request.status == WhitelistRequest.Status.PENDING
+        assert request.message == "Please reconsider"
 
 
 # --- approve_whitelist_request tests ---
@@ -254,7 +290,7 @@ class TestApproveWhitelistRequest:
     """Tests for approve_whitelist_request function."""
 
     @patch("events.service.whitelist_service.notification_requested")
-    def test_approves_request_creates_whitelist(
+    def test_approves_request(
         self,
         mock_notification: object,
         whitelist_org: Organization,
@@ -262,7 +298,7 @@ class TestApproveWhitelistRequest:
         requester_user: RevelUser,
         fuzzy_blacklist_entry: Blacklist,
     ) -> None:
-        """Should approve request and create whitelist entry."""
+        """Should approve request and update status to APPROVED."""
         request = WhitelistRequest.objects.create(
             organization=whitelist_org,
             user=requester_user,
@@ -270,19 +306,15 @@ class TestApproveWhitelistRequest:
         )
         request.matched_blacklist_entries.add(fuzzy_blacklist_entry)
 
-        whitelist = whitelist_service.approve_whitelist_request(request, decided_by=whitelist_admin)
-
-        # Check whitelist created
-        assert whitelist.user == requester_user
-        assert whitelist.organization == whitelist_org
-        assert whitelist.approved_by == whitelist_admin
-        assert fuzzy_blacklist_entry in whitelist.matched_blacklist_entries.all()
+        result = whitelist_service.approve_whitelist_request(request, decided_by=whitelist_admin)
 
         # Check request updated
-        request.refresh_from_db()
-        assert request.status == WhitelistRequest.Status.APPROVED
-        assert request.decided_by == whitelist_admin
-        assert request.decided_at is not None
+        assert result.status == WhitelistRequest.Status.APPROVED
+        assert result.decided_by == whitelist_admin
+        assert result.decided_at is not None
+
+        # Verify user is now whitelisted
+        assert whitelist_service.is_user_whitelisted(requester_user, whitelist_org) is True
 
     def test_raises_error_when_not_pending(
         self,
@@ -354,20 +386,67 @@ class TestRejectWhitelistRequest:
 class TestRemoveFromWhitelist:
     """Tests for remove_from_whitelist function."""
 
-    def test_removes_whitelist_entry(
+    def test_removes_approved_request(
         self,
         whitelist_org: Organization,
         whitelist_admin: RevelUser,
         requester_user: RevelUser,
     ) -> None:
-        """Should delete whitelist entry."""
-        whitelist = Whitelist.objects.create(
+        """Should delete an APPROVED whitelist request."""
+        request = WhitelistRequest.objects.create(
             organization=whitelist_org,
             user=requester_user,
-            approved_by=whitelist_admin,
+            status=WhitelistRequest.Status.APPROVED,
+            decided_by=whitelist_admin,
         )
-        whitelist_id = whitelist.id
+        request_id = request.id
 
-        whitelist_service.remove_from_whitelist(whitelist)
+        whitelist_service.remove_from_whitelist(request)
 
-        assert not Whitelist.objects.filter(id=whitelist_id).exists()
+        assert not WhitelistRequest.objects.filter(id=request_id).exists()
+
+    def test_raises_error_when_not_approved(
+        self,
+        whitelist_org: Organization,
+        requester_user: RevelUser,
+    ) -> None:
+        """Should raise error when trying to remove a non-approved request."""
+        request = WhitelistRequest.objects.create(
+            organization=whitelist_org,
+            user=requester_user,
+            status=WhitelistRequest.Status.PENDING,
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            whitelist_service.remove_from_whitelist(request)
+        assert exc_info.value.status_code == 400
+        assert "approved" in str(exc_info.value.message).lower()
+
+    @patch("events.service.whitelist_service.notification_requested")
+    def test_user_can_request_again_after_removal(
+        self,
+        mock_notification: object,
+        whitelist_org: Organization,
+        whitelist_admin: RevelUser,
+        requester_user: RevelUser,
+        fuzzy_blacklist_entry: Blacklist,
+    ) -> None:
+        """After removing from whitelist, user should be able to request again."""
+        # Create and remove an approved request
+        request = WhitelistRequest.objects.create(
+            organization=whitelist_org,
+            user=requester_user,
+            status=WhitelistRequest.Status.APPROVED,
+            decided_by=whitelist_admin,
+        )
+        whitelist_service.remove_from_whitelist(request)
+
+        # User should be able to submit a new request
+        new_request = whitelist_service.create_whitelist_request(
+            user=requester_user,
+            organization=whitelist_org,
+            matched_entries=[fuzzy_blacklist_entry],
+            message="Requesting again",
+        )
+
+        assert new_request.status == WhitelistRequest.Status.PENDING

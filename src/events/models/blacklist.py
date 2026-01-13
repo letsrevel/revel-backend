@@ -171,6 +171,14 @@ class WhitelistRequest(TimeStampedModel):
 
     Similar to EventInvitationRequest - users can request verification when
     their name fuzzy-matches a blacklist entry.
+
+    This model serves as both the request workflow AND the whitelist itself:
+    - PENDING: User is awaiting admin review
+    - APPROVED: User is whitelisted (can access despite fuzzy matches)
+    - REJECTED: User is blocked
+
+    Admins can delete an APPROVED request to "un-whitelist" a user,
+    allowing them to submit a new request if needed.
     """
 
     class Status(models.TextChoices):
@@ -218,54 +226,13 @@ class WhitelistRequest(TimeStampedModel):
         verbose_name_plural = "Whitelist Requests"
         ordering = ["-created_at"]
         constraints = [
+            # Only one PENDING request per user/org at a time
             models.UniqueConstraint(
                 fields=["organization", "user"],
-                name="unique_whitelist_request_per_org",
+                condition=Q(status="pending"),
+                name="unique_pending_whitelist_request_per_org",
             ),
         ]
 
     def __str__(self) -> str:
         return f"Whitelist Request: {self.user} for {self.organization} ({self.status})"
-
-
-class Whitelist(TimeStampedModel):
-    """Users explicitly cleared despite fuzzy-matching blacklist entries.
-
-    Created when a WhitelistRequest is approved.
-    """
-
-    organization = models.ForeignKey(
-        "events.Organization",
-        on_delete=models.CASCADE,
-        related_name="whitelist_entries",
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="whitelisted_orgs",
-    )
-    matched_blacklist_entries = models.ManyToManyField(
-        Blacklist,
-        related_name="whitelisted_users",
-        help_text="The blacklist entries this user was cleared against",
-    )
-    approved_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name="+",
-    )
-
-    class Meta:
-        verbose_name = "Whitelist Entry"
-        verbose_name_plural = "Whitelist Entries"
-        ordering = ["-created_at"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["organization", "user"],
-                name="unique_whitelist_user_per_org",
-            ),
-        ]
-
-    def __str__(self) -> str:
-        return f"Whitelist: {self.user} for {self.organization}"

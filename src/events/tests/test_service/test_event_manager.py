@@ -2040,7 +2040,7 @@ class TestBlacklistGate:
         organization: Organization,
     ) -> None:
         """Whitelisted user should pass the blacklist gate."""
-        from events.models import Blacklist, Whitelist
+        from events.models import Blacklist, WhitelistRequest
 
         public_user.first_name = "John"
         public_user.last_name = "Smith"
@@ -2053,13 +2053,14 @@ class TestBlacklistGate:
             created_by=organization.owner,
         )
 
-        # Create whitelist entry
-        whitelist = Whitelist.objects.create(
+        # Create approved whitelist request (user is whitelisted)
+        whitelist_request = WhitelistRequest.objects.create(
             organization=organization,
             user=public_user,
-            approved_by=organization.owner,
+            status=WhitelistRequest.Status.APPROVED,
+            decided_by=organization.owner,
         )
-        whitelist.matched_blacklist_entries.add(blacklist_entry)
+        whitelist_request.matched_blacklist_entries.add(blacklist_entry)
 
         handler = EligibilityService(user=public_user, event=public_event)
         eligibility = handler.check_eligibility()

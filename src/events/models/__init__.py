@@ -33,7 +33,7 @@ from .preferences import (
 )
 from .questionnaire import OrganizationQuestionnaire
 from .venue import Venue, VenueSector, VenueSeat
-from .blacklist import Blacklist, WhitelistRequest, Whitelist
+from .blacklist import Blacklist, WhitelistRequest
 
 __all__ = [
     # Events
@@ -78,5 +78,4 @@ __all__ = [
     # Blacklist
     "Blacklist",
     "WhitelistRequest",
-    "Whitelist",
 ]

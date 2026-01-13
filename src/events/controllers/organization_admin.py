@@ -1560,13 +1560,17 @@ class OrganizationAdminController(UserAwareController):
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["user__email", "user__first_name", "user__last_name", "user__preferred_name"])
-    def list_whitelist(self, slug: str) -> QuerySet[models.Whitelist]:
+    def list_whitelist(self, slug: str) -> QuerySet[models.WhitelistRequest]:
         """List all whitelisted users for the organization.
 
         These are users who were cleared despite fuzzy-matching blacklist entries.
+        Whitelisted users are those with an APPROVED whitelist request.
         """
         organization = self.get_one(slug)
-        return models.Whitelist.objects.filter(organization=organization).select_related("user", "approved_by")
+        return models.WhitelistRequest.objects.filter(
+            organization=organization,
+            status=models.WhitelistRequest.Status.APPROVED,
+        ).select_related("user", "decided_by")
 
     @route.delete(
         "/whitelist/{entry_id}",
@@ -1581,6 +1585,11 @@ class OrganizationAdminController(UserAwareController):
         they will need to request whitelisting again.
         """
         organization = self.get_one(slug)
-        entry = get_object_or_404(models.Whitelist, pk=entry_id, organization=organization)
+        entry = get_object_or_404(
+            models.WhitelistRequest,
+            pk=entry_id,
+            organization=organization,
+            status=models.WhitelistRequest.Status.APPROVED,
+        )
         whitelist_service.remove_from_whitelist(entry)
         return 204, None
