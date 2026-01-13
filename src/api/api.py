@@ -12,12 +12,12 @@ from common.models import Legal
 from common.schema import LegalSchema, ResponseOk, VersionResponse
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle
 from events.controllers.dashboard import DashboardController
-from events.controllers.event_admin import EventAdminController
+from events.controllers.event_admin import EVENT_ADMIN_CONTROLLERS
 from events.controllers.event_series import EventSeriesController
 from events.controllers.event_series_admin import EventSeriesAdminController
 from events.controllers.events import EventController
 from events.controllers.organization import OrganizationController
-from events.controllers.organization_admin import OrganizationAdminController
+from events.controllers.organization_admin import ORGANIZATION_ADMIN_CONTROLLERS
 from events.controllers.permissions import PermissionController
 from events.controllers.potluck import PotluckController
 from events.controllers.questionnaire import QuestionnaireController
@@ -106,9 +106,9 @@ api.register_controllers(
     # Event controllers
     DashboardController,
     OrganizationController,
-    OrganizationAdminController,
+    *ORGANIZATION_ADMIN_CONTROLLERS,
     EventController,
-    EventAdminController,
+    *EVENT_ADMIN_CONTROLLERS,
     PermissionController,
     EventSeriesController,
     EventSeriesAdminController,
