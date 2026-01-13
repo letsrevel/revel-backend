@@ -265,7 +265,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         permissions=[OrganizationPermission("edit_organization")],
     )
     def clear_tags(self, slug: str) -> tuple[int, None]:
-        """Clear akk tags from the organization."""
+        """Clear all tags from the organization."""
         organization = self.get_one(slug)
         organization.tags_manager.clear()
         return 204, None
