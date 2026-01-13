@@ -5,7 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 
-from events.service import stripe_service
+from events.service.stripe_webhooks import StripeEventHandler
 
 
 @api_controller("/stripe", auth=None)
@@ -23,6 +23,6 @@ class StripeWebhookController:
             raise HttpError(400, str(_("Invalid Stripe signature")))
         event = stripe.Webhook.construct_event(payload, sig_header, settings.STRIPE_WEBHOOK_SECRET)
 
-        stripe_service.StripeEventHandler(event).handle()
+        StripeEventHandler(event).handle()
 
         return 200, None

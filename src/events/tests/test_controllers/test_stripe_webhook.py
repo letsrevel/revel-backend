@@ -38,7 +38,7 @@ class TestStripeWebhookController:
         return event
 
     @patch("stripe.Webhook.construct_event")
-    @patch("events.service.stripe_service.StripeEventHandler")
+    @patch("events.controllers.stripe_webhook.StripeEventHandler")
     def test_handle_webhook_success(
         self,
         mock_handler_class: Mock,
@@ -103,7 +103,7 @@ class TestStripeWebhookController:
         )
 
     @patch("stripe.Webhook.construct_event")
-    @patch("events.service.stripe_service.StripeEventHandler")
+    @patch("events.controllers.stripe_webhook.StripeEventHandler")
     def test_handle_webhook_handler_exception(
         self,
         mock_handler_class: Mock,
@@ -141,7 +141,7 @@ class TestStripeWebhookIntegration:
         return json.dumps(payload).encode()
 
     @patch("stripe.Webhook.construct_event")
-    @patch("events.service.stripe_service.StripeEventHandler")
+    @patch("events.controllers.stripe_webhook.StripeEventHandler")
     def test_webhook_endpoint_integration(
         self,
         mock_handler_class: Mock,
