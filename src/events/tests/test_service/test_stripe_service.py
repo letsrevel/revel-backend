@@ -14,6 +14,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.service import stripe_service
+from events.service.stripe_webhooks import StripeEventHandler
 
 pytestmark = pytest.mark.django_db
 
@@ -436,11 +437,11 @@ class TestStripeEventHandler:
         return mock_event
 
     @pytest.fixture
-    def handler(self, mock_stripe_event: MagicMock) -> stripe_service.StripeEventHandler:
+    def handler(self, mock_stripe_event: MagicMock) -> StripeEventHandler:
         """Create handler instance."""
-        return stripe_service.StripeEventHandler(mock_stripe_event)
+        return StripeEventHandler(mock_stripe_event)
 
-    def test_routes_known_event_to_handler(self, handler: stripe_service.StripeEventHandler) -> None:
+    def test_routes_known_event_to_handler(self, handler: StripeEventHandler) -> None:
         """Test that known events are routed to appropriate handlers."""
         # Arrange
         handler.event.type = "checkout.session.completed"
@@ -453,7 +454,7 @@ class TestStripeEventHandler:
 
     def test_routes_unknown_event_to_default_handler(
         self,
-        handler: stripe_service.StripeEventHandler,
+        handler: StripeEventHandler,
     ) -> None:
         """Test that unknown events are handled gracefully."""
         # Arrange
@@ -468,7 +469,7 @@ class TestStripeEventHandler:
 
     def test_handle_unknown_event_logs_only(
         self,
-        handler: stripe_service.StripeEventHandler,
+        handler: StripeEventHandler,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test that unknown events are logged but don't raise exceptions."""
@@ -522,7 +523,7 @@ class TestStripeEventHandler:
     def test_handle_checkout_session_completed_success(
         self,
         mock_notification_signal: Mock,
-        handler: stripe_service.StripeEventHandler,
+        handler: StripeEventHandler,
         completed_payment: Payment,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
@@ -573,7 +574,7 @@ class TestStripeEventHandler:
 
     def test_handle_checkout_session_not_complete_is_noop(
         self,
-        handler: stripe_service.StripeEventHandler,
+        handler: StripeEventHandler,
         completed_payment: Payment,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
@@ -591,7 +592,7 @@ class TestStripeEventHandler:
 
     def test_handle_checkout_session_completed_idempotent(
         self,
-        handler: stripe_service.StripeEventHandler,
+        handler: StripeEventHandler,
         completed_payment: Payment,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
@@ -618,7 +619,7 @@ class TestStripeEventHandler:
 
     def test_handle_checkout_session_completed_payment_not_found(
         self,
-        handler: stripe_service.StripeEventHandler,
+        handler: StripeEventHandler,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test that missing payment is logged and handled gracefully."""
@@ -636,7 +637,7 @@ class TestStripeEventHandler:
     def test_handle_charge_refunded_success(
         self,
         mock_notification_signal: Mock,
-        handler: stripe_service.StripeEventHandler,
+        handler: StripeEventHandler,
         completed_payment: Payment,
         django_capture_on_commit_callbacks: t.Any,
     ) -> None:
@@ -696,7 +697,7 @@ class TestStripeEventHandler:
 
     def test_handle_charge_refunded_idempotent(
         self,
-        handler: stripe_service.StripeEventHandler,
+        handler: StripeEventHandler,
         completed_payment: Payment,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
@@ -720,7 +721,7 @@ class TestStripeEventHandler:
 
     def test_handle_charge_refunded_unknown_payment(
         self,
-        handler: stripe_service.StripeEventHandler,
+        handler: StripeEventHandler,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test refund webhook for unknown payment is logged."""
@@ -739,7 +740,7 @@ class TestStripeEventHandler:
 
     def test_handle_payment_intent_canceled_success(
         self,
-        handler: stripe_service.StripeEventHandler,
+        handler: StripeEventHandler,
         completed_payment: Payment,
     ) -> None:
         """Test successful payment intent cancellation processing."""
@@ -782,7 +783,7 @@ class TestStripeEventHandler:
 
     def test_handle_payment_intent_canceled_non_pending_ignored(
         self,
-        handler: stripe_service.StripeEventHandler,
+        handler: StripeEventHandler,
         completed_payment: Payment,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
@@ -808,7 +809,7 @@ class TestStripeEventHandler:
 
     def test_handle_payment_intent_canceled_unknown_payment(
         self,
-        handler: stripe_service.StripeEventHandler,
+        handler: StripeEventHandler,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test payment_intent.canceled for unknown payment is logged as debug."""
