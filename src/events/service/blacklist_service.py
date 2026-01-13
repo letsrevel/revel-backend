@@ -20,6 +20,10 @@ from events.models import Blacklist, Organization, OrganizationMember, Organizat
 
 logger = structlog.get_logger(__name__)
 
+# Default threshold for fuzzy name matching (0-100 scale)
+# 85% provides a good balance between catching variations and avoiding false positives
+DEFAULT_FUZZY_MATCH_THRESHOLD = 85
+
 
 def _normalize_telegram_username(username: str | None) -> str | None:
     """Normalize telegram username by removing @ prefix and lowercasing."""
@@ -394,7 +398,9 @@ def _get_name_variants(
     return variants
 
 
-def get_fuzzy_match_score(user: RevelUser, entry: Blacklist, threshold: int = 85) -> int | None:
+def get_fuzzy_match_score(
+    user: RevelUser, entry: Blacklist, threshold: int = DEFAULT_FUZZY_MATCH_THRESHOLD
+) -> int | None:
     """Calculate fuzzy match score between user and blacklist entry.
 
     Cross-matches all name variants using rapidfuzz.
@@ -438,7 +444,7 @@ def get_fuzzy_match_score(user: RevelUser, entry: Blacklist, threshold: int = 85
 def get_fuzzy_blacklist_matches(
     user: RevelUser,
     organization: Organization,
-    threshold: int = 85,
+    threshold: int = DEFAULT_FUZZY_MATCH_THRESHOLD,
 ) -> list[tuple[Blacklist, int]]:
     """Get blacklist entries that fuzzy-match the user's name.
 
