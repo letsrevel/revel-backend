@@ -584,7 +584,7 @@ class EventController(UserAwareController):
         url_name="tier_list",
         response={200: list[schema.TicketTierSchema]},
     )
-    def list_tiers(self, event_id: UUID) -> models.event.TicketTierQuerySet:
+    def list_tiers(self, event_id: UUID) -> models.ticket.TicketTierQuerySet:
         """Get all ticket tiers available for purchase at this event.
 
         Returns ticket types with pricing, availability, and sales windows. Filters tiers based
