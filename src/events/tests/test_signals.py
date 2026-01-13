@@ -477,3 +477,302 @@ class TestPendingInvitationConversion:
         # Check that real invitation has waives_apply_deadline=False (default)
         invitation = EventInvitation.objects.get(event=event, user=user)
         assert invitation.waives_apply_deadline is False
+
+
+class TestBlacklistLinkingOnUserCreation:
+    """Test that blacklist entries are automatically linked when a new user is created.
+
+    The signal `handle_user_creation` in events/signals.py links unlinked blacklist entries
+    when their identifiers (email, phone, telegram) match the new user.
+    """
+
+    def test_links_blacklist_entry_by_email_on_registration(
+        self, organization: t.Any, django_user_model: type[RevelUser]
+    ) -> None:
+        """Test that blacklist entry is linked when new user's email matches."""
+        from events.models import Blacklist
+
+        # Create unlinked blacklist entry FIRST
+        entry = Blacklist.objects.create(
+            organization=organization,
+            email="blacklisted@example.com",
+            reason="Created before registration",
+            created_by=organization.owner,
+        )
+        assert entry.user is None
+
+        # THEN create user with matching email - this triggers the signal
+        user = django_user_model.objects.create_user(
+            username="blacklisted_user",
+            email="blacklisted@example.com",
+            password="pass",
+        )
+
+        # Entry should now be linked to the user
+        entry.refresh_from_db()
+        assert entry.user == user
+
+    def test_links_blacklist_entry_by_phone_on_registration(
+        self, organization: t.Any, django_user_model: type[RevelUser]
+    ) -> None:
+        """Test that blacklist entry is linked when new user's phone matches."""
+        from events.models import Blacklist
+
+        # Create unlinked blacklist entry
+        entry = Blacklist.objects.create(
+            organization=organization,
+            phone_number="+1234567890",
+            created_by=organization.owner,
+        )
+
+        # Create user with matching phone
+        user = django_user_model.objects.create_user(
+            username="phone_user",
+            email="phone@example.com",
+            password="pass",
+            phone_number="+1234567890",
+        )
+
+        # Entry should be linked
+        entry.refresh_from_db()
+        assert entry.user == user
+
+    def test_links_multiple_blacklist_entries_on_registration(
+        self, organization: t.Any, django_user_model: type[RevelUser]
+    ) -> None:
+        """Test that multiple blacklist entries can be linked for one user."""
+        from events.models import Blacklist, Organization
+
+        # Create another org
+        other_org = Organization.objects.create(
+            name="Other Org",
+            slug="other-org",
+            owner=organization.owner,
+        )
+
+        # Create entries in different orgs with same email
+        entry1 = Blacklist.objects.create(
+            organization=organization,
+            email="multi@example.com",
+            created_by=organization.owner,
+        )
+        entry2 = Blacklist.objects.create(
+            organization=other_org,
+            email="multi@example.com",
+            created_by=organization.owner,
+        )
+
+        # Create user with matching email
+        user = django_user_model.objects.create_user(
+            username="multi_user",
+            email="multi@example.com",
+            password="pass",
+        )
+
+        # Both entries should be linked
+        entry1.refresh_from_db()
+        entry2.refresh_from_db()
+        assert entry1.user == user
+        assert entry2.user == user
+
+    def test_does_not_relink_already_linked_entry(
+        self, organization: t.Any, django_user_model: type[RevelUser]
+    ) -> None:
+        """Test that entries already linked to another user are not changed."""
+        from events.models import Blacklist
+
+        # Create first user
+        existing_user = django_user_model.objects.create_user(
+            username="existing",
+            email="existing@example.com",
+            password="pass",
+        )
+
+        # Create blacklist entry linked to existing user
+        entry = Blacklist.objects.create(
+            organization=organization,
+            user=existing_user,
+            email="shared@example.com",  # Different from user's email
+            created_by=organization.owner,
+        )
+
+        # Create new user with email matching the entry
+        django_user_model.objects.create_user(
+            username="new",
+            email="shared@example.com",
+            password="pass",
+        )
+
+        # Entry should still be linked to existing user, not new user
+        entry.refresh_from_db()
+        assert entry.user == existing_user
+
+    def test_no_error_when_no_matching_entries(self, django_user_model: type[RevelUser]) -> None:
+        """Test that user creation works fine when no blacklist entries match."""
+        # Create user with unique email (no matching entries)
+        user = django_user_model.objects.create_user(
+            username="unique",
+            email="unique@example.com",
+            password="pass",
+        )
+
+        # Should succeed without error
+        assert user.pk is not None
+
+
+class TestBlacklistUserLinkedSignal:
+    """Test that blacklisted users are removed from staff and banned from the organization.
+
+    The signal `handle_blacklist_user_linked` fires when a Blacklist entry is created
+    or updated with a user FK. It removes the user from staff and sets their
+    membership status to BANNED.
+    """
+
+    def test_removes_user_from_staff_when_blacklisted(
+        self, organization: t.Any, django_user_model: type[RevelUser]
+    ) -> None:
+        """Test that a staff member is removed from staff when blacklisted."""
+        from events.models import Blacklist, OrganizationStaff
+
+        # Create a staff member
+        staff_user = django_user_model.objects.create_user(
+            username="staff_to_ban",
+            email="staff_ban@example.com",
+            password="pass",
+        )
+        OrganizationStaff.objects.create(organization=organization, user=staff_user)
+        assert OrganizationStaff.objects.filter(organization=organization, user=staff_user).exists()
+
+        # Blacklist the user
+        Blacklist.objects.create(
+            organization=organization,
+            user=staff_user,
+            reason="Staff member banned",
+            created_by=organization.owner,
+        )
+
+        # Staff membership should be removed
+        assert not OrganizationStaff.objects.filter(organization=organization, user=staff_user).exists()
+
+    def test_sets_membership_status_to_banned(self, organization: t.Any, django_user_model: type[RevelUser]) -> None:
+        """Test that an existing member's status is set to BANNED when blacklisted."""
+        from events.models import Blacklist, OrganizationMember
+
+        # Create a member
+        member_user = django_user_model.objects.create_user(
+            username="member_to_ban",
+            email="member_ban@example.com",
+            password="pass",
+        )
+        membership = OrganizationMember.objects.create(
+            organization=organization,
+            user=member_user,
+            status=OrganizationMember.MembershipStatus.ACTIVE,
+        )
+        assert membership.status == OrganizationMember.MembershipStatus.ACTIVE
+
+        # Blacklist the user
+        Blacklist.objects.create(
+            organization=organization,
+            user=member_user,
+            reason="Member banned",
+            created_by=organization.owner,
+        )
+
+        # Membership status should be BANNED
+        membership.refresh_from_db()
+        assert membership.status == OrganizationMember.MembershipStatus.BANNED
+
+    def test_creates_banned_membership_if_not_exists(
+        self, organization: t.Any, django_user_model: type[RevelUser]
+    ) -> None:
+        """Test that a BANNED membership is created if user wasn't a member."""
+        from events.models import Blacklist, OrganizationMember
+
+        # Create a user who is NOT a member
+        non_member = django_user_model.objects.create_user(
+            username="non_member_to_ban",
+            email="non_member_ban@example.com",
+            password="pass",
+        )
+        assert not OrganizationMember.objects.filter(organization=organization, user=non_member).exists()
+
+        # Blacklist the user
+        Blacklist.objects.create(
+            organization=organization,
+            user=non_member,
+            reason="Non-member banned",
+            created_by=organization.owner,
+        )
+
+        # A BANNED membership should be created
+        membership = OrganizationMember.objects.get(organization=organization, user=non_member)
+        assert membership.status == OrganizationMember.MembershipStatus.BANNED
+
+    def test_owner_cannot_be_banned_from_own_org(self, organization: t.Any) -> None:
+        """Test that the organization owner cannot be banned from their own org."""
+        from events.models import Blacklist, OrganizationMember
+
+        owner = organization.owner
+
+        # Attempt to blacklist the owner
+        Blacklist.objects.create(
+            organization=organization,
+            user=owner,
+            reason="Trying to ban owner",
+            created_by=owner,
+        )
+
+        # Owner should NOT have a BANNED membership created
+        assert not OrganizationMember.objects.filter(
+            organization=organization,
+            user=owner,
+            status=OrganizationMember.MembershipStatus.BANNED,
+        ).exists()
+
+    def test_auto_linking_triggers_ban(self, organization: t.Any, django_user_model: type[RevelUser]) -> None:
+        """Test that auto-linking a blacklist entry also triggers the ban."""
+        from events.models import Blacklist, OrganizationMember
+
+        # Create blacklist entry WITHOUT user FK first
+        entry = Blacklist.objects.create(
+            organization=organization,
+            email="future_user@example.com",
+            reason="Blacklisted before registration",
+            created_by=organization.owner,
+        )
+        assert entry.user is None
+
+        # Create user with matching email - signal will auto-link
+        new_user = django_user_model.objects.create_user(
+            username="future_user",
+            email="future_user@example.com",
+            password="pass",
+        )
+
+        # Entry should be linked
+        entry.refresh_from_db()
+        assert entry.user == new_user
+
+        # User should have BANNED membership
+        membership = OrganizationMember.objects.get(organization=organization, user=new_user)
+        assert membership.status == OrganizationMember.MembershipStatus.BANNED
+
+    def test_blacklist_without_user_does_nothing(self, organization: t.Any) -> None:
+        """Test that blacklist entries without user FK don't trigger banning."""
+        from events.models import Blacklist, OrganizationMember
+
+        initial_member_count = OrganizationMember.objects.filter(organization=organization).count()
+
+        # Create blacklist entry without user FK
+        Blacklist.objects.create(
+            organization=organization,
+            email="unknown@example.com",
+            first_name="Unknown",
+            last_name="Person",
+            reason="Manual entry",
+            created_by=organization.owner,
+        )
+
+        # No new memberships should be created
+        assert OrganizationMember.objects.filter(organization=organization).count() == initial_member_count

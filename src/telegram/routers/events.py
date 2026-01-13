@@ -14,8 +14,9 @@ from events.models import (
     EventInvitationRequest,
     EventWaitList,
     Organization,
+    WhitelistRequest,
 )
-from events.service import event_service, organization_service
+from events.service import event_service, organization_service, whitelist_service
 from events.service.event_manager import EventManager, NextStep, UserIsIneligibleError
 from telegram.keyboards import get_event_eligible_keyboard
 from telegram.middleware import AuthorizationMiddleware
@@ -223,5 +224,57 @@ async def cb_handle_invitation_request_reject(callback: CallbackQuery, user: Rev
     except Exception as e:
         logger.exception(
             "failed_to_reject_invitation_request", request_id=str(request_id), user_id=str(user.id), error=str(e)
+        )
+        await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("whitelist_request_approve:"), flags={"requires_linked_user": True})
+async def cb_handle_whitelist_request_approve(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+    """Handles approving a whitelist request (organizer action)."""
+    assert callback.data is not None
+    assert isinstance(callback.message, Message)
+    _, request_id_str = callback.data.split(":")
+    request_id = uuid.UUID(request_id_str)
+
+    try:
+        request = await WhitelistRequest.objects.select_related("organization", "user").aget(pk=request_id)
+        await sync_to_async(whitelist_service.approve_whitelist_request)(request, decided_by=user)
+        await callback.message.edit_text(
+            f"✅ Whitelist request from <b>{request.user.get_display_name()}</b> "
+            f"for <b>{request.organization.name}</b> has been <b>approved</b>.",
+            reply_markup=None,
+            parse_mode="HTML",
+        )
+    except WhitelistRequest.DoesNotExist:
+        await callback.answer("❌ Whitelist request not found.", show_alert=True)
+    except Exception as e:
+        logger.exception(
+            "failed_to_approve_whitelist_request", request_id=str(request_id), user_id=str(user.id), error=str(e)
+        )
+        await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("whitelist_request_reject:"), flags={"requires_linked_user": True})
+async def cb_handle_whitelist_request_reject(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+    """Handles rejecting a whitelist request (organizer action)."""
+    assert callback.data is not None
+    assert isinstance(callback.message, Message)
+    _, request_id_str = callback.data.split(":")
+    request_id = uuid.UUID(request_id_str)
+
+    try:
+        request = await WhitelistRequest.objects.select_related("organization", "user").aget(pk=request_id)
+        await sync_to_async(whitelist_service.reject_whitelist_request)(request, decided_by=user)
+        await callback.message.edit_text(
+            f"❌ Whitelist request from <b>{request.user.get_display_name()}</b> "
+            f"for <b>{request.organization.name}</b> has been <b>rejected</b>.",
+            reply_markup=None,
+            parse_mode="HTML",
+        )
+    except WhitelistRequest.DoesNotExist:
+        await callback.answer("❌ Whitelist request not found.", show_alert=True)
+    except Exception as e:
+        logger.exception(
+            "failed_to_reject_whitelist_request", request_id=str(request_id), user_id=str(user.id), error=str(e)
         )
         await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)

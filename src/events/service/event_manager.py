@@ -14,12 +14,14 @@ from pydantic import BaseModel
 from accounts.models import RevelUser
 from events import models
 from events.models import (
+    Blacklist,
     EventInvitationRequest,
     EventRSVP,
     OrganizationMember,
     OrganizationQuestionnaire,
     Ticket,
     TicketTier,
+    WhitelistRequest,
 )
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
@@ -39,6 +41,8 @@ class NextStep(StrEnum):
     PURCHASE_TICKET = "purchase_ticket"
     RSVP = "rsvp"
     UPGRADE_MEMBERSHIP = "upgrade_membership"
+    REQUEST_WHITELIST = "request_whitelist"
+    WAIT_FOR_WHITELIST_APPROVAL = "wait_for_whitelist_approval"
 
 
 class Reasons(StrEnum):
@@ -63,6 +67,10 @@ class Reasons(StrEnum):
     APPLICATION_DEADLINE_PASSED = "The application deadline has passed."
     NO_TICKETS_ON_SALE = "Tickets are not currently on sale."
     MEMBERSHIP_TIER_REQUIRED = "This ticket tier requires a specific membership tier."
+    BLACKLISTED = "You are not allowed to participate in this organization's events."
+    VERIFICATION_REQUIRED = "Additional verification required."
+    WHITELIST_PENDING = "Your verification request is pending approval."
+    WHITELIST_REJECTED = "Your verification request was rejected."
 
 
 class EventUserEligibility(BaseModel):
@@ -580,6 +588,64 @@ class TicketSalesGate(BaseEligibilityGate):
         )
 
 
+class BlacklistGate(BaseEligibilityGate):
+    """Gate: Checks if user is blacklisted or fuzzy-matches a blacklist entry.
+
+    This gate checks two levels of blocking:
+    1. Hard block - user is definitively blacklisted (FK match or hard identifier match)
+    2. Soft block - user's name fuzzy-matches a blacklist entry (requires verification)
+    """
+
+    def check(self) -> EventUserEligibility | None:
+        """Check blacklist status."""
+        # 1. Hard match - complete block, no recourse
+        if self.handler.is_hard_blacklisted:
+            return EventUserEligibility(
+                allowed=False,
+                event_id=self.event.id,
+                reason=_(Reasons.BLACKLISTED),
+                next_step=None,
+            )
+
+        # 2. Active members bypass fuzzy matching (trusted users don't need verification)
+        if self.handler.membership_status_map.get(self.user.id) == OrganizationMember.MembershipStatus.ACTIVE:
+            return None
+
+        # 3. No fuzzy matches - pass through
+        if not self.handler.fuzzy_matched_blacklist_entries:
+            return None
+
+        # 4. Already whitelisted - pass through
+        if self.handler.is_whitelisted:
+            return None
+
+        # 5. Check whitelist request status
+        whitelist_request = self.handler.whitelist_request
+        if whitelist_request:
+            if whitelist_request.status == WhitelistRequest.Status.PENDING:
+                return EventUserEligibility(
+                    allowed=False,
+                    event_id=self.event.id,
+                    reason=_(Reasons.WHITELIST_PENDING),
+                    next_step=NextStep.WAIT_FOR_WHITELIST_APPROVAL,
+                )
+            if whitelist_request.status == WhitelistRequest.Status.REJECTED:
+                return EventUserEligibility(
+                    allowed=False,
+                    event_id=self.event.id,
+                    reason=_(Reasons.WHITELIST_REJECTED),
+                    next_step=None,
+                )
+
+        # 6. No request yet - prompt user to request whitelist
+        return EventUserEligibility(
+            allowed=False,
+            event_id=self.event.id,
+            reason=_(Reasons.VERIFICATION_REQUIRED),
+            next_step=NextStep.REQUEST_WHITELIST,
+        )
+
+
 class EligibilityService:
     """The Eligibility Service Class.
 
@@ -589,6 +655,7 @@ class EligibilityService:
 
     ELIGIBILITY_GATES = [
         PrivilegedAccessGate,
+        BlacklistGate,  # Check blacklist early, but after privileged access
         EventStatusGate,
         RSVPDeadlineGate,
         ApplyDeadlineGate,
@@ -683,6 +750,9 @@ class EligibilityService:
         for sub in self.user.questionnaire_submissions.all():
             self.submission_map[sub.questionnaire_id].append(sub)
 
+        # Blacklist/whitelist data for BlacklistGate
+        self._setup_blacklist_data(user)
+
         self._gates = [gate(self) for gate in self.ELIGIBILITY_GATES]  # type: ignore[abstract]
 
     def check_eligibility(self, bypass: bool = False) -> EventUserEligibility:
@@ -713,6 +783,48 @@ class EligibilityService:
     def waives_purchase(self) -> bool:
         """Overrides purchase requirement - grants complimentary access."""
         return getattr(self.invitation, "waives_purchase", False)
+
+    def _setup_blacklist_data(self, user: RevelUser) -> None:
+        """Set up blacklist/whitelist data for BlacklistGate.
+
+        This method performs the necessary database queries to check blacklist status.
+        While we prefer zero-query checks, blacklist checking requires some queries
+        that cannot be efficiently prefetched in the main event query.
+        """
+        from events.service.blacklist_service import (
+            check_user_hard_blacklisted,
+            get_fuzzy_blacklist_matches,
+        )
+        from events.service.whitelist_service import (
+            get_whitelist_request,
+            is_user_whitelisted,
+        )
+
+        org = self.event.organization
+
+        # Check hard blacklist (FK match or hard identifier match)
+        self.is_hard_blacklisted = check_user_hard_blacklisted(user, org)
+
+        # If hard blacklisted, no need to check fuzzy matches
+        if self.is_hard_blacklisted:
+            self.fuzzy_matched_blacklist_entries: list[Blacklist] = []
+            self.is_whitelisted = False
+            self.whitelist_request: WhitelistRequest | None = None
+            return
+
+        # Check fuzzy matches (name-based)
+        fuzzy_matches = get_fuzzy_blacklist_matches(user, org)
+        self.fuzzy_matched_blacklist_entries = [entry for entry, _score in fuzzy_matches]
+
+        # If no fuzzy matches, no need to check whitelist
+        if not self.fuzzy_matched_blacklist_entries:
+            self.is_whitelisted = False
+            self.whitelist_request = None
+            return
+
+        # Check whitelist status
+        self.is_whitelisted = is_user_whitelisted(user, org)
+        self.whitelist_request = get_whitelist_request(user, org) if not self.is_whitelisted else None
 
 
 class EventManager:

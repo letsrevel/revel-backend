@@ -20,6 +20,7 @@ from events.models import (
     OrganizationMembershipRequest,
     Ticket,
     TicketTier,
+    WhitelistRequest,
 )
 from questionnaires.models import QuestionnaireEvaluation
 
@@ -355,3 +356,35 @@ class MembershipFilterSchema(FilterSchema):
 
     status: OrganizationMember.MembershipStatus | None = None
     tier_id: UUID | None = None
+
+
+class BlacklistFilterSchema(FilterSchema):
+    """Filter schema for blacklist entries."""
+
+    has_user: bool | None = Field(None, description="Filter by whether entry is linked to a user")
+    has_email: bool | None = Field(None, description="Filter by whether entry has an email")
+    has_telegram: bool | None = Field(None, description="Filter by whether entry has telegram username")
+
+    def filter_has_user(self, has_user: bool | None) -> Q:
+        """Filter by whether entry is linked to a user."""
+        if has_user is None:
+            return Q()
+        return Q(user__isnull=not has_user)
+
+    def filter_has_email(self, has_email: bool | None) -> Q:
+        """Filter by whether entry has an email address."""
+        if has_email is None:
+            return Q()
+        return Q(email__isnull=not has_email)
+
+    def filter_has_telegram(self, has_telegram: bool | None) -> Q:
+        """Filter by whether entry has a telegram username."""
+        if has_telegram is None:
+            return Q()
+        return Q(telegram_username__isnull=not has_telegram)
+
+
+class WhitelistRequestFilterSchema(FilterSchema):
+    """Filter schema for whitelist requests."""
+
+    status: WhitelistRequest.Status | None = None

@@ -872,3 +872,148 @@ class AttendeeVisibilityFlagAdmin(ModelAdmin):  # type: ignore[misc]
     def event_link(self, obj: models.AttendeeVisibilityFlag) -> str:
         url = reverse("admin:events_event_change", args=[obj.event.id])
         return format_html('<a href="{}">{}</a>', url, obj.event.name)
+
+
+# --- Blacklist/Whitelist Admins ---
+
+
+@admin.register(models.Blacklist)
+class BlacklistAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+    """Admin for Blacklist model."""
+
+    list_display = [
+        "__str__",
+        "organization_link",
+        "user_link",
+        "email",
+        "telegram_username",
+        "name_display",
+        "created_by_link",
+        "created_at",
+    ]
+    list_filter = ["organization__name", "created_at"]
+    search_fields = [
+        "email",
+        "telegram_username",
+        "phone_number",
+        "first_name",
+        "last_name",
+        "preferred_name",
+        "user__username",
+        "user__email",
+    ]
+    autocomplete_fields = ["organization", "user", "created_by"]
+    readonly_fields = ["created_at", "updated_at"]
+    date_hierarchy = "created_at"
+    fieldsets = [
+        (None, {"fields": ["organization", "user", "reason", "created_by"]}),
+        ("Hard Identifiers", {"fields": ["email", "telegram_username", "phone_number"]}),
+        ("Name Fields (for fuzzy matching)", {"fields": ["first_name", "last_name", "preferred_name"]}),
+        ("Metadata", {"fields": [("created_at", "updated_at")]}),
+    ]
+
+    @admin.display(description="User")
+    def user_link(self, obj: models.Blacklist) -> str | None:
+        if not obj.user:
+            return "—"
+        url = reverse("admin:accounts_reveluser_change", args=[obj.user.id])
+        return format_html('<a href="{}">{}</a>', url, obj.user.username)
+
+    @admin.display(description="Created By")
+    def created_by_link(self, obj: models.Blacklist) -> str | None:
+        if not obj.created_by:
+            return "—"
+        url = reverse("admin:accounts_reveluser_change", args=[obj.created_by.id])
+        return format_html('<a href="{}">{}</a>', url, obj.created_by.username)
+
+    @admin.display(description="Name")
+    def name_display(self, obj: models.Blacklist) -> str:
+        parts = filter(None, [obj.first_name, obj.last_name])
+        name = " ".join(parts)
+        if obj.preferred_name:
+            name = f"{name} ({obj.preferred_name})" if name else obj.preferred_name
+        return name or "—"
+
+
+@admin.register(models.WhitelistRequest)
+class WhitelistRequestAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
+    """Admin for WhitelistRequest model."""
+
+    list_display = [
+        "__str__",
+        "user_link",
+        "organization_link",
+        "status_display",
+        "matched_count",
+        "decided_by_link",
+        "created_at",
+    ]
+    list_filter = ["status", "organization__name", "created_at"]
+    search_fields = ["user__username", "user__email", "organization__name", "message"]
+    autocomplete_fields = ["organization", "user", "decided_by"]
+    readonly_fields = ["created_at", "updated_at", "decided_at"]
+    filter_horizontal = ["matched_blacklist_entries"]
+    date_hierarchy = "created_at"
+    fieldsets = [
+        (None, {"fields": ["organization", "user", "message"]}),
+        ("Status", {"fields": ["status", "decided_by", "decided_at"]}),
+        ("Matched Entries", {"fields": ["matched_blacklist_entries"]}),
+        ("Metadata", {"fields": [("created_at", "updated_at")]}),
+    ]
+
+    @admin.display(description="Status")
+    def status_display(self, obj: models.WhitelistRequest) -> str:
+        colors = {
+            models.WhitelistRequest.Status.PENDING: "orange",
+            models.WhitelistRequest.Status.APPROVED: "green",
+            models.WhitelistRequest.Status.REJECTED: "red",
+        }
+        color = colors.get(obj.status, "gray")  # type: ignore[call-overload]
+        return mark_safe(f'<span style="color: {color};">{obj.get_status_display()}</span>')
+
+    @admin.display(description="Matched")
+    def matched_count(self, obj: models.WhitelistRequest) -> int:
+        return obj.matched_blacklist_entries.count()
+
+    @admin.display(description="Decided By")
+    def decided_by_link(self, obj: models.WhitelistRequest) -> str | None:
+        if not obj.decided_by:
+            return "—"
+        url = reverse("admin:accounts_reveluser_change", args=[obj.decided_by.id])
+        return format_html('<a href="{}">{}</a>', url, obj.decided_by.username)
+
+
+@admin.register(models.Whitelist)
+class WhitelistAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  # type: ignore[misc]
+    """Admin for Whitelist model."""
+
+    list_display = [
+        "__str__",
+        "user_link",
+        "organization_link",
+        "matched_count",
+        "approved_by_link",
+        "created_at",
+    ]
+    list_filter = ["organization__name", "created_at"]
+    search_fields = ["user__username", "user__email", "organization__name"]
+    autocomplete_fields = ["organization", "user", "approved_by"]
+    readonly_fields = ["created_at", "updated_at"]
+    filter_horizontal = ["matched_blacklist_entries"]
+    date_hierarchy = "created_at"
+    fieldsets = [
+        (None, {"fields": ["organization", "user", "approved_by"]}),
+        ("Matched Entries", {"fields": ["matched_blacklist_entries"]}),
+        ("Metadata", {"fields": [("created_at", "updated_at")]}),
+    ]
+
+    @admin.display(description="Matched")
+    def matched_count(self, obj: models.Whitelist) -> int:
+        return obj.matched_blacklist_entries.count()
+
+    @admin.display(description="Approved By")
+    def approved_by_link(self, obj: models.Whitelist) -> str | None:
+        if not obj.approved_by:
+            return "—"
+        url = reverse("admin:accounts_reveluser_change", args=[obj.approved_by.id])
+        return format_html('<a href="{}">{}</a>', url, obj.approved_by.username)

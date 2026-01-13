@@ -25,4 +25,5 @@ class NotificationsConfig(AppConfig):
         import notifications.service.templates.system_templates  # noqa: F401
         import notifications.service.templates.ticket_templates  # noqa: F401
         import notifications.service.templates.waitlist_templates  # noqa: F401
+        import notifications.service.templates.whitelist_templates  # noqa: F401
         import notifications.signals  # noqa: F401

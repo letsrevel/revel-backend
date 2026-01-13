@@ -79,11 +79,18 @@ class EventQuerySet(models.QuerySet["Event"]):
                 | is_allowed_special
             )
 
-        # --- Get banned organization IDs ---
-        # Users banned from an organization cannot see its events, even if public
+        # --- Get banned and blacklisted organization IDs ---
+        # Users banned/blacklisted from an organization cannot see its events, even if public
+        from events.service.blacklist_service import get_hard_blacklisted_org_ids
+
         banned_org_ids = OrganizationMember.objects.filter(
             user=user, status=OrganizationMember.MembershipStatus.BANNED
         ).values_list("organization_id", flat=True)
+
+        blacklisted_org_ids = get_hard_blacklisted_org_ids(user)
+
+        # Combine banned and blacklisted org IDs
+        excluded_org_ids = set(banned_org_ids) | set(blacklisted_org_ids)
 
         # --- Subquery Strategy ---
         # 1. Get IDs of all non-public events this user has a specific relationship with.
@@ -114,7 +121,7 @@ class EventQuerySet(models.QuerySet["Event"]):
 
         # 2. Build the final query
         is_owner_or_staff = Q(organization__owner=user) | Q(organization__staff_members=user)
-        is_public = Q(visibility=Event.Visibility.PUBLIC) & ~Q(organization_id__in=banned_org_ids)
+        is_public = Q(visibility=Event.Visibility.PUBLIC) & ~Q(organization_id__in=excluded_org_ids)
         is_allowed_non_public = Q(id__in=list(allowed_non_public_ids))
 
         # Users see events if they are public (and not banned), if they are staff/owner,

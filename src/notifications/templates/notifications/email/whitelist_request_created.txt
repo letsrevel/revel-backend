@@ -1,0 +1,19 @@
+{% load i18n %}{% trans "New Verification Request" %}
+
+{% blocktranslate with name=context.requester_name org=context.organization_name %}{{ name }} has requested verification for {{ org }}.{% endblocktranslate %}
+
+{% trans "Request Details:" %}
+{% trans "Name:" %} {{ context.requester_name }}
+{% trans "Email:" %} {{ context.requester_email }}
+{% trans "Matched Entries:" %} {{ context.matched_entries_count }}
+{% if context.request_message %}
+{% trans "Message:" %}
+{{ context.request_message }}
+{% endif %}
+
+{% trans "Review this request:" %}
+{{ context.frontend_url }}
+
+{% trans "This user matched entries in your blacklist and is requesting verification to access your organization." %}
+
+{% include "notifications/email/_footer.txt" %}

@@ -66,20 +66,26 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         if user.is_anonymous:
             return self.filter(Q(visibility=Organization.Visibility.PUBLIC) | is_allowed_special)
 
-        # --- Check if user is banned from any organization ---
-        # If a user is banned from an organization, they cannot see it at all, even if it's public
+        # --- Check if user is banned or blacklisted from any organization ---
+        # If a user is banned/blacklisted, they cannot see the organization at all, even if it's public
+        from events.service.blacklist_service import get_hard_blacklisted_org_ids
 
         banned_org_ids = OrganizationMember.objects.filter(
             user=user, status=OrganizationMember.MembershipStatus.BANNED
         ).values_list("organization_id", flat=True)
 
+        blacklisted_org_ids = get_hard_blacklisted_org_ids(user)
+
+        # Combine banned and blacklisted org IDs
+        excluded_org_ids = set(banned_org_ids) | set(blacklisted_org_ids)
+
         # --- "Gather-then-filter" strategy for standard users ---
 
         # 1. Gather IDs from all distinct sources of visibility.
 
-        # A) Publicly visible organizations (exclude banned)
+        # A) Publicly visible organizations (exclude banned/blacklisted)
         public_orgs_qs = (
-            self.filter(visibility=Organization.Visibility.PUBLIC).exclude(id__in=banned_org_ids).values("id")
+            self.filter(visibility=Organization.Visibility.PUBLIC).exclude(id__in=excluded_org_ids).values("id")
         )
 
         # B) Organizations the user owns

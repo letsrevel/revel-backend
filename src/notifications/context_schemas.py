@@ -358,6 +358,36 @@ class WaitlistSpotAvailableContext(BaseNotificationContext):
     spots_available: int
 
 
+# ===== Whitelist Contexts =====
+
+
+class WhitelistRequestCreatedContext(BaseNotificationContext):
+    """Context for WHITELIST_REQUEST_CREATED notification (to organizers)."""
+
+    request_id: str
+    organization_id: str
+    organization_name: str
+    requester_id: str
+    requester_name: str
+    requester_email: str
+    request_message: t.NotRequired[str]
+    matched_entries_count: int
+
+
+class WhitelistRequestApprovedContext(BaseNotificationContext):
+    """Context for WHITELIST_REQUEST_APPROVED notification (to user)."""
+
+    organization_id: str
+    organization_name: str
+
+
+class WhitelistRequestRejectedContext(BaseNotificationContext):
+    """Context for WHITELIST_REQUEST_REJECTED notification (to user)."""
+
+    organization_id: str
+    organization_name: str
+
+
 # Context type registry
 NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContext]] = {
     NotificationType.TICKET_CREATED: TicketCreatedContext,
@@ -390,6 +420,9 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,
     NotificationType.WAITLIST_SPOT_AVAILABLE: WaitlistSpotAvailableContext,
+    NotificationType.WHITELIST_REQUEST_CREATED: WhitelistRequestCreatedContext,
+    NotificationType.WHITELIST_REQUEST_APPROVED: WhitelistRequestApprovedContext,
+    NotificationType.WHITELIST_REQUEST_REJECTED: WhitelistRequestRejectedContext,
 }
 
 

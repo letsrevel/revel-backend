@@ -1,0 +1,9 @@
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
+
+{% trans "Verification Approved" %}
+
+{% blocktranslate with org=context.organization_name %}Your verification request for {{ org }} has been approved. You now have full access to view and participate in their events.{% endblocktranslate %}
+
+{% trans "View organization:" %} {{ context.frontend_url }}
+
+{% include "notifications/email/_footer.txt" %}
