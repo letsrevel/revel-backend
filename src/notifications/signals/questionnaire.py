@@ -3,6 +3,7 @@
 import typing as t
 
 import structlog
+from django.db import transaction
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
@@ -76,21 +77,26 @@ def handle_questionnaire_submission(
         context["event_id"] = source_event["event_id"]
         context["event_name"] = source_event["event_name"]
 
-    # Send notification to all eligible users
-    for staff_user in staff_and_owners:
-        notification_requested.send(
-            sender=sender,
-            user=staff_user,
-            notification_type=NotificationType.QUESTIONNAIRE_SUBMITTED,
-            context=context,
+    # Convert to list before on_commit closure (queryset would be re-evaluated otherwise)
+    staff_list = list(staff_and_owners)
+
+    def send_notifications() -> None:
+        for staff_user in staff_list:
+            notification_requested.send(
+                sender=sender,
+                user=staff_user,
+                notification_type=NotificationType.QUESTIONNAIRE_SUBMITTED,
+                context=context,
+            )
+
+        logger.info(
+            "questionnaire_submission_notifications_sent",
+            submission_id=str(instance.id),
+            organization_id=str(organization_id),
+            recipients_count=len(staff_list),
         )
 
-    logger.info(
-        "questionnaire_submission_notifications_sent",
-        submission_id=str(instance.id),
-        organization_id=str(organization_id),
-        recipients_count=len(list(staff_and_owners)),
-    )
+    transaction.on_commit(send_notifications)
 
 
 @receiver(pre_save, sender=QuestionnaireEvaluation)
@@ -181,18 +187,27 @@ def handle_questionnaire_evaluation(
             context["event_name"] = first_event.name
             context["event_url"] = f"{frontend_base_url}/events/{first_event.id}"
 
-    # Send notification to the submitter
-    notification_requested.send(
-        sender=sender,
-        user=instance.submission.user,
-        notification_type=NotificationType.QUESTIONNAIRE_EVALUATION_RESULT,
-        context=context,
-    )
+    # Cache values for on_commit closure
+    submission_user = instance.submission.user
+    evaluation_id = str(instance.id)
+    submission_id = str(instance.submission_id)
+    status = instance.status
+    user_id = str(instance.submission.user_id)
 
-    logger.info(
-        "questionnaire_evaluation_notification_sent",
-        evaluation_id=str(instance.id),
-        submission_id=str(instance.submission_id),
-        status=instance.status,
-        user_id=str(instance.submission.user_id),
-    )
+    def send_notification() -> None:
+        notification_requested.send(
+            sender=sender,
+            user=submission_user,
+            notification_type=NotificationType.QUESTIONNAIRE_EVALUATION_RESULT,
+            context=context,
+        )
+
+        logger.info(
+            "questionnaire_evaluation_notification_sent",
+            evaluation_id=evaluation_id,
+            submission_id=submission_id,
+            status=status,
+            user_id=user_id,
+        )
+
+    transaction.on_commit(send_notification)
