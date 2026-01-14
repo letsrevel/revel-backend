@@ -17,9 +17,8 @@ from .models import FileUploadAudit
 def strip_exif(image_file: File) -> InMemoryUploadedFile:  # type: ignore[type-arg]
     """Strip EXIF data from a Django File or InMemoryUploadedFile."""
     image = Image.open(image_file)
-    data = list(image.getdata())
-    image_no_exif = Image.new(image.mode, image.size)
-    image_no_exif.putdata(data)
+    # Create a new image from raw pixel data to strip EXIF metadata
+    image_no_exif = Image.frombytes(image.mode, image.size, image.tobytes())
 
     output = BytesIO()
     _format = image.format or "JPEG"
@@ -53,10 +52,7 @@ def assert_image_equal(actual_bytes: bytes, expected_bytes: bytes) -> None:
 
     assert img1.size == img2.size, f"Image size mismatch: {img1.size} vs {img2.size}"
 
-    pixels1 = list(img1.getdata())
-    pixels2 = list(img2.getdata())
-
-    assert pixels1 == pixels2, "Image pixel data mismatch"
+    assert img1.tobytes() == img2.tobytes(), "Image pixel data mismatch"
 
 
 T = t.TypeVar("T", bound=models.Model)

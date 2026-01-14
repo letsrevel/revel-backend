@@ -56,7 +56,6 @@ def chat() -> Chat:
 
 
 @pytest_asyncio.fixture
-@pytest.mark.django_db
 async def django_user(aiogram_user: AiogramUser) -> t.AsyncIterator[RevelUser]:
     """Fixture for a standard Django user linked to a Telegram user."""
     user, _ = await RevelUser.objects.aget_or_create(
@@ -68,7 +67,6 @@ async def django_user(aiogram_user: AiogramUser) -> t.AsyncIterator[RevelUser]:
 
 
 @pytest_asyncio.fixture
-@pytest.mark.django_db
 async def django_superuser(aiogram_superuser: AiogramUser) -> t.AsyncIterator[RevelUser]:
     """Fixture for a Django superuser linked to a Telegram superuser."""
     user, _ = await RevelUser.objects.aget_or_create(
@@ -80,7 +78,6 @@ async def django_superuser(aiogram_superuser: AiogramUser) -> t.AsyncIterator[Re
 
 
 @pytest_asyncio.fixture
-@pytest.mark.django_db
 async def django_inactive_user(aiogram_user: AiogramUser) -> t.AsyncIterator[RevelUser]:
     """Fixture for a Django inactive user linked to a Telegram user."""
     inactive_user = await RevelUser.objects.acreate(username="inactive", is_active=False, password="<PASSWORD>")
@@ -90,7 +87,6 @@ async def django_inactive_user(aiogram_user: AiogramUser) -> t.AsyncIterator[Rev
 
 
 @pytest_asyncio.fixture
-@pytest.mark.django_db
 async def organization(django_superuser: RevelUser) -> t.AsyncIterator[Organization]:
     """Fixture for an Event organizer."""
     org = await Organization.objects.acreate(name="Test Organization", slug="test-org", owner=django_superuser)
@@ -109,7 +105,6 @@ async def private_event(organization: Organization) -> t.AsyncIterator[Event]:
 
 
 @pytest_asyncio.fixture
-@pytest.mark.django_db
 async def event_invitation(django_user: RevelUser, private_event: Event) -> t.AsyncIterator[EventInvitation]:
     """Fixture for a Django event invitation linked to a Telegram user."""
     invitation = await EventInvitation.objects.acreate(event=private_event, user=django_user)
