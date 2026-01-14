@@ -354,7 +354,7 @@ def capture_ticket_old_status(sender: type[Ticket], instance: Ticket, **kwargs: 
             if old_instance.status != instance.status:
                 instance._old_status = old_instance.status  # type: ignore[attr-defined]
         except Ticket.DoesNotExist:
-            pass
+            logger.debug("ticket_not_found_for_old_status", pk=instance.pk)
 
 
 @receiver(post_save, sender=Ticket)

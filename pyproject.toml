@@ -179,6 +179,7 @@ unfixable = []
 "**/migrations/*.py" = ["D"]
 "**/tests/*.py" = ["D"]
 "**/admin.py" = ["D102"]
+"**/admin/*.py" = ["D102"]
 "conftest.py" = ["D"]
 
 [tool.ruff.lint.mccabe]
@@ -292,6 +293,7 @@ omit = [
     "src/revel/settings.py",
     "src/revel/admin_dashboard.py",
     "src/*/admin.py",
+    "src/*/admin/**",
     "src/*/management/**",
     "src/*/migrations/**",
     "src/playground.py",

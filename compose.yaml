@@ -1,0 +1,44 @@
+# Docker Compose for local development
+# Includes all services needed for development plus Mailpit for email testing
+#
+# Usage: docker compose up -d
+# Mailpit UI: http://localhost:8025
+
+services:
+  redis:
+    extends:
+      service: redis
+      file: docker-compose-base.yml
+
+  postgres:
+    extends:
+      service: postgres
+      file: docker-compose-base.yml
+
+  clamav:
+    extends:
+      service: clamav
+      file: docker-compose-base.yml
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mailpit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"  # SMTP server
+      - "127.0.0.1:8025:8025"  # Web UI
+    environment:
+      - MP_SMTP_AUTH_ACCEPT_ANY=true
+      - MP_SMTP_AUTH_ALLOW_INSECURE=true
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8025/api/v1/info"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    mem_limit: 256m
+    cpus: 0.5
+
+volumes:
+  postgres_data:
+  clamav_defs:
+  redis_data:

@@ -119,7 +119,7 @@ def capture_rsvp_old_status(sender: type[EventRSVP], instance: EventRSVP, **kwar
             if old_instance.status != instance.status:
                 instance._old_status = old_instance.status  # type: ignore[attr-defined]
         except EventRSVP.DoesNotExist:
-            pass
+            logger.debug("rsvp_not_found_for_old_status", pk=instance.pk)
 
 
 @receiver(post_save, sender=EventRSVP)

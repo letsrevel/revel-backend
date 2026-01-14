@@ -160,7 +160,7 @@ def capture_ticket_count_before_save(sender: type[Ticket], instance: Ticket, **k
             if old_instance.status != instance.status:
                 instance._old_attendee_count = _calculate_attendee_count(instance.event)  # type: ignore[attr-defined]
         except Ticket.DoesNotExist:
-            pass
+            logger.debug("ticket_not_found_for_attendee_count", pk=instance.pk)
 
 
 @receiver(post_save, sender=Ticket)
@@ -228,7 +228,7 @@ def capture_rsvp_count_before_save(sender: type[EventRSVP], instance: EventRSVP,
                 instance._old_rsvp_status = old_instance.status  # type: ignore[attr-defined]
                 instance._old_attendee_count = _calculate_attendee_count(instance.event)  # type: ignore[attr-defined]
         except EventRSVP.DoesNotExist:
-            pass
+            logger.debug("rsvp_not_found_for_attendee_count", pk=instance.pk)
 
 
 @receiver(post_save, sender=EventRSVP)
