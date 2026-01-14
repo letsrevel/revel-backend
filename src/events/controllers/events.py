@@ -484,16 +484,16 @@ class EventController(UserAwareController):
 
     # ---- Event Detail Endpoints (catch-all routes must be last) ----
 
-    @route.get("/{org_slug}/{event_slug}", url_name="get_event_by_slug", response=schema.EventDetailSchema)
+    @route.get("/{org_slug}/event/{event_slug}", url_name="get_event_by_slug", response=schema.EventDetailSchema)
     def get_event_by_slugs(self, org_slug: str, event_slug: str) -> models.Event:
         """Retrieve event details using human-readable organization and event slugs.
 
-        Use this for clean URLs like /events/tech-meetup/monthly-session. Returns 404 if
+        Use this for clean URLs like /events/tech-meetup/event/monthly-session. Returns 404 if
         the event doesn't exist, or you don't have permission to view it.
         """
         return self.get_one_by_slugs(org_slug, event_slug)
 
-    @route.get("/{event_id}", url_name="get_event", response=schema.EventDetailSchema)
+    @route.get("/{uuid:event_id}", url_name="get_event", response=schema.EventDetailSchema)
     def get_event(self, event_id: UUID) -> models.Event:
         """Retrieve full event details by ID.
 

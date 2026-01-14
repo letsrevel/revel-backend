@@ -1,12 +1,13 @@
 # src/events/filters.py
 
+import typing as t
 from functools import reduce
 from uuid import UUID
 
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
-from ninja import Field, FilterSchema, Schema
+from ninja import Field, FilterLookup, FilterSchema, Schema
 from pydantic import AwareDatetime
 
 from events.models import (
@@ -34,7 +35,7 @@ class CalendarParamsSchema(Schema):
 
 
 class CityFilterMixin(FilterSchema):
-    country: str | None = Field(None, q="city__country")  # type: ignore[call-overload]
+    country: t.Annotated[str | None, FilterLookup(q="city__country")] = None
     city_id: int | None = None
 
 
@@ -49,10 +50,10 @@ class OrganizationFilterSchema(CityFilterMixin):
 
 
 class EventFilterSchema(CityFilterMixin):
-    organization: UUID | None = Field(None, q="organization_id")  # type: ignore[call-overload]
+    organization: t.Annotated[UUID | None, FilterLookup(q="organization_id")] = None
     event_type: Event.EventType | None = None
     visibility: Event.Visibility | None = None
-    event_series: UUID | None = Field(None, q="event_series_id")  # type: ignore[call-overload]
+    event_series: t.Annotated[UUID | None, FilterLookup(q="event_series_id")] = None
     next_events: bool | None = True
     past_events: bool | None = None
     status: Event.EventStatus | None = None
@@ -103,7 +104,7 @@ class EventFilterSchema(CityFilterMixin):
 
 
 class EventSeriesFilterSchema(FilterSchema):
-    organization: UUID | None = Field(None, q="organization_id")  # type: ignore[call-overload]
+    organization: t.Annotated[UUID | None, FilterLookup(q="organization_id")] = None
     tags: list[str] | None = None
 
     def filter_tags(self, tags: list[str] | None) -> Q:
@@ -170,7 +171,7 @@ class TicketFilterSchema(FilterSchema):
     """Filter schema for tickets."""
 
     status: Ticket.TicketStatus | None = None
-    tier__payment_method: TicketTier.PaymentMethod | None = Field(None, q="tier__payment_method")  # type: ignore[call-overload]
+    tier__payment_method: t.Annotated[TicketTier.PaymentMethod | None, FilterLookup(q="tier__payment_method")] = None
     include_past: bool = False
 
     def filter_include_past(self, include_past: bool) -> Q:
@@ -307,9 +308,9 @@ class DashboardEventSeriesFiltersSchema(Schema):
 
 
 class QuestionnaireFilterSchema(FilterSchema):
-    organization_id: UUID | None = Field(None, q="organization__id")  # type: ignore[call-overload]
-    event_id: UUID | None = Field(None, q="events__id")  # type: ignore[call-overload]
-    event_series_id: UUID | None = Field(None, q="event_series__id")  # type: ignore[call-overload]
+    organization_id: t.Annotated[UUID | None, FilterLookup(q="organization__id")] = None
+    event_id: t.Annotated[UUID | None, FilterLookup(q="events__id")] = None
+    event_series_id: t.Annotated[UUID | None, FilterLookup(q="event_series__id")] = None
 
 
 class MembershipRequestFilterSchema(FilterSchema):

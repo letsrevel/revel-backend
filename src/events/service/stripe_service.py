@@ -121,7 +121,7 @@ def _create_stripe_checkout_session(
     # remove connected account parameters (no fee to ourselves)
     if settings.STRIPE_ACCOUNT == event.organization.stripe_account_id:
         session_data.pop("stripe_account")
-        session_data["payment_intent_data"].pop("application_fee_amount")  # type: ignore[union-attr]
+        session_data["payment_intent_data"].pop("application_fee_amount")  # type: ignore[union-attr, arg-type]
 
     try:
         return Session.create(**session_data)  # type: ignore[arg-type]
@@ -300,7 +300,7 @@ def create_batch_checkout_session(
     # remove connected account parameters
     if settings.STRIPE_ACCOUNT == event.organization.stripe_account_id:
         session_data.pop("stripe_account")
-        session_data["payment_intent_data"].pop("application_fee_amount")  # type: ignore[union-attr]
+        session_data["payment_intent_data"].pop("application_fee_amount")  # type: ignore[union-attr, arg-type]
 
     try:
         session = Session.create(**session_data)  # type: ignore[arg-type]

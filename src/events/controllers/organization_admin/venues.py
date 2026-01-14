@@ -278,7 +278,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         return venue_service.bulk_update_seats(sector, payload.seats)
 
     @route.put(
-        "/venues/{venue_id}/sectors/{sector_id}/seats/{label}",
+        "/venues/{venue_id}/sectors/{sector_id}/seats/by-label/{label}",
         url_name="update_venue_seat",
         response=schema.VenueSeatSchema,
         permissions=[OrganizationPermission("edit_organization")],
@@ -301,7 +301,7 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         return venue_service.update_seat(seat, payload, sector_shape=sector.shape)
 
     @route.delete(
-        "/venues/{venue_id}/sectors/{sector_id}/seats/{label}",
+        "/venues/{venue_id}/sectors/{sector_id}/seats/by-label/{label}",
         url_name="delete_venue_seat",
         response={204: None},
         permissions=[OrganizationPermission("edit_organization")],
