@@ -69,6 +69,9 @@ jobs:
       - name: Run mypy
         run: uv run mypy --strict --extra-checks --warn-unreachable --warn-unused-ignores src
 
+      - name: Check file length (max 1000 lines)
+        run: ./scripts/check-file-length.sh 1000
+
       - name: Spin up docker
         run: docker compose -f docker-compose-dev.yml up -d
 
