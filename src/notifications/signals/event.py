@@ -209,7 +209,7 @@ def capture_event_state(sender: type[Event], instance: Event, **kwargs: t.Any) -
                 "city_id": old_instance.city_id,
             }
         except Event.DoesNotExist:
-            pass
+            logger.debug("event_not_found_for_old_state", pk=instance.pk)
 
 
 @receiver(post_save, sender=Event)

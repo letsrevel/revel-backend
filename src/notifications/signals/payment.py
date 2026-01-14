@@ -25,7 +25,7 @@ def capture_payment_old_status(sender: type[Payment], instance: Payment, **kwarg
             if old_instance.status != instance.status:
                 instance._old_status = old_instance.status  # type: ignore[attr-defined]
         except Payment.DoesNotExist:
-            pass
+            logger.debug("payment_not_found_for_old_status", pk=instance.pk)
 
 
 @receiver(post_save, sender=Payment)

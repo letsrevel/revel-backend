@@ -110,7 +110,7 @@ def capture_evaluation_old_status(
             if old_instance.status != instance.status:
                 instance._old_status = old_instance.status  # type: ignore[attr-defined]
         except QuestionnaireEvaluation.DoesNotExist:
-            pass
+            logger.debug("evaluation_not_found_for_old_status", pk=instance.pk)
 
 
 @receiver(post_save, sender=QuestionnaireEvaluation)

@@ -3,8 +3,8 @@
 setup:
 	uv sync --group dev; \
 	cp .env.example .env; \
-	docker compose -f docker-compose-dev.yml down -v; \
-	docker compose -f docker-compose-dev.yml up -d; \
+	docker compose down -v; \
+	docker compose up -d; \
 	sleep 3; \
 	$(MAKE) bootstrap; \
 	$(MAKE) ENABLE_OBSERVABILITY=False run
@@ -114,10 +114,10 @@ run-stripe:
 .PHONY: restart
 restart:
 	@read -p "Are you sure you want to RESTART? This action will destroy the current database and recreate it from scratch. It cannot be undone. Type 'yes' to continue: " confirm && if [ "$$confirm" = "yes" ]; then \
-		docker compose -f docker-compose-dev.yml down; \
+		docker compose down; \
 		docker volume rm revel-backend_postgres_data; \
 		docker volume rm revel-backend_minio_data; \
-		docker compose -f docker-compose-dev.yml up -d; \
+		docker compose up -d; \
 		sleep 3; \
 		rm src/db.sqlite3; \
 		rm -rf src/**/migrations/0*.py; \
@@ -148,8 +148,8 @@ nuke-db:
 		uv run python src/manage.py makemigrations; \
 		mv src/geo/migrations/0002_load_cities.tmp src/geo/migrations/0002_load_cities.py; \
 		mv src/events/migrations/0002_add_cleanup_expired_payments_periodic_task.tmp src/events/migrations/0002_add_cleanup_expired_payments_periodic_task.py; \
-		docker compose -f docker-compose-dev.yml down; \
-		docker compose -f docker-compose-dev.yml up -d; \
+		docker compose down; \
+		docker compose up -d; \
 		sleep 3; \
 		uv run python src/manage.py migrate; \
 	else \

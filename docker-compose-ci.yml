@@ -1,5 +1,7 @@
-# Minimal Docker Compose for CI/CD testing
-# Only includes services required for running tests
+# Minimal Docker Compose for CI/CD pipeline
+# Only includes services required for running tests (no Mailpit)
+#
+# For local development, use: docker compose up -d (uses compose.yaml)
 
 services:
   redis:

@@ -153,6 +153,27 @@ Get a local development environment running in minutes. You'll need `make`, `Doc
     *   The API is running at `http://localhost:8000`
     *   Interactive API docs (Swagger UI) are at `http://localhost:8000/api/docs`
     *   A default superuser is created (`admin@letsrevel.io` / `password`).
+    *   **Mailpit** (email testing) is at `http://localhost:8025`
+
+---
+
+## 🐳 Docker Compose Files
+
+The project uses multiple Docker Compose files for different purposes:
+
+| File | Purpose | Usage |
+|------|---------|-------|
+| `compose.yaml` | **Local development** - includes Mailpit for email testing | `docker compose up -d` |
+| `docker-compose-ci.yml` | **CI/CD pipeline** - minimal services for testing | `docker compose -f docker-compose-ci.yml up -d` |
+| `docker-compose-base.yml` | **Shared services** - extended by other compose files | Not used directly |
+| `docker-compose-observability.yml` | **Observability stack** - Grafana, Prometheus, Loki, etc. | Optional for local dev |
+
+For local development, simply run:
+```bash
+docker compose up -d
+```
+
+This starts PostgreSQL, Redis, ClamAV, and **Mailpit**. All emails sent by the application are captured by Mailpit and viewable at [http://localhost:8025](http://localhost:8025).
 
 ---
 
@@ -166,6 +187,7 @@ Once you run `make setup` or start the Docker services, the following observabil
 
 | Service | Purpose | URL | Credentials |
 |---------|---------|-----|-------------|
+| **Mailpit** | Email testing - catches all outgoing emails | [http://localhost:8025](http://localhost:8025) | - |
 | **Grafana** | Unified dashboard for logs, traces, metrics, and profiles | [http://localhost:3000](http://localhost:3000) | admin / admin |
 | **Prometheus** | Metrics collection and querying | [http://localhost:9090](http://localhost:9090) | - |
 | **Pyroscope** | Continuous profiling with flamegraphs 🔥 | [http://localhost:4040](http://localhost:4040) | - |
