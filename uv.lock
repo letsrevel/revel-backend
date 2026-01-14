@@ -663,20 +663,20 @@ wheels = [
 
 [[package]]
 name = "django-ninja"
-version = "1.4.5"
+version = "1.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fa/9a/558489e0e25173772fbd826306b7d1777e80285b02d69e0e1aaec41e3eec/django_ninja-1.4.5.tar.gz", hash = "sha256:aa1a2ee2b22c5f1c2f4bfbc004386be7074cbfaf133680c2b359a31221965503", size = 3710511, upload-time = "2025-10-19T18:28:02.362Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/42/8e/10b4299aa37017bb026ae091b2192d05b3d4b78a9dc57d59c4f362551907/django_ninja-1.5.1.tar.gz", hash = "sha256:6acda68a64d60934c6fdccb4d97c3ac7f02cfefd78a5d87ae053effe081b17c7", size = 3719868, upload-time = "2025-12-04T11:35:46.615Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/49/e3/168274a8def4b9a2fb2540319a68914e8e4e529cd7f7b5f1ba8939d011bc/django_ninja-1.4.5-py3-none-any.whl", hash = "sha256:d779702ddc6e17b10739049ddb075a6a1e6c6270bdc04e0b0429f6adbf670373", size = 2426449, upload-time = "2025-10-19T18:28:00.518Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/fc/124c3f999fbc77680777ff331ac9552227d7a6753639ef66dbba780fc6b4/django_ninja-1.5.1-py3-none-any.whl", hash = "sha256:135aaa1117dce8dfd7a1e80b4487a8cccee3a4182c3c8b562d08ea94e4d2cbdf", size = 2426577, upload-time = "2025-12-04T11:35:44.656Z" },
 ]
 
 [[package]]
 name = "django-ninja-extra"
-version = "0.30.2"
+version = "0.30.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
@@ -685,23 +685,24 @@ dependencies = [
     { name = "django-ninja" },
     { name = "injector" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/45/b3/2c4b3761e993857e819b23ffafa010f571e61c295474f7212803b20a5104/django_ninja_extra-0.30.2.tar.gz", hash = "sha256:f47928e6be4cabd2e81e8aeba886e1a5de113701af1647dd8cec6a5cc3ccac6a", size = 56098, upload-time = "2025-10-20T15:20:05.668Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f9/f7/a089cbcb3a00a925d7da0b6e8230f92696f7dafca6c49e833a6617f9eb52/django_ninja_extra-0.30.8.tar.gz", hash = "sha256:f18089ed87067342f1641c01c023472834d3eae26a396389da1432f1ee0c270d", size = 61134, upload-time = "2025-12-18T11:52:57.88Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8c/42/f05f0b8c6c3f3f5a1309f96f4ea3adfb980daf0b4373ee5602779c56f46d/django_ninja_extra-0.30.2-py3-none-any.whl", hash = "sha256:4e39b31d5fc1357d2baae8a53bf32983202b1f19de4ae55249f5d80339cfb9c8", size = 75784, upload-time = "2025-10-20T15:20:04.551Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/ed/98d84f78246abfc33b48db479b00649cfc5d779ab5e931cbc5a66fa470fd/django_ninja_extra-0.30.8-py3-none-any.whl", hash = "sha256:ac0de87aae3d21f4ed7f120c41334c9277346efc393d4891fa0ba99c9ffdd8d5", size = 82366, upload-time = "2025-12-18T11:52:56.818Z" },
 ]
 
 [[package]]
 name = "django-ninja-jwt"
-version = "5.3.7"
+version = "5.4.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
     { name = "django-ninja-extra" },
+    { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0b/c2/8b69a702d39b9da234c0f306ed10441ef7216a64a4ba822018e983f430df/django_ninja_jwt-5.3.7.tar.gz", hash = "sha256:faf09f6b00ebfd53786cda92dc8eb0bf6c39b72ee079aeb744bdb70dc5c59031", size = 39783, upload-time = "2025-04-05T09:00:14.118Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5f/a9/e360b552b78851122086b4e26e543fd38d44bce567e93fd8209c69e1368e/django_ninja_jwt-5.4.3.tar.gz", hash = "sha256:b8eac70174e495ebe4a98542830a69dd4fdc508f1e9675334ff102c19cfedfe7", size = 40036, upload-time = "2026-01-09T20:25:45.832Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6c/d8/176990e02fe2471a1e02919abfc39c5637f2f471e60d3ce9ee5c07614477/django_ninja_jwt-5.3.7-py3-none-any.whl", hash = "sha256:90db9508e49e0e43de933a5adb3640ba9ea24589d6f77146b2e72861528e105f", size = 88635, upload-time = "2025-04-05T09:00:12.698Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/95/cf919ca2d22e88f13ae7f9775cc311758b5f7e710a9b43ed7246a98b07a5/django_ninja_jwt-5.4.3-py3-none-any.whl", hash = "sha256:830aee5f4670fa1e5ae6ee1fcb47229299ceeeec41bd698cdbbebf211bd6f7ee", size = 88834, upload-time = "2026-01-09T20:25:44.334Z" },
 ]
 
 [package.optional-dependencies]
@@ -2623,6 +2624,20 @@ wheels = [
 ]
 
 [[package]]
+name = "pydantic-settings"
+version = "2.12.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "typing-inspection" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/43/4b/ac7e0aae12027748076d72a8764ff1c9d82ca75a7a52622e67ed3f765c54/pydantic_settings-2.12.0.tar.gz", hash = "sha256:005538ef951e3c2a68e1c08b292b5f2e71490def8589d4221b95dab00dafcfd0", size = 194184, upload-time = "2025-11-10T14:25:47.013Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c1/60/5d4751ba3f4a40a6891f24eec885f51afd78d208498268c734e256fb13c4/pydantic_settings-2.12.0-py3-none-any.whl", hash = "sha256:fddb9fd99a5b18da837b29710391e945b1e30c135477f484084ee513adb93809", size = 51880, upload-time = "2025-11-10T14:25:45.546Z" },
+]
+
+[[package]]
 name = "pydocstyle"
 version = "6.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2877,6 +2892,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/e1/97/373dcd5844ec0ea5893e13c39a2c67e7537987ad8de3842fe078db4582fa/python-decouple-3.8.tar.gz", hash = "sha256:ba6e2657d4f376ecc46f77a3a615e058d93ba5e465c01bbe57289bfb7cce680f", size = 9612, upload-time = "2023-03-01T19:38:38.143Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/d4/9193206c4563ec771faf2ccf54815ca7918529fe81f6adb22ee6d0e06622/python_decouple-3.8-py3-none-any.whl", hash = "sha256:d0d45340815b25f4de59c974b855bb38d03151d81b037d9e3f463b0c9f8cbd66", size = 9947, upload-time = "2023-03-01T19:38:36.015Z" },
+]
+
+[[package]]
+name = "python-dotenv"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/26/19cadc79a718c5edbec86fd4919a6b6d3f681039a2f6d66d14be94e75fb9/python_dotenv-1.2.1.tar.gz", hash = "sha256:42667e897e16ab0d66954af0e60a9caa94f0fd4ecf3aaf6d2d260eec1aa36ad6", size = 44221, upload-time = "2025-10-26T15:12:10.434Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/14/1b/a298b06749107c305e1fe0f814c6c74aea7b2f1e10989cb30f544a1b3253/python_dotenv-1.2.1-py3-none-any.whl", hash = "sha256:b81ee9561e9ca4004139c6cbba3a238c32b03e4894671e181b671e8cb8425d61", size = 21230, upload-time = "2025-10-26T15:12:09.109Z" },
 ]
 
 [[package]]
@@ -3223,9 +3247,9 @@ requires-dist = [
     { name = "django-google-sso", specifier = ">=8.0.0" },
     { name = "django-model-utils", specifier = ">=5.0.0" },
     { name = "django-money", specifier = ">=3.5.4" },
-    { name = "django-ninja", specifier = "==1.4.5" },
-    { name = "django-ninja-extra", specifier = "==0.30.2" },
-    { name = "django-ninja-jwt", extras = ["crypto"], specifier = "==5.3.7" },
+    { name = "django-ninja", specifier = ">=1.5.1" },
+    { name = "django-ninja-extra", specifier = ">=0.30.8" },
+    { name = "django-ninja-jwt", extras = ["crypto"], specifier = ">=5.4.3" },
     { name = "django-prometheus", specifier = ">=2.4.1" },
     { name = "django-silk", specifier = ">=5.4.0" },
     { name = "django-simple-history", specifier = ">=3.8.0" },
