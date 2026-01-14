@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-12 15:23+0100\n"
+"POT-Creation-Date: 2026-01-14 19:30+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -536,13 +536,13 @@ msgstr ""
 msgid "The Revel Team"
 msgstr "Das Revel-Team"
 
-msgid "ticket_tier_id is required for events that require tickets."
-msgstr "ticket_tier_id ist erforderlich für Events, die Tickets benötigen."
-
 #, fuzzy
 #| msgid "A user with this email already exists."
 msgid "An event with this slug already exists in your organization."
 msgstr "Ein:e Nutzer:in mit dieser E-Mail existiert bereits."
+
+msgid "Invitation not found."
+msgstr "Einladung nicht gefunden."
 
 msgid "You must connect to Stripe first."
 msgstr "Du musst dich zuerst mit Stripe verbinden."
@@ -550,8 +550,8 @@ msgstr "Du musst dich zuerst mit Stripe verbinden."
 msgid "Ticket already cancelled"
 msgstr "Ticket bereits storniert"
 
-msgid "Invitation not found."
-msgstr "Einladung nicht gefunden."
+msgid "ticket_tier_id is required for events that require tickets."
+msgstr "ticket_tier_id ist erforderlich für Events, die Tickets benötigen."
 
 #, fuzzy
 #| msgid "Check-in is not currently open for this event."
@@ -686,17 +686,26 @@ msgstr ""
 msgid "Unknown payment method."
 msgstr "Unbekannte Zahlungsmethode."
 
-msgid "You are not eligible."
+msgid "At least one identifier (email, telegram, phone) or name is required."
 msgstr ""
 
-msgid "This event does not accept invitation requests."
-msgstr "Dieses Event akzeptiert keine Einladungsanfragen."
+#, fuzzy
+#| msgid "This ticket has already been checked in."
+msgid "This user is already blacklisted."
+msgstr "Dieses Ticket wurde bereits eingecheckt."
 
-msgid "You are already invited to this event."
-msgstr "Du bist bereits zu diesem Event eingeladen."
+#, fuzzy
+#| msgid "A user with this email already exists."
+msgid "An entry with this email already exists."
+msgstr "Ein:e Nutzer:in mit dieser E-Mail existiert bereits."
 
-msgid "You have already requested an invitation to this event."
-msgstr "Du hast bereits eine Einladung zu diesem Event angefragt."
+#, fuzzy
+#| msgid "Payment Information"
+msgid "User not found."
+msgstr "Zahlungsinformationen"
+
+msgid "You are not eligible."
+msgstr ""
 
 #, fuzzy
 #| msgid "A user with this email already exists."
@@ -732,6 +741,15 @@ msgstr ""
 #| msgid "Invalid token type."
 msgid "Invalid token type"
 msgstr "Ungültiger Token-Typ."
+
+msgid "This event does not accept invitation requests."
+msgstr "Dieses Event akzeptiert keine Einladungsanfragen."
+
+msgid "You are already invited to this event."
+msgstr "Du bist bereits zu diesem Event eingeladen."
+
+msgid "You have already requested an invitation to this event."
+msgstr "Du hast bereits eine Einladung zu diesem Event angefragt."
 
 msgid ""
 "You already own an organization. Only one organization per user as owner is "
@@ -865,6 +883,22 @@ msgstr ""
 #| msgid "This event does not accept invitation requests."
 msgid "This tier does not have an assigned sector."
 msgstr "Dieses Event akzeptiert keine Einladungsanfragen."
+
+#, fuzzy
+#| msgid "You are already a member of this organization."
+msgid "You are already whitelisted for this organization."
+msgstr "Du bist bereits Mitglied dieser Organisation."
+
+#, fuzzy
+#| msgid "You already have a ticket."
+msgid "You already have a pending whitelist request."
+msgstr "Du hast bereits ein Ticket."
+
+msgid "This request is not pending."
+msgstr ""
+
+msgid "Only approved requests can be removed from whitelist."
+msgstr ""
 
 #, python-format
 msgid "Confirm your RSVP to %(event_name)s"
@@ -1236,6 +1270,35 @@ msgstr[1] ""
 msgid "Spot Available: %(event)s"
 msgstr ""
 
+#, fuzzy, python-format
+#| msgid "You have already requested an invitation to this event."
+msgid "%(user)s requested verification for %(org)s"
+msgstr "Du hast bereits eine Einladung zu diesem Event angefragt."
+
+#, fuzzy, python-format
+#| msgid "New Event: %(event_name)s"
+msgid "New verification request: %(org)s"
+msgstr "Neues Event: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "✅ Questionnaire Approved: %(name)s"
+msgid "Verification Approved: %(org)s"
+msgstr "✅ Fragebogen genehmigt: %(name)s"
+
+#, python-format
+msgid "Verification Approved - %(org)s"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Verification email sent."
+msgid "Verification Declined: %(org)s"
+msgstr "Bestätigungs-E-Mail versendet."
+
+#, fuzzy, python-format
+#| msgid "Verification email sent."
+msgid "Verification Update: %(org)s"
+msgstr "Bestätigungs-E-Mail versendet."
+
 #, fuzzy
 #| msgid "An email has been sent."
 msgid "Event details have been updated."
@@ -1466,6 +1529,43 @@ msgstr ""
 
 msgid "Membership Granted"
 msgstr ""
+
+#, fuzzy, python-format
+#| msgid ""
+#| "Your questionnaire <strong>%(questionnaire)s</strong> for "
+#| "<strong>%(org)s</strong> was not approved."
+msgid "You are now a <strong>%(role)s</strong> of <strong>%(org)s</strong>!"
+msgstr ""
+"Dein Fragebogen <strong>%(questionnaire)s</strong> für <strong>%(org)s</"
+"strong> wurde nicht genehmigt."
+
+msgid "As a member, you can:"
+msgstr ""
+
+msgid "Access members-only events"
+msgstr ""
+
+#, fuzzy
+#| msgid "Organization:"
+msgid "Receive organization announcements"
+msgstr "Organisation:"
+
+msgid "Connect with other members"
+msgstr ""
+
+#, fuzzy
+#| msgid "Organization:"
+msgid "View Organization"
+msgstr "Organisation:"
+
+#, python-format
+msgid "You are now a %(role)s of %(org)s!"
+msgstr ""
+
+#, fuzzy
+#| msgid "Organization:"
+msgid "View organization:"
+msgstr "Organisation:"
 
 msgid "Role Updated"
 msgstr ""
@@ -2153,6 +2253,83 @@ msgstr ""
 
 msgid "Claim your spot now:"
 msgstr ""
+
+#, fuzzy
+#| msgid "Questionnaire Approved"
+msgid "Verification Approved"
+msgstr "Fragebogen genehmigt"
+
+#, python-format
+msgid ""
+"Your verification request for <strong>%(org)s</strong> has been approved. "
+"You now have full access to view and participate in their events."
+msgstr ""
+
+#, python-format
+msgid ""
+"Your verification request for %(org)s has been approved. You now have full "
+"access to view and participate in their events."
+msgstr ""
+
+#, fuzzy
+#| msgid "Verification email sent."
+msgid "New Verification Request"
+msgstr "Bestätigungs-E-Mail versendet."
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been activated for <strong>%(event_name)s</strong>."
+msgid ""
+"<strong>%(name)s</strong> has requested verification for <strong>%(org)s</"
+"strong>."
+msgstr "Ein neues Ticket wurde für <strong>%(event_name)s</strong> aktiviert."
+
+msgid "Matched Entries:"
+msgstr ""
+
+#, fuzzy
+#| msgid "Password Reset Request"
+msgid "Review Request"
+msgstr "Passwort-Zurücksetzungsanfrage"
+
+msgid ""
+"This user matched entries in your blacklist and is requesting verification "
+"to access your organization."
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "You have already requested an invitation to this event."
+msgid "%(name)s has requested verification for %(org)s."
+msgstr "Du hast bereits eine Einladung zu diesem Event angefragt."
+
+#, fuzzy
+#| msgid "Review the submission:"
+msgid "Review this request:"
+msgstr "Fragebogen prüfen:"
+
+#, fuzzy
+#| msgid "Verification email sent."
+msgid "Verification Update"
+msgstr "Bestätigungs-E-Mail versendet."
+
+#, fuzzy, python-format
+#| msgid ""
+#| "Your questionnaire <strong>%(questionnaire)s</strong> for "
+#| "<strong>%(org)s</strong> was not approved."
+msgid ""
+"Your verification request for <strong>%(org)s</strong> was not approved at "
+"this time."
+msgstr ""
+"Dein Fragebogen <strong>%(questionnaire)s</strong> für <strong>%(org)s</"
+"strong> wurde nicht genehmigt."
+
+msgid ""
+"If you believe this is an error, please contact the organization directly."
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Your questionnaire %(questionnaire)s was not approved."
+msgid "Your verification request for %(org)s was not approved at this time."
+msgstr "Dein Fragebogen %(questionnaire)s wurde nicht genehmigt."
 
 #, fuzzy
 #| msgid "Staff Notification"

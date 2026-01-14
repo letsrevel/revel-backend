@@ -1,4 +1,4 @@
-{% load i18n %}<!DOCTYPE html>
+{% load i18n markdown_tags %}<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -41,7 +41,7 @@
                     <div class="card">
                         <h3 style="margin-top: 0; color: #28a745;">{% trans "Event Details" %}</h3>
                         <div class="info-row">📅 {{ context.event_start_formatted }}</div>
-                        {% if context.event_location %}<div class="info-row">📍 {{ context.event_location }}</div>{% endif %}
+                        {% if context.event_location %}<div class="info-row">📍 {% if context.address_url %}<a href="{{ context.address_url }}" style="color: #28a745;">{{ context.event_location }}</a>{% else %}{{ context.event_location }}{% endif %}</div>{% endif %}
                     </div>
 
                     <div class="card">
@@ -54,7 +54,7 @@
                     <div class="card warning">
                         <h3 style="margin-top: 0; color: #ffc107;">{% trans "Payment Instructions" %}</h3>
                         {% if context.manual_payment_instructions %}
-                            <blockquote style="border-left: 3px solid #ffc107; padding-left: 15px; margin: 10px 0; color: #666;">{{ context.manual_payment_instructions }}</blockquote>
+                            <div style="border-left: 3px solid #ffc107; padding-left: 15px; margin: 10px 0; color: #666;">{{ context.manual_payment_instructions|markdown }}</div>
                         {% else %}
                             <p>{% trans "Please contact the organizer to complete the payment." %}</p>
                         {% endif %}
@@ -65,7 +65,7 @@
                     <div class="card">
                         <h3 style="margin-top: 0; color: #28a745;">{% trans "Event Details" %}</h3>
                         <div class="info-row">📅 {{ context.event_start_formatted }}</div>
-                        {% if context.event_location %}<div class="info-row">📍 {{ context.event_location }}</div>{% endif %}
+                        {% if context.event_location %}<div class="info-row">📍 {% if context.address_url %}<a href="{{ context.address_url }}" style="color: #28a745;">{{ context.event_location }}</a>{% else %}{{ context.event_location }}{% endif %}</div>{% endif %}
                     </div>
 
                     <div class="card">

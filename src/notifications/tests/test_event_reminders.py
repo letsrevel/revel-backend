@@ -235,7 +235,11 @@ class TestBuildEventContext:
         self,
         future_event_14_days: Event,
     ) -> None:
-        """Test that all required context fields are included."""
+        """Test that all required context fields are included.
+
+        Note: event_location is NOT included in base context as it depends
+        on per-user visibility permissions. It's added via _add_user_location_context.
+        """
         # Arrange
         service = EventReminderService()
         days = 14
@@ -249,7 +253,8 @@ class TestBuildEventContext:
         assert context["event_start"] == future_event_14_days.start.isoformat()
         assert "event_start_formatted" in context
         assert "event_end_formatted" in context  # Event has end time by default
-        assert "event_location" in context
+        # event_location is added per-user via _add_user_location_context
+        assert "event_location" not in context
         assert "event_url" in context
         assert context["days_until"] == days
 

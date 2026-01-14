@@ -6,6 +6,7 @@ from signal handlers or other parts of the application.
 
 import structlog
 
+from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Event
 from notifications.enums import NotificationType
@@ -13,6 +14,22 @@ from notifications.service.eligibility import get_eligible_users_for_event_notif
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
+
+
+def _get_event_location_for_user(event: Event, user: RevelUser) -> tuple[str, str]:
+    """Get event location info respecting address visibility for the user.
+
+    Args:
+        event: Event to get location for.
+        user: User to check visibility for.
+
+    Returns:
+        Tuple of (event_location, address_url). Both may be empty strings
+        if user cannot see the address.
+    """
+    if event.can_user_see_address(user):
+        return event.full_address(), event.location_maps_url or ""
+    return "", ""
 
 
 def notify_event_opened(event: Event) -> int:
@@ -29,9 +46,6 @@ def notify_event_opened(event: Event) -> int:
     # Get all eligible users for notification
     eligible_users = get_eligible_users_for_event_notification(event, NotificationType.EVENT_OPEN)
 
-    # Build location string
-    event_location = event.full_address()
-
     # Build frontend URL
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     frontend_url = f"{frontend_base_url}/events/{event.id}"
@@ -47,6 +61,9 @@ def notify_event_opened(event: Event) -> int:
 
     count = 0
     for user in eligible_users:
+        # Check address visibility per user
+        event_location, address_url = _get_event_location_for_user(event, user)
+
         context = {
             "event_id": str(event.id),
             "event_name": event.name,
@@ -67,6 +84,8 @@ def notify_event_opened(event: Event) -> int:
             context["event_end_formatted"] = event_end_formatted
         if registration_opens_at:
             context["registration_opens_at"] = registration_opens_at
+        if address_url:
+            context["address_url"] = address_url
 
         notification_requested.send(
             sender=notify_event_opened,
