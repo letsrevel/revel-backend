@@ -12,7 +12,7 @@ from common.models import SiteSettings
 from events.models import Event
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_eligible_users_for_event_notification
-from notifications.service.notification_helpers import notify_event_opened
+from notifications.service.notification_helpers import _get_event_location_for_user, notify_event_opened
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -31,7 +31,6 @@ def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
 
         # Format event details
         event_start_formatted = date_format(instance.start, "l, F j, Y \\a\\t g:i A T") if instance.start else ""
-        event_location = instance.full_address()
 
         # Prepare refund info if tickets are required
         refund_info = None
@@ -39,6 +38,9 @@ def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
             refund_info = "Refunds will be processed according to the organizer's refund policy."
 
         for user in eligible_users:
+            # Check address visibility per user
+            event_location, address_url = _get_event_location_for_user(instance, user)
+
             context = {
                 "event_id": str(instance.id),
                 "event_name": instance.name,
@@ -51,6 +53,8 @@ def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
             # Add optional fields
             if refund_info:
                 context["refund_info"] = refund_info
+            if address_url:
+                context["address_url"] = address_url
 
             # These fields could be added by admin in future enhancements
             # For now, they're optional and only included if set
@@ -92,7 +96,6 @@ def _handle_event_updated(
 
         event_start_formatted = date_format(instance.start, "l, F j, Y \\a\\t g:i A T") if instance.start else ""
         event_end_formatted = date_format(instance.end, "l, F j, Y \\a\\t g:i A T") if instance.end else None
-        event_location = instance.full_address()
 
         # Build human-readable summary and message
         changes_summary = ", ".join(changed_fields)
@@ -107,6 +110,9 @@ def _handle_event_updated(
         update_message = "; ".join(update_parts) if update_parts else _("Event details have been updated.")
 
         for user in eligible_users:
+            # Check address visibility per user
+            event_location, address_url = _get_event_location_for_user(instance, user)
+
             context = {
                 "event_id": str(instance.id),
                 "event_name": instance.name,
@@ -121,6 +127,8 @@ def _handle_event_updated(
             }
             if event_end_formatted:
                 context["event_end_formatted"] = event_end_formatted
+            if address_url:
+                context["address_url"] = address_url
 
             notification_requested.send(
                 sender=sender,

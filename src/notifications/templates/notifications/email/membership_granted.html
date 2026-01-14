@@ -20,11 +20,17 @@
         </div>
         <div class="content">
             <p>{%trans "Hello"%} {{user.display_name}},</p>
+            <p style="font-size:18px;">{%blocktranslate with org=context.organization_name role=context.role %}You are now a <strong>{{ role }}</strong> of <strong>{{ org }}</strong>!{%endblocktranslate%}</p>
             <div class="card">
-                <p>{%trans "Please check the details of this notification."%}</p>
+                <p>{%trans "As a member, you can:"%}</p>
+                <ul style="margin:10px 0;padding-left:20px;">
+                    <li>{%trans "Access members-only events"%}</li>
+                    <li>{%trans "Receive organization announcements"%}</li>
+                    <li>{%trans "Connect with other members"%}</li>
+                </ul>
             </div>
             <center>
-                <a href="{{context.event_url}}" class="button">{%trans "View Details"%}</a>
+                <a href="{{context.frontend_url}}" class="button">{%trans "View Organization"%}</a>
             </center>
         </div>
         {%include "notifications/email/_footer.html"%}

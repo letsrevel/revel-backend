@@ -1,3 +1,3 @@
-{%load i18n %}🎊 {%blocktranslate%}Membership Granted{%endblocktranslate%}
+{%load i18n %}🎊 {%blocktranslate with org=context.organization_name role=context.role %}You are now a **{{ role }}** of **{{ org }}**!{%endblocktranslate%}
 
-{%trans "View details:"%} [{%trans "View"%}]({{context.event_url}})
+[{%trans "View Organization"%}]({{context.frontend_url}})

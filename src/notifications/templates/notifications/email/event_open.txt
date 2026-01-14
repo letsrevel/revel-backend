@@ -5,7 +5,7 @@
 {% trans "Event Details:" %}
 📅 {{ context.event_start_formatted }}
 {% if context.event_end_formatted %}{% trans "Until:" %} {{ context.event_end_formatted }}{% endif %}
-{% if context.event_location %}📍 {{ context.event_location }}{% endif %}
+{% if context.event_location %}📍 {{ context.event_location }}{% if context.address_url %} ({{ context.address_url }}){% endif %}{% endif %}
 
 {% if context.event_description %}
 {{ context.event_description }}

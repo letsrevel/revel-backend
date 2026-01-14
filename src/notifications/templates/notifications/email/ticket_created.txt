@@ -13,7 +13,7 @@
 
 {% trans "Event Details:" %}
 📅 {{ context.event_start_formatted }}
-{% if context.event_location %}📍 {{ context.event_location }}{% endif %}
+{% if context.event_location %}📍 {{ context.event_location }}{% if context.address_url %} ({{ context.address_url }}){% endif %}{% endif %}
 
 {% trans "Ticket Information:" %}
 - {% trans "Tier:" %} {{ context.tier_name }}
@@ -27,7 +27,7 @@
 
 {% trans "Event Details:" %}
 📅 {{ context.event_start_formatted }}
-{% if context.event_location %}📍 {{ context.event_location }}{% endif %}
+{% if context.event_location %}📍 {{ context.event_location }}{% if context.address_url %} ({{ context.address_url }}){% endif %}{% endif %}
 
 {% trans "Ticket Information:" %}
 - {% trans "Tier:" %} {{ context.tier_name }}

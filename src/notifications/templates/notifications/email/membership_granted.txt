@@ -1,7 +1,12 @@
 {%load i18n %}{%trans "Hello" %} {{ user.display_name }},
 
-🎊 {%blocktranslate%}Membership Granted{%endblocktranslate%}
+🎊 {%blocktranslate with org=context.organization_name role=context.role %}You are now a {{ role }} of {{ org }}!{%endblocktranslate%}
 
-{%trans "View details:" %} {{ context.event_url }}
+{%trans "As a member, you can:"%}
+- {%trans "Access members-only events"%}
+- {%trans "Receive organization announcements"%}
+- {%trans "Connect with other members"%}
+
+{%trans "View organization:" %} {{ context.frontend_url }}
 
 {% include "notifications/email/_footer.txt" %}

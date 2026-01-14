@@ -41,7 +41,7 @@ def _build_base_event_context(event: Event) -> dict[str, t.Any]:
 
     Returns:
         Dictionary with event_id, event_name, event_location, event_url, event_start_formatted,
-        organization_id, organization_name
+        organization_id, organization_name, and optionally address_url
     """
     from django.utils.dateformat import format as date_format
 
@@ -53,7 +53,7 @@ def _build_base_event_context(event: Event) -> dict[str, t.Any]:
     if event.start:
         event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
 
-    return {
+    context: dict[str, t.Any] = {
         "event_id": str(event.id),
         "event_name": event.name,
         "event_location": event_location,
@@ -62,6 +62,12 @@ def _build_base_event_context(event: Event) -> dict[str, t.Any]:
         "organization_id": str(event.organization_id),
         "organization_name": event.organization.name,
     }
+
+    # Include maps URL if available (ticket holders can always see address)
+    if event.location_maps_url:
+        context["address_url"] = event.location_maps_url
+
+    return context
 
 
 def _build_ticket_created_context(ticket: Ticket) -> dict[str, t.Any]:
@@ -175,6 +181,7 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
         "ticket_holder_email": ticket.user.email,
         "include_pdf": False,
         "include_ics": False,
+        "include_pkpass": False,
     }
     staff_and_owners = get_staff_for_notification(ticket.event.organization_id, NotificationType.TICKET_CREATED)
     for staff_user in staff_and_owners:
@@ -319,6 +326,7 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
                 "ticket_holder_email": ticket.user.email,
                 "include_pdf": False,
                 "include_ics": False,
+                "include_pkpass": False,
             }
             staff_and_owners = get_staff_for_notification(ticket.event.organization_id, NotificationType.TICKET_CREATED)
             for staff_user in list(staff_and_owners):

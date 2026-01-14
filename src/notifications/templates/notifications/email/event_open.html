@@ -27,7 +27,7 @@
                 <h3 style="margin-top: 0; color: #2196F3;">{% trans "Event Details" %}</h3>
                 <div class="info-row">📅 {{ context.event_start_formatted }}</div>
                 {% if context.event_end_formatted %}<div class="info-row">{% trans "Until:" %} {{ context.event_end_formatted }}</div>{% endif %}
-                {% if context.event_location %}<div class="info-row">📍 {{ context.event_location }}</div>{% endif %}
+                {% if context.event_location %}<div class="info-row">📍 {% if context.address_url %}<a href="{{ context.address_url }}" style="color: #2196F3;">{{ context.event_location }}</a>{% else %}{{ context.event_location }}{% endif %}</div>{% endif %}
             </div>
 
             {% if context.event_description %}

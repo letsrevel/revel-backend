@@ -14,6 +14,7 @@ from common.models import SiteSettings
 from events.models import Event, EventRSVP, Ticket
 from notifications.enums import NotificationType
 from notifications.models import Notification
+from notifications.service.notification_helpers import _get_event_location_for_user
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -96,6 +97,9 @@ class EventReminderService:
     def build_event_context(self, event: Event, days: int) -> dict[str, t.Any]:
         """Build base context dictionary for event reminder.
 
+        Note: Does NOT include event_location as that depends on user permissions.
+        Use _add_user_location_context to add location info per user.
+
         Args:
             event: Event to build context for
             days: Days until event
@@ -106,14 +110,12 @@ class EventReminderService:
         event_url = f"{self.frontend_base_url}/events/{event.id}"
         event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
         event_end_formatted = date_format(event.end, "l, F j, Y \\a\\t g:i A T") if event.end else None
-        event_location = event.full_address()
 
         context: dict[str, t.Any] = {
             "event_id": str(event.id),
             "event_name": event.name,
             "event_start": event.start.isoformat(),
             "event_start_formatted": event_start_formatted,
-            "event_location": event_location,
             "event_url": event_url,
             "days_until": days,
         }
@@ -122,6 +124,23 @@ class EventReminderService:
             context["event_end_formatted"] = event_end_formatted
 
         return context
+
+    def _add_user_location_context(self, context: dict[str, t.Any], event: Event, user: RevelUser) -> dict[str, t.Any]:
+        """Add location context based on user's address visibility permissions.
+
+        Args:
+            context: Base context to extend
+            event: Event to check visibility for
+            user: User to check permissions for
+
+        Returns:
+            Context dict with location info added if user can see address
+        """
+        event_location, address_url = _get_event_location_for_user(event, user)
+        user_context = {**context, "event_location": event_location}
+        if address_url:
+            user_context["address_url"] = address_url
+        return user_context
 
     def should_send_reminder(self, user: RevelUser, event_id: str, already_sent: set[tuple[UUID, str]]) -> bool:
         """Check if reminder should be sent to user.
@@ -168,7 +187,10 @@ class EventReminderService:
             if user.id in sent_to_users or not self.should_send_reminder(user, event_id_str, already_sent):
                 continue
 
-            context = {**base_context, "ticket_id": str(ticket.id), "tier_name": ticket.tier.name}
+            # Add location info based on user's visibility permissions
+            context = self._add_user_location_context(base_context, event, user)
+            context["ticket_id"] = str(ticket.id)
+            context["tier_name"] = ticket.tier.name
 
             notification_requested.send(
                 sender=Ticket,
@@ -207,7 +229,9 @@ class EventReminderService:
             if user.id in sent_to_users or not self.should_send_reminder(user, event_id_str, already_sent):
                 continue
 
-            context = {**base_context, "rsvp_status": rsvp.status}
+            # Add location info based on user's visibility permissions
+            context = self._add_user_location_context(base_context, event, user)
+            context["rsvp_status"] = rsvp.status
 
             notification_requested.send(
                 sender=EventRSVP,
