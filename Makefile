@@ -46,9 +46,13 @@ test-functional-failed:
 	uv run pytest --cov=functional_tests --cov-report=term --cov-report=html:functional_tests/htmlcov --cov-branch -v --last-failed functional_tests/ && uv run coverage html --skip-covered
 
 
-# Combined command: Runs format, lint, mypy, migration-check, and i18n-check in sequence
+# Combined command: Runs format, lint, mypy, migration-check, i18n-check, and file-length in sequence
 .PHONY: check
-check: format lint mypy migration-check i18n-check
+check: format lint mypy migration-check i18n-check file-length
+
+.PHONY: file-length
+file-length:
+	@./scripts/check-file-length.sh 1000
 
 .PHONY: migration-check
 migration-check:
