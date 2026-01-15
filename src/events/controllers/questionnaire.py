@@ -3,7 +3,7 @@ from collections import defaultdict
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
@@ -130,15 +130,40 @@ class QuestionnaireController(UserAwareController):
         Returns the questionnaire with all sections, questions, and settings. Use this to view or
         edit an existing questionnaire. Requires permission to manage the organization's questionnaires.
         """
+        # Prefetch with proper filtering to avoid duplicate questions in response
+        qs = self.get_queryset().prefetch_related(
+            Prefetch(
+                "questionnaire__multiplechoicequestion_questions",
+                queryset=questionnaires_models.MultipleChoiceQuestion.objects.filter(
+                    section__isnull=True
+                ).prefetch_related("options"),
+            ),
+            Prefetch(
+                "questionnaire__freetextquestion_questions",
+                queryset=questionnaires_models.FreeTextQuestion.objects.filter(section__isnull=True),
+            ),
+            Prefetch(
+                "questionnaire__sections",
+                queryset=questionnaires_models.QuestionnaireSection.objects.prefetch_related(
+                    Prefetch(
+                        "multiplechoicequestion_questions",
+                        queryset=questionnaires_models.MultipleChoiceQuestion.objects.prefetch_related("options"),
+                    ),
+                    "freetextquestion_questions",
+                ).order_by("order"),
+            ),
+            "events",
+            "event_series",
+        )
         return t.cast(
             event_models.OrganizationQuestionnaire,
-            self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id),
+            self.get_object_or_exception(qs, pk=org_questionnaire_id),
         )
 
     @route.post(
         "/{org_questionnaire_id}/sections",
         url_name="create_section",
-        response=questionnaire_schema.SectionUpdateSchema,
+        response=questionnaire_schema.SectionResponseSchema,
         permissions=[QuestionnairePermission("edit_questionnaire")],
     )
     def create_section(
@@ -158,7 +183,7 @@ class QuestionnaireController(UserAwareController):
     @route.put(
         "/{org_questionnaire_id}/sections/{section_id}",
         url_name="update_section",
-        response=questionnaire_schema.SectionUpdateSchema,
+        response=questionnaire_schema.SectionResponseSchema,
         permissions=[QuestionnairePermission("edit_questionnaire")],
     )
     def update_section(
@@ -182,7 +207,7 @@ class QuestionnaireController(UserAwareController):
     @route.post(
         "/{org_questionnaire_id}/multiple-choice-questions",
         url_name="create_mc_question",
-        response=questionnaire_schema.MultipleChoiceQuestionUpdateSchema,
+        response=questionnaire_schema.MultipleChoiceQuestionResponseSchema,
         permissions=[QuestionnairePermission("edit_questionnaire")],
     )
     def create_mc_question(
@@ -203,7 +228,7 @@ class QuestionnaireController(UserAwareController):
     @route.put(
         "/{org_questionnaire_id}/multiple-choice-questions/{question_id}",
         url_name="update_mc_question",
-        response=questionnaire_schema.MultipleChoiceQuestionUpdateSchema,
+        response=questionnaire_schema.MultipleChoiceQuestionResponseSchema,
         permissions=[QuestionnairePermission("edit_questionnaire")],
     )
     def update_mc_question(
@@ -271,7 +296,7 @@ class QuestionnaireController(UserAwareController):
     @route.post(
         "/{org_questionnaire_id}/free-text-questions",
         url_name="create_ft_question",
-        response=questionnaire_schema.FreeTextQuestionUpdateSchema,
+        response=questionnaire_schema.FreeTextQuestionResponseSchema,
         permissions=[QuestionnairePermission("edit_questionnaire")],
     )
     def create_ft_question(
@@ -291,7 +316,7 @@ class QuestionnaireController(UserAwareController):
     @route.put(
         "/{org_questionnaire_id}/free-text-questions/{question_id}",
         url_name="update_ft_question",
-        response=questionnaire_schema.FreeTextQuestionUpdateSchema,
+        response=questionnaire_schema.FreeTextQuestionResponseSchema,
         permissions=[QuestionnairePermission("edit_questionnaire")],
     )
     def update_ft_question(

@@ -311,6 +311,79 @@ class MultipleChoiceOptionUpdateSchema(Schema):
     order: int = 0
 
 
+class MultipleChoiceOptionResponseSchema(Schema):
+    """Schema for MultipleChoiceOption in API responses."""
+
+    id: UUID
+    option: str
+    is_correct: bool
+    order: int
+
+
+class MultipleChoiceQuestionResponseSchema(Schema):
+    """Schema for MultipleChoiceQuestion in API responses.
+
+    Includes options for display after create/update operations.
+    """
+
+    id: UUID
+    section_id: UUID | None = None
+    question: str
+    hint: str | None = None
+    reviewer_notes: str | None = None
+    is_mandatory: bool
+    order: int
+    positive_weight: Decimal
+    negative_weight: Decimal
+    is_fatal: bool
+    allow_multiple_answers: bool
+    shuffle_options: bool
+    depends_on_option_id: UUID | None = None
+    options: list[MultipleChoiceOptionResponseSchema]
+
+    @staticmethod
+    def resolve_options(obj: t.Any) -> list["MultipleChoiceOptionResponseSchema"]:
+        """Resolve options from the question object."""
+        return [
+            MultipleChoiceOptionResponseSchema(
+                id=opt.id,
+                option=opt.option,
+                is_correct=opt.is_correct,
+                order=opt.order,
+            )
+            for opt in obj.options.all()
+        ]
+
+
+class FreeTextQuestionResponseSchema(Schema):
+    """Schema for FreeTextQuestion in API responses."""
+
+    id: UUID
+    section_id: UUID | None = None
+    question: str
+    hint: str | None = None
+    reviewer_notes: str | None = None
+    is_mandatory: bool
+    order: int
+    positive_weight: Decimal
+    negative_weight: Decimal
+    is_fatal: bool
+    llm_guidelines: str | None = None
+    depends_on_option_id: UUID | None = None
+
+
+class SectionResponseSchema(Schema):
+    """Schema for QuestionnaireSection in API responses."""
+
+    id: UUID
+    name: str
+    description: str | None = None
+    order: int
+    depends_on_option_id: UUID | None = None
+    multiplechoicequestion_questions: list[MultipleChoiceQuestionResponseSchema] = Field(default_factory=list)
+    freetextquestion_questions: list[FreeTextQuestionResponseSchema] = Field(default_factory=list)
+
+
 class MultipleChoiceQuestionCreateSchema(Schema):
     """Schema for creating a MultipleChoiceQuestion."""
 
@@ -329,18 +402,25 @@ class MultipleChoiceQuestionCreateSchema(Schema):
     depends_on_option_id: UUID | None = None
 
 
-class MultipleChoiceQuestionUpdateSchema(MultipleChoiceQuestionCreateSchema):
-    """Schema for updating a MultipleChoiceQuestion."""
+class MultipleChoiceQuestionUpdateSchema(Schema):
+    """Schema for updating a MultipleChoiceQuestion.
 
-    options: list[MultipleChoiceOptionCreateSchema]
+    Unlike creation, updates are granular - options must be updated individually
+    via the dedicated option endpoints to prevent accidental data loss.
+    """
 
-    @model_validator(mode="before")
-    @classmethod
-    def check_options(cls, data: t.Any) -> t.Any:
-        """Ensure that options is not None."""
-        if isinstance(data, dict) and data.get("options") is None:
-            data["options"] = []
-        return data
+    section_id: UUID | None = None
+    question: str
+    hint: str | None = None
+    reviewer_notes: str | None = None
+    is_mandatory: bool = False
+    order: int = 0
+    positive_weight: Decimal = Field(default=Decimal("1.0"), ge=0, le=100)
+    negative_weight: Decimal = Field(default=Decimal("0.0"), ge=-100, le=100)
+    is_fatal: bool = False
+    allow_multiple_answers: bool = False
+    shuffle_options: bool = True
+    depends_on_option_id: UUID | None = None
 
 
 class SectionCreateSchema(Schema):
@@ -354,8 +434,17 @@ class SectionCreateSchema(Schema):
     depends_on_option_id: UUID | None = None
 
 
-class SectionUpdateSchema(SectionCreateSchema):
-    """Schema for updating a Section."""
+class SectionUpdateSchema(Schema):
+    """Schema for updating a Section.
+
+    Unlike creation, updates are granular - questions must be added/updated individually
+    via the dedicated question endpoints to prevent accidental data loss.
+    """
+
+    name: str
+    description: str | None = None
+    order: int = 0
+    depends_on_option_id: UUID | None = None
 
 
 class QuestionnaireCreateSchema(QuestionnaireBaseSchema):
@@ -397,8 +486,28 @@ class QuestionnaireCreateSchema(QuestionnaireBaseSchema):
         return self
 
 
+class QuestionnaireResponseSchema(QuestionnaireBaseSchema):
+    """Schema for Questionnaire in API responses.
+
+    Uses response schemas for nested objects to include id fields needed for editing.
+    """
+
+    id: UUID
+    sections: list[SectionResponseSchema] = Field(default_factory=list)
+    multiplechoicequestion_questions: list[MultipleChoiceQuestionResponseSchema] = Field(default_factory=list)
+    freetextquestion_questions: list[FreeTextQuestionResponseSchema] = Field(default_factory=list)
+    llm_guidelines: str | None = None
+    can_retake_after: timedelta | int | None = None
+    max_attempts: int = 0
+
+    _validate_can_retake_after = field_validator("can_retake_after", mode="before")(seconds_to_timedelta)
+    _serialize_can_retake_after = field_serializer("can_retake_after")(timedelta_to_seconds)
+
+
 # Resolve forward references for nested conditional schemas
 MultipleChoiceOptionCreateSchema.model_rebuild()
 MultipleChoiceQuestionCreateSchema.model_rebuild()
 SectionCreateSchema.model_rebuild()
 QuestionnaireCreateSchema.model_rebuild()
+SectionResponseSchema.model_rebuild()
+QuestionnaireResponseSchema.model_rebuild()
