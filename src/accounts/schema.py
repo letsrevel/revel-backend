@@ -329,3 +329,31 @@ class UserDietaryPreferenceUpdateSchema(Schema):
 
     comment: str | None = Field(None, description="Optional context about this preference")
     is_public: bool | None = Field(None, description="Visible to all event attendees if True")
+
+
+# Impersonation Schemas
+
+
+class ImpersonationTokenRequestSchema(Schema):
+    """Schema for requesting an impersonation access token."""
+
+    token: str = Field(..., description="The impersonation request token from admin panel")
+
+
+class ImpersonatedUserSchema(Schema):
+    """Schema for the impersonated user info returned with access token."""
+
+    id: UUID4
+    email: str
+    display_name: str
+    first_name: str
+    last_name: str
+
+
+class ImpersonationTokenResponseSchema(Schema):
+    """Schema for the impersonation access token response."""
+
+    access_token: str = Field(..., description="JWT access token for impersonated session (15 min)")
+    expires_in: int = Field(..., description="Token lifetime in seconds")
+    user: ImpersonatedUserSchema = Field(..., description="Info about the impersonated user")
+    impersonated_by: str = Field(..., description="Email of the admin performing impersonation")

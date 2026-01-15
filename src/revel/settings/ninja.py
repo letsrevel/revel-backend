@@ -19,6 +19,14 @@ NINJA_JWT = {
 VERIFY_TOKEN_LIFETIME = timedelta(minutes=config("VERIFY_TOKEN_LIFETIME_MINUTES", default=15, cast=int))
 UNSUBSCRIBE_TOKEN_LIFETIME = timedelta(days=config("UNSUBSCRIBE_TOKEN_LIFETIME_DAYS", default=30, cast=int))
 
+# Impersonation settings
+IMPERSONATION_REQUEST_TOKEN_LIFETIME = timedelta(
+    seconds=config("IMPERSONATION_REQUEST_TOKEN_LIFETIME_SECONDS", default=120, cast=int)
+)
+IMPERSONATION_ACCESS_TOKEN_LIFETIME = timedelta(
+    minutes=config("IMPERSONATION_ACCESS_TOKEN_LIFETIME_MINUTES", default=15, cast=int)
+)
+
 
 NINJA_EXTRA = {
     "THROTTLE_RATES": {

@@ -12,6 +12,7 @@ from ninja_jwt.schema import TokenObtainPairInputSchema, TokenObtainPairOutputSc
 
 from accounts import schema
 from accounts.service import auth as auth_service
+from accounts.service import impersonation as impersonation_service
 from common.throttling import AuthThrottle
 
 from ..models import RevelUser
@@ -60,3 +61,34 @@ class AuthController(TokenObtainPairController):
         use password-based authentication.
         """
         return auth_service.google_login(payload.id_token)
+
+    @route.post("/impersonate", response=schema.ImpersonationTokenResponseSchema, url_name="impersonate")
+    def redeem_impersonation_token(
+        self, payload: schema.ImpersonationTokenRequestSchema
+    ) -> schema.ImpersonationTokenResponseSchema:
+        """Exchange an impersonation request token for an access token.
+
+        This endpoint is called by the frontend after being redirected from the admin panel
+        with an impersonation request token. No authentication is required since the token
+        itself serves as authentication.
+
+        The returned access token is valid for 15 minutes and includes claims identifying
+        this as an impersonated session. No refresh token is issued - the admin must
+        initiate a new impersonation session if needed.
+
+        Returns 401 if the token is invalid, expired, or already used.
+        Returns 403 if impersonation is no longer allowed (e.g., target became staff).
+        """
+        result = impersonation_service.redeem_impersonation_token(payload.token)
+        return schema.ImpersonationTokenResponseSchema(
+            access_token=result.access_token,
+            expires_in=result.expires_in,
+            user=schema.ImpersonatedUserSchema(
+                id=result.user.id,
+                email=result.user.email,
+                display_name=result.user.display_name,
+                first_name=result.user.first_name,
+                last_name=result.user.last_name,
+            ),
+            impersonated_by=result.admin_email,
+        )
