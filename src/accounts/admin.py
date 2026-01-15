@@ -9,10 +9,13 @@ import typing as t
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
 from django.db.models import Count, QuerySet
-from django.http import HttpRequest
-from django.urls import reverse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.shortcuts import get_object_or_404
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
+from django.utils.translation import gettext_lazy as _
 from django.utils.translation import ngettext
 from django_google_sso.admin import GoogleSSOInlineAdmin, get_current_user_and_admin
 from unfold.admin import ModelAdmin, TabularInline
@@ -22,11 +25,14 @@ from accounts.models import (
     DietaryRestriction,
     EmailVerificationReminderTracking,
     FoodItem,
+    ImpersonationLog,
     RevelUser,
     UserDataExport,
     UserDietaryPreference,
 )
 from accounts.service.account import request_password_reset, send_verification_email_for_user
+from accounts.service.impersonation import can_impersonate, create_impersonation_request
+from common.models import SiteSettings
 from events.models import GeneralUserPreferences
 
 # Monkey patch the missing attribute
@@ -103,6 +109,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "date_joined",
         "event_count",
         "organization_count",
+        "impersonate_link",
     ]
     list_filter = [
         "is_staff",
@@ -338,6 +345,79 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         return mark_safe(html)
 
     organization_participation_display.short_description = "Organization Participation"  # type: ignore[attr-defined]
+
+    # Impersonation functionality
+    @admin.display(description=_("Impersonate"))
+    def impersonate_link(self, obj: RevelUser) -> str:
+        """Display impersonation link for eligible users."""
+        # Don't show link for superusers or staff (can't impersonate them)
+        if obj.is_superuser or obj.is_staff:
+            return format_html('<span class="text-base-400">—</span>')
+        url = reverse("admin:accounts_reveluser_impersonate", args=[obj.pk])
+        return format_html(
+            '<a href="{}" target="_blank" class="text-primary-600 hover:text-primary-700 '
+            'dark:text-primary-500 dark:hover:text-primary-400 text-sm font-medium">{}</a>',
+            url,
+            _("Impersonate"),
+        )
+
+    def get_urls(self) -> list[t.Any]:
+        """Add custom URLs for impersonation."""
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<uuid:user_id>/impersonate/",
+                self.admin_site.admin_view(self.impersonate_view),
+                name="accounts_reveluser_impersonate",
+            ),
+        ]
+        return custom_urls + urls
+
+    def impersonate_view(
+        self, request: HttpRequest, user_id: t.Any
+    ) -> HttpResponse | HttpResponseRedirect | TemplateResponse:
+        """Handle impersonation confirmation and token generation."""
+        target_user = get_object_or_404(RevelUser, pk=user_id)
+        admin_user = t.cast(RevelUser, request.user)
+
+        # Check permissions
+        allowed, error = can_impersonate(admin_user, target_user)
+
+        if request.method == "POST" and allowed:
+            # Get client info for audit
+            ip_address = self._get_client_ip(request)
+            user_agent = request.META.get("HTTP_USER_AGENT", "")
+
+            # Generate impersonation token
+            token, _log = create_impersonation_request(
+                admin=admin_user,
+                target=target_user,
+                ip_address=ip_address,
+                user_agent=user_agent,
+            )
+
+            # Redirect to frontend with token
+            site_settings = SiteSettings.get_solo()
+            frontend_url = f"{site_settings.frontend_base_url}/impersonate?token={token}"
+            return HttpResponseRedirect(frontend_url)
+
+        # GET: Show confirmation page
+        context = {
+            **self.admin_site.each_context(request),
+            "title": _("Impersonate User"),
+            "target_user": target_user,
+            "opts": self.model._meta,
+            "error": error if not allowed else None,
+        }
+        return TemplateResponse(request, "admin/accounts/impersonate_confirm.html", context)
+
+    def _get_client_ip(self, request: HttpRequest) -> str | None:
+        """Extract client IP address from request."""
+        x_forwarded_for: str | None = request.META.get("HTTP_X_FORWARDED_FOR")
+        if x_forwarded_for:
+            return x_forwarded_for.split(",")[0].strip()
+        remote_addr: str | None = request.META.get("REMOTE_ADDR")
+        return remote_addr
 
 
 @admin.register(UserDataExport)
@@ -596,3 +676,98 @@ class UserDietaryPreferenceAdmin(ModelAdmin):  # type: ignore[misc]
         if obj.comment:
             return obj.comment[:50] + ("..." if len(obj.comment) > 50 else "")
         return "—"
+
+
+# --- Impersonation Audit Log ---
+
+
+@admin.register(ImpersonationLog)
+class ImpersonationLogAdmin(ModelAdmin):  # type: ignore[misc]
+    """Read-only admin for impersonation audit logs."""
+
+    list_display = [
+        "created_at",
+        "admin_user_link",
+        "target_user_link",
+        "status_display",
+        "redeemed_at",
+        "ip_address",
+    ]
+    list_filter = ["created_at", "redeemed_at"]
+    search_fields = [
+        "admin_user__username",
+        "admin_user__email",
+        "target_user__username",
+        "target_user__email",
+        "ip_address",
+    ]
+    readonly_fields = [
+        "id",
+        "admin_user",
+        "target_user",
+        "created_at",
+        "ip_address",
+        "user_agent",
+        "token_jti",
+        "redeemed_at",
+    ]
+    date_hierarchy = "created_at"
+    ordering = ["-created_at"]
+
+    fieldsets = [
+        (
+            _("Impersonation Details"),
+            {
+                "fields": (
+                    "id",
+                    ("admin_user", "target_user"),
+                    ("created_at", "redeemed_at"),
+                )
+            },
+        ),
+        (
+            _("Request Information"),
+            {
+                "fields": (
+                    "ip_address",
+                    "user_agent",
+                    "token_jti",
+                ),
+                "classes": ["collapse"],
+            },
+        ),
+    ]
+
+    @admin.display(description=_("Admin"))
+    def admin_user_link(self, obj: ImpersonationLog) -> str:
+        url = reverse("admin:accounts_reveluser_change", args=[obj.admin_user.id])
+        return format_html('<a href="{}">{}</a>', url, obj.admin_user.email)
+
+    @admin.display(description=_("Target User"))
+    def target_user_link(self, obj: ImpersonationLog) -> str:
+        url = reverse("admin:accounts_reveluser_change", args=[obj.target_user.id])
+        return format_html('<a href="{}">{}</a>', url, obj.target_user.email)
+
+    @admin.display(description=_("Status"))
+    def status_display(self, obj: ImpersonationLog) -> str:
+        if obj.is_redeemed:
+            return format_html(
+                '<span class="text-green-600 dark:text-green-400 font-medium">{}</span>',
+                _("Redeemed"),
+            )
+        return format_html(
+            '<span class="text-orange-600 dark:text-orange-400 font-medium">{}</span>',
+            _("Pending"),
+        )
+
+    def has_add_permission(self, request: t.Any) -> bool:
+        """Prevent manual creation of audit logs."""
+        return False
+
+    def has_change_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        """Prevent modification of audit logs."""
+        return False
+
+    def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        """Prevent deletion of audit logs (only superusers can delete for compliance)."""
+        return t.cast(bool, request.user.is_superuser)

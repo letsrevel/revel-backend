@@ -93,3 +93,36 @@ def staff_user(django_user_model: t.Type[RevelUser]) -> RevelUser:
         password="strong-password-123!",
         is_staff=True,
     )
+
+
+@pytest.fixture
+def superuser(django_user_model: t.Type[RevelUser]) -> RevelUser:
+    """A superuser with full admin privileges."""
+    return django_user_model.objects.create_superuser(
+        username="superuser@example.com",
+        email="superuser@example.com",
+        password="strong-password-123!",
+        first_name="Super",
+        last_name="Admin",
+    )
+
+
+@pytest.fixture
+def another_superuser(django_user_model: t.Type[RevelUser]) -> RevelUser:
+    """Another superuser for testing impersonation restrictions."""
+    return django_user_model.objects.create_superuser(
+        username="another_superuser@example.com",
+        email="another_superuser@example.com",
+        password="strong-password-123!",
+    )
+
+
+@pytest.fixture
+def inactive_user(django_user_model: t.Type[RevelUser]) -> RevelUser:
+    """An inactive user account."""
+    return django_user_model.objects.create_user(
+        username="inactive@example.com",
+        email="inactive@example.com",
+        password="strong-password-123!",
+        is_active=False,
+    )

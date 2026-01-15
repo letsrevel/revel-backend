@@ -1,0 +1,118 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+    {{ block.super }}
+{% endblock %}
+
+{% block bodyclass %}{{ block.super }} app-accounts model-reveluser impersonate-confirmation{% endblock %}
+
+{% block breadcrumbs %}
+    <nav class="flex font-medium mb-4 text-sm" aria-label="Breadcrumb">
+        <ol class="inline-flex items-center">
+            <li class="inline-flex items-center">
+                <a href="{% url 'admin:index' %}" class="inline-flex items-center text-primary-600 hover:text-primary-700 dark:text-primary-500 dark:hover:text-primary-400">
+                    {% translate 'Home' %}
+                </a>
+            </li>
+            <li>
+                <div class="flex items-center">
+                    <span class="mx-2 text-base-400">/</span>
+                    <a href="{% url 'admin:app_list' 'accounts' %}" class="text-primary-600 hover:text-primary-700 dark:text-primary-500 dark:hover:text-primary-400">
+                        {% translate 'Accounts' %}
+                    </a>
+                </div>
+            </li>
+            <li>
+                <div class="flex items-center">
+                    <span class="mx-2 text-base-400">/</span>
+                    <a href="{% url 'admin:accounts_reveluser_changelist' %}" class="text-primary-600 hover:text-primary-700 dark:text-primary-500 dark:hover:text-primary-400">
+                        {% translate 'Users' %}
+                    </a>
+                </div>
+            </li>
+            <li>
+                <div class="flex items-center">
+                    <span class="mx-2 text-base-400">/</span>
+                    <span class="text-base-500 dark:text-base-400">{% translate 'Impersonate' %}</span>
+                </div>
+            </li>
+        </ol>
+    </nav>
+{% endblock %}
+
+{% block content_title %}
+    <h1 class="font-semibold mb-6 text-xl text-font-important-light dark:text-font-important-dark">
+        {% translate "Impersonate User" %}
+    </h1>
+{% endblock %}
+
+{% block content %}
+    {% if error %}
+        <div class="border border-red-300 bg-red-50 rounded-default shadow-xs mb-6 dark:border-red-800 dark:bg-red-900/20">
+            <p class="font-semibold p-4 text-red-800 dark:text-red-200">
+                {{ error }}
+            </p>
+        </div>
+    {% else %}
+        <div class="border border-base-200 rounded-default shadow-xs dark:border-base-800">
+            <div class="p-4">
+                <p class="font-semibold text-font-important-light dark:text-font-important-dark mb-4">
+                    {% blocktranslate with username=target_user.username %}You are about to impersonate the user "{{ username }}".{% endblocktranslate %}
+                </p>
+
+                <div class="bg-base-50 border border-base-200 rounded-default p-4 mb-4 dark:bg-base-900 dark:border-base-700">
+                    <h3 class="font-semibold text-sm text-base-700 dark:text-base-300 mb-2">
+                        {% translate "User Details" %}
+                    </h3>
+                    <dl class="grid grid-cols-2 gap-2 text-sm">
+                        <dt class="text-base-500 dark:text-base-400">{% translate "Email" %}:</dt>
+                        <dd class="text-font-important-light dark:text-font-important-dark">{{ target_user.email }}</dd>
+
+                        <dt class="text-base-500 dark:text-base-400">{% translate "Display Name" %}:</dt>
+                        <dd class="text-font-important-light dark:text-font-important-dark">{{ target_user.display_name }}</dd>
+
+                        <dt class="text-base-500 dark:text-base-400">{% translate "Active" %}:</dt>
+                        <dd class="text-font-important-light dark:text-font-important-dark">
+                            {% if target_user.is_active %}
+                                <span class="text-green-600 dark:text-green-400">{% translate "Yes" %}</span>
+                            {% else %}
+                                <span class="text-red-600 dark:text-red-400">{% translate "No" %}</span>
+                            {% endif %}
+                        </dd>
+
+                        <dt class="text-base-500 dark:text-base-400">{% translate "Email Verified" %}:</dt>
+                        <dd class="text-font-important-light dark:text-font-important-dark">
+                            {% if target_user.email_verified %}
+                                <span class="text-green-600 dark:text-green-400">{% translate "Yes" %}</span>
+                            {% else %}
+                                <span class="text-orange-600 dark:text-orange-400">{% translate "No" %}</span>
+                            {% endif %}
+                        </dd>
+                    </dl>
+                </div>
+
+                <div class="bg-amber-50 border border-amber-200 rounded-default p-4 dark:bg-amber-900/20 dark:border-amber-800">
+                    <p class="text-sm text-amber-800 dark:text-amber-200">
+                        <strong>{% translate "Security Notice" %}:</strong>
+                        {% translate "This action will be logged for audit purposes. The impersonation session will expire after 15 minutes. No refresh token will be issued." %}
+                    </p>
+                </div>
+            </div>
+
+            <form method="post" class="border-base-200 border-t px-4 py-3 dark:border-base-800">
+                {% csrf_token %}
+                <div class="flex items-center justify-end gap-3">
+                    <a href="{% url 'admin:accounts_reveluser_changelist' %}"
+                       class="bg-base-100 border border-base-300 font-medium px-4 py-2 rounded-default text-sm text-base-700 hover:bg-base-200 dark:bg-base-800 dark:border-base-600 dark:text-base-200 dark:hover:bg-base-700">
+                        {% translate "Cancel" %}
+                    </a>
+                    <button type="submit"
+                            class="bg-primary-600 border border-transparent font-medium px-4 py-2 rounded-default text-sm text-white hover:bg-primary-700">
+                        {% translate "Confirm Impersonation" %}
+                    </button>
+                </div>
+            </form>
+        </div>
+    {% endif %}
+{% endblock %}

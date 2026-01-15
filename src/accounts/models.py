@@ -264,3 +264,66 @@ def get_otp_expiration_time() -> datetime:
 def get_12h_otp_expiration_time() -> datetime:
     """Returns the expiration time for story OTPs (12 hours)."""
     return timezone.now() + timedelta(hours=12)
+
+
+class ImpersonationLog(models.Model):
+    """Audit trail for admin impersonation events.
+
+    Records every impersonation attempt by superusers for security auditing
+    and compliance purposes. Tracks both the request creation and redemption.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    admin_user = models.ForeignKey(
+        "RevelUser",
+        on_delete=models.CASCADE,
+        related_name="impersonations_performed",
+        help_text="The superuser who initiated the impersonation",
+    )
+    target_user = models.ForeignKey(
+        "RevelUser",
+        on_delete=models.CASCADE,
+        related_name="impersonations_received",
+        help_text="The user being impersonated",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    ip_address = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        help_text="IP address from which the impersonation was initiated",
+    )
+    user_agent = models.TextField(
+        blank=True,
+        default="",
+        help_text="Browser/client user agent string",
+    )
+    token_jti = models.CharField(
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="JWT ID of the impersonation request token",
+    )
+    redeemed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Timestamp when the request token was exchanged for an access token",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Impersonation Log"
+        verbose_name_plural = "Impersonation Logs"
+        indexes = [
+            models.Index(fields=["admin_user", "created_at"]),
+            models.Index(fields=["target_user", "created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        status = "redeemed" if self.redeemed_at else "pending"
+        return f"{self.admin_user} -> {self.target_user} ({status})"
+
+    @property
+    def is_redeemed(self) -> bool:
+        """Check if the impersonation token has been redeemed."""
+        return self.redeemed_at is not None
