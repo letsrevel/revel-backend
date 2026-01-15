@@ -21,8 +21,9 @@ def create_questionnaires(state: BootstrapState) -> None:
     _create_code_of_conduct_questionnaire(state)
     _create_wine_tasting_questionnaire(state)
     _create_membership_questionnaire(state)
+    _create_feedback_questionnaire(state)
 
-    logger.info("Created 3 questionnaires with different evaluation modes")
+    logger.info("Created 4 questionnaires with different evaluation modes")
 
 
 def _create_code_of_conduct_questionnaire(state: BootstrapState) -> None:
@@ -402,3 +403,70 @@ def _create_membership_questionnaire(state: BootstrapState) -> None:
         organization=state.orgs["beta"],
         questionnaire=membership_questionnaire,
     )
+
+
+def _create_feedback_questionnaire(state: BootstrapState) -> None:
+    """Create simple feedback questionnaire for past event."""
+    # Use MANUAL mode - feedback questionnaires skip evaluation anyway (handled by feedback_service)
+    feedback_questionnaire = questionnaires_models.Questionnaire.objects.create(
+        name="Event Feedback",
+        status=questionnaires_models.Questionnaire.QuestionnaireStatus.PUBLISHED,
+        evaluation_mode=questionnaires_models.Questionnaire.QuestionnaireEvaluationMode.MANUAL,
+        shuffle_questions=False,
+        llm_backend=questionnaires_models.Questionnaire.QuestionnaireLLMBackend.MOCK,
+    )
+
+    feedback_section = questionnaires_models.QuestionnaireSection.objects.create(
+        questionnaire=feedback_questionnaire,
+        name="Your Feedback",
+        order=1,
+    )
+
+    # Simple yes/no question
+    liked_event_q = questionnaires_models.MultipleChoiceQuestion.objects.create(
+        questionnaire=feedback_questionnaire,
+        section=feedback_section,
+        question="Did you enjoy the event?",
+        allow_multiple_answers=False,
+        shuffle_options=False,
+        positive_weight=1,
+        negative_weight=0,
+        is_fatal=False,
+        is_mandatory=True,
+        order=1,
+    )
+
+    questionnaires_models.MultipleChoiceOption.objects.create(
+        question=liked_event_q,
+        option="Yes, I loved it!",
+        is_correct=True,
+        order=1,
+    )
+
+    questionnaires_models.MultipleChoiceOption.objects.create(
+        question=liked_event_q,
+        option="No, it wasn't for me",
+        is_correct=False,
+        order=2,
+    )
+
+    # Optional free text for additional feedback
+    questionnaires_models.FreeTextQuestion.objects.create(
+        questionnaire=feedback_questionnaire,
+        section=feedback_section,
+        question="Any additional comments or suggestions?",
+        hint="We'd love to hear your thoughts to improve future events.",
+        positive_weight=1,
+        negative_weight=0,
+        is_fatal=False,
+        is_mandatory=False,
+        order=2,
+    )
+
+    # Link to past event as FEEDBACK type
+    org_quest_feedback = events_models.OrganizationQuestionnaire.objects.create(
+        organization=state.orgs["alpha"],
+        questionnaire=feedback_questionnaire,
+        questionnaire_type=events_models.OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
+    )
+    org_quest_feedback.events.add(state.events["past_event"])

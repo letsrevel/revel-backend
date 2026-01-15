@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from common.models import TimeStampedModel
-from questionnaires.models import Questionnaire
+from questionnaires.models import Questionnaire, QuestionnaireSubmission
 
 from .event import Event
 from .event_series import EventSeries
@@ -89,3 +89,26 @@ class OrganizationQuestionnaire(TimeStampedModel):
             models.UniqueConstraint(fields=["organization", "questionnaire"], name="unique_organizationquestionnaire")
         ]
         ordering = ["-created_at"]
+
+
+class EventFeedbackSubmission(TimeStampedModel):
+    """Tracks feedback questionnaire submissions per user per event.
+
+    This model enforces the constraint that a user can only submit feedback
+    once per questionnaire per event.
+    """
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="feedback_submissions")
+    user = models.ForeignKey(RevelUser, on_delete=models.CASCADE, related_name="event_feedback_submissions")
+    questionnaire = models.ForeignKey(
+        Questionnaire, on_delete=models.CASCADE, related_name="event_feedback_submissions"
+    )
+    submission = models.OneToOneField(QuestionnaireSubmission, on_delete=models.CASCADE, related_name="event_feedback")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["event", "user", "questionnaire"],
+                name="unique_feedback_per_user_event_questionnaire",
+            )
+        ]
