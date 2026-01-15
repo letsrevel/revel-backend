@@ -39,7 +39,7 @@ class OrganizationQuestionnaireInListSchema(BaseOrganizationQuestionnaireSchema)
 
 
 class OrganizationQuestionnaireSchema(BaseOrganizationQuestionnaireSchema):
-    questionnaire: questionnaires_schema.QuestionnaireCreateSchema
+    questionnaire: questionnaires_schema.QuestionnaireResponseSchema
 
 
 class OrganizationQuestionnaireFieldsMixin(Schema):

@@ -53,6 +53,7 @@ class MultipleChoiceQuestionInline(StackedInline):  # type: ignore[misc]
                     "is_mandatory",
                     "is_fatal",
                     "order",
+                    "depends_on_option",
                 ),
                 "classes": ["collapse"],
             },
@@ -86,7 +87,7 @@ class FreeTextQuestionInline(StackedInline):  # type: ignore[misc]
         (
             "Configuration",
             {
-                "fields": ("is_mandatory", "is_fatal", "order"),
+                "fields": ("is_mandatory", "is_fatal", "order", "depends_on_option"),
                 "classes": ["collapse"],
             },
         ),
@@ -114,7 +115,7 @@ class QuestionnaireSectionInline(StackedInline):  # type: ignore[misc]
     extra = 1
     ordering = ["order"]
     classes = ["collapse"]
-    fields = ("name", "description", "order")
+    fields = ("name", "description", "order", "depends_on_option")
 
 
 @admin.register(models.Questionnaire)
@@ -232,8 +233,13 @@ class QuestionnaireSubmissionAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[m
     list_filter = ["status", "questionnaire__name", "created_at", "submitted_at"]
     search_fields = ["user__username", "questionnaire__name"]
     autocomplete_fields = ["user", "questionnaire"]
-    readonly_fields = ["submitted_at"]
+    readonly_fields = ["submitted_at", "metadata_display"]
     date_hierarchy = "submitted_at"
+
+    fieldsets = (
+        (None, {"fields": ("user", "questionnaire", "status", "submitted_at")}),
+        ("Metadata", {"fields": ("metadata_display",), "classes": ["collapse"]}),
+    )
 
     inlines = [
         QuestionnaireEvaluationInline,
@@ -246,6 +252,14 @@ class QuestionnaireSubmissionAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[m
         return format_html('<a href="{}">{}</a>', url, obj.questionnaire.name)
 
     questionnaire_link.short_description = "Questionnaire"  # type: ignore[attr-defined]
+
+    def metadata_display(self, obj: models.QuestionnaireSubmission) -> str:
+        if not obj.metadata:
+            return "—"
+        pretty_json = json.dumps(obj.metadata, indent=2)
+        return mark_safe(f"<pre style='background: #f8f9fa; padding: 10px; border-radius: 4px;'>{pretty_json}</pre>")
+
+    metadata_display.short_description = "Metadata"  # type: ignore[attr-defined]
 
 
 @admin.register(models.QuestionnaireEvaluation)
@@ -403,6 +417,24 @@ class QuestionnaireEvaluationAdmin(ModelAdmin):  # type: ignore[misc]
 # --- Additional Model Admins for Enhanced Questionnaire Management ---
 
 
+@admin.register(models.MultipleChoiceOption)
+class MultipleChoiceOptionAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for Multiple Choice Options."""
+
+    list_display = ["option", "question_link", "is_correct", "order"]
+    list_filter = ["is_correct", "question__questionnaire__name"]
+    search_fields = ["option", "question__question", "question__questionnaire__name"]
+    autocomplete_fields = ["question"]
+    ordering = ["question", "order"]
+
+    @admin.display(description="Question")
+    def question_link(self, obj: models.MultipleChoiceOption) -> str:
+        url = reverse("admin:questionnaires_multiplechoicequestion_change", args=[obj.question.id])
+        question_text = obj.question.question or ""
+        short = question_text[:50] + "..." if len(question_text) > 50 else question_text
+        return format_html('<a href="{}">{}</a>', url, short)
+
+
 @admin.register(models.MultipleChoiceQuestion)
 class MultipleChoiceQuestionAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for Multiple Choice Questions."""
@@ -418,7 +450,7 @@ class MultipleChoiceQuestionAdmin(ModelAdmin):  # type: ignore[misc]
     ]
     list_filter = ["questionnaire__name", "section__name", "is_mandatory", "is_fatal", "allow_multiple_answers"]
     search_fields = ["question", "hint", "reviewer_notes", "questionnaire__name", "section__name"]
-    autocomplete_fields = ["questionnaire", "section"]
+    autocomplete_fields = ["questionnaire", "section", "depends_on_option"]
     ordering = ["questionnaire", "section", "order"]
 
     inlines = [MultipleChoiceOptionInline]
@@ -434,6 +466,7 @@ class MultipleChoiceQuestionAdmin(ModelAdmin):  # type: ignore[misc]
                     "is_mandatory",
                     "is_fatal",
                     "order",
+                    "depends_on_option",
                 ),
             },
         ),
@@ -473,7 +506,7 @@ class FreeTextQuestionAdmin(ModelAdmin):  # type: ignore[misc]
     ]
     list_filter = ["questionnaire__name", "section__name", "is_mandatory", "is_fatal"]
     search_fields = ["question", "hint", "reviewer_notes", "questionnaire__name", "section__name", "llm_guidelines"]
-    autocomplete_fields = ["questionnaire", "section"]
+    autocomplete_fields = ["questionnaire", "section", "depends_on_option"]
     ordering = ["questionnaire", "section", "order"]
 
     fieldsets = (
@@ -481,7 +514,7 @@ class FreeTextQuestionAdmin(ModelAdmin):  # type: ignore[misc]
         (
             "Configuration",
             {
-                "fields": ("is_mandatory", "is_fatal", "order"),
+                "fields": ("is_mandatory", "is_fatal", "order", "depends_on_option"),
             },
         ),
         ("Scoring & AI", {"fields": ("positive_weight", "negative_weight", "llm_guidelines")}),
@@ -516,9 +549,9 @@ class QuestionnaireSectionAdmin(ModelAdmin):  # type: ignore[misc]
     list_display = ["name", "questionnaire_link", "order", "question_count", "created_at"]
     list_filter = ["questionnaire__name", "created_at"]
     search_fields = ["name", "description", "questionnaire__name"]
-    autocomplete_fields = ["questionnaire"]
+    autocomplete_fields = ["questionnaire", "depends_on_option"]
     ordering = ["questionnaire", "order"]
-    fields = ["questionnaire", "name", "description", "order"]
+    fields = ["questionnaire", "name", "description", "order", "depends_on_option"]
 
     @admin.display(description="Questionnaire")
     def questionnaire_link(self, obj: models.QuestionnaireSection) -> str:

@@ -138,25 +138,18 @@ def test_update_section(questionnaire: Questionnaire, section: QuestionnaireSect
     assert updated_section.order == 2
 
 
-def test_update_section_with_questions(questionnaire: Questionnaire, section: QuestionnaireSection) -> None:
-    """Test that a section can be updated with questions."""
+def test_update_section_with_description(questionnaire: Questionnaire, section: QuestionnaireSection) -> None:
+    """Test that a section can be updated with description."""
     service = QuestionnaireService(questionnaire.id)
     payload = SectionUpdateSchema(
         name="Updated Section",
+        description="This is a description",
         order=2,
-        multiplechoicequestion_questions=[
-            MultipleChoiceQuestionCreateSchema(
-                question="What is your favorite color?",
-                options=[MultipleChoiceOptionCreateSchema(option="Blue", is_correct=True)],
-            )
-        ],
-        freetextquestion_questions=[FreeTextQuestionCreateSchema(question="Why?")],
     )
     updated_section = service.update_section(section, payload)
     assert updated_section.name == "Updated Section"
+    assert updated_section.description == "This is a description"
     assert updated_section.order == 2
-    assert updated_section.multiplechoicequestion_questions.count() == 1
-    assert updated_section.freetextquestion_questions.count() == 1
 
 
 # --- Tests for MC question CRUD ---
@@ -178,30 +171,24 @@ def test_create_mc_question(questionnaire: Questionnaire, section: Questionnaire
 
 
 def test_update_mc_question(questionnaire: Questionnaire, single_answer_mc_question: MultipleChoiceQuestion) -> None:
-    """Test that a multiple choice question can be updated."""
+    """Test that a multiple choice question can be updated.
+
+    Note: Options are NOT updated via this method. They must be updated individually
+    via the dedicated option endpoints to prevent accidental data loss.
+    """
     service = QuestionnaireService(questionnaire.id)
+    original_options_count = single_answer_mc_question.options.count()
     payload = MultipleChoiceQuestionUpdateSchema(
         question="What is your favorite color?",
-        options=[
-            MultipleChoiceOptionCreateSchema(option="Red", is_correct=True),
-            MultipleChoiceOptionCreateSchema(option="Blue", is_correct=False),
-        ],
+        hint="Pick the one you like best",
+        is_mandatory=True,
     )
     updated_question = service.update_mc_question(single_answer_mc_question, payload)
-    assert updated_question.options.count() == 2
-    correct_option = updated_question.options.filter(is_correct=True).first()
-    assert correct_option is not None
-    assert correct_option.option == "Red"
-
-
-def test_update_mc_question_without_options(
-    questionnaire: Questionnaire, single_answer_mc_question: MultipleChoiceQuestion
-) -> None:
-    """Test that a multiple choice question can be updated without options."""
-    service = QuestionnaireService(questionnaire.id)
-    payload = MultipleChoiceQuestionUpdateSchema(question="What is your favorite color?", options=[])
-    updated_question = service.update_mc_question(single_answer_mc_question, payload)
-    assert updated_question.options.count() == 0
+    assert updated_question.question == "What is your favorite color?"
+    assert updated_question.hint == "Pick the one you like best"
+    assert updated_question.is_mandatory is True
+    # Options should be unchanged - they are managed via dedicated endpoints
+    assert updated_question.options.count() == original_options_count
 
 
 def test_update_mc_question_with_section_move(
@@ -214,7 +201,6 @@ def test_update_mc_question_with_section_move(
     payload = MultipleChoiceQuestionUpdateSchema(
         question="What is your favorite color?",
         section_id=section.id,
-        options=[],
     )
     updated_question = service.update_mc_question(single_answer_mc_question, payload)
     assert updated_question.section == section

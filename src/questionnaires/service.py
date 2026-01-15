@@ -38,6 +38,7 @@ from .schema import (
     MultipleChoiceQuestionSchema,
     MultipleChoiceQuestionUpdateSchema,
     QuestionnaireCreateSchema,
+    QuestionnaireResponseSchema,
     QuestionnaireSchema,
     QuestionnaireSubmissionSchema,
     SectionCreateSchema,
@@ -357,7 +358,18 @@ class QuestionnaireService:
         Args:
             payload: The section data.
             depends_on_option: Optional option that this section depends on (for conditional sections).
+                If not provided but payload.depends_on_option_id is set, it will be resolved.
         """
+        # Resolve depends_on_option from payload if not provided as parameter
+        if depends_on_option is None and payload.depends_on_option_id:
+            try:
+                depends_on_option = MultipleChoiceOption.objects.get(
+                    id=payload.depends_on_option_id,
+                    question__questionnaire=self.questionnaire,
+                )
+            except MultipleChoiceOption.DoesNotExist:
+                raise SectionIntegrityError("Option does not exist or does not belong to this questionnaire.")
+
         section_data = payload.model_dump(
             exclude={"multiplechoicequestion_questions", "freetextquestion_questions", "depends_on_option_id"}
         )
@@ -375,23 +387,17 @@ class QuestionnaireService:
 
         return section
 
-    @transaction.atomic
     def update_section(self, section: QuestionnaireSection, payload: SectionUpdateSchema) -> QuestionnaireSection:
-        """Update a section of the questionnaire."""
+        """Update a section of the questionnaire.
+
+        Only updates section metadata (name, description, order, depends_on_option).
+        Questions must be added/updated/deleted via dedicated endpoints.
+        """
         section.name = payload.name
+        section.description = payload.description
         section.order = payload.order
-        section.save()
-
-        if payload.multiplechoicequestion_questions:
-            section.multiplechoicequestion_questions.all().delete()
-            for mc_payload in payload.multiplechoicequestion_questions:
-                self.create_mc_question(mc_payload, section)
-
-        if payload.freetextquestion_questions:
-            section.freetextquestion_questions.all().delete()
-            for ft_payload in payload.freetextquestion_questions:
-                self.create_ft_question(ft_payload, section)
-
+        section.depends_on_option_id = payload.depends_on_option_id
+        section.save(update_fields=["name", "description", "order", "depends_on_option_id", "updated_at"])
         return section
 
     @transaction.atomic
@@ -407,6 +413,7 @@ class QuestionnaireService:
             payload: The question data.
             section: Optional section to place the question in.
             depends_on_option: Optional option that this question depends on (for conditional questions).
+                If not provided but payload.depends_on_option_id is set, it will be resolved.
         """
         if payload.section_id and section and payload.section_id != section.id:
             raise SectionIntegrityError("Section ID in payload does not match the provided section.")
@@ -416,6 +423,16 @@ class QuestionnaireService:
                 section = QuestionnaireSection.objects.get(id=payload.section_id, questionnaire=self.questionnaire)
             except QuestionnaireSection.DoesNotExist:
                 raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
+
+        # Resolve depends_on_option from payload if not provided as parameter
+        if depends_on_option is None and payload.depends_on_option_id:
+            try:
+                depends_on_option = MultipleChoiceOption.objects.get(
+                    id=payload.depends_on_option_id,
+                    question__questionnaire=self.questionnaire,
+                )
+            except MultipleChoiceOption.DoesNotExist:
+                raise QuestionIntegrityError("Option does not exist or does not belong to this questionnaire.")
 
         options_data = payload.options
         mc_question_data = payload.model_dump(exclude={"options", "section_id", "depends_on_option_id"})
@@ -445,14 +462,13 @@ class QuestionnaireService:
 
         return mc_question
 
-    @transaction.atomic
     def update_mc_question(
         self, mc_question: MultipleChoiceQuestion, payload: MultipleChoiceQuestionUpdateSchema
     ) -> MultipleChoiceQuestion:
         """Update a multiple choice question of the questionnaire.
 
-        Note: Updating options via this method does not support nested conditional creation.
-        Use the flat depends_on_option_id approach for conditional questions when updating.
+        Only updates question metadata. Options must be added/updated/deleted
+        via dedicated endpoints to prevent accidental data loss.
         """
         assert mc_question.questionnaire_id == self.questionnaire.id
 
@@ -463,22 +479,9 @@ class QuestionnaireService:
             except QuestionnaireSection.DoesNotExist:
                 raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
 
-        for key, value in payload.model_dump(exclude={"options"}).items():
+        for key, value in payload.model_dump(exclude={"section_id"}).items():
             setattr(mc_question, key, value)
         mc_question.save()
-
-        if payload.options:
-            mc_question.options.all().delete()
-            options_to_create = [
-                MultipleChoiceOption(
-                    question=mc_question,
-                    option=opt.option,
-                    is_correct=opt.is_correct,
-                    order=opt.order,
-                )
-                for opt in payload.options
-            ]
-            MultipleChoiceOption.objects.bulk_create(options_to_create)
 
         return mc_question
 
@@ -529,6 +532,7 @@ class QuestionnaireService:
             payload: The question data.
             section: Optional section to place the question in.
             depends_on_option: Optional option that this question depends on (for conditional questions).
+                If not provided but payload.depends_on_option_id is set, it will be resolved.
         """
         if payload.section_id and section and payload.section_id != section.id:
             raise SectionIntegrityError("Section ID in payload does not match the provided section.")
@@ -538,6 +542,16 @@ class QuestionnaireService:
                 section = QuestionnaireSection.objects.get(id=payload.section_id, questionnaire=self.questionnaire)
             except QuestionnaireSection.DoesNotExist:
                 raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
+
+        # Resolve depends_on_option from payload if not provided as parameter
+        if depends_on_option is None and payload.depends_on_option_id:
+            try:
+                depends_on_option = MultipleChoiceOption.objects.get(
+                    id=payload.depends_on_option_id,
+                    question__questionnaire=self.questionnaire,
+                )
+            except MultipleChoiceOption.DoesNotExist:
+                raise QuestionIntegrityError("Option does not exist or does not belong to this questionnaire.")
 
         return FreeTextQuestion.objects.create(
             questionnaire=self.questionnaire,
@@ -609,6 +623,32 @@ class QuestionnaireService:
         return evaluation
 
 
-def get_questionnaire_schema(questionnaire: Questionnaire) -> QuestionnaireCreateSchema:
-    """Get the questionnaire schema."""
-    return QuestionnaireCreateSchema.from_orm(questionnaire)
+def get_questionnaire_schema(questionnaire: Questionnaire) -> QuestionnaireResponseSchema:
+    """Get the questionnaire schema for API responses.
+
+    Uses prefetch to ensure top-level questions arrays only contain questions
+    without a section, avoiding duplication with section-level questions.
+    Returns QuestionnaireResponseSchema which includes id fields for all nested objects.
+    """
+    # Prefetch with proper filtering to avoid duplicate questions
+    questionnaire = Questionnaire.objects.prefetch_related(
+        Prefetch(
+            "multiplechoicequestion_questions",
+            queryset=MultipleChoiceQuestion.objects.filter(section__isnull=True).prefetch_related("options"),
+        ),
+        Prefetch(
+            "freetextquestion_questions",
+            queryset=FreeTextQuestion.objects.filter(section__isnull=True),
+        ),
+        Prefetch(
+            "sections",
+            queryset=QuestionnaireSection.objects.prefetch_related(
+                Prefetch(
+                    "multiplechoicequestion_questions",
+                    queryset=MultipleChoiceQuestion.objects.prefetch_related("options"),
+                ),
+                "freetextquestion_questions",
+            ).order_by("order"),
+        ),
+    ).get(pk=questionnaire.pk)
+    return QuestionnaireResponseSchema.from_orm(questionnaire)

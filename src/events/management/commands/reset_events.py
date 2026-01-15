@@ -10,6 +10,7 @@ from django.db.models import Q
 
 from accounts.models import RevelUser
 from events.models import Organization
+from questionnaires.models import Questionnaire
 
 
 class Command(BaseCommand):
@@ -77,6 +78,7 @@ class Command(BaseCommand):
 
             # Delete all organizations (cascade will handle related objects)
             Organization.objects.all().delete()
+            Questionnaire.objects.all().delete()
             self.stdout.write(self.style.SUCCESS(f"✓ Deleted {org_count} organizations"))
 
             # Delete all users with @example.com emails

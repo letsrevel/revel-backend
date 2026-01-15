@@ -82,10 +82,19 @@ def test_build_questionnaire_with_sorted_options(questionnaire: Questionnaire) -
 
 
 def test_get_questionnaire_schema(complex_questionnaire: Questionnaire) -> None:
-    """Test that the questionnaire schema can be retrieved."""
+    """Test that the questionnaire schema can be retrieved.
+
+    Top-level question arrays should only contain questions without a section.
+    Questions with a section should only appear in their section's arrays.
+    """
     complex_questionnaire.evaluation_mode = "manual"
+    complex_questionnaire.save(update_fields=["evaluation_mode"])
     schema = get_questionnaire_schema(complex_questionnaire)
     assert schema.name == complex_questionnaire.name
-    assert len(schema.multiplechoicequestion_questions) == 2
-    assert len(schema.freetextquestion_questions) == 2
+    # Only top-level questions (those without a section) should appear here
+    assert len(schema.multiplechoicequestion_questions) == 1
+    assert len(schema.freetextquestion_questions) == 1
+    # Sections should contain their own questions
     assert len(schema.sections) == 2
+    assert len(schema.sections[0].multiplechoicequestion_questions) == 1  # Section 1 has 1 MC question
+    assert len(schema.sections[1].freetextquestion_questions) == 1  # Section 2 has 1 FT question
