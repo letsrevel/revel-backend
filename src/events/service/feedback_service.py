@@ -98,6 +98,9 @@ def validate_feedback_questionnaire_access(
         org_questionnaire: The organization questionnaire to validate.
         check_already_submitted: Whether to check if user already submitted.
 
+    Returns:
+        None. Raises HttpError on validation failure.
+
     Raises:
         HttpError(403): If the event hasn't ended yet.
         HttpError(403): If the user didn't attend the event.
@@ -119,7 +122,12 @@ def validate_feedback_questionnaire_access(
         raise HttpError(403, str(_("You have already submitted feedback for this event.")))
 
 
-def get_feedback_questionnaires_for_user(event: Event, user: RevelUser) -> list[UUID]:
+def get_feedback_questionnaires_for_user(
+    event: Event,
+    user: RevelUser,
+    *,
+    attendance_verified: bool = False,
+) -> list[UUID]:
     """Get feedback questionnaire IDs available for a user for a given event.
 
     Returns feedback questionnaires that:
@@ -131,6 +139,8 @@ def get_feedback_questionnaires_for_user(event: Event, user: RevelUser) -> list[
     Args:
         event: The event to get feedback questionnaires for.
         user: The user to check eligibility for.
+        attendance_verified: If True, skip the attendance check. Use this when
+            the caller has already verified attendance to avoid redundant queries.
 
     Returns:
         List of questionnaire IDs the user can provide feedback for.
@@ -139,8 +149,8 @@ def get_feedback_questionnaires_for_user(event: Event, user: RevelUser) -> list[
     if event.end is None or timezone.now() <= event.end:
         return []
 
-    # User must have attended
-    if not user_attended_event(user, event):
+    # User must have attended (skip if caller already verified)
+    if not attendance_verified and not user_attended_event(user, event):
         return []
 
     # Build filter for questionnaires linked to this event
