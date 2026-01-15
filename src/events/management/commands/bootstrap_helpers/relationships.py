@@ -169,6 +169,28 @@ def _create_past_event_tickets(state: BootstrapState, now: "datetime.datetime") 
         expires_at=now - timedelta(days=120),
     )
 
+    # Charlie (org_alpha_member) also attended the past event - for testing feedback questionnaires
+    charlie_ticket = events_models.Ticket.objects.create(
+        guest_name=state.users["org_alpha_member"].get_display_name(),
+        event=state.events["past_event"],
+        user=state.users["org_alpha_member"],
+        tier=past_tier,
+        status=events_models.Ticket.TicketStatus.CHECKED_IN,
+        checked_in_at=now - timedelta(days=89, hours=1),
+        checked_in_by=state.users["org_alpha_staff"],
+    )
+
+    events_models.Payment.objects.create(
+        ticket=charlie_ticket,
+        user=state.users["org_alpha_member"],
+        stripe_session_id=f"cs_test_{state.fake.uuid4()}",
+        status=events_models.Payment.PaymentStatus.SUCCEEDED,
+        amount=Decimal("250.00"),
+        platform_fee=Decimal("25.00"),
+        currency="USD",
+        expires_at=now - timedelta(days=120),
+    )
+
 
 def _create_wellness_retreat_tickets(state: BootstrapState) -> None:
     """Create Wellness Retreat tickets."""

@@ -21,7 +21,7 @@ from common.controllers import UserAwareController
 from common.schema import ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle
 from events import filters, models, schema
-from events.service import event_service, stripe_service, ticket_service
+from events.service import event_service, feedback_service, stripe_service, ticket_service
 from events.service import guest as guest_service
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.event_manager import EventManager, EventUserEligibility
@@ -147,7 +147,7 @@ class EventController(UserAwareController):
         """Browse and search events visible to the current user.
 
         Results are filtered by visibility rules (public/private), event status, and user permissions.
-        By default shows only upcoming events; set include_past=true to see past events.
+        By default, shows only upcoming events; set include_past=true to see past events.
         Ordering: 'distance' (default) shows nearest events based on user location, 'start' shows
         soonest first, '-start' shows latest first. Supports filtering by organization, series,
         tags, and text search.
@@ -318,19 +318,25 @@ class EventController(UserAwareController):
         - `rsvp`: User's RSVP status (for non-ticketed events)
         - `can_purchase_more`: Whether user can purchase additional tickets
         - `remaining_tickets`: How many more tickets user can purchase (null = unlimited)
+        - `feedback_questionnaires`: Questionnaire IDs available for feedback (only after event ends)
 
         Use this to determine which action to show users (buy more tickets, view tickets,
-        RSVP, fill questionnaire, etc.).
+        RSVP, fill questionnaire, leave feedback, etc.).
         """
         event = self.get_one(event_id)
-        status = ticket_service.get_user_event_status(event, self.user())
+        user = self.user()
+        status = ticket_service.get_user_event_status(event, user)
 
         if isinstance(status, UserEventStatus):
+            # Get feedback questionnaires if event has ended and user attended
+            feedback_questionnaire_ids = feedback_service.get_feedback_questionnaires_for_user(event, user)
+
             return schema.EventUserStatusResponse(
                 tickets=[schema.UserTicketSchema.from_orm(t) for t in status.tickets],
                 rsvp=schema.EventRSVPSchema.from_orm(status.rsvp) if status.rsvp else None,
                 can_purchase_more=status.can_purchase_more,
                 remaining_tickets=status.remaining_tickets,
+                feedback_questionnaires=feedback_questionnaire_ids,
             )
 
         # EventUserEligibility - return as-is
@@ -764,14 +770,27 @@ class EventController(UserAwareController):
         "/{event_id}/questionnaire/{questionnaire_id}", url_name="get_questionnaire", response=QuestionnaireSchema
     )
     def get_questionnaire(self, event_id: UUID, questionnaire_id: UUID) -> QuestionnaireSchema:
-        """Retrieve a questionnaire required for event admission.
+        """Retrieve a questionnaire for an event.
 
-        Returns the questionnaire structure with all sections and questions. Questions may be
-        shuffled based on questionnaire settings. Use this to display the form that users must
-        complete before accessing the event.
+        For admission questionnaires: Returns the questionnaire structure with all sections
+        and questions. Questions may be shuffled based on questionnaire settings.
+
+        For feedback questionnaires: Only accessible after the event has ended and only
+        for users who attended the event (RSVP YES or active/checked-in ticket).
         """
         event = self.get_one(event_id)
-        self.get_org_questionnaire_for_event(event, questionnaire_id)
+        org_questionnaire = self.get_org_questionnaire_for_event(event, questionnaire_id)
+
+        # Validate access for FEEDBACK questionnaires (requires authentication + attendance)
+        if org_questionnaire.questionnaire_type == models.OrganizationQuestionnaire.QuestionnaireType.FEEDBACK:
+            user = self.maybe_user()
+            if user.is_anonymous:
+                raise HttpError(401, str(_("Authentication required to access feedback questionnaire.")))
+            # Don't check if already submitted for viewing - users can view but can't re-submit
+            feedback_service.validate_feedback_questionnaire_access(
+                user, event, org_questionnaire, check_already_submitted=False
+            )
+
         questionnaire_service = self.get_questionnaire_service(questionnaire_id)
         return questionnaire_service.build()
 
@@ -785,20 +804,30 @@ class EventController(UserAwareController):
     def submit_questionnaire(
         self, event_id: UUID, questionnaire_id: UUID, submission: QuestionnaireSubmissionSchema
     ) -> QuestionnaireSubmissionOrEvaluationSchema:
-        """Submit answers to an event admission questionnaire.
+        """Submit answers to an event questionnaire.
 
-        Validates all required questions are answered. If submission status is 'ready', triggers
-        automatic evaluation (may use LLM for free-text answers). Depending on the questionnaire's
-        evaluation_mode (automatic/manual/hybrid), results may be immediate or pending staff review.
-        Passing the questionnaire may be required before you can RSVP or purchase tickets.
+        For admission questionnaires: Validates all required questions are answered. If submission
+        status is 'ready', triggers automatic evaluation (may use LLM for free-text answers).
+        Depending on the questionnaire's evaluation_mode, results may be immediate or pending review.
+
+        For feedback questionnaires: Only accessible after the event has ended and only for users
+        who attended the event. Feedback submissions are not evaluated (no approval/rejection).
         """
         event = self.get_one(event_id)
+        org_questionnaire = self.get_org_questionnaire_for_event(event, questionnaire_id)
+        is_feedback = (
+            org_questionnaire.questionnaire_type == models.OrganizationQuestionnaire.QuestionnaireType.FEEDBACK
+        )
 
-        # Check application deadline (falls back to event start if not set)
-        if timezone.now() > event.effective_apply_deadline:
-            raise HttpError(400, str(_("The application deadline has passed.")))
+        # Validate based on questionnaire type
+        if is_feedback:
+            # Feedback questionnaires: validate event ended + user attended
+            feedback_service.validate_feedback_questionnaire_access(self.user(), event, org_questionnaire)
+        else:
+            # Admission questionnaires: check application deadline (falls back to event start if not set)
+            if timezone.now() > event.effective_apply_deadline:
+                raise HttpError(400, str(_("The application deadline has passed.")))
 
-        self.get_org_questionnaire_for_event(event, questionnaire_id)
         questionnaire_service = self.get_questionnaire_service(questionnaire_id)
 
         # Build source event metadata to store with the submission
@@ -809,12 +838,25 @@ class EventController(UserAwareController):
         }
 
         db_submission = questionnaire_service.submit(self.user(), submission, source_event=source_event)
-        evaluation_mode = questionnaire_service.questionnaire.evaluation_mode
-        if submission.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY and evaluation_mode in (
-            Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
-            Questionnaire.QuestionnaireEvaluationMode.HYBRID,
-        ):
-            evaluate_questionnaire_submission.delay(str(db_submission.pk))
+
+        # For feedback questionnaires: create tracking record to enforce one submission per user/event
+        if is_feedback and submission.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY:
+            feedback_service.create_feedback_submission_record(
+                user=self.user(),
+                event=event,
+                questionnaire=org_questionnaire.questionnaire,
+                submission=db_submission,
+            )
+
+        # Trigger automatic evaluation only for non-feedback questionnaires
+        if not is_feedback:
+            evaluation_mode = questionnaire_service.questionnaire.evaluation_mode
+            if submission.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY and evaluation_mode in (
+                Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
+                Questionnaire.QuestionnaireEvaluationMode.HYBRID,
+            ):
+                evaluate_questionnaire_submission.delay(str(db_submission.pk))
+
         return QuestionnaireSubmissionResponseSchema.from_orm(db_submission)
 
     # ---- Guest User Endpoints (No Authentication Required) ----

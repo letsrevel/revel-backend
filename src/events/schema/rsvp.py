@@ -97,9 +97,11 @@ class EventUserStatusResponse(Schema):
     - RSVP: User's RSVP status (for non-ticketed events)
     - Eligibility: Whether user can purchase tickets and why not
     - Purchase limits: How many more tickets can be purchased
+    - Feedback questionnaires: Available after event ends for attendees
     """
 
     tickets: list[UserTicketSchema] = Field(default_factory=list)
     rsvp: EventRSVPSchema | None = None
     can_purchase_more: bool = True
     remaining_tickets: int | None = None  # None = unlimited
+    feedback_questionnaires: list[UUID] = Field(default_factory=list)

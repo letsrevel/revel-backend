@@ -23,7 +23,7 @@ from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters
 from events import models as event_models
 from events import schema as event_schema
-from events.service import update_organization_questionnaire
+from events.service import feedback_service, update_organization_questionnaire
 from questionnaires import models as questionnaires_models
 from questionnaires import schema as questionnaire_schema
 from questionnaires.service import QuestionnaireService
@@ -491,8 +491,12 @@ class QuestionnaireController(UserAwareController):
         Overrides automatic evaluation or provides decision for manual-review questionnaires.
         Approved users can then RSVP or purchase tickets for the event. Requires
         'evaluate_questionnaire' permission.
+
+        Note: Feedback questionnaires cannot be evaluated. If an admin changes a questionnaire
+        type from FEEDBACK to ADMISSION, existing submissions would become evaluatable.
         """
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        feedback_service.validate_not_feedback_questionnaire_for_evaluation(org_questionnaire)
         service = QuestionnaireService(org_questionnaire.questionnaire_id)
         return service.evaluate_submission(submission_id, payload, self.user())
 

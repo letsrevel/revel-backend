@@ -606,3 +606,76 @@ def test_evaluate_submission_permission_denied(
     response = nonmember_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 404
+
+
+def test_evaluate_feedback_questionnaire_fails(
+    organization: Organization, organization_owner_client: Client, member_user: RevelUser
+) -> None:
+    """Test that feedback questionnaires cannot be evaluated."""
+    questionnaire = Questionnaire.objects.create(
+        name="Feedback Questionnaire",
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL,
+    )
+    org_questionnaire = OrganizationQuestionnaire.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
+    )
+    submission = QuestionnaireSubmission.objects.create(
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+    )
+
+    payload = {
+        "status": QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        "score": "85.0",
+        "comments": "This should fail",
+    }
+
+    url = reverse(
+        "api:evaluate_submission",
+        kwargs={"org_questionnaire_id": org_questionnaire.id, "submission_id": submission.id},
+    )
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+    assert "cannot be evaluated" in response.json()["detail"]
+
+    # Verify no evaluation was created
+    assert not QuestionnaireEvaluation.objects.filter(submission=submission).exists()
+
+
+def test_evaluate_admission_questionnaire_succeeds(
+    organization: Organization, organization_owner_client: Client, member_user: RevelUser
+) -> None:
+    """Test that admission questionnaires can still be evaluated."""
+    questionnaire = Questionnaire.objects.create(
+        name="Admission Questionnaire",
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL,
+    )
+    org_questionnaire = OrganizationQuestionnaire.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+    )
+    submission = QuestionnaireSubmission.objects.create(
+        user=member_user,
+        questionnaire=questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+    )
+
+    payload = {
+        "status": QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        "score": "90.0",
+        "comments": "Well done",
+    }
+
+    url = reverse(
+        "api:evaluate_submission",
+        kwargs={"org_questionnaire_id": org_questionnaire.id, "submission_id": submission.id},
+    )
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    assert QuestionnaireEvaluation.objects.filter(submission=submission).exists()
