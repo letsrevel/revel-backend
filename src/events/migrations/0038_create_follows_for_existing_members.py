@@ -38,7 +38,6 @@ def create_follows_for_existing_members(apps, schema_editor):
 
     if follows_to_create:
         OrganizationFollow.objects.bulk_create(follows_to_create, ignore_conflicts=True)
-        print(f"Created {len(follows_to_create)} OrganizationFollow records for existing members")
 
 
 def reverse_migration(apps, schema_editor):
