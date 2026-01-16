@@ -16,6 +16,7 @@ from events.controllers.event_admin import EVENT_ADMIN_CONTROLLERS
 from events.controllers.event_series import EventSeriesController
 from events.controllers.event_series_admin import EventSeriesAdminController
 from events.controllers.events import EventController
+from events.controllers.following import FollowingController
 from events.controllers.organization import OrganizationController
 from events.controllers.organization_admin import ORGANIZATION_ADMIN_CONTROLLERS
 from events.controllers.permissions import PermissionController
@@ -115,6 +116,7 @@ api.register_controllers(
     PotluckController,
     QuestionnaireController,
     UserPreferencesController,
+    FollowingController,
     StripeWebhookController,
     # Common controllers
     TagController,

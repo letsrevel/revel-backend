@@ -18,7 +18,7 @@ from common.throttling import (
     WriteThrottle,
 )
 from events import filters, models, schema
-from events.service import blacklist_service, organization_service, whitelist_service
+from events.service import blacklist_service, follow_service, organization_service, whitelist_service
 
 from ..service.event_service import order_by_distance
 
@@ -297,3 +297,119 @@ class OrganizationController(UserAwareController):
         )
 
         return 201, models.WhitelistRequest.objects.select_related("user").get(pk=request.pk)
+
+    @route.get(
+        "/{slug}/follow",
+        url_name="get_organization_follow_status",
+        response=schema.OrganizationFollowStatusSchema,
+        auth=I18nJWTAuth(),
+    )
+    def get_follow_status(self, slug: str) -> schema.OrganizationFollowStatusSchema:
+        """Check if the current user is following this organization.
+
+        Returns whether the user is following and the follow details if applicable.
+        """
+        organization = self.get_one(slug)
+        is_following = follow_service.is_following_organization(self.user(), organization)
+
+        if is_following:
+            follow = models.OrganizationFollow.objects.select_related("organization").get(
+                user=self.user(), organization=organization, is_archived=False
+            )
+            return schema.OrganizationFollowStatusSchema(
+                is_following=True,
+                follow=schema.OrganizationFollowSchema.from_model(follow),
+            )
+
+        return schema.OrganizationFollowStatusSchema(is_following=False, follow=None)
+
+    @route.post(
+        "/{slug}/follow",
+        url_name="follow_organization",
+        response={201: schema.OrganizationFollowSchema},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def follow_organization(
+        self, slug: str, payload: schema.OrganizationFollowCreateSchema
+    ) -> tuple[int, schema.OrganizationFollowSchema]:
+        """Follow an organization to receive notifications about new events and announcements.
+
+        Creates a follow relationship with the organization. You'll receive notifications
+        based on your preference settings (notify_new_events, notify_announcements).
+
+        **Parameters:**
+        - `notify_new_events`: Whether to receive notifications when the organization creates new events
+        - `notify_announcements`: Whether to receive notifications for organization announcements
+
+        **Returns:**
+        - 201: The created follow relationship
+
+        **Error Cases:**
+        - 400: Already following this organization
+        - 404: Organization not found or not visible
+        """
+        organization = self.get_one(slug)
+        follow = follow_service.follow_organization(
+            self.user(),
+            organization,
+            notify_new_events=payload.notify_new_events,
+            notify_announcements=payload.notify_announcements,
+        )
+        return 201, schema.OrganizationFollowSchema.from_model(follow)
+
+    @route.patch(
+        "/{slug}/follow",
+        url_name="update_organization_follow",
+        response=schema.OrganizationFollowSchema,
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def update_organization_follow(
+        self, slug: str, payload: schema.OrganizationFollowUpdateSchema
+    ) -> schema.OrganizationFollowSchema:
+        """Update notification preferences for an organization you're following.
+
+        Allows you to toggle notification preferences without unfollowing.
+
+        **Parameters:**
+        - `notify_new_events`: Whether to receive new event notifications
+        - `notify_announcements`: Whether to receive announcement notifications
+
+        **Returns:**
+        - The updated follow relationship
+
+        **Error Cases:**
+        - 400: Not following this organization
+        """
+        organization = self.get_one(slug)
+        follow = follow_service.update_organization_follow_preferences(
+            self.user(),
+            organization,
+            notify_new_events=payload.notify_new_events,
+            notify_announcements=payload.notify_announcements,
+        )
+        return schema.OrganizationFollowSchema.from_model(follow)
+
+    @route.delete(
+        "/{slug}/follow",
+        url_name="unfollow_organization",
+        response={204: None},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def unfollow_organization(self, slug: str) -> tuple[int, None]:
+        """Unfollow an organization to stop receiving notifications.
+
+        Removes the follow relationship. Your follow history is preserved internally
+        but you'll no longer receive notifications from this organization.
+
+        **Returns:**
+        - 204: Successfully unfollowed
+
+        **Error Cases:**
+        - 400: Not following this organization
+        """
+        organization = self.get_one(slug)
+        follow_service.unfollow_organization(self.user(), organization)
+        return 204, None

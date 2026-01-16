@@ -212,6 +212,20 @@ from .dietary import (
     EventDietarySummarySchema,
 )
 
+# Follow schemas
+from .follow import (
+    EventSeriesFollowCreateSchema,
+    EventSeriesFollowSchema,
+    EventSeriesFollowStatusSchema,
+    EventSeriesFollowUpdateSchema,
+    MinimalEventSeriesFollowSchema,
+    MinimalOrganizationFollowSchema,
+    OrganizationFollowCreateSchema,
+    OrganizationFollowSchema,
+    OrganizationFollowStatusSchema,
+    OrganizationFollowUpdateSchema,
+)
+
 __all__ = [
     # Mixins and utilities
     "CityBaseMixin",
@@ -377,4 +391,15 @@ __all__ = [
     "AggregatedDietaryPreferenceSchema",
     "AggregatedDietaryRestrictionSchema",
     "EventDietarySummarySchema",
+    # Follow
+    "EventSeriesFollowCreateSchema",
+    "EventSeriesFollowSchema",
+    "EventSeriesFollowStatusSchema",
+    "EventSeriesFollowUpdateSchema",
+    "MinimalEventSeriesFollowSchema",
+    "MinimalOrganizationFollowSchema",
+    "OrganizationFollowCreateSchema",
+    "OrganizationFollowSchema",
+    "OrganizationFollowStatusSchema",
+    "OrganizationFollowUpdateSchema",
 ]

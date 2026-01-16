@@ -37,8 +37,10 @@ class TestCreateNotificationPreferences:
         assert DeliveryChannel.IN_APP in prefs.enabled_channels
         assert DeliveryChannel.EMAIL in prefs.enabled_channels
 
-        # Regular users have no restrictions
-        assert len(prefs.notification_type_settings) == 5  # potluck email notifications are disabled.
+        # Regular users have custom settings for certain notification types:
+        # - 5 potluck notifications (IN_APP only, no email)
+        # - 4 follow notifications (IN_APP only, no email)
+        assert len(prefs.notification_type_settings) == 9
 
     def test_creates_preferences_for_guest_user_with_restrictions(
         self,

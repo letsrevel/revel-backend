@@ -10,9 +10,11 @@ from ninja_extra import (
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from common.authentication import OptionalAuth
+from common.authentication import I18nJWTAuth, OptionalAuth
 from common.controllers import UserAwareController
+from common.throttling import WriteThrottle
 from events import filters, models, schema
+from events.service import follow_service
 
 
 @api_controller("/event-series", auth=OptionalAuth(), tags=["Event Series"])
@@ -88,3 +90,115 @@ class EventSeriesController(UserAwareController):
         series = self.get_object_or_exception(self.get_queryset(), pk=series_id)
         qs = models.AdditionalResource.objects.for_user(self.maybe_user()).filter(event_series=series).with_related()
         return params.filter(qs).distinct()
+
+    @route.get(
+        "/{series_id}/follow",
+        url_name="get_event_series_follow_status",
+        response=schema.EventSeriesFollowStatusSchema,
+        auth=I18nJWTAuth(),
+    )
+    def get_follow_status(self, series_id: UUID) -> schema.EventSeriesFollowStatusSchema:
+        """Check if the current user is following this event series.
+
+        Returns whether the user is following and the follow details if applicable.
+        """
+        event_series = t.cast(models.EventSeries, self.get_object_or_exception(self.get_queryset(), pk=series_id))
+        is_following = follow_service.is_following_event_series(self.user(), event_series)
+
+        if is_following:
+            follow = models.EventSeriesFollow.objects.select_related("event_series", "event_series__organization").get(
+                user=self.user(), event_series=event_series, is_archived=False
+            )
+            return schema.EventSeriesFollowStatusSchema(
+                is_following=True,
+                follow=schema.EventSeriesFollowSchema.from_model(follow),
+            )
+
+        return schema.EventSeriesFollowStatusSchema(is_following=False, follow=None)
+
+    @route.post(
+        "/{series_id}/follow",
+        url_name="follow_event_series",
+        response={201: schema.EventSeriesFollowSchema},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def follow_event_series(
+        self, series_id: UUID, payload: schema.EventSeriesFollowCreateSchema
+    ) -> tuple[int, schema.EventSeriesFollowSchema]:
+        """Follow an event series to receive notifications when new events are added.
+
+        Creates a follow relationship with the event series. You'll receive notifications
+        when new events are added to this series.
+
+        **Parameters:**
+        - `notify_new_events`: Whether to receive notifications when new events are added
+
+        **Returns:**
+        - 201: The created follow relationship
+
+        **Error Cases:**
+        - 400: Already following this series
+        - 404: Event series not found or not visible
+        """
+        event_series = t.cast(models.EventSeries, self.get_object_or_exception(self.get_queryset(), pk=series_id))
+        follow = follow_service.follow_event_series(
+            self.user(),
+            event_series,
+            notify_new_events=payload.notify_new_events,
+        )
+        return 201, schema.EventSeriesFollowSchema.from_model(follow)
+
+    @route.patch(
+        "/{series_id}/follow",
+        url_name="update_event_series_follow",
+        response=schema.EventSeriesFollowSchema,
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def update_event_series_follow(
+        self, series_id: UUID, payload: schema.EventSeriesFollowUpdateSchema
+    ) -> schema.EventSeriesFollowSchema:
+        """Update notification preferences for an event series you're following.
+
+        Allows you to toggle notification preferences without unfollowing.
+
+        **Parameters:**
+        - `notify_new_events`: Whether to receive new event notifications
+
+        **Returns:**
+        - The updated follow relationship
+
+        **Error Cases:**
+        - 400: Not following this series
+        """
+        event_series = t.cast(models.EventSeries, self.get_object_or_exception(self.get_queryset(), pk=series_id))
+        follow = follow_service.update_event_series_follow_preferences(
+            self.user(),
+            event_series,
+            notify_new_events=payload.notify_new_events,
+        )
+        return schema.EventSeriesFollowSchema.from_model(follow)
+
+    @route.delete(
+        "/{series_id}/follow",
+        url_name="unfollow_event_series",
+        response={204: None},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def unfollow_event_series(self, series_id: UUID) -> tuple[int, None]:
+        """Unfollow an event series to stop receiving notifications.
+
+        Removes the follow relationship. Your follow history is preserved internally
+        but you'll no longer receive notifications from this series.
+
+        **Returns:**
+        - 204: Successfully unfollowed
+
+        **Error Cases:**
+        - 400: Not following this series
+        """
+        event_series = t.cast(models.EventSeries, self.get_object_or_exception(self.get_queryset(), pk=series_id))
+        follow_service.unfollow_event_series(self.user(), event_series)
+        return 204, None

@@ -1,0 +1,15 @@
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
+
+🎉 {% blocktranslate with series=context.event_series_name event=context.event_name %}New event in {{ series }}: {{ event }}{% endblocktranslate %}
+
+{% trans "Event Details:" %}
+📅 {{ context.event_start_formatted }}
+{% if context.event_location %}📍 {{ context.event_location }}{% endif %}
+
+{% if context.event_description %}
+{{ context.event_description }}
+{% endif %}
+
+{% trans "View the event:" %} {{ context.event_url }}
+
+{% include "notifications/email/_footer.txt" %}
