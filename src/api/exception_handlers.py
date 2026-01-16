@@ -20,6 +20,7 @@ from events.exceptions import (
 from events.service.event_manager import UserIsIneligibleError
 from questionnaires.exceptions import (
     CrossQuestionnaireSubmissionError,
+    FileValidationError,
     MissingMandatoryAnswerError,
     QuestionIntegrityError,
     SectionIntegrityError,
@@ -142,6 +143,13 @@ def handle_pending_membership_request_exists_error(
 ) -> Response:
     """Handle a pending membership request exists error."""
     return Response(status=400, data={"detail": str(_("You have a pending membership request for this organization."))})
+
+
+def handle_file_validation_error(
+    request: HttpRequest, exc: FileValidationError | t.Type[FileValidationError]
+) -> Response:
+    """Handle any file validation error with the exception's message."""
+    return Response(status=400, data={"detail": str(exc)})
 
 
 SENSITIVE_KEYS = {"password", "token", "x-api-key", "authorization", "authentication"}

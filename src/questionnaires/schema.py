@@ -11,8 +11,82 @@ from accounts.schema import MinimalRevelUserSchema
 from questionnaires.models import (
     Questionnaire,
     QuestionnaireEvaluation,
+    QuestionnaireFile,
     QuestionnaireSubmission,
 )
+
+# ---- MIME type constants for file upload validation ----
+
+# Common document MIME types
+DOCUMENT_MIME_TYPES: frozenset[str] = frozenset(
+    {
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # .docx
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # .xlsx
+        "application/vnd.ms-powerpoint",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # .pptx
+        "text/plain",
+        "text/csv",
+        "application/rtf",
+    }
+)
+
+# Common image MIME types
+# NOTE: SVG excluded intentionally - can contain embedded JavaScript (XSS risk)
+IMAGE_MIME_TYPES: frozenset[str] = frozenset(
+    {
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "image/bmp",
+        "image/tiff",
+    }
+)
+
+# Common audio MIME types
+AUDIO_MIME_TYPES: frozenset[str] = frozenset(
+    {
+        "audio/mpeg",  # .mp3
+        "audio/wav",
+        "audio/ogg",
+        "audio/webm",
+        "audio/aac",
+        "audio/flac",
+    }
+)
+
+# Common video MIME types
+VIDEO_MIME_TYPES: frozenset[str] = frozenset(
+    {
+        "video/mp4",
+        "video/webm",
+        "video/ogg",
+        "video/quicktime",  # .mov
+        "video/x-msvideo",  # .avi
+    }
+)
+
+# Archive MIME types
+ARCHIVE_MIME_TYPES: frozenset[str] = frozenset(
+    {
+        "application/zip",
+        "application/x-rar-compressed",
+        "application/x-7z-compressed",
+        "application/gzip",
+        "application/x-tar",
+    }
+)
+
+# All allowed MIME types for questionnaire file uploads
+ALLOWED_QUESTIONNAIRE_MIME_TYPES: frozenset[str] = (
+    DOCUMENT_MIME_TYPES | IMAGE_MIME_TYPES | AUDIO_MIME_TYPES | VIDEO_MIME_TYPES | ARCHIVE_MIME_TYPES
+)
+
+# Question type literal for type safety
+QuestionType = t.Literal["multiple_choice", "free_text", "file_upload"]
 
 
 def seconds_to_timedelta(v: timedelta | int | str | None) -> timedelta | None:
@@ -39,6 +113,30 @@ class BaseUUIDSchema(Schema):
     id: UUID
 
 
+# ---- QuestionnaireFile schemas (user's file library) ----
+
+
+class QuestionnaireFileSchema(ModelSchema):
+    """Schema for QuestionnaireFile in API responses."""
+
+    id: UUID
+    original_filename: str
+    mime_type: str
+    file_size: int
+    file_url: str | None = None
+
+    class Meta:
+        model = QuestionnaireFile
+        fields = ["id", "original_filename", "mime_type", "file_size", "created_at"]
+
+    @staticmethod
+    def resolve_file_url(obj: QuestionnaireFile) -> str | None:
+        """Resolve the file URL."""
+        if obj.file:
+            return str(obj.file.url)
+        return None
+
+
 class BaseQuestionSchema(BaseUUIDSchema):
     question: str
     hint: str | None = None
@@ -61,11 +159,20 @@ class FreeTextQuestionSchema(BaseQuestionSchema):
     pass
 
 
+class FileUploadQuestionSchema(BaseQuestionSchema):
+    """Schema for file upload questions displayed to users filling out questionnaires."""
+
+    allowed_mime_types: list[str]
+    max_file_size: int
+    max_files: int
+
+
 class QuestionContainerSchema(BaseUUIDSchema):
     name: str
     description: str | None = None
     multiple_choice_questions: list[MultipleChoiceQuestionSchema] = Field(default_factory=list)
     free_text_questions: list[FreeTextQuestionSchema] = Field(default_factory=list)
+    file_upload_questions: list[FileUploadQuestionSchema] = Field(default_factory=list)
 
 
 class SectionSchema(QuestionContainerSchema):
@@ -91,18 +198,28 @@ class FreeTextSubmissionSchema(Schema):
     answer: str = Field(..., min_length=1, max_length=500)
 
 
+class FileUploadSubmissionSchema(Schema):
+    """Schema for submitting file upload answers."""
+
+    question_id: UUID
+    file_ids: list[UUID] = Field(..., min_length=1)
+
+
 class QuestionnaireSubmissionSchema(Schema):
     questionnaire_id: UUID
     multiple_choice_answers: list[MultipleChoiceSubmissionSchema] = Field(default_factory=list)
     free_text_answers: list[FreeTextSubmissionSchema] = Field(default_factory=list)
+    file_upload_answers: list[FileUploadSubmissionSchema] = Field(default_factory=list)
     status: QuestionnaireSubmission.QuestionnaireSubmissionStatus
 
     @model_validator(mode="after")
     def ensure_unique_question_ids(self) -> "QuestionnaireSubmissionSchema":
         """A validator to ensure unique question ids are not repeated."""
-        all_question_ids = [mc.question_id for mc in self.multiple_choice_answers] + [
-            ft.question_id for ft in self.free_text_answers
-        ]
+        all_question_ids = (
+            [mc.question_id for mc in self.multiple_choice_answers]
+            + [ft.question_id for ft in self.free_text_answers]
+            + [fu.question_id for fu in self.file_upload_answers]
+        )
 
         duplicates = {qid for qid in all_question_ids if all_question_ids.count(qid) > 1}
 
@@ -193,11 +310,18 @@ class QuestionAnswerDetailSchema(Schema):
 
     For free text questions, answer_content is a list with a single dict containing:
     - answer: The free text answer string
+
+    For file upload questions, answer_content is a list of dicts containing:
+    - file_id: UUID of the uploaded file
+    - original_filename: Original name of the file
+    - mime_type: MIME type of the file
+    - file_size: Size in bytes
+    - file_url: URL to access the file (may be unavailable if user deleted the file)
     """
 
     question_id: UUID
     question_text: str
-    question_type: str  # "multiple_choice" or "free_text"
+    question_type: QuestionType
     reviewer_notes: str | None = None
     answer_content: list[dict[str, t.Any]]
 
@@ -300,6 +424,7 @@ class MultipleChoiceOptionCreateSchema(Schema):
     # Forward references - resolved via model_rebuild() at module end
     conditional_mc_questions: list["MultipleChoiceQuestionCreateSchema"] = Field(default_factory=list)
     conditional_ft_questions: list["FreeTextQuestionCreateSchema"] = Field(default_factory=list)
+    conditional_fu_questions: list["FileUploadQuestionCreateSchema"] = Field(default_factory=list)
     conditional_sections: list["SectionCreateSchema"] = Field(default_factory=list)
 
 
@@ -372,6 +497,63 @@ class FreeTextQuestionResponseSchema(Schema):
     depends_on_option_id: UUID | None = None
 
 
+class FileUploadQuestionCreateSchema(Schema):
+    """Schema for creating a FileUploadQuestion."""
+
+    section_id: UUID | None = None
+    question: str
+    hint: str | None = None
+    reviewer_notes: str | None = None
+    is_mandatory: bool = False
+    order: int = 0
+    # Default positive_weight to 0 since file uploads are informational by default
+    positive_weight: Decimal = Field(default=Decimal("0.0"), ge=0, le=100)
+    negative_weight: Decimal = Field(default=Decimal("0.0"), ge=-100, le=100)
+    is_fatal: bool = False
+    allowed_mime_types: list[str] = Field(default_factory=list)
+    max_file_size: int = Field(default=5 * 1024 * 1024, gt=0)  # 5MB default
+    max_files: int = Field(default=1, ge=1, le=10)
+    depends_on_option_id: UUID | None = None
+
+    @field_validator("allowed_mime_types")
+    @classmethod
+    def validate_mime_types(cls, v: list[str]) -> list[str]:
+        """Validate that all MIME types are in the allowed set."""
+        if not v:
+            return v  # Empty list means all types allowed
+        invalid_types = set(v) - ALLOWED_QUESTIONNAIRE_MIME_TYPES
+        if invalid_types:
+            raise PydanticCustomError(
+                "invalid_mime_type",
+                "Invalid MIME type(s): {invalid_types}. See ALLOWED_QUESTIONNAIRE_MIME_TYPES.",
+                {"invalid_types": ", ".join(sorted(invalid_types))},
+            )
+        return v
+
+
+class FileUploadQuestionUpdateSchema(FileUploadQuestionCreateSchema):
+    """Schema for updating a FileUploadQuestion."""
+
+
+class FileUploadQuestionResponseSchema(Schema):
+    """Schema for FileUploadQuestion in API responses."""
+
+    id: UUID
+    section_id: UUID | None = None
+    question: str
+    hint: str | None = None
+    reviewer_notes: str | None = None
+    is_mandatory: bool
+    order: int
+    positive_weight: Decimal
+    negative_weight: Decimal
+    is_fatal: bool
+    allowed_mime_types: list[str]
+    max_file_size: int
+    max_files: int
+    depends_on_option_id: UUID | None = None
+
+
 class SectionResponseSchema(Schema):
     """Schema for QuestionnaireSection in API responses."""
 
@@ -382,6 +564,7 @@ class SectionResponseSchema(Schema):
     depends_on_option_id: UUID | None = None
     multiplechoicequestion_questions: list[MultipleChoiceQuestionResponseSchema] = Field(default_factory=list)
     freetextquestion_questions: list[FreeTextQuestionResponseSchema] = Field(default_factory=list)
+    fileuploadquestion_questions: list[FileUploadQuestionResponseSchema] = Field(default_factory=list)
 
 
 class MultipleChoiceQuestionCreateSchema(Schema):
@@ -431,6 +614,7 @@ class SectionCreateSchema(Schema):
     order: int = 0
     multiplechoicequestion_questions: list[MultipleChoiceQuestionCreateSchema] = Field(default_factory=list)
     freetextquestion_questions: list[FreeTextQuestionCreateSchema] = Field(default_factory=list)
+    fileuploadquestion_questions: list[FileUploadQuestionCreateSchema] = Field(default_factory=list)
     depends_on_option_id: UUID | None = None
 
 
@@ -454,6 +638,7 @@ class QuestionnaireCreateSchema(QuestionnaireBaseSchema):
     sections: list[SectionCreateSchema] = Field(default_factory=list)
     multiplechoicequestion_questions: list[MultipleChoiceQuestionCreateSchema] = Field(default_factory=list)
     freetextquestion_questions: list[FreeTextQuestionCreateSchema] = Field(default_factory=list)
+    fileuploadquestion_questions: list[FileUploadQuestionCreateSchema] = Field(default_factory=list)
     llm_guidelines: str | None = None
     can_retake_after: timedelta | int | None = None
 
@@ -496,6 +681,7 @@ class QuestionnaireResponseSchema(QuestionnaireBaseSchema):
     sections: list[SectionResponseSchema] = Field(default_factory=list)
     multiplechoicequestion_questions: list[MultipleChoiceQuestionResponseSchema] = Field(default_factory=list)
     freetextquestion_questions: list[FreeTextQuestionResponseSchema] = Field(default_factory=list)
+    fileuploadquestion_questions: list[FileUploadQuestionResponseSchema] = Field(default_factory=list)
     llm_guidelines: str | None = None
     can_retake_after: timedelta | int | None = None
     max_attempts: int = 0
@@ -507,6 +693,7 @@ class QuestionnaireResponseSchema(QuestionnaireBaseSchema):
 # Resolve forward references for nested conditional schemas
 MultipleChoiceOptionCreateSchema.model_rebuild()
 MultipleChoiceQuestionCreateSchema.model_rebuild()
+FileUploadQuestionCreateSchema.model_rebuild()
 SectionCreateSchema.model_rebuild()
 QuestionnaireCreateSchema.model_rebuild()
 SectionResponseSchema.model_rebuild()

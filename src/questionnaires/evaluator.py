@@ -11,6 +11,7 @@ from questionnaires.llms.llm_interfaces import AnswerToEvaluate, EvaluationRespo
 
 from .models import (
     EvaluationAuditData,
+    FileUploadQuestion,
     FreeTextQuestion,
     MultipleChoiceQuestion,
     Questionnaire,
@@ -49,6 +50,10 @@ class SubmissionEvaluator:
                 queryset=FreeTextQuestion.objects.all(),
             ),
             Prefetch(
+                "fileuploadquestion_questions",
+                queryset=FileUploadQuestion.objects.all(),
+            ),
+            Prefetch(
                 "sections",
                 queryset=QuestionnaireSection.objects.all(),
             ),
@@ -59,6 +64,8 @@ class SubmissionEvaluator:
         self.max_mc_points = Decimal("0.0")
         self.ft_points_scored = Decimal("0.0")
         self.max_ft_points = Decimal("0.0")
+        # File upload questions are currently informational only (no scoring)
+        # Future: add fu_points_scored and max_fu_points when LLM evaluation is added
         self.llm_batch_response: EvaluationResponse | None = None
         self.fatal_error = False
         self.missing_mandatory: list[UUID] = []
@@ -68,6 +75,7 @@ class SubmissionEvaluator:
         self._applicable_section_ids: set[UUID] = set()
         self._applicable_mcq_ids: set[UUID] = set()
         self._applicable_ftq_ids: set[UUID] = set()
+        self._applicable_fuq_ids: set[UUID] = set()
         self._compute_applicable_questions()
 
     def _compute_applicable_questions(self) -> None:
@@ -100,6 +108,11 @@ class SubmissionEvaluator:
             if self._is_question_applicable(ft_question):
                 self._applicable_ftq_ids.add(ft_question.id)
 
+        # Determine applicable FU questions
+        for fu_question in self.questionnaire.fileuploadquestion_questions.all():
+            if self._is_question_applicable(fu_question):
+                self._applicable_fuq_ids.add(fu_question.id)
+
         logger.debug(
             "questionnaire_applicable_questions_computed",
             submission_id=str(self.submission.id),
@@ -107,9 +120,10 @@ class SubmissionEvaluator:
             applicable_sections=len(self._applicable_section_ids),
             applicable_mcq=len(self._applicable_mcq_ids),
             applicable_ftq=len(self._applicable_ftq_ids),
+            applicable_fuq=len(self._applicable_fuq_ids),
         )
 
-    def _is_question_applicable(self, question: MultipleChoiceQuestion | FreeTextQuestion) -> bool:
+    def _is_question_applicable(self, question: MultipleChoiceQuestion | FreeTextQuestion | FileUploadQuestion) -> bool:
         """Check if a question is applicable based on its dependencies."""
         # Check section applicability
         if question.section_id is not None and question.section_id not in self._applicable_section_ids:
@@ -167,16 +181,25 @@ class SubmissionEvaluator:
             for q in self.questionnaire.freetextquestion_questions.all()
             if q.is_mandatory and q.id in self._applicable_ftq_ids
         }
+        mandatory_fuq_ids = {
+            q.id
+            for q in self.questionnaire.fileuploadquestion_questions.all()
+            if q.is_mandatory and q.id in self._applicable_fuq_ids
+        }
 
         # Get IDs of all answered questions from the submission
         answered_mcq_ids = set(self.submission.multiplechoiceanswer_answers.values_list("question_id", flat=True))
         answered_ftq_ids = set(self.submission.freetextanswer_answers.values_list("question_id", flat=True))
+        answered_fuq_ids = set(self.submission.fileuploadanswer_answers.values_list("question_id", flat=True))
 
         # If the difference between the sets is not empty, a mandatory question was missed
         missing_mandatory_mcq = mandatory_mcq_ids - answered_mcq_ids
         missing_mandatory_ftq = mandatory_ftq_ids - answered_ftq_ids
-        if missing_mandatory_ftq or missing_mandatory_mcq:
-            self.missing_mandatory = list(missing_mandatory_mcq) + list(missing_mandatory_ftq)
+        missing_mandatory_fuq = mandatory_fuq_ids - answered_fuq_ids
+        if missing_mandatory_ftq or missing_mandatory_mcq or missing_mandatory_fuq:
+            self.missing_mandatory = (
+                list(missing_mandatory_mcq) + list(missing_mandatory_ftq) + list(missing_mandatory_fuq)
+            )
             logger.warning(
                 "questionnaire_missing_mandatory_questions",
                 submission_id=str(self.submission.id),

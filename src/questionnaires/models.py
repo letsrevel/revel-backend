@@ -1,10 +1,14 @@
 import importlib
+import os
 import typing as t
+import uuid as uuid_module
 from decimal import Decimal
 from functools import cached_property
+from pathlib import Path
 from uuid import UUID
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Prefetch
@@ -18,6 +22,116 @@ from questionnaires.llms.llm_interfaces import EvaluationResponse
 
 from . import exceptions
 from .llms.llm_interfaces import FreeTextEvaluator
+
+# ---- QuestionnaireFile model ----
+
+
+def questionnaire_file_upload_path(instance: "QuestionnaireFile", filename: str) -> str:
+    """Generate UUID-based path in protected directory to prevent enumeration.
+
+    Path structure: protected/questionnaire_files/{user_id}/{uuid}.{ext}
+
+    This structure:
+    - Uses UUIDs to prevent enumeration attacks
+    - Is scoped per user for organization
+    - Lives in protected/ directory, separate from public media (logos, banners)
+    - Ready for Caddy forward_auth integration (see issue #152)
+    """
+    ext = Path(filename).suffix[:10]  # Limit extension length for safety
+    return f"protected/questionnaire_files/{instance.uploader_id}/{uuid_module.uuid4()}{ext}"
+
+
+class QuestionnaireFileQueryset(models.QuerySet["QuestionnaireFile"]):
+    """QuestionnaireFile queryset."""
+
+    def for_user(self, user: "settings.AUTH_USER_MODEL") -> t.Self:  # type: ignore[name-defined]
+        """Filter files by uploader."""
+        return self.filter(uploader=user)
+
+
+class QuestionnaireFileManager(models.Manager["QuestionnaireFile"]):
+    """QuestionnaireFile manager."""
+
+    def get_queryset(self) -> QuestionnaireFileQueryset:
+        """Get QuestionnaireFile queryset."""
+        return QuestionnaireFileQueryset(self.model, using=self._db)
+
+    def for_user(self, user: "settings.AUTH_USER_MODEL") -> QuestionnaireFileQueryset:  # type: ignore[name-defined]
+        """Filter files by uploader."""
+        return self.get_queryset().for_user(user)
+
+
+class QuestionnaireFile(TimeStampedModel):
+    """A file uploaded by a user for use in questionnaire answers.
+
+    Files are stored in a user-scoped library and can be reused across multiple
+    questions/questionnaires via M2M relationship with FileUploadAnswer.
+
+    Deletion Policy (Privacy First):
+        When a user deletes a file, it is HARD DELETED from storage immediately,
+        even if referenced by submitted questionnaires. User privacy takes precedence
+        over data integrity. Submissions with deleted files will show the file as
+        unavailable. This is intentional for GDPR/privacy compliance.
+    """
+
+    uploader = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="questionnaire_files",
+    )
+    file = models.FileField(
+        upload_to=questionnaire_file_upload_path,
+        max_length=255,  # Accommodate long paths with UUIDs
+    )
+    original_filename = models.CharField(max_length=255)
+    file_hash = models.CharField(
+        max_length=64,
+        db_index=True,
+        help_text="SHA-256 hash of file content for deduplication.",
+    )
+    mime_type = models.CharField(max_length=100)
+    file_size = models.PositiveIntegerField(help_text="File size in bytes.")
+
+    objects = QuestionnaireFileManager()
+
+    class Meta:
+        constraints = [
+            # Prevent duplicate uploads per user (same content = same hash)
+            models.UniqueConstraint(
+                fields=["uploader", "file_hash"],
+                name="unique_questionnaire_file_per_user",
+            )
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.original_filename} ({self.uploader})"
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Truncate original_filename if needed, preserving extension."""
+        if self.original_filename and len(self.original_filename) > 255:
+            name, ext = os.path.splitext(self.original_filename)
+            max_name_len = 255 - len(ext) - 3  # Reserve space for "..."
+            self.original_filename = f"{name[:max_name_len]}...{ext}"
+        super().save(*args, **kwargs)
+
+    def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
+        """Delete file from storage when model is deleted.
+
+        Privacy Policy: Files are HARD DELETED immediately, including from storage.
+        This applies even if the file was used in submitted questionnaires - user
+        privacy takes precedence over data integrity.
+        """
+        from django.db import transaction
+
+        with transaction.atomic():
+            # Clear M2M relationships first (not strictly necessary as Django handles it,
+            # but explicit is better for understanding the deletion cascade)
+            self.file_upload_answers.clear()
+            # Delete file from storage
+            if self.file:
+                self.file.delete(save=False)
+            return super().delete(*args, **kwargs)
 
 
 class SubmissionSourceEventMetadata(t.TypedDict):
@@ -41,6 +155,7 @@ class QuestionnaireQueryset(models.QuerySet["Questionnaire"]):
                 "multiplechoicequestion_questions", queryset=MultipleChoiceQuestion.objects.prefetch_related("options")
             ),
             "freetextquestion_questions",
+            "fileuploadquestion_questions",
         )
 
 
@@ -247,6 +362,26 @@ class QuestionnaireSection(TimeStampedModel):
 
 
 # ---- Abstract Base Models ----
+
+
+class InformationalQuestionMixin(models.Model):
+    """Mixin for questions that are informational only (no scoring by default).
+
+    This mixin overrides positive_weight to default to 0.0 instead of 1.0,
+    since these question types (e.g., file uploads) cannot be automatically
+    evaluated and are treated as informational/supplementary by default.
+    """
+
+    positive_weight = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.0"),
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Points scored when answered correctly. Defaults to 0 for informational questions.",
+    )
+
+    class Meta:
+        abstract = True
 
 
 class BaseQuestion(TimeStampedModel):
@@ -482,6 +617,95 @@ class FreeTextAnswer(BaseAnswer):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["submission", "question"], name="unique_user_freetext_answer")]
         indexes = [models.Index(fields=["submission", "question"], name="fta_user_question_idx")]
+
+
+# ---- FileUploadQuestion ----
+
+
+class FileUploadQuestionQueryset(models.QuerySet["FileUploadQuestion"]):
+    """FileUploadQuestion queryset."""
+
+
+class FileUploadQuestionManager(models.Manager["FileUploadQuestion"]):
+    def get_queryset(self) -> FileUploadQuestionQueryset:
+        """Get FileUploadQuestion queryset."""
+        return FileUploadQuestionQueryset(self.model)
+
+
+class FileUploadQuestion(InformationalQuestionMixin, BaseQuestion):
+    """A question that accepts file/image uploads as answers.
+
+    This question type is treated as informational by default (positive_weight=0.0)
+    since automatic LLM evaluation of files is not yet implemented.
+    Evaluators can manually review uploaded files in the submission detail view.
+
+    Note: The InformationalQuestionMixin overrides the default positive_weight from 1.0
+    to 0.0, ensuring consistency between ORM creation and API schema defaults.
+    """
+
+    allowed_mime_types = ArrayField(
+        models.CharField(max_length=100),
+        default=list,
+        blank=True,
+        help_text="Allowed MIME types (e.g., 'image/jpeg', 'application/pdf'). Empty = allow all.",
+    )
+    max_file_size = models.PositiveIntegerField(
+        default=5 * 1024 * 1024,  # 5MB
+        help_text="Maximum file size in bytes per file.",
+    )
+    max_files = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1), MaxValueValidator(10)],
+        help_text="Maximum number of files allowed for this question.",
+    )
+
+    objects = FileUploadQuestionManager()
+
+
+# ---- FileUploadAnswer ----
+
+
+class FileUploadAnswerQueryset(models.QuerySet["FileUploadAnswer"]):
+    """FileUploadAnswer queryset."""
+
+
+class FileUploadAnswerManager(models.Manager["FileUploadAnswer"]):
+    def get_queryset(self) -> FileUploadAnswerQueryset:
+        """Get FileUploadAnswer queryset."""
+        return FileUploadAnswerQueryset(self.model)
+
+
+class FileUploadAnswer(BaseAnswer):
+    """A user's file upload answer to a FileUploadQuestion.
+
+    Uses M2M relationship to QuestionnaireFile to allow:
+    - Reusing the same file across multiple questions/questionnaires
+    - Multiple files per answer (up to question.max_files)
+    """
+
+    question = models.ForeignKey(
+        FileUploadQuestion,
+        on_delete=models.CASCADE,
+        related_name="answers",
+    )
+    files = models.ManyToManyField(
+        QuestionnaireFile,
+        related_name="file_upload_answers",
+    )
+
+    objects = FileUploadAnswerManager()
+
+    def __str__(self) -> str:
+        return f"FileUploadAnswer for Q{self.question_id} in submission {self.submission_id}"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["submission", "question"],
+                name="unique_user_fileupload_answer",
+            )
+        ]
+        indexes = [models.Index(fields=["submission", "question"], name="fua_user_question_idx")]
 
 
 # ---- QuestionnaireEvaluation ----
