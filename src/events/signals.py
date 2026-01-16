@@ -300,6 +300,7 @@ def capture_event_old_status(sender: type[Event], instance: Event, **kwargs: t.A
             if old_instance.status != instance.status:
                 instance._old_status = old_instance.status  # type: ignore[attr-defined]
         except Event.DoesNotExist:
+            # Event was deleted between check and fetch (race condition) - skip silently
             pass
 
 

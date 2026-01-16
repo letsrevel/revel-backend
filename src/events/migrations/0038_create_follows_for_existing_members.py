@@ -41,15 +41,11 @@ def create_follows_for_existing_members(apps, schema_editor):
 
 
 def reverse_migration(apps, schema_editor):
-    """Remove OrganizationFollow records created by this migration.
+    """No-op reverse migration.
 
-    Note: This is a rough reversal - it removes ALL follows, not just those
-    created by this migration. In practice, this migration should not be reversed.
+    We intentionally leave follows in place on reverse because we can't reliably
+    identify which follows were created by this migration vs. user-initiated follows.
     """
-    OrganizationFollow = apps.get_model("events", "OrganizationFollow")
-    # We can't easily identify which follows were created by this migration,
-    # so we'll leave them in place on reverse. This is a one-way migration.
-    pass
 
 
 class Migration(migrations.Migration):
