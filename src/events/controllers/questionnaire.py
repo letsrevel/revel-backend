@@ -143,6 +143,10 @@ class QuestionnaireController(UserAwareController):
                 queryset=questionnaires_models.FreeTextQuestion.objects.filter(section__isnull=True),
             ),
             Prefetch(
+                "questionnaire__fileuploadquestion_questions",
+                queryset=questionnaires_models.FileUploadQuestion.objects.filter(section__isnull=True),
+            ),
+            Prefetch(
                 "questionnaire__sections",
                 queryset=questionnaires_models.QuestionnaireSection.objects.prefetch_related(
                     Prefetch(
@@ -150,6 +154,7 @@ class QuestionnaireController(UserAwareController):
                         queryset=questionnaires_models.MultipleChoiceQuestion.objects.prefetch_related("options"),
                     ),
                     "freetextquestion_questions",
+                    "fileuploadquestion_questions",
                 ).order_by("order"),
             ),
             "events",
@@ -332,6 +337,55 @@ class QuestionnaireController(UserAwareController):
         )
         return service.update_ft_question(ft_question, payload)
 
+    @route.post(
+        "/{org_questionnaire_id}/file-upload-questions",
+        url_name="create_fu_question",
+        response=questionnaire_schema.FileUploadQuestionResponseSchema,
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def create_fu_question(
+        self, org_questionnaire_id: UUID, payload: questionnaire_schema.FileUploadQuestionCreateSchema
+    ) -> questionnaires_models.FileUploadQuestion:
+        """Add a file upload question to the questionnaire (admin only).
+
+        Create a question that accepts file/image uploads. Configure allowed MIME types,
+        max file size, and max number of files. File uploads are treated as informational
+        by default (no automatic scoring). Requires 'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(
+            event_models.OrganizationQuestionnaire, pk=org_questionnaire_id
+        )
+        service = QuestionnaireService(org_questionnaire.questionnaire_id)
+        return service.create_fu_question(payload)
+
+    @route.put(
+        "/{org_questionnaire_id}/file-upload-questions/{question_id}",
+        url_name="update_fu_question",
+        response=questionnaire_schema.FileUploadQuestionResponseSchema,
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def update_fu_question(
+        self,
+        org_questionnaire_id: UUID,
+        question_id: UUID,
+        payload: questionnaire_schema.FileUploadQuestionUpdateSchema,
+    ) -> questionnaires_models.FileUploadQuestion:
+        """Update a file upload question (admin only).
+
+        Modify question text, allowed MIME types, max file size, or max files. Requires
+        'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(
+            event_models.OrganizationQuestionnaire, pk=org_questionnaire_id
+        )
+        service = QuestionnaireService(org_questionnaire.questionnaire_id)
+        fu_question = get_object_or_404(
+            questionnaires_models.FileUploadQuestion,
+            id=question_id,
+            questionnaire_id=org_questionnaire.questionnaire_id,
+        )
+        return service.update_fu_question(fu_question, payload)
+
     @route.get(
         "/{org_questionnaire_id}/submissions",
         url_name="list_submissions",
@@ -391,6 +445,8 @@ class QuestionnaireController(UserAwareController):
                 "multiplechoiceanswer_answers__question",
                 "multiplechoiceanswer_answers__option",
                 "freetextanswer_answers__question",
+                "fileuploadanswer_answers__question",
+                "fileuploadanswer_answers__files",
             )
             .filter(questionnaire_id=org_questionnaire.questionnaire_id)
         )
@@ -399,7 +455,7 @@ class QuestionnaireController(UserAwareController):
         # Transform answers to the schema format
         # Group multiple choice answers by question (to handle multiple selections)
         mc_answers_by_question: dict[UUID, list[dict[str, t.Any]]] = defaultdict(list)
-        mc_question_details: dict[UUID, tuple[str, str, str | None]] = {}
+        mc_question_details: dict[UUID, tuple[str, questionnaire_schema.QuestionType, str | None]] = {}
 
         for mc_answer in submission.multiplechoiceanswer_answers.all():
             question_id = mc_answer.question.id
@@ -444,6 +500,29 @@ class QuestionnaireController(UserAwareController):
                     question_type="free_text",
                     reviewer_notes=ft_answer.question.reviewer_notes,
                     answer_content=[{"answer": ft_answer.answer}],
+                )
+            )
+
+        # Add file upload answers
+        for fu_answer in submission.fileuploadanswer_answers.all():
+            files_content = []
+            for f in fu_answer.files.all():
+                files_content.append(
+                    {
+                        "file_id": str(f.id),
+                        "original_filename": f.original_filename,
+                        "mime_type": f.mime_type,
+                        "file_size": f.file_size,
+                        "file_url": f.file.url if f.file else None,
+                    }
+                )
+            answers.append(
+                questionnaire_schema.QuestionAnswerDetailSchema(
+                    question_id=fu_answer.question.id,
+                    question_text=fu_answer.question.question or "",
+                    question_type="file_upload",
+                    reviewer_notes=fu_answer.question.reviewer_notes,
+                    answer_content=files_content,
                 )
             )
 
@@ -636,6 +715,26 @@ class QuestionnaireController(UserAwareController):
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
         question = get_object_or_404(
             questionnaires_models.FreeTextQuestion,
+            pk=question_id,
+            questionnaire_id=org_questionnaire.questionnaire_id,
+        )
+        question.delete()
+        return 204, None
+
+    @route.delete(
+        "/{org_questionnaire_id}/file-upload-questions/{question_id}",
+        url_name="delete_fu_question",
+        response={204: None},
+        permissions=[QuestionnairePermission("edit_questionnaire")],
+    )
+    def delete_fu_question(self, org_questionnaire_id: UUID, question_id: UUID) -> tuple[int, None]:
+        """Delete a file upload question (admin only).
+
+        Removes the question. Requires 'edit_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        question = get_object_or_404(
+            questionnaires_models.FileUploadQuestion,
             pk=question_id,
             questionnaire_id=org_questionnaire.questionnaire_id,
         )

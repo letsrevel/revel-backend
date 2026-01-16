@@ -258,23 +258,6 @@ def rejected_evaluation(submitted_submission: QuestionnaireSubmission) -> Questi
 
 
 @pytest.fixture
-def png_bytes() -> bytes:
-    """Return valid PNG bytes for a minimal 1x1 image."""
-    return (
-        b"\x89PNG\r\n\x1a\n"
-        b"\x00\x00\x00\rIHDR"
-        b"\x00\x00\x00\x01"  # Width: 1
-        b"\x00\x00\x00\x01"  # Height: 1
-        b"\x08\x06\x00\x00\x00"  # Bit depth, color type, compression, filter, interlace
-        b"\x1f\x15\xc4\x89"
-        b"\x00\x00\x00\x0aIDAT"
-        b"\x78\x9c\x63\x00\x01\x00\x00\x05\x00\x01"
-        b"\x0d\x0a\x2d\xb4"
-        b"\x00\x00\x00\x00IEND\xaeB`\x82"
-    )
-
-
-@pytest.fixture
 def png_file(png_bytes: bytes) -> SimpleUploadedFile:
     """Return a valid-looking PNG file upload."""
     return SimpleUploadedFile(

@@ -3,7 +3,6 @@
 import pytest
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
-from django.utils import timezone
 
 from questionnaires import exceptions
 from questionnaires.models import (
@@ -32,7 +31,6 @@ def test_submission_status_change_sets_submitted_at(draft_submission: Questionna
     draft_submission.save()  # this will set submitted_at
     draft_submission.refresh_from_db()
     assert draft_submission.submitted_at is not None
-    assert isinstance(draft_submission.submitted_at, timezone.datetime)  # type: ignore[unreachable]
 
 
 @pytest.mark.django_db

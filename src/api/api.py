@@ -29,8 +29,10 @@ from events.service.event_manager import UserIsIneligibleError
 from geo.controllers.cities import CityController
 from notifications.controllers.notification_controller import NotificationController
 from notifications.controllers.preference_controller import NotificationPreferenceController
+from questionnaires.controllers import QuestionnaireFileController
 from questionnaires.exceptions import (
     CrossQuestionnaireSubmissionError,
+    FileValidationError,
     MissingMandatoryAnswerError,
     QuestionIntegrityError,
     SectionIntegrityError,
@@ -42,6 +44,7 @@ from .exception_handlers import (
     handle_already_member_error,
     handle_cross_questionnaire_submission_error,
     handle_django_validation_error,
+    handle_file_validation_error,
     handle_general_exception,
     handle_missing_mandatory_answers_submission_error,
     handle_pending_membership_request_exists_error,
@@ -115,6 +118,7 @@ api.register_controllers(
     EventSeriesAdminController,
     PotluckController,
     QuestionnaireController,
+    QuestionnaireFileController,
     UserPreferencesController,
     FollowingController,
     StripeWebhookController,
@@ -139,6 +143,7 @@ EXCEPTION_HANDLERS = {
     MissingMandatoryAnswerError: handle_missing_mandatory_answers_submission_error,
     SectionIntegrityError: handle_section_integrity_error,
     QuestionIntegrityError: handle_question_integrity_error,
+    FileValidationError: handle_file_validation_error,
     TooManyItemsError: handle_too_many_items_error,
     AlreadyMemberError: handle_already_member_error,
     PendingMembershipRequestExistsError: handle_pending_membership_request_exists_error,

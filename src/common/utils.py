@@ -100,6 +100,40 @@ def get_or_create_with_race_protection(
         return instance, False
 
 
+def create_file_audit_and_scan(
+    *,
+    app: str,
+    model: str,
+    instance_pk: t.Any,
+    field: str,
+    file_hash: str,
+    uploader_email: str,
+) -> None:
+    """Create audit record and schedule malware scan for an uploaded file.
+
+    This helper consolidates the audit + scan logic used by both:
+    - safe_save_uploaded_file (for replacing files on existing models)
+    - questionnaire file uploads (for user file libraries)
+
+    Args:
+        app: Django app label (e.g., "events", "questionnaires")
+        model: Model name (e.g., "organization", "questionnairefile")
+        instance_pk: Primary key of the model instance
+        field: Field name containing the file
+        file_hash: SHA-256 hash of the file content
+        uploader_email: Email of the user who uploaded the file
+    """
+    FileUploadAudit.objects.create(
+        app=app,
+        model=model,
+        instance_pk=instance_pk,
+        field=field,
+        file_hash=file_hash,
+        uploader=uploader_email,
+    )
+    tasks.scan_for_malware.delay(app=app, model=model, pk=str(instance_pk), field=field)
+
+
 @transaction.atomic
 def safe_save_uploaded_file(
     *,
@@ -127,8 +161,12 @@ def safe_save_uploaded_file(
     # minor risk of race condition if uploaded twice in rapid succession
     file_hash = hashlib.sha256(file_field.read()).hexdigest()
     file_field.seek(0)
-    FileUploadAudit.objects.create(
-        app=app, model=model, instance_pk=instance.pk, field=field, file_hash=file_hash, uploader=uploader.email
+    create_file_audit_and_scan(
+        app=app,
+        model=model,
+        instance_pk=instance.pk,
+        field=field,
+        file_hash=file_hash,
+        uploader_email=uploader.email,
     )
-    tasks.scan_for_malware.delay(app=app, model=model, pk=str(instance.pk), field=field)
     return instance

@@ -53,3 +53,27 @@ class CrossQuestionnaireOptionDependencyError(ValidationError):
 
 class InvalidOptionDependencyOrderError(ValidationError):
     """Raised when depends_on_option references an option from a question with higher order."""
+
+
+class FileValidationError(QuestionnaireException):
+    """Base class for file upload validation errors."""
+
+
+class FileOwnershipError(FileValidationError):
+    """Raised when a user tries to use files they don't own."""
+
+
+class FileLimitExceededError(FileValidationError):
+    """Raised when file count exceeds question's max_files limit."""
+
+
+class InvalidFileMimeTypeError(FileValidationError):
+    """Raised when file MIME type doesn't match allowed types."""
+
+
+class FileSizeExceededError(FileValidationError):
+    """Raised when file size exceeds question's max_file_size limit."""
+
+
+class DisallowedMimeTypeError(FileValidationError):
+    """Raised when uploading a file with a MIME type not in the global allowlist."""

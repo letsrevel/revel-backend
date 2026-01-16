@@ -4,14 +4,19 @@ import typing as t
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 
+from accounts.models import RevelUser
 from events.models import Organization, OrganizationQuestionnaire
 from questionnaires.llms.llm_backends import MockEvaluator
 from questionnaires.models import (
+    FileUploadAnswer,
+    FileUploadQuestion,
     FreeTextQuestion,
     MultipleChoiceOption,
     MultipleChoiceQuestion,
     Questionnaire,
+    QuestionnaireFile,
     QuestionnaireSection,
     QuestionnaireSubmission,
 )
@@ -109,3 +114,112 @@ def free_text_question(questionnaire: Questionnaire) -> FreeTextQuestion:
 def mock_evaluator() -> MockEvaluator:
     """Provides an instance of the MockBatchEvaluator."""
     return MockEvaluator()
+
+
+# --- File Upload Question Fixtures ---
+
+
+@pytest.fixture
+def questionnaire_file(user: RevelUser) -> QuestionnaireFile:
+    """Provides a QuestionnaireFile instance owned by the test user."""
+    uploaded_file = SimpleUploadedFile(
+        name="test_document.pdf",
+        content=b"test file content",
+        content_type="application/pdf",
+    )
+    return QuestionnaireFile.objects.create(
+        uploader=user,
+        file=uploaded_file,
+        original_filename="test_document.pdf",
+        file_hash="conftest_hash_001",
+        mime_type="application/pdf",
+        file_size=len(b"test file content"),
+    )
+
+
+@pytest.fixture
+def image_questionnaire_file(user: RevelUser) -> QuestionnaireFile:
+    """Provides a QuestionnaireFile with image MIME type."""
+    content = b"fake image content"
+    uploaded_file = SimpleUploadedFile(
+        name="test_image.jpg",
+        content=content,
+        content_type="image/jpeg",
+    )
+    return QuestionnaireFile.objects.create(
+        uploader=user,
+        file=uploaded_file,
+        original_filename="test_image.jpg",
+        file_hash="conftest_hash_002",
+        mime_type="image/jpeg",
+        file_size=len(content),
+    )
+
+
+@pytest.fixture
+def file_upload_question(questionnaire: Questionnaire) -> FileUploadQuestion:
+    """Provides a FileUploadQuestion instance for the test questionnaire."""
+    return FileUploadQuestion.objects.create(
+        questionnaire=questionnaire,
+        question="Please upload your document",
+        order=1,
+    )
+
+
+@pytest.fixture
+def mandatory_file_upload_question(questionnaire: Questionnaire) -> FileUploadQuestion:
+    """Provides a mandatory FileUploadQuestion instance."""
+    return FileUploadQuestion.objects.create(
+        questionnaire=questionnaire,
+        question="Required document upload",
+        is_mandatory=True,
+        order=1,
+    )
+
+
+@pytest.fixture
+def image_only_file_upload_question(questionnaire: Questionnaire) -> FileUploadQuestion:
+    """Provides a FileUploadQuestion that only accepts image files."""
+    return FileUploadQuestion.objects.create(
+        questionnaire=questionnaire,
+        question="Upload images only",
+        allowed_mime_types=["image/jpeg", "image/png", "image/gif"],
+        order=1,
+    )
+
+
+@pytest.fixture
+def multi_file_upload_question(questionnaire: Questionnaire) -> FileUploadQuestion:
+    """Provides a FileUploadQuestion that accepts multiple files."""
+    return FileUploadQuestion.objects.create(
+        questionnaire=questionnaire,
+        question="Upload multiple documents (max 5)",
+        max_files=5,
+        order=1,
+    )
+
+
+@pytest.fixture
+def section_file_upload_question(questionnaire: Questionnaire, section: QuestionnaireSection) -> FileUploadQuestion:
+    """Provides a FileUploadQuestion in a section."""
+    return FileUploadQuestion.objects.create(
+        questionnaire=questionnaire,
+        section=section,
+        question="Upload documents for this section",
+        order=1,
+    )
+
+
+@pytest.fixture
+def file_upload_answer(
+    draft_submission: QuestionnaireSubmission,
+    file_upload_question: FileUploadQuestion,
+    questionnaire_file: QuestionnaireFile,
+) -> FileUploadAnswer:
+    """Provides a FileUploadAnswer with one file attached."""
+    answer = FileUploadAnswer.objects.create(
+        submission=draft_submission,
+        question=file_upload_question,
+    )
+    answer.files.add(questionnaire_file)
+    return answer
