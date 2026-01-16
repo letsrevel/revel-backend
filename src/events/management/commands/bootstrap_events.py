@@ -16,6 +16,7 @@ from .bootstrap_helpers import (
     create_dietary_data,
     create_event_series,
     create_events,
+    create_follows,
     create_organizations,
     create_potluck_items,
     create_questionnaires,
@@ -74,6 +75,9 @@ class Command(BaseCommand):
 
         # Create user relationships
         create_user_relationships(state)
+
+        # Create follow relationships
+        create_follows(state)
 
         # Create dietary data
         create_dietary_data(state)
