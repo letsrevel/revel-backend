@@ -16,6 +16,7 @@ class NotificationsConfig(AppConfig):
 
         # Import template modules to register templates
         import notifications.service.templates.event_templates  # noqa: F401
+        import notifications.service.templates.follow_templates  # noqa: F401
         import notifications.service.templates.invitation_templates  # noqa: F401
         import notifications.service.templates.membership_templates  # noqa: F401
         import notifications.service.templates.organization_templates  # noqa: F401

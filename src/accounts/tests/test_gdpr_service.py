@@ -15,6 +15,7 @@ from django.db.models.fields.files import FieldFile
 from accounts.models import RevelUser, UserDataExport
 from accounts.service import gdpr
 from events.models import AdditionalResource, GeneralUserPreferences, Organization
+from events.models.follow import OrganizationFollow
 from geo.models import City
 from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 from questionnaires.schema import (
@@ -421,3 +422,60 @@ def test_generate_user_data_export_handles_all_field_types(user: RevelUser) -> N
             # Verify no fields are None due to serialization failures
             # (fields should be either valid values or fallback messages)
             assert data["profile"] is not None
+
+
+@pytest.mark.django_db
+def test_generate_user_data_export_includes_follow_data(user: RevelUser) -> None:
+    """Test that GDPR export includes organization and event series follows.
+
+    Follows are user relationships that should be included in the GDPR export
+    as they represent user preferences and subscriptions.
+    """
+    # Create another user to own an org the test user can follow
+    from accounts.models import RevelUser as RU
+
+    other_user = RU.objects.create_user(
+        username="other@example.com",
+        email="other@example.com",
+        password="password",
+    )
+    other_org = Organization.objects.create(
+        name="Other Org",
+        owner=other_user,
+        slug="other-org",
+    )
+
+    # Create organization follow
+    OrganizationFollow.objects.create(
+        user=user,
+        organization=other_org,
+        notify_new_events=True,
+        notify_announcements=False,
+        is_public=True,
+    )
+
+    # Refresh user to clear cached related objects
+    user.refresh_from_db()
+
+    # Generate the export
+    export = gdpr.generate_user_data_export(user)
+
+    assert export.status == UserDataExport.Status.READY
+    assert export.file is not None
+
+    # Extract and parse the JSON
+    with zipfile.ZipFile(BytesIO(export.file.read()), "r") as zip_file:
+        with zip_file.open("revel_user_data.json") as json_file:
+            data = json.load(json_file)
+
+            # Verify organization_follows is in the export
+            assert "organization_follows" in data
+            assert isinstance(data["organization_follows"], list)
+            assert len(data["organization_follows"]) == 1
+
+            # Verify the follow data is correct
+            follow_data = data["organization_follows"][0]
+            assert follow_data["organization"] == str(other_org.id)
+            assert follow_data["notify_new_events"] is True
+            assert follow_data["notify_announcements"] is False
+            assert follow_data["is_public"] is True

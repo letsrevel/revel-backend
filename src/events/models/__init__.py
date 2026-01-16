@@ -5,6 +5,7 @@ from .event import (
     EventWaitList,
 )
 from .event_series import EventSeries
+from .follow import EventSeriesFollow, OrganizationFollow
 from .invitation import (
     EventInvitation,
     EventInvitationRequest,
@@ -66,6 +67,9 @@ __all__ = [
     "PermissionsSchema",
     # Event Series
     "EventSeries",
+    # Follows
+    "EventSeriesFollow",
+    "OrganizationFollow",
     # Preferences
     "BaseUserPreferences",
     "GeneralUserPreferences",

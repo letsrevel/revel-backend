@@ -63,6 +63,12 @@ class NotificationType(TextChoices):
     WHITELIST_REQUEST_APPROVED = "whitelist_request_approved"  # Notify user when approved
     WHITELIST_REQUEST_REJECTED = "whitelist_request_rejected"  # Notify user when rejected
 
+    # Follow notifications
+    ORGANIZATION_FOLLOWED = "organization_followed"  # Notify org admins when someone follows
+    EVENT_SERIES_FOLLOWED = "event_series_followed"  # Notify org admins when someone follows a series
+    NEW_EVENT_FROM_FOLLOWED_ORG = "new_event_from_followed_org"  # Notify followers of new event
+    NEW_EVENT_FROM_FOLLOWED_SERIES = "new_event_from_followed_series"  # Notify followers of new event in series
+
 
 class DeliveryChannel(TextChoices):
     """Notification delivery channels."""

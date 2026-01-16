@@ -388,6 +388,61 @@ class WhitelistRequestRejectedContext(BaseNotificationContext):
     organization_name: str
 
 
+# ===== Follow Contexts =====
+
+
+class OrganizationFollowedContext(BaseNotificationContext):
+    """Context for ORGANIZATION_FOLLOWED notification (to org admins)."""
+
+    organization_id: str
+    organization_name: str
+    follower_id: str
+    follower_name: str
+    follower_email: str
+
+
+class EventSeriesFollowedContext(BaseNotificationContext):
+    """Context for EVENT_SERIES_FOLLOWED notification (to org admins)."""
+
+    organization_id: str
+    organization_name: str
+    event_series_id: str
+    event_series_name: str
+    follower_id: str
+    follower_name: str
+    follower_email: str
+
+
+class NewEventFromFollowedOrgContext(BaseNotificationContext):
+    """Context for NEW_EVENT_FROM_FOLLOWED_ORG notification (to followers)."""
+
+    organization_id: str
+    organization_name: str
+    event_id: str
+    event_name: str
+    event_description: str
+    event_start: str  # ISO format
+    event_start_formatted: str  # User-friendly format
+    event_location: str
+    event_url: str
+
+
+class NewEventFromFollowedSeriesContext(BaseNotificationContext):
+    """Context for NEW_EVENT_FROM_FOLLOWED_SERIES notification (to followers)."""
+
+    organization_id: str
+    organization_name: str
+    event_series_id: str
+    event_series_name: str
+    event_id: str
+    event_name: str
+    event_description: str
+    event_start: str  # ISO format
+    event_start_formatted: str  # User-friendly format
+    event_location: str
+    event_url: str
+
+
 # Context type registry
 NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContext]] = {
     NotificationType.TICKET_CREATED: TicketCreatedContext,
@@ -423,6 +478,10 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.WHITELIST_REQUEST_CREATED: WhitelistRequestCreatedContext,
     NotificationType.WHITELIST_REQUEST_APPROVED: WhitelistRequestApprovedContext,
     NotificationType.WHITELIST_REQUEST_REJECTED: WhitelistRequestRejectedContext,
+    NotificationType.ORGANIZATION_FOLLOWED: OrganizationFollowedContext,
+    NotificationType.EVENT_SERIES_FOLLOWED: EventSeriesFollowedContext,
+    NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG: NewEventFromFollowedOrgContext,
+    NotificationType.NEW_EVENT_FROM_FOLLOWED_SERIES: NewEventFromFollowedSeriesContext,
 }
 
 

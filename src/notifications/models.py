@@ -150,8 +150,14 @@ class NotificationDelivery(TimeStampedModel):
 
 
 def get_default_notification_type_settings() -> dict[NotificationType, NotificationTypeSetting]:
-    """Get the default notification type settings (exclude potluck from email to avoid spamming users)."""
+    """Get the default notification type settings.
+
+    Certain notification types default to IN_APP only to avoid spamming users:
+    - Potluck notifications
+    - Follow notifications (when someone follows an org/series)
+    """
     return {
+        # Potluck notifications - IN_APP only
         NotificationType.POTLUCK_ITEM_CLAIMED: NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP]),
         NotificationType.POTLUCK_ITEM_CREATED: NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP]),
         NotificationType.POTLUCK_ITEM_UPDATED: NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP]),
@@ -159,6 +165,20 @@ def get_default_notification_type_settings() -> dict[NotificationType, Notificat
             enabled=True, channels=[DeliveryChannel.IN_APP]
         ),
         NotificationType.POTLUCK_ITEM_DELETED: NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP]),
+        # Follow notifications - IN_APP only (to org admins when someone follows)
+        NotificationType.ORGANIZATION_FOLLOWED: NotificationTypeSetting(
+            enabled=True, channels=[DeliveryChannel.IN_APP]
+        ),
+        NotificationType.EVENT_SERIES_FOLLOWED: NotificationTypeSetting(
+            enabled=True, channels=[DeliveryChannel.IN_APP]
+        ),
+        # Notifications to followers about new events - IN_APP only by default
+        NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG: NotificationTypeSetting(
+            enabled=True, channels=[DeliveryChannel.IN_APP]
+        ),
+        NotificationType.NEW_EVENT_FROM_FOLLOWED_SERIES: NotificationTypeSetting(
+            enabled=True, channels=[DeliveryChannel.IN_APP]
+        ),
     }
 
 

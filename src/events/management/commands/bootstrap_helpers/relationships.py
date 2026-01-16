@@ -1,5 +1,5 @@
 # src/events/management/commands/bootstrap_helpers/relationships.py
-"""User relationship creation for bootstrap process (invitations, tickets, RSVPs, waitlists)."""
+"""User relationship creation for bootstrap process (invitations, tickets, RSVPs, waitlists, follows)."""
 
 import datetime
 from datetime import timedelta
@@ -9,6 +9,7 @@ import structlog
 from django.utils import timezone
 
 from events import models as events_models
+from events.models.follow import EventSeriesFollow, OrganizationFollow
 
 from .base import BootstrapState
 
@@ -316,3 +317,68 @@ def _create_waitlists(state: BootstrapState) -> None:
         event=state.events["summer_festival"],
         user=state.users["invited_user"],
     )
+
+
+def create_follows(state: BootstrapState) -> None:
+    """Create follow relationships for organizations and event series.
+
+    Note: Members already auto-follow their organizations via the membership signal,
+    so here we create follows for non-members to demonstrate the follow feature.
+    """
+    logger.info("Creating follow relationships...")
+
+    # Non-members following organizations
+    # attendee_2 follows org_alpha (not a member)
+    OrganizationFollow.objects.create(
+        user=state.users["attendee_2"],
+        organization=state.orgs["alpha"],
+        notify_new_events=True,
+        notify_announcements=True,
+        is_public=False,
+    )
+
+    # attendee_3 follows org_beta (not a member)
+    OrganizationFollow.objects.create(
+        user=state.users["attendee_3"],
+        organization=state.orgs["beta"],
+        notify_new_events=True,
+        notify_announcements=False,  # Only wants event notifications
+        is_public=False,
+    )
+
+    # attendee_4 follows both orgs (not a member of either)
+    OrganizationFollow.objects.create(
+        user=state.users["attendee_4"],
+        organization=state.orgs["alpha"],
+        notify_new_events=True,
+        notify_announcements=True,
+        is_public=True,  # Public follow
+    )
+    OrganizationFollow.objects.create(
+        user=state.users["attendee_4"],
+        organization=state.orgs["beta"],
+        notify_new_events=True,
+        notify_announcements=True,
+        is_public=False,
+    )
+
+    # Event series follows
+    # attendee_1 follows the tech talk series (member of beta org but explicitly following series)
+    if "tech_talk_series" in state.event_series:
+        EventSeriesFollow.objects.create(
+            user=state.users["attendee_1"],
+            event_series=state.event_series["tech_talk_series"],
+            notify_new_events=True,
+            is_public=False,
+        )
+
+    # attendee_2 follows a series they're interested in
+    if "tech_talk_series" in state.event_series:
+        EventSeriesFollow.objects.create(
+            user=state.users["attendee_2"],
+            event_series=state.event_series["tech_talk_series"],
+            notify_new_events=True,
+            is_public=True,  # Public follow
+        )
+
+    logger.info("Created follow relationships")

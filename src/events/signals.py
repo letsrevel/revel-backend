@@ -4,7 +4,7 @@ import typing as t
 
 import structlog
 from django.db import transaction
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 from accounts.models import RevelUser
@@ -25,6 +25,7 @@ from events.models import (
 )
 from events.models.organization import MembershipTier
 from events.service.blacklist_service import apply_blacklist_consequences, link_blacklist_entries_for_user
+from events.service.follow_service import get_followers_for_new_event_notification
 from events.service.potluck_service import unclaim_user_potluck_items
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
 from events.tasks import build_attendee_visibility_flags
@@ -284,3 +285,101 @@ def handle_blacklist_user_linked(sender: type[Blacklist], instance: Blacklist, c
         return
 
     apply_blacklist_consequences(instance.user, instance.organization)
+
+
+@receiver(pre_save, sender=Event)
+def capture_event_old_status(sender: type[Event], instance: Event, **kwargs: t.Any) -> None:
+    """Capture the old status value before save for change detection in post_save.
+
+    This allows us to reliably detect when an event's status changes to OPEN,
+    regardless of whether save() is called with or without update_fields.
+    """
+    if instance.pk:
+        try:
+            old_instance = Event.objects.only("status").get(pk=instance.pk)
+            if old_instance.status != instance.status:
+                instance._old_status = old_instance.status  # type: ignore[attr-defined]
+        except Event.DoesNotExist:
+            # Event was deleted between check and fetch (race condition) - skip silently
+            pass
+
+
+def _should_notify_followers_for_event(event: Event, created: bool) -> bool:
+    """Check if followers should be notified for this event status change.
+
+    Returns True only when an event transitions to OPEN status (either on creation
+    or via update). Prevents duplicate notifications.
+    """
+    if event.status != Event.EventStatus.OPEN:
+        return False
+
+    if created:
+        return True
+
+    # For existing events, check if status actually changed to OPEN
+    old_status = getattr(event, "_old_status", None)
+    return old_status is not None and old_status != Event.EventStatus.OPEN
+
+
+def _get_event_location_string(event: Event) -> str:
+    """Build a human-readable location string for an event."""
+    location = event.address or ""
+    if event.city:
+        location = f"{location}, {event.city.name}" if location else event.city.name
+    return location
+
+
+@receiver(post_save, sender=Event)
+def handle_event_opened_notify_followers(sender: type[Event], instance: Event, created: bool, **kwargs: t.Any) -> None:
+    """Notify followers when an event becomes OPEN.
+
+    Sends notifications to:
+    - Organization followers who have notify_new_events enabled
+    - Event series followers (if event belongs to a series) who have notify_new_events enabled
+
+    Series followers are prioritized - if a user follows both the org and series,
+    they receive the series notification only.
+    """
+    if not _should_notify_followers_for_event(instance, created):
+        return
+
+    organization = instance.organization
+    if not organization:
+        return
+
+    def send_follower_notifications() -> None:
+        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        event_series = instance.event_series
+        event_location = _get_event_location_string(instance)
+
+        for user, notification_type in get_followers_for_new_event_notification(organization, event_series):
+            context: dict[str, t.Any] = {
+                "organization_id": str(organization.id),
+                "organization_name": organization.name,
+                "event_id": str(instance.id),
+                "event_name": instance.name,
+                "event_description": instance.description or "",
+                "event_start": instance.start.isoformat() if instance.start else "",
+                "event_start_formatted": (instance.start.strftime("%B %d, %Y at %I:%M %p") if instance.start else ""),
+                "event_location": event_location,
+                "event_url": f"{frontend_base_url}/events/{instance.id}",
+            }
+
+            if notification_type == NotificationType.NEW_EVENT_FROM_FOLLOWED_SERIES and event_series:
+                context["event_series_id"] = str(event_series.id)
+                context["event_series_name"] = event_series.name
+
+            notification_requested.send(
+                sender=sender,
+                user=user,
+                notification_type=notification_type,
+                context=context,
+            )
+
+        logger.info(
+            "follower_notifications_sent_for_event",
+            event_id=str(instance.id),
+            organization_id=str(organization.id),
+        )
+
+    transaction.on_commit(send_follower_notifications)
