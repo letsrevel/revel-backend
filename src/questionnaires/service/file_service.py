@@ -15,7 +15,7 @@ from ..schema import ALLOWED_QUESTIONNAIRE_MIME_TYPES
 
 # Global maximum file size for questionnaire uploads (10MB)
 # This is a hard limit before any processing - individual questions may have lower limits.
-MAX_UPLOAD_FILE_SIZE = 10 * 1024 * 1024  # 50MB
+MAX_UPLOAD_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
 def upload_questionnaire_file(user: RevelUser, file: UploadedFile) -> QuestionnaireFile:

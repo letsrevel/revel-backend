@@ -1,11 +1,10 @@
 import importlib
 import os
 import typing as t
-import uuid as uuid_module
+import uuid
 from decimal import Decimal
 from functools import cached_property
 from pathlib import Path
-from uuid import UUID
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -38,7 +37,7 @@ def questionnaire_file_upload_path(instance: "QuestionnaireFile", filename: str)
     - Ready for Caddy forward_auth integration (see issue #152)
     """
     ext = Path(filename).suffix[:10]  # Limit extension length for safety
-    return f"protected/questionnaire_files/{instance.uploader_id}/{uuid_module.uuid4()}{ext}"
+    return f"protected/questionnaire_files/{instance.uploader_id}/{uuid.uuid4()}{ext}"
 
 
 class QuestionnaireFileQueryset(models.QuerySet["QuestionnaireFile"]):
@@ -728,7 +727,7 @@ class EvaluationAuditData(PydanticBaseModel):
     max_mc_points: Decimal
     ft_points_scored: Decimal
     max_ft_points: Decimal
-    missing_mandatory: list[UUID] | None = PydanticField(None, description="The IDs of missing mandatory answers.")
+    missing_mandatory: list[uuid.UUID] | None = PydanticField(None, description="The IDs of missing mandatory answers.")
     llm_response: EvaluationResponse | None = PydanticField(
         None, description="The complete, raw response from the LLM batch evaluation."
     )
