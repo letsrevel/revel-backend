@@ -54,6 +54,13 @@ Note: exceptions to these patterns are allowed when it is justified by the concr
 - Following project's controller pattern (inheriting from UserAwareController)
 - Avoid race conditions
 
+**Service Layer Conventions** (Hybrid Approach)
+- **Function-based services** for stateless operations: CRUD, validation, queries, utility helpers
+- **Class-based services** for stateful workflows: when operations share context (user, event, etc.) or for multi-step processes
+- Mixed modules are acceptable when patterns serve different purposes (e.g., `TicketService` class + `check_in_ticket()` function in same module)
+- No DI container - services are instantiated manually in controllers
+- Controller calls: import module for functions (`blacklist_service.add_to_blacklist()`), instantiate for classes (`TicketService(event, tier, user)`)
+
 **Project-Specific Standards**
 - UV for dependency management (never pip)
 - Google-style docstrings for public APIs

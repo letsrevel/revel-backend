@@ -1,7 +1,10 @@
+import structlog
 from django.contrib.gis.geos import Point
 from IP2Location import IP2Location
 
 from geo import conf
+
+logger = structlog.get_logger(__name__)
 
 _DB: IP2Location | None = None
 _DB_MTIME: float | None = None
@@ -35,6 +38,7 @@ def resolve_ip_to_point(ip: str) -> Point | None:
             return None
         return Point(float(record.longitude), float(record.latitude), srid=4326)
     except Exception:
+        logger.debug("ip_resolution_failed", ip=ip)
         return None
 
 

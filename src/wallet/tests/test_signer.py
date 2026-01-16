@@ -1,8 +1,8 @@
 """Tests for wallet/apple/signer.py."""
 
 import json
+import typing as t
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -15,7 +15,7 @@ from wallet.apple.signer import ApplePassSigner, ApplePassSignerError
 class TestApplePassSignerInit:
     """Tests for ApplePassSigner initialization."""
 
-    def test_init_uses_settings_defaults(self, settings: Any) -> None:
+    def test_init_uses_settings_defaults(self, settings: t.Any) -> None:
         """Should use Django settings for defaults."""
         settings.APPLE_WALLET_CERT_PATH = "/path/to/cert.pem"
         settings.APPLE_WALLET_KEY_PATH = "/path/to/key.pem"
@@ -287,7 +287,7 @@ class TestApplePassSignerSignManifest:
 class TestApplePassSignerIsConfigured:
     """Tests for is_configured method."""
 
-    def test_returns_true_when_all_paths_set(self, settings: Any) -> None:
+    def test_returns_true_when_all_paths_set(self, settings: t.Any) -> None:
         """Should return True when all required paths are set."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.example.test"
 
@@ -299,7 +299,7 @@ class TestApplePassSignerIsConfigured:
 
         assert signer.is_configured() is True
 
-    def test_returns_false_when_cert_path_missing(self, settings: Any) -> None:
+    def test_returns_false_when_cert_path_missing(self, settings: t.Any) -> None:
         """Should return False when cert_path is missing."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.example.test"
         settings.APPLE_WALLET_CERT_PATH = ""  # Also clear settings fallback
@@ -312,7 +312,7 @@ class TestApplePassSignerIsConfigured:
 
         assert signer.is_configured() is False
 
-    def test_returns_false_when_key_path_missing(self, settings: Any) -> None:
+    def test_returns_false_when_key_path_missing(self, settings: t.Any) -> None:
         """Should return False when key_path is missing."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.example.test"
         settings.APPLE_WALLET_KEY_PATH = ""  # Also clear settings fallback
@@ -325,7 +325,7 @@ class TestApplePassSignerIsConfigured:
 
         assert signer.is_configured() is False
 
-    def test_returns_false_when_wwdr_path_missing(self, settings: Any) -> None:
+    def test_returns_false_when_wwdr_path_missing(self, settings: t.Any) -> None:
         """Should return False when wwdr_cert_path is missing."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.example.test"
         settings.APPLE_WALLET_WWDR_CERT_PATH = ""  # Also clear settings fallback
@@ -338,7 +338,7 @@ class TestApplePassSignerIsConfigured:
 
         assert signer.is_configured() is False
 
-    def test_returns_false_when_pass_type_id_missing(self, settings: Any) -> None:
+    def test_returns_false_when_pass_type_id_missing(self, settings: t.Any) -> None:
         """Should return False when APPLE_WALLET_PASS_TYPE_ID is missing."""
         settings.APPLE_WALLET_PASS_TYPE_ID = ""
 
@@ -354,7 +354,7 @@ class TestApplePassSignerIsConfigured:
 class TestApplePassSignerValidateConfiguration:
     """Tests for validate_configuration method."""
 
-    def test_raises_when_not_configured(self, settings: Any) -> None:
+    def test_raises_when_not_configured(self, settings: t.Any) -> None:
         """Should raise when configuration is incomplete."""
         settings.APPLE_WALLET_PASS_TYPE_ID = ""
 
@@ -367,7 +367,7 @@ class TestApplePassSignerValidateConfiguration:
         with pytest.raises(ApplePassSignerError, match="not configured"):
             signer.validate_configuration()
 
-    def test_raises_when_cert_not_loadable(self, settings: Any) -> None:
+    def test_raises_when_cert_not_loadable(self, settings: t.Any) -> None:
         """Should raise when certificate cannot be loaded."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.example.test"
 
@@ -382,7 +382,7 @@ class TestApplePassSignerValidateConfiguration:
 
     def test_succeeds_when_all_certs_loadable(
         self,
-        settings: Any,
+        settings: t.Any,
         mock_certificate: x509.Certificate,
         mock_private_key: rsa.RSAPrivateKey,
         mock_wwdr_certificate: x509.Certificate,

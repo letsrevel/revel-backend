@@ -198,6 +198,27 @@ When working on issues or new features, follow this collaborative workflow:
 
 ## Code Style Preferences
 
+### Typing Imports
+- **Always use**: `import typing as t` (never `from typing import ...`)
+- **Access types as**: `t.Any`, `t.TYPE_CHECKING`, `t.cast()`, etc.
+- **Rationale**: Consistent namespace, avoids polluting module scope, clear provenance of type constructs
+- Example:
+  ```python
+  # Good
+  import typing as t
+
+  def process(data: t.Any) -> dict[str, t.Any]:
+      if t.TYPE_CHECKING:
+          from mymodule import MyType
+      return t.cast(dict[str, t.Any], data)
+
+  # Bad
+  from typing import Any, TYPE_CHECKING, cast
+
+  def process(data: Any) -> dict[str, Any]:
+      ...
+  ```
+
 ### Schemas (Django Ninja)
 - **ModelSchema**: Only declare fields at class level when they require special handling (e.g., enum conversion to string)
 - **Omit unnecessary fields**: Don't include `created_at`/`updated_at` in response schemas unless specifically needed
@@ -300,6 +321,69 @@ When working on issues or new features, follow this collaborative workflow:
   def list_items(self) -> QuerySet[Item]:
       return Item.objects.select_related("category").prefetch_related("tags")
   ```
+
+### Service Layer Patterns
+
+This project uses a **hybrid approach** to services: function-based for stateless operations, class-based for stateful workflows. This is intentional.
+
+#### When to Use Function-Based Services
+- **Single-purpose operations**: CRUD, validation, simple queries
+- **Cross-entity operations**: Operations spanning multiple models without shared context
+- **Utility helpers**: Formatting, calculations, lookups
+
+```python
+# Good - stateless operations as functions
+def add_to_blacklist(organization: Organization, email: str, ...) -> Blacklist:
+    return Blacklist.objects.create(organization=organization, email=email, ...)
+
+def create_venue(organization: Organization, payload: VenueCreateSchema) -> Venue:
+    return Venue.objects.create(organization=organization, **payload.model_dump())
+```
+
+#### When to Use Class-Based Services
+- **Request-scoped workflows**: Operations that share context (user, event, organization)
+- **Multi-step processes**: Checkout flows, eligibility checks, complex validations
+- **Stateful computations**: When you'd pass the same 3+ arguments to multiple related functions
+
+```python
+# Good - stateful workflow as class
+class TicketService:
+    def __init__(self, *, event: Event, tier: TicketTier, user: RevelUser) -> None:
+        self.event = event
+        self.tier = tier
+        self.user = user
+
+    def checkout(self, price_override: Decimal | None = None) -> str | Ticket:
+        match self.tier.payment_method:
+            case TicketTier.PaymentMethod.ONLINE:
+                return self._stripe_checkout(price_override)
+            case TicketTier.PaymentMethod.FREE:
+                return self._free_checkout()
+```
+
+#### Mixed Modules Are OK
+A single service module can contain both patterns when they serve different purposes:
+- `ticket_service.py` has `TicketService` (checkout workflow) AND `check_in_ticket()` (standalone operation)
+- This is intentional - don't force everything into one pattern
+
+#### Controller Integration
+```python
+# Function-based - import module, call directly
+from events.service import blacklist_service
+entry = blacklist_service.add_to_blacklist(organization, email=email)
+
+# Class-based - instantiate per request
+from events.service.ticket_service import TicketService
+service = TicketService(event=event, tier=tier, user=user)
+result = service.checkout()
+```
+
+#### Why Not Dependency Injection?
+We intentionally avoid Django Ninja Extra's DI container because:
+- Our services are **request-contextual** (need user, event, etc.) - doesn't fit singleton pattern
+- Explicit instantiation makes code **traceable** (grep finds all usages)
+- No framework lock-in beyond Django Ninja
+- KISS principle - manual instantiation is simple and clear
 
 ## Note to claude
 - Do not run tests. Let the user run the tests.

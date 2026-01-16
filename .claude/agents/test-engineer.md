@@ -35,6 +35,11 @@ For service modules (e.g., `events/service/`, `accounts/service/`):
 - Test transaction behavior and rollback scenarios
 - Do not need to mock tasks because celery runs in sync during tests
 
+**Note:** This codebase uses a hybrid service pattern:
+- **Function-based services** (stateless): Test by calling functions directly with required parameters
+- **Class-based services** (stateful workflows): Instantiate the service class with dependencies, then test methods
+- Use `unittest.mock.patch` for mocking function-based services; pass mock dependencies via constructor for class-based
+
 ### API Controller Testing
 For Django Ninja controllers:
 - Test authentication and permission enforcement

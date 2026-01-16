@@ -7,8 +7,8 @@ by the EligibilityService to determine if a user can participate in an event.
 from __future__ import annotations
 
 import abc
+import typing as t
 import uuid
-from typing import TYPE_CHECKING
 
 from django.utils import timezone
 from django.utils.translation import gettext as _
@@ -27,7 +27,7 @@ from questionnaires.models import Questionnaire, QuestionnaireEvaluation, Questi
 from .enums import NextStep, Reasons
 from .types import EventUserEligibility
 
-if TYPE_CHECKING:
+if t.TYPE_CHECKING:
     from accounts.models import RevelUser
 
     from .service import EligibilityService

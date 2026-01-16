@@ -120,11 +120,19 @@ Revel combines the ticketing power of platforms like Eventbrite with the communi
 
 Revel is built with a modern and robust backend, designed for performance and scalability.
 
-*   **🐍 Backend:** Python 3.13+ with **[Django 5.2+](https://docs.djangoproject.com/en/5.2/)**
+*   **🐍 Backend:** Python 3.13+ with **[Django 5.2 LTS](https://docs.djangoproject.com/en/5.2/)**
 *   **🚀 API:** **[Django Ninja](https://django-ninja.dev/)** and **[Django Ninja Extra](https://eadwincode.github.io/django-ninja-extra/)** for a fast, modern, and auto-documenting REST API.
 *   **🐘 Database:** **PostgreSQL** with **PostGIS** for powerful geo-features.
 *   **⚙️ Async Tasks:** **Celery** with **Redis** for background jobs (emails, evaluations).
 *   **🐳 Deployment:** Fully containerized with **Docker** for easy setup and deployment.
+
+### Why Django 5.2 LTS?
+
+We intentionally stay on Django 5.2 LTS rather than upgrading to Django 6.x. Our policy:
+
+- **LTS stability** - Django 5.2 is a Long-Term Support release with security updates until April 2028
+- **Upgrade when it matters** - We'll upgrade for compelling features, performance improvements, or security CVEs
+- **No bleeding edge for its own sake** - Django 6.0 is only ~3 months old; we prefer battle-tested releases
 
 ---
 

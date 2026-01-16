@@ -54,8 +54,10 @@ Our goal is to make setup as easy as possible. You'll need `make`, `Docker`, and
 Consistency is key. We follow these standards to maintain a clean and readable codebase.
 
 *   **Style Guide:** [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html).
+*   **Service Layer:** We use a hybrid approach - function-based services for stateless operations (CRUD, queries), class-based for stateful workflows (checkout, eligibility). See `CLAUDE.md` for detailed patterns.
 *   **Formatting & Linting:** We use `ruff` for both. Run `make format` to automatically format your code before committing. `make lint` will check for style issues.
 *   **Type Hinting:** All new code must be fully type-hinted using Python 3.12+ syntax. We use `mypy` for static analysis. Run `make mypy` to check your types.
+    *   Always use `import typing as t` (never `from typing import ...`).
     *   Do not use `# type: ignore[no-untyped-def]`. All function signatures must be typed.
     *   Use string forward references for type hints where necessary (e.g., `-> 'MyModel'`).
 *   **Docstrings:** Use Google-style docstrings for all public modules, classes, functions, and methods.
