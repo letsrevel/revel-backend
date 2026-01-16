@@ -10,10 +10,10 @@ a ZIP archive containing:
 
 import io
 import json
+import typing as t
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
 
 import structlog
 from django.conf import settings
@@ -207,7 +207,7 @@ class ApplePassGenerator:
         use remaining space without being squeezed between other fields.
         """
         # Build secondary fields: venue > section > seat (left to right)
-        secondary_fields: list[dict[str, Any]] = []
+        secondary_fields: list[dict[str, t.Any]] = []
 
         if data.venue_name:
             secondary_fields.append(
@@ -239,7 +239,7 @@ class ApplePassGenerator:
 
         # Build auxiliary fields: ticket tier, price, then guest name (if present)
         # Guest name is last so it can use more horizontal space for long names
-        auxiliary_fields: list[dict[str, Any]] = [
+        auxiliary_fields: list[dict[str, t.Any]] = [
             {"key": "tier", "label": "TICKET", "value": data.ticket_tier},
             {
                 "key": "price",
@@ -259,7 +259,7 @@ class ApplePassGenerator:
                 }
             )
 
-        pass_dict: dict[str, Any] = {
+        pass_dict: dict[str, t.Any] = {
             "formatVersion": 1,
             "passTypeIdentifier": self._pass_type_id,
             "serialNumber": data.serial_number,

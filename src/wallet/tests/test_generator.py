@@ -2,9 +2,9 @@
 
 import io
 import json
+import typing as t
 import zipfile
 from datetime import timedelta
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -152,7 +152,7 @@ class TestApplePassGeneratorInit:
         generator = ApplePassGenerator(signer=mock_signer)
         assert generator.signer is mock_signer
 
-    def test_init_reads_settings(self, settings: Any) -> None:
+    def test_init_reads_settings(self, settings: t.Any) -> None:
         """Should read pass type ID and team ID from settings."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test.app"
         settings.APPLE_WALLET_TEAM_ID = "TEAM123"
@@ -232,7 +232,7 @@ class TestApplePassGeneratorBuildPassData:
 class TestApplePassGeneratorBuildPassJson:
     """Tests for _build_pass_json method."""
 
-    def test_builds_valid_json(self, settings: Any, mock_signer: MagicMock) -> None:
+    def test_builds_valid_json(self, settings: t.Any, mock_signer: MagicMock) -> None:
         """Should build valid JSON bytes."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test.app"
         settings.APPLE_WALLET_TEAM_ID = "TEAM123"
@@ -267,7 +267,7 @@ class TestApplePassGeneratorBuildPassJson:
         assert pass_dict["description"] == "Test Event Ticket"
         assert pass_dict["organizationName"] == "Test Org"
 
-    def test_includes_barcode(self, settings: Any, mock_signer: MagicMock) -> None:
+    def test_includes_barcode(self, settings: t.Any, mock_signer: MagicMock) -> None:
         """Should include QR barcode."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
         settings.APPLE_WALLET_TEAM_ID = "TEAM123"
@@ -299,7 +299,7 @@ class TestApplePassGeneratorBuildPassJson:
         assert pass_dict["barcodes"][0]["format"] == "PKBarcodeFormatQR"
         assert pass_dict["barcodes"][0]["message"] == "barcode-content"
 
-    def test_includes_event_ticket_structure(self, settings: Any, mock_signer: MagicMock) -> None:
+    def test_includes_event_ticket_structure(self, settings: t.Any, mock_signer: MagicMock) -> None:
         """Should include eventTicket structure with proper fields."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
         settings.APPLE_WALLET_TEAM_ID = "TEAM123"
@@ -335,7 +335,7 @@ class TestApplePassGeneratorBuildPassJson:
         assert "auxiliaryFields" in event_ticket
         assert "backFields" in event_ticket
 
-    def test_includes_relevant_date(self, settings: Any, mock_signer: MagicMock) -> None:
+    def test_includes_relevant_date(self, settings: t.Any, mock_signer: MagicMock) -> None:
         """Should include relevantDate when provided."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
         settings.APPLE_WALLET_TEAM_ID = "TEAM123"
@@ -364,7 +364,7 @@ class TestApplePassGeneratorBuildPassJson:
 
         assert "relevantDate" in pass_dict
 
-    def test_omits_relevant_date_when_none(self, settings: Any, mock_signer: MagicMock) -> None:
+    def test_omits_relevant_date_when_none(self, settings: t.Any, mock_signer: MagicMock) -> None:
         """Should omit relevantDate when not provided."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
         settings.APPLE_WALLET_TEAM_ID = "TEAM123"
@@ -397,7 +397,7 @@ class TestApplePassGeneratorBuildPassJson:
 class TestApplePassGeneratorGenerateFiles:
     """Tests for _generate_files method."""
 
-    def test_generates_pass_json(self, settings: Any, mock_signer: MagicMock) -> None:
+    def test_generates_pass_json(self, settings: t.Any, mock_signer: MagicMock) -> None:
         """Should include pass.json in generated files."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
         settings.APPLE_WALLET_TEAM_ID = "TEAM123"
@@ -426,7 +426,7 @@ class TestApplePassGeneratorGenerateFiles:
         # Verify it's valid JSON
         json.loads(files["pass.json"])
 
-    def test_generates_all_icons(self, settings: Any, mock_signer: MagicMock, sample_logo_bytes: bytes) -> None:
+    def test_generates_all_icons(self, settings: t.Any, mock_signer: MagicMock, sample_logo_bytes: bytes) -> None:
         """Should generate all icon variants."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
         settings.APPLE_WALLET_TEAM_ID = "TEAM123"
@@ -456,7 +456,7 @@ class TestApplePassGeneratorGenerateFiles:
             # Verify PNG format
             assert files[icon_name][:8] == b"\x89PNG\r\n\x1a\n"
 
-    def test_generates_all_logos(self, settings: Any, mock_signer: MagicMock, sample_logo_bytes: bytes) -> None:
+    def test_generates_all_logos(self, settings: t.Any, mock_signer: MagicMock, sample_logo_bytes: bytes) -> None:
         """Should generate all logo variants."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
         settings.APPLE_WALLET_TEAM_ID = "TEAM123"
@@ -543,7 +543,7 @@ class TestApplePassGeneratorGeneratePass:
 
     def test_generates_complete_pkpass(
         self,
-        settings: Any,
+        settings: t.Any,
         wallet_ticket: Ticket,
         mock_signer: MagicMock,
     ) -> None:
@@ -573,7 +573,7 @@ class TestApplePassGeneratorGeneratePass:
 
     def test_raises_on_signer_error(
         self,
-        settings: Any,
+        settings: t.Any,
         wallet_ticket: Ticket,
     ) -> None:
         """Should propagate ApplePassSignerError."""
@@ -590,7 +590,7 @@ class TestApplePassGeneratorGeneratePass:
 
     def test_raises_generator_error_on_failure(
         self,
-        settings: Any,
+        settings: t.Any,
         wallet_ticket: Ticket,
         mock_signer: MagicMock,
     ) -> None:

@@ -24,7 +24,6 @@ def test_create_direct_invitations_for_existing_users(
     payload = {
         "emails": [public_user.email, member_user.email],
         "waives_questionnaire": True,
-        "send_notification": False,
         "tier_id": str(tier.id),
     }
 
@@ -52,7 +51,6 @@ def test_create_direct_invitations_for_non_existing_users(organization_owner_cli
     payload = {
         "emails": ["nonexistent1@example.com", "nonexistent2@example.com"],
         "waives_purchase": True,
-        "send_notification": False,
         "tier_id": str(tier.id),
     }
 
@@ -85,7 +83,6 @@ def test_create_direct_invitations_mixed_users(
     payload = {
         "emails": [public_user.email, "new@example.com"],
         "custom_message": "Welcome to our event!",
-        "send_notification": False,
         "tier_id": str(tier.id),
     }
 
@@ -113,7 +110,6 @@ def test_create_direct_invitations_requires_permission(
     url = reverse("api:create_direct_invitations", kwargs={"event_id": event.pk})
     payload = {
         "emails": ["test@example.com"],
-        "send_notification": False,
         "tier_id": str(tier.id),
     }
 

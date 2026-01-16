@@ -9,9 +9,9 @@ for common fixtures. Only wallet-specific fixtures are defined here.
 """
 
 import io
+import typing as t
 from collections.abc import Generator
 from datetime import timedelta
-from typing import Any
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
@@ -132,7 +132,7 @@ def patched_signer_certs(
     mock_certificate: x509.Certificate,
     mock_private_key: rsa.RSAPrivateKey,
     mock_wwdr_certificate: x509.Certificate,
-) -> Any:
+) -> t.Any:
     """Patch ApplePassSigner to use mock certificates.
 
     This fixture patches the certificate loading methods to return
@@ -204,7 +204,7 @@ def mock_event(mock_organization: MagicMock) -> MagicMock:
 
 
 @pytest.fixture
-def apple_wallet_configured(settings: Any) -> None:
+def apple_wallet_configured(settings: t.Any) -> None:
     """Configure Apple Wallet settings for tests."""
     settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.example.test"
     settings.APPLE_WALLET_TEAM_ID = "TEAM123"
@@ -214,7 +214,7 @@ def apple_wallet_configured(settings: Any) -> None:
 
 
 @pytest.fixture
-def apple_wallet_not_configured(settings: Any) -> None:
+def apple_wallet_not_configured(settings: t.Any) -> None:
     """Clear Apple Wallet settings for tests."""
     settings.APPLE_WALLET_PASS_TYPE_ID = ""
     settings.APPLE_WALLET_TEAM_ID = ""
@@ -254,7 +254,7 @@ def organization_owner_user(django_user_model: type[RevelUser]) -> RevelUser:
 
 
 @pytest.fixture
-def organization(organization_owner_user: Any) -> Any:
+def organization(organization_owner_user: t.Any) -> t.Any:
     """Organization for wallet tests."""
     from events.models import Organization
 
@@ -266,7 +266,7 @@ def organization(organization_owner_user: Any) -> Any:
 
 
 @pytest.fixture
-def event(organization: Any) -> Any:
+def event(organization: t.Any) -> t.Any:
     """Event for wallet controller tests."""
     from datetime import timedelta
 
@@ -291,7 +291,7 @@ def event(organization: Any) -> Any:
 
 
 @pytest.fixture
-def event_ticket_tier(event: Any) -> Any:
+def event_ticket_tier(event: t.Any) -> t.Any:
     """Ticket tier for wallet tests."""
     from events.models import TicketTier
 
@@ -327,7 +327,7 @@ def nonmember_user(django_user_model: type[RevelUser]) -> RevelUser:
 
 
 @pytest.fixture
-def ticket(event: Any, member_user: Any, event_ticket_tier: Any) -> Any:
+def ticket(event: t.Any, member_user: t.Any, event_ticket_tier: t.Any) -> t.Any:
     """Ticket for wallet controller tests."""
     from events.models import Ticket
 
@@ -341,7 +341,7 @@ def ticket(event: Any, member_user: Any, event_ticket_tier: Any) -> Any:
 
 
 @pytest.fixture
-def member_client(member_user: Any, organization: Any) -> Any:
+def member_client(member_user: t.Any, organization: t.Any) -> t.Any:
     """API client for a member user."""
     from django.test.client import Client
     from ninja_jwt.tokens import RefreshToken
@@ -354,7 +354,7 @@ def member_client(member_user: Any, organization: Any) -> Any:
 
 
 @pytest.fixture
-def nonmember_client(nonmember_user: Any) -> Any:
+def nonmember_client(nonmember_user: t.Any) -> t.Any:
     """API client for a non-member user."""
     from django.test.client import Client
     from ninja_jwt.tokens import RefreshToken

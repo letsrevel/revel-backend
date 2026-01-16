@@ -4,6 +4,7 @@ import typing as t
 from io import BytesIO
 
 import qrcode
+import structlog
 from django.template import Context, Template
 from django.template.loader import render_to_string
 from weasyprint import HTML
@@ -12,6 +13,8 @@ from accounts.models import RevelUser
 from events import models
 
 from .models import Ticket
+
+logger = structlog.get_logger(__name__)
 
 
 def get_invitation_message(user: RevelUser, event: models.Event) -> str:
@@ -131,6 +134,7 @@ def _file_to_data_uri(file_field: t.Any) -> str | None:
         file_base64 = base64.b64encode(file_data).decode("utf-8")
         return f"data:{mime_type};base64,{file_base64}"
     except Exception:
+        logger.debug("file_to_data_uri_failed", file_name=getattr(file_field, "name", None))
         return None
 
 

@@ -69,7 +69,7 @@ def _default_serializer(obj: t.Any) -> t.Any:
                 return obj.url
         except Exception:
             # File doesn't exist or storage issue
-            pass
+            logger.debug("gdpr_export_file_url_failed", field_name=getattr(obj, "name", None))
         return "[This field could not be exported]"
 
     # Handle PostGIS Point - convert to GeoJSON

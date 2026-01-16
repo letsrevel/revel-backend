@@ -40,8 +40,8 @@ def create_direct_invitations(
         elif _create_or_update_pending_invitation(event, email, invitation_fields):
             pending_invitations += 1
 
-    # TODO: Send notifications if invitation_data.send_notification is True
-    # This will be implemented in a separate task
+    # Note: Notifications are sent automatically via Django signals
+    # (see notifications/signals/invitation.py)
 
     return {
         "created_invitations": created_invitations,

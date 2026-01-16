@@ -8,8 +8,8 @@ WWDR (Worldwide Developer Relations) intermediate certificate.
 
 import hashlib
 import json
+import typing as t
 from pathlib import Path
-from typing import Any
 
 import structlog
 from cryptography import x509
@@ -54,7 +54,7 @@ class ApplePassSigner:
         self.wwdr_cert_path = wwdr_cert_path or settings.APPLE_WALLET_WWDR_CERT_PATH
 
         self._certificate: x509.Certificate | None = None
-        self._private_key: Any = None
+        self._private_key: t.Any = None
         self._wwdr_certificate: x509.Certificate | None = None
 
     def _load_certificate(self, path: str) -> x509.Certificate:
@@ -78,7 +78,7 @@ class ApplePassSigner:
         except Exception as e:
             raise ApplePassSignerError(f"Failed to load certificate {path}: {e}")
 
-    def _load_private_key(self, path: str, password: str | None = None) -> Any:
+    def _load_private_key(self, path: str, password: str | None = None) -> t.Any:
         """Load a private key from a PEM file.
 
         Args:
@@ -109,7 +109,7 @@ class ApplePassSigner:
         return self._certificate
 
     @property
-    def private_key(self) -> Any:
+    def private_key(self) -> t.Any:
         """Get the private key, loading if necessary."""
         if self._private_key is None:
             self._private_key = self._load_private_key(self.key_path, self.key_password)

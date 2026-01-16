@@ -30,11 +30,13 @@ class InvitationSchema(InvitationBaseSchema):
 
 
 class DirectInvitationCreateSchema(InvitationBaseSchema):
-    """Schema for creating direct invitations to events."""
+    """Schema for creating direct invitations to events.
+
+    Note: Notifications are sent automatically via Django signals when invitations are created.
+    """
 
     emails: list[EmailStr] = Field(..., min_length=1, description="List of email addresses to invite")
     tier_id: UUID | None = Field(None, description="Ticket tier to assign to invitations")
-    send_notification: bool = Field(True, description="Whether to send notification emails")
 
 
 class DirectInvitationResponseSchema(Schema):

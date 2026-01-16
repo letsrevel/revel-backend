@@ -6,7 +6,7 @@ including creating placeholder logos, resizing images, and generating icons.
 
 import colorsys
 import io
-from typing import Any
+import typing as t
 
 import structlog
 from PIL import Image, ImageDraw, ImageFont
@@ -136,7 +136,7 @@ def resize_image(image_data: bytes, size: tuple[int, int]) -> bytes:
         return generate_colored_icon(size, (100, 100, 100))
 
 
-def resolve_cover_art(event: Any) -> bytes | None:
+def resolve_cover_art(event: t.Any) -> bytes | None:
     """Resolve cover art image with fallback chain.
 
     Order: event.cover_art -> series.cover_art -> organization.cover_art
@@ -159,12 +159,13 @@ def resolve_cover_art(event: Any) -> bytes | None:
                 source.seek(0)
                 return source.read()  # type: ignore[no-any-return]
             except Exception:
+                logger.debug("cover_art_source_read_failed", source_type=type(source).__name__)
                 continue
 
     return None
 
 
-def generate_fallback_logo(organization: Any) -> bytes:
+def generate_fallback_logo(organization: t.Any) -> bytes:
     """Generate a fallback logo based on organization ID.
 
     Creates a logo with organization initials on a colored background,

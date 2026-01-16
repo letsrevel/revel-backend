@@ -105,9 +105,6 @@ async def cb_handle_request_invitation(callback: CallbackQuery, user: RevelUser,
     event_id = uuid.UUID(event_id_str)
     event = await Event.objects.select_related("organization").aget(id=event_id)
 
-    # TODO: Implement FSM state for prompting custom message
-    # For now, create invitation request without message
-
     try:
         await sync_to_async(event_service.create_invitation_request)(event=event, user=user, message=None)
         await callback.message.answer(

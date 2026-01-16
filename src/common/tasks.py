@@ -224,7 +224,7 @@ def _get_organization_owner(app: str, model: str, pk: str) -> RevelUser | None:
         elif model == "Organization":
             return instance.owner  # type: ignore[no-any-return]
     except Exception:
-        pass
+        logger.debug("organization_owner_resolution_failed", app=app, model=model, pk=pk)
     return None
 
 
