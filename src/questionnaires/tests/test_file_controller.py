@@ -86,6 +86,7 @@ class TestUploadFile:
         """Test successfully uploading a file.
 
         Uses real PNG content to verify MIME type detection from file content works.
+        Note: Images undergo EXIF stripping which may change file size slightly.
         """
         # Arrange
         url = reverse("api:upload_questionnaire_file")
@@ -103,7 +104,8 @@ class TestUploadFile:
         data = response.json()
         assert data["original_filename"] == "upload_test.png"
         assert data["mime_type"] == "image/png"  # Detected from content, not header
-        assert data["file_size"] == len(png_bytes)
+        # File size may differ from original due to EXIF stripping (re-encodes image)
+        assert data["file_size"] > 0
         assert "id" in data
         assert "file_url" in data
 

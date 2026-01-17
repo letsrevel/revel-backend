@@ -1,10 +1,20 @@
 """Tests for custom Django fields with sanitization."""
 
+import typing as t
+
 import pytest
+from django.db import models
 from django.test import TestCase
 
 from accounts.models import RevelUser
-from common.fields import sanitize_html, sanitize_markdown
+from common.fields import (
+    PROTECTED_PREFIX,
+    ProtectedFileField,
+    ProtectedImageField,
+    ProtectedUploadTo,
+    sanitize_html,
+    sanitize_markdown,
+)
 from events.models import Event, EventSeries, Organization
 
 
@@ -298,3 +308,200 @@ class TestMarkdownFieldOnModels(TestCase):
         assert org.description is not None
         assert "<strong>bold</strong>" in org.description
         assert "<a href" in org.description
+
+
+# ---- Protected File Field Tests ----
+
+
+class TestProtectedUploadTo:
+    """Tests for ProtectedUploadTo wrapper class."""
+
+    def test_wraps_callable_and_adds_prefix(self) -> None:
+        """Test that callable upload_to gets protected/ prefix added."""
+
+        def my_upload(instance: t.Any, filename: str) -> str:
+            return f"user/{filename}"
+
+        wrapper = ProtectedUploadTo(my_upload)
+        result = wrapper(None, "test.pdf")
+
+        assert result == "protected/user/test.pdf"
+
+    def test_does_not_double_prefix(self) -> None:
+        """Test that already-prefixed paths are not doubled."""
+
+        def my_upload(instance: t.Any, filename: str) -> str:
+            return f"protected/already/{filename}"
+
+        wrapper = ProtectedUploadTo(my_upload)
+        result = wrapper(None, "test.pdf")
+
+        assert result == "protected/already/test.pdf"
+        assert not result.startswith("protected/protected/")
+
+    def test_prevents_double_wrapping(self) -> None:
+        """Test that wrapping a ProtectedUploadTo doesn't nest wrappers."""
+
+        def my_upload(instance: t.Any, filename: str) -> str:
+            return f"files/{filename}"
+
+        wrapper1 = ProtectedUploadTo(my_upload)
+        wrapper2 = ProtectedUploadTo(wrapper1)
+
+        # The inner wrapper should be unwrapped
+        assert wrapper2.wrapped is my_upload
+
+    def test_deconstruct_returns_valid_tuple(self) -> None:
+        """Test that deconstruct returns a valid 3-tuple for migrations."""
+
+        def my_upload(instance: t.Any, filename: str) -> str:
+            return f"path/{filename}"
+
+        wrapper = ProtectedUploadTo(my_upload)
+        path, args, kwargs = wrapper.deconstruct()
+
+        assert path == "common.fields.ProtectedUploadTo"
+        assert args == (my_upload,)
+        assert kwargs == {}
+
+    def test_deconstruct_can_reconstruct(self) -> None:
+        """Test that deconstruct output can be used to reconstruct."""
+
+        def my_upload(instance: t.Any, filename: str) -> str:
+            return f"docs/{filename}"
+
+        original = ProtectedUploadTo(my_upload)
+        path, args, kwargs = original.deconstruct()
+
+        # Reconstruct
+        reconstructed = ProtectedUploadTo(*args, **kwargs)
+
+        # Should behave the same
+        assert reconstructed(None, "file.pdf") == original(None, "file.pdf")
+
+
+class TestProtectedFileField:
+    """Tests for ProtectedFileField."""
+
+    def test_string_upload_to_gets_prefix(self) -> None:
+        """Test that string upload_to gets protected/ prefix."""
+        field = ProtectedFileField(upload_to="attachments")
+        assert field.upload_to == "protected/attachments"
+
+    def test_already_prefixed_not_doubled(self) -> None:
+        """Test that already-prefixed paths are not doubled."""
+        field = ProtectedFileField(upload_to="protected/attachments")
+        assert field.upload_to == "protected/attachments"
+
+    def test_empty_upload_to_gets_prefix(self) -> None:
+        """Test that empty upload_to gets protected/ prefix."""
+        field = ProtectedFileField(upload_to="")
+        assert field.upload_to == "protected/"
+
+    def test_callable_upload_to_wrapped(self) -> None:
+        """Test that callable upload_to is wrapped in ProtectedUploadTo."""
+
+        def my_upload(instance: t.Any, filename: str) -> str:
+            return f"user/{filename}"
+
+        field = ProtectedFileField(upload_to=my_upload)
+
+        assert isinstance(field.upload_to, ProtectedUploadTo)
+
+    def test_callable_produces_prefixed_path(self) -> None:
+        """Test that callable upload_to produces prefixed paths."""
+
+        def my_upload(instance: t.Any, filename: str) -> str:
+            return f"uploads/{filename}"
+
+        field = ProtectedFileField(upload_to=my_upload)
+
+        # The wrapped callable should add prefix
+        assert isinstance(field.upload_to, ProtectedUploadTo)
+        result = field.upload_to(None, "test.pdf")
+        assert result == "protected/uploads/test.pdf"
+
+    def test_inherits_from_file_field(self) -> None:
+        """Test that ProtectedFileField inherits from FileField."""
+        assert issubclass(ProtectedFileField, models.FileField)
+
+    def test_passes_kwargs_to_parent(self) -> None:
+        """Test that additional kwargs are passed to FileField."""
+        field = ProtectedFileField(
+            upload_to="files",
+            max_length=500,
+            blank=True,
+            null=True,
+        )
+
+        assert field.max_length == 500
+        assert field.blank is True
+        assert field.null is True
+
+
+class TestProtectedImageField:
+    """Tests for ProtectedImageField."""
+
+    def test_string_upload_to_gets_prefix(self) -> None:
+        """Test that string upload_to gets protected/ prefix."""
+        field = ProtectedImageField(upload_to="profile-pics")
+        assert field.upload_to == "protected/profile-pics"
+
+    def test_already_prefixed_not_doubled(self) -> None:
+        """Test that already-prefixed paths are not doubled."""
+        field = ProtectedImageField(upload_to="protected/images")
+        assert field.upload_to == "protected/images"
+
+    def test_empty_upload_to_gets_prefix(self) -> None:
+        """Test that empty upload_to gets protected/ prefix."""
+        field = ProtectedImageField(upload_to="")
+        assert field.upload_to == "protected/"
+
+    def test_callable_upload_to_wrapped(self) -> None:
+        """Test that callable upload_to is wrapped in ProtectedUploadTo."""
+
+        def my_upload(instance: t.Any, filename: str) -> str:
+            return f"avatars/{filename}"
+
+        field = ProtectedImageField(upload_to=my_upload)
+
+        assert isinstance(field.upload_to, ProtectedUploadTo)
+
+    def test_callable_produces_prefixed_path(self) -> None:
+        """Test that callable upload_to produces prefixed paths."""
+
+        def my_upload(instance: t.Any, filename: str) -> str:
+            return f"photos/{filename}"
+
+        field = ProtectedImageField(upload_to=my_upload)
+
+        assert isinstance(field.upload_to, ProtectedUploadTo)
+        result = field.upload_to(None, "photo.jpg")
+        assert result == "protected/photos/photo.jpg"
+
+    def test_inherits_from_image_field(self) -> None:
+        """Test that ProtectedImageField inherits from ImageField."""
+        assert issubclass(ProtectedImageField, models.ImageField)
+
+    def test_passes_kwargs_to_parent(self) -> None:
+        """Test that additional kwargs are passed to ImageField."""
+        field = ProtectedImageField(
+            upload_to="images",
+            max_length=300,
+            blank=True,
+        )
+
+        assert field.max_length == 300
+        assert field.blank is True
+
+
+class TestProtectedPrefixConstant:
+    """Tests for the PROTECTED_PREFIX constant."""
+
+    def test_protected_prefix_value(self) -> None:
+        """Test that PROTECTED_PREFIX has expected value."""
+        assert PROTECTED_PREFIX == "protected/"
+
+    def test_protected_prefix_ends_with_slash(self) -> None:
+        """Test that PROTECTED_PREFIX ends with a slash."""
+        assert PROTECTED_PREFIX.endswith("/")

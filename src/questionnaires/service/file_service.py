@@ -7,11 +7,11 @@ from django.db import IntegrityError, transaction
 from ninja.files import UploadedFile
 
 from accounts.models import RevelUser
-from common.utils import create_file_audit_and_scan
+from common.utils import create_file_audit_and_scan, strip_exif
 
 from ..exceptions import DisallowedMimeTypeError, FileSizeExceededError
 from ..models import QuestionnaireFile
-from ..schema import ALLOWED_QUESTIONNAIRE_MIME_TYPES
+from ..schema import ALLOWED_QUESTIONNAIRE_MIME_TYPES, IMAGE_MIME_TYPES
 
 # Global maximum file size for questionnaire uploads (10MB)
 # This is a hard limit before any processing - individual questions may have lower limits.
@@ -25,7 +25,8 @@ def upload_questionnaire_file(user: RevelUser, file: UploadedFile) -> Questionna
     - Global file size validation (before processing)
     - MIME type detection from file content (not trusting client headers)
     - MIME type validation against global allowlist
-    - SHA-256 hash calculation for deduplication
+    - EXIF stripping for image uploads (privacy protection)
+    - SHA-256 hash calculation for deduplication (after EXIF strip)
     - Race condition handling via IntegrityError
     - File storage with UUID path
     - Audit logging
@@ -46,10 +47,9 @@ def upload_questionnaire_file(user: RevelUser, file: UploadedFile) -> Questionna
     if file.size and file.size > MAX_UPLOAD_FILE_SIZE:
         raise FileSizeExceededError(f"File exceeds maximum upload size of {MAX_UPLOAD_FILE_SIZE // (1024 * 1024)}MB.")
 
-    # Read file content and calculate hash
+    # Read file content for MIME detection
     file_content = file.read()
-    file_hash = hashlib.sha256(file_content).hexdigest()
-    file.seek(0)  # Reset file position for saving
+    file.seek(0)
 
     # Detect actual MIME type from file content (not trusting client header)
     detected_mime_type = magic.from_buffer(file_content, mime=True)
@@ -60,6 +60,17 @@ def upload_questionnaire_file(user: RevelUser, file: UploadedFile) -> Questionna
             f"File type '{detected_mime_type}' is not allowed. "
             f"Allowed types: documents, images, audio, video, and archives."
         )
+
+    # Strip EXIF metadata from images for privacy protection
+    # This removes GPS coordinates, camera info, timestamps, etc.
+    if detected_mime_type in IMAGE_MIME_TYPES:
+        file = strip_exif(file)  # type: ignore[assignment]
+        # Re-read the processed content for hashing
+        file_content = file.read()
+        file.seek(0)
+
+    # Calculate hash on the processed content (after EXIF strip for images)
+    file_hash = hashlib.sha256(file_content).hexdigest()
 
     # Check for existing file with same hash (deduplication)
     existing = QuestionnaireFile.objects.filter(uploader=user, file_hash=file_hash).first()

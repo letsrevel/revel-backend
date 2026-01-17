@@ -35,6 +35,11 @@ def create_resource(
         **create_data,
     )
 
+    # Refresh from DB to ensure file path is fully populated after storage
+    # (needed for signed URL generation in the response)
+    if file:
+        resource.refresh_from_db()
+
     if m2m_data["events"]:
         resource.events.set(m2m_data["events"])
     if m2m_data["event_series"]:

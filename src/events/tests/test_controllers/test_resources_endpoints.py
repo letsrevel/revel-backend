@@ -547,3 +547,115 @@ class TestAdminResourceEndpoints:
 
         assert response.status_code == 422  # Validation error
         assert "does not match" in str(response.json()).lower()
+
+
+class TestFileResourceSignedUrls:
+    """Tests for signed URL generation in file resource responses."""
+
+    def test_file_resource_returns_signed_url_on_create(
+        self, organization_owner_client: Client, organization: models.Organization
+    ) -> None:
+        """Test that creating a FILE resource returns a signed file_url."""
+        url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
+
+        test_file = SimpleUploadedFile("test_document.pdf", b"PDF content", content_type="application/pdf")
+
+        payload = {
+            "name": "Signed URL Test",
+            "resource_type": "file",
+            "visibility": "public",
+            "file": test_file,
+        }
+
+        response = organization_owner_client.post(url, data=payload, format="multipart")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify file_url is a signed URL for protected path
+        file_url = data.get("file_url")
+        assert file_url is not None
+        assert "protected/" in file_url
+        assert "exp=" in file_url
+        assert "sig=" in file_url
+
+    def test_file_resource_signed_url_is_valid(
+        self, organization_owner_client: Client, organization: models.Organization
+    ) -> None:
+        """Test that the signed URL returned can be validated."""
+        from common.signing import verify_signature
+
+        url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
+
+        test_file = SimpleUploadedFile("validate_test.txt", b"content", content_type="text/plain")
+
+        payload = {
+            "name": "Validate Signed URL Test",
+            "resource_type": "file",
+            "visibility": "members-only",
+            "file": test_file,
+        }
+
+        response = organization_owner_client.post(url, data=payload, format="multipart")
+
+        assert response.status_code == 200
+        file_url = response.json().get("file_url")
+        assert file_url is not None
+
+        # Parse the signed URL and verify
+        path, query = file_url.split("?")
+        params = dict(param.split("=") for param in query.split("&"))
+
+        assert verify_signature(path, params["exp"], params["sig"]) is True
+
+    def test_file_resource_signed_url_in_list_response(
+        self, organization_owner_client: Client, organization: models.Organization
+    ) -> None:
+        """Test that listing resources returns signed URLs for file resources."""
+        # Create a file resource first
+        create_url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
+        test_file = SimpleUploadedFile("list_test.pdf", b"PDF", content_type="application/pdf")
+
+        create_response = organization_owner_client.post(
+            create_url,
+            data={"name": "List Test", "resource_type": "file", "visibility": "public", "file": test_file},
+            format="multipart",
+        )
+        assert create_response.status_code == 200
+
+        # List resources and check file_url
+        list_url = reverse("api:list_organization_resources_admin", kwargs={"slug": organization.slug})
+        list_response = organization_owner_client.get(list_url)
+
+        assert list_response.status_code == 200
+        results = list_response.json()["results"]
+
+        # Find the file resource we created
+        file_resources = [r for r in results if r["resource_type"] == "file" and r["name"] == "List Test"]
+        assert len(file_resources) == 1
+
+        file_url = file_resources[0].get("file_url")
+        assert file_url is not None
+        assert "protected/" in file_url
+        assert "exp=" in file_url
+        assert "sig=" in file_url
+
+    def test_non_file_resource_has_no_file_url(
+        self, organization_owner_client: Client, organization: models.Organization
+    ) -> None:
+        """Test that non-file resources (link, text) have null file_url."""
+        url = reverse("api:create_organization_resource", kwargs={"slug": organization.slug})
+
+        # Create a link resource
+        payload = {
+            "name": "Link Resource",
+            "resource_type": "link",
+            "link": "https://example.com",
+            "visibility": "public",
+        }
+
+        response = organization_owner_client.post(url, data=payload, format="multipart")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data.get("file_url") is None

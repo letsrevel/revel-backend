@@ -7,7 +7,7 @@ from accounts.controllers.account import AccountController
 from accounts.controllers.auth import AuthController
 from accounts.controllers.dietary import DietaryController
 from accounts.controllers.otp import OtpController
-from common.controllers import TagController
+from common.controllers import MediaValidationController, TagController
 from common.models import Legal
 from common.schema import LegalSchema, ResponseOk, VersionResponse
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle
@@ -123,6 +123,7 @@ api.register_controllers(
     FollowingController,
     StripeWebhookController,
     # Common controllers
+    MediaValidationController,
     TagController,
     # Geo controllers
     CityController,
