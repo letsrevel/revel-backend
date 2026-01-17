@@ -15,7 +15,7 @@ from django.utils import timezone
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field as PydanticField
 
-from common.fields import MarkdownField
+from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
 from questionnaires.llms.llm_interfaces import EvaluationResponse
 
@@ -26,18 +26,20 @@ from .llms.llm_interfaces import FreeTextEvaluator
 
 
 def questionnaire_file_upload_path(instance: "QuestionnaireFile", filename: str) -> str:
-    """Generate UUID-based path in protected directory to prevent enumeration.
+    """Generate UUID-based path to prevent enumeration.
 
-    Path structure: protected/questionnaire_files/{user_id}/{uuid}.{ext}
+    Path structure: questionnaire_files/{user_id}/{uuid}.{ext}
 
     This structure:
     - Uses UUIDs to prevent enumeration attacks
     - Is scoped per user for organization
-    - Lives in protected/ directory, separate from public media (logos, banners)
-    - Ready for Caddy forward_auth integration (see issue #152)
+    - ProtectedFileField adds the 'protected/' prefix automatically
+
+    Note: The 'protected/' prefix is added by ProtectedFileField, so this
+    function returns paths without it.
     """
     ext = Path(filename).suffix[:10]  # Limit extension length for safety
-    return f"protected/questionnaire_files/{instance.uploader_id}/{uuid.uuid4()}{ext}"
+    return f"questionnaire_files/{instance.uploader_id}/{uuid.uuid4()}{ext}"
 
 
 class QuestionnaireFileQueryset(models.QuerySet["QuestionnaireFile"]):
@@ -78,7 +80,7 @@ class QuestionnaireFile(TimeStampedModel):
         on_delete=models.CASCADE,
         related_name="questionnaire_files",
     )
-    file = models.FileField(
+    file = ProtectedFileField(
         upload_to=questionnaire_file_upload_path,
         max_length=255,  # Accommodate long paths with UUIDs
     )

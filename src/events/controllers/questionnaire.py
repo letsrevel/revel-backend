@@ -19,6 +19,7 @@ from accounts.schema import MinimalRevelUserSchema
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ValidationErrorResponse
+from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters
 from events import models as event_models
@@ -513,7 +514,7 @@ class QuestionnaireController(UserAwareController):
                         "original_filename": f.original_filename,
                         "mime_type": f.mime_type,
                         "file_size": f.file_size,
-                        "file_url": f.file.url if f.file else None,
+                        "file_url": get_file_url(f.file),
                     }
                 )
             answers.append(

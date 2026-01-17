@@ -5,7 +5,7 @@ from django.contrib.gis.db import models
 from django.db.models import Q
 
 from accounts.models import RevelUser
-from common.fields import MarkdownField
+from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
 
 from .. import exceptions
@@ -140,7 +140,7 @@ class AdditionalResource(TimeStampedModel, VisibilityMixin):
     events = models.ManyToManyField(Event, related_name="additional_resources", blank=True)
     name = models.CharField(max_length=255, null=True, blank=True)
     description = MarkdownField(null=True, blank=True)
-    file = models.FileField(upload_to="file", null=True, blank=True)
+    file = ProtectedFileField(upload_to="file", null=True, blank=True)
     link = models.URLField(null=True, blank=True)
     text = MarkdownField(null=True, blank=True)
 

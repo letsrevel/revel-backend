@@ -8,6 +8,8 @@ from pydantic import Field, field_serializer, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 from accounts.schema import MinimalRevelUserSchema
+from common.schema import SignedFileSchemaMixin
+from common.signing import get_file_url
 from questionnaires.models import (
     Questionnaire,
     QuestionnaireEvaluation,
@@ -116,8 +118,14 @@ class BaseUUIDSchema(Schema):
 # ---- QuestionnaireFile schemas (user's file library) ----
 
 
-class QuestionnaireFileSchema(ModelSchema):
-    """Schema for QuestionnaireFile in API responses."""
+class QuestionnaireFileSchema(SignedFileSchemaMixin, ModelSchema):
+    """Schema for QuestionnaireFile in API responses.
+
+    Uses SignedFileSchemaMixin for field validation and explicitly defines
+    the resolver for signed URL generation.
+    """
+
+    signed_file_fields: t.ClassVar[dict[str, str]] = {"file_url": "file"}
 
     id: UUID
     original_filename: str
@@ -125,16 +133,14 @@ class QuestionnaireFileSchema(ModelSchema):
     file_size: int
     file_url: str | None = None
 
+    @staticmethod
+    def resolve_file_url(obj: QuestionnaireFile) -> str | None:
+        """Resolve the file URL with signature for protected paths."""
+        return get_file_url(obj.file)
+
     class Meta:
         model = QuestionnaireFile
         fields = ["id", "original_filename", "mime_type", "file_size", "created_at"]
-
-    @staticmethod
-    def resolve_file_url(obj: QuestionnaireFile) -> str | None:
-        """Resolve the file URL."""
-        if obj.file:
-            return str(obj.file.url)
-        return None
 
 
 class BaseQuestionSchema(BaseUUIDSchema):
