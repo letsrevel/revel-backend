@@ -301,6 +301,82 @@ The project uses a `Makefile` to streamline common development tasks.
 
 ---
 
+## 🔐 Protected File Access
+
+Revel implements HMAC-signed URLs for protected file access, allowing certain media files to require authorization while being served efficiently by Caddy.
+
+### Architecture
+
+```
+Client → Caddy → forward_auth → Django /api/media/validate/*
+                                     ↓
+                        Validates HMAC signature + expiry
+                                     ↓
+                        Returns 200 (serve file) or 401
+```
+
+### Why HMAC over MinIO/S3?
+
+We evaluated MinIO but chose HMAC signing for these reasons:
+
+- **FOSS-friendly**: MinIO moved to AGPL v3 and now distributes community edition as source-only (no pre-compiled binaries)
+- **No additional services**: Caddy already handles file serving
+- **Simple is better**: For our use case (<100MB files, no streaming), HMAC signing is sufficient
+- **No vendor lock-in**: Pure Django + Caddy, no external dependencies
+
+### How It Works
+
+1. **Any file in `protected/`** requires signed URL access
+2. **Caddy configuration** routes `/media/protected/*` through `forward_auth`
+3. **Django validates** the signature and expiry, returns 200 or 401
+4. **Caddy serves** the file if validation passes
+
+### Usage in Models
+
+Use `ProtectedFileField` or `ProtectedImageField` for files requiring signed access:
+
+```python
+from common.fields import ProtectedFileField, ProtectedImageField
+
+class MyModel(models.Model):
+    # Stored in protected/attachments/ - requires signed URL
+    attachment = ProtectedFileField(upload_to="attachments")
+
+    # Stored in protected/profile-pics/ - requires signed URL
+    profile_pic = ProtectedImageField(upload_to="profile-pics")
+```
+
+### Usage in Schemas
+
+Use `SignedFileSchemaMixin` to automatically generate signed URLs:
+
+```python
+import typing as t
+
+from common.schema import SignedFileSchemaMixin
+
+class MyResourceSchema(SignedFileSchemaMixin, ModelSchema):
+    signed_file_fields: t.ClassVar[dict[str, str]] = {"file_url": "file"}
+    file_url: str | None = None
+
+    class Meta:
+        model = MyModel
+        fields = ["id", "name"]
+```
+
+### Security
+
+- Signatures use Django's `SECRET_KEY` with domain separation
+- URLs expire after 1 hour by default (configurable)
+- Timing-safe comparison prevents timing attacks
+- Rate limiting on validation endpoint prevents brute-force attacks
+
+### Caddy Configuration
+
+See [docs/PROTECTED_FILES_CADDY.md](docs/PROTECTED_FILES_CADDY.md) for the required Caddy configuration.
+
+---
+
 ## 📂 Project Structure
 
 The codebase is organized into a `src` directory with a clear separation of concerns, following modern Django best practices.
