@@ -14,6 +14,8 @@ RUN apt-get update \
       libffi-dev \
       gdal-bin \
       libgdal-dev \
+      # libmagic for python-magic (MIME type detection)
+      libmagic1 \
  && rm -rf /var/lib/apt/lists/*
 # ───────────────────────────────────────────────────────────────────────────────
 
@@ -107,6 +109,8 @@ RUN rm -rf /var/lib/apt/lists/* && \
     libxcb1 \
     gdal-bin \
     libgdal-dev \
+    # libmagic for python-magic (MIME type detection)
+    libmagic1 \
     --no-install-recommends && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
