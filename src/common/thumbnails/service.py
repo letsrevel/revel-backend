@@ -279,11 +279,21 @@ def delete_image_with_derivatives(
     app_label = meta.app_label
     model_name = meta.model_name
 
+    # Refresh the specific field from database to ensure we have the correct path.
+    # Django's FileField can have stale in-memory values after partial saves.
+    instance.refresh_from_db(fields=[source_field])
+    source_file = getattr(instance, source_field, None)
+    if not source_file:
+        return
+
     # Look up thumbnail config (may be None for fields without configured derivatives,
     # in which case we just delete the source file without any derivative cleanup)
     config = get_thumbnail_config(app_label, model_name, source_field)
 
-    # Collect fields to clear
+    # Store source path before clearing (needed for storage deletion)
+    source_path = source_file.name if source_file.name else ""
+
+    # Collect fields to clear and derivative paths
     fields_to_clear = [source_field]
     derivative_paths: list[str] = []
 
@@ -295,16 +305,12 @@ def delete_image_with_derivatives(
                 derivative_paths.append(derivative_file.name)
             fields_to_clear.append(field_name)
 
-    # Delete derivative files from storage
-    delete_thumbnails_for_paths(derivative_paths)
+    # Delete all files from storage (source + derivatives)
+    delete_thumbnails_for_paths([source_path] + derivative_paths)
 
-    # Clear derivative fields on the model (without triggering individual saves)
+    # Clear all fields on the model
     for field_name in fields_to_clear:
-        if field_name != source_field:
-            setattr(instance, field_name, None)
-
-    # Delete source file from storage and clear the field
-    source_file.delete(save=False)
+        setattr(instance, field_name, None)
 
     # Save with all cleared fields
     instance.save(update_fields=fields_to_clear)

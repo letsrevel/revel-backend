@@ -677,7 +677,7 @@ class TestDeleteImageWithDerivatives:
 
         # Mock get_thumbnail_config to return None (simulating unconfigured field)
         with patch(
-            "common.thumbnails.service.get_thumbnail_config",
+            "common.thumbnails.config.get_thumbnail_config",
             return_value=None,
         ):
             delete_image_with_derivatives(user, "profile_picture")
