@@ -8,7 +8,7 @@ from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, BaseModel, Field, StringConstraints
 
 from accounts.models import RevelUser
-from common.schema import OneToOneFiftyString, OneToSixtyFourString, StrippedString
+from common.schema import OneToOneFiftyString, OneToSixtyFourString, ProfilePictureSchemaMixin, StrippedString
 from events.models import Event, ResourceVisibility
 from geo.schema import CitySchema
 
@@ -160,8 +160,9 @@ class TagUpdateSchema(BaseModel):
     tags: list[OneToSixtyFourString] = Field(..., description="A list of tag names to add or remove.")
 
 
-class AttendeeSchema(ModelSchema):
+class AttendeeSchema(ProfilePictureSchemaMixin, ModelSchema):
     display_name: str
+    bio: str
 
     class Meta:
         model = RevelUser

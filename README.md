@@ -348,21 +348,29 @@ class MyModel(models.Model):
 
 ### Usage in Schemas
 
-Use `SignedFileSchemaMixin` to automatically generate signed URLs:
+Use `get_file_url()` with a static resolver to generate signed URLs in your schemas:
 
 ```python
-import typing as t
+from ninja import ModelSchema
+from common.signing import get_file_url
 
-from common.schema import SignedFileSchemaMixin
-
-class MyResourceSchema(SignedFileSchemaMixin, ModelSchema):
-    signed_file_fields: t.ClassVar[dict[str, str]] = {"file_url": "file"}
+class MyResourceSchema(ModelSchema):
     file_url: str | None = None
+
+    @staticmethod
+    def resolve_file_url(obj: MyModel) -> str | None:
+        """Return signed URL for protected files, direct URL for public files."""
+        return get_file_url(obj.file)
 
     class Meta:
         model = MyModel
         fields = ["id", "name"]
 ```
+
+The `get_file_url()` function automatically:
+- Returns a signed URL (with `exp` and `sig` params) for protected paths
+- Returns a direct URL for public paths
+- Returns `None` if the file field is empty
 
 ### Security
 

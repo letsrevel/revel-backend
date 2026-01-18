@@ -1,24 +1,20 @@
 """Miscellaneous schemas - additional resources, etc."""
 
-import typing as t
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
 from pydantic import Field, model_validator
 
-from common.schema import SignedFileSchemaMixin
 from common.signing import get_file_url
 from events.models import AdditionalResource, ResourceVisibility
 
 
-class AdditionalResourceSchema(SignedFileSchemaMixin, ModelSchema):
+class AdditionalResourceSchema(ModelSchema):
     """Schema for AdditionalResource with signed file URLs.
 
     File URLs are automatically signed for protected paths (upload_to="file").
     The `file_url` field contains the signed URL; the raw `file` path is not exposed.
     """
-
-    signed_file_fields: t.ClassVar[dict[str, str]] = {"file_url": "file"}
 
     event_ids: list[UUID] = Field(default_factory=list)
     event_series_ids: list[UUID] = Field(default_factory=list)

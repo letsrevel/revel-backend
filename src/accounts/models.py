@@ -6,13 +6,20 @@ from datetime import datetime, timedelta
 import pyotp
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, UserManager
+from django.core.validators import FileExtensionValidator, MaxLengthValidator
 from django.db import models
 from django.db.models.functions import Lower
 from django.utils import timezone
 from encrypted_fields.fields import EncryptedTextField
 
 from accounts.validators import normalize_phone_number, validate_phone_number
-from common.models import TimeStampedModel
+from common.fields import ALLOWED_IMAGE_EXTENSIONS, MarkdownField, ProtectedImageField, validate_image_file
+from common.models import ExifStripMixin, TimeStampedModel
+
+
+def profile_picture_upload_path(instance: "RevelUser", filename: str) -> str:
+    """Generate upload path for profile pictures."""
+    return f"profile-pictures/{instance.id}/{filename}"
 
 
 class RevelUserQueryset(models.QuerySet["RevelUser"]):
@@ -25,7 +32,14 @@ class RevelUserManager(UserManager["RevelUser"]):
         return RevelUserQueryset(self.model)
 
 
-class RevelUser(AbstractUser):
+class RevelUser(ExifStripMixin, AbstractUser):
+    IMAGE_FIELDS = ("profile_picture",)
+
+    image_validators = [
+        FileExtensionValidator(allowed_extensions=ALLOWED_IMAGE_EXTENSIONS),
+        validate_image_file,
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     phone_number = models.CharField(
         max_length=20, unique=True, null=True, blank=True, validators=[validate_phone_number], help_text="Phone number"
@@ -42,6 +56,18 @@ class RevelUser(AbstractUser):
         default=settings.LANGUAGE_CODE,
         db_index=True,
         help_text="User's preferred language",
+    )
+    bio = MarkdownField(
+        blank=True,
+        default="",
+        validators=[MaxLengthValidator(500)],
+        help_text="User bio (publicly visible, supports markdown)",
+    )
+    profile_picture = ProtectedImageField(
+        upload_to=profile_picture_upload_path,
+        null=True,
+        blank=True,
+        validators=image_validators,
     )
 
     objects = RevelUserManager()  # type: ignore[misc]
