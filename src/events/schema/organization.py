@@ -20,6 +20,7 @@ from events.models import (
 from .mixins import (
     CityEditMixin,
     CityRetrieveMixin,
+    LogoCoverArtThumbnailMixin,
     SocialMediaSchemaEditMixin,
     SocialMediaSchemaRetrieveMixin,
     TaggableSchemaMixin,
@@ -53,7 +54,7 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     accept_membership_requests: bool = False
 
 
-class MinimalOrganizationSchema(Schema):
+class MinimalOrganizationSchema(LogoCoverArtThumbnailMixin):
     """Lightweight organization schema for use in event lists - excludes city and tags to avoid N+1 queries."""
 
     id: UUID
@@ -70,7 +71,7 @@ class MinimalOrganizationSchema(Schema):
     contact_email_verified: bool
 
 
-class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin):
+class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     """Schema for organization list endpoints - includes city and tags with proper prefetching."""
 
     id: UUID
@@ -89,7 +90,9 @@ class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin):
     created_at: AwareDatetime | None = None
 
 
-class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin, SocialMediaSchemaRetrieveMixin):
+class OrganizationRetrieveSchema(
+    CityRetrieveMixin, TaggableSchemaMixin, SocialMediaSchemaRetrieveMixin, LogoCoverArtThumbnailMixin
+):
     id: UUID
     name: str
     slug: str
@@ -104,7 +107,9 @@ class OrganizationRetrieveSchema(CityRetrieveMixin, TaggableSchemaMixin, SocialM
     contact_email_verified: bool
 
 
-class OrganizationAdminDetailSchema(CityRetrieveMixin, TaggableSchemaMixin, SocialMediaSchemaRetrieveMixin):
+class OrganizationAdminDetailSchema(
+    CityRetrieveMixin, TaggableSchemaMixin, SocialMediaSchemaRetrieveMixin, LogoCoverArtThumbnailMixin
+):
     """Comprehensive organization schema for admin use with all fields including platform fees and Stripe details."""
 
     id: UUID

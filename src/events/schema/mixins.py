@@ -12,6 +12,49 @@ from geo.models import City
 from geo.schema import CitySchema
 
 
+def _get_image_field_url(obj: t.Any, field_name: str) -> str | None:
+    """Get URL from an ImageField, handling empty/null values.
+
+    Args:
+        obj: Model instance.
+        field_name: Name of the ImageField.
+
+    Returns:
+        URL string or None if field is empty.
+    """
+    field = getattr(obj, field_name, None)
+    if field:
+        return str(field.url)
+    return None
+
+
+class LogoCoverArtThumbnailMixin(Schema):
+    """Mixin for resolving logo/cover_art thumbnail URLs.
+
+    Adds URL fields for thumbnails of logo and cover_art.
+    These are public (not protected) so no signing needed.
+    """
+
+    logo_thumbnail_url: str | None = None
+    cover_art_thumbnail_url: str | None = None
+    cover_art_social_url: str | None = None
+
+    @staticmethod
+    def resolve_logo_thumbnail_url(obj: t.Any) -> str | None:
+        """Resolve logo thumbnail URL."""
+        return _get_image_field_url(obj, "logo_thumbnail")
+
+    @staticmethod
+    def resolve_cover_art_thumbnail_url(obj: t.Any) -> str | None:
+        """Resolve cover art thumbnail URL."""
+        return _get_image_field_url(obj, "cover_art_thumbnail")
+
+    @staticmethod
+    def resolve_cover_art_social_url(obj: t.Any) -> str | None:
+        """Resolve cover art social preview URL."""
+        return _get_image_field_url(obj, "cover_art_social")
+
+
 def ensure_url(value: str) -> str:
     """Mock function for now."""
     if not value.startswith("http"):

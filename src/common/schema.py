@@ -11,6 +11,7 @@ from .signing import get_file_url
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
 
+
 UserIdType = t.Annotated[str, Field(..., description="The user ID", max_length=128)]
 
 StrippedString = t.Annotated[str, StringConstraints(strip_whitespace=True)]
@@ -68,8 +69,20 @@ class ProfilePictureSchemaMixin(Schema):
     """
 
     profile_picture_url: str | None = None
+    profile_picture_thumbnail_url: str | None = None
+    profile_picture_preview_url: str | None = None
 
     @staticmethod
     def resolve_profile_picture_url(obj: "RevelUser") -> str | None:
         """Resolve profile picture to signed URL."""
         return get_file_url(obj.profile_picture)
+
+    @staticmethod
+    def resolve_profile_picture_thumbnail_url(obj: "RevelUser") -> str | None:
+        """Resolve profile picture thumbnail URL (signed)."""
+        return get_file_url(obj.profile_picture_thumbnail)
+
+    @staticmethod
+    def resolve_profile_picture_preview_url(obj: "RevelUser") -> str | None:
+        """Resolve profile picture preview URL (signed)."""
+        return get_file_url(obj.profile_picture_preview)
