@@ -220,3 +220,36 @@ def png_bytes() -> bytes:
         b"\x0d\x0a\x2d\xb4"
         b"\x00\x00\x00\x00IEND\xaeB`\x82"
     )
+
+
+# =============================================================================
+# Thumbnail test fixtures (shared across thumbnail tests)
+# =============================================================================
+
+
+@pytest.fixture
+def rgb_image_bytes() -> bytes:
+    """Create a simple RGB image in memory as JPEG bytes."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    img = Image.new("RGB", (200, 150), color="blue")
+    buffer = BytesIO()
+    img.save(buffer, format="JPEG", quality=85)
+    buffer.seek(0)
+    return buffer.read()
+
+
+@pytest.fixture
+def large_image_bytes() -> bytes:
+    """Create a large image that will need resizing."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    img = Image.new("RGB", (2000, 1500), color="green")
+    buffer = BytesIO()
+    img.save(buffer, format="JPEG", quality=85)
+    buffer.seek(0)
+    return buffer.read()
