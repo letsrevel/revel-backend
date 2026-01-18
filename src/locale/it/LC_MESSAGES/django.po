@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-14 19:30+0100\n"
+"POT-Creation-Date: 2026-01-18 16:01+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -44,6 +44,41 @@ msgid "Skipped %d user (Google SSO or not found)."
 msgid_plural "Skipped %d users (Google SSO or not found)."
 msgstr[0] ""
 msgstr[1] ""
+
+msgid "Impersonate"
+msgstr ""
+
+msgid "Impersonate User"
+msgstr ""
+
+#, fuzzy
+#| msgid "Event Details"
+msgid "Impersonation Details"
+msgstr "Dettagli evento"
+
+#, fuzzy
+#| msgid "Event Information"
+msgid "Request Information"
+msgstr "Informazioni evento"
+
+msgid "Admin"
+msgstr ""
+
+msgid "Target User"
+msgstr ""
+
+#, fuzzy
+#| msgid "Status:"
+msgid "Status"
+msgstr "Stato:"
+
+msgid "Redeemed"
+msgstr ""
+
+#, fuzzy
+#| msgid "Findings"
+msgid "Pending"
+msgstr "Rilevamenti"
 
 msgid "Your data export has been initiated."
 msgstr "L'esportazione dei tuoi dati è stata avviata."
@@ -136,6 +171,21 @@ msgstr "Tipo di token non valido."
 
 msgid "Invalid Google ID Token."
 msgstr "Token ID Google non valido."
+
+msgid "Only superusers can impersonate users."
+msgstr ""
+
+msgid "Cannot impersonate yourself."
+msgstr ""
+
+msgid "Cannot impersonate other superusers."
+msgstr ""
+
+msgid "Cannot impersonate staff members."
+msgstr ""
+
+msgid "Cannot impersonate inactive users."
+msgstr ""
 
 msgid "Account Deactivated"
 msgstr ""
@@ -397,6 +447,68 @@ msgstr "Richiesta reimpostazione password."
 msgid "Password reset request"
 msgstr "Richiesta reimpostazione password"
 
+msgid "Home"
+msgstr ""
+
+#, fuzzy
+#| msgid "Amount Paid:"
+msgid "Accounts"
+msgstr "Importo pagato:"
+
+#, fuzzy
+#| msgid "User:"
+msgid "Users"
+msgstr "Utente:"
+
+#, python-format
+msgid "You are about to impersonate the user \"%(username)s\"."
+msgstr ""
+
+#, fuzzy
+#| msgid "View Event Details"
+msgid "User Details"
+msgstr "Visualizza dettagli evento"
+
+#, fuzzy
+#| msgid "Email:"
+msgid "Email"
+msgstr "Email:"
+
+msgid "Display Name"
+msgstr ""
+
+msgid "Active"
+msgstr ""
+
+msgid "Yes"
+msgstr ""
+
+msgid "No"
+msgstr ""
+
+#, fuzzy
+#| msgid "Email already verified."
+msgid "Email Verified"
+msgstr "Email già verificata."
+
+#, fuzzy
+#| msgid "Revel Event Management System"
+msgid "Security Notice"
+msgstr "Sistema di gestione eventi Revel"
+
+msgid ""
+"This action will be logged for audit purposes. The impersonation session "
+"will expire after 15 minutes. No refresh token will be issued."
+msgstr ""
+
+msgid "Cancel"
+msgstr ""
+
+#, fuzzy
+#| msgid "Confirm Account Deletion"
+msgid "Confirm Impersonation"
+msgstr "Conferma cancellazione account"
+
 msgid "Email already verified."
 msgstr "Email già verificata."
 
@@ -439,6 +551,9 @@ msgid "Superuser access required."
 msgstr ""
 
 msgid "You cannot use this endpoint while authenticated."
+msgstr ""
+
+msgid "File is not a valid image."
 msgstr ""
 
 #, fuzzy
@@ -588,6 +703,9 @@ msgstr "L'importo PWYC deve essere almeno {min_amount}"
 msgid "PWYC amount must be at most {max_amount}"
 msgstr "L'importo PWYC deve essere al massimo {max_amount}"
 
+msgid "Authentication required to access feedback questionnaire."
+msgstr ""
+
 msgid "The application deadline has passed."
 msgstr "Il termine per fare domanda è scaduto."
 
@@ -697,7 +815,100 @@ msgstr "Esiste già un utente con questa email."
 msgid "User not found."
 msgstr "Informazioni pagamento"
 
+msgid "Only members are allowed."
+msgstr "Solo i membri possono partecipare."
+
+msgid "Your membership is not active."
+msgstr "La tua iscrizione non è attiva."
+
+msgid "Requires full profile."
+msgstr "Richiede un profilo completo."
+
+msgid "Event is full."
+msgstr "L'evento è al completo."
+
+msgid "Sold out"
+msgstr "Esaurito"
+
+msgid "Questionnaire has not been filled."
+msgstr "Il questionario non è stato compilato."
+
+msgid "Questionnaire evaluation was insufficient."
+msgstr "La valutazione del questionario è stata insufficiente."
+
+msgid "Waiting for questionnaire evaluation."
+msgstr "In attesa della valutazione del questionario."
+
+#, python-brace-format
+msgid ""
+"Questionnaire evaluation was insufficient. You can try again in {retry_on}."
+msgstr ""
+"La valutazione del questionario è stata insufficiente. Puoi riprovare tra "
+"{retry_on}."
+
+msgid "Requires a ticket."
+msgstr "Richiede un biglietto."
+
+msgid "Must RSVP"
+msgstr "È necessario confermare la partecipazione"
+
+msgid "Requires invitation."
+msgstr "Richiede un invito."
+
+msgid "Your invitation request is pending approval."
+msgstr "La tua richiesta di invito è in attesa di approvazione."
+
+msgid "Your invitation request was rejected."
+msgstr "La tua richiesta di invito è stata rifiutata."
+
+msgid "Requires purchase."
+msgstr "Richiede un acquisto."
+
+msgid "Nothing to purchase."
+msgstr "Niente da acquistare."
+
+msgid "Event is not open."
+msgstr "L'evento non è aperto."
+
+msgid "Event has finished."
+msgstr "L'evento è terminato."
+
+msgid "The RSVP deadline has passed."
+msgstr "Il termine per confermare la partecipazione è scaduto."
+
+msgid "Tickets are not currently on sale."
+msgstr "I biglietti non sono attualmente in vendita."
+
+msgid "This ticket tier requires a specific membership tier."
+msgstr "Questo tipo di biglietto richiede un livello di iscrizione specifico."
+
+msgid "You are not allowed to participate in this organization's events."
+msgstr "Non ti è consentito partecipare agli eventi di questa organizzazione."
+
+msgid "Additional verification required."
+msgstr "È richiesta una verifica aggiuntiva."
+
+msgid "Your verification request is pending approval."
+msgstr "La tua richiesta di verifica è in attesa di approvazione."
+
+msgid "Your verification request was rejected."
+msgstr "La tua richiesta di verifica è stata rifiutata."
+
 msgid "You are not eligible."
+msgstr "Non sei idoneo."
+
+msgid "Feedback questionnaire is only available after the event ends."
+msgstr ""
+
+msgid "You can only submit feedback for events you attended."
+msgstr ""
+
+#, fuzzy
+#| msgid "You are already invited to this event."
+msgid "You have already submitted feedback for this event."
+msgstr "Sei già invitato a questo evento."
+
+msgid "Feedback questionnaires cannot be evaluated."
 msgstr ""
 
 #, fuzzy
@@ -1005,6 +1216,42 @@ msgstr "Aggiornamento Potluck: %(event_name)s"
 #, fuzzy, python-format
 #| msgid "New Event: %(event_name)s"
 msgid "Event Cancelled: %(event)s"
+msgstr "Nuovo evento: %(event_name)s"
+
+#, python-format
+msgid "%(follower)s started following %(org)s"
+msgstr ""
+
+#, python-format
+msgid "New follower - %(org)s"
+msgstr ""
+
+#, python-format
+msgid "%(follower)s started following %(series)s"
+msgstr ""
+
+#, python-format
+msgid "New follower - %(series)s"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "You are already invited to this event."
+msgid "%(org)s created %(event)s"
+msgstr "Sei già invitato a questo evento."
+
+#, fuzzy, python-format
+#| msgid "New Event: %(event_name)s"
+msgid "New event from %(org)s"
+msgstr "Nuovo evento: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "New Event: %(event_name)s"
+msgid "New event in %(series)s: %(event)s"
+msgstr "Nuovo evento: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "New Event: %(event_name)s"
+msgid "New event in %(series)s"
 msgstr "Nuovo evento: %(event_name)s"
 
 #, fuzzy, python-format
@@ -1430,6 +1677,40 @@ msgstr "Ottieni il tuo biglietto"
 msgid "View event details:"
 msgstr "Visualizza dettagli evento"
 
+msgid "New Follower"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid ""
+"<strong>%(follower)s</strong> started following <strong>%(series)s</strong>."
+msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+
+#, fuzzy
+#| msgid "View Event Details"
+msgid "Follower Details"
+msgstr "Visualizza dettagli evento"
+
+msgid "Name:"
+msgstr "Nome:"
+
+msgid "Email:"
+msgstr "Email:"
+
+#, fuzzy
+#| msgid "Event Details"
+msgid "Series:"
+msgstr "Dettagli evento"
+
+#, python-format
+msgid "%(follower)s started following %(series)s."
+msgstr ""
+
+#, fuzzy
+#| msgid "Details"
+msgid "Follower Details:"
+msgstr "Dettagli"
+
 #, fuzzy
 #| msgid "Event Date:"
 msgid "Event Updated"
@@ -1496,12 +1777,6 @@ msgstr ""
 #| msgid "Event Details"
 msgid "Request Details:"
 msgstr "Dettagli evento"
-
-msgid "Email:"
-msgstr "Email:"
-
-msgid "Name:"
-msgstr "Nome:"
 
 msgid "Message:"
 msgstr ""
@@ -1590,7 +1865,74 @@ msgstr ""
 msgid "Request Declined"
 msgstr ""
 
+#, fuzzy
+#| msgid "View Event"
+msgid "New Event"
+msgstr "Vai all'evento"
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid ""
+"<strong>%(org)s</strong> created a new event: <strong>%(event)s</strong>"
+msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+
+#, fuzzy
+#| msgid "Event:"
+msgid "Event:"
+msgstr "Evento:"
+
+msgid "Organization:"
+msgstr "Organizzazione:"
+
+msgid "Date:"
+msgstr "Data:"
+
+#, fuzzy
+#| msgid "Staff Notification"
+msgid "Location:"
+msgstr "Notifica per lo staff"
+
+msgid "Description:"
+msgstr "Descrizione:"
+
+msgid "View Event"
+msgstr "Vai all'evento"
+
+#, fuzzy, python-format
+#| msgid "New Event: %(event_name)s"
+msgid "%(org)s created a new event: %(event)s"
+msgstr "Nuovo evento: %(event_name)s"
+
+#, fuzzy
+#| msgid "View event:"
+msgid "View the event:"
+msgstr "Vai all'evento:"
+
+#, fuzzy
+#| msgid "Event Details"
+msgid "New Event in Series"
+msgstr "Dettagli evento"
+
+#, fuzzy, python-format
+#| msgid ""
+#| "Your questionnaire <strong>%(questionnaire)s</strong> for "
+#| "<strong>%(org)s</strong> was not approved."
+msgid "New event in <strong>%(series)s</strong>: <strong>%(event)s</strong>"
+msgstr ""
+"Il tuo questionario <strong>%(questionnaire)s</strong> per <strong>%(org)s</"
+"strong> non è stato approvato."
+
 msgid "Announcement"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid ""
+"<strong>%(follower)s</strong> started following <strong>%(org)s</strong>."
+msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+
+#, python-format
+msgid "%(follower)s started following %(org)s."
 msgstr ""
 
 #, fuzzy
@@ -1621,17 +1963,11 @@ msgstr "Importo pagato:"
 msgid "Payment ID:"
 msgstr "ID pagamento:"
 
-msgid "Date:"
-msgstr "Data:"
-
 msgid "Ticket Information"
 msgstr "Informazioni biglietto"
 
 msgid "Status:"
 msgstr "Stato:"
-
-msgid "Active"
-msgstr ""
 
 #, fuzzy
 #| msgid "📎 Your ticket is attached to this email as a PDF."
@@ -1731,9 +2067,6 @@ msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
 msgid "Added by:"
 msgstr "Riservato da:"
 
-msgid "Description:"
-msgstr "Descrizione:"
-
 msgid "Claim Item"
 msgstr ""
 
@@ -1824,9 +2157,6 @@ msgstr ""
 msgid "Questionnaire:"
 msgstr "Questionario:"
 
-msgid "Organization:"
-msgstr "Organizzazione:"
-
 msgid "Approved"
 msgstr "Approvato"
 
@@ -1838,9 +2168,6 @@ msgstr "Punteggio:"
 
 msgid "Evaluator Comments:"
 msgstr "Commenti:"
-
-msgid "View Event"
-msgstr "Vai all'evento"
 
 #, python-format
 msgid "Your questionnaire %(questionnaire)s has been approved!"
@@ -2082,11 +2409,6 @@ msgstr "Titolare del biglietto"
 msgid ""
 "Your ticket for <strong>%(event)s</strong> is pending payment confirmation."
 msgstr "Questo biglietto è in attesa di conferma del pagamento."
-
-#, fuzzy
-#| msgid "Findings"
-msgid "Pending"
-msgstr "Rilevamenti"
 
 msgid "Payment Instructions"
 msgstr "Istruzioni per il pagamento"
@@ -2345,11 +2667,6 @@ msgstr ""
 
 msgid "Users & Accounts"
 msgstr ""
-
-#, fuzzy
-#| msgid "User:"
-msgid "Users"
-msgstr "Utente:"
 
 #, fuzzy
 #| msgid "User Data Export Failed"
