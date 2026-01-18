@@ -354,16 +354,16 @@ class FullProfileGate(BaseEligibilityGate):
         if not self.event.requires_full_profile:
             return None
 
-        missing = []
+        missing_profile_fields = []
 
         if not self.user.profile_picture:
-            missing.append("profile_picture")
+            missing_profile_fields.append("profile_picture")
         if not self.user.pronouns:
-            missing.append("pronouns")
+            missing_profile_fields.append("pronouns")
         if not (self.user.first_name or self.user.last_name or self.user.preferred_name):
-            missing.append("name")
+            missing_profile_fields.append("name")
 
-        if not missing:
+        if not missing_profile_fields:
             return None
 
         return EventUserEligibility(
@@ -371,6 +371,7 @@ class FullProfileGate(BaseEligibilityGate):
             event_id=self.event.id,
             reason=_(Reasons.REQUIRES_FULL_PROFILE),
             next_step=NextStep.COMPLETE_PROFILE,
+            missing_profile_fields=missing_profile_fields,
         )
 
 

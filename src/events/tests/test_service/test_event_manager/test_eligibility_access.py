@@ -217,6 +217,7 @@ def test_requires_full_profile_blocks_when_missing_fields(public_user: RevelUser
     assert eligibility.allowed is False
     assert eligibility.reason == Reasons.REQUIRES_FULL_PROFILE
     assert eligibility.next_step == NextStep.COMPLETE_PROFILE
+    assert eligibility.missing_profile_fields == ["profile_picture", "pronouns", "name"]
 
 
 def test_requires_full_profile_allows_when_complete(public_user: RevelUser, public_event: Event) -> None:
