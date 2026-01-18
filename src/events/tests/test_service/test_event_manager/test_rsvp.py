@@ -149,3 +149,108 @@ def test_rsvp_deadline_no_deadline_set(public_user: RevelUser, public_event: Eve
     eligibility = handler.check_eligibility()
 
     assert eligibility.allowed is True
+
+
+# --- Test Cases for RSVP Status Changes After Requirements Change ---
+
+
+def test_user_with_yes_rsvp_can_change_to_maybe_after_requirements_change(
+    public_user: RevelUser, public_event: Event
+) -> None:
+    """User who RSVP'd YES can change to MAYBE even if they no longer meet requirements."""
+    public_event.requires_ticket = False
+    public_event.save()
+
+    # User RSVPs YES while eligible
+    handler = EventManager(user=public_user, event=public_event)
+    handler.rsvp(EventRSVP.RsvpStatus.YES)
+
+    # Event requirements change - now requires full profile
+    public_event.requires_full_profile = True
+    public_event.save()
+
+    # Ensure user doesn't have a complete profile
+    public_user.profile_picture = None
+    public_user.pronouns = ""
+    public_user.preferred_name = ""
+    public_user.save()
+
+    # Refresh from DB to simulate a new request after requirements changed
+    public_event.refresh_from_db()
+    public_user.refresh_from_db()
+
+    # User should still be able to change to MAYBE (new handler simulates new request)
+    handler = EventManager(user=public_user, event=public_event)
+    rsvp = handler.rsvp(EventRSVP.RsvpStatus.MAYBE)
+
+    assert rsvp.status == EventRSVP.RsvpStatus.MAYBE
+
+
+def test_user_with_yes_rsvp_can_change_to_no_after_requirements_change(
+    public_user: RevelUser, public_event: Event
+) -> None:
+    """User who RSVP'd YES can change to NO even if they no longer meet requirements."""
+    public_event.requires_ticket = False
+    public_event.save()
+
+    # User RSVPs YES while eligible
+    handler = EventManager(user=public_user, event=public_event)
+    handler.rsvp(EventRSVP.RsvpStatus.YES)
+
+    # Event requirements change - now requires full profile
+    public_event.requires_full_profile = True
+    public_event.save()
+
+    # Ensure user doesn't have a complete profile
+    public_user.profile_picture = None
+    public_user.pronouns = ""
+    public_user.preferred_name = ""
+    public_user.save()
+
+    # Refresh from DB to simulate a new request after requirements changed
+    public_event.refresh_from_db()
+    public_user.refresh_from_db()
+
+    # User should still be able to change to NO (new handler simulates new request)
+    handler = EventManager(user=public_user, event=public_event)
+    rsvp = handler.rsvp(EventRSVP.RsvpStatus.NO)
+
+    assert rsvp.status == EventRSVP.RsvpStatus.NO
+
+
+def test_user_with_maybe_rsvp_cannot_change_to_yes_after_requirements_change(
+    public_user: RevelUser, public_event: Event
+) -> None:
+    """User who RSVP'd MAYBE cannot change to YES if they no longer meet requirements."""
+    public_event.requires_ticket = False
+    public_event.save()
+
+    # User RSVPs MAYBE while eligible
+    handler = EventManager(user=public_user, event=public_event)
+    handler.rsvp(EventRSVP.RsvpStatus.MAYBE)
+
+    # Event requirements change - now requires full profile
+    public_event.requires_full_profile = True
+    public_event.save()
+
+    # Ensure user doesn't have a complete profile
+    public_user.profile_picture = None
+    public_user.pronouns = ""
+    public_user.preferred_name = ""
+    public_user.save()
+
+    # Refresh from DB to simulate a new request after requirements changed
+    public_event.refresh_from_db()
+    public_user.refresh_from_db()
+
+    # User should NOT be able to change to YES (new handler simulates new request)
+    handler = EventManager(user=public_user, event=public_event)
+    with pytest.raises(UserIsIneligibleError) as exc_info:
+        handler.rsvp(EventRSVP.RsvpStatus.YES)
+
+    eligibility = exc_info.value.eligibility
+    assert eligibility.reason == Reasons.REQUIRES_FULL_PROFILE
+
+    # RSVP should still be MAYBE
+    rsvp = EventRSVP.objects.get(user=public_user, event=public_event)
+    assert rsvp.status == EventRSVP.RsvpStatus.MAYBE

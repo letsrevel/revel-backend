@@ -43,6 +43,9 @@ class EventManager:
         - an event is members only and the user is a member (or staff member)
         - an event is public
 
+        Users who have already RSVP'd YES can always change their status to MAYBE or NO,
+        even if eligibility requirements have changed since their initial RSVP.
+
         Returns:
             EventRSVP
 
@@ -59,6 +62,15 @@ class EventManager:
                     reason=_(Reasons.REQUIRES_TICKET),
                 ),
             )
+
+        # Users who already RSVP'd YES can freely change to MAYBE/NO
+        # This prevents them from being "trapped" if eligibility requirements change
+        has_yes_rsvp = EventRSVP.objects.filter(
+            user=self.user, event=self.event, status=EventRSVP.RsvpStatus.YES
+        ).exists()
+        if has_yes_rsvp:
+            bypass_eligibility_checks = True
+
         eligibility = self.check_eligibility(bypass=bypass_eligibility_checks)
         if not eligibility.allowed:
             raise UserIsIneligibleError("The user is not eligible for this event.", eligibility=eligibility)
