@@ -244,3 +244,73 @@ def is_image_mime_type(mime_type: str) -> bool:
         "image/heif",
     }
     return mime_type.lower() in supported_types
+
+
+def delete_image_with_derivatives(
+    instance: t.Any,
+    source_field: str,
+) -> None:
+    """Delete an image file and all its derivative thumbnails/previews.
+
+    This function should be used instead of direct `field.delete()` when removing
+    images that have auto-generated derivatives. It:
+    1. Looks up the thumbnail config for this model/field
+    2. Deletes all derivative files from storage
+    3. Clears all derivative field values on the model
+    4. Deletes the source file from storage
+    5. Saves the model with all cleared fields
+
+    Args:
+        instance: The Django model instance containing the image field.
+        source_field: Name of the source image field (e.g., "logo", "profile_picture").
+
+    Example:
+        >>> delete_image_with_derivatives(user, "profile_picture")
+        >>> delete_image_with_derivatives(organization, "logo")
+    """
+    from .config import get_thumbnail_config
+
+    source_file = getattr(instance, source_field, None)
+    if not source_file:
+        return
+
+    # Get model metadata for config lookup
+    meta = instance._meta
+    app_label = meta.app_label
+    model_name = meta.model_name
+
+    # Look up thumbnail config
+    config = get_thumbnail_config(app_label, model_name, source_field)
+
+    # Collect fields to clear
+    fields_to_clear = [source_field]
+    derivative_paths: list[str] = []
+
+    if config:
+        for spec in config.specs:
+            field_name = spec.field_name
+            derivative_file = getattr(instance, field_name, None)
+            if derivative_file and derivative_file.name:
+                derivative_paths.append(derivative_file.name)
+            fields_to_clear.append(field_name)
+
+    # Delete derivative files from storage
+    delete_thumbnails_for_paths(derivative_paths)
+
+    # Clear derivative fields on the model (without triggering individual saves)
+    for field_name in fields_to_clear:
+        if field_name != source_field:
+            setattr(instance, field_name, None)
+
+    # Delete source file from storage and clear the field
+    source_file.delete(save=False)
+
+    # Save with all cleared fields
+    instance.save(update_fields=fields_to_clear)
+
+    logger.info(
+        "image_with_derivatives_deleted",
+        model=f"{app_label}.{model_name}",
+        field=source_field,
+        derivatives_deleted=len(derivative_paths),
+    )

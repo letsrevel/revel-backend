@@ -10,6 +10,7 @@ from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.models import Tag
 from common.schema import TagSchema, ValidationErrorResponse
+from common.thumbnails.service import delete_image_with_derivatives
 from common.throttling import WriteThrottle
 from common.utils import safe_save_uploaded_file
 from events import models, schema
@@ -100,13 +101,12 @@ class EventSeriesAdminController(UserAwareController):
         response={204: None},
     )
     def delete_logo(self, series_id: UUID) -> tuple[int, None]:
-        """Delete logo from event series (admin only).
+        """Delete logo and its derivatives from event series (admin only).
 
-        Removes the logo image. Requires 'edit_event_series' permission.
+        Removes the logo image and thumbnails. Requires 'edit_event_series' permission.
         """
         series = self.get_one(series_id)
-        if series.logo:
-            series.logo.delete(save=True)
+        delete_image_with_derivatives(series, "logo")
         return 204, None
 
     @route.delete(
@@ -115,13 +115,12 @@ class EventSeriesAdminController(UserAwareController):
         response={204: None},
     )
     def delete_cover_art(self, series_id: UUID) -> tuple[int, None]:
-        """Delete cover art from event series (admin only).
+        """Delete cover art and its derivatives from event series (admin only).
 
-        Removes the cover art image. Requires 'edit_event_series' permission.
+        Removes the cover art image and thumbnails. Requires 'edit_event_series' permission.
         """
         series = self.get_one(series_id)
-        if series.cover_art:
-            series.cover_art.delete(save=True)
+        delete_image_with_derivatives(series, "cover_art")
         return 204, None
 
     @route.post(

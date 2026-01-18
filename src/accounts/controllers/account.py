@@ -18,6 +18,7 @@ from accounts.service import account as account_service
 from accounts.service.auth import get_token_pair_for_user
 from common.authentication import I18nJWTAuth
 from common.schema import EmailSchema, ResponseMessage
+from common.thumbnails.service import delete_image_with_derivatives
 from common.throttling import AuthThrottle, UserDataExportThrottle, UserRegistrationThrottle, WriteThrottle
 from common.utils import safe_save_uploaded_file
 
@@ -244,8 +245,7 @@ class AccountController(ControllerBase):
         throttle=WriteThrottle(),
     )
     def delete_profile_picture(self) -> tuple[int, None]:
-        """Delete the authenticated user's profile picture."""
+        """Delete the authenticated user's profile picture and its derivatives."""
         user = self.user()
-        if user.profile_picture:
-            user.profile_picture.delete(save=True)
+        delete_image_with_derivatives(user, "profile_picture")
         return 204, None
