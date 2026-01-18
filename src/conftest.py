@@ -253,3 +253,24 @@ def large_image_bytes() -> bytes:
     img.save(buffer, format="JPEG", quality=85)
     buffer.seek(0)
     return buffer.read()
+
+
+@pytest.fixture
+def user(revel_user_factory: RevelUserFactory) -> RevelUser:
+    """A standard, non-privileged user."""
+    return revel_user_factory(
+        username="testuser@example.com",
+        email="testuser@example.com",
+    )
+
+
+@pytest.fixture
+def organization(user: RevelUser) -> t.Any:
+    """A basic organization for testing."""
+    from events.models import Organization
+
+    return Organization.objects.create(
+        name="Test Organization",
+        slug="test-org",
+        owner=user,
+    )

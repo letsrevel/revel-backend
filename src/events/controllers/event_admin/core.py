@@ -10,6 +10,7 @@ from common.authentication import I18nJWTAuth
 from common.models import Tag
 from common.schema import TagSchema, ValidationErrorResponse
 from common.throttling import WriteThrottle
+from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 from events import models, schema
 from events.controllers.permissions import CanDuplicateEvent, EventPermission
@@ -152,10 +153,9 @@ class EventAdminCoreController(EventAdminBaseController):
         permissions=[EventPermission("edit_event")],
     )
     def delete_logo(self, event_id: UUID) -> tuple[int, None]:
-        """Delete logo from event."""
+        """Delete logo and its derivatives from event."""
         event = self.get_one(event_id)
-        if event.logo:
-            event.logo.delete(save=True)
+        delete_image_with_derivatives(event, "logo")
         return 204, None
 
     @route.delete(
@@ -165,10 +165,9 @@ class EventAdminCoreController(EventAdminBaseController):
         permissions=[EventPermission("edit_event")],
     )
     def delete_cover_art(self, event_id: UUID) -> tuple[int, None]:
-        """Delete cover art from event."""
+        """Delete cover art and its derivatives from event."""
         event = self.get_one(event_id)
-        if event.cover_art:
-            event.cover_art.delete(save=True)
+        delete_image_with_derivatives(event, "cover_art")
         return 204, None
 
     @route.post(

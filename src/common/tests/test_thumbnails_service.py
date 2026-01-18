@@ -20,6 +20,7 @@ from common.thumbnails.config import (
 )
 from common.thumbnails.service import (
     ThumbnailResult,
+    delete_image_with_derivatives,
     delete_thumbnails_for_paths,
     generate_and_save_thumbnails,
     generate_thumbnail,
@@ -575,3 +576,153 @@ class TestPartialFailureHandling:
             for path in result.thumbnails.values():
                 if default_storage.exists(path):
                     default_storage.delete(path)
+
+
+# =============================================================================
+# Tests for delete_image_with_derivatives()
+# =============================================================================
+
+
+class TestDeleteImageWithDerivatives:
+    """Tests for the delete_image_with_derivatives function."""
+
+    def test_deletes_source_and_derivatives(
+        self,
+        rgb_image_bytes: bytes,
+        organization: "Organization",  # type: ignore[name-defined]  # noqa: F821
+    ) -> None:
+        """Test that source file and all derivatives are deleted."""
+
+        # Save source file
+        organization.logo.save("test_logo.jpg", ContentFile(rgb_image_bytes), save=True)
+        source_path = organization.logo.name
+
+        # Generate thumbnails
+        config = get_thumbnail_config("events", "organization", "logo")
+        assert config is not None
+        result = generate_and_save_thumbnails(source_path, config)
+        organization.logo_thumbnail = result.thumbnails["logo_thumbnail"]
+        organization.save(update_fields=["logo_thumbnail"])
+        thumb_path = organization.logo_thumbnail.name
+
+        # Verify files exist
+        assert default_storage.exists(source_path)
+        assert default_storage.exists(thumb_path)
+
+        # Delete with derivatives
+        delete_image_with_derivatives(organization, "logo")
+
+        # Verify all files deleted
+        assert not default_storage.exists(source_path)
+        assert not default_storage.exists(thumb_path)
+
+        # Verify model fields cleared
+        organization.refresh_from_db()
+        assert not organization.logo
+        assert not organization.logo_thumbnail
+
+    def test_clears_fields_even_when_derivatives_missing(
+        self,
+        rgb_image_bytes: bytes,
+        organization: "Organization",  # type: ignore[name-defined]  # noqa: F821
+    ) -> None:
+        """Test that source file is deleted even when no derivative files exist yet."""
+        # Save source file only (no thumbnails generated)
+        organization.logo.save("test_logo.jpg", ContentFile(rgb_image_bytes), save=True)
+        source_path = organization.logo.name
+
+        assert default_storage.exists(source_path)
+        assert not organization.logo_thumbnail  # No thumbnail
+
+        # Delete with derivatives
+        delete_image_with_derivatives(organization, "logo")
+
+        # Verify source deleted
+        assert not default_storage.exists(source_path)
+
+        # Verify model field cleared
+        organization.refresh_from_db()
+        assert not organization.logo
+
+    def test_no_op_when_source_file_empty(
+        self,
+        organization: "Organization",  # type: ignore[name-defined]  # noqa: F821
+    ) -> None:
+        """Test that function returns early when source file is empty."""
+        assert not organization.logo  # No logo
+
+        # Should not raise any errors
+        delete_image_with_derivatives(organization, "logo")
+
+        # Model unchanged
+        organization.refresh_from_db()
+        assert not organization.logo
+
+    def test_works_without_thumbnail_config(
+        self,
+        rgb_image_bytes: bytes,
+        user: "RevelUser",  # type: ignore[name-defined]  # noqa: F821
+    ) -> None:
+        """Test that function works for fields without configured derivatives.
+
+        Even if no thumbnail config exists for a field, the source file
+        should still be deleted.
+        """
+        from unittest.mock import patch
+
+        # Save source file
+        user.profile_picture.save("test_pic.jpg", ContentFile(rgb_image_bytes), save=True)
+        source_path = user.profile_picture.name
+        assert default_storage.exists(source_path)
+
+        # Mock get_thumbnail_config to return None (simulating unconfigured field)
+        with patch(
+            "common.thumbnails.config.get_thumbnail_config",
+            return_value=None,
+        ):
+            delete_image_with_derivatives(user, "profile_picture")
+
+        # Source file should still be deleted
+        assert not default_storage.exists(source_path)
+        user.refresh_from_db()
+        assert not user.profile_picture
+
+    def test_handles_cover_art_with_multiple_derivatives(
+        self,
+        rgb_image_bytes: bytes,
+        organization: "Organization",  # type: ignore[name-defined]  # noqa: F821
+    ) -> None:
+        """Test deletion of cover art with both thumbnail and social derivatives."""
+        # Save source file
+        organization.cover_art.save("test_cover.jpg", ContentFile(rgb_image_bytes), save=True)
+        source_path = organization.cover_art.name
+
+        # Generate all thumbnails
+        config = get_thumbnail_config("events", "organization", "cover_art")
+        assert config is not None
+        result = generate_and_save_thumbnails(source_path, config)
+        organization.cover_art_thumbnail = result.thumbnails["cover_art_thumbnail"]
+        organization.cover_art_social = result.thumbnails["cover_art_social"]
+        organization.save(update_fields=["cover_art_thumbnail", "cover_art_social"])
+
+        thumb_path = organization.cover_art_thumbnail.name
+        social_path = organization.cover_art_social.name
+
+        # Verify all files exist
+        assert default_storage.exists(source_path)
+        assert default_storage.exists(thumb_path)
+        assert default_storage.exists(social_path)
+
+        # Delete with derivatives
+        delete_image_with_derivatives(organization, "cover_art")
+
+        # Verify all files deleted
+        assert not default_storage.exists(source_path)
+        assert not default_storage.exists(thumb_path)
+        assert not default_storage.exists(social_path)
+
+        # Verify model fields cleared
+        organization.refresh_from_db()
+        assert not organization.cover_art
+        assert not organization.cover_art_thumbnail
+        assert not organization.cover_art_social

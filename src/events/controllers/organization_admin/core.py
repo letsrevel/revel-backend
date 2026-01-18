@@ -6,6 +6,7 @@ from accounts.schema import VerifyEmailSchema
 from common.authentication import I18nJWTAuth
 from common.schema import EmailSchema, ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
+from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 from events import models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
@@ -186,10 +187,9 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         permissions=[OrganizationPermission("edit_organization")],
     )
     def delete_logo(self, slug: str) -> tuple[int, None]:
-        """Delete logo from organization."""
+        """Delete logo and its derivatives from organization."""
         organization = self.get_one(slug)
-        if organization.logo:
-            organization.logo.delete(save=True)
+        delete_image_with_derivatives(organization, "logo")
         return 204, None
 
     @route.delete(
@@ -199,10 +199,9 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         permissions=[OrganizationPermission("edit_organization")],
     )
     def delete_cover_art(self, slug: str) -> tuple[int, None]:
-        """Delete cover art from organization."""
+        """Delete cover art and its derivatives from organization."""
         organization = self.get_one(slug)
-        if organization.cover_art:
-            organization.cover_art.delete(save=True)
+        delete_image_with_derivatives(organization, "cover_art")
         return 204, None
 
     @route.post(
