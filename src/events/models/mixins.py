@@ -4,13 +4,12 @@ import typing as t
 
 from django.conf import settings
 from django.contrib.gis.db import models
-from django.core.exceptions import ValidationError
-from django.core.files.images import get_image_dimensions
 from django.core.files.uploadedfile import UploadedFile
 from django.core.validators import FileExtensionValidator
 from django.utils.text import slugify
 
-from common.models import TimeStampedModel
+from common.fields import ALLOWED_IMAGE_EXTENSIONS, validate_image_file
+from common.models import ExifStripMixin, TimeStampedModel
 from geo.models import City
 
 
@@ -151,40 +150,6 @@ class LocationMixin(models.Model):
         if self.city:
             return self.city.name
         return ""
-
-
-ALLOWED_IMAGE_EXTENSIONS: list[str] = ["jpg", "jpeg", "png", "gif", "webp"]
-MAX_IMAGE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5MB
-
-
-def validate_image_file(file: UploadedFile) -> None:
-    """Validates an uploaded image."""
-    if file.size > MAX_IMAGE_SIZE_BYTES:  # type: ignore[operator]
-        raise ValidationError(f"Image must be under {MAX_IMAGE_SIZE_BYTES // (1024 * 1024)}MB.")
-    try:
-        get_image_dimensions(file)
-    except Exception:
-        raise ValidationError("File is not a valid image.")
-
-
-class ExifStripMixin(models.Model):
-    IMAGE_FIELDS: t.Iterable[str]
-
-    def _strip_exif_from_image_fields(self) -> None:
-        from common.utils import strip_exif
-
-        for field_name in self.IMAGE_FIELDS:
-            file = getattr(self, field_name, None)
-            if file:
-                setattr(self, field_name, strip_exif(file))
-
-    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
-        """Override save to auto-strip exif from image fields."""
-        self._strip_exif_from_image_fields()
-        super().save(*args, **kwargs)
-
-    class Meta:
-        abstract = True
 
 
 class LogoCoverValidationMixin(ExifStripMixin):

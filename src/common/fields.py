@@ -10,8 +10,34 @@ from urllib.parse import unquote, urlparse
 
 import nh3
 from django.contrib.gis.db import models
+from django.core.exceptions import ValidationError
+from django.core.files.images import get_image_dimensions
+from django.core.files.uploadedfile import UploadedFile
 
 from common.signing import PROTECTED_PATH_PREFIX
+
+# ---- Image Validation Constants ----
+
+ALLOWED_IMAGE_EXTENSIONS: list[str] = ["jpg", "jpeg", "png", "gif", "webp"]
+MAX_IMAGE_SIZE_BYTES: int = 10 * 1024 * 1024  # 10MB
+
+
+def validate_image_file(file: UploadedFile) -> None:
+    """Validate an uploaded image file size and format.
+
+    Args:
+        file: The uploaded file to validate.
+
+    Raises:
+        ValidationError: If the file exceeds the maximum size or is not a valid image.
+    """
+    if file.size > MAX_IMAGE_SIZE_BYTES:  # type: ignore[operator]
+        raise ValidationError(f"Image must be under {MAX_IMAGE_SIZE_BYTES // (1024 * 1024)}MB.")
+    try:
+        get_image_dimensions(file)
+    except Exception:
+        raise ValidationError("File is not a valid image.")
+
 
 # ---- Protected File Fields ----
 # These fields enforce the protected/ prefix for files requiring signed URL access.

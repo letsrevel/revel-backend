@@ -26,6 +26,40 @@ class TimeStampedModel(models.Model):
         super().save(*args, **kwargs)
 
 
+class ExifStripMixin(models.Model):
+    """Mixin that strips EXIF metadata from image fields on save.
+
+    Subclasses must define IMAGE_FIELDS as an iterable of field names to process.
+    """
+
+    IMAGE_FIELDS: t.Iterable[str]
+
+    def _strip_exif_from_image_fields(self) -> None:
+        from django.core.exceptions import ValidationError
+        from django.utils.translation import gettext_lazy as _
+        from PIL import UnidentifiedImageError
+
+        from common.utils import strip_exif
+
+        for field_name in self.IMAGE_FIELDS:
+            file = getattr(self, field_name, None)
+            if file:
+                try:
+                    setattr(self, field_name, strip_exif(file))
+                except (UnidentifiedImageError, OSError) as e:
+                    # Convert PIL errors to ValidationError for proper 400 response.
+                    # This is a safety net - validation should happen before save().
+                    raise ValidationError({field_name: [_("File is not a valid image.")]}) from e
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Override save to auto-strip exif from image fields."""
+        self._strip_exif_from_image_fields()
+        super().save(*args, **kwargs)
+
+    class Meta:
+        abstract = True
+
+
 class Legal(SingletonModel):
     """Singleton model for legal documents like Terms and Conditions and Privacy Policy."""
 

@@ -4,6 +4,7 @@ import typing as t
 from io import BytesIO
 
 from django.contrib.auth.models import AbstractUser
+from django.core.exceptions import ValidationError
 from django.core.files import File
 from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.db import IntegrityError, models, transaction
@@ -134,6 +135,34 @@ def create_file_audit_and_scan(
     tasks.scan_for_malware.delay(app=app, model=model, pk=str(instance_pk), field=field)
 
 
+def _validate_file_field(instance: models.Model, field_name: str, file: File) -> None:  # type: ignore[type-arg]
+    """Run validators for a file field before saving.
+
+    Retrieves validators from the model field definition and runs them
+    against the uploaded file. This ensures validation errors are raised
+    BEFORE the model's save() method attempts EXIF stripping.
+
+    Args:
+        instance: The model instance being saved
+        field_name: Name of the file field
+        file: The uploaded file to validate
+
+    Raises:
+        ValidationError: If any validator fails, with errors keyed by field name.
+            This is caught by the API exception handler and returned as 400.
+    """
+    model_field = instance._meta.get_field(field_name)
+    errors: list[str] = []
+    # File fields are always Field instances with validators (not ForeignObjectRel/GenericForeignKey)
+    for validator in model_field.validators:  # type: ignore[union-attr]
+        try:
+            validator(file)
+        except ValidationError as e:
+            errors.extend(e.messages)
+    if errors:
+        raise ValidationError({field_name: errors})
+
+
 @transaction.atomic
 def safe_save_uploaded_file(
     *,
@@ -144,8 +173,15 @@ def safe_save_uploaded_file(
 ) -> T:
     """Safely save an uploaded file passing it to malware scan.
 
+    Validates the file against field validators before saving.
     Deletes the old file if one exists before saving the new file.
+
+    Raises:
+        ValidationError: If file validation fails (returned as 400 by API).
     """
+    # Validate BEFORE setting the file or saving
+    _validate_file_field(instance, field, file)
+
     app = instance._meta.app_label
     model = t.cast(str, instance._meta.model_name)
 
@@ -155,7 +191,7 @@ def safe_save_uploaded_file(
         old_file.delete(save=False)
 
     setattr(instance, field, file)
-    instance.save()
+    instance.save(update_fields=[field])
     file_field = getattr(instance, field)
     file_field.open()
     # minor risk of race condition if uploaded twice in rapid succession

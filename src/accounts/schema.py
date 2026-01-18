@@ -10,12 +10,12 @@ from ninja_jwt.schema import TokenObtainPairOutputSchema
 from pydantic import UUID4, EmailStr, Field, field_serializer, field_validator, model_validator
 
 from accounts.password_validation import validate_password
-from common.schema import StrippedString
+from common.schema import ProfilePictureSchemaMixin, StrippedString
 
 from .models import DietaryPreference, DietaryRestriction, FoodItem, RevelUser, UserDietaryPreference
 
 
-class RevelUserSchema(ModelSchema):
+class RevelUserSchema(ProfilePictureSchemaMixin, ModelSchema):
     id: UUID4
     email: str
     email_verified: bool
@@ -27,27 +27,30 @@ class RevelUserSchema(ModelSchema):
     totp_active: bool
     language: str
     display_name: str
+    bio: str
 
     class Meta:
         model = RevelUser
         fields = ["email", "email_verified", "is_active", "first_name", "last_name", "totp_active", "language"]
 
 
-class MinimalRevelUserSchema(ModelSchema):
+class MinimalRevelUserSchema(ProfilePictureSchemaMixin, ModelSchema):
     preferred_name: str | None
     pronouns: str | None
     first_name: str
     last_name: str
     email: str
     display_name: str
+    bio: str
 
     class Meta:
         model = RevelUser
         fields = ["id", "preferred_name", "pronouns", "first_name", "last_name", "email"]
 
 
-class MemberUserSchema(ModelSchema):
+class MemberUserSchema(ProfilePictureSchemaMixin, ModelSchema):
     display_name: str
+    bio: str
 
     class Meta:
         model = RevelUser
@@ -212,6 +215,7 @@ class ProfileUpdateSchema(Schema):
     first_name: str = Field(..., max_length=30, description="User's first name")
     last_name: str = Field(..., max_length=150, description="User's last name")
     language: SupportedLanguage = Field("en", max_length=7, description="User's preferred language (en, de, it)")
+    bio: str = Field("", max_length=500, description="User's bio (publicly visible)")
 
     @model_validator(mode="after")
     def validate_language(self) -> t.Self:

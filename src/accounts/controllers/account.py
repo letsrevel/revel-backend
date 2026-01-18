@@ -3,6 +3,8 @@
 import typing as t
 
 from django.utils.translation import gettext_lazy as _
+from ninja import File
+from ninja.files import UploadedFile
 from ninja_extra import ControllerBase, api_controller, route, status
 
 from accounts import schema, tasks
@@ -16,7 +18,8 @@ from accounts.service import account as account_service
 from accounts.service.auth import get_token_pair_for_user
 from common.authentication import I18nJWTAuth
 from common.schema import EmailSchema, ResponseMessage
-from common.throttling import AuthThrottle, UserDataExportThrottle, UserRegistrationThrottle
+from common.throttling import AuthThrottle, UserDataExportThrottle, UserRegistrationThrottle, WriteThrottle
+from common.utils import safe_save_uploaded_file
 
 
 @api_controller("/account", tags=["Account"], throttle=AuthThrottle())
@@ -211,3 +214,38 @@ class AccountController(ControllerBase):
         """
         account_service.reset_password(payload.token, payload.password1)
         return ResponseMessage(message=str(_("Password reset successfully.")))
+
+    @route.post(
+        "/me/upload-profile-picture",
+        response=RevelUserSchema,
+        url_name="upload-profile-picture",
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def upload_profile_picture(self, profile_picture: File[UploadedFile]) -> RevelUser:
+        """Upload a profile picture for the authenticated user.
+
+        The image will have EXIF metadata stripped for privacy.
+        Supported formats: jpg, jpeg, png, gif, webp (max 10MB).
+        """
+        user = self.user()
+        return safe_save_uploaded_file(
+            instance=user,
+            field="profile_picture",
+            file=profile_picture,
+            uploader=user,
+        )
+
+    @route.delete(
+        "/me/delete-profile-picture",
+        response={204: None},
+        url_name="delete-profile-picture",
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def delete_profile_picture(self) -> tuple[int, None]:
+        """Delete the authenticated user's profile picture."""
+        user = self.user()
+        if user.profile_picture:
+            user.profile_picture.delete(save=True)
+        return 204, None
