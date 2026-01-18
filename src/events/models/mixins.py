@@ -172,12 +172,42 @@ class LogoCoverValidationMixin(ExifStripMixin):
         blank=True,
         validators=image_validators,
     )
+    logo_thumbnail = models.ImageField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="150x150 logo thumbnail (auto-generated).",
+    )
     cover_art = models.ImageField(
         upload_to="cover-art",
         null=True,
         blank=True,
         validators=image_validators,
     )
+    cover_art_thumbnail = models.ImageField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="150x150 cover art thumbnail (auto-generated).",
+    )
+    cover_art_social = models.ImageField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="1200x630 social preview for cover art (auto-generated).",
+    )
+
+    def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
+        """Delete thumbnails from storage when model is deleted."""
+        # Delete logo thumbnails
+        if self.logo_thumbnail:
+            self.logo_thumbnail.delete(save=False)
+        # Delete cover art thumbnails
+        if self.cover_art_thumbnail:
+            self.cover_art_thumbnail.delete(save=False)
+        if self.cover_art_social:
+            self.cover_art_social.delete(save=False)
+        return super().delete(*args, **kwargs)
 
 
 CODE_ALPHABET = string.ascii_letters + string.digits  # [a-zA-Z0-9]

@@ -12,7 +12,11 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from importlib.metadata import version
 from pathlib import Path
 
+import pillow_heif
 from decouple import Csv, config
+
+# Register HEIC/HEIF support with Pillow
+pillow_heif.register_heif_opener()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parents[2]
