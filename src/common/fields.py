@@ -18,7 +18,7 @@ from common.signing import PROTECTED_PATH_PREFIX
 
 # ---- Image Validation Constants ----
 
-ALLOWED_IMAGE_EXTENSIONS: list[str] = ["jpg", "jpeg", "png", "gif", "webp", "heic", "heif"]
+ALLOWED_IMAGE_EXTENSIONS: list[str] = ["jpg", "jpeg", "png", "gif", "webp"]
 MAX_IMAGE_SIZE_BYTES: int = 10 * 1024 * 1024  # 10MB
 
 

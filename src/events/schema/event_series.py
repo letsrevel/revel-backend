@@ -7,11 +7,11 @@ from pydantic import AwareDatetime
 
 from common.schema import OneToOneFiftyString, StrippedString
 
-from .mixins import LogoCoverArtThumbnailMixin, TaggableSchemaMixin
+from .mixins import TaggableSchemaMixin
 from .organization import MinimalOrganizationSchema
 
 
-class MinimalEventSeriesSchema(LogoCoverArtThumbnailMixin):
+class MinimalEventSeriesSchema(Schema):
     """Lightweight event series schema for use in event lists - excludes tags and uses minimal organization."""
 
     id: UUID
@@ -23,7 +23,7 @@ class MinimalEventSeriesSchema(LogoCoverArtThumbnailMixin):
     cover_art: str | None = None
 
 
-class EventSeriesInListSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
+class EventSeriesInListSchema(TaggableSchemaMixin):
     """Schema for event series list endpoints - includes tags with proper prefetching."""
 
     id: UUID
@@ -37,7 +37,7 @@ class EventSeriesInListSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     created_at: AwareDatetime | None = None
 
 
-class EventSeriesRetrieveSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
+class EventSeriesRetrieveSchema(TaggableSchemaMixin):
     """Full event series schema for detail views - uses minimal organization to prevent cascading queries."""
 
     id: UUID

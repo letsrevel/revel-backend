@@ -125,23 +125,11 @@ class QuestionnaireFileSchema(ModelSchema):
     mime_type: str
     file_size: int
     file_url: str | None = None
-    thumbnail_url: str | None = None
-    preview_url: str | None = None
 
     @staticmethod
     def resolve_file_url(obj: QuestionnaireFile) -> str | None:
         """Resolve the file URL with signature for protected paths."""
         return get_file_url(obj.file)
-
-    @staticmethod
-    def resolve_thumbnail_url(obj: QuestionnaireFile) -> str | None:
-        """Resolve thumbnail URL (signed for protected files)."""
-        return get_file_url(obj.thumbnail)
-
-    @staticmethod
-    def resolve_preview_url(obj: QuestionnaireFile) -> str | None:
-        """Resolve preview URL (signed for protected files)."""
-        return get_file_url(obj.preview)
 
     class Meta:
         model = QuestionnaireFile

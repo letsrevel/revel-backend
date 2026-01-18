@@ -69,18 +69,6 @@ class RevelUser(ExifStripMixin, AbstractUser):
         blank=True,
         validators=image_validators,
     )
-    profile_picture_thumbnail = ProtectedImageField(
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text="150x150 thumbnail (auto-generated).",
-    )
-    profile_picture_preview = ProtectedImageField(
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text="400x400 preview (auto-generated).",
-    )
 
     objects = RevelUserManager()  # type: ignore[misc]
 
@@ -98,14 +86,6 @@ class RevelUser(ExifStripMixin, AbstractUser):
         if self.phone_number:
             self.phone_number = normalize_phone_number(self.phone_number)
         super().save(*args, **kwargs)
-
-    def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
-        """Delete profile picture thumbnails from storage when user is deleted."""
-        if self.profile_picture_thumbnail:
-            self.profile_picture_thumbnail.delete(save=False)
-        if self.profile_picture_preview:
-            self.profile_picture_preview.delete(save=False)
-        return super().delete(*args, **kwargs)
 
     @property
     def display_name(self) -> str:

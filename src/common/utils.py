@@ -175,61 +175,26 @@ def safe_save_uploaded_file(
 
     Validates the file against field validators before saving.
     Deletes the old file if one exists before saving the new file.
-    Schedules thumbnail generation for image files.
 
     Raises:
         ValidationError: If file validation fails (returned as 400 by API).
     """
-    from common.thumbnails.config import THUMBNAIL_CONFIGS, get_thumbnail_field_names
-    from common.thumbnails.tasks import (
-        delete_orphaned_thumbnails_task,
-        generate_thumbnails_task,
-    )
-
     # Validate BEFORE setting the file or saving
     _validate_file_field(instance, field, file)
 
     app = instance._meta.app_label
     model = t.cast(str, instance._meta.model_name)
-    config_key = (app, model, field)
-    config = THUMBNAIL_CONFIGS.get(config_key)
-
-    # Collect old thumbnail paths for deletion
-    old_thumbnail_paths: list[str] = []
-    thumbnail_field_names: list[str] = []
-    if config:
-        thumbnail_field_names = get_thumbnail_field_names(config)
-        for thumb_field in thumbnail_field_names:
-            if hasattr(instance, thumb_field):
-                thumb_file = getattr(instance, thumb_field, None)
-                # ImageField returns an ImageFieldFile - get path via .name
-                if thumb_file and hasattr(thumb_file, "name") and thumb_file.name:
-                    old_thumbnail_paths.append(thumb_file.name)
-                # Clear the field (None for ImageField)
-                setattr(instance, thumb_field, None)
 
     # Delete old file if it exists
     old_file = getattr(instance, field)
     if old_file:
         old_file.delete(save=False)
 
-    # Schedule deletion of old thumbnails
-    if old_thumbnail_paths:
-        delete_orphaned_thumbnails_task.delay(thumbnail_paths=old_thumbnail_paths)
-
     setattr(instance, field, file)
-
-    # Determine which fields to update
-    update_fields = [field] + thumbnail_field_names
-
-    instance.save(update_fields=update_fields)
+    instance.save(update_fields=[field])
     file_field = getattr(instance, field)
     file_field.open()
-    # NOTE: Race condition possible if user uploads twice in rapid succession.
-    # File A upload: deletes old thumbnails async, schedules thumbnail generation
-    # File B upload (before A's thumbnails exist): deletes nothing, schedules generation
-    # Result: A's thumbnails may be orphaned. Accepted risk - orphaned files are harmless
-    # and a cleanup task can handle them periodically if needed.
+    # minor risk of race condition if uploaded twice in rapid succession
     file_hash = hashlib.sha256(file_field.read()).hexdigest()
     file_field.seek(0)
     create_file_audit_and_scan(
@@ -240,14 +205,4 @@ def safe_save_uploaded_file(
         file_hash=file_hash,
         uploader_email=uploader.email,
     )
-
-    # Schedule thumbnail generation if configured for this model/field
-    if config:
-        generate_thumbnails_task.delay(
-            app=app,
-            model=model,
-            pk=str(instance.pk),
-            field=field,
-        )
-
     return instance

@@ -13,7 +13,7 @@ from events.models import Event, ResourceVisibility
 from geo.schema import CitySchema
 
 from .event_series import MinimalEventSeriesSchema
-from .mixins import CityEditMixin, LogoCoverArtThumbnailMixin, TaggableSchemaMixin
+from .mixins import CityEditMixin, TaggableSchemaMixin
 from .organization import MinimalOrganizationSchema
 from .venue import VenueSchema
 
@@ -67,7 +67,7 @@ class EventEditSlugSchema(Schema):
     slug: SlugString
 
 
-class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
+class EventBaseSchema(TaggableSchemaMixin):
     id: UUID
     event_type: Event.EventType
     visibility: Event.Visibility
@@ -145,7 +145,7 @@ class EventDetailSchema(EventBaseSchema):
         return None
 
 
-class MinimalEventSchema(LogoCoverArtThumbnailMixin):
+class MinimalEventSchema(Schema):
     id: UUID
     slug: str
     name: str

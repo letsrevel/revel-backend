@@ -15,7 +15,7 @@ from django.utils import timezone
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import Field as PydanticField
 
-from common.fields import MarkdownField, ProtectedFileField, ProtectedImageField
+from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
 from questionnaires.llms.llm_interfaces import EvaluationResponse
 
@@ -84,18 +84,6 @@ class QuestionnaireFile(TimeStampedModel):
         upload_to=questionnaire_file_upload_path,
         max_length=255,  # Accommodate long paths with UUIDs
     )
-    thumbnail = ProtectedImageField(
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text="150x150 thumbnail (generated for image files).",
-    )
-    preview = ProtectedImageField(
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text="800x800 preview (generated for image files).",
-    )
     original_filename = models.CharField(max_length=255)
     file_hash = models.CharField(
         max_length=64,
@@ -129,7 +117,7 @@ class QuestionnaireFile(TimeStampedModel):
         super().save(*args, **kwargs)
 
     def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
-        """Delete file and thumbnails from storage when model is deleted.
+        """Delete file from storage when model is deleted.
 
         Privacy Policy: Files are HARD DELETED immediately, including from storage.
         This applies even if the file was used in submitted questionnaires - user
@@ -141,14 +129,7 @@ class QuestionnaireFile(TimeStampedModel):
             # Clear M2M relationships first (not strictly necessary as Django handles it,
             # but explicit is better for understanding the deletion cascade)
             self.file_upload_answers.clear()
-
-            # Delete thumbnails from storage (ImageField handles storage deletion)
-            if self.thumbnail:
-                self.thumbnail.delete(save=False)
-            if self.preview:
-                self.preview.delete(save=False)
-
-            # Delete original file from storage
+            # Delete file from storage
             if self.file:
                 self.file.delete(save=False)
             return super().delete(*args, **kwargs)
