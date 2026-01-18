@@ -2,6 +2,8 @@
 
 from enum import StrEnum
 
+from django.utils.translation import gettext_noop
+
 
 class NextStep(StrEnum):
     """Possible next steps for a user to become eligible for an event."""
@@ -20,33 +22,41 @@ class NextStep(StrEnum):
     UPGRADE_MEMBERSHIP = "upgrade_membership"
     REQUEST_WHITELIST = "request_whitelist"
     WAIT_FOR_WHITELIST_APPROVAL = "wait_for_whitelist_approval"
+    COMPLETE_PROFILE = "complete_profile"
 
 
 class Reasons(StrEnum):
-    """Reasons why a user is not eligible for an event."""
+    """Reasons why a user is not eligible for an event.
 
-    MEMBERS_ONLY = "Only members are allowed."
-    MEMBERSHIP_INACTIVE = "Your membership is not active."
-    EVENT_IS_FULL = "Event is full."
-    SOLD_OUT = "Sold out"
-    QUESTIONNAIRE_MISSING = "Questionnaire has not been filled."
-    QUESTIONNAIRE_FAILED = "Questionnaire evaluation was insufficient."
-    QUESTIONNAIRE_PENDING_REVIEW = "Waiting for questionnaire evaluation."
-    QUESTIONNAIRE_RETAKE_COOLDOWN = "Questionnaire evaluation was insufficient. You can try again in {retry_on}."
-    REQUIRES_TICKET = "Requires a ticket."
-    MUST_RSVP = "Must RSVP"
-    REQUIRES_INVITATION = "Requires invitation."
-    INVITATION_REQUEST_PENDING = "Your invitation request is pending approval."
-    INVITATION_REQUEST_REJECTED = "Your invitation request was rejected."
-    REQUIRES_PURCHASE = "Requires purchase."
-    NOTHING_TO_PURCHASE = "Nothing to purchase."
-    EVENT_IS_NOT_OPEN = "Event is not open."
-    EVENT_HAS_FINISHED = "Event has finished."
-    RSVP_DEADLINE_PASSED = "The RSVP deadline has passed."
-    APPLICATION_DEADLINE_PASSED = "The application deadline has passed."
-    NO_TICKETS_ON_SALE = "Tickets are not currently on sale."
-    MEMBERSHIP_TIER_REQUIRED = "This ticket tier requires a specific membership tier."
-    BLACKLISTED = "You are not allowed to participate in this organization's events."
-    VERIFICATION_REQUIRED = "Additional verification required."
-    WHITELIST_PENDING = "Your verification request is pending approval."
-    WHITELIST_REJECTED = "Your verification request was rejected."
+    Note: Strings are marked with _noop() for translation extraction.
+    The actual translation happens in gates.py when using _(Reasons.XXX).
+    """
+
+    MEMBERS_ONLY = gettext_noop("Only members are allowed.")
+    MEMBERSHIP_INACTIVE = gettext_noop("Your membership is not active.")
+    REQUIRES_FULL_PROFILE = gettext_noop("Requires full profile.")
+    EVENT_IS_FULL = gettext_noop("Event is full.")
+    SOLD_OUT = gettext_noop("Sold out")
+    QUESTIONNAIRE_MISSING = gettext_noop("Questionnaire has not been filled.")
+    QUESTIONNAIRE_FAILED = gettext_noop("Questionnaire evaluation was insufficient.")
+    QUESTIONNAIRE_PENDING_REVIEW = gettext_noop("Waiting for questionnaire evaluation.")
+    QUESTIONNAIRE_RETAKE_COOLDOWN = gettext_noop(
+        "Questionnaire evaluation was insufficient. You can try again in {retry_on}."
+    )
+    REQUIRES_TICKET = gettext_noop("Requires a ticket.")
+    MUST_RSVP = gettext_noop("Must RSVP")
+    REQUIRES_INVITATION = gettext_noop("Requires invitation.")
+    INVITATION_REQUEST_PENDING = gettext_noop("Your invitation request is pending approval.")
+    INVITATION_REQUEST_REJECTED = gettext_noop("Your invitation request was rejected.")
+    REQUIRES_PURCHASE = gettext_noop("Requires purchase.")
+    NOTHING_TO_PURCHASE = gettext_noop("Nothing to purchase.")
+    EVENT_IS_NOT_OPEN = gettext_noop("Event is not open.")
+    EVENT_HAS_FINISHED = gettext_noop("Event has finished.")
+    RSVP_DEADLINE_PASSED = gettext_noop("The RSVP deadline has passed.")
+    APPLICATION_DEADLINE_PASSED = gettext_noop("The application deadline has passed.")
+    NO_TICKETS_ON_SALE = gettext_noop("Tickets are not currently on sale.")
+    MEMBERSHIP_TIER_REQUIRED = gettext_noop("This ticket tier requires a specific membership tier.")
+    BLACKLISTED = gettext_noop("You are not allowed to participate in this organization's events.")
+    VERIFICATION_REQUIRED = gettext_noop("Additional verification required.")
+    WHITELIST_PENDING = gettext_noop("Your verification request is pending approval.")
+    WHITELIST_REJECTED = gettext_noop("Your verification request was rejected.")

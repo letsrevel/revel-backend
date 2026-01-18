@@ -216,6 +216,9 @@ class Event(
         null=True, blank=True, db_index=True, help_text="When check-in closes for this event"
     )
     requires_ticket = models.BooleanField(default=True)  # If False, managed via RSVPs
+    requires_full_profile = models.BooleanField(
+        default=False, help_text="Whether this event requires full profile information (profile pic, name, pronouns)"
+    )
     potluck_open = models.BooleanField(default=False)
     accept_invitation_requests = models.BooleanField(default=False)
     apply_before = models.DateTimeField(

@@ -34,6 +34,7 @@ class EventEditSchema(CityEditMixin):
     rsvp_before: AwareDatetime | None = Field(None, description="RSVP deadline for events that do not require tickets")
     check_in_starts_at: AwareDatetime | None = Field(None, description="When check-in opens for this event")
     check_in_ends_at: AwareDatetime | None = Field(None, description="When check-in closes for this event")
+    requires_full_profile: bool = False
     event_series_id: UUID | None = None
     venue_id: UUID | None = None
     potluck_open: bool = False
@@ -89,6 +90,7 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     logo: str | None = None
     cover_art: str | None = None
     requires_ticket: bool
+    requires_full_profile: bool
     potluck_open: bool
     attendee_count: int
     accept_invitation_requests: bool

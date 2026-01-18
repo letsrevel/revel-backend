@@ -19,6 +19,7 @@ class EventUserEligibility(BaseModel):
     questionnaires_pending_review: list[uuid.UUID] | None = None
     questionnaires_failed: list[uuid.UUID] | None = None
     retry_on: datetime.datetime | None = None
+    missing_profile_fields: list[str] | None = None
 
 
 class UserIsIneligibleError(Exception):
