@@ -196,3 +196,45 @@ def test_members_only_event_allows_active_member(member_user: RevelUser, members
     eligibility = handler.check_eligibility()
 
     assert eligibility.allowed is True
+
+
+def test_requires_full_profile_blocks_when_missing_fields(public_user: RevelUser, public_event: Event) -> None:
+    """If event requires full profile, missing profile fields should block access."""
+    public_event.requires_full_profile = True
+    public_event.save()
+
+    # Ensure user is missing everything relevant
+    public_user.profile_picture = None
+    public_user.pronouns = ""
+    public_user.first_name = ""
+    public_user.last_name = ""
+    public_user.preferred_name = ""
+    public_user.save()
+
+    handler = EligibilityService(user=public_user, event=public_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.REQUIRES_FULL_PROFILE
+    assert eligibility.next_step == NextStep.COMPLETE_PROFILE
+
+
+def test_requires_full_profile_allows_when_complete(public_user: RevelUser, public_event: Event) -> None:
+    """If event requires full profile, user with required fields should pass."""
+    public_event.requires_full_profile = True
+    public_event.save()
+
+    # Make user "complete" per gate requirements
+    public_user.pronouns = "they/them"
+    public_user.preferred_name = "B"
+    public_user.first_name = ""
+    public_user.last_name = ""
+    public_user.save()
+
+    # we use update to skip checks on the field for images
+    RevelUser.objects.filter(pk=public_user.pk).update(profile_picture="profiles/test.jpg")
+
+    handler = EligibilityService(user=public_user, event=public_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is True

@@ -20,6 +20,7 @@ class NextStep(StrEnum):
     UPGRADE_MEMBERSHIP = "upgrade_membership"
     REQUEST_WHITELIST = "request_whitelist"
     WAIT_FOR_WHITELIST_APPROVAL = "wait_for_whitelist_approval"
+    COMPLETE_PROFILE = "complete_profile"
 
 
 class Reasons(StrEnum):
@@ -27,6 +28,7 @@ class Reasons(StrEnum):
 
     MEMBERS_ONLY = "Only members are allowed."
     MEMBERSHIP_INACTIVE = "Your membership is not active."
+    REQUIRES_FULL_PROFILE = "Requires full profile."
     EVENT_IS_FULL = "Event is full."
     SOLD_OUT = "Sold out"
     QUESTIONNAIRE_MISSING = "Questionnaire has not been filled."

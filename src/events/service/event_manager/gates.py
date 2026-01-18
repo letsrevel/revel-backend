@@ -346,8 +346,36 @@ class MembershipGate(BaseEligibilityGate):
         )
 
 
+class FullProfileGate(BaseEligibilityGate):
+    """Gate #8: When an Event has a .requires_full_profile == True, user must have profile pic, name and pronouns."""
+
+    def check(self) -> EventUserEligibility | None:
+        """Check if full profile is valid."""
+        if not self.event.requires_full_profile:
+            return None
+
+        missing = []
+
+        if not self.user.profile_picture:
+            missing.append("profile_picture")
+        if not self.user.pronouns:
+            missing.append("pronouns")
+        if not (self.user.first_name or self.user.last_name or self.user.preferred_name):
+            missing.append("name")
+
+        if not missing:
+            return None
+
+        return EventUserEligibility(
+            allowed=False,
+            event_id=self.event.id,
+            reason=_(Reasons.REQUIRES_FULL_PROFILE),
+            next_step=NextStep.COMPLETE_PROFILE,
+        )
+
+
 class QuestionnaireGate(BaseEligibilityGate):
-    """Gate #8: Check questionnaire requirements."""
+    """Gate #9: Check questionnaire requirements."""
 
     def check(self) -> EventUserEligibility | None:
         """Check if the questionnaires are in order."""
@@ -506,7 +534,7 @@ class QuestionnaireGate(BaseEligibilityGate):
 
 
 class AvailabilityGate(BaseEligibilityGate):
-    """Gate #9: Checks if the event has space available for another attendee.
+    """Gate #10: Checks if the event has space available for another attendee.
 
     This is a preliminary capacity check using prefetched data (zero additional DB queries).
     It must use the same counting logic as EventManager._assert_capacity() to avoid
@@ -555,7 +583,7 @@ class AvailabilityGate(BaseEligibilityGate):
 
 
 class TicketSalesGate(BaseEligibilityGate):
-    """Gate #10: Checks if tickets are currently on sale for ticket-required events."""
+    """Gate #11: Checks if tickets are currently on sale for ticket-required events."""
 
     def check(self) -> EventUserEligibility | None:
         """Check if there's at least one ticket tier with active sales."""
@@ -601,6 +629,7 @@ ELIGIBILITY_GATES: list[type[BaseEligibilityGate]] = [
     ApplyDeadlineGate,
     InvitationGate,
     MembershipGate,
+    FullProfileGate,
     QuestionnaireGate,
     AvailabilityGate,
     TicketSalesGate,
