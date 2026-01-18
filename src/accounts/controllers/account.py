@@ -18,8 +18,8 @@ from accounts.service import account as account_service
 from accounts.service.auth import get_token_pair_for_user
 from common.authentication import I18nJWTAuth
 from common.schema import EmailSchema, ResponseMessage
-from common.thumbnails.service import delete_image_with_derivatives
 from common.throttling import AuthThrottle, UserDataExportThrottle, UserRegistrationThrottle, WriteThrottle
+from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 
 

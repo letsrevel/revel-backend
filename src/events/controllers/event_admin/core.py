@@ -9,8 +9,8 @@ from ninja_extra import api_controller, route
 from common.authentication import I18nJWTAuth
 from common.models import Tag
 from common.schema import TagSchema, ValidationErrorResponse
-from common.thumbnails.service import delete_image_with_derivatives
 from common.throttling import WriteThrottle
+from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 from events import models, schema
 from events.controllers.permissions import CanDuplicateEvent, EventPermission

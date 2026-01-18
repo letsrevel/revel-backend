@@ -10,8 +10,8 @@ from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.models import Tag
 from common.schema import TagSchema, ValidationErrorResponse
-from common.thumbnails.service import delete_image_with_derivatives
 from common.throttling import WriteThrottle
+from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 from events import models, schema
 from events.service import update_db_instance

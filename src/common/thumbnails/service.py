@@ -279,7 +279,8 @@ def delete_image_with_derivatives(
     app_label = meta.app_label
     model_name = meta.model_name
 
-    # Look up thumbnail config
+    # Look up thumbnail config (may be None for fields without configured derivatives,
+    # in which case we just delete the source file without any derivative cleanup)
     config = get_thumbnail_config(app_label, model_name, source_field)
 
     # Collect fields to clear

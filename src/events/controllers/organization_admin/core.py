@@ -5,8 +5,8 @@ from ninja_extra import api_controller, route
 from accounts.schema import VerifyEmailSchema
 from common.authentication import I18nJWTAuth
 from common.schema import EmailSchema, ValidationErrorResponse
-from common.thumbnails.service import delete_image_with_derivatives
 from common.throttling import UserDefaultThrottle, WriteThrottle
+from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 from events import models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
