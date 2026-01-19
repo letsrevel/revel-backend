@@ -34,7 +34,25 @@ class RevelUserSchema(ProfilePictureSchemaMixin, ModelSchema):
         fields = ["email", "email_verified", "is_active", "first_name", "last_name", "totp_active", "language"]
 
 
+class MinimalRevelUserBaseSchema(Schema):
+    """Base schema with all fields as static - for nested schema use where resolvers don't work."""
+
+    id: UUID4
+    profile_picture_url: str | None = None
+    profile_picture_thumbnail_url: str | None = None
+    profile_picture_preview_url: str | None = None
+    preferred_name: str | None
+    pronouns: str | None
+    first_name: str
+    last_name: str
+    email: str
+    display_name: str
+    bio: str
+
+
 class MinimalRevelUserSchema(ProfilePictureSchemaMixin, ModelSchema):
+    """For ORM serialization - adds resolvers for profile picture URLs."""
+
     preferred_name: str | None
     pronouns: str | None
     first_name: str
@@ -46,6 +64,10 @@ class MinimalRevelUserSchema(ProfilePictureSchemaMixin, ModelSchema):
     class Meta:
         model = RevelUser
         fields = ["id", "preferred_name", "pronouns", "first_name", "last_name", "email"]
+
+    def to_base_schema(self) -> MinimalRevelUserBaseSchema:
+        """Convert to base schema with resolved URLs for nested use."""
+        return MinimalRevelUserBaseSchema(**self.model_dump())
 
 
 class MemberUserSchema(ProfilePictureSchemaMixin, ModelSchema):

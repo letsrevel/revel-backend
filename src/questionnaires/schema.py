@@ -7,7 +7,7 @@ from ninja import ModelSchema, Schema
 from pydantic import Field, field_serializer, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
-from accounts.schema import MinimalRevelUserSchema
+from accounts.schema import MinimalRevelUserBaseSchema, MinimalRevelUserSchema
 from common.signing import get_file_url
 from questionnaires.models import (
     Questionnaire,
@@ -366,7 +366,7 @@ class SubmissionDetailSchema(Schema):
     """Schema for detailed view of a submission."""
 
     id: UUID
-    user: MinimalRevelUserSchema
+    user: MinimalRevelUserBaseSchema
     questionnaire: "QuestionnaireInListSchema"
     status: QuestionnaireSubmission.QuestionnaireSubmissionStatus
     submitted_at: datetime | None

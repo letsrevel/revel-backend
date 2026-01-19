@@ -1,5 +1,6 @@
 import random
 import typing as t
+from collections import defaultdict
 from uuid import UUID
 
 from django.db import transaction
@@ -7,6 +8,8 @@ from django.db.models import Prefetch, QuerySet
 from django.utils import timezone
 
 from accounts.models import RevelUser
+from accounts.schema import MinimalRevelUserSchema
+from common.signing import get_file_url
 from questionnaires.models import (
     FileUploadAnswer,
     FileUploadQuestion,
@@ -35,6 +38,7 @@ from ..exceptions import (
 )
 from ..schema import (
     EvaluationCreateSchema,
+    EvaluationResponseSchema,
     FileUploadQuestionCreateSchema,
     FileUploadQuestionSchema,
     FileUploadQuestionUpdateSchema,
@@ -48,13 +52,17 @@ from ..schema import (
     MultipleChoiceQuestionCreateSchema,
     MultipleChoiceQuestionSchema,
     MultipleChoiceQuestionUpdateSchema,
+    QuestionAnswerDetailSchema,
     QuestionnaireCreateSchema,
+    QuestionnaireInListSchema,
     QuestionnaireResponseSchema,
     QuestionnaireSchema,
     QuestionnaireSubmissionSchema,
+    QuestionType,
     SectionCreateSchema,
     SectionSchema,
     SectionUpdateSchema,
+    SubmissionDetailSchema,
 )
 
 QuestionSchemaUnion = MultipleChoiceQuestionSchema | FreeTextQuestionSchema | FileUploadQuestionSchema
@@ -800,6 +808,114 @@ class QuestionnaireService:
                 "fileuploadanswer_answers__files",
             )
             .get(id=submission_id, questionnaire=self.questionnaire)
+        )
+
+    def get_submission_detail_schema(self, submission_id: UUID) -> SubmissionDetailSchema:
+        """Get detailed submission transformed to schema format.
+
+        Returns a SubmissionDetailSchema with all answers grouped and formatted.
+        """
+        submission = self.get_submission_detail(submission_id)
+
+        # Transform answers to the schema format
+        # Group multiple choice answers by question (to handle multiple selections)
+        mc_answers_by_question: dict[UUID, list[dict[str, t.Any]]] = defaultdict(list)
+        mc_question_details: dict[UUID, tuple[str, QuestionType, str | None]] = {}
+
+        for mc_answer in submission.multiplechoiceanswer_answers.all():
+            question_id = mc_answer.question.id
+            mc_answers_by_question[question_id].append(
+                {
+                    "option_id": mc_answer.option.id,
+                    "option_text": mc_answer.option.option,
+                    "is_correct": mc_answer.option.is_correct,
+                }
+            )
+            # Store question details (will be the same for all answers to this question)
+            if question_id not in mc_question_details:
+                mc_question_details[question_id] = (
+                    mc_answer.question.question or "",
+                    "multiple_choice",
+                    mc_answer.question.reviewer_notes,
+                )
+
+        # Build the answers list
+        answers: list[QuestionAnswerDetailSchema] = []
+
+        # Add grouped multiple choice answers
+        for question_id, options_list in mc_answers_by_question.items():
+            question_text, question_type, reviewer_notes = mc_question_details[question_id]
+            answers.append(
+                QuestionAnswerDetailSchema(
+                    question_id=question_id,
+                    question_text=question_text,
+                    question_type=question_type,
+                    reviewer_notes=reviewer_notes,
+                    answer_content=options_list,
+                )
+            )
+
+        # Add free text answers (wrapped in list)
+        for ft_answer in submission.freetextanswer_answers.all():
+            answers.append(
+                QuestionAnswerDetailSchema(
+                    question_id=ft_answer.question.id,
+                    question_text=ft_answer.question.question or "",
+                    question_type="free_text",
+                    reviewer_notes=ft_answer.question.reviewer_notes,
+                    answer_content=[{"answer": ft_answer.answer}],
+                )
+            )
+
+        # Add file upload answers
+        for fu_answer in submission.fileuploadanswer_answers.all():
+            files_content = []
+            for f in fu_answer.files.all():
+                files_content.append(
+                    {
+                        "file_id": str(f.id),
+                        "original_filename": f.original_filename,
+                        "mime_type": f.mime_type,
+                        "file_size": f.file_size,
+                        "file_url": get_file_url(f.file),
+                    }
+                )
+            answers.append(
+                QuestionAnswerDetailSchema(
+                    question_id=fu_answer.question.id,
+                    question_text=fu_answer.question.question or "",
+                    question_type="file_upload",
+                    reviewer_notes=fu_answer.question.reviewer_notes,
+                    answer_content=files_content,
+                )
+            )
+
+        # Convert user to base schema with resolved URLs
+        user_schema = MinimalRevelUserSchema.from_orm(submission.user).to_base_schema()
+
+        return SubmissionDetailSchema(
+            id=submission.id,
+            user=user_schema,
+            questionnaire=QuestionnaireInListSchema(
+                id=submission.questionnaire.id,
+                name=submission.questionnaire.name,
+                description=submission.questionnaire.description,
+                status=submission.questionnaire.status,  # type: ignore[arg-type]
+                min_score=submission.questionnaire.min_score,
+                shuffle_questions=submission.questionnaire.shuffle_questions,
+                shuffle_sections=submission.questionnaire.shuffle_sections,
+                evaluation_mode=Questionnaire.QuestionnaireEvaluationMode(submission.questionnaire.evaluation_mode),
+            ),
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus(submission.status),
+            submitted_at=submission.submitted_at,
+            evaluation=(
+                EvaluationResponseSchema.from_orm(submission.evaluation)
+                if hasattr(submission, "evaluation") and submission.evaluation
+                else None
+            ),
+            answers=answers,
+            created_at=submission.created_at,
+            metadata=submission.metadata,
         )
 
     @transaction.atomic

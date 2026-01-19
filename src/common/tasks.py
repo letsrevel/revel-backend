@@ -1,5 +1,7 @@
 """Common tasks."""
 
+# Re-export thumbnail tasks for Celery autodiscovery
+# (Celery only discovers tasks.py at app root, not in subdirectories)
 import hashlib
 import importlib
 import typing as t
@@ -22,6 +24,10 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from common.models import EmailLog, FileUploadAudit, QuarantinedFile, SiteSettings
+from common.thumbnails.tasks import (  # noqa: F401
+    delete_orphaned_thumbnails_task,
+    generate_thumbnails_task,
+)
 
 logger = structlog.get_logger(__name__)
 
