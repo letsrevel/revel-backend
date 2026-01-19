@@ -428,7 +428,7 @@ class QuestionnaireController(UserAwareController):
     )
     def get_submission_detail(
         self, org_questionnaire_id: UUID, submission_id: UUID
-    ) -> questionnaire_schema.SubmissionDetailSchema:
+    ) -> questionnaires_models.QuestionnaireSubmission:
         """View detailed answers for a specific submission (admin only).
 
         Returns all questions and the user's answers, plus automatic evaluation results if available.
@@ -437,7 +437,7 @@ class QuestionnaireController(UserAwareController):
         """
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
         service = QuestionnaireService(org_questionnaire.questionnaire_id)
-        return service.get_submission_detail_schema(submission_id)
+        return service.get_submission_detail(submission_id)
 
     @route.post(
         "/{org_questionnaire_id}/submissions/{submission_id}/evaluate",
