@@ -1,4 +1,5 @@
 import typing as t
+from collections import defaultdict
 from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -374,6 +375,97 @@ class SubmissionDetailSchema(Schema):
     answers: list[QuestionAnswerDetailSchema]
     created_at: datetime
     metadata: dict[str, t.Any] | None = None
+
+    @staticmethod
+    def resolve_questionnaire(obj: QuestionnaireSubmission) -> "QuestionnaireInListSchema":
+        """Resolve questionnaire from submission."""
+        return QuestionnaireInListSchema(
+            id=obj.questionnaire.id,
+            name=obj.questionnaire.name,
+            description=obj.questionnaire.description,
+            status=obj.questionnaire.status,  # type: ignore[arg-type]
+            min_score=obj.questionnaire.min_score,
+            shuffle_questions=obj.questionnaire.shuffle_questions,
+            shuffle_sections=obj.questionnaire.shuffle_sections,
+            evaluation_mode=Questionnaire.QuestionnaireEvaluationMode(obj.questionnaire.evaluation_mode),
+        )
+
+    @staticmethod
+    def resolve_answers(obj: QuestionnaireSubmission) -> list["QuestionAnswerDetailSchema"]:
+        """Resolve and transform answers from submission.
+
+        Groups multiple choice answers by question and formats all answer types.
+        """
+        # Group multiple choice answers by question (to handle multiple selections)
+        mc_answers_by_question: dict[UUID, list[dict[str, t.Any]]] = defaultdict(list)
+        mc_question_details: dict[UUID, tuple[str, QuestionType, str | None]] = {}
+
+        for mc_answer in obj.multiplechoiceanswer_answers.all():
+            question_id = mc_answer.question.id
+            mc_answers_by_question[question_id].append(
+                {
+                    "option_id": mc_answer.option.id,
+                    "option_text": mc_answer.option.option,
+                    "is_correct": mc_answer.option.is_correct,
+                }
+            )
+            if question_id not in mc_question_details:
+                mc_question_details[question_id] = (
+                    mc_answer.question.question or "",
+                    "multiple_choice",
+                    mc_answer.question.reviewer_notes,
+                )
+
+        answers: list[QuestionAnswerDetailSchema] = []
+
+        # Add grouped multiple choice answers
+        for question_id, options_list in mc_answers_by_question.items():
+            question_text, question_type, reviewer_notes = mc_question_details[question_id]
+            answers.append(
+                QuestionAnswerDetailSchema(
+                    question_id=question_id,
+                    question_text=question_text,
+                    question_type=question_type,
+                    reviewer_notes=reviewer_notes,
+                    answer_content=options_list,
+                )
+            )
+
+        # Add free text answers
+        for ft_answer in obj.freetextanswer_answers.all():
+            answers.append(
+                QuestionAnswerDetailSchema(
+                    question_id=ft_answer.question.id,
+                    question_text=ft_answer.question.question or "",
+                    question_type="free_text",
+                    reviewer_notes=ft_answer.question.reviewer_notes,
+                    answer_content=[{"answer": ft_answer.answer}],
+                )
+            )
+
+        # Add file upload answers
+        for fu_answer in obj.fileuploadanswer_answers.all():
+            files_content = [
+                {
+                    "file_id": str(f.id),
+                    "original_filename": f.original_filename,
+                    "mime_type": f.mime_type,
+                    "file_size": f.file_size,
+                    "file_url": get_file_url(f.file),
+                }
+                for f in fu_answer.files.all()
+            ]
+            answers.append(
+                QuestionAnswerDetailSchema(
+                    question_id=fu_answer.question.id,
+                    question_text=fu_answer.question.question or "",
+                    question_type="file_upload",
+                    reviewer_notes=fu_answer.question.reviewer_notes,
+                    answer_content=files_content,
+                )
+            )
+
+        return answers
 
 
 # Admin schemas
