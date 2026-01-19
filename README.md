@@ -3,7 +3,7 @@
 **An open-source, community-focused event management platform.**
 
 <!-- Status -->
-[![Status](https://img.shields.io/badge/status-Beta-orange?style=for-the-badge)](https://github.com/letsrevel/revel)
+[![Status](https://img.shields.io/badge/status-Live-green?style=for-the-badge)](https://letsrevel.io)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](./LICENSE)
 ![Django](https://img.shields.io/badge/django-5.2+-092E20.svg?logo=django&logoColor=white&style=for-the-badge)
 
