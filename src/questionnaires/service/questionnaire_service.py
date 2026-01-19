@@ -4,6 +4,7 @@ from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Prefetch, QuerySet
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -789,18 +790,15 @@ class QuestionnaireService:
 
     def get_submission_detail(self, submission_id: UUID) -> QuestionnaireSubmission:
         """Get detailed submission with answers."""
-        return (
-            QuestionnaireSubmission.objects.select_related("user", "questionnaire")
-            .prefetch_related(
-                "evaluation",
-                "multiplechoiceanswer_answers__question",
-                "multiplechoiceanswer_answers__option",
-                "freetextanswer_answers__question",
-                "fileuploadanswer_answers__question",
-                "fileuploadanswer_answers__files",
-            )
-            .get(id=submission_id, questionnaire=self.questionnaire)
+        qs = QuestionnaireSubmission.objects.select_related("user", "questionnaire").prefetch_related(
+            "evaluation",
+            "multiplechoiceanswer_answers__question",
+            "multiplechoiceanswer_answers__option",
+            "freetextanswer_answers__question",
+            "fileuploadanswer_answers__question",
+            "fileuploadanswer_answers__files",
         )
+        return get_object_or_404(qs, id=submission_id, questionnaire=self.questionnaire)
 
     @transaction.atomic
     def evaluate_submission(

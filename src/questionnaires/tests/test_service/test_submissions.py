@@ -1,6 +1,7 @@
 """Tests for QuestionnaireService submission retrieval methods."""
 
 import pytest
+from django.http import Http404
 
 from accounts.models import RevelUser
 from questionnaires.models import (
@@ -80,7 +81,7 @@ def test_get_submission_detail(
 
 
 def test_get_submission_detail_wrong_questionnaire(questionnaire: Questionnaire, user: RevelUser) -> None:
-    """Test that get_submission_detail raises error for wrong questionnaire."""
+    """Test that get_submission_detail raises Http404 for wrong questionnaire."""
 
     # Create submission for different questionnaire
     other_questionnaire = Questionnaire.objects.create(name="Other Questionnaire")
@@ -88,5 +89,5 @@ def test_get_submission_detail_wrong_questionnaire(questionnaire: Questionnaire,
 
     service = QuestionnaireService(questionnaire.id)
 
-    with pytest.raises(QuestionnaireSubmission.DoesNotExist):
+    with pytest.raises(Http404):
         service.get_submission_detail(submission.id)
