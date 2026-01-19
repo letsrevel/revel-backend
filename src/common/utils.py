@@ -223,6 +223,8 @@ def safe_save_uploaded_file(
     update_fields = [field] + thumbnail_field_names
 
     instance.save(update_fields=update_fields)
+    # Refresh from DB to get the actual storage path (not the original filename)
+    instance.refresh_from_db(fields=[field])
     file_field = getattr(instance, field)
     file_field.open()
     # NOTE: Race condition possible if user uploads twice in rapid succession.
