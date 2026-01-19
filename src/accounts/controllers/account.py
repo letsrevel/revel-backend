@@ -76,6 +76,8 @@ class AccountController(ControllerBase):
         for key, value in payload.dict().items():
             setattr(user, key, value)
         user.save(update_fields=list(payload.dict().keys()))
+        # Refresh from DB to ensure all fields (including file fields) have correct values
+        user.refresh_from_db()
         return user
 
     @route.put(

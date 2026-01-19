@@ -224,7 +224,8 @@ def safe_save_uploaded_file(
 
     instance.save(update_fields=update_fields)
     # Refresh from DB to get the actual storage path (not the original filename)
-    instance.refresh_from_db(fields=[field])
+    # We refresh the entire instance to ensure all file field attributes are updated
+    instance.refresh_from_db()
     file_field = getattr(instance, field)
     file_field.open()
     # NOTE: Race condition possible if user uploads twice in rapid succession.
