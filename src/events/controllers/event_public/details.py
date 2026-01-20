@@ -94,3 +94,19 @@ class EventPublicDetailsController(EventPublicBaseController):
         """
         event = self.get_one(event_id)
         return event_service.get_event_dietary_summary(event, self.user())
+
+    @route.get(
+        "/{uuid:event_id}/pronoun-distribution",
+        url_name="event_pronoun_distribution",
+        response=schema.EventPronounDistributionSchema,
+        auth=I18nJWTAuth(),
+    )
+    def get_pronoun_distribution(self, event_id: UUID) -> schema.EventPronounDistributionSchema:
+        """Get aggregated pronoun distribution for event attendees.
+
+        Returns the distribution of pronouns among confirmed attendees (users with YES RSVPs or
+        valid tickets). Helps organizers understand the pronoun breakdown for their event.
+        Includes totals for attendees with and without pronouns specified.
+        """
+        event = self.get_one(event_id)
+        return event_service.get_event_pronoun_distribution(event)
