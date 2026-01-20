@@ -342,9 +342,9 @@ class BatchTicketService:
             case TicketTier.PaymentMethod.ONLINE:
                 return self._online_checkout(items, seats, locked_tier, price_override)
             case TicketTier.PaymentMethod.OFFLINE:
-                return self._offline_checkout(items, seats, locked_tier)
+                return self._offline_checkout(items, seats, locked_tier, price_override)
             case TicketTier.PaymentMethod.AT_THE_DOOR:
-                return self._offline_checkout(items, seats, locked_tier)
+                return self._offline_checkout(items, seats, locked_tier, price_override)
             case TicketTier.PaymentMethod.FREE:
                 return self._free_checkout(items, seats, locked_tier)
             case _:
@@ -355,6 +355,7 @@ class BatchTicketService:
         items: list[TicketPurchaseItem],
         seats: list[VenueSeat | None],
         status: Ticket.TicketStatus,
+        price_paid: Decimal | None = None,
     ) -> list[Ticket]:
         """Create ticket objects with the specified status.
 
@@ -362,6 +363,7 @@ class BatchTicketService:
             items: List of ticket purchase items.
             seats: List of seats (or None) corresponding to items.
             status: The status to set on created tickets.
+            price_paid: Price paid per ticket for PWYC offline/at_the_door purchases.
 
         Returns:
             List of created Ticket objects.
@@ -374,6 +376,7 @@ class BatchTicketService:
                 user=self.user,
                 status=status,
                 guest_name=item.guest_name,
+                price_paid=price_paid,
             )
             if seat:
                 ticket.seat = seat
@@ -457,6 +460,7 @@ class BatchTicketService:
         items: list[TicketPurchaseItem],
         seats: list[VenueSeat | None],
         locked_tier: TicketTier,
+        price_override: Decimal | None = None,
     ) -> list[Ticket]:
         """Handle offline checkout for batch tickets.
 
@@ -466,11 +470,12 @@ class BatchTicketService:
             items: List of ticket purchase items.
             seats: List of seats corresponding to items.
             locked_tier: The locked tier.
+            price_override: Price override for PWYC tiers.
 
         Returns:
             List of created PENDING tickets.
         """
-        tickets = self._create_tickets(items, seats, Ticket.TicketStatus.PENDING)
+        tickets = self._create_tickets(items, seats, Ticket.TicketStatus.PENDING, price_paid=price_override)
 
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))

@@ -193,7 +193,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     )
     total_quantity = models.PositiveIntegerField(default=None, null=True, blank=True)
     quantity_sold = models.PositiveIntegerField(default=0)
-    manual_payment_instructions = models.TextField(null=True, blank=True)
+    manual_payment_instructions = MarkdownField(null=True, blank=True)
     restricted_to_membership_tiers = models.ManyToManyField(
         MembershipTier,
         related_name="restricted_ticket_tiers",
@@ -449,6 +449,14 @@ class Ticket(TimeStampedModel):
     guest_name = models.CharField(
         max_length=255,
         help_text="Name of the ticket holder (may differ from purchasing user).",
+    )
+    price_paid = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Amount paid per ticket for PWYC offline/at_the_door purchases. "
+        "Null for online payments (stored in Payment.amount) or fixed-price tiers (use tier.price).",
     )
 
     # Venue/seating (denormalized for fast access, validated for consistency)

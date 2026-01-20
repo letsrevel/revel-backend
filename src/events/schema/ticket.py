@@ -139,10 +139,11 @@ class AdminTicketSchema(ModelSchema):
     guest_name: str
     seat: MinimalSeatSchema | None = None
     membership: MinimalOrganizationMemberSchema | None = None
+    price_paid: Decimal | None = None
 
     class Meta:
         model = Ticket
-        fields = ["id", "status", "tier", "created_at", "guest_name", "seat"]
+        fields = ["id", "status", "tier", "created_at", "guest_name", "seat", "price_paid"]
 
     @staticmethod
     def resolve_membership(obj: Ticket) -> models.OrganizationMember | None:
@@ -165,10 +166,11 @@ class UserTicketSchema(ModelSchema):
     guest_name: str
     payment: MinimalPaymentSchema | None = None
     seat: MinimalSeatSchema | None = None
+    price_paid: Decimal | None = None
 
     class Meta:
         model = Ticket
-        fields = ["id", "status", "tier", "created_at", "checked_in_at", "guest_name", "seat"]
+        fields = ["id", "status", "tier", "created_at", "checked_in_at", "guest_name", "seat", "price_paid"]
 
     @staticmethod
     def resolve_payment(obj: Ticket) -> Payment | None:
