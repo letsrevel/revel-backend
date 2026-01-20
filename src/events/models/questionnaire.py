@@ -91,24 +91,44 @@ class OrganizationQuestionnaire(TimeStampedModel):
         ordering = ["-created_at"]
 
 
-class EventFeedbackSubmission(TimeStampedModel):
-    """Tracks feedback questionnaire submissions per user per event.
+class EventQuestionnaireSubmission(TimeStampedModel):
+    """Tracks questionnaire submissions per user per event.
 
-    This model enforces the constraint that a user can only submit feedback
-    once per questionnaire per event.
+    This model tracks all questionnaire submissions but only enforces uniqueness
+    for FEEDBACK questionnaires (users can only submit feedback once per event).
+    Other questionnaire types (admission, membership, generic) allow multiple
+    submissions to support retakes after rejection.
+
+    The questionnaire_type field is denormalized from OrganizationQuestionnaire
+    to support the conditional unique constraint without expensive JOINs.
     """
 
-    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="feedback_submissions")
-    user = models.ForeignKey(RevelUser, on_delete=models.CASCADE, related_name="event_feedback_submissions")
+    def __str__(self) -> str:
+        return f"{self.user} - {self.event.name} - {self.questionnaire_type}"
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="questionnaire_submissions")
+    user = models.ForeignKey(RevelUser, on_delete=models.CASCADE, related_name="event_questionnaire_submissions")
     questionnaire = models.ForeignKey(
-        Questionnaire, on_delete=models.CASCADE, related_name="event_feedback_submissions"
+        Questionnaire, on_delete=models.CASCADE, related_name="event_questionnaire_submissions"
     )
-    submission = models.OneToOneField(QuestionnaireSubmission, on_delete=models.CASCADE, related_name="event_feedback")
+    submission = models.OneToOneField(
+        QuestionnaireSubmission, on_delete=models.CASCADE, related_name="event_questionnaire"
+    )
+    questionnaire_type = models.CharField(
+        choices=OrganizationQuestionnaire.QuestionnaireType.choices,
+        max_length=20,
+        db_index=True,
+    )
 
     class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "event"], name="evtqsub_user_event_idx"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["event", "user", "questionnaire"],
-                name="unique_feedback_per_user_event_questionnaire",
+                condition=models.Q(questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK),
+                name="unique_feedback_questionnaire_per_user_event",
             )
         ]

@@ -30,7 +30,7 @@ from .preferences import (
     BaseUserPreferences,
     GeneralUserPreferences,
 )
-from .questionnaire import EventFeedbackSubmission, OrganizationQuestionnaire
+from .questionnaire import EventQuestionnaireSubmission, OrganizationQuestionnaire
 from .rsvp import EventRSVP
 from .ticket import (
     DEFAULT_TICKET_TIER_NAME,
@@ -74,7 +74,7 @@ __all__ = [
     "BaseUserPreferences",
     "GeneralUserPreferences",
     # Questionnaire
-    "EventFeedbackSubmission",
+    "EventQuestionnaireSubmission",
     "OrganizationQuestionnaire",
     # Misc
     "AdditionalResource",

@@ -19,7 +19,7 @@ from ninja_jwt.tokens import RefreshToken
 from accounts.models import RevelUser
 from events.models import (
     Event,
-    EventFeedbackSubmission,
+    EventQuestionnaireSubmission,
     EventRSVP,
     Organization,
     OrganizationQuestionnaire,
@@ -464,7 +464,7 @@ class TestSubmitFeedbackQuestionnaire:
         past_event_for_controller: Event,
         feedback_questionnaire_for_controller: tuple[Questionnaire, OrganizationQuestionnaire],
     ) -> None:
-        """Should create EventFeedbackSubmission record on successful submission."""
+        """Should create EventQuestionnaireSubmission record on successful submission."""
         questionnaire, _ = feedback_questionnaire_for_controller
         mcq = questionnaire.multiplechoicequestion_questions.first()
         option = mcq.options.first()  # type: ignore[union-attr]
@@ -494,8 +494,8 @@ class TestSubmitFeedbackQuestionnaire:
         response = feedback_test_client.post(url, data=orjson.dumps(payload), content_type="application/json")
         assert response.status_code == 200
 
-        # Check EventFeedbackSubmission was created
-        assert EventFeedbackSubmission.objects.filter(
+        # Check EventQuestionnaireSubmission was created
+        assert EventQuestionnaireSubmission.objects.filter(
             event=past_event_for_controller,
             user=feedback_test_user,
             questionnaire=questionnaire,
@@ -555,7 +555,7 @@ class TestSubmitFeedbackQuestionnaire:
         past_event_for_controller: Event,
         feedback_questionnaire_for_controller: tuple[Questionnaire, OrganizationQuestionnaire],
     ) -> None:
-        """Draft submissions should NOT create EventFeedbackSubmission record."""
+        """Draft submissions should NOT create EventQuestionnaireSubmission record."""
         questionnaire, _ = feedback_questionnaire_for_controller
         mcq = questionnaire.multiplechoicequestion_questions.first()
         option = mcq.options.first()  # type: ignore[union-attr]
@@ -585,8 +585,8 @@ class TestSubmitFeedbackQuestionnaire:
         response = feedback_test_client.post(url, data=orjson.dumps(payload), content_type="application/json")
         assert response.status_code == 200
 
-        # Should NOT create EventFeedbackSubmission for draft
-        assert not EventFeedbackSubmission.objects.filter(
+        # Should NOT create EventQuestionnaireSubmission for draft
+        assert not EventQuestionnaireSubmission.objects.filter(
             event=past_event_for_controller,
             user=feedback_test_user,
             questionnaire=questionnaire,
@@ -756,11 +756,12 @@ class TestMyStatusFeedbackQuestionnaires:
             user=feedback_test_user,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         )
-        EventFeedbackSubmission.objects.create(
+        EventQuestionnaireSubmission.objects.create(
             event=past_event_for_controller,
             user=feedback_test_user,
             questionnaire=questionnaire,
             submission=submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
         )
 
         url = reverse(

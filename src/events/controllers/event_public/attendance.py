@@ -12,10 +12,10 @@ from common.authentication import I18nJWTAuth, OptionalAuth
 from common.schema import ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle
 from events import models, schema
-from events.service import event_service, feedback_service, ticket_service
+from events.service import event_questionnaire_service, event_service, feedback_service, ticket_service
 from events.service.event_manager import EventManager, EventUserEligibility
 from events.service.ticket_service import UserEventStatus
-from questionnaires.models import Questionnaire, QuestionnaireSubmission, SubmissionSourceEventMetadata
+from questionnaires.models import Questionnaire, QuestionnaireSubmission
 from questionnaires.schema import (
     QuestionnaireSchema,
     QuestionnaireSubmissionOrEvaluationSchema,
@@ -235,23 +235,14 @@ class EventPublicAttendanceController(EventPublicBaseController):
 
         questionnaire_service = self.get_questionnaire_service(questionnaire_id)
 
-        # Build source event metadata to store with the submission
-        source_event: SubmissionSourceEventMetadata = {
-            "event_id": str(event.id),
-            "event_name": event.name,
-            "event_start": event.start.isoformat() if event.start else "",
-        }
-
-        db_submission = questionnaire_service.submit(self.user(), submission, source_event=source_event)
-
-        # For feedback questionnaires: create tracking record to enforce one submission per user/event
-        if is_feedback and submission.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY:
-            feedback_service.create_feedback_submission_record(
-                user=self.user(),
-                event=event,
-                questionnaire=org_questionnaire.questionnaire,
-                submission=db_submission,
-            )
+        # Submit questionnaire and create tracking record atomically
+        db_submission = event_questionnaire_service.submit_event_questionnaire(
+            user=self.user(),
+            event=event,
+            questionnaire_service=questionnaire_service,
+            org_questionnaire=org_questionnaire,
+            submission_schema=submission,
+        )
 
         # Trigger automatic evaluation only for non-feedback questionnaires
         if not is_feedback:
