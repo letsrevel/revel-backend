@@ -193,7 +193,7 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     )
     total_quantity = models.PositiveIntegerField(default=None, null=True, blank=True)
     quantity_sold = models.PositiveIntegerField(default=0)
-    manual_payment_instructions = models.TextField(null=True, blank=True)
+    manual_payment_instructions = MarkdownField(null=True, blank=True)
     restricted_to_membership_tiers = models.ManyToManyField(
         MembershipTier,
         related_name="restricted_ticket_tiers",
