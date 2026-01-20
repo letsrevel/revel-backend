@@ -99,13 +99,16 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
 
     # List view configuration
     list_display = [
+        "profile_thumbnail_display",
         "username",
         "email",
         "display_name_display",
+        "pronouns",
         "email_verified_display",
         "totp_active_display",
         "is_staff",
         "is_active",
+        "guest",
         "date_joined",
         "event_count",
         "organization_count",
@@ -117,6 +120,8 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "is_active",
         "email_verified",
         "totp_active",
+        "guest",
+        "language",
         "date_joined",
         "last_login",
     ]
@@ -130,6 +135,9 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "date_joined",
         "last_login",
         "display_name_display",
+        "profile_picture_thumbnail",
+        "profile_picture_preview",
+        "profile_image_preview_display",
         "event_participation_display",
         "organization_participation_display",
     ]
@@ -144,7 +152,18 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
                     ("first_name", "last_name"),
                     ("preferred_name", "pronouns"),
                     "phone_number",
+                    "language",
+                    "bio",
                 )
+            },
+        ),
+        (
+            "Profile Picture",
+            {
+                "fields": (
+                    "profile_picture",
+                    "profile_image_preview_display",
+                ),
             },
         ),
         (
@@ -154,6 +173,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
                     "password",
                     ("email_verified", "totp_active"),
                     ("date_joined", "last_login"),
+                    "guest",
                 )
             },
         ),
@@ -266,6 +286,36 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
             )
 
     # Custom displays
+    @admin.display(description="")
+    def profile_thumbnail_display(self, obj: RevelUser) -> str:
+        """Display profile picture thumbnail in list view."""
+        if obj.profile_picture_thumbnail:
+            return format_html(
+                '<img src="{}" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;" />',
+                obj.profile_picture_thumbnail.url,
+            )
+        return format_html(
+            '<span style="display: inline-block; width: 32px; height: 32px; '
+            "border-radius: 50%; background-color: #e5e7eb; text-align: center; "
+            'line-height: 32px; font-size: 14px; color: #6b7280;">{}</span>',
+            obj.username[0].upper() if obj.username else "?",
+        )
+
+    @admin.display(description="Profile Picture Preview")
+    def profile_image_preview_display(self, obj: RevelUser) -> str:
+        """Display profile picture preview in detail view."""
+        if obj.profile_picture_preview:
+            return format_html(
+                '<img src="{}" style="max-width: 200px; max-height: 200px; border-radius: 8px;" />',
+                obj.profile_picture_preview.url,
+            )
+        if obj.profile_picture:
+            return format_html(
+                '<img src="{}" style="max-width: 200px; max-height: 200px; border-radius: 8px;" />',
+                obj.profile_picture.url,
+            )
+        return "No profile picture"
+
     @admin.display(description="Display Name", ordering="preferred_name")
     def display_name_display(self, obj: RevelUser) -> str:
         return obj.get_display_name()
