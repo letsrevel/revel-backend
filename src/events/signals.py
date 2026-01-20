@@ -109,7 +109,8 @@ def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, created
     we automatically unclaim all potluck items they had previously claimed, since they
     are no longer confirmed to attend.
     """
-    build_attendee_visibility_flags.delay(str(instance.event_id))
+    event_id = str(instance.event_id)
+    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
 
     if instance.status in [EventRSVP.RsvpStatus.NO, EventRSVP.RsvpStatus.MAYBE]:
         unclaim_user_potluck_items(instance.event_id, instance.user_id)
@@ -121,7 +122,8 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
 
     When a user deletes their RSVP entirely, we unclaim all potluck items they had claimed.
     """
-    build_attendee_visibility_flags.delay(str(instance.event_id))
+    event_id = str(instance.event_id)
+    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
     # Unclaim items when RSVP is deleted entirely
     unclaim_user_potluck_items(instance.event_id, instance.user_id)
 
@@ -140,7 +142,8 @@ def handle_ticket_visibility_and_potluck(
     - notifications.signals.ticket.handle_ticket_notifications: Sends notifications
     - notifications.signals.waitlist.handle_ticket_waitlist_logic: Manages waitlist removal
     """
-    build_attendee_visibility_flags.delay(str(instance.event_id))
+    event_id = str(instance.event_id)
+    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
 
     if instance.status == Ticket.TicketStatus.CANCELLED:
         unclaim_user_potluck_items(instance.event_id, instance.user_id)
@@ -152,7 +155,8 @@ def handle_ticket_delete(sender: type[Ticket], instance: Ticket, **kwargs: t.Any
 
     When a user's ticket is deleted entirely, we unclaim all potluck items they had claimed.
     """
-    build_attendee_visibility_flags.delay(str(instance.event_id))
+    event_id = str(instance.event_id)
+    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
     # Unclaim items when ticket is deleted
     unclaim_user_potluck_items(instance.event_id, instance.user_id)
 
@@ -160,7 +164,8 @@ def handle_ticket_delete(sender: type[Ticket], instance: Ticket, **kwargs: t.Any
 @receiver(post_delete, sender=EventInvitation)
 def handle_invitation_delete(sender: type[EventInvitation], instance: EventInvitation, **kwargs: t.Any) -> None:
     """Trigger visibility task after invitation is deleted."""
-    build_attendee_visibility_flags.delay(str(instance.event_id))
+    event_id = str(instance.event_id)
+    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(event_id))
 
 
 @receiver(post_save, sender=GeneralUserPreferences)
