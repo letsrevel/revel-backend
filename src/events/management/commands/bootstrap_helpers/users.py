@@ -1,6 +1,8 @@
 # src/events/management/commands/bootstrap_helpers/users.py
 """User creation for bootstrap process."""
 
+import random
+
 import structlog
 
 from accounts.models import RevelUser
@@ -9,10 +11,25 @@ from .base import BootstrapState
 
 logger = structlog.get_logger(__name__)
 
+# Pronouns list - None means no pronouns specified
+PRONOUNS_OPTIONS: list[str | None] = [
+    "he/him",
+    "she/her",
+    "they/them",
+    "he/they",
+    "she/they",
+    "any pronouns",
+    None,  # No pronouns specified
+    None,  # Weighted to have more users without pronouns
+]
+
 
 def create_users(state: BootstrapState) -> None:
     """Create a diverse pool of users with different roles."""
     logger.info("Creating users...")
+
+    # Use a fixed seed for consistent pronoun assignment across runs
+    rng = random.Random(42)
 
     user_data = [
         # Organization Alpha
@@ -36,6 +53,9 @@ def create_users(state: BootstrapState) -> None:
     ]
 
     for email, full_name, key in user_data:
+        # Pick random pronouns (may be None for no pronouns)
+        pronouns = rng.choice(PRONOUNS_OPTIONS)
+
         user = RevelUser.objects.create_user(
             username=email,
             password="password123",
@@ -47,7 +67,12 @@ def create_users(state: BootstrapState) -> None:
         if len(name_parts) >= 2:
             user.first_name = name_parts[0]
             user.last_name = " ".join(name_parts[1:])
-            user.save()
+
+        # Set pronouns if specified
+        if pronouns:
+            user.pronouns = pronouns
+
+        user.save()
 
         state.users[key] = user
 
