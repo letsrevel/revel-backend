@@ -450,6 +450,14 @@ class Ticket(TimeStampedModel):
         max_length=255,
         help_text="Name of the ticket holder (may differ from purchasing user).",
     )
+    price_paid = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Amount paid per ticket for PWYC offline/at_the_door purchases. "
+        "Null for online payments (stored in Payment.amount) or fixed-price tiers (use tier.price).",
+    )
 
     # Venue/seating (denormalized for fast access, validated for consistency)
     venue = models.ForeignKey(

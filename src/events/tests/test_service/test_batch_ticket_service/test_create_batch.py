@@ -454,3 +454,193 @@ class TestCreateBatchWithVenue:
             assert ticket.sector == sector
         assert tickets[0].seat == seats[0]
         assert tickets[1].seat == seats[1]
+
+
+class TestCreateBatchPWYC:
+    """Tests for create_batch with PWYC (Pay What You Can) tiers."""
+
+    @pytest.fixture
+    def event(self, organization: Organization) -> Event:
+        """Create a test event."""
+        return Event.objects.create(
+            organization=organization,
+            name="Test Event",
+            slug="test-event-pwyc",
+            event_type=Event.EventType.PUBLIC,
+            start=timezone.now() + timedelta(days=7),
+            status=Event.EventStatus.OPEN,
+            visibility=Event.Visibility.PUBLIC,
+            max_tickets_per_user=5,
+        )
+
+    @pytest.fixture
+    def pwyc_offline_tier(self, event: Event) -> TicketTier:
+        """Create a PWYC offline ticket tier."""
+        return TicketTier.objects.create(
+            event=event,
+            name="PWYC Offline",
+            price=Decimal("0.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            price_type=TicketTier.PriceType.PWYC,
+            pwyc_min=Decimal("5.00"),
+            pwyc_max=Decimal("50.00"),
+            total_quantity=100,
+        )
+
+    @pytest.fixture
+    def pwyc_at_the_door_tier(self, event: Event) -> TicketTier:
+        """Create a PWYC at-the-door ticket tier."""
+        return TicketTier.objects.create(
+            event=event,
+            name="PWYC At Door",
+            price=Decimal("0.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.AT_THE_DOOR,
+            price_type=TicketTier.PriceType.PWYC,
+            pwyc_min=Decimal("10.00"),
+            pwyc_max=Decimal("100.00"),
+            total_quantity=100,
+        )
+
+    @pytest.fixture
+    def pwyc_online_tier(self, event: Event) -> TicketTier:
+        """Create a PWYC online ticket tier."""
+        return TicketTier.objects.create(
+            event=event,
+            name="PWYC Online",
+            price=Decimal("0.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+            price_type=TicketTier.PriceType.PWYC,
+            pwyc_min=Decimal("5.00"),
+            pwyc_max=Decimal("50.00"),
+            total_quantity=100,
+        )
+
+    def test_pwyc_offline_stores_price_paid(
+        self,
+        event: Event,
+        pwyc_offline_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """PWYC offline checkout should store price_paid on tickets."""
+        service = BatchTicketService(event, pwyc_offline_tier, member_user)
+        items = [
+            TicketPurchaseItem(guest_name="Guest 1"),
+            TicketPurchaseItem(guest_name="Guest 2"),
+        ]
+        pwyc_amount = Decimal("25.00")
+
+        result = service.create_batch(items, price_override=pwyc_amount)
+
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert all(t.status == Ticket.TicketStatus.PENDING for t in result)
+        assert all(t.price_paid == pwyc_amount for t in result)
+
+    def test_pwyc_at_the_door_stores_price_paid(
+        self,
+        event: Event,
+        pwyc_at_the_door_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """PWYC at-the-door checkout should store price_paid on tickets."""
+        service = BatchTicketService(event, pwyc_at_the_door_tier, member_user)
+        items = [
+            TicketPurchaseItem(guest_name="Guest 1"),
+            TicketPurchaseItem(guest_name="Guest 2"),
+            TicketPurchaseItem(guest_name="Guest 3"),
+        ]
+        pwyc_amount = Decimal("75.50")
+
+        result = service.create_batch(items, price_override=pwyc_amount)
+
+        assert isinstance(result, list)
+        assert len(result) == 3
+        assert all(t.status == Ticket.TicketStatus.PENDING for t in result)
+        assert all(t.price_paid == pwyc_amount for t in result)
+
+    def test_pwyc_offline_without_price_override_stores_none(
+        self,
+        event: Event,
+        pwyc_offline_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """PWYC offline checkout without price_override should have price_paid=None."""
+        service = BatchTicketService(event, pwyc_offline_tier, member_user)
+        items = [TicketPurchaseItem(guest_name="Guest 1")]
+
+        result = service.create_batch(items)  # No price_override
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0].price_paid is None
+
+    @patch("events.service.stripe_service.create_batch_checkout_session")
+    def test_pwyc_online_does_not_store_price_paid(
+        self,
+        mock_stripe: MagicMock,
+        event: Event,
+        pwyc_online_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """PWYC online checkout should NOT store price_paid (handled by Stripe)."""
+        mock_stripe.return_value = "https://checkout.stripe.com/test"
+        service = BatchTicketService(event, pwyc_online_tier, member_user)
+        items = [TicketPurchaseItem(guest_name="Guest 1")]
+        pwyc_amount = Decimal("30.00")
+
+        result = service.create_batch(items, price_override=pwyc_amount)
+
+        assert result == "https://checkout.stripe.com/test"
+        # Verify price_override was passed to stripe
+        mock_stripe.assert_called_once()
+        call_kwargs = mock_stripe.call_args.kwargs
+        assert call_kwargs["price_override"] == pwyc_amount
+        # Verify ticket was created without price_paid (online uses Payment.amount)
+        ticket = Ticket.objects.get(event=event, user=member_user)
+        assert ticket.price_paid is None
+
+    def test_pwyc_offline_price_persists_in_database(
+        self,
+        event: Event,
+        pwyc_offline_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Price paid should be correctly persisted in database."""
+        service = BatchTicketService(event, pwyc_offline_tier, member_user)
+        items = [TicketPurchaseItem(guest_name="Persistence Test")]
+        pwyc_amount = Decimal("42.99")
+
+        result = service.create_batch(items, price_override=pwyc_amount)
+
+        assert isinstance(result, list)
+        # Verify via fresh DB query
+        ticket_from_db = Ticket.objects.get(pk=result[0].pk)
+        assert ticket_from_db.price_paid == pwyc_amount
+        assert ticket_from_db.guest_name == "Persistence Test"
+
+    def test_fixed_price_offline_does_not_use_price_paid(
+        self,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """Fixed-price offline tiers should not have price_paid set."""
+        fixed_tier = TicketTier.objects.create(
+            event=event,
+            name="Fixed Offline",
+            price=Decimal("30.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            price_type=TicketTier.PriceType.FIXED,
+            total_quantity=100,
+        )
+        service = BatchTicketService(event, fixed_tier, member_user)
+        items = [TicketPurchaseItem(guest_name="Fixed Price Guest")]
+
+        result = service.create_batch(items)
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0].price_paid is None  # No price_override passed
