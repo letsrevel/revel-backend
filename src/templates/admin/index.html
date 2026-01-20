@@ -74,9 +74,13 @@
             </div>
             <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6">
                 <h2 class="text-lg font-semibold mb-3 text-gray-800 dark:text-gray-200">Pronoun Distribution</h2>
-                <div class="h-64">
-                    <canvas id="pronounChart"></canvas>
-                </div>
+                {% if dashboard.pronoun_distribution.total > 0 %}
+                    <div class="h-64">
+                        <canvas id="pronounChart"></canvas>
+                    </div>
+                {% else %}
+                    <p class="text-gray-600 dark:text-gray-400">No pronoun data available</p>
+                {% endif %}
             </div>
         </div>
 
@@ -255,18 +259,22 @@
 {% block extrahead %}
     {{ block.super }}
     {% if dashboard %}
+    {# Safe JSON serialization for chart data #}
+    {{ dashboard.user_growth|json_script:"user-growth-data" }}
+    {{ dashboard.pronoun_distribution|json_script:"pronoun-distribution-data" }}
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // User Growth Line Chart
             const userGrowthCtx = document.getElementById('userGrowthChart');
             if (userGrowthCtx) {
+                const userGrowthData = JSON.parse(document.getElementById('user-growth-data').textContent);
                 new Chart(userGrowthCtx, {
                     type: 'line',
                     data: {
-                        labels: {{ dashboard.user_growth.labels|safe }},
+                        labels: userGrowthData.labels,
                         datasets: [{
                             label: 'New Users',
-                            data: {{ dashboard.user_growth.data|safe }},
+                            data: userGrowthData.data,
                             borderColor: '#3b82f6',
                             backgroundColor: 'rgba(59, 130, 246, 0.1)',
                             tension: 0.4,
@@ -292,8 +300,9 @@
             // Pronoun Distribution Pie Chart
             const pronounCtx = document.getElementById('pronounChart');
             if (pronounCtx) {
-                const pronounLabels = {{ dashboard.pronoun_distribution.labels|safe }};
-                const pronounData = {{ dashboard.pronoun_distribution.data|safe }};
+                const pronounDistribution = JSON.parse(document.getElementById('pronoun-distribution-data').textContent);
+                const pronounLabels = pronounDistribution.labels;
+                const pronounData = pronounDistribution.data;
 
                 // Generate colors for each segment
                 const colors = [

@@ -42,6 +42,7 @@ def _get_pronoun_distribution() -> dict[str, t.Any]:
     return {
         "labels": labels,
         "data": data,
+        "total": sum(data),
     }
 
 
