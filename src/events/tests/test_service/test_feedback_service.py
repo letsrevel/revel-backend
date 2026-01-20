@@ -16,7 +16,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events.models import (
     Event,
-    EventFeedbackSubmission,
+    EventQuestionnaireSubmission,
     EventRSVP,
     Organization,
     OrganizationQuestionnaire,
@@ -639,11 +639,12 @@ class TestUserAlreadySubmittedFeedback:
             user=feedback_user,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         )
-        EventFeedbackSubmission.objects.create(
+        EventQuestionnaireSubmission.objects.create(
             event=past_event,
             user=feedback_user,
             questionnaire=feedback_questionnaire,
             submission=submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
         )
 
         result = feedback_service.user_already_submitted_feedback(feedback_user, past_event, feedback_questionnaire)
@@ -662,11 +663,12 @@ class TestUserAlreadySubmittedFeedback:
             user=feedback_user,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         )
-        EventFeedbackSubmission.objects.create(
+        EventQuestionnaireSubmission.objects.create(
             event=future_event,  # Different event
             user=feedback_user,
             questionnaire=feedback_questionnaire,
             submission=submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
         )
 
         result = feedback_service.user_already_submitted_feedback(feedback_user, past_event, feedback_questionnaire)
@@ -689,79 +691,39 @@ class TestUserAlreadySubmittedFeedback:
             user=feedback_user,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         )
-        EventFeedbackSubmission.objects.create(
+        EventQuestionnaireSubmission.objects.create(
             event=past_event,
             user=feedback_user,
             questionnaire=other_q,  # Different questionnaire
             submission=submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
         )
 
         result = feedback_service.user_already_submitted_feedback(feedback_user, past_event, feedback_questionnaire)
         assert result is False
 
-
-# --- create_feedback_submission_record tests ---
-
-
-class TestCreateFeedbackSubmissionRecord:
-    """Tests for create_feedback_submission_record function."""
-
-    def test_creates_record(
+    def test_ignores_non_feedback_submissions(
         self,
         past_event: Event,
         feedback_user: RevelUser,
         feedback_questionnaire: Questionnaire,
     ) -> None:
-        """Should create a new EventFeedbackSubmission record."""
+        """Non-feedback submissions should not affect feedback submission check."""
         submission = QuestionnaireSubmission.objects.create(
             questionnaire=feedback_questionnaire,
             user=feedback_user,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         )
-
-        record, created = feedback_service.create_feedback_submission_record(
-            feedback_user, past_event, feedback_questionnaire, submission
-        )
-
-        assert created is True
-        assert record.event == past_event
-        assert record.user == feedback_user
-        assert record.questionnaire == feedback_questionnaire
-        assert record.submission == submission
-
-    def test_returns_existing_record_on_duplicate(
-        self,
-        past_event: Event,
-        feedback_user: RevelUser,
-        feedback_questionnaire: Questionnaire,
-    ) -> None:
-        """Should return existing record without creating duplicate."""
-        submission1 = QuestionnaireSubmission.objects.create(
-            questionnaire=feedback_questionnaire,
-            user=feedback_user,
-            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
-        )
-        existing_record = EventFeedbackSubmission.objects.create(
+        EventQuestionnaireSubmission.objects.create(
             event=past_event,
             user=feedback_user,
             questionnaire=feedback_questionnaire,
-            submission=submission1,
+            submission=submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,  # Not feedback!
         )
 
-        # Try to create another submission for the same event/user/questionnaire
-        submission2 = QuestionnaireSubmission.objects.create(
-            questionnaire=feedback_questionnaire,
-            user=feedback_user,
-            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
-        )
-
-        record, created = feedback_service.create_feedback_submission_record(
-            feedback_user, past_event, feedback_questionnaire, submission2
-        )
-
-        assert created is False
-        assert record.id == existing_record.id
-        assert record.submission == submission1  # Original submission
+        result = feedback_service.user_already_submitted_feedback(feedback_user, past_event, feedback_questionnaire)
+        assert result is False  # Should not detect the admission submission
 
 
 # --- validate_feedback_questionnaire_access (already_submitted) tests ---
@@ -791,11 +753,12 @@ class TestValidateFeedbackQuestionnaireAccessAlreadySubmitted:
             user=feedback_user,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         )
-        EventFeedbackSubmission.objects.create(
+        EventQuestionnaireSubmission.objects.create(
             event=past_event,
             user=feedback_user,
             questionnaire=feedback_questionnaire,
             submission=submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
         )
 
         with pytest.raises(HttpError) as exc_info:
@@ -826,11 +789,12 @@ class TestValidateFeedbackQuestionnaireAccessAlreadySubmitted:
             user=feedback_user,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         )
-        EventFeedbackSubmission.objects.create(
+        EventQuestionnaireSubmission.objects.create(
             event=past_event,
             user=feedback_user,
             questionnaire=feedback_questionnaire,
             submission=submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
         )
 
         # Should not raise with check_already_submitted=False
@@ -865,11 +829,12 @@ class TestGetFeedbackQuestionnairesExcludesSubmitted:
             user=feedback_user,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         )
-        EventFeedbackSubmission.objects.create(
+        EventQuestionnaireSubmission.objects.create(
             event=past_event,
             user=feedback_user,
             questionnaire=feedback_questionnaire,
             submission=submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
         )
 
         result = feedback_service.get_feedback_questionnaires_for_user(past_event, feedback_user)
@@ -897,11 +862,12 @@ class TestGetFeedbackQuestionnairesExcludesSubmitted:
             user=feedback_user,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         )
-        EventFeedbackSubmission.objects.create(
+        EventQuestionnaireSubmission.objects.create(
             event=past_event,
             user=feedback_user,
             questionnaire=feedback_questionnaire,
             submission=submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
         )
 
         # Create another feedback questionnaire (not yet submitted)
@@ -919,3 +885,36 @@ class TestGetFeedbackQuestionnairesExcludesSubmitted:
         result = feedback_service.get_feedback_questionnaires_for_user(past_event, feedback_user)
 
         assert result == [q2.id]
+
+    def test_ignores_non_feedback_submissions_when_excluding(
+        self,
+        past_event: Event,
+        feedback_user: RevelUser,
+        feedback_org_questionnaire: OrganizationQuestionnaire,
+        feedback_questionnaire: Questionnaire,
+    ) -> None:
+        """Non-feedback submissions should not exclude feedback questionnaires."""
+        EventRSVP.objects.create(
+            event=past_event,
+            user=feedback_user,
+            status=EventRSVP.RsvpStatus.YES,
+        )
+
+        # Create an ADMISSION submission for the same questionnaire
+        submission = QuestionnaireSubmission.objects.create(
+            questionnaire=feedback_questionnaire,
+            user=feedback_user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        )
+        EventQuestionnaireSubmission.objects.create(
+            event=past_event,
+            user=feedback_user,
+            questionnaire=feedback_questionnaire,
+            submission=submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,  # Not feedback!
+        )
+
+        result = feedback_service.get_feedback_questionnaires_for_user(past_event, feedback_user)
+
+        # Should still return the feedback questionnaire since admission submission doesn't count
+        assert result == [feedback_questionnaire.id]

@@ -15,9 +15,8 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from common.utils import get_or_create_with_race_protection
-from events.models import Event, EventFeedbackSubmission, EventRSVP, OrganizationQuestionnaire, Ticket
-from questionnaires.models import Questionnaire, QuestionnaireSubmission
+from events.models import Event, EventQuestionnaireSubmission, EventRSVP, OrganizationQuestionnaire, Ticket
+from questionnaires.models import Questionnaire
 
 
 def user_attended_event(user: RevelUser, event: Event) -> bool:
@@ -69,10 +68,11 @@ def user_already_submitted_feedback(
     Returns:
         True if user already submitted feedback, False otherwise.
     """
-    return EventFeedbackSubmission.objects.filter(
+    return EventQuestionnaireSubmission.objects.filter(
         user=user,
         event=event,
         questionnaire=questionnaire,
+        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
     ).exists()
 
 
@@ -158,10 +158,11 @@ def get_feedback_questionnaires_for_user(
     if event.event_series_id:
         filter_q |= Q(event_series=event.event_series_id)
 
-    # Get questionnaire IDs user has already submitted for this event
-    already_submitted = EventFeedbackSubmission.objects.filter(
+    # Get questionnaire IDs user has already submitted feedback for this event
+    already_submitted = EventQuestionnaireSubmission.objects.filter(
         user=user,
         event=event,
+        questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
     ).values_list("questionnaire_id", flat=True)
 
     # Get FEEDBACK questionnaires for this event, excluding already submitted
@@ -193,36 +194,3 @@ def validate_not_feedback_questionnaire_for_evaluation(
     """
     if org_questionnaire.questionnaire_type == OrganizationQuestionnaire.QuestionnaireType.FEEDBACK:
         raise HttpError(400, str(_("Feedback questionnaires cannot be evaluated.")))
-
-
-def create_feedback_submission_record(
-    user: RevelUser,
-    event: Event,
-    questionnaire: Questionnaire,
-    submission: QuestionnaireSubmission,
-) -> tuple[EventFeedbackSubmission, bool]:
-    """Create a feedback submission tracking record.
-
-    Uses race condition protection to handle concurrent submissions.
-    If the record already exists (due to a race condition), the existing
-    record is returned and the created flag is False.
-
-    Args:
-        user: The user who submitted.
-        event: The event the feedback is for.
-        questionnaire: The questionnaire being submitted.
-        submission: The questionnaire submission.
-
-    Returns:
-        Tuple of (EventFeedbackSubmission, created_flag).
-    """
-    return get_or_create_with_race_protection(
-        EventFeedbackSubmission,
-        Q(user=user, event=event, questionnaire=questionnaire),
-        {
-            "user": user,
-            "event": event,
-            "questionnaire": questionnaire,
-            "submission": submission,
-        },
-    )

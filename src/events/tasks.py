@@ -22,7 +22,6 @@ from django.utils.translation import gettext as _
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from common.tasks import send_email
-from events.service import update_db_instance
 
 from .models import (
     AttendeeVisibilityFlag,
@@ -41,6 +40,17 @@ def build_attendee_visibility_flags(event_id: str) -> None:
     """A task that builds flags for attendee visibility events."""
     from .service.user_preferences_service import resolve_visibility
 
+    # Update attendee count atomically with a lock to prevent race conditions.
+    # Multiple tasks may run concurrently when tickets are confirmed rapidly;
+    # this ensures the count is read and written while holding the lock.
+    with transaction.atomic():
+        event = Event.objects.with_organization().select_for_update().get(pk=event_id)
+        ticket_count = Ticket.objects.filter(event=event, status=Ticket.TicketStatus.ACTIVE).count()
+        rsvp_count = EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).count()
+        event.attendee_count = ticket_count + rsvp_count
+        event.save(update_fields=["attendee_count"])
+
+    # Re-fetch event without lock for visibility flag building (read-only operations)
     event = Event.objects.with_organization().get(pk=event_id)
 
     # Users attending the event (for visibility purposes)
@@ -49,13 +59,6 @@ def build_attendee_visibility_flags(event_id: str) -> None:
     )
 
     attendees = RevelUser.objects.filter(attendees_q).distinct()
-
-    # Count actual attendees: tickets (each ticket = one person) + YES RSVPs
-    ticket_count = Ticket.objects.filter(event=event, status=Ticket.TicketStatus.ACTIVE).count()
-    rsvp_count = EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).count()
-    attendee_count = ticket_count + rsvp_count
-
-    update_db_instance(event, attendee_count=attendee_count)
 
     # Users invited or attending = potential viewers
     viewers = RevelUser.objects.filter(Q(invitations__event=event) | attendees_q).distinct()
