@@ -137,7 +137,7 @@ def user_image_file(nonmember_user: RevelUser, png_bytes: bytes) -> Questionnair
 class TestSubmitQuestionnaireWithFileUpload:
     """Tests for submitting questionnaires with file upload answers."""
 
-    @patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+    @patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
     def test_submit_with_optional_file_upload(
         self,
         mock_evaluate_task: MagicMock,
@@ -184,7 +184,7 @@ class TestSubmitQuestionnaireWithFileUpload:
         assert fu_answer is not None
         assert fu_answer.files.count() == 1
 
-    @patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+    @patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
     def test_submit_without_optional_file_upload(
         self,
         mock_evaluate_task: MagicMock,
@@ -288,7 +288,7 @@ class TestSubmitQuestionnaireWithFileUpload:
         assert "has type" in response.json()["detail"]
         assert "which is not allowed" in response.json()["detail"]
 
-    @patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+    @patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
     def test_submit_succeeds_with_valid_mime_type(
         self,
         mock_evaluate_task: MagicMock,

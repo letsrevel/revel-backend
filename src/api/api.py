@@ -13,9 +13,9 @@ from common.schema import LegalSchema, ResponseOk, VersionResponse
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle
 from events.controllers.dashboard import DashboardController
 from events.controllers.event_admin import EVENT_ADMIN_CONTROLLERS
+from events.controllers.event_public import EVENT_PUBLIC_CONTROLLERS
 from events.controllers.event_series import EventSeriesController
 from events.controllers.event_series_admin import EventSeriesAdminController
-from events.controllers.events import EventController
 from events.controllers.following import FollowingController
 from events.controllers.organization import OrganizationController
 from events.controllers.organization_admin import ORGANIZATION_ADMIN_CONTROLLERS
@@ -111,7 +111,7 @@ api.register_controllers(
     DashboardController,
     OrganizationController,
     *ORGANIZATION_ADMIN_CONTROLLERS,
-    EventController,
+    *EVENT_PUBLIC_CONTROLLERS,
     *EVENT_ADMIN_CONTROLLERS,
     PermissionController,
     EventSeriesController,

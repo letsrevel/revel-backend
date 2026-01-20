@@ -62,7 +62,7 @@ def test_get_nonexistent_questionnaire_fails(nonmember_client: Client, public_ev
     assert response.status_code == 404
 
 
-@patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+@patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
 def test_submit_questionnaire_success_no_auto_eval(
     mock_evaluate_task: MagicMock,
     nonmember_client: Client,
@@ -93,7 +93,7 @@ def test_submit_questionnaire_success_no_auto_eval(
     mock_evaluate_task.assert_called_once_with(str(submission.pk))  # type: ignore[union-attr]
 
 
-@patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+@patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
 def test_submit_questionnaire_success_with_auto_eval(
     mock_evaluate_task: MagicMock,
     nonmember_client: Client,
@@ -185,7 +185,7 @@ def test_submit_questionnaire_fails_after_deadline(
     assert QuestionnaireSubmission.objects.count() == 0
 
 
-@patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+@patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
 def test_submit_questionnaire_succeeds_before_deadline(
     mock_evaluate_task: MagicMock,
     nonmember_client: Client,
@@ -214,7 +214,7 @@ def test_submit_questionnaire_succeeds_before_deadline(
     assert QuestionnaireSubmission.objects.count() == 1
 
 
-@patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+@patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
 def test_submit_questionnaire_succeeds_without_deadline_when_event_in_future(
     mock_evaluate_task: MagicMock,
     nonmember_client: Client,
@@ -242,7 +242,7 @@ def test_submit_questionnaire_succeeds_without_deadline_when_event_in_future(
     assert QuestionnaireSubmission.objects.count() == 1
 
 
-@patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+@patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
 def test_submit_questionnaire_fails_when_event_start_passed(
     mock_evaluate_task: MagicMock,
     nonmember_client: Client,
