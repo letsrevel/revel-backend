@@ -369,7 +369,7 @@ class TestSubmitFeedbackQuestionnaire:
         assert response.status_code == 403
         assert "events you attended" in response.json()["detail"]
 
-    @patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+    @patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
     def test_succeeds_and_skips_evaluation(
         self,
         mock_evaluate_task: MagicMock,
@@ -411,7 +411,7 @@ class TestSubmitFeedbackQuestionnaire:
         # Evaluation should NOT be triggered for feedback questionnaires
         mock_evaluate_task.assert_not_called()
 
-    @patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+    @patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
     def test_feedback_does_not_check_deadline(
         self,
         mock_evaluate_task: MagicMock,
@@ -455,7 +455,7 @@ class TestSubmitFeedbackQuestionnaire:
         # Should succeed because deadline check is skipped for feedback
         assert response.status_code == 200
 
-    @patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+    @patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
     def test_creates_feedback_submission_record(
         self,
         mock_evaluate_task: MagicMock,
@@ -501,7 +501,7 @@ class TestSubmitFeedbackQuestionnaire:
             questionnaire=questionnaire,
         ).exists()
 
-    @patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+    @patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
     def test_second_submission_fails_with_403(
         self,
         mock_evaluate_task: MagicMock,
@@ -546,7 +546,7 @@ class TestSubmitFeedbackQuestionnaire:
         assert response2.status_code == 403
         assert "already submitted" in response2.json()["detail"]
 
-    @patch("events.controllers.events.evaluate_questionnaire_submission.delay")
+    @patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
     def test_draft_submission_does_not_create_record(
         self,
         mock_evaluate_task: MagicMock,
