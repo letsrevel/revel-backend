@@ -525,6 +525,48 @@ def test_user_with_both_ticket_and_rsvp_counted_once(
     assert result.total_with_pronouns == 1
 
 
+def test_rsvp_only_event_no_tickets_exist(
+    event: Event,
+    django_user_model: type[RevelUser],
+) -> None:
+    """Test that when event has no tickets at all, only YES RSVPs are counted.
+
+    Regression test: ~Q() with empty ticket joins was incorrectly matching all users.
+    """
+    event.requires_ticket = False
+    event.save()
+
+    # Create users with different RSVP statuses
+    yes_user1 = django_user_model.objects.create_user(
+        username="yes1@example.com", email="yes1@example.com", password="pass", pronouns="she/her"
+    )
+    yes_user2 = django_user_model.objects.create_user(
+        username="yes2@example.com", email="yes2@example.com", password="pass", pronouns="he/him"
+    )
+    maybe_user = django_user_model.objects.create_user(
+        username="maybe@example.com", email="maybe@example.com", password="pass", pronouns="they/them"
+    )
+    no_user = django_user_model.objects.create_user(
+        username="no@example.com", email="no@example.com", password="pass", pronouns="she/they"
+    )
+
+    EventRSVP.objects.create(event=event, user=yes_user1, status=EventRSVP.RsvpStatus.YES)
+    EventRSVP.objects.create(event=event, user=yes_user2, status=EventRSVP.RsvpStatus.YES)
+    EventRSVP.objects.create(event=event, user=maybe_user, status=EventRSVP.RsvpStatus.MAYBE)
+    EventRSVP.objects.create(event=event, user=no_user, status=EventRSVP.RsvpStatus.NO)
+
+    # Verify no tickets exist
+    assert Ticket.objects.filter(event=event).count() == 0
+
+    result = event_service.get_event_pronoun_distribution(event)
+
+    # Should only count the 2 YES RSVPs
+    assert result.total_attendees == 2
+    assert result.total_with_pronouns == 2
+    pronouns_set = {p.pronouns for p in result.distribution}
+    assert pronouns_set == {"she/her", "he/him"}
+
+
 def test_distribution_ordered_by_count_descending(
     event: Event,
     django_user_model: type[RevelUser],

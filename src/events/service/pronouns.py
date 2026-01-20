@@ -22,12 +22,18 @@ def get_event_pronoun_distribution(event: Event) -> EventPronounDistributionSche
         EventPronounDistributionSchema with distribution and totals
     """
     # Build filter for tickets that count as attendance:
-    # - Active status for online payment
-    # - Any non-cancelled status for offline/at_the_door/free
+    # - Online payment: must be ACTIVE status
+    # - Non-online payment (offline/at_the_door/free): any non-cancelled status
     non_online_methods = [
         TicketTier.PaymentMethod.OFFLINE,
         TicketTier.PaymentMethod.AT_THE_DOOR,
         TicketTier.PaymentMethod.FREE,
+    ]
+
+    valid_non_online_statuses = [
+        Ticket.TicketStatus.ACTIVE,
+        Ticket.TicketStatus.PENDING,
+        Ticket.TicketStatus.CHECKED_IN,
     ]
 
     ticket_filter = Q(
@@ -36,24 +42,18 @@ def get_event_pronoun_distribution(event: Event) -> EventPronounDistributionSche
     ) | Q(
         tickets__event=event,
         tickets__tier__payment_method__in=non_online_methods,
-    )
-    # Exclude cancelled tickets for non-online methods
-    ticket_filter &= ~Q(
-        tickets__event=event,
-        tickets__status=Ticket.TicketStatus.CANCELLED,
-        tickets__tier__payment_method__in=non_online_methods,
+        tickets__status__in=valid_non_online_statuses,
     )
 
     rsvp_filter = Q(rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES)
 
-    # Get attendees with pronoun counts in a single query
-    # Uses conditional aggregation to count pronouns efficiently
+    # Get distinct attendee IDs first, then aggregate
+    # Note: .distinct() before .values().annotate() doesn't work as expected
+    # because GROUP BY ignores the DISTINCT. We need to filter by IDs instead.
+    attendee_ids = RevelUser.objects.filter(ticket_filter | rsvp_filter).distinct().values_list("id", flat=True)
+
     attendee_qs = (
-        RevelUser.objects.filter(ticket_filter | rsvp_filter)
-        .distinct()
-        .values("pronouns")
-        .annotate(count=Count("id"))
-        .order_by("-count")
+        RevelUser.objects.filter(id__in=attendee_ids).values("pronouns").annotate(count=Count("id")).order_by("-count")
     )
 
     distribution: list[PronounCountSchema] = []
