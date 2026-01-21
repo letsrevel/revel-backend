@@ -49,7 +49,8 @@ class EventPublicAttendanceController(EventPublicBaseController):
         - `tickets`: List of user's tickets (PENDING, ACTIVE, or CANCELLED)
         - `rsvp`: User's RSVP status (for non-ticketed events)
         - `can_purchase_more`: Whether user can purchase additional tickets
-        - `remaining_tickets`: How many more tickets user can purchase (null = unlimited)
+        - `remaining_tickets`: Per-tier remaining ticket counts. Each item has `tier_id` and
+          `remaining` (int or null for unlimited). Empty list for RSVP-only events.
         - `feedback_questionnaires`: Questionnaire IDs available for feedback (only after event ends)
 
         Use this to determine which action to show users (buy more tickets, view tickets,
@@ -67,7 +68,10 @@ class EventPublicAttendanceController(EventPublicBaseController):
                 tickets=[schema.UserTicketSchema.from_orm(t) for t in status.tickets],
                 rsvp=schema.EventRSVPSchema.from_orm(status.rsvp) if status.rsvp else None,
                 can_purchase_more=status.can_purchase_more,
-                remaining_tickets=status.remaining_tickets,
+                remaining_tickets=[
+                    schema.TierRemainingTicketsSchema(tier_id=r.tier_id, remaining=r.remaining, sold_out=r.sold_out)
+                    for r in status.remaining_tickets
+                ],
                 feedback_questionnaires=feedback_questionnaire_ids,
             )
 

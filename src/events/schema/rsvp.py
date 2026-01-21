@@ -89,6 +89,20 @@ class UserRSVPSchema(ModelSchema):
         fields = ["id", "status", "created_at", "updated_at"]
 
 
+class TierRemainingTicketsSchema(Schema):
+    """Remaining tickets for a specific tier.
+
+    Attributes:
+        tier_id: The tier's UUID.
+        remaining: How many more tickets the user can purchase (None = unlimited).
+        sold_out: Whether the tier itself is sold out (no inventory remaining).
+    """
+
+    tier_id: UUID
+    remaining: int | None = None  # None = unlimited
+    sold_out: bool = False
+
+
 class EventUserStatusResponse(Schema):
     """Response for user's status at an event.
 
@@ -96,12 +110,12 @@ class EventUserStatusResponse(Schema):
     - Tickets: List of user's tickets for this event (if any)
     - RSVP: User's RSVP status (for non-ticketed events)
     - Eligibility: Whether user can purchase tickets and why not
-    - Purchase limits: How many more tickets can be purchased
+    - Purchase limits: Per-tier remaining tickets accounting for user, tier, and event capacity
     - Feedback questionnaires: Available after event ends for attendees
     """
 
     tickets: list[UserTicketSchema] = Field(default_factory=list)
     rsvp: EventRSVPSchema | None = None
     can_purchase_more: bool = True
-    remaining_tickets: int | None = None  # None = unlimited
+    remaining_tickets: list[TierRemainingTicketsSchema] = Field(default_factory=list)
     feedback_questionnaires: list[UUID] = Field(default_factory=list)

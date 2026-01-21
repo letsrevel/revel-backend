@@ -2,22 +2,42 @@ from __future__ import annotations
 
 import typing as t
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from decimal import Decimal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import Count, F
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, EventRSVP, MembershipTier, Ticket, TicketTier
+from events.models import Event, EventInvitation, EventRSVP, MembershipTier, OrganizationMember, Ticket, TicketTier
+from events.models.mixins import VisibilityMixin
 from events.service import stripe_service
 
 if t.TYPE_CHECKING:
     from events.service.event_manager import EventUserEligibility
+
+
+@dataclass
+class TierRemainingTickets:
+    """Remaining tickets for a specific tier.
+
+    Attributes:
+        tier_id: The tier's UUID.
+        remaining: How many more tickets the user can purchase (None = unlimited).
+            This is based on user's personal limit and event capacity.
+        sold_out: Whether the tier itself is sold out (no inventory remaining).
+            This is independent of remaining - a user might have personal quota
+            but the tier could still be sold out.
+    """
+
+    tier_id: UUID
+    remaining: int | None  # None = unlimited
+    sold_out: bool = False
 
 
 @dataclass
@@ -27,7 +47,155 @@ class UserEventStatus:
     tickets: list[Ticket]
     rsvp: EventRSVP | None = None
     can_purchase_more: bool = True
-    remaining_tickets: int | None = None  # None = unlimited
+    remaining_tickets: list[TierRemainingTickets] = dataclass_field(default_factory=list)
+
+
+def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
+    """Get ticket tiers the user is eligible to purchase from.
+
+    A tier is eligible if ALL of these pass:
+    1. Visibility check: user can see the tier (PUBLIC, MEMBERS_ONLY for members,
+       PRIVATE for invited users, or user is org staff/owner)
+    2. Sales window: currently within the tier's sales window
+    3. Purchasable_by check: user is allowed to purchase (PUBLIC, MEMBERS for members,
+       INVITED for invitees, INVITED_AND_MEMBERS for either)
+    4. Membership tier restriction: user has the required membership tier (if restricted)
+
+    Note:
+        This function differs from EventManager.check_eligibility() in purpose:
+        - check_eligibility() determines if user can ACCESS the event at all (blacklist,
+          event status, invitation requirements, questionnaires, etc.)
+        - get_eligible_tiers() determines which TIERS user can purchase from, assuming
+          they already have event access.
+
+        The caller should ensure event.organization is prefetched to avoid an extra query.
+
+    Args:
+        event: The event to check tiers for. Should have organization prefetched.
+        user: The user to check eligibility for.
+
+    Returns:
+        List of TicketTier objects the user is eligible to purchase.
+    """
+    now = timezone.now()
+    org = event.organization
+
+    # Pre-fetch user context (single queries, not in loop)
+    is_org_owner = org.owner_id == user.id
+    is_org_staff = org.staff_members.filter(id=user.id).exists()
+    is_staff_or_owner = is_org_owner or is_org_staff
+
+    # Get user's active membership for this organization
+    user_membership = OrganizationMember.objects.filter(
+        organization=org,
+        user=user,
+        status=OrganizationMember.MembershipStatus.ACTIVE,
+    ).first()
+    is_member = user_membership is not None
+    user_membership_tier_ids = {user_membership.tier_id} if user_membership and user_membership.tier_id else set()
+
+    # Check if user is invited to this event
+    invitation = EventInvitation.objects.filter(event=event, user=user).first()
+    is_invited = invitation is not None
+
+    eligible: list[TicketTier] = []
+
+    # Prefetch restricted_to_membership_tiers to avoid N+1 queries
+    for tier in event.ticket_tiers.prefetch_related("restricted_to_membership_tiers").all():
+        # 1. Check visibility
+        if not _check_tier_visibility(tier, is_staff_or_owner, is_member, is_invited):
+            continue
+
+        # 2. Check sales window
+        if tier.sales_start_at and now < tier.sales_start_at:
+            continue
+        if tier.sales_end_at and now > tier.sales_end_at:
+            continue
+
+        # 3. Check purchasable_by (who is allowed to purchase)
+        if not _check_purchasable_by(tier, is_member, is_invited):
+            continue
+
+        # 4. Check membership tier restriction
+        required_tier_ids = {mt.id for mt in tier.restricted_to_membership_tiers.all()}
+        if required_tier_ids and not (user_membership_tier_ids & required_tier_ids):
+            continue
+
+        eligible.append(tier)
+
+    return eligible
+
+
+def _check_tier_visibility(
+    tier: TicketTier,
+    is_staff_or_owner: bool,
+    is_member: bool,
+    is_invited: bool,
+) -> bool:
+    """Check if user can see the tier based on visibility settings.
+
+    Args:
+        tier: The ticket tier to check.
+        is_staff_or_owner: Whether user is org staff or owner.
+        is_member: Whether user is an active org member.
+        is_invited: Whether user has an invitation to the event.
+
+    Returns:
+        True if user can see the tier.
+    """
+    # Staff/owners can see all tiers
+    if is_staff_or_owner:
+        return True
+
+    visibility = tier.visibility
+
+    if visibility == VisibilityMixin.Visibility.PUBLIC:
+        return True
+
+    if visibility == VisibilityMixin.Visibility.MEMBERS_ONLY:
+        return is_member
+
+    if visibility == VisibilityMixin.Visibility.PRIVATE:
+        return is_invited
+
+    # STAFF_ONLY - only staff/owner (already checked above)
+    return False
+
+
+def _check_purchasable_by(
+    tier: TicketTier,
+    is_member: bool,
+    is_invited: bool,
+) -> bool:
+    """Check if user is allowed to purchase from this tier based on purchasable_by setting.
+
+    Note: Staff/owners are NOT exempt from purchasable_by restrictions. This is intentional:
+    while they can SEE all tiers (visibility), they must still meet purchase requirements.
+    A tier restricted to members-only requires staff to also be members to purchase.
+
+    Args:
+        tier: The ticket tier to check.
+        is_member: Whether user is an active org member.
+        is_invited: Whether user has an invitation to the event.
+
+    Returns:
+        True if user can purchase from this tier.
+    """
+    purchasable_by = tier.purchasable_by
+
+    if purchasable_by == TicketTier.PurchasableBy.PUBLIC:
+        return True
+
+    if purchasable_by == TicketTier.PurchasableBy.MEMBERS:
+        return is_member
+
+    if purchasable_by == TicketTier.PurchasableBy.INVITED:
+        return is_invited
+
+    if purchasable_by == TicketTier.PurchasableBy.INVITED_AND_MEMBERS:
+        return is_member or is_invited
+
+    return False
 
 
 def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | EventUserEligibility:
@@ -51,17 +219,47 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
     tickets = list(Ticket.objects.full().filter(event=event, user_id=user.id).order_by("-created_at"))
 
     if tickets and event.requires_ticket:
-        # Calculate remaining purchase capacity (use first tier for default limits)
-        first_tier = tickets[0].tier
-        remaining: int | None = None
-        if first_tier:
-            service = BatchTicketService(event, first_tier, user)
-            remaining = service.get_remaining_tickets()
+        # Calculate event-level capacity remaining (once, to avoid N+1)
+        event_capacity_remaining: int | None = None
+        if event.max_attendees > 0:
+            total_sold = Ticket.objects.filter(event=event).exclude(status=Ticket.TicketStatus.CANCELLED).count()
+            event_capacity_remaining = max(0, event.max_attendees - total_sold)
+
+        # Pre-compute user's ticket counts per tier in ONE query (avoids N+1)
+        user_ticket_counts: dict[UUID, int] = dict(
+            Ticket.objects.filter(
+                event=event,
+                user=user,
+                status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
+            )
+            .values("tier_id")
+            .annotate(count=Count("id"))
+            .values_list("tier_id", "count")
+        )
+
+        # Get all eligible tiers for this user and calculate remaining for each
+        eligible_tiers = get_eligible_tiers(event, user)
+        remaining_list: list[TierRemainingTickets] = []
+
+        for tier in eligible_tiers:
+            service = BatchTicketService(event, tier, user)
+            tier_count = user_ticket_counts.get(tier.id, 0)
+            remaining = service.get_remaining_tickets(event_capacity_remaining, user_ticket_count=tier_count)
+
+            # Check if tier is sold out (total_quantity - quantity_sold <= 0)
+            tier_sold_out = False
+            if tier.total_quantity is not None:
+                tier_sold_out = (tier.total_quantity - tier.quantity_sold) <= 0
+
+            remaining_list.append(TierRemainingTickets(tier_id=tier.id, remaining=remaining, sold_out=tier_sold_out))
+
+        # can_purchase_more is True if any tier has remaining quota AND is not sold out
+        can_purchase = any((r.remaining is None or r.remaining > 0) and not r.sold_out for r in remaining_list)
 
         return UserEventStatus(
             tickets=tickets,
-            can_purchase_more=remaining is None or remaining > 0,
-            remaining_tickets=remaining,
+            can_purchase_more=can_purchase,
+            remaining_tickets=remaining_list,
         )
 
     # Check for RSVP (non-ticketed events)

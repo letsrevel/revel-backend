@@ -229,3 +229,76 @@ class TestGetRemainingTickets:
             )
         service = BatchTicketService(event, tier, member_user)
         assert service.get_remaining_tickets() == 0
+
+    def test_respects_event_capacity_parameter(
+        self,
+        event: Event,
+        tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Should limit by event capacity when passed as parameter."""
+        # Per-user limit is 3, but event only has 2 spots left
+        service = BatchTicketService(event, tier, member_user)
+        assert service.get_remaining_tickets(event_capacity_remaining=2) == 2
+
+    def test_returns_min_of_user_and_event_limits(
+        self,
+        event: Event,
+        tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Should return minimum of per-user and event capacity limits."""
+        # Per-user: 3
+        # Event: 10 remaining (passed as parameter)
+        service = BatchTicketService(event, tier, member_user)
+        # min(3, 10) = 3
+        assert service.get_remaining_tickets(event_capacity_remaining=10) == 3
+
+    def test_event_capacity_as_most_restrictive(
+        self,
+        event: Event,
+        tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Should return event capacity when it's the most restrictive."""
+        # Per-user: 3
+        # Event: only 1 spot left
+        service = BatchTicketService(event, tier, member_user)
+        assert service.get_remaining_tickets(event_capacity_remaining=1) == 1
+
+    def test_unlimited_when_all_limits_none(
+        self,
+        event: Event,
+        tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Should return None when all limits are unlimited."""
+        event.max_tickets_per_user = None
+        event.save()
+        tier.max_tickets_per_user = None
+        tier.save()
+
+        service = BatchTicketService(event, tier, member_user)
+        # No event_capacity_remaining passed = unlimited
+        assert service.get_remaining_tickets() is None
+
+    def test_does_not_include_tier_capacity(
+        self,
+        event: Event,
+        tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Should NOT include tier capacity - that's handled by _assert_tier_capacity.
+
+        Tier capacity check returns 429 "sold out" error which is different from
+        user limit check's 400 error. Keeping them separate preserves correct semantics.
+        """
+        # Tier is sold out but user hasn't bought any yet
+        tier.total_quantity = 5
+        tier.quantity_sold = 5  # All sold out
+        tier.save()
+
+        service = BatchTicketService(event, tier, member_user)
+        # Per-user limit is 3, user has 0 tickets, so remaining = 3
+        # Tier capacity is NOT factored in here
+        assert service.get_remaining_tickets() == 3

@@ -53,21 +53,47 @@ class BatchTicketService:
             status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
         ).count()
 
-    def get_remaining_tickets(self) -> int | None:
+    def get_remaining_tickets(
+        self,
+        event_capacity_remaining: int | None = None,
+        user_ticket_count: int | None = None,
+    ) -> int | None:
         """Get how many more tickets user can purchase for this tier.
 
+        Calculates the minimum of:
+        1. Per-user limit (tier-specific or event-level fallback)
+        2. Event capacity remaining (if provided)
+
+        Note: Tier capacity (total_quantity - quantity_sold) is NOT included here
+        because it's checked separately by _assert_tier_capacity with proper
+        "sold out" error handling (429 status code).
+
+        Args:
+            event_capacity_remaining: Remaining event capacity. None means unlimited
+                or not provided. Pass this when you've pre-calculated the event's
+                remaining capacity to avoid redundant queries.
+            user_ticket_count: Pre-computed count of user's tickets for this tier.
+                If None, will query the database. Pass this when calling in a loop
+                to avoid N+1 queries.
+
         Returns:
-            Number of remaining tickets, or None if unlimited.
+            Number of remaining tickets, or None if all limits are unlimited.
         """
-        # Use tier's limit if set, otherwise fall back to event's limit
-        # Avoid accessing self.tier.event to prevent N+1 queries
+        limits: list[int] = []
+
+        # 1. Per-user limit
         max_allowed = self.tier.max_tickets_per_user
         if max_allowed is None:
             max_allowed = self.event.max_tickets_per_user
-        if max_allowed is None:
-            return None
-        existing = self.get_user_ticket_count()
-        return max(0, max_allowed - existing)
+        if max_allowed is not None:
+            existing = user_ticket_count if user_ticket_count is not None else self.get_user_ticket_count()
+            limits.append(max(0, max_allowed - existing))
+
+        # 2. Event capacity limit (if provided)
+        if event_capacity_remaining is not None:
+            limits.append(max(0, event_capacity_remaining))
+
+        return min(limits) if limits else None
 
     def validate_batch_size(self, requested: int) -> None:
         """Validate that the batch size doesn't exceed limits.
