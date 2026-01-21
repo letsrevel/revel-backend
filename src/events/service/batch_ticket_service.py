@@ -12,7 +12,7 @@ from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier, VenueSeat
 from events.schema import TicketPurchaseItem
 from events.tasks import build_attendee_visibility_flags
-from notifications.signals.ticket import _send_ticket_created_notifications
+from notifications.signals.ticket import send_batch_ticket_created_notifications
 from notifications.signals.waitlist import _remove_user_from_waitlist
 
 logger = structlog.get_logger(__name__)
@@ -460,7 +460,10 @@ class BatchTicketService:
                 if self.tier.sector:
                     ticket.sector = self.tier.sector
 
-            ticket.full_clean()
+            # Skip FK validation - we've already validated event, tier, user exist
+            # full_clean() would query DB to check each FK exists (3+ queries per ticket)
+            ticket.clean_fields(exclude=["event", "tier", "user", "seat", "sector", "venue"])
+            ticket.clean()
             tickets.append(ticket)
 
         return Ticket.objects.bulk_create(tickets)
@@ -519,9 +522,8 @@ class BatchTicketService:
             # Update attendee_count (once per batch, not per ticket)
             build_attendee_visibility_flags.delay(str(self.event.id))
 
-            # Send notifications for each ticket
-            for ticket in tickets:
-                _send_ticket_created_notifications(ticket)
+            # Send notifications for all tickets in batch (fetches shared data once)
+            send_batch_ticket_created_notifications(tickets)
 
             # Remove user from waitlist (once per batch)
             _remove_user_from_waitlist(self.event.id, self.user.id)

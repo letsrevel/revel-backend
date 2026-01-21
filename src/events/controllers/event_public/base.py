@@ -23,12 +23,8 @@ class EventPublicBaseController(UserAwareController):
         allowed_ids: list[UUID] = []
         if et := self.get_event_token():
             allowed_ids = [et.event_id]
-        qs = models.Event.objects.for_user(self.maybe_user(), include_past=include_past, allowed_ids=allowed_ids)
-        if not full:
-            return qs
-        return models.Event.objects.full().for_user(
-            self.maybe_user(), include_past=include_past, allowed_ids=allowed_ids
-        )
+        base = models.Event.objects.full() if full else models.Event.objects
+        return base.for_user(self.maybe_user(), include_past=include_past, allowed_ids=allowed_ids)
 
     def get_one(self, event_id: UUID) -> models.Event:
         """Wrapper helper."""

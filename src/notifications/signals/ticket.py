@@ -194,6 +194,95 @@ def _send_ticket_created_notifications(ticket: Ticket) -> None:
             )
 
 
+def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
+    """Send notifications for a batch of newly created tickets.
+
+    Optimized version of _send_ticket_created_notifications for bulk_create scenarios.
+    Fetches shared data (SiteSettings, staff) once instead of per-ticket.
+
+    Args:
+        tickets: List of tickets created in the same batch (same event, tier, user)
+    """
+    if not tickets:
+        return
+
+    first_ticket = tickets[0]
+    action = _get_ticket_action_for_payment_method(first_ticket.tier.payment_method)
+    if not action:
+        return  # Online payment - handled by payment service
+
+    # Fetch shared data ONCE for all tickets
+    from django.utils.dateformat import format as date_format
+
+    event = first_ticket.event
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    frontend_url = f"{frontend_base_url}/events/{event.id}"
+
+    event_start_formatted = ""
+    if event.start:
+        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
+
+    # Build base context once
+    base_context: dict[str, t.Any] = {
+        "event_id": str(event.id),
+        "event_name": event.name,
+        "event_location": event.full_address(),
+        "event_url": frontend_url,
+        "event_start_formatted": event_start_formatted,
+        "organization_id": str(event.organization_id),
+        "organization_name": event.organization.name,
+        "event_start": event.start.isoformat() if event.start else "",
+        "tier_name": first_ticket.tier.name,
+        "tier_price": str(first_ticket.tier.price),
+        "payment_method": first_ticket.tier.payment_method,
+        "manual_payment_instructions": first_ticket.tier.manual_payment_instructions,
+    }
+
+    if event.location_maps_url:
+        base_context["address_url"] = event.location_maps_url
+
+    # Fetch staff ONCE for all tickets
+    staff_and_owners = list(get_staff_for_notification(event.organization_id, NotificationType.TICKET_CREATED))
+
+    # Send notifications for each ticket
+    for ticket in tickets:
+        ticket_context = {
+            **base_context,
+            "ticket_id": str(ticket.id),
+            "ticket_reference": str(ticket.id),
+            "ticket_status": ticket.status,
+            "quantity": 1,
+            "total_price": str(first_ticket.tier.price),
+            "frontend_url": frontend_url,
+        }
+
+        # Notify ticket holder
+        notification_requested.send(
+            sender=Ticket,
+            user=ticket.user,
+            notification_type=NotificationType.TICKET_CREATED,
+            context=ticket_context,
+        )
+
+        # Notify staff/owners
+        staff_context = {
+            **ticket_context,
+            "ticket_holder_name": ticket.user.get_display_name(),
+            "ticket_holder_email": ticket.user.email,
+            "include_pdf": False,
+            "include_ics": False,
+            "include_pkpass": False,
+        }
+        for staff_user in staff_and_owners:
+            if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.TICKET_CREATED):
+                notification_requested.send(
+                    sender=Ticket,
+                    user=staff_user,
+                    notification_type=NotificationType.TICKET_CREATED,
+                    context=staff_context,
+                )
+
+
 def _send_ticket_activated_notification(ticket: Ticket, old_status: str) -> None:
     """Send notification when ticket is activated.
 

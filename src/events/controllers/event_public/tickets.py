@@ -110,10 +110,11 @@ class EventPublicTicketsController(EventPublicBaseController):
         """
         event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
         user = self.user()
+        # Use for_visible_event() to avoid redundant Event.for_user() call
+        # since we already have a visibility-checked event
         tier = get_object_or_404(
-            models.TicketTier.objects.for_user(user),
+            models.TicketTier.objects.for_visible_event(event, user),
             pk=tier_id,
-            event=event,
         )
 
         if tier.price_type == models.TicketTier.PriceType.PWYC:
@@ -166,10 +167,10 @@ class EventPublicTicketsController(EventPublicBaseController):
         """
         event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
         user = self.user()
+        # Use for_visible_event() to avoid redundant Event.for_user() call
         tier = get_object_or_404(
-            models.TicketTier.objects.for_user(user),
+            models.TicketTier.objects.for_visible_event(event, user),
             pk=tier_id,
-            event=event,
         )
 
         # Validate that this tier is actually PWYC
