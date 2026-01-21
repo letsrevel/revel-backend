@@ -139,6 +139,7 @@ from .rsvp import (
     RSVPCreateSchema,
     RSVPDetailSchema,
     RSVPUpdateSchema,
+    TierRemainingTicketsSchema,
     UserRSVPSchema,
     WaitlistEntrySchema,
 )
@@ -347,6 +348,7 @@ __all__ = [
     "RSVPCreateSchema",
     "RSVPDetailSchema",
     "RSVPUpdateSchema",
+    "TierRemainingTicketsSchema",
     "UserRSVPSchema",
     "WaitlistEntrySchema",
     # Invitation
