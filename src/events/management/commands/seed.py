@@ -1,106 +1,277 @@
-# src/common/management/commands/seed.py
+"""Database seeding command for comprehensive test data generation.
 
-import random
-import re
+This command creates a large, realistic, reproducible dataset for testing and development.
+It uses faker and seeded random for reproducibility and supports configurable scale.
+
+Usage:
+    python manage.py seed --seed 42
+    python manage.py seed --seed 42 --users 500 --organizations 10 --events 25
+    python manage.py seed --seed 42 --clear  # Clear existing data first
+"""
+
+import gc
 import time
 import typing as t
-from datetime import timedelta
 
 from decouple import config
 from django.core.management.base import BaseCommand, CommandError
-from django.db import models, transaction
-from django.utils import timezone
-from django.utils.text import slugify  # <-- IMPORT THE FIX
-from faker import Faker
-from tqdm import tqdm, trange
+from django.db import transaction
 
-from accounts.models import RevelUser
+from accounts.models import (
+    DietaryPreference,
+    DietaryRestriction,
+    FoodItem,
+    RevelUser,
+    UserDietaryPreference,
+)
+from common.models import Tag, TagAssignment
+from events.management.commands.seeder.config import SeederConfig
+from events.management.commands.seeder.events import EventSeeder
+from events.management.commands.seeder.files import FileSeeder
+from events.management.commands.seeder.interactions import InteractionSeeder
+from events.management.commands.seeder.notifications import NotificationSeeder
+from events.management.commands.seeder.organizations import OrganizationSeeder
+from events.management.commands.seeder.preferences import PreferencesSeeder
+from events.management.commands.seeder.questionnaires import QuestionnaireSeeder
+from events.management.commands.seeder.social import SocialSeeder
+from events.management.commands.seeder.state import SeederState
+from events.management.commands.seeder.telegram import TelegramSeeder
+from events.management.commands.seeder.tickets import TicketSeeder
+from events.management.commands.seeder.users import UserSeeder
+from events.management.commands.seeder.venues import VenueSeeder
 from events.models import (
+    AdditionalResource,
+    AttendeeVisibilityFlag,
+    Blacklist,
     Event,
     EventInvitation,
+    EventInvitationRequest,
+    EventQuestionnaireSubmission,
     EventRSVP,
     EventSeries,
+    EventSeriesFollow,
+    EventToken,
+    EventWaitList,
+    GeneralUserPreferences,
+    MembershipTier,
     Organization,
+    OrganizationFollow,
     OrganizationMember,
+    OrganizationMembershipRequest,
+    OrganizationQuestionnaire,
     OrganizationStaff,
-    PermissionMap,
-    PermissionsSchema,
+    OrganizationToken,
+    Payment,
+    PendingEventInvitation,
+    PotluckItem,
     Ticket,
+    TicketTier,
+    Venue,
+    VenueSeat,
+    VenueSector,
+    WhitelistRequest,
 )
-
-# --- Configuration ---
-NUM_ORGANIZATIONS = 100
-NUM_EVENTS_PER_ORG = 1000
-NUM_USERS = 1_000_000
-MEMBER_RATIO = 0.5
-MAX_STAFF_PER_ORG = 10
-MAX_SERIES_PER_ORG = 10
-MAX_MEMBERSHIPS_PER_USER = 3
-PASSWORD = "password"
-
-ModelType = t.TypeVar("ModelType", bound=models.Model)
+from notifications.models import Notification, NotificationDelivery, NotificationPreference
+from questionnaires.models import (
+    FreeTextAnswer,
+    FreeTextQuestion,
+    MultipleChoiceAnswer,
+    MultipleChoiceOption,
+    MultipleChoiceQuestion,
+    Questionnaire,
+    QuestionnaireEvaluation,
+    QuestionnaireFile,
+    QuestionnaireSection,
+    QuestionnaireSubmission,
+)
+from telegram.models import AccountOTP, TelegramUser
 
 
 class Command(BaseCommand):
+    """Seeds the database with comprehensive, realistic test data."""
+
     help = "Seeds the database with a large, realistic set of reproducible data."
 
     def add_arguments(self, parser: t.Any) -> None:
-        """Add arguments."""
+        """Add CLI arguments."""
         parser.add_argument(
             "--seed",
             type=int,
-            help="The random seed to use for generating data.",
             required=True,
+            help="Random seed for reproducibility",
+        )
+        parser.add_argument(
+            "--users",
+            type=int,
+            default=1000,
+            help="Number of users to create (default: 1000)",
+        )
+        parser.add_argument(
+            "--organizations",
+            type=int,
+            default=20,
+            help="Number of organizations to create (default: 20)",
+        )
+        parser.add_argument(
+            "--events",
+            type=int,
+            default=50,
+            help="Number of events per organization (default: 50)",
+        )
+        parser.add_argument(
+            "--clear",
+            action="store_true",
+            help="Clear existing data before seeding (requires confirmation)",
+        )
+        parser.add_argument(
+            "--yes",
+            action="store_true",
+            help="Skip confirmation prompts",
         )
 
     def handle(self, *args: t.Any, **options: t.Any) -> None:
-        """Handle."""
+        """Execute the seeding process."""
         seed = options["seed"]
-        self.stdout.write(self.style.WARNING(f"Using random seed: {seed}"))
-        self.rand = random.Random(seed)
-        self.faker = Faker()
-        self.faker.seed_instance(seed)
+        num_users = options["users"]
+        num_organizations = options["organizations"]
+        num_events = options["events"]
+        clear_data = options["clear"]
+        skip_confirm = options["yes"]
 
-        confirmation = input(
-            self.style.ERROR(
-                "This command will DELETE ALL existing data for Users, Events, Orgs, etc. "
-                "Are you sure you want to continue? (yes/no): "
+        self.stdout.write(self.style.WARNING("Seeding Configuration:"))
+        self.stdout.write(f"  Seed: {seed}")
+        self.stdout.write(f"  Users: {num_users}")
+        self.stdout.write(f"  Organizations: {num_organizations}")
+        self.stdout.write(f"  Events per org: {num_events}")
+        self.stdout.write(f"  Total events: ~{num_organizations * num_events}")
+        self.stdout.write(f"  Clear data: {clear_data}")
+
+        if clear_data and not skip_confirm:
+            confirmation = input(
+                self.style.ERROR("\nThis will DELETE ALL existing data. Are you sure you want to continue? (yes/no): ")
             )
+            if confirmation.lower() != "yes":
+                raise CommandError("Seeding cancelled by user.")
+
+        # Create configuration
+        seeder_config = SeederConfig(
+            seed=seed,
+            num_users=num_users,
+            num_organizations=num_organizations,
+            num_events_per_org=num_events,
+            clear_data=clear_data,
         )
-        if confirmation.lower() != "yes":
-            raise CommandError("Seeding cancelled by user.")
+
+        # Create shared state
+        state = SeederState()
 
         start_time = time.time()
 
         with transaction.atomic():
-            self._clear_data()
+            if clear_data:
+                self._clear_data()
+
             self._create_superuser()
-            users = self._create_users()
-            organizations = self._create_organizations(users)
-            self._link_staff_and_members(organizations, users)
-            event_series = self._create_event_series(organizations)
-            events = self._create_events(organizations, event_series)
-            self._create_interactions(events, users)
+
+            # Run seeders in dependency order
+            self._run_seeders(seeder_config, state)
 
         end_time = time.time()
-        self.stdout.write(self.style.SUCCESS(f"Database seeding complete in {end_time - start_time:.2f} seconds."))
+        elapsed = end_time - start_time
+
+        self.stdout.write("")
+        self.stdout.write(self.style.SUCCESS("=" * 60))
+        self.stdout.write(self.style.SUCCESS("Database seeding complete!"))
+        self.stdout.write(self.style.SUCCESS(f"Time elapsed: {elapsed:.2f} seconds"))
+        self.stdout.write(self.style.SUCCESS("=" * 60))
+        self._print_summary(state)
 
     def _clear_data(self) -> None:
-        self.stdout.write("Deleting existing data...")
-        # Delete in an order that respects foreign key constraints
-        Ticket.objects.all().delete()
-        EventRSVP.objects.all().delete()
-        EventInvitation.objects.all().delete()
-        Event.objects.all().delete()
-        EventSeries.objects.all().delete()
-        OrganizationStaff.objects.all().delete()
-        OrganizationMember.objects.all().delete()
-        Organization.objects.all().delete()
-        RevelUser.objects.all().delete()
-        self.stdout.write(self.style.SUCCESS("Data deleted."))
+        """Delete all existing data in proper FK order."""
+        self.stdout.write(self.style.WARNING("\nClearing existing data..."))
+
+        # Order matters - delete dependents first
+        deletion_order = [
+            # Telegram
+            (AccountOTP, "AccountOTP"),
+            (TelegramUser, "TelegramUser"),
+            # Notifications
+            (NotificationDelivery, "NotificationDelivery"),
+            (Notification, "Notification"),
+            (NotificationPreference, "NotificationPreference"),
+            # Questionnaire submissions and evaluations
+            (QuestionnaireEvaluation, "QuestionnaireEvaluation"),
+            (EventQuestionnaireSubmission, "EventQuestionnaireSubmission"),
+            (FreeTextAnswer, "FreeTextAnswer"),
+            (MultipleChoiceAnswer, "MultipleChoiceAnswer"),
+            (QuestionnaireFile, "QuestionnaireFile"),
+            (QuestionnaireSubmission, "QuestionnaireSubmission"),
+            # Questionnaire structure
+            (MultipleChoiceOption, "MultipleChoiceOption"),
+            (MultipleChoiceQuestion, "MultipleChoiceQuestion"),
+            (FreeTextQuestion, "FreeTextQuestion"),
+            (QuestionnaireSection, "QuestionnaireSection"),
+            (OrganizationQuestionnaire, "OrganizationQuestionnaire"),
+            (Questionnaire, "Questionnaire"),
+            # Event interactions
+            (WhitelistRequest, "WhitelistRequest"),
+            (Blacklist, "Blacklist"),
+            (PotluckItem, "PotluckItem"),
+            (EventWaitList, "EventWaitList"),
+            (EventRSVP, "EventRSVP"),
+            (EventInvitationRequest, "EventInvitationRequest"),
+            (PendingEventInvitation, "PendingEventInvitation"),
+            (EventInvitation, "EventInvitation"),
+            (EventToken, "EventToken"),
+            # Tickets and payments
+            (Payment, "Payment"),
+            (Ticket, "Ticket"),
+            (TicketTier, "TicketTier"),
+            # Venues
+            (VenueSeat, "VenueSeat"),
+            (VenueSector, "VenueSector"),
+            (Venue, "Venue"),
+            # Events
+            (AdditionalResource, "AdditionalResource"),
+            (Event, "Event"),
+            (EventSeries, "EventSeries"),
+            # Social
+            (TagAssignment, "TagAssignment"),
+            (Tag, "Tag"),
+            (EventSeriesFollow, "EventSeriesFollow"),
+            (OrganizationFollow, "OrganizationFollow"),
+            # Preferences
+            (AttendeeVisibilityFlag, "AttendeeVisibilityFlag"),
+            (GeneralUserPreferences, "GeneralUserPreferences"),
+            # Organization
+            (OrganizationMembershipRequest, "OrganizationMembershipRequest"),
+            (OrganizationMember, "OrganizationMember"),
+            (OrganizationStaff, "OrganizationStaff"),
+            (OrganizationToken, "OrganizationToken"),
+            (MembershipTier, "MembershipTier"),
+            (Organization, "Organization"),
+            # Users and dietary
+            (UserDietaryPreference, "UserDietaryPreference"),
+            (DietaryPreference, "DietaryPreference"),
+            (DietaryRestriction, "DietaryRestriction"),
+            (FoodItem, "FoodItem"),
+            (RevelUser, "RevelUser"),
+        ]
+
+        for model, name in deletion_order:
+            count = model.objects.count()  # type: ignore[attr-defined]
+            if count > 0:
+                model.objects.all().delete()  # type: ignore[attr-defined]
+                self.stdout.write(f"  Deleted {count} {name} records")
+
+        self.stdout.write(self.style.SUCCESS("Data cleared.\n"))
 
     def _create_superuser(self) -> None:
-        default_username, default_password, default_email = "admin@revel.io", "password", "admin@revel.io"
+        """Create or verify superuser exists."""
+        default_username = "admin@revel.io"
+        default_password = "password"
+        default_email = "admin@revel.io"
+
         username = config("DEFAULT_SUPERUSER_USERNAME", default=default_username)
         password = config("DEFAULT_SUPERUSER_PASSWORD", default=default_password)
         email = config("DEFAULT_SUPERUSER_EMAIL", default=default_email)
@@ -112,212 +283,92 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"Superuser '{username}' created successfully."))
 
             if password == default_password:
-                self.stdout.write(
-                    self.style.WARNING("The default password is being used. Please change it immediately.")
-                )
+                self.stdout.write(self.style.WARNING("Using default password. Change it for production!"))
 
-    def _batch_create(self, model: t.Any, objects: list[ModelType]) -> list[ModelType]:
-        """Helper to bulk_create in batches to save memory."""
-        BATCH_SIZE = 500
-        created_objects = []
-        for i in trange(0, len(objects), BATCH_SIZE, desc=f"Batch creating {model.__name__}s"):
-            batch = objects[i : i + BATCH_SIZE]
-            created_objects.extend(model.objects.bulk_create(batch, BATCH_SIZE))
-        return created_objects
+    def _run_seeders(self, seeder_config: SeederConfig, state: SeederState) -> None:
+        """Run all seeders in dependency order."""
+        self.stdout.write("")
+        self.stdout.write(self.style.WARNING("Starting seeding process..."))
+        self.stdout.write("")
 
-    def _create_users(self) -> list[RevelUser]:
-        self.stdout.write(f"Preparing {NUM_USERS} users...")
+        # Phase 1: Files (placeholders for uploads)
+        self.stdout.write(self.style.HTTP_INFO("Phase 1: Generating placeholder files"))
+        FileSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
 
-        self.stdout.write("Pre-hashing the common password...")
-        temp_user = RevelUser()
-        temp_user.set_password(PASSWORD)
-        hashed_password = temp_user.password
-        self.stdout.write(self.style.SUCCESS("Password hashed."))
+        # Phase 2: Users and dietary data
+        self.stdout.write(self.style.HTTP_INFO("\nPhase 2: Creating users"))
+        UserSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
 
-        users_to_create = []
+        # Phase 3: Organizations
+        self.stdout.write(self.style.HTTP_INFO("\nPhase 3: Creating organizations"))
+        OrganizationSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
 
-        # Owners
-        for i in trange(NUM_ORGANIZATIONS, desc="Preparing organization owners"):
-            users_to_create.append(
-                RevelUser(
-                    username=f"owner_org_{i + 1}@example.com",
-                    email=f"owner_org_{i + 1}@example.com",
-                    password=hashed_password,
-                )
-            )
+        # Phase 4: Venues
+        self.stdout.write(self.style.HTTP_INFO("\nPhase 4: Creating venues"))
+        VenueSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
 
-        # Staff - create a variable number per org
-        for i in trange(NUM_ORGANIZATIONS, desc="Preparing organization staff"):
-            num_staff = self.rand.randint(0, MAX_STAFF_PER_ORG)
-            for j in range(num_staff):
-                users_to_create.append(
-                    RevelUser(
-                        username=f"staff_{j + 1}_org_{i + 1}@example.com",
-                        email=f"staff_{j + 1}_org_{i + 1}@example.com",
-                        password=hashed_password,
-                    )
-                )
+        # Phase 5: Events
+        self.stdout.write(self.style.HTTP_INFO("\nPhase 5: Creating events"))
+        EventSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
 
-        # Members and Random users
-        num_other_users = NUM_USERS - len(users_to_create)
-        num_members = int(num_other_users * MEMBER_RATIO)
-        for i in trange(num_other_users, desc="Preparing other users"):
-            email = f"member_{i + 1}@example.com" if i < num_members else f"random_{i + 1 - num_members}@example.com"
-            users_to_create.append(RevelUser(username=email, email=email, password=hashed_password))
+        # Phase 6: Questionnaires (foundation)
+        self.stdout.write(self.style.HTTP_INFO("\nPhase 6: Creating questionnaires"))
+        QuestionnaireSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
 
-        self.stdout.write("Creating users in database...")
-        return self._batch_create(RevelUser, users_to_create)
+        # Phase 7: Tickets (depends on events, questionnaires)
+        self.stdout.write(self.style.HTTP_INFO("\nPhase 7: Creating tickets"))
+        TicketSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
 
-    def _create_organizations(self, users: list[RevelUser]) -> list[Organization]:
-        self.stdout.write(f"Creating {NUM_ORGANIZATIONS} organizations...")
-        owner_users = sorted([u for u in users if u.username.startswith("owner_")], key=lambda u: u.username)
-        orgs_to_create = [
-            Organization(
-                name=f"Org {i + 1}",
-                slug=f"org-{i + 1}",
-                owner=owner_users[i],
-                visibility=self.rand.choice(list(Organization.Visibility)),
-                description=self.faker.bs(),
-            )
-            for i in range(NUM_ORGANIZATIONS)
-        ]
-        return Organization.objects.bulk_create(orgs_to_create)
+        # Phase 8: Interactions (invitations, RSVPs, etc.)
+        self.stdout.write(self.style.HTTP_INFO("\nPhase 8: Creating interactions"))
+        InteractionSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
 
-    def _link_staff_and_members(self, organizations: list[Organization], users: list[RevelUser]) -> None:
-        self.stdout.write("Linking staff and members to organizations...")
-        all_staff_users = {u.username: u for u in users if u.username.startswith("staff_")}
-        member_users = [u for u in users if u.username.startswith("member_")]
+        # Phase 9: Notifications (preferences only - actual notifications via signals)
+        self.stdout.write(self.style.HTTP_INFO("\nPhase 9: Creating notification preferences"))
+        NotificationSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
 
-        staff_links = []
-        member_links = []
+        # Phase 10: Social (tags, follows)
+        self.stdout.write(self.style.HTTP_INFO("\nPhase 10: Creating social features"))
+        SocialSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
 
-        staff_pattern = re.compile(r"staff_(\d+)_org_(\d+)@example\.com")
-        for staff_username, staff_user in tqdm(all_staff_users.items(), desc="Linking staff to their orgs"):
-            match = staff_pattern.match(staff_username)
-            if match:
-                org_index = int(match.group(2)) - 1
-                if 0 <= org_index < len(organizations):
-                    org = organizations[org_index]
-                    perms = {field: self.rand.choice([True, False]) for field in PermissionMap.model_fields}
-                    staff_links.append(
-                        OrganizationStaff(
-                            organization=org,
-                            user=staff_user,
-                            permissions=PermissionsSchema(default=PermissionMap(**perms)).model_dump(mode="json"),
-                        )
-                    )
+        # Phase 11: User preferences
+        self.stdout.write(self.style.HTTP_INFO("\nPhase 11: Creating user preferences"))
+        PreferencesSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
 
-        for user in tqdm(member_users, desc="Linking members"):
-            num_memberships = self.rand.randint(1, MAX_MEMBERSHIPS_PER_USER)
-            member_orgs = self.rand.sample(organizations, num_memberships)
-            for org in member_orgs:
-                member_links.append(OrganizationMember(organization=org, user=user))
+        # Phase 12: Telegram
+        self.stdout.write(self.style.HTTP_INFO("\nPhase 12: Creating Telegram links"))
+        TelegramSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
 
-        self._batch_create(OrganizationStaff, staff_links)
-        self._batch_create(OrganizationMember, member_links)
-
-    def _create_event_series(self, organizations: list[Organization]) -> list[EventSeries]:
-        self.stdout.write("Creating event series...")
-        all_series = []
-        for org in tqdm(organizations, desc="Preparing event series"):
-            for i in range(self.rand.randint(0, MAX_SERIES_PER_ORG)):
-                all_series.append(
-                    EventSeries(
-                        organization=org,
-                        name=f"{org.name} Series {i + 1}",
-                        slug=f"{org.slug}-series-{i + 1}",
-                        description=self.faker.catch_phrase(),
-                    )
-                )
-        return self._batch_create(EventSeries, all_series)
-
-    def _create_events(self, organizations: list[Organization], all_series: list[EventSeries]) -> list[Event]:
-        self.stdout.write(f"Creating {NUM_ORGANIZATIONS * NUM_EVENTS_PER_ORG} events...")
-        events_to_create = []
-        now = timezone.now()
-        event_counter = 0
-
-        for org in tqdm(organizations, desc="Preparing events"):
-            org_series = [s for s in all_series if s.organization_id == org.id]
-            for _ in range(NUM_EVENTS_PER_ORG):
-                event_counter += 1
-
-                event_type = self.rand.choice(list(Event.EventType))
-                visibility = self.rand.choice(list(Event.Visibility))
-                status = self.rand.choice(list(Event.EventStatus))
-                requires_ticket = self.rand.choice([True, False])
-                event_date = now + timedelta(days=self.rand.randint(-10, 90))
-
-                meaningful_name = (
-                    f"{self.faker.company()} {event_counter} "
-                    f"("
-                    f"Type={event_type.value}, "
-                    f"Visibility={visibility.value}, "
-                    f"Status={status.value}, "
-                    f"RequiresTicket={requires_ticket}"
-                    f")"
-                )
-
-                generated_slug = slugify(meaningful_name)
-
-                events_to_create.append(
-                    Event(
-                        organization=org,
-                        name=meaningful_name,
-                        slug=generated_slug,  # <-- EXPLICITLY SET THE SLUG
-                        event_type=event_type,
-                        visibility=visibility,
-                        status=status,
-                        requires_ticket=requires_ticket,
-                        start=event_date,
-                        address=self.faker.address(),
-                        max_attendees=self.rand.choice([0, 50, 100, 200, 500]),
-                        event_series=self.rand.choice(org_series) if org_series else None,
-                    )
-                )
-        return self._batch_create(Event, events_to_create)
-
-    def _create_interactions(self, events: list[Event], users: list[RevelUser]) -> None:
-        self.stdout.write("Creating invitations, tickets, and RSVPs...")
-        invitations = []
-        tickets = []
-        rsvps = []
-        random_users_sample = self.rand.sample(users, k=min(len(users), 20000))
-
-        for event in tqdm(events, desc="Preparing interactions"):
-            if self.rand.random() > 0.1:
-                continue
-
-            event_users = self.rand.sample(random_users_sample, k=self.rand.randint(5, 50))
-
-            for user in event_users:
-                if event.visibility == Event.Visibility.PRIVATE:
-                    invitations.append(
-                        EventInvitation(
-                            event=event,
-                            user=user,
-                            waives_questionnaire=self.rand.choice([True, False]),
-                            waives_purchase=self.rand.choice([True, False]),
-                            overrides_max_attendees=self.rand.choice([True, False]),
-                        )
-                    )
-
-                if event.requires_ticket:
-                    if self.rand.random() > 0.5:
-                        tickets.append(
-                            Ticket(
-                                event=event,
-                                user=user,
-                                status=self.rand.choice(list(Ticket.TicketStatus)),
-                                guest_name=user.get_display_name(),
-                            )
-                        )
-                else:
-                    if self.rand.random() > 0.5:
-                        rsvps.append(
-                            EventRSVP(event=event, user=user, status=self.rand.choice(list(EventRSVP.RsvpStatus)))
-                        )
-
-        self._batch_create(EventInvitation, invitations)
-        self._batch_create(Ticket, tickets)
-        self._batch_create(EventRSVP, rsvps)
+    def _print_summary(self, state: SeederState) -> None:
+        """Print summary of created data."""
+        self.stdout.write("")
+        self.stdout.write(self.style.WARNING("Summary:"))
+        self.stdout.write(f"  Users: {len(state.users)}")
+        self.stdout.write(f"    - Owners: {len(state.owner_users)}")
+        self.stdout.write(f"    - Staff: {len(state.staff_users)}")
+        self.stdout.write(f"    - Members: {len(state.member_users)}")
+        self.stdout.write(f"    - Regular: {len(state.regular_users)}")
+        self.stdout.write(f"  Organizations: {len(state.organizations)}")
+        self.stdout.write(f"  Events: {len(state.events)}")
+        self.stdout.write(f"    - Ticketed: {len(state.ticketed_events)}")
+        self.stdout.write(f"    - Non-ticketed: {len(state.non_ticketed_events)}")
+        self.stdout.write(f"    - Private: {len(state.private_events)}")
+        self.stdout.write(f"    - With waitlist: {len(state.waitlist_events)}")
+        self.stdout.write(f"    - With potluck: {len(state.potluck_events)}")
+        self.stdout.write(f"    - Past: {len(state.past_events)}")
+        self.stdout.write(f"    - Sold out: {len(state.sold_out_events)}")
+        self.stdout.write(f"  Event Series: {len(state.event_series)}")
+        self.stdout.write(f"  Questionnaires: {len(state.questionnaires)}")
+        self.stdout.write(f"  Tags: {len(state.tags)}")
