@@ -47,20 +47,24 @@ class DashboardController(UserAwareController):
         2. Events matching the user's relationship filters (owner/staff/member/rsvp/tickets/invitations)
 
         This is the core filtering logic shared by dashboard_events and dashboard_calendar.
+
+        Performance note: We materialize IDs in Python rather than using SQL INTERSECT
+        to avoid complex nested subqueries that cause slow COUNT(*) in pagination.
         """
         user = self.user()
 
-        # 1. Get IDs of all events the user is AUTHORIZED to see
-        authorized_event_ids = self.get_event_queryset(include_past=include_past).values("id")
+        # 1. Get IDs of all events the user is AUTHORIZED to see (materialize to set)
+        authorized_event_ids = set(self.get_event_queryset(include_past=include_past).values_list("id", flat=True))
 
-        # 2. Get IDs of all events that match the dashboard's relationship filters
-        relationship_event_ids = params.get_events_queryset(user.id).values("id")
+        # 2. Get IDs of all events that match the dashboard's relationship filters (materialize to set)
+        relationship_event_ids = set(params.get_events_queryset(user.id).values_list("id", flat=True))
 
-        # 3. Find the INTERSECTION of the two sets of IDs
-        final_event_ids = authorized_event_ids.intersection(relationship_event_ids)
+        # 3. Find the INTERSECTION in Python (fast set operation)
+        final_event_ids = authorized_event_ids & relationship_event_ids
 
         # 4. Return the base queryset filtered by these IDs
-        return models.Event.objects.full().filter(id__in=final_event_ids)
+        # Using a simple IN clause is much faster for pagination COUNT
+        return models.Event.objects.full().filter(id__in=list(final_event_ids))
 
     @route.get(
         "/organizations",
@@ -81,17 +85,18 @@ class DashboardController(UserAwareController):
         """
         user = self.user()
 
-        # 1. Get IDs of all orgs user is AUTHORIZED to see.
-        authorized_org_ids = self.get_organization_queryset().values("id")
+        # 1. Get IDs of all orgs user is AUTHORIZED to see (materialize to set)
+        authorized_org_ids = set(self.get_organization_queryset().values_list("id", flat=True))
 
-        # 2. Get IDs of all orgs matching the dashboard filter RELATIONSHIPS.
-        relationship_org_ids = params.get_organizations_queryset(user.id).values("id")
+        # 2. Get IDs of all orgs matching the dashboard filter RELATIONSHIPS (materialize to set)
+        relationship_org_ids = set(params.get_organizations_queryset(user.id).values_list("id", flat=True))
 
-        # 3. Find the INTERSECTION of the two sets of IDs.
-        final_org_ids = authorized_org_ids.intersection(relationship_org_ids)
+        # 3. Find the INTERSECTION in Python (fast set operation)
+        final_org_ids = authorized_org_ids & relationship_org_ids
 
-        # 4. Fetch the final, full Organization objects. The decorators will handle pagination.
-        return models.Organization.objects.full().filter(id__in=final_org_ids).distinct()
+        # 4. Fetch the final, full Organization objects with simple IN clause
+        # No .distinct() needed - IDs are unique, no duplicates possible
+        return models.Organization.objects.full().filter(id__in=list(final_org_ids))
 
     @route.get("/events", url_name="dashboard_events", response=PaginatedResponseSchema[schema.EventInListSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -126,7 +131,8 @@ class DashboardController(UserAwareController):
         today = timezone.now().date()
         qs = qs.filter(Q(start__date__gte=today) | Q(start__isnull=True))
 
-        return qs.distinct().order_by(order_by)
+        # No .distinct() needed - get_user_related_events already filters by unique IDs
+        return qs.order_by(order_by)
 
     @route.get("/calendar", url_name="dashboard_calendar", response=list[schema.EventInListSchema])
     def dashboard_calendar(
@@ -167,7 +173,8 @@ class DashboardController(UserAwareController):
         # Filter to events within the calendar date range
         qs = qs.filter(start__gte=start_datetime, start__lt=end_datetime)
 
-        return qs.distinct().order_by("start")
+        # No .distinct() needed - get_user_related_events already filters by unique IDs
+        return qs.order_by("start")
 
     @route.get(
         "/event_series",
@@ -187,17 +194,18 @@ class DashboardController(UserAwareController):
         """
         user = self.user()
 
-        # 1. Get IDs of all event series the user is AUTHORIZED to see.
-        authorized_series_ids = self.get_event_series_queryset().values("id")
+        # 1. Get IDs of all event series the user is AUTHORIZED to see (materialize to set)
+        authorized_series_ids = set(self.get_event_series_queryset().values_list("id", flat=True))
 
-        # 2. Get IDs of all event series that match the dashboard's relationship filters.
-        relationship_series_ids = params.get_event_series_queryset(user.id).values("id")
+        # 2. Get IDs of all event series that match the dashboard's relationship filters (materialize to set)
+        relationship_series_ids = set(params.get_event_series_queryset(user.id).values_list("id", flat=True))
 
-        # 3. Find the INTERSECTION of the two sets of IDs.
-        final_series_ids = authorized_series_ids.intersection(relationship_series_ids)
+        # 3. Find the INTERSECTION in Python (fast set operation)
+        final_series_ids = authorized_series_ids & relationship_series_ids
 
-        # 4. Fetch the final, full EventSeries objects based on the correct IDs.
-        return models.EventSeries.objects.full().filter(id__in=final_series_ids).distinct()
+        # 4. Fetch the final, full EventSeries objects with simple IN clause
+        # No .distinct() needed - IDs are unique, no duplicates possible
+        return models.EventSeries.objects.full().filter(id__in=list(final_series_ids))
 
     @route.get(
         "/invitations",

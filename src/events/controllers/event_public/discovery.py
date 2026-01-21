@@ -59,7 +59,17 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         tags, and text search.
         """
         params.next_events = not include_past
-        qs = params.filter(self.get_queryset(include_past=include_past or params.past_events is True)).distinct()
+
+        # Get complex visibility-filtered queryset and apply additional filters
+        filtered_qs = params.filter(self.get_queryset(include_past=include_past or params.past_events is True))
+
+        # Materialize IDs to avoid expensive COUNT(*) on complex DISTINCT subquery
+        # This is the same optimization used in dashboard endpoints
+        event_ids = list(filtered_qs.values_list("id", flat=True).distinct())
+
+        # Build simple queryset with IN clause - pagination COUNT is now fast
+        qs = models.Event.objects.full().filter(id__in=event_ids)
+
         if order_by == "distance":
             return event_service.order_by_distance(self.user_location(), qs)
         return qs.order_by(order_by)

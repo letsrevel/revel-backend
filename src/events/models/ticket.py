@@ -20,6 +20,7 @@ from .venue import Venue, VenueSeat, VenueSector
 
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
+    from events.models.event import Event
 
 DEFAULT_TICKET_TIER_NAME = "General Admission"
 
@@ -93,6 +94,51 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
 
         return qs.filter(final_q).distinct()
 
+    def for_visible_event(self, event: "Event", user: "RevelUser | AnonymousUser") -> t.Self:
+        """Return ticket tiers for an already visibility-checked event.
+
+        Use this when you already have an event that passed visibility checks via Event.for_user().
+        This avoids redundant Event.for_user() queries by only applying tier-level visibility rules.
+
+        Args:
+            event: An event that already passed visibility checks for this user.
+            user: The user to check tier visibility for.
+
+        Returns:
+            QuerySet of tiers the user can see for this specific event.
+        """
+        from .invitation import EventInvitation
+
+        qs = self.filter(event=event)
+
+        # Superusers and Django staff see all tiers
+        if not user.is_anonymous and (user.is_superuser or user.is_staff):
+            return qs
+
+        # Anonymous users: only public tiers on public events
+        if user.is_anonymous:
+            return qs.filter(visibility=TicketTier.Visibility.PUBLIC)
+
+        # Check if user is org owner or staff - they see all tiers
+        org = event.organization
+        is_owner = org.owner_id == user.id
+        is_staff = org.staff_members.filter(id=user.id).exists()
+        if is_owner or is_staff:
+            return qs
+
+        # Regular user: apply tier visibility rules
+        is_public_tier = Q(visibility=TicketTier.Visibility.PUBLIC)
+
+        # Member-only tiers: check if user is valid member of this org
+        is_member = OrganizationMember.objects.for_visibility().filter(user=user, organization=org).exists()
+        is_member_tier = Q(visibility=TicketTier.Visibility.MEMBERS_ONLY) if is_member else Q(pk__isnull=True)
+
+        # Private tiers: check if user is invited to this event
+        is_invited = EventInvitation.objects.filter(user=user, event=event).exists()
+        is_private_tier = Q(visibility=TicketTier.Visibility.PRIVATE) if is_invited else Q(pk__isnull=True)
+
+        return qs.filter(is_public_tier | is_member_tier | is_private_tier)
+
 
 class TicketTierManager(models.Manager["TicketTier"]):
     def get_queryset(self) -> TicketTierQuerySet:
@@ -106,6 +152,10 @@ class TicketTierManager(models.Manager["TicketTier"]):
     def for_user(self, user: "RevelUser | AnonymousUser") -> TicketTierQuerySet:
         """Return ticket tiers visible to a given user, combining event and tier-level access."""
         return self.get_queryset().for_user(user)
+
+    def for_visible_event(self, event: "Event", user: "RevelUser | AnonymousUser") -> TicketTierQuerySet:
+        """Return ticket tiers for an already visibility-checked event."""
+        return self.get_queryset().for_visible_event(event, user)
 
 
 class TicketTier(TimeStampedModel, VisibilityMixin):
@@ -375,7 +425,7 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
             "seat",
             "user",
             "payment",
-        )
+        ).prefetch_related("tier__restricted_to_membership_tiers")
 
     def with_org_membership(self, organization_id: UUID) -> t.Self:
         """Prefetch user's membership for a specific organization."""

@@ -35,6 +35,7 @@ DEMO_MODE = config("DEMO_MODE", default=DEBUG, cast=bool)
 ALLOWED_HOSTS: list[str] = config("ALLOWED_HOSTS", cast=Csv(), default="localhost,127.0.0.1,host.docker.internal")
 
 SILK_PROFILER = config("SILK_PROFILER", default=False, cast=bool)
+SILKY_PYTHON_PROFILER = config("SILKY_PYTHON_PROFILER", default=False, cast=bool)
 
 # Application definition
 
