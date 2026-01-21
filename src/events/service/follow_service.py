@@ -51,19 +51,20 @@ def _get_or_reactivate_follow(
                 defaults={**defaults, "is_archived": False},
             )
 
-            if not created:
-                if follow.is_archived:
-                    # Reactivate archived follow with new preferences
-                    follow.is_archived = False
-                    for field, value in defaults.items():
-                        setattr(follow, field, value)
-                    follow.save(update_fields=["is_archived", *defaults.keys()])
-                else:
-                    raise HttpError(400, already_following_message)
+            if created:
+                return follow
+
+            if not follow.is_archived:
+                raise HttpError(400, already_following_message)
+
+            # Reactivate archived follow with new preferences
+            follow.is_archived = False
+            for field, value in defaults.items():
+                setattr(follow, field, value)
+            follow.save(update_fields=["is_archived", *defaults.keys()])
+            return follow
     except IntegrityError:
         raise HttpError(400, already_following_message)
-
-    return follow
 
 
 def _archive_follow(
