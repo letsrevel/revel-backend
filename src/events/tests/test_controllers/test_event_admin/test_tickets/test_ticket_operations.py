@@ -327,6 +327,262 @@ def test_confirm_ticket_payment_online_payment_method(
     assert online_pending_ticket.status == Ticket.TicketStatus.PENDING
 
 
+# --- Tests for unconfirm ticket payment endpoint ---
+
+
+def test_unconfirm_ticket_payment_by_owner(
+    organization_owner_client: Client,
+    event: Event,
+    offline_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """Test that organization owner can unconfirm payment for active offline tickets."""
+    # Create an active offline ticket
+    active_offline_ticket = Ticket.objects.create(
+        guest_name="Test Guest",
+        user=public_user,
+        event=event,
+        tier=offline_tier,
+        status=Ticket.TicketStatus.ACTIVE,
+    )
+
+    url = reverse(
+        "api:unconfirm_ticket_payment",
+        kwargs={"event_id": event.pk, "ticket_id": active_offline_ticket.pk},
+    )
+    response = organization_owner_client.post(url)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == str(active_offline_ticket.id)
+    assert data["status"] == Ticket.TicketStatus.PENDING
+
+    # Verify in database
+    active_offline_ticket.refresh_from_db()
+    assert active_offline_ticket.status == Ticket.TicketStatus.PENDING
+
+
+def test_unconfirm_ticket_payment_at_door_by_owner(
+    organization_owner_client: Client,
+    event: Event,
+    at_door_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """Test that organization owner can unconfirm payment for at-the-door tickets."""
+    # Create an active at-the-door ticket
+    active_at_door_ticket = Ticket.objects.create(
+        guest_name="Test Guest",
+        user=public_user,
+        event=event,
+        tier=at_door_tier,
+        status=Ticket.TicketStatus.ACTIVE,
+    )
+
+    url = reverse(
+        "api:unconfirm_ticket_payment",
+        kwargs={"event_id": event.pk, "ticket_id": active_at_door_ticket.pk},
+    )
+    response = organization_owner_client.post(url)
+
+    assert response.status_code == 200
+    active_at_door_ticket.refresh_from_db()
+    assert active_at_door_ticket.status == Ticket.TicketStatus.PENDING
+
+
+def test_unconfirm_ticket_payment_by_staff_with_permission(
+    organization_staff_client: Client,
+    event: Event,
+    staff_member: OrganizationStaff,
+    offline_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """Test that staff with manage_tickets permission can unconfirm payment."""
+    # Grant permission
+    perms = staff_member.permissions
+    perms["default"]["manage_tickets"] = True
+    staff_member.permissions = perms
+    staff_member.save()
+
+    # Create an active offline ticket
+    active_offline_ticket = Ticket.objects.create(
+        guest_name="Test Guest",
+        user=public_user,
+        event=event,
+        tier=offline_tier,
+        status=Ticket.TicketStatus.ACTIVE,
+    )
+
+    url = reverse(
+        "api:unconfirm_ticket_payment",
+        kwargs={"event_id": event.pk, "ticket_id": active_offline_ticket.pk},
+    )
+    response = organization_staff_client.post(url)
+
+    assert response.status_code == 200
+    active_offline_ticket.refresh_from_db()
+    assert active_offline_ticket.status == Ticket.TicketStatus.PENDING
+
+
+def test_unconfirm_ticket_payment_by_staff_without_permission(
+    organization_staff_client: Client,
+    event: Event,
+    staff_member: OrganizationStaff,
+    offline_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """Test that staff without manage_tickets permission gets 403."""
+    # Ensure permission is False
+    perms = staff_member.permissions
+    perms["default"]["manage_tickets"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+
+    # Create an active offline ticket
+    active_offline_ticket = Ticket.objects.create(
+        guest_name="Test Guest",
+        user=public_user,
+        event=event,
+        tier=offline_tier,
+        status=Ticket.TicketStatus.ACTIVE,
+    )
+
+    url = reverse(
+        "api:unconfirm_ticket_payment",
+        kwargs={"event_id": event.pk, "ticket_id": active_offline_ticket.pk},
+    )
+    response = organization_staff_client.post(url)
+
+    assert response.status_code == 403
+
+    # Verify ticket status unchanged
+    active_offline_ticket.refresh_from_db()
+    assert active_offline_ticket.status == Ticket.TicketStatus.ACTIVE
+
+
+def test_unconfirm_ticket_payment_nonexistent_ticket(organization_owner_client: Client, event: Event) -> None:
+    """Test unconfirming payment for non-existent ticket returns 404."""
+    from uuid import uuid4
+
+    fake_ticket_id = uuid4()
+    url = reverse(
+        "api:unconfirm_ticket_payment",
+        kwargs={"event_id": event.pk, "ticket_id": fake_ticket_id},
+    )
+    response = organization_owner_client.post(url)
+
+    assert response.status_code == 404
+
+
+def test_unconfirm_ticket_payment_wrong_event(
+    organization_owner_client: Client,
+    event: Event,
+    public_event: Event,
+    offline_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """Test unconfirming payment for ticket from different event returns 404."""
+    # Create an active offline ticket for the main event
+    active_offline_ticket = Ticket.objects.create(
+        guest_name="Test Guest",
+        user=public_user,
+        event=event,
+        tier=offline_tier,
+        status=Ticket.TicketStatus.ACTIVE,
+    )
+
+    url = reverse(
+        "api:unconfirm_ticket_payment",
+        kwargs={"event_id": public_event.pk, "ticket_id": active_offline_ticket.pk},
+    )
+    response = organization_owner_client.post(url)
+
+    assert response.status_code == 404
+
+
+def test_unconfirm_ticket_payment_pending_ticket(
+    organization_owner_client: Client,
+    event: Event,
+    pending_offline_ticket: Ticket,
+) -> None:
+    """Test unconfirming payment for already pending ticket returns 404."""
+    url = reverse(
+        "api:unconfirm_ticket_payment",
+        kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
+    )
+    response = organization_owner_client.post(url)
+
+    assert response.status_code == 404
+
+
+def test_unconfirm_ticket_payment_checked_in_ticket(
+    organization_owner_client: Client,
+    event: Event,
+    offline_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """Test unconfirming payment for checked-in ticket returns 404."""
+    # Create a checked-in offline ticket
+    checked_in_ticket = Ticket.objects.create(
+        guest_name="Test Guest",
+        user=public_user,
+        event=event,
+        tier=offline_tier,
+        status=Ticket.TicketStatus.CHECKED_IN,
+    )
+
+    url = reverse(
+        "api:unconfirm_ticket_payment",
+        kwargs={"event_id": event.pk, "ticket_id": checked_in_ticket.pk},
+    )
+    response = organization_owner_client.post(url)
+
+    assert response.status_code == 404
+
+
+def test_unconfirm_ticket_payment_cancelled_ticket(
+    organization_owner_client: Client,
+    event: Event,
+    offline_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """Test unconfirming payment for cancelled ticket returns 404."""
+    # Create a cancelled offline ticket
+    cancelled_ticket = Ticket.objects.create(
+        guest_name="Test Guest",
+        user=public_user,
+        event=event,
+        tier=offline_tier,
+        status=Ticket.TicketStatus.CANCELLED,
+    )
+
+    url = reverse(
+        "api:unconfirm_ticket_payment",
+        kwargs={"event_id": event.pk, "ticket_id": cancelled_ticket.pk},
+    )
+    response = organization_owner_client.post(url)
+
+    assert response.status_code == 404
+
+
+def test_unconfirm_ticket_payment_online_payment_method(
+    organization_owner_client: Client,
+    event: Event,
+    active_online_ticket: Ticket,
+) -> None:
+    """Test unconfirming payment for online payment method ticket returns 404."""
+    url = reverse(
+        "api:unconfirm_ticket_payment",
+        kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk},
+    )
+    response = organization_owner_client.post(url)
+
+    assert response.status_code == 404
+
+    # Verify ticket status unchanged
+    active_online_ticket.refresh_from_db()
+    assert active_online_ticket.status == Ticket.TicketStatus.ACTIVE
+
+
 def test_pending_tickets_endpoints_require_authentication(event: Event, pending_offline_ticket: Ticket) -> None:
     """Test that both endpoints require authentication."""
     from django.test.client import Client

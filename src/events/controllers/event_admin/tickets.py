@@ -193,6 +193,33 @@ class EventAdminTicketsController(EventAdminBaseController):
         return models.Ticket.objects.full().get(pk=ticket.pk)
 
     @route.post(
+        "/tickets/{ticket_id}/unconfirm-payment",
+        url_name="unconfirm_ticket_payment",
+        response={200: schema.UserTicketSchema},
+        permissions=[EventPermission("manage_tickets")],
+    )
+    def unconfirm_ticket_payment(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
+        """Revert a confirmed ticket back to pending status."""
+        event = self.get_one(event_id)
+        ticket = get_object_or_404(
+            models.Ticket,
+            pk=ticket_id,
+            event=event,
+            status=models.Ticket.TicketStatus.ACTIVE,
+            tier__payment_method__in=[
+                models.TicketTier.PaymentMethod.OFFLINE,
+                models.TicketTier.PaymentMethod.AT_THE_DOOR,
+            ],
+        )
+        # Store old status before updating (signal handler needs this)
+        ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
+        ticket.status = models.Ticket.TicketStatus.PENDING
+        ticket.save(update_fields=["status"])
+
+        # Re-fetch with full() to include all related objects for UserTicketSchema
+        return models.Ticket.objects.full().get(pk=ticket.pk)
+
+    @route.post(
         "/tickets/{ticket_id}/mark-refunded",
         url_name="mark_ticket_refunded",
         response={200: schema.UserTicketSchema},
