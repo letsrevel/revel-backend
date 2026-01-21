@@ -286,6 +286,7 @@ class BatchTicketService:
     def _assert_event_capacity(self, count: int) -> None:
         """Assert that the event has capacity for the requested tickets.
 
+        Uses effective_capacity (min of max_attendees and venue.capacity) as the soft limit.
         Uses select_for_update to prevent race conditions when multiple users
         purchase tickets simultaneously.
 
@@ -295,7 +296,8 @@ class BatchTicketService:
         Raises:
             HttpError: If the event is full or doesn't have enough capacity.
         """
-        if self.event.max_attendees == 0:
+        effective_cap = self.event.effective_capacity
+        if effective_cap == 0:
             return  # Unlimited
 
         # Count all non-cancelled tickets with row-level locking
@@ -306,13 +308,55 @@ class BatchTicketService:
             .count()
         )
 
-        available = self.event.max_attendees - current_count
+        available = effective_cap - current_count
         if available <= 0:
             raise HttpError(429, str(_("This event is sold out.")))
         if count > available:
             raise HttpError(
                 400,
                 str(_("Only {available} spot(s) remaining for this event.")).format(available=available),
+            )
+
+    def _assert_sector_capacity(self, count: int) -> None:
+        """Assert that the sector has capacity for the requested tickets.
+
+        This is a HARD limit that cannot be overridden by special invitations.
+        Only applies to GA tiers (seat_assignment_mode=NONE) with a sector assigned.
+        For seated tiers, capacity is implicitly enforced by available seats.
+
+        Uses select_for_update to prevent race conditions.
+
+        Args:
+            count: Number of tickets being requested.
+
+        Raises:
+            HttpError: If the sector is full or doesn't have enough capacity.
+        """
+        # Only enforce for GA tiers with a sector
+        if self.tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE:
+            return  # Seated tiers are limited by available seats
+        if not self.tier.sector_id:
+            return  # No sector assigned
+
+        sector = self.tier.sector
+        if not sector or not sector.capacity:
+            return  # No capacity limit set
+
+        # Count all non-cancelled tickets in this sector for this event with row-level locking
+        current_count = (
+            Ticket.objects.select_for_update()
+            .filter(event=self.event, sector=sector)
+            .exclude(status=Ticket.TicketStatus.CANCELLED)
+            .count()
+        )
+
+        available = sector.capacity - current_count
+        if available <= 0:
+            raise HttpError(429, str(_("This sector is full.")))
+        if count > available:
+            raise HttpError(
+                400,
+                str(_("Only {available} spot(s) remaining in this sector.")).format(available=available),
             )
 
     @transaction.atomic
@@ -345,8 +389,11 @@ class BatchTicketService:
         # Check tier capacity
         self._assert_tier_capacity(locked_tier, len(items))
 
-        # Check event capacity (max_attendees)
+        # Check event capacity (effective_capacity - soft limit)
         self._assert_event_capacity(len(items))
+
+        # Check sector capacity for GA tiers (hard limit - cannot be overridden)
+        self._assert_sector_capacity(len(items))
 
         # Resolve seats
         seats = self.resolve_seats(items)

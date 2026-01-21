@@ -50,11 +50,13 @@ class Venue(SlugFromNameMixin, TimeStampedModel, LocationMixin):
     Layout (sectors/seats) is optional and FE-defined.
 
     Note:
-        The `capacity` field is informational only and is NOT enforced during
-        ticket sales. Actual capacity enforcement happens via:
-        - Event.max_attendees (enforced during ticket purchase)
-        - TicketTier.total_quantity (enforced during ticket purchase)
-        - Materialized seats in sectors (enforced for seated events)
+        The `capacity` field is combined with Event.max_attendees to determine
+        the effective event capacity (min of both). This is a soft limit that
+        can be overridden by invitations with overrides_max_attendees=True.
+
+        Hard capacity limits are enforced via:
+        - VenueSector.capacity for GA tiers (cannot be overridden)
+        - Materialized seats in sectors for seated events
     """
 
     # Slug must be unique per organization, same convention as Event
@@ -76,7 +78,9 @@ class Venue(SlugFromNameMixin, TimeStampedModel, LocationMixin):
     capacity = models.PositiveIntegerField(
         null=True,
         blank=True,
-        help_text="Informational only. Not enforced during ticket sales.",
+        help_text=(
+            "Combined with Event.max_attendees to determine effective capacity (min of both). 0/null = unlimited."
+        ),
     )
 
     class Meta:
@@ -101,9 +105,10 @@ class VenueSector(TimeStampedModel):
     """A logical area inside a venue (e.g. Balcony, Floor Left).
 
     Note:
-        The `capacity` field is informational only and is NOT enforced during
-        ticket sales. For seated events, capacity is implicitly enforced by the
-        number of materialized VenueSeat objects in this sector.
+        The `capacity` field is a HARD limit for GA tiers (seat_assignment_mode=NONE)
+        and is enforced during ticket sales. This limit cannot be overridden by
+        special invitations. For seated tiers, capacity is implicitly enforced by
+        the number of materialized VenueSeat objects in this sector.
     """
 
     venue = models.ForeignKey(
@@ -125,7 +130,10 @@ class VenueSector(TimeStampedModel):
     capacity = models.PositiveIntegerField(
         null=True,
         blank=True,
-        help_text="Informational only. Actual capacity enforced by materialized seats.",
+        help_text=(
+            "Hard capacity limit for GA tiers. Enforced during ticket sales. "
+            "For seated tiers, capacity is enforced by seat count."
+        ),
     )
 
     # Controls ordering in FE lists
