@@ -1,4 +1,4 @@
-## src/accounts/tests/test_controllers/test_auth_otp_controllers.py
+# src/accounts/tests/test_controllers/test_auth_otp_controllers.py
 """test_auth_otp_controllers.py: Integration tests for AuthController and OtpController."""
 
 from unittest.mock import MagicMock, patch

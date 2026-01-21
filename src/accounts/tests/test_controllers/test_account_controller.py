@@ -1,4 +1,4 @@
-## src/accounts/tests/test_controllers/test_account_controller.py
+# src/accounts/tests/test_controllers/test_account_controller.py
 """test_account_controller.py: Integration tests for the AccountController."""
 
 from unittest.mock import MagicMock, patch

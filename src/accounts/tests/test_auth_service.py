@@ -1,4 +1,4 @@
-## src/accounts/tests/test_auth_service.py
+# src/accounts/tests/test_auth_service.py
 
 from unittest.mock import MagicMock, patch
 

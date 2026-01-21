@@ -169,9 +169,10 @@ target-version = "py312"
 [tool.ruff.lint]
 # Allow unused variables when underscore-prefixed.
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+preview = true
 
 fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "EM", "ERA", "EXE", "FBT", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "TRY", "UP", "YTT"]
-select = ["E", "F", "I", "W", "D", "T201", "C"]
+select = ["C", "D", "E", "F", "I", "PLR1702", "T201", "W"]
 extend-select = ["I", "W", "E", "D"]
 ignore = ["D100", "D101", "D104", "D105", "D106"]
 unfixable = []
@@ -189,6 +190,9 @@ max-complexity = 10
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.ruff.lint.pylint]
+max-nested-blocks = 4
 
 [tool.ruff.format]
 
