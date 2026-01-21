@@ -1,4 +1,4 @@
-## src/accounts/tests/conftest.py
+# src/accounts/tests/conftest.py
 import typing as t
 
 import pytest
