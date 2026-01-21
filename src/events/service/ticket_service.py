@@ -220,10 +220,12 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
 
     if tickets and event.requires_ticket:
         # Calculate event-level capacity remaining (once, to avoid N+1)
+        # Uses effective_capacity (min of max_attendees and venue.capacity)
         event_capacity_remaining: int | None = None
-        if event.max_attendees > 0:
+        effective_cap = event.effective_capacity
+        if effective_cap > 0:
             total_sold = Ticket.objects.filter(event=event).exclude(status=Ticket.TicketStatus.CANCELLED).count()
-            event_capacity_remaining = max(0, event.max_attendees - total_sold)
+            event_capacity_remaining = max(0, effective_cap - total_sold)
 
         # Pre-compute user's ticket counts per tier in ONE query (avoids N+1)
         user_ticket_counts: dict[UUID, int] = dict(

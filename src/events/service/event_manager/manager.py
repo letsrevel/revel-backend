@@ -160,8 +160,12 @@ class EventManager:
 
         For ticket events, counts total non-cancelled tickets (each ticket = one attendee).
         For RSVP events, counts YES RSVPs.
+
+        Uses effective_capacity (min of max_attendees and venue.capacity) as the soft limit.
+        This can be overridden by invitations with overrides_max_attendees=True.
         """
-        if self.event.max_attendees == 0 or self.eligibility_service.overrides_max_attendees():
+        effective_cap = self.event.effective_capacity
+        if effective_cap == 0 or self.eligibility_service.overrides_max_attendees():
             return
 
         if use_tickets:
@@ -189,7 +193,7 @@ class EventManager:
                 EventRSVP.objects.select_for_update().filter(event=self.event, status=EventRSVP.RsvpStatus.YES).count()
             )
 
-        if count >= self.event.max_attendees:
+        if count >= effective_cap:
             raise UserIsIneligibleError(
                 message="Event is full.",
                 eligibility=EventUserEligibility(

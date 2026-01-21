@@ -282,6 +282,26 @@ class Event(
     def __str__(self) -> str:
         return f"{self.name} ({self.organization.name})"
 
+    @property
+    def effective_capacity(self) -> int:
+        """Get the effective capacity considering both max_attendees and venue capacity.
+
+        Returns the minimum of max_attendees and venue.capacity when both are set,
+        or whichever is set if only one exists. Returns 0 (unlimited) if neither is set.
+
+        This is a soft limit that can be overridden by invitations with
+        overrides_max_attendees=True. For hard limits, see sector capacity.
+
+        Note:
+            Ensure the venue is prefetched (via select_related or with_venue())
+            before accessing this property to avoid N+1 queries.
+
+        Returns:
+            Effective capacity as int. 0 means unlimited.
+        """
+        capacities = [cap for cap in [self.max_attendees, self.venue.capacity if self.venue else None] if cap]
+        return min(capacities) if capacities else 0
+
     def can_user_see_address(self, user: RevelUser | AnonymousUser) -> bool:
         """Check if the user can see the event address based on address_visibility.
 

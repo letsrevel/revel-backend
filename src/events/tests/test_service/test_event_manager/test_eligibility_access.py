@@ -10,6 +10,7 @@ from events.models import (
     OrganizationMember,
     Ticket,
     TicketTier,
+    Venue,
 )
 from events.service.event_manager import EligibilityService, NextStep, Reasons
 
@@ -239,3 +240,63 @@ def test_requires_full_profile_allows_when_complete(public_user: RevelUser, publ
     eligibility = handler.check_eligibility()
 
     assert eligibility.allowed is True
+
+
+def test_event_full_via_venue_capacity(public_user: RevelUser, member_user: RevelUser, public_event: Event) -> None:
+    """Test that venue.capacity limits access even when max_attendees is unlimited."""
+    # Create venue with small capacity
+    venue = Venue.objects.create(
+        organization=public_event.organization,
+        name="Small Venue",
+        capacity=1,
+    )
+    public_event.venue = venue
+    public_event.max_attendees = 0  # Unlimited by max_attendees
+    public_event.waitlist_open = True
+    public_event.save()
+
+    # The first user takes the only spot (via venue capacity)
+    general_tier = TicketTier.objects.create(event=public_event, name="General")
+    Ticket.objects.create(guest_name="Test Guest", event=public_event, user=public_user, tier=general_tier)
+
+    # Refresh event to get venue prefetched
+    public_event.refresh_from_db()
+    public_event = Event.objects.select_related("venue").get(pk=public_event.pk)
+
+    # The second user should be denied access
+    handler = EligibilityService(user=member_user, event=public_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.EVENT_IS_FULL
+    assert eligibility.next_step == NextStep.JOIN_WAITLIST
+
+
+def test_effective_capacity_uses_min_of_venue_and_max_attendees(
+    public_user: RevelUser, member_user: RevelUser, public_event: Event
+) -> None:
+    """Test that effective_capacity is min(max_attendees, venue.capacity)."""
+    # Create venue with larger capacity than max_attendees
+    venue = Venue.objects.create(
+        organization=public_event.organization,
+        name="Big Venue",
+        capacity=100,
+    )
+    public_event.venue = venue
+    public_event.max_attendees = 1  # This is smaller, so it should be the limit
+    public_event.waitlist_open = False
+    public_event.save()
+
+    # The first user takes the only spot (via max_attendees)
+    general_tier = TicketTier.objects.create(event=public_event, name="General")
+    Ticket.objects.create(guest_name="Test Guest", event=public_event, user=public_user, tier=general_tier)
+
+    # Refresh event
+    public_event = Event.objects.select_related("venue").get(pk=public_event.pk)
+
+    # The second user should be denied
+    handler = EligibilityService(user=member_user, event=public_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.EVENT_IS_FULL

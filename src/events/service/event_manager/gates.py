@@ -541,16 +541,20 @@ class AvailabilityGate(BaseEligibilityGate):
     It must use the same counting logic as EventManager._assert_capacity() to avoid
     inconsistencies, but operates on in-memory data for performance.
 
+    Uses effective_capacity (min of max_attendees and venue.capacity) as the soft limit.
+    This can be overridden by invitations with overrides_max_attendees=True.
+
     The final authoritative capacity check happens in _assert_capacity() within a transaction
     with row-level locking to prevent race conditions.
     """
 
     def check(self) -> EventUserEligibility | None:
         """Check if the event has space available for another attendee."""
-        if self.event.max_attendees == 0 or self.handler.overrides_max_attendees():
+        effective_cap = self.event.effective_capacity
+        if effective_cap == 0 or self.handler.overrides_max_attendees():
             return None
 
-        if self._get_attendee_count() >= self.event.max_attendees:
+        if self._get_attendee_count() >= effective_cap:
             return EventUserEligibility(
                 allowed=False,
                 event_id=self.event.id,
