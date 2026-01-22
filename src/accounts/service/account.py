@@ -18,6 +18,12 @@ from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import check_blacklist, create_token
 from accounts.models import RevelUser
 from accounts.password_validation import validate_password
+from common.testing import (
+    TOKEN_TYPE_DELETION,
+    TOKEN_TYPE_PASSWORD_RESET,
+    TOKEN_TYPE_VERIFICATION,
+    store_test_token,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -64,7 +70,9 @@ def create_verification_token(user: RevelUser) -> str:
         email=user.email,
         exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
     )
-    return create_token(verification_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    token = create_token(verification_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    store_test_token(TOKEN_TYPE_VERIFICATION, token)
+    return token
 
 
 def create_deletion_token(user: RevelUser) -> str:
@@ -81,7 +89,9 @@ def create_deletion_token(user: RevelUser) -> str:
         email=user.email,
         exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
     )
-    return create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    store_test_token(TOKEN_TYPE_DELETION, token)
+    return token
 
 
 def send_verification_email_for_user(user: RevelUser) -> tuple[RevelUser, str]:
@@ -174,6 +184,7 @@ def request_password_reset(email: str) -> str | None:
         exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
     )
     token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    store_test_token(TOKEN_TYPE_PASSWORD_RESET, token)
     tasks.send_password_reset_link.delay(user.email, token)
     logger.info("password_reset_email_sent", user_id=str(user.id), email=email)
     return token

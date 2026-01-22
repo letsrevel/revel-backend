@@ -2,5 +2,6 @@
 
 from .language import UserLanguageMiddleware
 from .observability import StructlogContextMiddleware
+from .testing import TestTokenMiddleware
 
-__all__ = ["StructlogContextMiddleware", "UserLanguageMiddleware"]
+__all__ = ["StructlogContextMiddleware", "TestTokenMiddleware", "UserLanguageMiddleware"]

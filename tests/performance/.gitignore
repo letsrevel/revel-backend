@@ -1,0 +1,11 @@
+# Performance test logs
+logs/
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Test results (optional - may want to commit some)
+results/
