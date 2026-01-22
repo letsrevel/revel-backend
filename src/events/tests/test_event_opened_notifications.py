@@ -8,7 +8,6 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from events.models import Event, OrganizationMember
 from notifications.enums import NotificationType
-from notifications.models import Notification
 
 pytestmark = pytest.mark.django_db
 
@@ -37,30 +36,22 @@ class TestEventOpenedNotification:
             status=Event.EventStatus.DRAFT,
         )
 
-        # Clear any notifications created during setup
-        Notification.objects.all().delete()
-
-        with patch("notifications.tasks.dispatch_notifications_batch.delay") as mock_dispatch:
+        with patch("notifications.signals.notification_requested.send") as mock_send:
             # Update to OPEN and capture on_commit callbacks
             with django_capture_on_commit_callbacks(execute=True):
                 event.status = Event.EventStatus.OPEN
                 event.save(update_fields=["status"])
 
-            # Verify notifications were created (one for owner, one for member)
-            notifications = Notification.objects.filter(notification_type=NotificationType.EVENT_OPEN)
-            assert notifications.count() == 2
+            # Verify notification was sent (called for both owner and member)
+            assert mock_send.called
+            assert mock_send.call_count == 2  # Once for owner, once for member
 
-            # Verify dispatch was called with notification IDs
-            assert mock_dispatch.called
-            notification_ids = mock_dispatch.call_args[0][0]
-            assert len(notification_ids) == 2
-
-            # Check all notifications have correct type and context
-            for notification in notifications:
-                assert notification.notification_type == NotificationType.EVENT_OPEN
+            # Check all calls had correct notification type
+            for call in mock_send.call_args_list:
+                assert call.kwargs["notification_type"] == NotificationType.EVENT_OPEN
 
                 # Check context has all required fields
-                context = notification.context
+                context = call.kwargs["context"]
                 assert "event_id" in context
                 assert "event_name" in context
                 assert "event_description" in context
@@ -80,7 +71,7 @@ class TestEventOpenedNotification:
                 assert context["organization_name"] == event.organization.name
 
             # Verify both users received notifications
-            notified_users = {n.user for n in notifications}
+            notified_users = {call.kwargs["user"] for call in mock_send.call_args_list}
             assert nonmember_user in notified_users
             assert organization.owner in notified_users
 
@@ -141,10 +132,7 @@ class TestEventOpenedNotification:
         # Setup: Make user a member
         OrganizationMember.objects.create(user=nonmember_user, organization=organization)
 
-        # Clear any notifications created during setup
-        Notification.objects.all().delete()
-
-        with patch("notifications.tasks.dispatch_notifications_batch.delay") as mock_dispatch:
+        with patch("notifications.signals.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 # Create event as OPEN with PUBLIC visibility so members get notified
                 Event.objects.create(
@@ -158,19 +146,16 @@ class TestEventOpenedNotification:
                     status=Event.EventStatus.OPEN,
                 )
 
-            # Verify notifications were created (one for owner, one for member)
-            notifications = Notification.objects.filter(notification_type=NotificationType.EVENT_OPEN)
-            assert notifications.count() == 2
+            # Verify notification was sent (called for both owner and member)
+            assert mock_send.called
+            assert mock_send.call_count == 2  # Once for owner, once for member
 
-            # Verify dispatch was called
-            assert mock_dispatch.called
-
-            # Check all notifications have correct type
-            for notification in notifications:
-                assert notification.notification_type == NotificationType.EVENT_OPEN
+            # Check all calls had correct notification type
+            for call in mock_send.call_args_list:
+                assert call.kwargs["notification_type"] == NotificationType.EVENT_OPEN
 
             # Verify both users received notifications
-            notified_users = {n.user for n in notifications}
+            notified_users = {call.kwargs["user"] for call in mock_send.call_args_list}
             assert nonmember_user in notified_users
             assert organization.owner in notified_users
 
@@ -196,24 +181,17 @@ class TestEventOpenedNotification:
             status=Event.EventStatus.DRAFT,
         )
 
-        # Clear any notifications created during setup
-        Notification.objects.all().delete()
-
-        with patch("notifications.tasks.dispatch_notifications_batch.delay") as mock_dispatch:
+        with patch("notifications.signals.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 # Update to OPEN
                 event.status = Event.EventStatus.OPEN
                 event.save(update_fields=["status"])
 
-            # Verify notifications were created
-            notifications = Notification.objects.filter(notification_type=NotificationType.EVENT_OPEN)
-            assert notifications.exists()
-            assert mock_dispatch.called
-
-            # Check location in context (check any notification)
-            notification = notifications.first()
-            assert notification is not None
-            assert notification.context["event_location"] == "123 Main St, City, State 12345"
+            # Verify location in context (check any of the calls)
+            assert mock_send.called
+            # All calls should have the same context data
+            context = mock_send.call_args_list[0].kwargs["context"]
+            assert context["event_location"] == "123 Main St, City, State 12345"
 
     def test_event_opened_context_boolean_flags(
         self, organization: t.Any, nonmember_user: RevelUser, django_capture_on_commit_callbacks: t.Any
@@ -237,24 +215,16 @@ class TestEventOpenedNotification:
             status=Event.EventStatus.DRAFT,
         )
 
-        # Clear any notifications created during setup
-        Notification.objects.all().delete()
-
-        with patch("notifications.tasks.dispatch_notifications_batch.delay") as mock_dispatch:
+        with patch("notifications.signals.notification_requested.send") as mock_send:
             with django_capture_on_commit_callbacks(execute=True):
                 # Update to OPEN
                 event.status = Event.EventStatus.OPEN
                 event.save(update_fields=["status"])
 
-            # Verify notifications were created
-            notifications = Notification.objects.filter(notification_type=NotificationType.EVENT_OPEN)
-            assert notifications.exists()
-            assert mock_dispatch.called
-
-            # Verify boolean flags (check any notification)
-            notification = notifications.first()
-            assert notification is not None
-            context = notification.context
+            # Verify boolean flags (check any of the calls)
+            assert mock_send.called
+            # All calls should have the same context data
+            context = mock_send.call_args_list[0].kwargs["context"]
             assert context["rsvp_required"] is True
             assert context["tickets_available"] is False
             assert context["questionnaire_required"] is False
