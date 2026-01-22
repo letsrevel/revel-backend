@@ -12,8 +12,7 @@ import time
 from dataclasses import dataclass
 
 import requests
-
-from ..config import config
+from config import config
 
 
 @dataclass

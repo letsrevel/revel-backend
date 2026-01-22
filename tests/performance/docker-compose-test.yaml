@@ -21,14 +21,17 @@ services:
   # ============================================================================
 
   web:
-    image: ghcr.io/letsrevel/revel:latest
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: revel:perf-local
     container_name: revel_perf_web
     restart: unless-stopped
     command: >
       gunicorn revel.wsgi:application
       --worker-class gthread
-      --workers 4
-      --threads 2
+      --workers 6
+      --threads 4
       --bind 0.0.0.0:8000
       --max-requests 2000
       --max-requests-jitter 200
@@ -49,7 +52,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/healthcheck || exit 1"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/healthcheck')\" || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -61,7 +64,7 @@ services:
           cpus: '4.0'
 
   celery:
-    image: ghcr.io/letsrevel/revel:latest
+    image: revel:perf-local
     container_name: revel_perf_celery
     restart: unless-stopped
     command: celery -A revel worker --loglevel=INFO --concurrency=4 --max-tasks-per-child=500 --hostname=worker@%h
@@ -73,6 +76,8 @@ services:
     networks:
       - perf_network
     depends_on:
+      web:
+        condition: service_healthy
       pgbouncer:
         condition: service_healthy
       redis:
@@ -84,7 +89,7 @@ services:
           cpus: '2.0'
 
   beat:
-    image: ghcr.io/letsrevel/revel:latest
+    image: revel:perf-local
     container_name: revel_perf_beat
     restart: unless-stopped
     command: celery -A revel beat --scheduler django_celery_beat.schedulers:DatabaseScheduler --loglevel=INFO
@@ -95,6 +100,8 @@ services:
     networks:
       - perf_network
     depends_on:
+      web:
+        condition: service_healthy
       pgbouncer:
         condition: service_healthy
       redis:
@@ -110,13 +117,13 @@ services:
   # ============================================================================
 
   postgres:
-    image: postgis/postgis:17-3.5
+    image: postgis/postgis:15-3.3
     container_name: revel_perf_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-revel_perf}
+      POSTGRES_USER: ${DB_USER:-revel_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-revel_perf_password}
     command: >
       postgres
       -c shared_buffers=512MB
@@ -136,27 +143,28 @@ services:
     networks:
       - perf_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-revel_user}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
   pgbouncer:
     image: edoburu/pgbouncer
+    platform: linux/amd64  # Required for Apple Silicon (emulation)
     container_name: revel_perf_pgbouncer
     restart: unless-stopped
     environment:
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_USER: ${DB_USER:-revel_user}
+      DB_PASSWORD: ${DB_PASSWORD:-revel_perf_password}
       DB_HOST: revel_perf_postgres
-      DB_NAME: ${DB_NAME}
+      DB_NAME: ${DB_NAME:-revel_perf}
       LISTEN_PORT: 6432
       AUTH_TYPE: scram-sha-256
       POOL_MODE: transaction
-      MAX_CLIENT_CONN: 500
-      DEFAULT_POOL_SIZE: 20
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 25
       RESERVE_POOL_SIZE: 5
-      ADMIN_USERS: ${DB_USER}
+      ADMIN_USERS: ${DB_USER:-revel_user}
     expose:
       - "6432"
     networks:
@@ -220,6 +228,7 @@ services:
 
   clamav:
     image: clamav/clamav:latest
+    platform: linux/amd64  # Required for Apple Silicon (emulation)
     container_name: revel_perf_clamav
     restart: unless-stopped
     expose:

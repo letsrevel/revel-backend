@@ -20,11 +20,13 @@ from datetime import timedelta
 from decimal import Decimal
 
 import structlog
+from decouple import config
 from django.core.management.base import BaseCommand, CommandParser
 from django.db import transaction
 from django.utils import timezone
 
 from accounts.models import RevelUser
+from common.models import SiteSettings
 from events import models as events_models
 from geo.models import City
 from questionnaires import models as questionnaires_models
@@ -35,8 +37,9 @@ logger = structlog.get_logger(__name__)
 PERF_ORG_SLUG = "perf-test-org"
 PERF_ADMIN_EMAIL = "perf-admin@test.com"
 PERF_STAFF_EMAIL = "perf-staff@test.com"
-DEFAULT_PASSWORD = "password123"
-NUM_PRESEEDED_USERS = 100
+DEFAULT_PASSWORD = config("LOCUST_DEFAULT_PASSWORD", default="PerfTest-2026-Secure!")
+NUM_PRESEEDED_USERS = config("LOCUST_NUM_PRESEEDED_USERS", default=500, cast=int)
+TICKET_TIER_CAPACITY = config("LOCUST_TICKET_TIER_CAPACITY", default=10000, cast=int)
 
 
 class Command(BaseCommand):
@@ -79,19 +82,57 @@ class Command(BaseCommand):
             # Create questionnaire
             self._create_questionnaire()
 
+            # Enable live emails for Mailpit to receive actual addresses
+            self._enable_live_emails()
+
         self._print_summary()
 
     def _reset_data(self) -> None:
         """Delete all perf test data."""
+        from notifications.models import Notification, NotificationDelivery
+
         logger.info("Resetting performance test data...")
 
-        # Delete organization (cascades to events, tiers, etc.)
-        events_models.Organization.objects.filter(slug=PERF_ORG_SLUG).delete()
+        # Get perf test users first
+        perf_users = RevelUser.objects.filter(email__startswith="perf-")
+        admin_user = RevelUser.objects.filter(email=PERF_ADMIN_EMAIL).first()
+        staff_user = RevelUser.objects.filter(email=PERF_STAFF_EMAIL).first()
+
+        all_perf_user_ids = list(perf_users.values_list("id", flat=True))
+        if admin_user:
+            all_perf_user_ids.append(admin_user.id)
+        if staff_user:
+            all_perf_user_ids.append(staff_user.id)
+
+        # Delete notifications and deliveries for perf users
+        if all_perf_user_ids:
+            notifications = Notification.objects.filter(user_id__in=all_perf_user_ids)
+            NotificationDelivery.objects.filter(notification__in=notifications).delete()
+            notifications.delete()
+
+        # Delete in correct order to avoid signal issues
+        org = events_models.Organization.objects.filter(slug=PERF_ORG_SLUG).first()
+        if org:
+            # Delete members first (signal tries to access org after cascade delete)
+            events_models.OrganizationMember.objects.filter(organization=org).delete()
+
+            # Delete tickets before events (waitlist signal tries to access event)
+            events = events_models.Event.objects.filter(organization=org)
+            events_models.Ticket.objects.filter(event__in=events).delete()
+            events_models.EventRSVP.objects.filter(event__in=events).delete()
+
+            # Delete events
+            events.delete()
+
+            # Now delete the organization
+            org.delete()
 
         # Delete perf test users
-        RevelUser.objects.filter(email__startswith="perf-").delete()
-        RevelUser.objects.filter(email=PERF_ADMIN_EMAIL).delete()
-        RevelUser.objects.filter(email=PERF_STAFF_EMAIL).delete()
+        perf_users.delete()
+        if admin_user:
+            admin_user.delete()
+        if staff_user:
+            staff_user.delete()
 
         logger.info("Reset complete.")
 
@@ -141,9 +182,9 @@ class Command(BaseCommand):
                     "email_verified": True,  # Pre-verified!
                 },
             )
-            if created:
-                user.set_password(DEFAULT_PASSWORD)
-                user.save()
+            # Always set password (in case it changed or user existed)
+            user.set_password(DEFAULT_PASSWORD)
+            user.save()
             self.preseeded_users.append(user)
 
         logger.info(f"Created {NUM_PRESEEDED_USERS} pre-seeded users")
@@ -232,7 +273,7 @@ This organization is used for Locust performance testing.
         )
 
         # Event 3: Free ticket event
-        self.events["ticket_free"], _ = events_models.Event.objects.get_or_create(
+        self.events["ticket_free"], _ = events_models.Event.objects.update_or_create(
             organization=self.org,
             slug="perf-ticket-free-event",
             defaults={
@@ -244,14 +285,15 @@ This organization is used for Locust performance testing.
                 "requires_ticket": True,
                 "start": now + timedelta(days=40),
                 "end": now + timedelta(days=40, hours=3),
-                "max_attendees": 500,
+                "max_attendees": TICKET_TIER_CAPACITY,
+                "max_tickets_per_user": None,  # Unlimited for perf testing
                 "description": "Performance test event for free ticket checkout.",
                 "address": "Test Venue, Vienna",
             },
         )
 
         # Event 4: PWYC ticket event
-        self.events["ticket_pwyc"], _ = events_models.Event.objects.get_or_create(
+        self.events["ticket_pwyc"], _ = events_models.Event.objects.update_or_create(
             organization=self.org,
             slug="perf-ticket-pwyc-event",
             defaults={
@@ -263,7 +305,8 @@ This organization is used for Locust performance testing.
                 "requires_ticket": True,
                 "start": now + timedelta(days=45),
                 "end": now + timedelta(days=45, hours=3),
-                "max_attendees": 500,
+                "max_attendees": TICKET_TIER_CAPACITY,
+                "max_tickets_per_user": None,  # Unlimited for perf testing
                 "description": "Performance test event for PWYC checkout.",
                 "address": "Test Venue, Vienna",
             },
@@ -296,42 +339,43 @@ This organization is used for Locust performance testing.
 
         now = timezone.now()
 
-        # Free ticket tier
-        events_models.TicketTier.objects.filter(
+        # Free ticket tier - update_or_create to ensure settings are applied
+        events_models.TicketTier.objects.update_or_create(
             event=self.events["ticket_free"],
             name="General Admission",
-        ).update(
-            visibility=events_models.TicketTier.Visibility.PUBLIC,
-            payment_method=events_models.TicketTier.PaymentMethod.FREE,
-            purchasable_by=events_models.TicketTier.PurchasableBy.PUBLIC,
-            price=Decimal("0.00"),
-            currency="EUR",
-            total_quantity=500,
-            quantity_sold=0,
-            sales_start_at=now - timedelta(days=1),
-            sales_end_at=now + timedelta(days=39),
-            description="Free performance test ticket",
+            defaults={
+                "visibility": events_models.TicketTier.Visibility.PUBLIC,
+                "payment_method": events_models.TicketTier.PaymentMethod.FREE,
+                "purchasable_by": events_models.TicketTier.PurchasableBy.PUBLIC,
+                "price": Decimal("0.00"),
+                "currency": "EUR",
+                "total_quantity": TICKET_TIER_CAPACITY,
+                "quantity_sold": 0,
+                "sales_start_at": now - timedelta(days=1),
+                "sales_end_at": now + timedelta(days=39),
+                "description": "Free performance test ticket",
+            },
         )
 
-        # Delete default tier and create PWYC tier
+        # Delete default tier and create/update PWYC tier
         events_models.TicketTier.objects.filter(
             event=self.events["ticket_pwyc"],
             name="General Admission",
         ).delete()
 
-        events_models.TicketTier.objects.get_or_create(
+        events_models.TicketTier.objects.update_or_create(
             event=self.events["ticket_pwyc"],
             name="PWYC Admission",
             defaults={
                 "visibility": events_models.TicketTier.Visibility.PUBLIC,
-                "payment_method": events_models.TicketTier.PaymentMethod.ONLINE,
+                "payment_method": events_models.TicketTier.PaymentMethod.OFFLINE,  # No Stripe in perf tests
                 "purchasable_by": events_models.TicketTier.PurchasableBy.PUBLIC,
                 "price_type": events_models.TicketTier.PriceType.PWYC,
                 "price": Decimal("10.00"),
                 "pwyc_min": Decimal("5.00"),
                 "pwyc_max": Decimal("50.00"),
                 "currency": "EUR",
-                "total_quantity": 500,
+                "total_quantity": TICKET_TIER_CAPACITY,
                 "quantity_sold": 0,
                 "sales_start_at": now - timedelta(days=1),
                 "sales_end_at": now + timedelta(days=44),
@@ -414,6 +458,19 @@ This organization is used for Locust performance testing.
 
         logger.info("Created performance test questionnaire")
 
+    def _enable_live_emails(self) -> None:
+        """Enable live emails so Mailpit receives actual addresses.
+
+        When live_emails=False, all emails are redirected to the internal
+        catchall address. For perf testing, we need emails to go to the
+        actual test user addresses so Mailpit can route them correctly.
+        """
+        logger.info("Enabling live emails for performance testing...")
+        site_settings = SiteSettings.get_solo()
+        site_settings.live_emails = True
+        site_settings.save(update_fields=["live_emails"])
+        logger.info("Live emails enabled")
+
     def _print_summary(self) -> None:
         """Print summary of created data."""
         self.stdout.write("\n" + "=" * 60)
@@ -433,6 +490,10 @@ This organization is used for Locust performance testing.
         self.stdout.write(self.style.NOTICE("\nTest Events:"))
         for key, event in self.events.items():
             self.stdout.write(f"  [{key}] {event.slug}")
+
+        self.stdout.write(self.style.NOTICE("\nEmail Settings:"))
+        self.stdout.write("  Live emails: ENABLED (emails sent to actual addresses)")
+        self.stdout.write("  Mailpit catches all emails at configured SMTP")
 
         self.stdout.write(self.style.NOTICE("\nUsage:"))
         self.stdout.write("  cd tests/performance")

@@ -1,13 +1,15 @@
 # tests/performance/scenarios/base.py
 """Base classes for Locust performance test scenarios."""
 
+import logging
 import typing as t
 
+from clients.api_client import RevelAPIClient
+from config import config
+from data.generators import TestDataGenerator, get_data_generator
 from locust import HttpUser, between
 
-from ..clients.api_client import RevelAPIClient
-from ..config import config
-from ..data.generators import TestDataGenerator, get_data_generator
+logger = logging.getLogger(__name__)
 
 
 class RevelUserBase(HttpUser):
@@ -104,7 +106,9 @@ class RevelUserBase(HttpUser):
         if event_data:
             event_id = event_data.get("id")
             self._cached_event_ids[cache_key] = event_id
+            logger.info("Found event %s/%s -> %s", org_slug, event_slug, event_id)
             return event_id
+        logger.error("Event not found: %s/%s", org_slug, event_slug)
         return None
 
     def get_perf_rsvp_event_id(self) -> str | None:

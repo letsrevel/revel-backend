@@ -2,8 +2,7 @@
 """Dashboard aggregation performance test scenarios."""
 
 from locust import task
-
-from .base import AuthenticatedRevelUser
+from scenarios.base import AuthenticatedRevelUser
 
 
 class DashboardUser(AuthenticatedRevelUser):

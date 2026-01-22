@@ -25,13 +25,57 @@ Pre-requisites:
     3. Ensure Mailpit is running (for registration tests)
 """
 
+import logging
+import os
+from datetime import datetime
+
+
+def setup_logging() -> None:
+    """Configure file-based logging for performance tests.
+
+    Creates a timestamped log file in the logs/ directory.
+    Only ERROR level and above is written to file.
+    """
+    log_dir = os.path.join(os.path.dirname(__file__), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(log_dir, f"perf_test_{timestamp}.log")
+
+    # File handler - ERROR level only
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(logging.ERROR)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+
+    # Configure root logger (catches all)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(file_handler)
+
+    # Explicitly configure our package loggers to ensure propagation
+    for logger_name in ["scenarios", "clients", "data"]:
+        pkg_logger = logging.getLogger(logger_name)
+        pkg_logger.setLevel(logging.DEBUG)
+        pkg_logger.propagate = True  # Ensure errors propagate to root
+
+    # Write a test entry to verify logging works
+    test_logger = logging.getLogger("locustfile")
+    test_logger.error("Performance test logging initialized - log file: %s", log_file)
+
+    test_logger.info("Logging errors to: %s", log_file)
+
+
+# Setup logging BEFORE importing scenarios (they use logging.getLogger(__name__))
+setup_logging()
+
 # Import all scenario classes so Locust can discover them
-from scenarios.auth_scenarios import ExistingUserLogin, NewUserRegistration
-from scenarios.dashboard_scenarios import DashboardUser
-from scenarios.discovery_scenarios import EventBrowser
-from scenarios.questionnaire_scenarios import QuestionnaireUser
-from scenarios.rsvp_scenarios import RSVPUser
-from scenarios.ticket_scenarios import FreeTicketUser, PWYCTicketUser
+# These must be after setup_logging() so loggers are properly configured
+from scenarios.auth_scenarios import ExistingUserLogin, NewUserRegistration  # noqa: E402
+from scenarios.dashboard_scenarios import DashboardUser  # noqa: E402
+from scenarios.discovery_scenarios import EventBrowser  # noqa: E402
+from scenarios.questionnaire_scenarios import QuestionnaireUser  # noqa: E402
+from scenarios.rsvp_scenarios import RSVPUser  # noqa: E402
+from scenarios.ticket_scenarios import FreeTicketUser, PWYCTicketUser  # noqa: E402
 
 # Locust automatically discovers HttpUser subclasses
 # The weight/tasks configuration is in each class

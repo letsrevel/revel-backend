@@ -7,9 +7,8 @@ Uses Faker for generating realistic test data.
 import random
 from dataclasses import dataclass
 
+from config import config
 from faker import Faker
-
-from ..config import config
 
 
 @dataclass

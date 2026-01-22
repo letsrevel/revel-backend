@@ -6,9 +6,12 @@ These test BOTTLENECK endpoints:
 - /events/{id}/tickets/{tier}/checkout/pwyc
 """
 
-from locust import task
+import logging
 
-from .base import AuthenticatedRevelUser
+from locust import task
+from scenarios.base import AuthenticatedRevelUser
+
+logger = logging.getLogger(__name__)
 
 
 class FreeTicketUser(AuthenticatedRevelUser):
@@ -19,6 +22,9 @@ class FreeTicketUser(AuthenticatedRevelUser):
     2. GET /events/{id}/tickets/tiers
     3. POST /events/{id}/tickets/{tier}/checkout
     4. GET /events/{id}/my-status (verify)
+
+    Users can purchase multiple tickets (max_tickets_per_user=None on event).
+    Each checkout uses a unique guest name for continuous load testing.
 
     Weight: 10 (bottleneck testing)
     """
@@ -38,14 +44,18 @@ class FreeTicketUser(AuthenticatedRevelUser):
         # Get the free tier ID
         if self._event_id:
             tiers = self.api.get_ticket_tiers(self._event_id)
+            logger.info("Free ticket tiers for event %s: %s", self._event_id, tiers)
             for tier in tiers:
-                # Look for a free tier (price = 0 or payment_method = FREE)
-                if tier.get("payment_method") == "FREE" or tier.get("price") == "0.00":
+                # Look for a free tier (payment_method = "free")
+                if tier.get("payment_method") == "free":
                     self._tier_id = tier.get("id")
                     break
-            # If no free tier found, use first available
-            if not self._tier_id and tiers:
-                self._tier_id = tiers[0].get("id")
+            if not self._tier_id:
+                logger.error(
+                    "No free tier found for event %s. Available tiers: %s",
+                    self._event_id,
+                    [(t.get("id"), t.get("payment_method"), t.get("price_type")) for t in tiers],
+                )
 
     @task(2)
     def check_status_and_tiers(self) -> None:
@@ -57,7 +67,11 @@ class FreeTicketUser(AuthenticatedRevelUser):
 
     @task(1)
     def checkout_free_ticket(self) -> None:
-        """Checkout for a free ticket (BOTTLENECK)."""
+        """Checkout for a free ticket (BOTTLENECK).
+
+        Purchases a ticket with unique guest name each time.
+        max_tickets_per_user=None allows unlimited purchases.
+        """
         if not self._event_id or not self._tier_id:
             return
 
@@ -94,6 +108,9 @@ class PWYCTicketUser(AuthenticatedRevelUser):
     3. POST /events/{id}/tickets/{tier}/checkout/pwyc
     4. GET /events/{id}/my-status (verify)
 
+    Users can purchase multiple tickets (max_tickets_per_user=None on event).
+    Each checkout uses a unique guest name for continuous load testing.
+
     Weight: 5 (bottleneck testing, less common)
     """
 
@@ -114,8 +131,9 @@ class PWYCTicketUser(AuthenticatedRevelUser):
         # Get the PWYC tier ID
         if self._event_id:
             tiers = self.api.get_ticket_tiers(self._event_id)
+            logger.info("PWYC ticket tiers for event %s: %s", self._event_id, tiers)
             for tier in tiers:
-                if tier.get("price_type") == "PWYC":
+                if tier.get("price_type") == "pwyc":
                     self._tier_id = tier.get("id")
                     # Extract price range if available
                     if tier.get("pwyc_min"):
@@ -123,9 +141,12 @@ class PWYCTicketUser(AuthenticatedRevelUser):
                     if tier.get("pwyc_max"):
                         self._max_price = float(tier["pwyc_max"])
                     break
-            # Fallback to first tier
-            if not self._tier_id and tiers:
-                self._tier_id = tiers[0].get("id")
+            if not self._tier_id:
+                logger.error(
+                    "No PWYC tier found for event %s. Available tiers: %s",
+                    self._event_id,
+                    [(t.get("id"), t.get("payment_method"), t.get("price_type")) for t in tiers],
+                )
 
     @task(2)
     def check_status_and_tiers(self) -> None:
@@ -137,7 +158,11 @@ class PWYCTicketUser(AuthenticatedRevelUser):
 
     @task(1)
     def checkout_pwyc_ticket(self) -> None:
-        """Checkout for a PWYC ticket (BOTTLENECK)."""
+        """Checkout for a PWYC ticket (BOTTLENECK).
+
+        Purchases a ticket with unique guest name each time.
+        max_tickets_per_user=None allows unlimited purchases.
+        """
         if not self._event_id or not self._tier_id:
             return
 

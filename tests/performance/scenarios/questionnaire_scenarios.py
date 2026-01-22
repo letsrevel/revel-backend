@@ -6,8 +6,7 @@ Tests BOTTLENECK endpoint:
 """
 
 from locust import task
-
-from .base import AuthenticatedRevelUser
+from scenarios.base import AuthenticatedRevelUser
 
 
 class QuestionnaireUser(AuthenticatedRevelUser):

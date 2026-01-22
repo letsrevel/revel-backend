@@ -37,6 +37,12 @@ ALLOWED_HOSTS: list[str] = config("ALLOWED_HOSTS", cast=Csv(), default="localhos
 SILK_PROFILER = config("SILK_PROFILER", default=False, cast=bool)
 SILKY_PYTHON_PROFILER = config("SILKY_PYTHON_PROFILER", default=False, cast=bool)
 
+# Throttling - disable for load testing
+DISABLE_THROTTLING = config("DISABLE_THROTTLING", default=False, cast=bool)
+
+# System testing mode - exposes tokens in response headers instead of relying on email
+SYSTEM_TESTING = config("SYSTEM_TESTING", default=False, cast=bool)
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -100,6 +106,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "common.middleware.UserLanguageMiddleware",
     "common.middleware.StructlogContextMiddleware",  # Observability: request context enrichment
+    "common.middleware.TestTokenMiddleware",  # System testing: expose tokens in headers
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "geo.middleware.GeoPointMiddleware",
@@ -274,6 +281,15 @@ CORS_ALLOW_HEADERS = [
     # Custom headers for token-based access
     "x-event-token",
     "x-organization-token",
+]
+
+# Expose headers that clients can read from responses
+CORS_EXPOSE_HEADERS = [
+    "X-Request-ID",
+    # System testing headers (only populated when SYSTEM_TESTING=True)
+    "X-Test-Verification-Token",
+    "X-Test-Password-Reset-Token",
+    "X-Test-Deletion-Token",
 ]
 _proto = "http" if DEBUG else "https"
 CSRF_TRUSTED_ORIGINS = [f"{_proto}://{SITE_DOMAIN}"]

@@ -1,28 +1,33 @@
 # tests/performance/config.py
 """Configuration for Locust performance tests.
 
-Environment variables (see .env.example):
-    LOCUST_BACKEND_URL: Base URL for the Revel API (default: http://localhost:8000/api)
-    LOCUST_MAILPIT_URL: Base URL for Mailpit (default: http://localhost:8025)
-    LOCUST_DEFAULT_PASSWORD: Default password for test users (default: password123)
+Reads from .env.test file in the same directory. All LOCUST_* variables
+are defined there alongside the Django settings for docker-compose.
 """
 
-from decouple import config as decouple_config
+from pathlib import Path
+
+from decouple import Config as DecoupleConfig
+from decouple import RepositoryEnv
+
+# Load config from .env.test in the same directory as this file
+_env_file = Path(__file__).parent / ".env.test"
+_decouple_config = DecoupleConfig(RepositoryEnv(str(_env_file)))
 
 
 class Config:
     """Performance test configuration."""
 
     # API endpoints
-    BACKEND_URL: str = decouple_config("LOCUST_BACKEND_URL", default="http://localhost:8000/api")
-    MAILPIT_URL: str = decouple_config("LOCUST_MAILPIT_URL", default="http://localhost:8025")
+    BACKEND_URL: str = _decouple_config("LOCUST_BACKEND_URL", default="http://localhost:8000/api")
+    MAILPIT_URL: str = _decouple_config("LOCUST_MAILPIT_URL", default="http://localhost:8025")
 
     # Email polling settings
-    EMAIL_POLL_TIMEOUT: float = decouple_config("LOCUST_EMAIL_POLL_TIMEOUT", default=10, cast=float)
-    EMAIL_POLL_INTERVAL: float = decouple_config("LOCUST_EMAIL_POLL_INTERVAL", default=0.5, cast=float)
+    EMAIL_POLL_TIMEOUT: float = _decouple_config("LOCUST_EMAIL_POLL_TIMEOUT", default=10, cast=float)
+    EMAIL_POLL_INTERVAL: float = _decouple_config("LOCUST_EMAIL_POLL_INTERVAL", default=0.5, cast=float)
 
-    # Test user credentials
-    DEFAULT_PASSWORD: str = decouple_config("LOCUST_DEFAULT_PASSWORD", default="password123")
+    # Test user credentials (must pass Django validators - not too common, 8+ chars)
+    DEFAULT_PASSWORD: str = _decouple_config("LOCUST_DEFAULT_PASSWORD", default="PerfTest-2026-Secure!")
 
     # Pre-seeded test data identifiers
     PERF_ORG_SLUG: str = "perf-test-org"
@@ -37,7 +42,7 @@ class Config:
     PERF_QUESTIONNAIRE_EVENT_SLUG: str = "perf-questionnaire-event"
 
     # Number of pre-seeded users
-    NUM_PRESEEDED_USERS: int = decouple_config("LOCUST_NUM_PRESEEDED_USERS", default=100, cast=int)
+    NUM_PRESEEDED_USERS: int = _decouple_config("LOCUST_NUM_PRESEEDED_USERS", default=100, cast=int)
 
     # User email pattern: perf-user-{N}@test.com
     @classmethod
@@ -46,7 +51,7 @@ class Config:
         return f"perf-user-{index}@test.com"
 
     # Request timeouts
-    REQUEST_TIMEOUT: float = decouple_config("LOCUST_REQUEST_TIMEOUT", default=30, cast=float)
+    REQUEST_TIMEOUT: float = _decouple_config("LOCUST_REQUEST_TIMEOUT", default=30, cast=float)
 
     # Headers
     @classmethod

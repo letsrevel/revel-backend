@@ -18,36 +18,61 @@ in the API. Tests target the following scenarios:
 | QuestionnaireUser | 5 | Questionnaire submission (bottleneck) |
 | NewUserRegistration | 5 | Registration with email verification |
 
+## Quick Start
+
+```bash
+cd tests/performance
+
+# Build images, start environment, seed data, run tests
+make build setup
+# Wait for services to be healthy (~2 min for ClamAV)
+make seed
+make test
+
+# Stop when done
+make shutdown
+```
+
+## Makefile Commands
+
+| Command | Description |
+|---------|-------------|
+| `make help` | Show available commands |
+| `make setup` | Start the Docker test environment |
+| `make shutdown` | Stop and remove all containers |
+| `make build` | Build/rebuild Docker images |
+| `make seed` | Run migrations and seed test data (with --reset) |
+| `make test` | Run load test: 100 users, 10/sec spawn, 5 min |
+| `make test-500` | Run heavy load test: 500 users, 50/sec spawn, 5 min |
+
+Results are saved to `results/` directory (CSV + HTML reports).
+
 ## Prerequisites
 
-1. **Backend running**: Django dev server or production-like environment
-2. **Celery running**: For async email tasks
-3. **Mailpit running**: For email verification tests (http://localhost:8025)
-4. **Test data seeded**: Run the bootstrap command first
+1. **Docker**: For running the production-like environment
+2. **Locust**: Install with `uv add --dev locust`
 
-## Production-Like Environment (Recommended)
+## Production-Like Environment
 
-For realistic performance testing, use the included Docker Compose setup which mirrors production:
+The Docker Compose setup mirrors production for realistic performance testing:
 
 ```bash
 cd tests/performance
 
 # Start the production-like environment
-docker compose -f docker-compose-test.yaml --env-file .env.test up -d
+make setup
 
 # Wait for services to be healthy (especially ClamAV takes ~2 min)
 docker compose -f docker-compose-test.yaml ps
 
 # Run migrations and seed data
-docker exec revel_perf_web python manage.py migrate
-docker exec revel_perf_web python manage.py bootstrap
-docker exec revel_perf_web python manage.py bootstrap_perf_tests
+make seed
 
 # Run Locust against the containerized backend
 locust -f locustfile.py --host=http://localhost:8000/api
 
 # Stop when done
-docker compose -f docker-compose-test.yaml down
+make shutdown
 ```
 
 ### Services Included
@@ -71,7 +96,7 @@ docker compose -f docker-compose-test.yaml down
 - No Caddy reverse proxy
 - Mailpit instead of real SMTP
 
-## Quick Start
+## Manual Setup (Alternative)
 
 ### 1. Install Locust
 
@@ -82,23 +107,25 @@ uv add --dev locust
 ### 2. Seed Test Data
 
 ```bash
-# From project root
-python src/manage.py bootstrap_perf_tests
+# Using Makefile (recommended)
+make seed
 
-# To reset and reseed
+# Or manually from project root
 python src/manage.py bootstrap_perf_tests --reset
 ```
 
 ### 3. Run Tests
 
 ```bash
-# With Web UI
-cd tests/performance
-locust -f locustfile.py --host=http://localhost:8000/api
+# Using Makefile (recommended)
+make test      # 100 users
+make test-500  # 500 users
 
+# Or with Web UI
+locust -f locustfile.py --host=http://localhost:8000/api
 # Open http://localhost:8089 in browser
 
-# Headless mode
+# Or headless mode
 locust -f locustfile.py --host=http://localhost:8000/api \
     --headless -u 100 -r 10 --run-time 5m
 ```
@@ -116,6 +143,19 @@ Environment variables:
 | `LOCUST_EMAIL_POLL_TIMEOUT` | `10` | Email poll timeout (seconds) |
 | `LOCUST_EMAIL_POLL_INTERVAL` | `0.5` | Email poll interval (seconds) |
 | `LOCUST_REQUEST_TIMEOUT` | `30` | HTTP request timeout (seconds) |
+
+### System Testing Mode
+
+When `SYSTEM_TESTING=True` (enabled by default in `.env.test`), verification tokens
+are returned in response headers instead of requiring email polling:
+
+| Header | Endpoint |
+|--------|----------|
+| `X-Test-Verification-Token` | `/account/register` |
+| `X-Test-Password-Reset-Token` | `/account/forgot-password` |
+| `X-Test-Deletion-Token` | `/account/request-deletion` |
+
+This eliminates the unreliable Mailpit polling and speeds up registration tests.
 
 ## Test Data
 
@@ -195,11 +235,12 @@ The following endpoints are marked as bottlenecks and receive focused testing:
 tests/performance/
 ├── __init__.py
 ├── README.md                   # This file
+├── Makefile                    # Build/test automation
 ├── locustfile.py               # Main entry point
 ├── config.py                   # Environment configuration
-├── .env.example                # Locust environment variables
-├── .env.test                   # Docker Compose environment
+├── .env.test                   # All environment variables (Django + Locust)
 ├── docker-compose-test.yaml    # Production-like test environment
+├── results/                    # Test output (CSV, HTML reports)
 ├── clients/
 │   ├── __init__.py
 │   ├── api_client.py           # HTTP client with auth
@@ -246,8 +287,8 @@ docker compose -f docker-compose-test.yaml logs web
 docker compose -f docker-compose-test.yaml logs celery
 
 # Restart all services
-docker compose -f docker-compose-test.yaml down
-docker compose -f docker-compose-test.yaml --env-file .env.test up -d
+make shutdown
+make setup
 ```
 
 **ClamAV takes too long to start:**
@@ -262,5 +303,6 @@ docker compose -f docker-compose-test.yaml --env-file .env.test up -d
 ```bash
 # Remove all volumes and start fresh
 docker compose -f docker-compose-test.yaml down -v
-docker compose -f docker-compose-test.yaml --env-file .env.test up -d
+make setup
+make seed
 ```

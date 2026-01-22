@@ -5,12 +5,14 @@ Provides JWT authentication handling and common API operations
 that integrate with Locust's HttpUser for proper metrics collection.
 """
 
+import logging
 import typing as t
 from dataclasses import dataclass
 
+from config import config
 from locust import HttpUser
 
-from ..config import config
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -70,7 +72,7 @@ class RevelAPIClient:
         """Login and store JWT tokens.
 
         Args:
-            email: User email address.
+            email: User email address (also used as username).
             password: User password. Defaults to config.DEFAULT_PASSWORD.
 
         Returns:
@@ -80,7 +82,7 @@ class RevelAPIClient:
 
         with self.client.post(
             "/auth/token/pair",
-            json={"email": email, "password": password},
+            json={"username": email, "password": password},
             headers=self._get_headers(authenticated=False),
             name="/auth/token/pair [login]",
             catch_response=True,
@@ -97,6 +99,12 @@ class RevelAPIClient:
                 response.success()
                 return True
             else:
+                logger.error(
+                    "Login failed: status=%s, email=%s, response=%s",
+                    response.status_code,
+                    email,
+                    response.text[:200],
+                )
                 response.failure(f"Login failed: {response.status_code}")
                 return False
 
@@ -256,6 +264,7 @@ class RevelAPIClient:
         )
         if response.status_code == 200:
             return response.json()
+        logger.error("list_events failed: status=%s, response=%s", response.status_code, response.text[:500])
         return None
 
     def get_event(self, event_id: str) -> dict[str, t.Any] | None:
@@ -293,6 +302,13 @@ class RevelAPIClient:
         )
         if response.status_code == 200:
             return response.json()
+        logger.error(
+            "get_event_by_slug failed: status=%s, org=%s, event=%s, response=%s",
+            response.status_code,
+            org_slug,
+            event_slug,
+            response.text[:500],
+        )
         return None
 
     def get_my_status(self, event_id: str) -> dict[str, t.Any] | None:
@@ -322,11 +338,26 @@ class RevelAPIClient:
         Returns:
             True if successful.
         """
-        response = self.post(
+        with self.client.post(
             f"/events/{event_id}/rsvp/{status}",
+            headers=self._get_headers(),
             name=f"/events/{{id}}/rsvp/{status} [BOTTLENECK]",
-        )
-        return response.status_code in (200, 201)
+            catch_response=True,
+        ) as response:
+            if response.status_code in (200, 201):
+                response.success()
+                return True
+            else:
+                logger.error(
+                    "RSVP failed: status=%s, event=%s, rsvp_status=%s, user=%s, response=%s",
+                    response.status_code,
+                    event_id,
+                    status,
+                    self.user_context.email if self.user_context else "unknown",
+                    response.text[:500],
+                )
+                response.failure(f"RSVP failed: {response.status_code}")
+                return False
 
     def get_ticket_tiers(self, event_id: str) -> list[dict[str, t.Any]]:
         """Get ticket tiers for an event.
@@ -342,7 +373,7 @@ class RevelAPIClient:
             name="/events/{id}/tickets/tiers",
         )
         if response.status_code == 200:
-            return response.json().get("items", [])
+            return response.json()  # Returns a plain list, not paginated
         return []
 
     def checkout_free(
@@ -368,6 +399,13 @@ class RevelAPIClient:
         )
         if response.status_code in (200, 201):
             return response.json()
+        logger.error(
+            "checkout_free failed: status=%s, event=%s, tier=%s, response=%s",
+            response.status_code,
+            event_id,
+            tier_id,
+            response.text[:500],
+        )
         return None
 
     def checkout_pwyc(
@@ -398,6 +436,14 @@ class RevelAPIClient:
         )
         if response.status_code in (200, 201):
             return response.json()
+        logger.error(
+            "checkout_pwyc failed: status=%s, event=%s, tier=%s, price=%s, response=%s",
+            response.status_code,
+            event_id,
+            tier_id,
+            price_per_ticket,
+            response.text[:500],
+        )
         return None
 
     def get_questionnaire(self, event_id: str, questionnaire_id: str) -> dict[str, t.Any] | None:

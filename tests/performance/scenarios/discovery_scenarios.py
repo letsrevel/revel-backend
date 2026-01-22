@@ -4,8 +4,7 @@
 import random
 
 from locust import task
-
-from .base import AnonymousRevelUser
+from scenarios.base import AnonymousRevelUser
 
 
 class EventBrowser(AnonymousRevelUser):
@@ -28,8 +27,8 @@ class EventBrowser(AnonymousRevelUser):
     @task(5)
     def browse_events(self) -> None:
         """Browse the event listing."""
-        page = random.randint(1, 3)
-        result = self.api.list_events(page=page)
+        # Only use page 1 - perf test org has limited events
+        result = self.api.list_events(page=1)
 
         if result and "items" in result:
             # Cache event IDs for later detail views
