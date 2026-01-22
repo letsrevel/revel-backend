@@ -129,8 +129,6 @@ def dispatch_notifications_batch(self: t.Any, notification_ids: list[str]) -> di
     # For large batches, use individual dispatch tasks to spread load
     if len(notification_ids) > 100:
         # Create a group of individual dispatch tasks
-        from celery import group
-
         task_group = group(dispatch_notification.s(nid) for nid in notification_ids)
         task_group.apply_async()
 

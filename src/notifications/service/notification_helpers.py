@@ -37,33 +37,6 @@ def _get_event_location_for_user(event: Event, user: RevelUser) -> tuple[str, st
     return "", ""
 
 
-def _get_event_location_for_user_batch(
-    event: Event,
-    user: RevelUser,
-    batch_checker: BatchParticipationChecker,
-) -> tuple[str, str]:
-    """Get event location info respecting address visibility (batch-optimized).
-
-    Uses BatchParticipationChecker for O(1) visibility lookup instead of per-user queries.
-
-    Args:
-        event: Event to get location for.
-        user: User to check visibility for.
-        batch_checker: Pre-populated batch checker for O(1) lookups.
-
-    Returns:
-        Tuple of (event_location, address_url). Both may be empty strings
-        if user cannot see the address.
-    """
-    # Check superuser/staff first (batch checker doesn't handle these)
-    if user.is_superuser or user.is_staff:
-        return event.full_address(), event.location_maps_url or ""
-
-    if batch_checker.can_see_address(user.id):
-        return event.full_address(), event.location_maps_url or ""
-    return "", ""
-
-
 def notify_event_opened(event: Event) -> int:
     """Send notifications when an event is opened.
 
