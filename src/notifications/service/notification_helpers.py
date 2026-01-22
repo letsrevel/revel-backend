@@ -4,14 +4,19 @@ This module contains high-level notification helper functions that can be called
 from signal handlers or other parts of the application.
 """
 
+import typing as t
+
 import structlog
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Event
 from notifications.enums import NotificationType
-from notifications.service.eligibility import get_eligible_users_for_event_notification
-from notifications.signals import notification_requested
+from notifications.service.dispatcher import NotificationData, bulk_create_notifications
+from notifications.service.eligibility import (
+    BatchParticipationChecker,
+    get_eligible_users_for_event_notification,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +40,10 @@ def _get_event_location_for_user(event: Event, user: RevelUser) -> tuple[str, st
 def notify_event_opened(event: Event) -> int:
     """Send notifications when an event is opened.
 
+    Uses bulk notification creation for efficiency:
+    - Single bulk INSERT for all notifications
+    - Single batch dispatch task
+
     Args:
         event: Event instance or event ID
 
@@ -43,8 +52,18 @@ def notify_event_opened(event: Event) -> int:
     """
     from django.utils.dateformat import format as date_format
 
+    from notifications.tasks import dispatch_notifications_batch
+
     # Get all eligible users for notification
-    eligible_users = get_eligible_users_for_event_notification(event, NotificationType.EVENT_OPEN)
+    eligible_users = list(get_eligible_users_for_event_notification(event, NotificationType.EVENT_OPEN))
+
+    if not eligible_users:
+        logger.info(
+            "event_open_notifications_sent",
+            event_id=str(event.id),
+            count=0,
+        )
+        return 0
 
     # Build frontend URL
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
@@ -59,12 +78,29 @@ def notify_event_opened(event: Event) -> int:
     if hasattr(event, "registration_opens_at") and event.registration_opens_at:
         registration_opens_at = date_format(event.registration_opens_at, "l, F j, Y \\a\\t g:i A T")
 
-    count = 0
-    for user in eligible_users:
-        # Check address visibility per user
-        event_location, address_url = _get_event_location_for_user(event, user)
+    # Pre-compute event-level data outside the loop to avoid N+1 queries
+    questionnaire_required = event.org_questionnaires.exists()
 
-        context = {
+    # Create batch checker for O(1) address visibility lookups
+    batch_checker = BatchParticipationChecker(event)
+
+    # Pre-compute full address (only computed if any user can see it)
+    full_address = event.full_address()
+    maps_url = event.location_maps_url or ""
+
+    # Build list of notifications to create
+    notifications_data: list[NotificationData] = []
+
+    for user in eligible_users:
+        # Check address visibility per user (O(1) set lookup via batch checker)
+        if user.is_superuser or user.is_staff or batch_checker.can_see_address(user.id):
+            event_location = full_address
+            address_url = maps_url
+        else:
+            event_location = ""
+            address_url = ""
+
+        context: dict[str, t.Any] = {
             "event_id": str(event.id),
             "event_name": event.name,
             "event_description": event.description or "",
@@ -77,7 +113,7 @@ def notify_event_opened(event: Event) -> int:
             "organization_name": event.organization.name,
             "rsvp_required": not event.requires_ticket,
             "tickets_available": event.requires_ticket,
-            "questionnaire_required": event.org_questionnaires.exists(),
+            "questionnaire_required": questionnaire_required,
         }
 
         if event_end_formatted:
@@ -87,18 +123,25 @@ def notify_event_opened(event: Event) -> int:
         if address_url:
             context["address_url"] = address_url
 
-        notification_requested.send(
-            sender=notify_event_opened,
-            user=user,
-            notification_type=NotificationType.EVENT_OPEN,
-            context=context,
+        notifications_data.append(
+            NotificationData(
+                notification_type=NotificationType.EVENT_OPEN,
+                user=user,
+                context=context,
+            )
         )
-        count += 1
+
+    # Bulk create all notifications (single INSERT)
+    created_notifications = bulk_create_notifications(notifications_data)
+
+    # Dispatch all notifications in a batch task
+    notification_ids = [str(n.id) for n in created_notifications]
+    dispatch_notifications_batch.delay(notification_ids)
 
     logger.info(
         "event_open_notifications_sent",
         event_id=str(event.id),
-        count=count,
+        count=len(created_notifications),
     )
 
-    return count
+    return len(created_notifications)
