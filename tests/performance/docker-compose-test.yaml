@@ -1,0 +1,255 @@
+# Production-like Docker Compose for Performance Testing
+#
+# This setup mirrors production as closely as possible while keeping DEBUG=True
+# and disabling Silk profiling. No HTTPS (Caddy), no observability stack.
+#
+# Usage:
+#   cd tests/performance
+#   docker compose -f docker-compose-test.yaml --env-file .env.test up -d
+#
+#   # Seed test data
+#   docker exec revel_perf_web python manage.py migrate
+#   docker exec revel_perf_web python manage.py bootstrap
+#   docker exec revel_perf_web python manage.py bootstrap_perf_tests
+#
+#   # Run Locust
+#   locust -f locustfile.py --host=http://localhost:8000/api
+
+services:
+  # ============================================================================
+  # Application Services
+  # ============================================================================
+
+  web:
+    image: ghcr.io/letsrevel/revel:latest
+    container_name: revel_perf_web
+    restart: unless-stopped
+    command: >
+      gunicorn revel.wsgi:application
+      --worker-class gthread
+      --workers 4
+      --threads 2
+      --bind 0.0.0.0:8000
+      --max-requests 2000
+      --max-requests-jitter 200
+      --timeout 60
+      --graceful-timeout 30
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.test
+    volumes:
+      - perf_media:/app/src/media
+      - ../../src/geo/data:/app/src/geo/data:ro
+    networks:
+      - perf_network
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/healthcheck || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+          cpus: '4.0'
+
+  celery:
+    image: ghcr.io/letsrevel/revel:latest
+    container_name: revel_perf_celery
+    restart: unless-stopped
+    command: celery -A revel worker --loglevel=INFO --concurrency=4 --max-tasks-per-child=500 --hostname=worker@%h
+    env_file:
+      - .env.test
+    volumes:
+      - perf_media:/app/src/media
+      - ../../src/geo/data:/app/src/geo/data:ro
+    networks:
+      - perf_network
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: '2.0'
+
+  beat:
+    image: ghcr.io/letsrevel/revel:latest
+    container_name: revel_perf_beat
+    restart: unless-stopped
+    command: celery -A revel beat --scheduler django_celery_beat.schedulers:DatabaseScheduler --loglevel=INFO
+    env_file:
+      - .env.test
+    volumes:
+      - perf_media:/app/src/media
+    networks:
+      - perf_network
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.5'
+
+  # ============================================================================
+  # Database Services
+  # ============================================================================
+
+  postgres:
+    image: postgis/postgis:17-3.5
+    container_name: revel_perf_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    command: >
+      postgres
+      -c shared_buffers=512MB
+      -c effective_cache_size=2GB
+      -c maintenance_work_mem=256MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=16MB
+      -c max_connections=100
+    volumes:
+      - perf_postgres_data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    networks:
+      - perf_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pgbouncer:
+    image: edoburu/pgbouncer
+    container_name: revel_perf_pgbouncer
+    restart: unless-stopped
+    environment:
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: revel_perf_postgres
+      DB_NAME: ${DB_NAME}
+      LISTEN_PORT: 6432
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 500
+      DEFAULT_POOL_SIZE: 20
+      RESERVE_POOL_SIZE: 5
+      ADMIN_USERS: ${DB_USER}
+    expose:
+      - "6432"
+    networks:
+      - perf_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================================
+  # Cache & Message Broker
+  # ============================================================================
+
+  redis:
+    image: redis:7-alpine
+    container_name: revel_perf_redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    volumes:
+      - perf_redis_data:/data
+    expose:
+      - "6379"
+    networks:
+      - perf_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ============================================================================
+  # Email Testing
+  # ============================================================================
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: revel_perf_mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025"  # Web UI
+      - "1025:1025"  # SMTP
+    networks:
+      - perf_network
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - perf_mailpit_data:/data
+
+  # ============================================================================
+  # Security
+  # ============================================================================
+
+  clamav:
+    image: clamav/clamav:latest
+    container_name: revel_perf_clamav
+    restart: unless-stopped
+    expose:
+      - "3310"
+    networks:
+      - perf_network
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --version || exit 1"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 2m
+    environment:
+      CLAMD_CONF_MaxFileSize: 25M
+      CLAMD_CONF_StreamMaxLength: 25M
+    volumes:
+      - perf_clamav_data:/var/lib/clamav
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: '1.0'
+
+volumes:
+  perf_postgres_data:
+  perf_redis_data:
+  perf_media:
+  perf_mailpit_data:
+  perf_clamav_data:
+
+networks:
+  perf_network:
+    driver: bridge
