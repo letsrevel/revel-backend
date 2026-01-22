@@ -1,6 +1,7 @@
 """Core notification dispatcher service."""
 
 import typing as t
+from collections.abc import Sequence
 
 import structlog
 
@@ -9,6 +10,14 @@ from notifications.enums import DeliveryChannel, NotificationType
 from notifications.models import Notification, NotificationPreference
 
 logger = structlog.get_logger(__name__)
+
+
+class NotificationData(t.NamedTuple):
+    """Data for creating a notification."""
+
+    notification_type: NotificationType
+    user: RevelUser
+    context: dict[str, t.Any]
 
 
 def create_notification(
@@ -55,6 +64,60 @@ def create_notification(
     )
 
     return notification
+
+
+def bulk_create_notifications(
+    notifications_data: Sequence[NotificationData],
+) -> list[Notification]:
+    """Create multiple notification records in a single database operation.
+
+    This is more efficient than calling create_notification() in a loop because:
+    1. Single bulk INSERT instead of N individual INSERTs
+    2. Validates all contexts upfront before any database operations
+
+    Args:
+        notifications_data: Sequence of NotificationData tuples
+
+    Returns:
+        List of created Notification instances with IDs populated
+
+    Raises:
+        ValueError: If any context validation fails (no notifications created)
+    """
+    from notifications.context_schemas import validate_notification_context
+
+    if not notifications_data:
+        return []
+
+    # Validate all contexts first (fail fast before any DB operations)
+    for data in notifications_data:
+        notification_type = data.notification_type
+        if isinstance(notification_type, str):
+            notification_type = NotificationType(notification_type)
+        validate_notification_context(notification_type, data.context)
+
+    # Build notification objects
+    notifications_to_create = [
+        Notification(
+            notification_type=data.notification_type,
+            user=data.user,
+            context=data.context,
+            title="",  # Will be rendered by dispatcher task
+            body="",  # Will be rendered by dispatcher task
+        )
+        for data in notifications_data
+    ]
+
+    # Bulk create (single INSERT)
+    created_notifications = Notification.objects.bulk_create(notifications_to_create)
+
+    logger.info(
+        "notifications_bulk_created",
+        count=len(created_notifications),
+        notification_type=notifications_data[0].notification_type if notifications_data else None,
+    )
+
+    return created_notifications
 
 
 def determine_delivery_channels(user: RevelUser, notification_type: str) -> list[str]:

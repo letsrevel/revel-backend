@@ -127,14 +127,18 @@ class TestIsUserEligibleForNotification:
         prefs, _ = NotificationPreference.objects.get_or_create(user=nonmember_user)
         prefs.silence_all_notifications = True
         prefs.save()
+        # Refresh to clear cached notification_preferences
+        nonmember_user.refresh_from_db()
         assert not is_user_eligible_for_notification(nonmember_user, NotificationType.EVENT_UPDATED, event=event)
 
     def test_not_eligible_notification_type_disabled(self, event: Event, nonmember_user: RevelUser) -> None:
         """Test that users with disabled notification type are not eligible."""
         EventRSVP.objects.create(user=nonmember_user, event=event, status=EventRSVP.RsvpStatus.YES)
         prefs, _ = NotificationPreference.objects.get_or_create(user=nonmember_user)
-        prefs.notification_type_settings = {NotificationType.EVENT_UPDATED: {"enabled": False}}
+        prefs.notification_type_settings = {NotificationType.EVENT_UPDATED.value: {"enabled": False}}
         prefs.save()
+        # Refresh to clear cached notification_preferences
+        nonmember_user.refresh_from_db()
         assert not is_user_eligible_for_notification(nonmember_user, NotificationType.EVENT_UPDATED, event=event)
 
     def test_not_eligible_not_participating(self, event: Event, nonmember_user: RevelUser) -> None:
