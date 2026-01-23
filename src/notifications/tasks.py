@@ -295,22 +295,39 @@ def send_notification_digests() -> dict[str, t.Any]:
 
         # Build and send digest
         digest = NotificationDigest(prefs.user, pending)
-        success = digest.send_digest_email()
+        if not digest.send_digest_email():
+            continue
 
-        if success:
-            # Mark notifications as having email delivery
-            for notification in pending:
-                delivery, _ = NotificationDelivery.objects.get_or_create(
-                    notification=notification,
-                    channel=DeliveryChannel.EMAIL,
-                    defaults={
-                        "status": DeliveryStatus.SENT,
-                        "delivered_at": timezone.now(),
-                        "metadata": {"digest": True},
-                    },
-                )
+        # Mark notifications as having email delivery using bulk operations
+        pending_list = list(pending)
+        notification_ids = [n.id for n in pending_list]
 
-            digests_sent += 1
+        # Find which notifications already have email delivery records
+        existing_deliveries = set(
+            NotificationDelivery.objects.filter(
+                notification_id__in=notification_ids,
+                channel=DeliveryChannel.EMAIL,
+            ).values_list("notification_id", flat=True)
+        )
+
+        # Bulk create delivery records for notifications that don't have them
+        now = timezone.now()
+        deliveries_to_create = [
+            NotificationDelivery(
+                notification=notification,
+                channel=DeliveryChannel.EMAIL,
+                status=DeliveryStatus.SENT,
+                delivered_at=now,
+                metadata={"digest": True},
+            )
+            for notification in pending_list
+            if notification.id not in existing_deliveries
+        ]
+
+        if deliveries_to_create:
+            NotificationDelivery.objects.bulk_create(deliveries_to_create)
+
+        digests_sent += 1
 
     logger.info("digests_sent", count=digests_sent, skipped=digests_skipped)
 
@@ -357,16 +374,21 @@ def retry_failed_deliveries() -> dict[str, t.Any]:
         status=DeliveryStatus.FAILED, retry_count__lt=5, created_at__gte=twenty_four_hours_ago
     ).select_related("notification")
 
-    retry_count = 0
+    # Get list of deliveries to retry
+    deliveries_to_retry = list(failed_deliveries)
+    retry_count = len(deliveries_to_retry)
 
-    for delivery in failed_deliveries:
-        # Reset status to pending
-        delivery.status = DeliveryStatus.PENDING
-        delivery.save(update_fields=["status", "updated_at"])
+    if deliveries_to_retry:
+        # Bulk update status to pending
+        delivery_ids = [d.id for d in deliveries_to_retry]
+        NotificationDelivery.objects.filter(id__in=delivery_ids).update(
+            status=DeliveryStatus.PENDING,
+            updated_at=timezone.now(),
+        )
 
-        # Re-dispatch
-        deliver_to_channel.delay(str(delivery.id))
-        retry_count += 1
+        # Re-dispatch all deliveries
+        for delivery in deliveries_to_retry:
+            deliver_to_channel.delay(str(delivery.id))
 
     logger.info("failed_deliveries_retried", count=retry_count)
 

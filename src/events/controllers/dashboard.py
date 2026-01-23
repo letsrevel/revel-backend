@@ -279,7 +279,7 @@ class DashboardController(UserAwareController):
         status parameter to see all requests. Filter by event_id to see requests for a specific
         event. Use this to track which events you've requested access to.
         """
-        qs = models.EventInvitationRequest.objects.select_related("event").filter(user=self.user())
+        qs = models.EventInvitationRequest.objects.with_event_details().filter(user=self.user())
         if event_id:
             qs = qs.filter(event_id=event_id)
         return params.filter(qs).distinct()
@@ -302,5 +302,5 @@ class DashboardController(UserAwareController):
         to include past events. An event is considered past if its end time has passed.
         Supports filtering by status (yes/no/maybe). Results are ordered by newest first.
         """
-        qs = models.EventRSVP.objects.select_related("event").filter(user=self.user()).order_by("-created_at")
+        qs = models.EventRSVP.objects.with_event_details().filter(user=self.user()).order_by("-created_at")
         return params.filter(qs).distinct()

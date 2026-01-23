@@ -8,6 +8,22 @@ from pydantic import Field
 from events import models
 
 
+def _get_matched_entries_count(obj: models.WhitelistRequest) -> int:
+    """Get count of matched blacklist entries.
+
+    Uses annotated value if available (O(1)), otherwise falls back to count query.
+
+    Args:
+        obj: WhitelistRequest instance (may have matched_entries_count annotation)
+
+    Returns:
+        Count of matched blacklist entries
+    """
+    if hasattr(obj, "matched_entries_count"):
+        return int(obj.matched_entries_count)
+    return obj.matched_blacklist_entries.count()
+
+
 class BlacklistEntrySchema(ModelSchema):
     """Schema for retrieving a blacklist entry."""
 
@@ -124,7 +140,7 @@ class WhitelistRequestSchema(ModelSchema):
     @staticmethod
     def resolve_matched_entries_count(obj: models.WhitelistRequest) -> int:
         """Return the count of matched blacklist entries."""
-        return obj.matched_blacklist_entries.count()
+        return _get_matched_entries_count(obj)
 
     @staticmethod
     def resolve_decided_by_name(obj: models.WhitelistRequest) -> str | None:
@@ -178,4 +194,4 @@ class WhitelistEntrySchema(ModelSchema):
     @staticmethod
     def resolve_matched_entries_count(obj: models.WhitelistRequest) -> int:
         """Return the count of matched blacklist entries."""
-        return obj.matched_blacklist_entries.count()
+        return _get_matched_entries_count(obj)

@@ -22,9 +22,9 @@ from events.tasks import build_attendee_visibility_flags, cleanup_expired_paymen
 pytestmark = pytest.mark.django_db
 
 
-@patch("events.service.user_preferences_service.resolve_visibility")
+@patch("events.service.user_preferences_service.resolve_visibility_fast")
 def test_build_attendee_visibility_flags(
-    mock_resolve_visibility: MagicMock,
+    mock_resolve_visibility_fast: MagicMock,
     event: Event,
     revel_user_factory: RevelUserFactory,
 ) -> None:
@@ -38,7 +38,7 @@ def test_build_attendee_visibility_flags(
     # Viewer is attendee1, target is attendee2
     # Let's say attendee1 can see attendee2
     # Configure the mock to return boolean values directly
-    mock_resolve_visibility.side_effect = (
+    mock_resolve_visibility_fast.side_effect = (
         lambda viewer, target, *args, **kwargs: viewer == attendee1 and target == attendee2
     )
 

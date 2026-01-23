@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Count, QuerySet
 from django.shortcuts import get_object_or_404
 from ninja import Query
 from ninja_extra import api_controller, route
@@ -47,7 +47,11 @@ class OrganizationAdminWhitelistController(OrganizationAdminBaseController):
         full access despite the name match.
         """
         organization = self.get_one(slug)
-        qs = models.WhitelistRequest.objects.filter(organization=organization).select_related("user", "decided_by")
+        qs = (
+            models.WhitelistRequest.objects.filter(organization=organization)
+            .select_related("user", "decided_by")
+            .annotate(matched_entries_count=Count("matched_blacklist_entries"))
+        )
         return params.filter(qs).distinct()
 
     @route.get(
@@ -120,10 +124,14 @@ class OrganizationAdminWhitelistController(OrganizationAdminBaseController):
         Whitelisted users are those with an APPROVED whitelist request.
         """
         organization = self.get_one(slug)
-        return models.WhitelistRequest.objects.filter(
-            organization=organization,
-            status=models.WhitelistRequest.Status.APPROVED,
-        ).select_related("user", "decided_by")
+        return (
+            models.WhitelistRequest.objects.filter(
+                organization=organization,
+                status=models.WhitelistRequest.Status.APPROVED,
+            )
+            .select_related("user", "decided_by")
+            .annotate(matched_entries_count=Count("matched_blacklist_entries"))
+        )
 
     @route.delete(
         "/whitelist/{entry_id}",

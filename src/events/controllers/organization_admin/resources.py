@@ -66,7 +66,11 @@ class OrganizationAdminResourcesController(OrganizationAdminBaseController):
     def get_resource(self, slug: str, resource_id: UUID) -> models.AdditionalResource:
         """Retrieve a specific resource for the organization."""
         organization = self.get_one(slug)
-        return get_object_or_404(models.AdditionalResource, pk=resource_id, organization=organization)
+        return get_object_or_404(
+            models.AdditionalResource.objects.with_related(),
+            pk=resource_id,
+            organization=organization,
+        )
 
     @route.put(
         "/resources/{resource_id}",
