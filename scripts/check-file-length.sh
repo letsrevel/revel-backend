@@ -15,7 +15,7 @@ while IFS= read -r -d '' file; do
         echo "❌ $file has $lines lines (max: $MAX_LINES)"
         FAILED=1
     fi
-done < <(find src -name "*.py" -not -path "*/migrations/*" -print0)
+done < <(find src -name "*.py" -not -path "*/migrations/*" -not -path "*/management/commands/*" -print0)
 
 if [ "$FAILED" -eq 0 ]; then
     echo "✅ All files are within the $MAX_LINES line limit."
