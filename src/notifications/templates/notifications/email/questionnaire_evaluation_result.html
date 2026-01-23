@@ -35,13 +35,22 @@
         <div class="content">
             <p>{% trans "Hello" %} {{ user.display_name }},</p>
             {% if context.evaluation_status == "APPROVED" %}
+                {% if context.event_name %}
+            <p>{% blocktranslate with questionnaire=context.questionnaire_name event=context.event_name %}Great news! Your questionnaire <strong>{{ questionnaire }}</strong> for <strong>{{ event }}</strong> has been approved.{% endblocktranslate %}</p>
+                {% else %}
             <p>{% blocktranslate with questionnaire=context.questionnaire_name org=context.organization_name %}Great news! Your questionnaire <strong>{{ questionnaire }}</strong> for <strong>{{ org }}</strong> has been approved.{% endblocktranslate %}</p>
+                {% endif %}
             {% else %}
+                {% if context.event_name %}
+            <p>{% blocktranslate with questionnaire=context.questionnaire_name event=context.event_name %}Your questionnaire <strong>{{ questionnaire }}</strong> for <strong>{{ event }}</strong> was not approved.{% endblocktranslate %}</p>
+                {% else %}
             <p>{% blocktranslate with questionnaire=context.questionnaire_name org=context.organization_name %}Your questionnaire <strong>{{ questionnaire }}</strong> for <strong>{{ org }}</strong> was not approved.{% endblocktranslate %}</p>
+                {% endif %}
             {% endif %}
             <div class="card {% if context.evaluation_status == "APPROVED" %}card-approved{% else %}card-rejected{% endif %}">
                 <div class="detail-row"><span class="detail-label">{% trans "Questionnaire:" %}</span> {{ context.questionnaire_name }}</div>
                 <div class="detail-row"><span class="detail-label">{% trans "Organization:" %}</span> {{ context.organization_name }}</div>
+                {% if context.event_name %}<div class="detail-row"><span class="detail-label">{% trans "Event:" %}</span> {{ context.event_name }}</div>{% endif %}
                 <div class="detail-row"><span class="detail-label">{% trans "Status:" %}</span> <span class="{% if context.evaluation_status == "APPROVED" %}status-approved{% else %}status-rejected{% endif %}">{% if context.evaluation_status == "APPROVED" %}{% trans "Approved" %}{% else %}{% trans "Not Approved" %}{% endif %}</span></div>
                 {% if context.evaluation_score %}<div class="detail-row"><span class="detail-label">{% trans "Score:" %}</span> {{ context.evaluation_score }}</div>{% endif %}
             </div>
@@ -49,9 +58,14 @@
             <p><strong>{% trans "Evaluator Comments:" %}</strong></p>
             <div class="comments">{{ context.evaluation_comments }}</div>
             {% endif %}
+            {% if context.evaluation_status == "APPROVED" and context.event_url %}
+            <p style="margin-top:20px;padding:15px;background:#fff3cd;border-left:4px solid #ffc107;border-radius:4px;">
+                <strong>⚠️ {% trans "Important:" %}</strong> {% if context.requires_ticket %}{% trans "Approval does not mean you are registered. Please secure your ticket to confirm your attendance." %}{% else %}{% trans "Approval does not mean you are registered. Please RSVP to confirm your attendance." %}{% endif %}
+            </p>
+            {% endif %}
             {% if context.event_url %}
             <center>
-                <a href="{{ context.event_url }}" class="button">{% trans "View Event" %}</a>
+                <a href="{{ context.event_url }}" class="button">{% if context.evaluation_status == "APPROVED" %}{% if context.requires_ticket %}{% trans "Get Ticket" %}{% else %}{% trans "RSVP Now" %}{% endif %}{% else %}{% trans "View Event" %}{% endif %}</a>
             </center>
             {% endif %}
         </div>

@@ -5,8 +5,12 @@ from signal handlers or other parts of the application.
 """
 
 import typing as t
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import structlog
+from django.utils import timezone
+from django.utils.dateformat import format as date_format
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
@@ -19,6 +23,58 @@ from notifications.service.eligibility import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Default date format for notifications: "Friday, February 6, 2026 at 7:00 PM CET"
+DEFAULT_DATE_FORMAT = "l, F j, Y \\a\\t g:i A T"
+
+
+def get_event_timezone(event: Event) -> ZoneInfo:
+    """Get the timezone for an event based on its city.
+
+    Falls back to UTC if no city or timezone is set.
+
+    Args:
+        event: Event instance
+
+    Returns:
+        ZoneInfo for the event's timezone
+    """
+    if event.city and event.city.timezone:
+        try:
+            return ZoneInfo(event.city.timezone)
+        except KeyError:
+            logger.warning(
+                "invalid_timezone_for_city",
+                city_id=event.city.id,
+                timezone=event.city.timezone,
+            )
+    return ZoneInfo("UTC")
+
+
+def format_event_datetime(
+    dt: datetime | None,
+    event: Event,
+    fmt: str = DEFAULT_DATE_FORMAT,
+) -> str:
+    r"""Format a datetime in the event's timezone.
+
+    Args:
+        dt: Datetime to format (must be timezone-aware)
+        event: Event to get timezone from
+        fmt: Date format string (default: "l, F j, Y \a\t g:i A T")
+
+    Returns:
+        Formatted datetime string, or empty string if dt is None
+    """
+    if not dt:
+        return ""
+
+    event_tz = get_event_timezone(event)
+    # Convert the datetime to the event's timezone
+    dt_in_event_tz = dt.astimezone(event_tz)
+    # Use timezone.override to ensure Django's date_format uses the correct timezone
+    with timezone.override(event_tz):
+        return date_format(dt_in_event_tz, fmt)
 
 
 def _get_event_location_for_user(event: Event, user: RevelUser) -> tuple[str, str]:
@@ -50,8 +106,6 @@ def notify_event_opened(event: Event) -> int:
     Returns:
         Number of notifications sent
     """
-    from django.utils.dateformat import format as date_format
-
     from notifications.tasks import dispatch_notifications_batch
 
     # Get all eligible users for notification
@@ -69,14 +123,14 @@ def notify_event_opened(event: Event) -> int:
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     frontend_url = f"{frontend_base_url}/events/{event.id}"
 
-    # Format dates
-    event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T") if event.start else ""
-    event_end_formatted = date_format(event.end, "l, F j, Y \\a\\t g:i A T") if event.end else ""
+    # Format dates in event's timezone
+    event_start_formatted = format_event_datetime(event.start, event)
+    event_end_formatted = format_event_datetime(event.end, event)
 
     # Format registration opens date if available
     registration_opens_at = None
     if hasattr(event, "registration_opens_at") and event.registration_opens_at:
-        registration_opens_at = date_format(event.registration_opens_at, "l, F j, Y \\a\\t g:i A T")
+        registration_opens_at = format_event_datetime(event.registration_opens_at, event)
 
     # Pre-compute event-level data outside the loop to avoid N+1 queries
     questionnaire_required = event.org_questionnaires.exists()

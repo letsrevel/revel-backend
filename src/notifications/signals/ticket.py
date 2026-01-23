@@ -11,6 +11,7 @@ from common.models import SiteSettings
 from events.models import Event, Ticket, TicketTier
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
+from notifications.service.notification_helpers import format_event_datetime
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -43,15 +44,11 @@ def _build_base_event_context(event: Event) -> dict[str, t.Any]:
         Dictionary with event_id, event_name, event_location, event_url, event_start_formatted,
         organization_id, organization_name, and optionally address_url
     """
-    from django.utils.dateformat import format as date_format
-
     event_location = event.full_address()
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     frontend_url = f"{frontend_base_url}/events/{event.id}"
 
-    event_start_formatted = ""
-    if event.start:
-        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
+    event_start_formatted = format_event_datetime(event.start, event)
 
     context: dict[str, t.Any] = {
         "event_id": str(event.id),
@@ -135,14 +132,10 @@ def _build_ticket_refunded_context(ticket: Ticket, refund_amount: str | None = N
 
 def _build_ticket_checked_in_context(ticket: Ticket) -> dict[str, t.Any]:
     """Build notification context for TICKET_CHECKED_IN."""
-    from django.utils.dateformat import format as date_format
-
     event = ticket.event
     base_context = _build_base_event_context(event)
 
-    checked_in_at_formatted = ""
-    if ticket.checked_in_at:
-        checked_in_at_formatted = date_format(ticket.checked_in_at, "l, F j, Y \\a\\t g:i A T")
+    checked_in_at_formatted = format_event_datetime(ticket.checked_in_at, event)
 
     return {
         **base_context,
@@ -212,15 +205,11 @@ def send_batch_ticket_created_notifications(tickets: list[Ticket]) -> None:
         return  # Online payment - handled by payment service
 
     # Fetch shared data ONCE for all tickets
-    from django.utils.dateformat import format as date_format
-
     event = first_ticket.event
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     frontend_url = f"{frontend_base_url}/events/{event.id}"
 
-    event_start_formatted = ""
-    if event.start:
-        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
+    event_start_formatted = format_event_datetime(event.start, event)
 
     # Build base context once
     base_context: dict[str, t.Any] = {

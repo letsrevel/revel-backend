@@ -12,7 +12,11 @@ from common.models import SiteSettings
 from events.models import Event
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_eligible_users_for_event_notification
-from notifications.service.notification_helpers import _get_event_location_for_user, notify_event_opened
+from notifications.service.notification_helpers import (
+    _get_event_location_for_user,
+    format_event_datetime,
+    notify_event_opened,
+)
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -23,14 +27,13 @@ _event_previous_state: dict[UUID, dict[str, t.Any]] = {}
 
 def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
     """Handle EVENT_CANCELLED notification."""
-    from django.utils.dateformat import format as date_format
 
     def send_cancellation_notifications() -> None:
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
         eligible_users = get_eligible_users_for_event_notification(instance, NotificationType.EVENT_CANCELLED)
 
-        # Format event details
-        event_start_formatted = date_format(instance.start, "l, F j, Y \\a\\t g:i A T") if instance.start else ""
+        # Format event details in event's timezone
+        event_start_formatted = format_event_datetime(instance.start, instance)
 
         # Prepare refund info if tickets are required
         refund_info = None
@@ -87,15 +90,14 @@ def _handle_event_updated(
     new_values: dict[str, str],
 ) -> None:
     """Handle EVENT_UPDATED notification."""
-    from django.utils.dateformat import format as date_format
     from django.utils.translation import gettext as _
 
     def send_update_notifications() -> None:
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
         eligible_users = get_eligible_users_for_event_notification(instance, NotificationType.EVENT_UPDATED)
 
-        event_start_formatted = date_format(instance.start, "l, F j, Y \\a\\t g:i A T") if instance.start else ""
-        event_end_formatted = date_format(instance.end, "l, F j, Y \\a\\t g:i A T") if instance.end else None
+        event_start_formatted = format_event_datetime(instance.start, instance)
+        event_end_formatted = format_event_datetime(instance.end, instance) or None
 
         # Build human-readable summary and message
         changes_summary = ", ".join(changed_fields)
@@ -159,8 +161,6 @@ def _detect_field_changes(
     Returns:
         Tuple of (changed_fields list, old_values dict, new_values dict)
     """
-    from django.utils.dateformat import format as date_format
-
     # Map of instance attribute -> display name in notifications
     watched_fields = {
         "name": "name",
@@ -183,9 +183,9 @@ def _detect_field_changes(
 
             # Format values for display
             if attr_name in ("start", "end") and new_val:
-                new_values[display_name] = date_format(new_val, "l, F j, Y \\a\\t g:i A T")
+                new_values[display_name] = format_event_datetime(new_val, instance)
                 if old_val:
-                    old_values[display_name] = date_format(old_val, "l, F j, Y \\a\\t g:i A T")
+                    old_values[display_name] = format_event_datetime(old_val, instance)
                 else:
                     old_values[display_name] = "Not set"
             elif attr_name == "city_id":

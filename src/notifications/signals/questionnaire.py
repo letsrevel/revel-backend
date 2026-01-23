@@ -175,9 +175,17 @@ def handle_questionnaire_evaluation(
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     source_event = instance.submission.source_event
     if source_event:
+        from events.models import Event
+
         context["event_id"] = source_event["event_id"]
         context["event_name"] = source_event["event_name"]
         context["event_url"] = f"{frontend_base_url}/events/{source_event['event_id']}"
+        # Get requires_ticket for template conditional messaging
+        try:
+            event = Event.objects.only("requires_ticket").get(id=source_event["event_id"])
+            context["requires_ticket"] = event.requires_ticket
+        except Event.DoesNotExist:
+            pass
     else:
         # Fallback: Get the first linked event from org_questionnaire
         # (for submissions created before metadata was added)
@@ -186,6 +194,7 @@ def handle_questionnaire_evaluation(
             context["event_id"] = str(first_event.id)
             context["event_name"] = first_event.name
             context["event_url"] = f"{frontend_base_url}/events/{first_event.id}"
+            context["requires_ticket"] = first_event.requires_ticket
 
     # Cache values for on_commit closure
     submission_user = instance.submission.user

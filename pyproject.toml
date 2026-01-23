@@ -85,6 +85,7 @@ dependencies = [
     "structlog>=25.5.0",
     "tqdm>=4.67.1",
     "types-tqdm>=4.67.0.20250809",
+    "tzfpy>=1.1.1",
     "uvicorn>=0.40.0",
     "uvloop>=0.22.1",
     "weasyprint>=67.0",

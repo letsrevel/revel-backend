@@ -2,6 +2,7 @@ import typing as t
 
 from django.contrib.gis.db import models
 from django.db.models import F
+from tzfpy import get_tz
 
 
 class CityQuerySet(models.QuerySet["City"]):
@@ -27,8 +28,16 @@ class City(models.Model):
     population = models.BigIntegerField(blank=True, null=True)
     city_id = models.BigIntegerField(unique=True)
     location = models.PointField(geography=True)
+    timezone = models.CharField(max_length=64, blank=True, null=True, db_index=True)
 
     objects = CityManager()
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Auto-populate timezone from location coordinates if not set."""
+        if not self.timezone and self.location:
+            # get_tz expects (longitude, latitude)
+            self.timezone = get_tz(self.location.x, self.location.y)
+        super().save(*args, **kwargs)
 
     class Meta:
         constraints = [

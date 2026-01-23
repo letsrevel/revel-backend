@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-23 15:56+0100\n"
+"POT-Creation-Date: 2026-01-23 16:47+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2154,10 +2154,26 @@ msgstr "Questionario non approvato"
 #, python-format
 msgid ""
 "Great news! Your questionnaire <strong>%(questionnaire)s</strong> for "
+"<strong>%(event)s</strong> has been approved."
+msgstr ""
+"Ottime notizie! Il tuo questionario <strong>%(questionnaire)s</strong> per "
+"<strong>%(event)s</strong> è stato approvato."
+
+#, python-format
+msgid ""
+"Great news! Your questionnaire <strong>%(questionnaire)s</strong> for "
 "<strong>%(org)s</strong> has been approved."
 msgstr ""
 "Ottime notizie! Il tuo questionario <strong>%(questionnaire)s</strong> per "
 "<strong>%(org)s</strong> è stato approvato."
+
+#, python-format
+msgid ""
+"Your questionnaire <strong>%(questionnaire)s</strong> for <strong>%(event)s</"
+"strong> was not approved."
+msgstr ""
+"Il tuo questionario <strong>%(questionnaire)s</strong> per <strong>%(event)s</"
+"strong> non è stato approvato."
 
 #, python-format
 msgid ""
@@ -2182,9 +2198,40 @@ msgstr "Punteggio:"
 msgid "Evaluator Comments:"
 msgstr "Commenti:"
 
+msgid "Important:"
+msgstr "Importante:"
+
+msgid ""
+"Approval does not mean you are registered. Please secure your ticket to "
+"confirm your attendance."
+msgstr ""
+"L'approvazione non significa che sei registrato. Per favore assicurati il "
+"tuo biglietto per confermare la tua partecipazione."
+
+msgid ""
+"Approval does not mean you are registered. Please RSVP to confirm your "
+"attendance."
+msgstr ""
+"L'approvazione non significa che sei registrato. Per favore conferma la tua "
+"partecipazione."
+
+msgid "Get Ticket"
+msgstr "Ottieni biglietto"
+
+msgid "RSVP Now"
+msgstr "Conferma ora"
+
+#, python-format
+msgid "Your questionnaire %(questionnaire)s for %(event)s has been approved!"
+msgstr "Il tuo questionario %(questionnaire)s per %(event)s è stato approvato!"
+
 #, python-format
 msgid "Your questionnaire %(questionnaire)s has been approved!"
 msgstr "Il tuo questionario %(questionnaire)s è stato approvato!"
+
+#, python-format
+msgid "Your questionnaire %(questionnaire)s for %(event)s was not approved."
+msgstr "Il tuo questionario %(questionnaire)s per %(event)s non è stato approvato."
 
 #, python-format
 msgid "Your questionnaire %(questionnaire)s was not approved."
@@ -2192,6 +2239,12 @@ msgstr "Il tuo questionario %(questionnaire)s non è stato approvato."
 
 msgid "Details:"
 msgstr "Dettagli:"
+
+msgid "Get ticket:"
+msgstr "Ottieni biglietto:"
+
+msgid "RSVP now:"
+msgstr "Conferma ora:"
 
 msgid "View event:"
 msgstr "Vai all'evento:"
@@ -2234,7 +2287,8 @@ msgid ""
 "<strong>%(user)s</strong> has cancelled their RSVP for <strong>%(event)s</"
 "strong>."
 msgstr ""
-"<strong>%(user)s</strong> ha annullato la RSVP per <strong>%(event)s</strong>."
+"<strong>%(user)s</strong> ha annullato la RSVP per <strong>%(event)s</"
+"strong>."
 
 msgid "Cancellation Details"
 msgstr "Dettagli annullamento"

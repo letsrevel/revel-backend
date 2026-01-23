@@ -11,6 +11,7 @@ from events.models import EventRSVP
 from events.tasks import build_attendee_visibility_flags
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_organization_staff_and_owners
+from notifications.service.notification_helpers import format_event_datetime
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -18,14 +19,12 @@ logger = structlog.get_logger(__name__)
 
 def _build_rsvp_context(rsvp: EventRSVP) -> dict[str, t.Any]:
     """Build notification context for RSVP."""
-    from django.utils.dateformat import format as date_format
-
     from common.models import SiteSettings
 
     event = rsvp.event
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
 
-    event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T") if event.start else ""
+    event_start_formatted = format_event_datetime(event.start, event)
     event_location = event.full_address()
 
     context = {
@@ -76,8 +75,6 @@ def _send_rsvp_confirmation_notifications(rsvp: EventRSVP) -> None:
 
 def _send_rsvp_updated_notifications(rsvp: EventRSVP) -> None:
     """Send notifications when RSVP is updated."""
-    from django.utils.dateformat import format as date_format
-
     from common.models import SiteSettings
 
     # Check if old status was captured in pre_save
@@ -93,7 +90,7 @@ def _send_rsvp_updated_notifications(rsvp: EventRSVP) -> None:
     event = rsvp.event
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
 
-    event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T") if event.start else ""
+    event_start_formatted = format_event_datetime(event.start, event)
     event_location = event.full_address()
 
     context = {
@@ -153,8 +150,6 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
     Sends notifications to:
     - Organization staff and owners (the user already knows they cancelled)
     """
-    from django.utils.dateformat import format as date_format
-
     build_attendee_visibility_flags.delay(str(instance.event_id))
 
     # Send notifications after transaction commits
@@ -165,7 +160,7 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
         user = instance.user
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
 
-        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T") if event.start else ""
+        event_start_formatted = format_event_datetime(event.start, event)
         event_location = event.full_address()
 
         notification_type = NotificationType.RSVP_CANCELLED
