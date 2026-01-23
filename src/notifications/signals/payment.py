@@ -11,6 +11,7 @@ from common.models import SiteSettings
 from events.models import Payment
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
+from notifications.service.notification_helpers import format_event_datetime
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -61,8 +62,6 @@ def _send_payment_confirmation(payment: Payment) -> None:
     Args:
         payment: The successful payment instance
     """
-    from django.utils.dateformat import format as date_format
-
     ticket = payment.ticket
     event = ticket.event
 
@@ -70,12 +69,12 @@ def _send_payment_confirmation(payment: Payment) -> None:
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     frontend_url = f"{frontend_base_url}/events/{event.id}"
 
-    # Format event details
-    event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T") if event.start else ""
+    # Format event details in event's timezone
+    event_start_formatted = format_event_datetime(event.start, event)
     event_location = event.full_address()
 
-    # Format payment date
-    payment_date = date_format(payment.created_at, "l, F j, Y \\a\\t g:i A T")
+    # Format payment date in event's timezone
+    payment_date = format_event_datetime(payment.created_at, event)
 
     notification_requested.send(
         sender=_send_payment_confirmation,

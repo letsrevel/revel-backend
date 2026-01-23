@@ -78,12 +78,26 @@ class RSVPCancelledTemplate(NotificationTemplate):
 
     def get_in_app_title(self, notification: Notification) -> str:
         """Get title for in-app display."""
-        event_name = notification.context.get("event_name", "")
+        ctx = notification.context
+        event_name = ctx.get("event_name", "")
+        user_name = ctx.get("user_name")
+
+        if user_name:
+            # Staff notification: include user name
+            return _("RSVP Cancelled: %(event)s (%(user)s)") % {
+                "event": event_name,
+                "user": user_name,
+            }
         return _("RSVP Cancelled: %(event)s") % {"event": event_name}
 
     def get_email_subject(self, notification: Notification) -> str:
         """Get email subject."""
-        event_name = notification.context.get("event_name", "")
+        ctx = notification.context
+        event_name = ctx.get("event_name", "")
+        user_name = ctx.get("user_name")
+
+        if user_name:
+            return _("RSVP Cancelled: %(event)s (%(user)s)") % {"event": event_name, "user": user_name}
         return _("RSVP Cancelled: %(event)s") % {"event": event_name}
 
 

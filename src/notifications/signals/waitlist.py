@@ -6,11 +6,11 @@ import structlog
 from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
-from django.utils.dateformat import format as date_format
 
 from common.models import SiteSettings
 from events.models import Event, EventRSVP, EventWaitList, Ticket
 from notifications.enums import NotificationType
+from notifications.service.notification_helpers import format_event_datetime
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -54,7 +54,7 @@ def _build_waitlist_spot_context(event: Event, spots_available: int) -> dict[str
     """
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     event_location = event.full_address()
-    event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T") if event.start else ""
+    event_start_formatted = format_event_datetime(event.start, event)
 
     return {
         "event_id": str(event.id),

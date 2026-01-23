@@ -7,14 +7,13 @@ from uuid import UUID
 import structlog
 from django.db.models import Prefetch, QuerySet
 from django.utils import timezone
-from django.utils.dateformat import format as date_format
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Event, EventRSVP, Ticket
 from notifications.enums import NotificationType
 from notifications.models import Notification
-from notifications.service.notification_helpers import _get_event_location_for_user
+from notifications.service.notification_helpers import _get_event_location_for_user, format_event_datetime
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -108,8 +107,8 @@ class EventReminderService:
             Context dictionary for notification templates
         """
         event_url = f"{self.frontend_base_url}/events/{event.id}"
-        event_start_formatted = date_format(event.start, "l, F j, Y \\a\\t g:i A T")
-        event_end_formatted = date_format(event.end, "l, F j, Y \\a\\t g:i A T") if event.end else None
+        event_start_formatted = format_event_datetime(event.start, event)
+        event_end_formatted = format_event_datetime(event.end, event) or None
 
         context: dict[str, t.Any] = {
             "event_id": str(event.id),

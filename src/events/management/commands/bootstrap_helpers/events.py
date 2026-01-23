@@ -143,12 +143,12 @@ Limited parking available at Copa Cagrana.
 
 
 def _create_wine_tasting(state: BootstrapState, now: "datetime.datetime") -> None:
-    """Event 2: Exclusive Wine Tasting (Private, Ticketed, Open, Future)."""
+    """Event 2: Exclusive Wine Tasting (Public, Ticketed, Open, Future)."""
     wine_tasting = events_models.Event.objects.create(
         organization=state.orgs["alpha"],
         name="Exclusive Wine Tasting & Pairing Dinner",
         slug="exclusive-wine-tasting-dinner",
-        event_type=events_models.Event.EventType.PRIVATE,
+        event_type=events_models.Event.EventType.PUBLIC,
         visibility=events_models.Event.Visibility.PUBLIC,
         status=events_models.Event.EventStatus.OPEN,
         city=state.cities["vienna"],
@@ -602,7 +602,7 @@ def _create_draft_event(state: BootstrapState, now: "datetime.datetime") -> None
         organization=state.orgs["beta"],
         name="Future Tech Summit (Planning Phase)",
         slug="future-tech-summit-draft",
-        event_type=events_models.Event.EventType.PUBLIC,
+        event_type=events_models.Event.EventType.PRIVATE,
         visibility=events_models.Event.Visibility.PUBLIC,
         status=events_models.Event.EventStatus.DRAFT,
         city=state.cities["tokyo"],
