@@ -17,6 +17,10 @@ class EventRSVPQuerySet(models.QuerySet["EventRSVP"]):
         """Select the related user."""
         return self.select_related("user")
 
+    def with_event_details(self) -> t.Self:
+        """Prefetch event with venue for MinimalEventSchema."""
+        return self.select_related("event", "event__venue")
+
     def with_org_membership(self, organization_id: UUID) -> t.Self:
         """Prefetch user's membership for a specific organization."""
         return self.prefetch_related(
@@ -38,6 +42,10 @@ class EventRSVPManager(models.Manager["EventRSVP"]):
     def with_user(self) -> EventRSVPQuerySet:
         """Returns a queryset with the user selected."""
         return self.get_queryset().with_user()
+
+    def with_event_details(self) -> EventRSVPQuerySet:
+        """Returns a queryset with event and venue prefetched."""
+        return self.get_queryset().with_event_details()
 
     def with_org_membership(self, organization_id: UUID) -> EventRSVPQuerySet:
         """Returns a queryset with org membership prefetched."""

@@ -29,16 +29,24 @@ class AdditionalResourceSchema(ModelSchema):
     def resolve_event_ids(obj: AdditionalResource) -> list[UUID]:
         """Return list of event UUIDs this resource is linked to.
 
-        Uses values_list to fetch only IDs, avoiding loading full Event objects.
+        Uses prefetched data if available (O(1)), otherwise falls back to values_list query.
         """
+        # Check if events were prefetched via prefetch_related("events")
+        prefetched = getattr(obj, "_prefetched_objects_cache", {}).get("events")
+        if prefetched is not None:
+            return [e.pk for e in prefetched]
         return list(obj.events.values_list("pk", flat=True))
 
     @staticmethod
     def resolve_event_series_ids(obj: AdditionalResource) -> list[UUID]:
         """Return list of event series UUIDs this resource is linked to.
 
-        Uses values_list to fetch only IDs, avoiding loading full EventSeries objects.
+        Uses prefetched data if available (O(1)), otherwise falls back to values_list query.
         """
+        # Check if event_series were prefetched via prefetch_related("event_series")
+        prefetched = getattr(obj, "_prefetched_objects_cache", {}).get("event_series")
+        if prefetched is not None:
+            return [es.pk for es in prefetched]
         return list(obj.event_series.values_list("pk", flat=True))
 
     class Meta:

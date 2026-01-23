@@ -37,8 +37,12 @@ logger = structlog.get_logger(__name__)
 
 @shared_task
 def build_attendee_visibility_flags(event_id: str) -> None:
-    """A task that builds flags for attendee visibility events."""
-    from .service.user_preferences_service import resolve_visibility
+    """A task that builds flags for attendee visibility events.
+
+    Optimized to use batch visibility resolution with prefetched data
+    to avoid N+1 queries. Uses VisibilityContext for O(1) lookups.
+    """
+    from .service.user_preferences_service import VisibilityContext, resolve_visibility_fast
 
     # Update attendee count atomically with a lock to prevent race conditions.
     # Multiple tasks may run concurrently when tickets are confirmed rapidly;
@@ -53,27 +57,32 @@ def build_attendee_visibility_flags(event_id: str) -> None:
     # Re-fetch event without lock for visibility flag building (read-only operations)
     event = Event.objects.with_organization().get(pk=event_id)
 
+    organization = event.organization
+    owner_id = organization.owner_id
+    staff_ids = {sm.id for sm in organization.staff_members.all()}
+
+    # Pre-load all relationship data in 4 queries (instead of N queries per pair)
+    context = VisibilityContext.for_event(event, owner_id, staff_ids)
+
     # Users attending the event (for visibility purposes)
+    # Prefetch general_preferences to avoid N+1 when accessing target.general_preferences
     attendees_q = Q(tickets__event=event, tickets__status=Ticket.TicketStatus.ACTIVE) | Q(
         rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES
     )
 
-    attendees = RevelUser.objects.filter(attendees_q).distinct()
+    attendees = list(RevelUser.objects.filter(attendees_q).select_related("general_preferences").distinct())
 
     # Users invited or attending = potential viewers
-    viewers = RevelUser.objects.filter(Q(invitations__event=event) | attendees_q).distinct()
+    viewers = list(RevelUser.objects.filter(Q(invitations__event=event) | attendees_q).distinct())
 
     flags = []
-
-    organization = event.organization
-    owner_id = organization.owner_id
-    staff_ids = {sm.id for sm in organization.staff_members.all()}
 
     with transaction.atomic():
         AttendeeVisibilityFlag.objects.filter(event=event).delete()
         for viewer in viewers:
             for target in attendees:
-                visible = resolve_visibility(viewer, target, event, owner_id, staff_ids)
+                # O(1) visibility check using prefetched context
+                visible = resolve_visibility_fast(viewer, target, context)
                 flags.append(
                     AttendeeVisibilityFlag(
                         user=viewer,

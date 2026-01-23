@@ -131,6 +131,42 @@ class EventToken(TokenMixin):
         ordering = ["-created_at"]
 
 
+class EventInvitationRequestQuerySet(models.QuerySet["EventInvitationRequest"]):
+    """Custom queryset for EventInvitationRequest model."""
+
+    def with_event_details(self) -> t.Self:
+        """Prefetch event with all nested relations for EventInListSchema.
+
+        Includes: organization, city, venue, event_series, and tags.
+        """
+        return self.select_related(
+            "user",
+            "event",
+            "event__organization",
+            "event__city",
+            "event__venue",
+            "event__event_series",
+        ).prefetch_related(
+            Prefetch(
+                "event__tags",
+                queryset=TagAssignment.objects.select_related("tag"),
+                to_attr="prefetched_tagassignments",
+            )
+        )
+
+
+class EventInvitationRequestManager(models.Manager["EventInvitationRequest"]):
+    """Custom manager for EventInvitationRequest."""
+
+    def get_queryset(self) -> EventInvitationRequestQuerySet:
+        """Get base queryset."""
+        return EventInvitationRequestQuerySet(self.model, using=self._db)
+
+    def with_event_details(self) -> EventInvitationRequestQuerySet:
+        """Returns a queryset with event and nested relations prefetched."""
+        return self.get_queryset().with_event_details()
+
+
 class EventInvitationRequest(UserRequestMixin):
     class InvitationRequestStatus(models.TextChoices):
         PENDING = "pending"
@@ -138,6 +174,8 @@ class EventInvitationRequest(UserRequestMixin):
         REJECTED = "rejected"
 
     event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="invitation_requests")
+
+    objects = EventInvitationRequestManager()
 
     class Meta:
         constraints = [
