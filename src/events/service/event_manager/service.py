@@ -55,7 +55,7 @@ class EligibilityService:
         self.event = (
             models.Event.objects.select_related("organization")
             .prefetch_related(
-                Prefetch("tickets", queryset=models.Ticket.objects.only("user_id")),
+                Prefetch("tickets", queryset=models.Ticket.objects.only("id", "event_id", "user_id", "status")),
                 Prefetch(
                     "invitations",
                     queryset=models.EventInvitation.objects.filter(user=user).select_related("tier"),
@@ -79,7 +79,7 @@ class EligibilityService:
                 ),
                 Prefetch(
                     "organization__memberships",
-                    queryset=OrganizationMember.objects.select_related("user").only("user_id", "status"),
+                    queryset=OrganizationMember.objects.only("id", "user_id", "organization_id", "status"),
                     to_attr="all_memberships_prefetched",
                 ),
                 Prefetch(
