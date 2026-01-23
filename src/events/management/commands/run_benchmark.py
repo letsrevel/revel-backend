@@ -133,7 +133,7 @@ class Command(BaseCommand):
             "--notifications-count",
             type=int,
             default=20,
-            dest="notifications",
+            dest="notification_count",
             help="Number of notifications to create per user",
         )
         notif_group.add_argument(

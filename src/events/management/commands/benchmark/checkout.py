@@ -541,7 +541,6 @@ class CheckoutBenchmark(BaseBenchmarkCommand):
         # Warm-up run
         gc.collect()
         user = RevelUser.objects.get(pk=scenario.user.pk)
-        event = Event.objects.get(pk=scenario.event.pk)
         tier = TicketTier.objects.get(pk=scenario.tier.pk) if scenario.tier else None
 
         if tier:
