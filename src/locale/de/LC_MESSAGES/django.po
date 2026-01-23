@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-18 16:01+0100\n"
+"POT-Creation-Date: 2026-01-23 15:56+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -669,17 +669,6 @@ msgid "ticket_tier_id is required for events that require tickets."
 msgstr "ticket_tier_id ist erforderlich für Events, die Tickets benötigen."
 
 #, fuzzy
-#| msgid "Check-in is not currently open for this event."
-msgid "Questionnaire not found for this event."
-msgstr "Der Check-in ist für dieses Event derzeit nicht geöffnet."
-
-msgid "Token not found or expired."
-msgstr "Token nicht gefunden oder abgelaufen."
-
-msgid "The token is invalid or expired."
-msgstr "Der Token ist ungültig oder abgelaufen."
-
-#, fuzzy
 #| msgid "This event does not accept invitation requests."
 msgid "This event does not have an open waitlist."
 msgstr "Dieses Event akzeptiert keine Einladungsanfragen."
@@ -695,12 +684,34 @@ msgstr ""
 msgid "Successfully left the waitlist."
 msgstr ""
 
+msgid "Authentication required to access feedback questionnaire."
+msgstr ""
+
+msgid "The application deadline has passed."
+msgstr "Die Anmeldefrist ist abgelaufen."
+
+#, fuzzy
+#| msgid "Check-in is not currently open for this event."
+msgid "Questionnaire not found for this event."
+msgstr "Der Check-in ist für dieses Event derzeit nicht geöffnet."
+
+msgid "Token not found or expired."
+msgstr "Token nicht gefunden oder abgelaufen."
+
+msgid "The token is invalid or expired."
+msgstr "Der Token ist ungültig oder abgelaufen."
+
 #, fuzzy
 #| msgid "This endpoint is only for pay-what-you-can tickets"
-msgid "Use /checkout/pwyc endpoint for pay-what-you-can tickets"
+msgid "Use /pwyc endpoint for pay-what-you-can tickets"
 msgstr "Dieser Endpunkt ist nur für \"Zahl-was-du-kannst\"-Tickets"
 
 msgid "This endpoint is only for pay-what-you-can tickets"
+msgstr "Dieser Endpunkt ist nur für \"Zahl-was-du-kannst\"-Tickets"
+
+#, fuzzy
+#| msgid "This endpoint is only for pay-what-you-can tickets"
+msgid "Use /checkout/pwyc endpoint for pay-what-you-can tickets"
 msgstr "Dieser Endpunkt ist nur für \"Zahl-was-du-kannst\"-Tickets"
 
 #, python-brace-format
@@ -710,17 +721,6 @@ msgstr "Der PWYC-Betrag muss mindestens {min_amount} betragen"
 #, python-brace-format
 msgid "PWYC amount must be at most {max_amount}"
 msgstr "Der PWYC-Betrag darf höchstens {max_amount} betragen"
-
-msgid "Authentication required to access feedback questionnaire."
-msgstr ""
-
-msgid "The application deadline has passed."
-msgstr "Die Anmeldefrist ist abgelaufen."
-
-#, fuzzy
-#| msgid "This endpoint is only for pay-what-you-can tickets"
-msgid "Use /pwyc endpoint for pay-what-you-can tickets"
-msgstr "Dieser Endpunkt ist nur für \"Zahl-was-du-kannst\"-Tickets"
 
 msgid "Only the organization owner can create staff members."
 msgstr "Nur der/die Organisationsinhaber:in kann Mitarbeiter:innen erstellen."
@@ -799,6 +799,15 @@ msgstr "Diese Ticket-Kategorie ist ausverkauft."
 
 #, python-brace-format
 msgid "Only {available} spot(s) remaining for this event."
+msgstr ""
+
+#, fuzzy
+#| msgid "Event is full."
+msgid "This sector is full."
+msgstr "Das Event ist ausgebucht."
+
+#, python-brace-format
+msgid "Only {available} spot(s) remaining in this sector."
 msgstr ""
 
 msgid "Unknown payment method."
@@ -1445,8 +1454,12 @@ msgid "RSVP Updated: %(event)s"
 msgstr "Potluck-Update: %(event_name)s"
 
 #, python-format
+msgid "RSVP Cancelled: %(event)s (%(user)s)"
+msgstr "RSVP storniert: %(event)s (%(user)s)"
+
+#, python-format
 msgid "RSVP Cancelled: %(event)s"
-msgstr ""
+msgstr "RSVP storniert: %(event)s"
 
 #, fuzzy, python-format
 #| msgid "New Ticket Issued: %(event_name)s"
@@ -2225,24 +2238,36 @@ msgid "Review the submission:"
 msgstr "Fragebogen prüfen:"
 
 msgid "RSVP Cancelled"
-msgstr ""
+msgstr "RSVP storniert"
 
-#, fuzzy, python-format
-#| msgid ""
-#| "Your payment for <strong>%(event_name)s</strong> was successful and your "
-#| "ticket is now active!"
-msgid "Your RSVP for <strong>%(event)s</strong> has been cancelled."
+#, python-format
+msgid ""
+"<strong>%(user)s</strong> has cancelled their RSVP for <strong>%(event)s</"
+"strong>."
 msgstr ""
-"Deine Zahlung für <strong>%(event_name)s</strong> war erfolgreich und dein "
-"Ticket ist jetzt aktiv!"
+"<strong>%(user)s</strong> hat die RSVP für <strong>%(event)s</strong> "
+"storniert."
+
+msgid "Cancellation Details"
+msgstr "Stornierungsdetails"
+
+#, python-format
+msgid "Your RSVP for <strong>%(event)s</strong> has been cancelled."
+msgstr "Deine RSVP für <strong>%(event)s</strong> wurde storniert."
 
 msgid "You can RSVP again anytime if you change your mind."
-msgstr ""
+msgstr "Du kannst jederzeit erneut zusagen, wenn du deine Meinung änderst."
 
-#, fuzzy, python-format
-#| msgid "This ticket has been cancelled."
+#, python-format
+msgid "%(user)s has cancelled their RSVP for %(event)s."
+msgstr "%(user)s hat die RSVP für %(event)s storniert."
+
+msgid "Cancellation Details:"
+msgstr "Stornierungsdetails:"
+
+#, python-format
 msgid "Your RSVP for %(event)s has been cancelled."
-msgstr "Dieses Ticket wurde storniert."
+msgstr "Deine RSVP für %(event)s wurde storniert."
 
 #, fuzzy
 #| msgid "Ticket Confirmed"

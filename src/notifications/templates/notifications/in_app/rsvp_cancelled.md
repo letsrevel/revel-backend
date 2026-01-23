@@ -1,13 +1,22 @@
-{% load i18n %}{% blocktranslate with event=context.event_name %}Your RSVP for **{{ event }}** has been cancelled. ❌{% endblocktranslate %}
+{% load i18n %}{% if context.user_name %}
+{% blocktranslate with user=context.user_name event=context.event_name %}**{{ user }}** has cancelled their RSVP for **{{ event }}**.{% endblocktranslate %}
+
+**{% trans "Cancellation Details:" %}**
+- {% trans "User:" %} {{ context.user_name }}
+- 📅 {{ context.event_start_formatted }}
+{% if context.event_location %}- 📍 {{ context.event_location }}{% endif %}
+
+{% if context.cancellation_reason %}**{% trans "Reason:" %}** {{ context.cancellation_reason }}{% endif %}
+{% else %}
+{% blocktranslate with event=context.event_name %}Your RSVP for **{{ event }}** has been cancelled. ❌{% endblocktranslate %}
 
 **{% trans "Event Details:" %}**
 - 📅 {{ context.event_start_formatted }}
 {% if context.event_location %}- 📍 {{ context.event_location }}{% endif %}
 
-{% if context.cancellation_reason %}
-**{% trans "Reason:" %}** {{ context.cancellation_reason }}
-{% endif %}
+{% if context.cancellation_reason %}**{% trans "Reason:" %}** {{ context.cancellation_reason }}{% endif %}
 
 {% trans "You can RSVP again anytime if you change your mind." %}
+{% endif %}
 
 [{% trans "View Event" %}]({{ context.event_url }})

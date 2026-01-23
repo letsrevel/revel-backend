@@ -51,9 +51,15 @@ def _build_rsvp_context(rsvp: EventRSVP) -> dict[str, t.Any]:
 
 
 def _notify_staff_about_rsvp(rsvp: EventRSVP, notification_type: str, context: dict[str, t.Any]) -> None:
-    """Notify staff/owners about RSVP event."""
+    """Notify staff/owners about RSVP event.
+
+    Excludes the RSVP user from notifications if they are staff/owner,
+    since they already know about their own action.
+    """
     staff_and_owners = get_organization_staff_and_owners(rsvp.event.organization_id)
     for recipient in staff_and_owners:
+        if recipient.id == rsvp.user_id:
+            continue  # Don't notify user about their own RSVP action
         notification_requested.send(
             sender=EventRSVP,
             user=recipient,
@@ -179,6 +185,8 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
         # Notify organization staff and owners only (user already knows they cancelled)
         staff_and_owners = get_organization_staff_and_owners(event.organization_id)
         for recipient in staff_and_owners:
+            if recipient.id == user.id:
+                continue  # Don't notify user about their own RSVP cancellation
             notification_requested.send(
                 sender=sender,
                 user=recipient,
