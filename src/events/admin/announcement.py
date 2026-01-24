@@ -56,7 +56,9 @@ class AnnouncementAdmin(ModelAdmin, OrganizationLinkMixin, EventLinkMixin):  # t
             return "All Members"
         if obj.target_staff_only:
             return "Staff Only"
-        tier_count = obj.target_tiers.count()
+        # Use len() on .all() to leverage prefetched cache instead of .count()
+        # which may trigger a separate query in some Django versions
+        tier_count = len(obj.target_tiers.all())
         if tier_count:
             return f"{tier_count} tier(s)"
         return "—"

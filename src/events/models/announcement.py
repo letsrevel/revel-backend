@@ -118,7 +118,7 @@ class Announcement(TimeStampedModel):
         help_text=_("Target only organization staff members"),
     )
 
-    title = models.CharField(max_length=255)
+    title = models.CharField(max_length=150)
     body = MarkdownField()
 
     status = models.CharField(

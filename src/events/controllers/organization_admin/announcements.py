@@ -3,6 +3,7 @@
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from ninja import Query
+from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
@@ -96,11 +97,14 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
           after it was sent (default: true)
         """
         organization = self.get_one(slug)
-        announcement = announcement_service.create_announcement(
-            organization=organization,
-            user=self.user(),
-            payload=payload,
-        )
+        try:
+            announcement = announcement_service.create_announcement(
+                organization=organization,
+                user=self.user(),
+                payload=payload,
+            )
+        except ValueError as e:
+            raise HttpError(422, str(e))
         # Reload with prefetched data for schema
         return models.Announcement.objects.full().get(id=announcement.id)
 
@@ -153,7 +157,10 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
             organization=organization,
             status=models.Announcement.Status.DRAFT,
         )
-        updated = announcement_service.update_announcement(announcement, payload)
+        try:
+            updated = announcement_service.update_announcement(announcement, payload)
+        except ValueError as e:
+            raise HttpError(422, str(e))
         # Reload with prefetched data for schema
         return models.Announcement.objects.full().get(id=updated.id)
 

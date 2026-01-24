@@ -64,8 +64,12 @@ class AnnouncementUpdateSchema(Schema):
 
     @model_validator(mode="after")
     def validate_targeting(self) -> "AnnouncementUpdateSchema":
-        """If any targeting option is provided, ensure only one is set."""
-        # Check if any targeting field is being updated
+        """If any targeting option is provided, ensure only one is set.
+
+        When updating targeting, the user must provide exactly one enabled option
+        to prevent leaving the announcement in an invalid state with no targeting.
+        """
+        # Check if any targeting field is being updated (explicitly set, not None)
         targeting_updates = [
             self.event_id,
             self.target_all_members,
@@ -85,6 +89,12 @@ class AnnouncementUpdateSchema(Schema):
             self.target_staff_only is True,
         ]
         selected = sum(options)
+
+        if selected == 0:
+            raise ValueError(
+                "When updating targeting, at least one option must be enabled: "
+                "event_id, target_all_members, target_tier_ids, or target_staff_only"
+            )
 
         if selected > 1:
             raise ValueError(

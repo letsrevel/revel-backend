@@ -7,6 +7,7 @@ import typing as t
 from uuid import UUID
 
 import structlog
+from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -27,6 +28,28 @@ from notifications.enums import NotificationType
 from notifications.service.dispatcher import NotificationData, bulk_create_notifications
 
 logger = structlog.get_logger(__name__)
+
+
+def _validate_announcement_has_targeting(announcement: Announcement) -> None:
+    """Ensure announcement has at least one targeting option.
+
+    Args:
+        announcement: Announcement to validate.
+
+    Raises:
+        ValueError: If no targeting option is active.
+    """
+    has_targeting = any([
+        announcement.event_id is not None,
+        announcement.target_all_members,
+        announcement.target_tiers.exists(),
+        announcement.target_staff_only,
+    ])
+    if not has_targeting:
+        raise ValueError(
+            "Announcement must have at least one targeting option: "
+            "event, target_all_members, target_tiers, or target_staff_only"
+        )
 
 
 def create_announcement(
@@ -136,6 +159,9 @@ def update_announcement(
     for field, value in update_data.items():
         if value is not None:
             setattr(announcement, field, value)
+
+    # Validate that at least one targeting option remains
+    _validate_announcement_has_targeting(announcement)
 
     announcement.save()
 
@@ -291,11 +317,15 @@ def get_recipient_count(announcement: Announcement) -> int:
     return get_recipients(announcement).count()
 
 
+@transaction.atomic
 def send_announcement(announcement: Announcement) -> int:
     """Send an announcement to all recipients.
 
     Creates notifications for all recipients and dispatches them.
     Updates the announcement status to SENT.
+
+    Uses database-level locking to prevent race conditions where multiple
+    concurrent requests could send the same announcement twice.
 
     Args:
         announcement: Announcement to send (must be in DRAFT status).
@@ -307,6 +337,9 @@ def send_announcement(announcement: Announcement) -> int:
         ValueError: If announcement is not a draft.
     """
     from notifications.tasks import dispatch_notifications_batch
+
+    # Lock the announcement row to prevent concurrent sends
+    announcement = Announcement.objects.select_for_update().get(pk=announcement.pk)
 
     if announcement.status != Announcement.Status.DRAFT:
         raise ValueError("Only draft announcements can be sent")

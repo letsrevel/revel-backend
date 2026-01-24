@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
                 ('updated_at', models.DateTimeField(auto_now=True, db_index=True)),
                 ('target_all_members', models.BooleanField(default=False, help_text='Target all active organization members')),
                 ('target_staff_only', models.BooleanField(default=False, help_text='Target only organization staff members')),
-                ('title', models.CharField(max_length=255)),
+                ('title', models.CharField(max_length=150)),
                 ('body', common.fields.MarkdownField()),
                 ('status', models.CharField(choices=[('draft', 'Draft'), ('sent', 'Sent')], db_index=True, default='draft', max_length=20)),
                 ('past_visibility', models.BooleanField(default=True, help_text='Allow new attendees/members to see this announcement after it was sent')),

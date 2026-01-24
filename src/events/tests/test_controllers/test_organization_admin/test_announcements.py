@@ -532,6 +532,75 @@ class TestCreateAnnouncement(TestAnnouncementControllerFixtures):
         # Assert
         assert response.status_code == 403
 
+    def test_create_announcement_with_invalid_event_returns_422(
+        self,
+        owner_client: Client,
+        org: Organization,
+    ) -> None:
+        """Test that creating with non-existent event returns 422."""
+        from uuid import uuid4
+
+        # Arrange
+        url = reverse("api:create_announcement", kwargs={"slug": org.slug})
+        payload = {
+            "title": "Invalid Event Announcement",
+            "body": "Body",
+            "event_id": str(uuid4()),  # Non-existent event
+        }
+
+        # Act
+        response = owner_client.post(
+            url,
+            data=orjson.dumps(payload),
+            content_type="application/json",
+        )
+
+        # Assert
+        assert response.status_code == 422
+        assert "Event not found" in response.json()["detail"]
+
+    def test_create_announcement_with_other_org_event_returns_422(
+        self,
+        owner_client: Client,
+        org: Organization,
+        revel_user_factory: RevelUserFactory,
+    ) -> None:
+        """Test that creating with event from another organization returns 422."""
+        # Arrange - Create another org with an event
+        other_owner = revel_user_factory(username="other_owner")
+        other_org = Organization.objects.create(
+            name="Other Org",
+            slug="other-org",
+            owner=other_owner,
+        )
+        other_event = Event.objects.create(
+            organization=other_org,
+            name="Other Event",
+            slug="other-event",
+            event_type=Event.EventType.PUBLIC,
+            visibility=Event.Visibility.PUBLIC,
+            status=Event.EventStatus.OPEN,
+            start=timezone.now() + timedelta(days=7),
+        )
+
+        url = reverse("api:create_announcement", kwargs={"slug": org.slug})
+        payload = {
+            "title": "Wrong Org Event Announcement",
+            "body": "Body",
+            "event_id": str(other_event.id),
+        }
+
+        # Act
+        response = owner_client.post(
+            url,
+            data=orjson.dumps(payload),
+            content_type="application/json",
+        )
+
+        # Assert
+        assert response.status_code == 422
+        assert "Event not found" in response.json()["detail"]
+
 
 class TestGetAnnouncement(TestAnnouncementControllerFixtures):
     """Tests for GET /organization-admin/{slug}/announcements/{id} endpoint."""
@@ -703,6 +772,82 @@ class TestUpdateAnnouncement(TestAnnouncementControllerFixtures):
         data = response.json()
         assert data["event_id"] == str(event.id)
         assert data["target_all_members"] is False
+
+    def test_update_announcement_with_invalid_event_returns_422(
+        self,
+        owner_client: Client,
+        org: Organization,
+        org_owner: RevelUser,
+    ) -> None:
+        """Test that updating with non-existent event returns 422."""
+        from uuid import uuid4
+
+        # Arrange
+        announcement = Announcement.objects.create(
+            organization=org,
+            title="Announcement",
+            body="Body",
+            target_all_members=True,
+            created_by=org_owner,
+        )
+
+        url = reverse(
+            "api:update_announcement",
+            kwargs={"slug": org.slug, "announcement_id": announcement.id},
+        )
+        payload = {
+            "event_id": str(uuid4()),  # Non-existent event
+            "target_all_members": False,
+        }
+
+        # Act
+        response = owner_client.put(
+            url,
+            data=orjson.dumps(payload),
+            content_type="application/json",
+        )
+
+        # Assert
+        assert response.status_code == 422
+        assert "Event not found" in response.json()["detail"]
+
+    def test_update_announcement_clearing_all_targeting_returns_422(
+        self,
+        owner_client: Client,
+        org: Organization,
+        org_owner: RevelUser,
+    ) -> None:
+        """Test that clearing all targeting options returns 422.
+
+        When an update explicitly disables targeting without enabling another,
+        the schema validation should reject it.
+        """
+        # Arrange
+        announcement = Announcement.objects.create(
+            organization=org,
+            title="Announcement",
+            body="Body",
+            target_all_members=True,
+            created_by=org_owner,
+        )
+
+        url = reverse(
+            "api:update_announcement",
+            kwargs={"slug": org.slug, "announcement_id": announcement.id},
+        )
+        payload = {
+            "target_all_members": False,  # Clearing without setting another target
+        }
+
+        # Act
+        response = owner_client.put(
+            url,
+            data=orjson.dumps(payload),
+            content_type="application/json",
+        )
+
+        # Assert
+        assert response.status_code == 422
 
 
 class TestDeleteAnnouncement(TestAnnouncementControllerFixtures):
