@@ -234,6 +234,7 @@ class PermissionMap(BaseModel):
     edit_questionnaire: bool = False
     delete_questionnaire: bool = False
     evaluate_questionnaire: bool = True
+    send_announcements: bool = False
 
 
 class PermissionsSchema(BaseModel):

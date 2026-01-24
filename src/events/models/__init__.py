@@ -1,3 +1,4 @@
+from .announcement import Announcement
 from .blacklist import Blacklist, WhitelistRequest
 from .event import (
     AttendeeVisibilityFlag,
@@ -87,4 +88,6 @@ __all__ = [
     # Blacklist
     "Blacklist",
     "WhitelistRequest",
+    # Announcements
+    "Announcement",
 ]

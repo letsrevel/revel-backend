@@ -18,7 +18,13 @@ from common.throttling import (
     WriteThrottle,
 )
 from events import filters, models, schema
-from events.service import blacklist_service, follow_service, organization_service, whitelist_service
+from events.service import (
+    announcement_service,
+    blacklist_service,
+    follow_service,
+    organization_service,
+    whitelist_service,
+)
 
 from ..service.event_service import order_by_distance
 
@@ -413,3 +419,54 @@ class OrganizationController(UserAwareController):
         organization = self.get_one(slug)
         follow_service.unfollow_organization(self.user(), organization)
         return 204, None
+
+    @route.get(
+        "/{slug}/member-announcements",
+        url_name="list_member_announcements",
+        response=list[schema.AnnouncementPublicSchema],
+        auth=I18nJWTAuth(),
+    )
+    def list_member_announcements(self, slug: str) -> list[models.Announcement]:
+        """List member/staff announcements for an organization.
+
+        Returns sent announcements visible to the current user based on their
+        organization relationship. Visibility is determined by:
+        - User received the notification when it was sent, OR
+        - User is currently eligible and announcement has past_visibility enabled
+
+        This endpoint returns organization-level announcements (not event-specific).
+        For event announcements, use the event announcements endpoint.
+
+        Announcements are ordered by sent date (newest first).
+
+        Note:
+            Visibility filtering performs N+1 queries (1-2 queries per announcement).
+            This is acceptable for typical announcement volumes per organization.
+            See `is_user_eligible_for_announcement` for optimization notes.
+
+        **Returns:**
+        - List of visible announcements
+
+        **Requirements:**
+        - User must be a member, staff, or owner of the organization
+        """
+        organization = self.get_one(slug)
+        user = self.user()
+
+        # Get all sent, non-event announcements for this org with prefetched data
+        announcements = list(
+            models.Announcement.objects.filter(
+                organization=organization,
+                event__isnull=True,
+                status=models.Announcement.Status.SENT,
+            )
+            .select_related("organization")
+            .order_by("-sent_at")
+        )
+
+        # Filter to only those the user can see
+        visible_announcements = [
+            a for a in announcements if announcement_service.is_user_eligible_for_announcement(a, user)
+        ]
+
+        return visible_announcements

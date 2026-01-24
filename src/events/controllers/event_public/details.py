@@ -110,3 +110,45 @@ class EventPublicDetailsController(EventPublicBaseController):
         """
         event = self.get_one(event_id)
         return event_service.get_event_pronoun_distribution(event)
+
+    @route.get(
+        "/{uuid:event_id}/announcements",
+        url_name="event_announcements",
+        response=list[schema.AnnouncementPublicSchema],
+        auth=I18nJWTAuth(),
+    )
+    def list_event_announcements(self, event_id: UUID) -> list[models.Announcement]:
+        """List announcements for an event.
+
+        Returns sent announcements that the current user can see. Visibility is based on:
+        - User received the notification when it was sent, OR
+        - User is currently an attendee and announcement has past_visibility enabled
+
+        Announcements are ordered by sent date (newest first).
+
+        Note:
+            Visibility filtering performs N+1 queries (1-2 queries per announcement).
+            This is acceptable for typical announcement volumes per event.
+            See `is_user_eligible_for_announcement` for optimization notes.
+        """
+        from events.service import announcement_service
+
+        event = self.get_one(event_id)
+        user = self.user()
+
+        # Get all sent announcements for this event with prefetched data
+        announcements = list(
+            models.Announcement.objects.filter(
+                event=event,
+                status=models.Announcement.Status.SENT,
+            )
+            .select_related("organization", "event")
+            .order_by("-sent_at")
+        )
+
+        # Filter to only those the user can see
+        visible_announcements = [
+            a for a in announcements if announcement_service.is_user_eligible_for_announcement(a, user)
+        ]
+
+        return visible_announcements

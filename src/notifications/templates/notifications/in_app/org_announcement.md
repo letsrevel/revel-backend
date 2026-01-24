@@ -1,3 +1,4 @@
-{%load i18n %}📢 {%blocktranslate%}Announcement{%endblocktranslate%}
-
-{%trans "View details:"%} [{%trans "View"%}]({{context.event_url}})
+{%load i18n %}{{context.announcement_body}}
+{% if context.event_url %}
+[{%trans "View Event"%}]({{context.event_url}})
+{% endif %}

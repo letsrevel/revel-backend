@@ -6,6 +6,7 @@ of all admin classes via the @admin.register decorators in submodules.
 """
 
 # Import all admin modules to trigger @admin.register decorators
+from events.admin.announcement import AnnouncementAdmin
 from events.admin.blacklist import BlacklistAdmin, WhitelistRequestAdmin
 from events.admin.event import (
     EventAdmin,
@@ -44,6 +45,8 @@ from events.admin.venue import (
 )
 
 __all__ = [
+    # Announcement
+    "AnnouncementAdmin",
     # Organization
     "OrganizationAdmin",
     "OrganizationQuestionnaireAdmin",

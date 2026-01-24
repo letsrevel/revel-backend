@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-23 16:47+0100\n"
+"POT-Creation-Date: 2026-01-24 12:51+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -734,6 +734,24 @@ msgstr ""
 
 msgid "Invalid Stripe signature"
 msgstr "Firma Stripe non valida"
+
+msgid "Draft"
+msgstr "Bozza"
+
+msgid "Sent"
+msgstr "Inviato"
+
+msgid "Target all active organization members"
+msgstr "Invia a tutti i membri attivi dell'organizzazione"
+
+msgid "Target members of specific membership tiers"
+msgstr "Invia ai membri di specifici livelli di iscrizione"
+
+msgid "Target only organization staff members"
+msgstr "Invia solo ai membri dello staff dell'organizzazione"
+
+msgid "Allow new attendees/members to see this announcement after it was sent"
+msgstr "Consenti ai nuovi partecipanti/membri di vedere questo annuncio dopo l'invio"
 
 msgid "Membership tier is required when granting membership."
 msgstr ""
@@ -1935,8 +1953,8 @@ msgstr ""
 "Il tuo questionario <strong>%(questionnaire)s</strong> per <strong>%(org)s</"
 "strong> non è stato approvato."
 
-msgid "Announcement"
-msgstr ""
+msgid "View event:"
+msgstr "Vai all'evento:"
 
 #, fuzzy, python-format
 #| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
@@ -2172,8 +2190,8 @@ msgid ""
 "Your questionnaire <strong>%(questionnaire)s</strong> for <strong>%(event)s</"
 "strong> was not approved."
 msgstr ""
-"Il tuo questionario <strong>%(questionnaire)s</strong> per <strong>%(event)s</"
-"strong> non è stato approvato."
+"Il tuo questionario <strong>%(questionnaire)s</strong> per "
+"<strong>%(event)s</strong> non è stato approvato."
 
 #, python-format
 msgid ""
@@ -2231,7 +2249,8 @@ msgstr "Il tuo questionario %(questionnaire)s è stato approvato!"
 
 #, python-format
 msgid "Your questionnaire %(questionnaire)s for %(event)s was not approved."
-msgstr "Il tuo questionario %(questionnaire)s per %(event)s non è stato approvato."
+msgstr ""
+"Il tuo questionario %(questionnaire)s per %(event)s non è stato approvato."
 
 #, python-format
 msgid "Your questionnaire %(questionnaire)s was not approved."
@@ -2245,9 +2264,6 @@ msgstr "Ottieni biglietto:"
 
 msgid "RSVP now:"
 msgstr "Conferma ora:"
-
-msgid "View event:"
-msgstr "Vai all'evento:"
 
 msgid "New Questionnaire Submission"
 msgstr "Nuovo questionario ricevuto"

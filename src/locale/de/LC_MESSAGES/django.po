@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-23 16:47+0100\n"
+"POT-Creation-Date: 2026-01-24 12:51+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -741,6 +741,24 @@ msgstr ""
 
 msgid "Invalid Stripe signature"
 msgstr "Ungültige Stripe-Signatur"
+
+msgid "Draft"
+msgstr "Entwurf"
+
+msgid "Sent"
+msgstr "Gesendet"
+
+msgid "Target all active organization members"
+msgstr "Alle aktiven Organisationsmitglieder als Zielgruppe"
+
+msgid "Target members of specific membership tiers"
+msgstr "Mitglieder bestimmter Mitgliedschaftsstufen als Zielgruppe"
+
+msgid "Target only organization staff members"
+msgstr "Nur Mitarbeiter:innen der Organisation als Zielgruppe"
+
+msgid "Allow new attendees/members to see this announcement after it was sent"
+msgstr "Neuen Teilnehmer:innen/Mitgliedern erlauben, diese Ankündigung nach dem Versand zu sehen"
 
 msgid "Membership tier is required when granting membership."
 msgstr ""
@@ -1944,8 +1962,8 @@ msgstr ""
 "Dein Fragebogen <strong>%(questionnaire)s</strong> für <strong>%(org)s</"
 "strong> wurde nicht genehmigt."
 
-msgid "Announcement"
-msgstr ""
+msgid "View event:"
+msgstr "Zum Event:"
 
 #, fuzzy, python-format
 #| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
@@ -2256,9 +2274,6 @@ msgstr "Ticket sichern:"
 
 msgid "RSVP now:"
 msgstr "Jetzt zusagen:"
-
-msgid "View event:"
-msgstr "Zum Event:"
 
 msgid "New Questionnaire Submission"
 msgstr "Neuer Fragebogen eingegangen"
