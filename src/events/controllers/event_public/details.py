@@ -12,7 +12,7 @@ from ninja_extra.searching import Searching, searching
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth, OptionalAuth
 from events import filters, models, schema
-from events.service import event_service
+from events.service import announcement_service, event_service
 
 from .base import EventPublicBaseController
 
@@ -131,8 +131,6 @@ class EventPublicDetailsController(EventPublicBaseController):
             This is acceptable for typical announcement volumes per event.
             See `is_user_eligible_for_announcement` for optimization notes.
         """
-        from events.service import announcement_service
-
         event = self.get_one(event_id)
         user = self.user()
 
