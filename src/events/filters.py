@@ -12,6 +12,7 @@ from pydantic import AwareDatetime
 
 from events.models import (
     AdditionalResource,
+    Announcement,
     Event,
     EventInvitationRequest,
     EventRSVP,
@@ -389,3 +390,17 @@ class WhitelistRequestFilterSchema(FilterSchema):
     """Filter schema for whitelist requests."""
 
     status: WhitelistRequest.Status | None = None
+
+
+class AnnouncementFilterSchema(FilterSchema):
+    """Filter schema for announcements."""
+
+    status: Announcement.AnnouncementStatus | None = None
+    event_id: UUID | None = Field(None, description="Filter by event")
+    has_event: bool | None = Field(None, description="Filter by whether announcement targets an event")
+
+    def filter_has_event(self, has_event: bool | None) -> Q:
+        """Filter by whether announcement targets an event."""
+        if has_event is None:
+            return Q()
+        return Q(event__isnull=not has_event)

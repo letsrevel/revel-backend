@@ -12,7 +12,7 @@ from ninja_extra.searching import Searching, searching
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth, OptionalAuth
 from events import filters, models, schema
-from events.service import event_service
+from events.service import announcement_service, event_service
 
 from .base import EventPublicBaseController
 
@@ -110,3 +110,49 @@ class EventPublicDetailsController(EventPublicBaseController):
         """
         event = self.get_one(event_id)
         return event_service.get_event_pronoun_distribution(event)
+
+    @route.get(
+        "/{uuid:event_id}/announcements",
+        url_name="event_announcements",
+        response=list[schema.AnnouncementPublicSchema],
+        auth=I18nJWTAuth(),
+    )
+    def list_event_announcements(self, event_id: UUID) -> list[models.Announcement]:
+        """List announcements for an event.
+
+        Returns sent announcements that the current user can see. Visibility is based on:
+        - User is organization owner or staff (sees all announcements)
+        - User received the notification when it was sent, OR
+        - User is currently an attendee and announcement has past_visibility enabled
+
+        Announcements are ordered by sent date (newest first).
+        """
+        event = self.get_one(event_id)
+        user = self.user()
+
+        # Get all sent announcements for this event with prefetched data
+        announcements = list(
+            models.Announcement.objects.filter(
+                event=event,
+                status=models.Announcement.AnnouncementStatus.SENT,
+            )
+            .select_related("organization", "event")
+            .order_by("-sent_at")
+        )
+
+        # Owner and staff see all announcements (single query check)
+        is_owner = event.organization.owner_id == user.id
+        is_staff = models.OrganizationStaff.objects.filter(
+            organization=event.organization,
+            user=user,
+        ).exists()
+
+        if is_owner or is_staff:
+            return announcements
+
+        # Filter to only those the user can see
+        visible_announcements = [
+            a for a in announcements if announcement_service.is_user_eligible_for_announcement(a, user)
+        ]
+
+        return visible_announcements

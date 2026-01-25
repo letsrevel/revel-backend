@@ -90,3 +90,13 @@ class UserDataExportThrottle(DisableableThrottleMixin, UserRateThrottle):
     """User data export throttle (30 requests/day)."""
 
     rate = "30/day"
+
+
+class SendAnnouncementThrottle(DisableableThrottleMixin, UserRateThrottle):
+    """Send announcement throttle (25 requests/day).
+
+    Limits how many announcements can be sent per day to prevent
+    notification spam to organization members.
+    """
+
+    rate = "25/day"

@@ -233,6 +233,16 @@ from .follow import (
     OrganizationFollowUpdateSchema,
 )
 
+# Announcement schemas
+from .announcement import (
+    AnnouncementCreateSchema,
+    AnnouncementListSchema,
+    AnnouncementPublicSchema,
+    AnnouncementSchema,
+    AnnouncementUpdateSchema,
+    RecipientCountSchema,
+)
+
 __all__ = [
     # Mixins and utilities
     "CityBaseMixin",
@@ -413,4 +423,11 @@ __all__ = [
     "OrganizationFollowSchema",
     "OrganizationFollowStatusSchema",
     "OrganizationFollowUpdateSchema",
+    # Announcement
+    "AnnouncementCreateSchema",
+    "AnnouncementListSchema",
+    "AnnouncementPublicSchema",
+    "AnnouncementSchema",
+    "AnnouncementUpdateSchema",
+    "RecipientCountSchema",
 ]

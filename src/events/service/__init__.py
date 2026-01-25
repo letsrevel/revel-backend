@@ -4,6 +4,7 @@ from django.db import models, transaction
 from pydantic import BaseModel
 
 from events.schema import OrganizationQuestionnaireUpdateSchema
+from events.service import announcement_service as announcement_service
 from events.service import event_questionnaire_service as event_questionnaire_service
 from events.service import venue_service as venue_service
 

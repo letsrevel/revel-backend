@@ -1,3 +1,8 @@
-{%load i18n %}📢 {%blocktranslate%}<b>Announcement</b>{%endblocktranslate%}
+{%load i18n %}📢 <b>{{context.announcement_title}}</b>
 
-<a href="{{context.event_url}}">{%trans "View Details"%}</a>
+{{context.announcement_body}}
+{% if context.event_url %}
+<a href="{{context.event_url}}">{%trans "View Event"%}</a>
+{% else %}
+<a href="{{context.organization_url}}">{%trans "View Organization"%}</a>
+{% endif %}

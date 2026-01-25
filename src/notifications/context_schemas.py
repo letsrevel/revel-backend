@@ -336,9 +336,14 @@ class OrgAnnouncementContext(BaseNotificationContext):
 
     organization_id: str
     organization_name: str
+    organization_url: str
+    announcement_id: str
     announcement_title: str
     announcement_body: str
     posted_by_name: str
+    event_id: t.NotRequired[str]
+    event_name: t.NotRequired[str]
+    event_url: t.NotRequired[str]
 
 
 # ===== Waitlist Contexts =====

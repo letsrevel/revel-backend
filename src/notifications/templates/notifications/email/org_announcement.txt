@@ -1,7 +1,12 @@
-{%load i18n %}{%trans "Hello" %} {{ user.display_name }},
+{%load i18n %}📢 {{ context.announcement_title }}
+{{ context.organization_name }}
 
-📢 {%blocktranslate%}Announcement{%endblocktranslate%}
-
-{%trans "View details:" %} {{ context.event_url }}
+{{ context.announcement_body }}
+{% if context.event_name %}
+{%trans "Event:" %} {{ context.event_name }}
+{%trans "View event:" %} {{ context.event_url }}
+{% else %}
+{%trans "View organization:" %} {{ context.organization_url }}
+{% endif %}
 
 {% include "notifications/email/_footer.txt" %}

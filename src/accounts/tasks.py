@@ -106,7 +106,7 @@ def generate_user_data_export(user_id: str) -> None:
 def _notify_data_export_failed(user: RevelUser, error: str) -> None:
     logger.info("gdpr_export_notification_failed", user_id=str(user.id), email=user.email)
     data_export, _ = UserDataExport.objects.get_or_create(user=user)
-    data_export.status = UserDataExport.Status.FAILED
+    data_export.status = UserDataExport.UserDataExportStatus.FAILED
     data_export.error_message = error
     data_export.save(update_fields=["status", "error_message"])
 

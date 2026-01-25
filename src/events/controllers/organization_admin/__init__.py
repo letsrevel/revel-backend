@@ -4,6 +4,7 @@ This package splits the organization admin endpoints into logical groupings
 while preserving the original endpoint order.
 """
 
+from .announcements import OrganizationAdminAnnouncementsController
 from .blacklist import OrganizationAdminBlacklistController
 from .core import OrganizationAdminCoreController
 from .members import OrganizationAdminMembersController
@@ -23,9 +24,11 @@ ORGANIZATION_ADMIN_CONTROLLERS: list[type] = [
     OrganizationAdminVenuesController,
     OrganizationAdminBlacklistController,
     OrganizationAdminWhitelistController,
+    OrganizationAdminAnnouncementsController,
 ]
 
 __all__ = [
+    "OrganizationAdminAnnouncementsController",
     "OrganizationAdminCoreController",
     "OrganizationAdminTokensController",
     "OrganizationAdminMembershipRequestsController",

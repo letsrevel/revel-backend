@@ -257,7 +257,7 @@ class TestUploadProfilePicture:
         assert audit is not None
         assert audit.uploader == user.email
         # In tests, Celery runs eagerly so the scan completes immediately
-        assert audit.status == FileUploadAudit.Status.CLEAN
+        assert audit.status == FileUploadAudit.FileUploadAuditStatus.CLEAN
 
     def test_upload_replaces_existing_profile_picture(
         self,

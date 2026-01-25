@@ -271,7 +271,7 @@ class TaggableMixin(models.Model):
 
 
 class FileUploadAudit(TimeStampedModel):
-    class Status(models.TextChoices):
+    class FileUploadAuditStatus(models.TextChoices):
         PENDING = "PENDING"
         CLEAN = "CLEAN"
         MALICIOUS = "MALICIOUS"
@@ -282,7 +282,9 @@ class FileUploadAudit(TimeStampedModel):
     field = models.CharField(max_length=64, db_index=True)
     file_hash = models.CharField(max_length=64, db_index=True)
     uploader = models.EmailField(db_index=True)
-    status = models.CharField(choices=Status.choices, max_length=20, db_index=True, default=Status.PENDING)
+    status = models.CharField(
+        choices=FileUploadAuditStatus.choices, max_length=20, db_index=True, default=FileUploadAuditStatus.PENDING
+    )
     notified = models.BooleanField(default=False)
 
 

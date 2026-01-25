@@ -161,7 +161,7 @@ def generate_user_data_export(user: RevelUser) -> UserDataExport:
         if created:
             logger.info("gdpr_export_created", user_id=str(user.id), export_id=str(export.id))
 
-        export.status = UserDataExport.Status.PROCESSING
+        export.status = UserDataExport.UserDataExportStatus.PROCESSING
         export.save(update_fields=["status"])
 
         # 1. Serialize user profile fields
@@ -192,7 +192,7 @@ def generate_user_data_export(user: RevelUser) -> UserDataExport:
 
         # 5. Save the ZIP to the model's FileField
         export.file.save(f"revel_export_{user.id}.zip", ContentFile(zip_buffer.read()), save=False)
-        export.status = UserDataExport.Status.READY
+        export.status = UserDataExport.UserDataExportStatus.READY
         export.completed_at = timezone.now()
         export.save(update_fields=["status", "file", "completed_at"])
 
@@ -214,7 +214,7 @@ def generate_user_data_export(user: RevelUser) -> UserDataExport:
             exc_info=True,
         )
         if export:
-            export.status = UserDataExport.Status.FAILED
+            export.status = UserDataExport.UserDataExportStatus.FAILED
             export.save(update_fields=["status"])
         raise
 

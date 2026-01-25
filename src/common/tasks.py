@@ -200,7 +200,7 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
     file_hash = hashlib.sha256(file_bytes).hexdigest()
     audit_qs = FileUploadAudit.objects.filter(app=app, model=model, field=field, file_hash=file_hash)
     if not findings:
-        audit_qs.update(status=FileUploadAudit.Status.CLEAN, updated_at=timezone.now())
+        audit_qs.update(status=FileUploadAudit.FileUploadAuditStatus.CLEAN, updated_at=timezone.now())
         return None
     quarantined = []
     filename = getattr(file_field, "name", file_hash)
@@ -209,7 +209,7 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
         quarantined.append(QuarantinedFile(audit=audit, file=ContentFile(file_bytes, name), findings=findings))
     with transaction.atomic():
         setattr(instance, field, None)
-        audit_qs.update(status=FileUploadAudit.Status.MALICIOUS, updated_at=timezone.now())
+        audit_qs.update(status=FileUploadAudit.FileUploadAuditStatus.MALICIOUS, updated_at=timezone.now())
         QuarantinedFile.objects.bulk_create(quarantined)
         instance.save()
     # Notify users about malware detection
