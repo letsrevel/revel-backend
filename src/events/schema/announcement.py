@@ -116,7 +116,7 @@ class AnnouncementSchema(ModelSchema):
     """Full schema for announcement details."""
 
     # Fields requiring special handling (enum, resolvers, nested schema)
-    status: Announcement.Status
+    status: Announcement.AnnouncementStatus
     event_id: UUID | None = None
     event_name: str | None = None
     target_tiers: list[MembershipTierMinimalSchema] = Field(default_factory=list)
@@ -167,7 +167,7 @@ class AnnouncementListSchema(ModelSchema):
     """Lightweight schema for announcement lists."""
 
     # Fields requiring special handling (enum, resolvers)
-    status: Announcement.Status
+    status: Announcement.AnnouncementStatus
     event_id: UUID | None = None
     event_name: str | None = None
 

@@ -145,7 +145,7 @@ class TestEventAnnouncementsEndpoint:
             title="Event Announcement",
             body="Important update!",
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -189,7 +189,7 @@ class TestEventAnnouncementsEndpoint:
             body="Body",
             past_visibility=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -238,7 +238,7 @@ class TestEventAnnouncementsEndpoint:
             body="Body",
             past_visibility=False,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -285,7 +285,7 @@ class TestEventAnnouncementsEndpoint:
             body="Body",
             past_visibility=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -317,7 +317,7 @@ class TestEventAnnouncementsEndpoint:
             title="Draft Announcement",
             body="Body",
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
 
         url = reverse("api:event_announcements", kwargs={"event_id": event.id})
@@ -349,7 +349,7 @@ class TestEventAnnouncementsEndpoint:
             title="Old Announcement",
             body="Body",
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now() - timedelta(days=2),
         )
         new_announcement = Announcement.objects.create(
@@ -358,7 +358,7 @@ class TestEventAnnouncementsEndpoint:
             title="New Announcement",
             body="Body",
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -406,7 +406,7 @@ class TestEventAnnouncementsEndpoint:
             body="Body",
             past_visibility=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -469,7 +469,7 @@ class TestEventAnnouncementsEndpoint:
             title="Test Announcement",
             body="Body",
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
         Notification.objects.create(
@@ -507,7 +507,7 @@ class TestEventAnnouncementsEndpoint:
             title="Test Announcement",
             body="Body",
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
         Notification.objects.create(

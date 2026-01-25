@@ -66,8 +66,8 @@ class AnnouncementAdmin(ModelAdmin, OrganizationLinkMixin, EventLinkMixin):  # t
     @admin.display(description="Status")
     def status_display(self, obj: models.Announcement) -> str:
         colors: dict[str, str] = {
-            models.Announcement.Status.DRAFT: "orange",
-            models.Announcement.Status.SENT: "green",
+            models.Announcement.AnnouncementStatus.DRAFT: "orange",
+            models.Announcement.AnnouncementStatus.SENT: "green",
         }
         color = colors.get(obj.status, "gray")
         return mark_safe(f'<span style="color: {color};">{obj.get_status_display()}</span>')

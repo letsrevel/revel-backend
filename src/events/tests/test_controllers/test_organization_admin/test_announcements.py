@@ -247,7 +247,7 @@ class TestListAnnouncements(TestAnnouncementControllerFixtures):
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
         Announcement.objects.create(
             organization=org,
@@ -255,7 +255,7 @@ class TestListAnnouncements(TestAnnouncementControllerFixtures):
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 

@@ -155,7 +155,7 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
             models.Announcement.objects,
             id=announcement_id,
             organization=organization,
-            status=models.Announcement.Status.DRAFT,
+            status=models.Announcement.AnnouncementStatus.DRAFT,
         )
         try:
             updated = announcement_service.update_announcement(announcement, payload)
@@ -185,7 +185,7 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
             models.Announcement.objects,
             id=announcement_id,
             organization=organization,
-            status=models.Announcement.Status.DRAFT,
+            status=models.Announcement.AnnouncementStatus.DRAFT,
         )
         announcement.delete()
         return 204, None
@@ -221,7 +221,7 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
             models.Announcement.objects.select_related("organization", "event", "created_by"),
             id=announcement_id,
             organization=organization,
-            status=models.Announcement.Status.DRAFT,
+            status=models.Announcement.AnnouncementStatus.DRAFT,
         )
         announcement_service.send_announcement(announcement)
         # Reload with prefetched data for schema
@@ -254,7 +254,7 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
             organization=organization,
         )
 
-        if announcement.status == models.Announcement.Status.SENT:
+        if announcement.status == models.Announcement.AnnouncementStatus.SENT:
             count = announcement.recipient_count
         else:
             count = announcement_service.get_recipient_count(announcement)

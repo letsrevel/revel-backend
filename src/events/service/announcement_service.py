@@ -92,7 +92,7 @@ def create_announcement(
         target_staff_only=payload.target_staff_only,
         past_visibility=payload.past_visibility,
         created_by=user,
-        status=Announcement.Status.DRAFT,
+        status=Announcement.AnnouncementStatus.DRAFT,
     )
 
     # Handle target tiers
@@ -129,7 +129,7 @@ def update_announcement(
     Raises:
         ValueError: If announcement is not a draft.
     """
-    if announcement.status != Announcement.Status.DRAFT:
+    if announcement.status != Announcement.AnnouncementStatus.DRAFT:
         raise ValueError("Only draft announcements can be updated")
 
     update_data = payload.model_dump(exclude_unset=True)
@@ -346,7 +346,7 @@ def send_announcement(announcement: Announcement) -> int:
     # Lock the announcement row to prevent concurrent sends
     announcement = Announcement.objects.select_for_update().get(pk=announcement.pk)
 
-    if announcement.status != Announcement.Status.DRAFT:
+    if announcement.status != Announcement.AnnouncementStatus.DRAFT:
         raise ValueError("Only draft announcements can be sent")
 
     # Get all recipients with notification preferences prefetched
@@ -354,7 +354,7 @@ def send_announcement(announcement: Announcement) -> int:
     recipient_count = len(recipients)
 
     # Update announcement status even if no recipients
-    announcement.status = Announcement.Status.SENT
+    announcement.status = Announcement.AnnouncementStatus.SENT
     announcement.sent_at = timezone.now()
     announcement.recipient_count = recipient_count
     announcement.save(update_fields=["status", "sent_at", "recipient_count"])
@@ -447,7 +447,7 @@ def is_user_eligible_for_announcement(
     Returns:
         True if user can see the announcement.
     """
-    if announcement.status != Announcement.Status.SENT:
+    if announcement.status != Announcement.AnnouncementStatus.SENT:
         return False
 
     # Check if user was a recipient (received notification)

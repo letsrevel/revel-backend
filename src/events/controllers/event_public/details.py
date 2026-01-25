@@ -138,7 +138,7 @@ class EventPublicDetailsController(EventPublicBaseController):
         announcements = list(
             models.Announcement.objects.filter(
                 event=event,
-                status=models.Announcement.Status.SENT,
+                status=models.Announcement.AnnouncementStatus.SENT,
             )
             .select_related("organization", "event")
             .order_by("-sent_at")

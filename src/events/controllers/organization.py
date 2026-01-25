@@ -458,7 +458,7 @@ class OrganizationController(UserAwareController):
             models.Announcement.objects.filter(
                 organization=organization,
                 event__isnull=True,
-                status=models.Announcement.Status.SENT,
+                status=models.Announcement.AnnouncementStatus.SENT,
             )
             .select_related("organization")
             .order_by("-sent_at")

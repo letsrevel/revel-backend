@@ -35,11 +35,11 @@ class AnnouncementQuerySet(models.QuerySet["Announcement"]):
 
     def drafts(self) -> t.Self:
         """Return only draft announcements."""
-        return self.filter(status=Announcement.Status.DRAFT)
+        return self.filter(status=Announcement.AnnouncementStatus.DRAFT)
 
     def sent(self) -> t.Self:
         """Return only sent announcements."""
-        return self.filter(status=Announcement.Status.SENT)
+        return self.filter(status=Announcement.AnnouncementStatus.SENT)
 
 
 class AnnouncementManager(models.Manager["Announcement"]):
@@ -81,7 +81,7 @@ class AnnouncementManager(models.Manager["Announcement"]):
 class Announcement(TimeStampedModel):
     """Organization announcement that can target event attendees or members."""
 
-    class Status(models.TextChoices):
+    class AnnouncementStatus(models.TextChoices):
         DRAFT = "draft", _("Draft")
         SENT = "sent", _("Sent")
 
@@ -119,8 +119,8 @@ class Announcement(TimeStampedModel):
 
     status = models.CharField(
         max_length=20,
-        choices=Status.choices,
-        default=Status.DRAFT,
+        choices=AnnouncementStatus.choices,
+        default=AnnouncementStatus.DRAFT,
         db_index=True,
     )
     past_visibility = models.BooleanField(

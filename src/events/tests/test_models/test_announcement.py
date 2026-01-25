@@ -55,7 +55,7 @@ class TestAnnouncementModel:
             body="This is a draft announcement body.",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
 
     @pytest.fixture
@@ -67,7 +67,7 @@ class TestAnnouncementModel:
             body="This is a sent announcement body.",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
             recipient_count=10,
         )
@@ -107,7 +107,7 @@ class TestAnnouncementModel:
         )
 
         # Assert
-        assert announcement.status == Announcement.Status.DRAFT
+        assert announcement.status == Announcement.AnnouncementStatus.DRAFT
 
     def test_announcement_default_past_visibility_is_true(
         self,
@@ -178,7 +178,7 @@ class TestAnnouncementQuerySet:
             body="Draft body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
 
     @pytest.fixture
@@ -190,7 +190,7 @@ class TestAnnouncementQuerySet:
             body="Sent body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 

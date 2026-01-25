@@ -464,7 +464,7 @@ class TestIsUserEligibleForAnnouncement:
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -495,7 +495,7 @@ class TestIsUserEligibleForAnnouncement:
             target_all_members=True,
             past_visibility=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -527,7 +527,7 @@ class TestIsUserEligibleForAnnouncement:
             target_all_members=True,
             past_visibility=False,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -558,7 +558,7 @@ class TestIsUserEligibleForAnnouncement:
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
 
         # Act
@@ -582,7 +582,7 @@ class TestIsUserEligibleForAnnouncement:
             target_all_members=True,
             past_visibility=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 

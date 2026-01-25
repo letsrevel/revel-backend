@@ -145,7 +145,7 @@ class TestUpdateAnnouncement(TestAnnouncementCrudFixtures):
             body="Original body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
 
         url = reverse(
@@ -184,7 +184,7 @@ class TestUpdateAnnouncement(TestAnnouncementCrudFixtures):
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -333,7 +333,7 @@ class TestDeleteAnnouncement(TestAnnouncementCrudFixtures):
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
 
         url = reverse(
@@ -362,7 +362,7 @@ class TestDeleteAnnouncement(TestAnnouncementCrudFixtures):
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -404,7 +404,7 @@ class TestSendAnnouncement(TestAnnouncementCrudFixtures):
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
 
         url = reverse(
@@ -436,7 +436,7 @@ class TestSendAnnouncement(TestAnnouncementCrudFixtures):
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -465,7 +465,7 @@ class TestSendAnnouncement(TestAnnouncementCrudFixtures):
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
 
         url = reverse(
@@ -509,7 +509,7 @@ class TestGetRecipientCount(TestAnnouncementCrudFixtures):
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
 
         url = reverse(
@@ -539,7 +539,7 @@ class TestGetRecipientCount(TestAnnouncementCrudFixtures):
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
             recipient_count=42,  # Stored count
         )

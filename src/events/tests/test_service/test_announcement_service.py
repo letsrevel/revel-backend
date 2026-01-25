@@ -92,7 +92,7 @@ class TestCreateAnnouncement:
         assert announcement.event == event
         assert announcement.title == "Event Announcement"
         assert announcement.body == "Hello attendees!"
-        assert announcement.status == Announcement.Status.DRAFT
+        assert announcement.status == Announcement.AnnouncementStatus.DRAFT
         assert announcement.created_by == org_owner
         assert announcement.past_visibility is True
 
@@ -282,7 +282,7 @@ class TestUpdateAnnouncement:
             body="Original body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
 
     @pytest.fixture
@@ -294,7 +294,7 @@ class TestUpdateAnnouncement:
             body="Original body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -467,7 +467,7 @@ class TestSendAnnouncement:
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
 
     @pytest.fixture
@@ -479,7 +479,7 @@ class TestSendAnnouncement:
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -503,7 +503,7 @@ class TestSendAnnouncement:
 
         # Assert
         draft_announcement.refresh_from_db()
-        assert draft_announcement.status == Announcement.Status.SENT
+        assert draft_announcement.status == Announcement.AnnouncementStatus.SENT
         assert draft_announcement.sent_at is not None
         assert draft_announcement.recipient_count == 1
 
@@ -548,7 +548,7 @@ class TestSendAnnouncement:
         # Assert
         assert result == 0
         draft_announcement.refresh_from_db()
-        assert draft_announcement.status == Announcement.Status.SENT
+        assert draft_announcement.status == Announcement.AnnouncementStatus.SENT
         assert draft_announcement.recipient_count == 0
 
     def test_send_announcement_already_sent_raises_error(

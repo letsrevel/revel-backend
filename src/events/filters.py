@@ -395,7 +395,7 @@ class WhitelistRequestFilterSchema(FilterSchema):
 class AnnouncementFilterSchema(FilterSchema):
     """Filter schema for announcements."""
 
-    status: Announcement.Status | None = None
+    status: Announcement.AnnouncementStatus | None = None
     event_id: UUID | None = Field(None, description="Filter by event")
     has_event: bool | None = Field(None, description="Filter by whether announcement targets an event")
 

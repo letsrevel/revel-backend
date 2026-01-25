@@ -150,7 +150,7 @@ class TestMemberAnnouncementsEndpoint:
             body="Important update for all members!",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -192,7 +192,7 @@ class TestMemberAnnouncementsEndpoint:
             target_all_members=True,
             past_visibility=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -237,7 +237,7 @@ class TestMemberAnnouncementsEndpoint:
             target_all_members=True,
             past_visibility=False,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -281,7 +281,7 @@ class TestMemberAnnouncementsEndpoint:
             target_staff_only=True,
             past_visibility=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -314,7 +314,7 @@ class TestMemberAnnouncementsEndpoint:
             target_staff_only=True,
             past_visibility=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -347,7 +347,7 @@ class TestMemberAnnouncementsEndpoint:
             body="For VIP members",
             past_visibility=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
         announcement.target_tiers.add(membership_tier)
@@ -381,7 +381,7 @@ class TestMemberAnnouncementsEndpoint:
             body="For VIP members",
             past_visibility=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
         announcement.target_tiers.add(membership_tier)
@@ -425,7 +425,7 @@ class TestMemberAnnouncementsEndpoint:
             title="Event Announcement",
             body="Body",
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
         Notification.objects.create(
@@ -441,7 +441,7 @@ class TestMemberAnnouncementsEndpoint:
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
         Notification.objects.create(
@@ -478,7 +478,7 @@ class TestMemberAnnouncementsEndpoint:
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.DRAFT,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
 
         url = reverse("api:list_member_announcements", kwargs={"slug": org.slug})
@@ -509,7 +509,7 @@ class TestMemberAnnouncementsEndpoint:
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now() - timedelta(days=2),
         )
         new_announcement = Announcement.objects.create(
@@ -518,7 +518,7 @@ class TestMemberAnnouncementsEndpoint:
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
@@ -606,7 +606,7 @@ class TestMemberAnnouncementsEndpoint:
             body="Body",
             target_all_members=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
         Notification.objects.create(
@@ -648,7 +648,7 @@ class TestMemberAnnouncementsEndpoint:
             target_all_members=True,
             past_visibility=True,
             created_by=org_owner,
-            status=Announcement.Status.SENT,
+            status=Announcement.AnnouncementStatus.SENT,
             sent_at=timezone.now(),
         )
 
