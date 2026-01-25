@@ -10,7 +10,7 @@ from ninja_extra.searching import Searching, searching
 from pydantic import UUID4
 
 from common.authentication import I18nJWTAuth
-from common.throttling import UserDefaultThrottle, WriteThrottle
+from common.throttling import SendAnnouncementThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models
 from events.controllers.permissions import OrganizationPermission
 from events.schema.announcement import (
@@ -195,6 +195,7 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
         url_name="send_announcement",
         response=AnnouncementSchema,
         permissions=[OrganizationPermission("send_announcements")],
+        throttle=SendAnnouncementThrottle(),
     )
     def send_announcement(
         self,

@@ -1,4 +1,4 @@
-{%load i18n %}<!DOCTYPE html>
+{%load i18n markdown_tags %}<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -9,8 +9,9 @@
         .header {background:linear-gradient(135deg,#2196F3 0%,#2196F3dd 100%);color:white;padding:30px 20px;text-align:center;}
         .content {padding:30px 20px;}
         .card {background:#f8f9fa;border-left:4px solid #2196F3;padding:20px;margin:20px 0;border-radius:4px;}
-        .card h2 {margin:0 0 15px 0;color:#333;}
-        .card p {margin:0;color:#555;line-height:1.6;white-space:pre-wrap;}
+        .card-body {margin:0;color:#555;line-height:1.6;}
+        .card-body p {margin:0 0 10px 0;}
+        .card-body p:last-child {margin-bottom:0;}
         .button {display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white!important;text-decoration:none;border-radius:6px;margin:20px 0;font-weight:600;}
         .footer {background:#f8f9fa;padding:20px;text-align:center;color:#666;font-size:14px;}
         .event-info {margin-top:15px;padding-top:15px;border-top:1px solid #ddd;font-size:14px;color:#666;}
@@ -23,9 +24,8 @@
             <p style="margin:10px 0 0 0;opacity:0.9;">{{context.organization_name}}</p>
         </div>
         <div class="content">
-            <p>{%trans "Hello"%} {{user.display_name}},</p>
             <div class="card">
-                <p>{{context.announcement_body}}</p>
+                <div class="card-body">{{context.announcement_body|markdown}}</div>
                 {% if context.event_name %}
                 <div class="event-info">
                     <strong>{%trans "Event:"%}</strong> {{context.event_name}}

@@ -1,6 +1,5 @@
-{%load i18n %}{%trans "Hello" %} {{ user.display_name }},
-
-📢 {{ context.announcement_title }}
+{%load i18n %}📢 {{ context.announcement_title }}
+{{ context.organization_name }}
 
 {{ context.announcement_body }}
 {% if context.event_name %}

@@ -409,7 +409,7 @@ def _build_notification_context(announcement: Announcement) -> dict[str, t.Any]:
     context: dict[str, t.Any] = {
         "organization_id": str(announcement.organization.id),
         "organization_name": announcement.organization.name,
-        "organization_url": f"{frontend_base_url}/organizations/{announcement.organization.slug}",
+        "organization_url": f"{frontend_base_url}/org/{announcement.organization.slug}",
         "announcement_id": str(announcement.id),
         "announcement_title": announcement.title,
         "announcement_body": announcement.body,
