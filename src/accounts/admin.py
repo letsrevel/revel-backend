@@ -501,10 +501,10 @@ class UserDataExportAdmin(ModelAdmin):  # type: ignore[misc]
     @admin.display(description="Status")
     def status_display(self, obj: UserDataExport) -> str:
         colors = {
-            UserDataExport.Status.PENDING: "orange",
-            UserDataExport.Status.PROCESSING: "blue",
-            UserDataExport.Status.READY: "green",
-            UserDataExport.Status.FAILED: "red",
+            UserDataExport.UserDataExportStatus.PENDING: "orange",
+            UserDataExport.UserDataExportStatus.PROCESSING: "blue",
+            UserDataExport.UserDataExportStatus.READY: "green",
+            UserDataExport.UserDataExportStatus.FAILED: "red",
         }
         color = colors.get(obj.status, "gray")  # type: ignore[call-overload]
         return mark_safe(f'<span style="color: {color};">{obj.get_status_display()}</span>')

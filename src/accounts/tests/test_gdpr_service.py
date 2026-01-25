@@ -31,7 +31,7 @@ def test_generate_user_data_export(user_with_questionnaire_submission: RevelUser
     export = gdpr.generate_user_data_export(user_with_questionnaire_submission)
 
     assert export.user == user_with_questionnaire_submission
-    assert export.status == UserDataExport.Status.READY
+    assert export.status == UserDataExport.UserDataExportStatus.READY
     assert export.file is not None
 
     with zipfile.ZipFile(BytesIO(export.file.read()), "r") as zip_file:
@@ -66,7 +66,7 @@ def test_generate_user_data_export_no_questionnaire(user: RevelUser) -> None:
     export = gdpr.generate_user_data_export(user)
 
     assert export.user == user
-    assert export.status == UserDataExport.Status.READY
+    assert export.status == UserDataExport.UserDataExportStatus.READY
     assert export.file is not None
 
     with zipfile.ZipFile(BytesIO(export.file.read()), "r") as zip_file:
@@ -120,7 +120,7 @@ def test_generate_user_data_export_with_city_location(user: RevelUser) -> None:
     export = gdpr.generate_user_data_export(user)
 
     assert export.user == user
-    assert export.status == UserDataExport.Status.READY
+    assert export.status == UserDataExport.UserDataExportStatus.READY
     assert export.file is not None
 
     # Extract and parse the JSON from the ZIP file
@@ -175,7 +175,7 @@ def test_gdpr_json_encoder_serializes_point_to_geojson(user: RevelUser) -> None:
             data = json.load(json_file)
 
             # The export should complete without TypeError
-            assert export.status == UserDataExport.Status.READY
+            assert export.status == UserDataExport.UserDataExportStatus.READY
 
             # The data should be valid JSON (if Point wasn't serializable, this would have failed)
             assert isinstance(data, dict)
@@ -357,7 +357,7 @@ def test_generate_user_data_export_with_file_field(user: RevelUser) -> None:
     # Generate the export
     export = gdpr.generate_user_data_export(user)
 
-    assert export.status == UserDataExport.Status.READY
+    assert export.status == UserDataExport.UserDataExportStatus.READY
     assert export.file is not None
 
     # Extract and parse the JSON
@@ -405,7 +405,7 @@ def test_generate_user_data_export_handles_all_field_types(user: RevelUser) -> N
     # Generate export - should never crash regardless of field types
     export = gdpr.generate_user_data_export(user)
 
-    assert export.status == UserDataExport.Status.READY
+    assert export.status == UserDataExport.UserDataExportStatus.READY
     assert export.file is not None
 
     # Verify the ZIP and JSON are valid
@@ -460,7 +460,7 @@ def test_generate_user_data_export_includes_follow_data(user: RevelUser) -> None
     # Generate the export
     export = gdpr.generate_user_data_export(user)
 
-    assert export.status == UserDataExport.Status.READY
+    assert export.status == UserDataExport.UserDataExportStatus.READY
     assert export.file is not None
 
     # Extract and parse the JSON

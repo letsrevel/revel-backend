@@ -35,7 +35,7 @@ def test_scan_for_malware(mock_clamd: MagicMock, revel_user_factory: RevelUserFa
     audit = FileUploadAudit.objects.first()
     assert audit is not None
     assert audit.instance_pk == instance.pk
-    assert audit.status == FileUploadAudit.Status.MALICIOUS
+    assert audit.status == FileUploadAudit.FileUploadAuditStatus.MALICIOUS
 
     instance.refresh_from_db()
     assert not instance.file
@@ -68,7 +68,7 @@ def test_notify_malware_detected(mock_send_email: MagicMock, revel_user_factory:
         field="logo",
         file_hash=file_hash,
         uploader=uploader.email,
-        status=FileUploadAudit.Status.MALICIOUS,
+        status=FileUploadAudit.FileUploadAuditStatus.MALICIOUS,
     )
 
     # Create quarantined file

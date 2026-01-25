@@ -120,7 +120,7 @@ class RevelUser(ExifStripMixin, AbstractUser):
 class UserDataExport(TimeStampedModel):
     """Stores the user data export."""
 
-    class Status(models.TextChoices):
+    class UserDataExportStatus(models.TextChoices):
         PENDING = "PENDING", "Pending"
         PROCESSING = "PROCESSING", "Processing"
         READY = "READY", "Ready"
@@ -128,7 +128,7 @@ class UserDataExport(TimeStampedModel):
 
     user = models.OneToOneField(RevelUser, on_delete=models.CASCADE, related_name="data_export")
     file = models.FileField(upload_to="user_data_exports/", null=True, blank=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(max_length=20, choices=UserDataExportStatus.choices, default=UserDataExportStatus.PENDING)
     error_message = models.TextField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
