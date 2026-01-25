@@ -35,14 +35,10 @@ class AnnouncementQuerySet(models.QuerySet["Announcement"]):
 
     def drafts(self) -> t.Self:
         """Return only draft announcements."""
-        from events.models.announcement import Announcement
-
         return self.filter(status=Announcement.Status.DRAFT)
 
     def sent(self) -> t.Self:
         """Return only sent announcements."""
-        from events.models.announcement import Announcement
-
         return self.filter(status=Announcement.Status.SENT)
 
 
