@@ -6,6 +6,8 @@
 {% if context.event_name %}
 {%trans "Event:" %} {{ context.event_name }}
 {%trans "View event:" %} {{ context.event_url }}
+{% else %}
+{%trans "View organization:" %} {{ context.organization_url }}
 {% endif %}
 
 {% include "notifications/email/_footer.txt" %}

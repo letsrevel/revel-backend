@@ -36,6 +36,10 @@
             <center>
                 <a href="{{context.event_url}}" class="button">{%trans "View Event"%}</a>
             </center>
+            {% else %}
+            <center>
+                <a href="{{context.organization_url}}" class="button">{%trans "View Organization"%}</a>
+            </center>
             {% endif %}
         </div>
         {%include "notifications/email/_footer.html"%}

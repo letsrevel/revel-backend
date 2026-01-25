@@ -336,6 +336,7 @@ class OrgAnnouncementContext(BaseNotificationContext):
 
     organization_id: str
     organization_name: str
+    organization_url: str
     announcement_id: str
     announcement_title: str
     announcement_body: str

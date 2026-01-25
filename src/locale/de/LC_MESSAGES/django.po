@@ -758,7 +758,9 @@ msgid "Target only organization staff members"
 msgstr "Nur Mitarbeiter:innen der Organisation als Zielgruppe"
 
 msgid "Allow new attendees/members to see this announcement after it was sent"
-msgstr "Neuen Teilnehmer:innen/Mitgliedern erlauben, diese Ankündigung nach dem Versand zu sehen"
+msgstr ""
+"Neuen Teilnehmer:innen/Mitgliedern erlauben, diese Ankündigung nach dem "
+"Versand zu sehen"
 
 msgid "Membership tier is required when granting membership."
 msgstr ""
@@ -1860,19 +1862,15 @@ msgstr "Organisation:"
 msgid "Connect with other members"
 msgstr ""
 
-#, fuzzy
-#| msgid "Organization:"
 msgid "View Organization"
-msgstr "Organisation:"
+msgstr "Organisation ansehen"
 
 #, python-format
 msgid "You are now a %(role)s of %(org)s!"
 msgstr ""
 
-#, fuzzy
-#| msgid "Organization:"
 msgid "View organization:"
-msgstr "Organisation:"
+msgstr "Organisation ansehen:"
 
 msgid "Role Updated"
 msgstr ""
