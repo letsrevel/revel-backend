@@ -29,6 +29,9 @@ from notifications.service.dispatcher import NotificationData, bulk_create_notif
 
 logger = structlog.get_logger(__name__)
 
+# Error messages
+_ERR_EVENT_NOT_FOUND = "Event not found or does not belong to this organization"
+
 
 def _validate_announcement_has_targeting(announcement: Announcement) -> None:
     """Ensure announcement has at least one targeting option.
@@ -39,12 +42,14 @@ def _validate_announcement_has_targeting(announcement: Announcement) -> None:
     Raises:
         ValueError: If no targeting option is active.
     """
-    has_targeting = any([
-        announcement.event_id is not None,
-        announcement.target_all_members,
-        announcement.target_tiers.exists(),
-        announcement.target_staff_only,
-    ])
+    has_targeting = any(
+        [
+            announcement.event_id is not None,
+            announcement.target_all_members,
+            announcement.target_tiers.exists(),
+            announcement.target_staff_only,
+        ]
+    )
     if not has_targeting:
         raise ValueError(
             "Announcement must have at least one targeting option: "
@@ -75,7 +80,7 @@ def create_announcement(
             organization=organization,
         ).first()
         if not event:
-            raise ValueError("Event not found or does not belong to this organization")
+            raise ValueError(_ERR_EVENT_NOT_FOUND)
 
     # Create announcement
     announcement = Announcement.objects.create(
@@ -140,7 +145,7 @@ def update_announcement(
                 organization=announcement.organization,
             ).first()
             if not event:
-                raise ValueError("Event not found or does not belong to this organization")
+                raise ValueError(_ERR_EVENT_NOT_FOUND)
             announcement.event = event
 
     # Handle target_tier_ids specially

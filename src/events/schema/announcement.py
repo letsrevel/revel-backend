@@ -113,33 +113,14 @@ class MembershipTierMinimalSchema(Schema):
 
 
 class AnnouncementSchema(ModelSchema):
-    """Full schema for announcement details.
+    """Full schema for announcement details."""
 
-    Note:
-        Fields from Meta.fields are explicitly declared at class level for better
-        IDE autocomplete and type checking. Fields with resolvers (event_id,
-        event_name, target_tiers, created_by_name) require explicit declaration.
-    """
-
-    id: UUID
-    title: str
-    body: str
+    # Fields requiring special handling (enum, resolvers, nested schema)
     status: Announcement.Status
-
-    # Targeting
     event_id: UUID | None = None
     event_name: str | None = None
-    target_all_members: bool
     target_tiers: list[MembershipTierMinimalSchema] = Field(default_factory=list)
-    target_staff_only: bool
-
-    past_visibility: bool
-    sent_at: AwareDatetime | None = None
-    recipient_count: int
-
     created_by_name: str | None = None
-    created_at: AwareDatetime
-    updated_at: AwareDatetime
 
     class Meta:
         model = Announcement
@@ -185,16 +166,10 @@ class AnnouncementSchema(ModelSchema):
 class AnnouncementListSchema(ModelSchema):
     """Lightweight schema for announcement lists."""
 
-    id: UUID
-    title: str
+    # Fields requiring special handling (enum, resolvers)
     status: Announcement.Status
     event_id: UUID | None = None
     event_name: str | None = None
-    target_all_members: bool
-    target_staff_only: bool
-    sent_at: AwareDatetime | None = None
-    recipient_count: int
-    created_at: AwareDatetime
 
     class Meta:
         model = Announcement

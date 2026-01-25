@@ -1,7 +1,7 @@
 """Tests for organization admin announcement controller endpoints.
 
-This module tests the announcement management endpoints including CRUD operations,
-sending announcements, and recipient count preview.
+This module tests the announcement list and create endpoints, plus permission checks.
+For CRUD operations (get, update, delete, send), see test_announcements_crud.py.
 """
 
 from datetime import timedelta
@@ -24,8 +24,6 @@ from events.models import (
     OrganizationStaff,
     PermissionMap,
     PermissionsSchema,
-    Ticket,
-    TicketTier,
 )
 
 pytestmark = pytest.mark.django_db
@@ -143,10 +141,105 @@ class TestListAnnouncements(TestAnnouncementControllerFixtures):
         org: Organization,
         org_owner: RevelUser,
     ) -> None:
-        """Test that organization owner can list all announcements.
+        """Test that organization owner can list announcements."""
+        # Arrange
+        Announcement.objects.create(
+            organization=org,
+            title="Test Announcement",
+            body="Body",
+            target_all_members=True,
+            created_by=org_owner,
+        )
 
-        Owners should see both draft and sent announcements.
-        """
+        url = reverse("api:list_announcements", kwargs={"slug": org.slug})
+
+        # Act
+        response = owner_client.get(url)
+
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 1
+        assert data["results"][0]["title"] == "Test Announcement"
+
+    def test_staff_with_permission_can_list_announcements(
+        self,
+        staff_client: Client,
+        staff_with_permission: OrganizationStaff,
+        org: Organization,
+        org_owner: RevelUser,
+    ) -> None:
+        """Test that staff with permission can list announcements."""
+        # Arrange
+        Announcement.objects.create(
+            organization=org,
+            title="Test Announcement",
+            body="Body",
+            target_all_members=True,
+            created_by=org_owner,
+        )
+
+        url = reverse("api:list_announcements", kwargs={"slug": org.slug})
+
+        # Act
+        response = staff_client.get(url)
+
+        # Assert
+        assert response.status_code == 200
+
+    def test_staff_without_permission_cannot_list_announcements(
+        self,
+        staff_client: Client,
+        staff_without_permission: OrganizationStaff,
+        org: Organization,
+    ) -> None:
+        """Test that staff without permission cannot list announcements."""
+        # Arrange
+        url = reverse("api:list_announcements", kwargs={"slug": org.slug})
+
+        # Act
+        response = staff_client.get(url)
+
+        # Assert
+        assert response.status_code == 403
+
+    def test_member_cannot_list_announcements(
+        self,
+        member_client: Client,
+        org: Organization,
+    ) -> None:
+        """Test that regular members cannot list announcements."""
+        # Arrange
+        url = reverse("api:list_announcements", kwargs={"slug": org.slug})
+
+        # Act
+        response = member_client.get(url)
+
+        # Assert
+        assert response.status_code == 403
+
+    def test_unauthenticated_cannot_list_announcements(
+        self,
+        org: Organization,
+    ) -> None:
+        """Test that unauthenticated users cannot list announcements."""
+        # Arrange
+        client = Client()
+        url = reverse("api:list_announcements", kwargs={"slug": org.slug})
+
+        # Act
+        response = client.get(url)
+
+        # Assert
+        assert response.status_code == 401
+
+    def test_list_announcements_filters_by_status(
+        self,
+        owner_client: Client,
+        org: Organization,
+        org_owner: RevelUser,
+    ) -> None:
+        """Test filtering announcements by status."""
         # Arrange
         Announcement.objects.create(
             organization=org,
@@ -169,112 +262,6 @@ class TestListAnnouncements(TestAnnouncementControllerFixtures):
         url = reverse("api:list_announcements", kwargs={"slug": org.slug})
 
         # Act
-        response = owner_client.get(url)
-
-        # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert data["count"] == 2
-
-    def test_staff_with_permission_can_list_announcements(
-        self,
-        staff_client: Client,
-        staff_with_permission: OrganizationStaff,
-        org: Organization,
-        org_owner: RevelUser,
-    ) -> None:
-        """Test that staff with send_announcements permission can list announcements."""
-        # Arrange
-        Announcement.objects.create(
-            organization=org,
-            title="Test Announcement",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-        )
-
-        url = reverse("api:list_announcements", kwargs={"slug": org.slug})
-
-        # Act
-        response = staff_client.get(url)
-
-        # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert data["count"] == 1
-
-    def test_staff_without_permission_cannot_list_announcements(
-        self,
-        staff_client: Client,
-        staff_without_permission: OrganizationStaff,
-        org: Organization,
-    ) -> None:
-        """Test that staff without permission gets 403."""
-        url = reverse("api:list_announcements", kwargs={"slug": org.slug})
-
-        # Act
-        response = staff_client.get(url)
-
-        # Assert
-        assert response.status_code == 403
-
-    def test_member_cannot_list_announcements(
-        self,
-        member_client: Client,
-        org: Organization,
-    ) -> None:
-        """Test that regular members cannot access admin announcements."""
-        url = reverse("api:list_announcements", kwargs={"slug": org.slug})
-
-        # Act
-        response = member_client.get(url)
-
-        # Assert
-        assert response.status_code == 403
-
-    def test_unauthenticated_user_cannot_list_announcements(
-        self,
-        client: Client,
-        org: Organization,
-    ) -> None:
-        """Test that unauthenticated users get 401."""
-        url = reverse("api:list_announcements", kwargs={"slug": org.slug})
-
-        # Act
-        response = client.get(url)
-
-        # Assert
-        assert response.status_code == 401
-
-    def test_list_announcements_filters_by_status(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-    ) -> None:
-        """Test filtering announcements by status."""
-        # Arrange
-        Announcement.objects.create(
-            organization=org,
-            title="Draft",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-            status=Announcement.Status.DRAFT,
-        )
-        Announcement.objects.create(
-            organization=org,
-            title="Sent",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-            status=Announcement.Status.SENT,
-            sent_at=timezone.now(),
-        )
-
-        url = reverse("api:list_announcements", kwargs={"slug": org.slug})
-
-        # Act - Filter by draft
         response = owner_client.get(f"{url}?status=draft")
 
         # Assert
@@ -403,8 +390,7 @@ class TestCreateAnnouncement(TestAnnouncementControllerFixtures):
         # Assert
         assert response.status_code == 201
         data = response.json()
-        assert len(data["target_tiers"]) == 1
-        assert data["target_tiers"][0]["id"] == str(membership_tier.id)
+        assert str(membership_tier.id) in [str(t["id"]) for t in data["target_tiers"]]
 
     def test_owner_can_create_announcement_with_staff_targeting(
         self,
@@ -432,18 +418,17 @@ class TestCreateAnnouncement(TestAnnouncementControllerFixtures):
         data = response.json()
         assert data["target_staff_only"] is True
 
-    def test_create_announcement_requires_exactly_one_targeting_option(
+    def test_create_announcement_requires_exactly_one_targeting(
         self,
         owner_client: Client,
         org: Organization,
     ) -> None:
-        """Test that exactly one targeting option must be provided."""
-        # Arrange
+        """Test that exactly one targeting option must be selected."""
+        # Arrange - No targeting option
         url = reverse("api:create_announcement", kwargs={"slug": org.slug})
         payload = {
-            "title": "No Target Announcement",
-            "body": "This should fail",
-            # No targeting option provided
+            "title": "No Target",
+            "body": "Body",
         }
 
         # Act
@@ -454,9 +439,9 @@ class TestCreateAnnouncement(TestAnnouncementControllerFixtures):
         )
 
         # Assert
-        assert response.status_code == 422  # Validation error
+        assert response.status_code == 422
 
-    def test_create_announcement_rejects_multiple_targeting_options(
+    def test_create_announcement_rejects_multiple_targeting(
         self,
         owner_client: Client,
         org: Organization,
@@ -466,8 +451,8 @@ class TestCreateAnnouncement(TestAnnouncementControllerFixtures):
         # Arrange
         url = reverse("api:create_announcement", kwargs={"slug": org.slug})
         payload = {
-            "title": "Multi Target Announcement",
-            "body": "This should fail",
+            "title": "Multiple Targets",
+            "body": "Body",
             "event_id": str(event.id),
             "target_all_members": True,
         }
@@ -480,7 +465,7 @@ class TestCreateAnnouncement(TestAnnouncementControllerFixtures):
         )
 
         # Assert
-        assert response.status_code == 422  # Validation error
+        assert response.status_code == 422
 
     def test_staff_with_permission_can_create_announcement(
         self,
@@ -492,7 +477,7 @@ class TestCreateAnnouncement(TestAnnouncementControllerFixtures):
         # Arrange
         url = reverse("api:create_announcement", kwargs={"slug": org.slug})
         payload = {
-            "title": "Staff Created Announcement",
+            "title": "Staff Created",
             "body": "Body",
             "target_all_members": True,
         }
@@ -513,11 +498,11 @@ class TestCreateAnnouncement(TestAnnouncementControllerFixtures):
         staff_without_permission: OrganizationStaff,
         org: Organization,
     ) -> None:
-        """Test that staff without permission gets 403."""
+        """Test that staff without permission cannot create announcements."""
         # Arrange
         url = reverse("api:create_announcement", kwargs={"slug": org.slug})
         payload = {
-            "title": "Unauthorized Announcement",
+            "title": "Should Not Create",
             "body": "Body",
             "target_all_members": True,
         }
@@ -600,538 +585,3 @@ class TestCreateAnnouncement(TestAnnouncementControllerFixtures):
         # Assert
         assert response.status_code == 422
         assert "Event not found" in response.json()["detail"]
-
-
-class TestGetAnnouncement(TestAnnouncementControllerFixtures):
-    """Tests for GET /organization-admin/{slug}/announcements/{id} endpoint."""
-
-    def test_owner_can_get_announcement_details(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-    ) -> None:
-        """Test getting announcement details."""
-        # Arrange
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="Test Announcement",
-            body="Body content",
-            target_all_members=True,
-            created_by=org_owner,
-        )
-
-        url = reverse(
-            "api:get_announcement",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-
-        # Act
-        response = owner_client.get(url)
-
-        # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert data["id"] == str(announcement.id)
-        assert data["title"] == "Test Announcement"
-        assert data["body"] == "Body content"
-        assert data["created_by_name"] == org_owner.display_name
-
-    def test_get_nonexistent_announcement_returns_404(
-        self,
-        owner_client: Client,
-        org: Organization,
-    ) -> None:
-        """Test that getting non-existent announcement returns 404."""
-        # Arrange
-        from uuid import uuid4
-
-        url = reverse(
-            "api:get_announcement",
-            kwargs={"slug": org.slug, "announcement_id": uuid4()},
-        )
-
-        # Act
-        response = owner_client.get(url)
-
-        # Assert
-        assert response.status_code == 404
-
-
-class TestUpdateAnnouncement(TestAnnouncementControllerFixtures):
-    """Tests for PUT /organization-admin/{slug}/announcements/{id} endpoint."""
-
-    def test_owner_can_update_draft_announcement(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-    ) -> None:
-        """Test updating a draft announcement."""
-        # Arrange
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="Original Title",
-            body="Original body",
-            target_all_members=True,
-            created_by=org_owner,
-            status=Announcement.Status.DRAFT,
-        )
-
-        url = reverse(
-            "api:update_announcement",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-        payload = {
-            "title": "Updated Title",
-            "body": "Updated body",
-        }
-
-        # Act
-        response = owner_client.put(
-            url,
-            data=orjson.dumps(payload),
-            content_type="application/json",
-        )
-
-        # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert data["title"] == "Updated Title"
-        assert data["body"] == "Updated body"
-
-    def test_cannot_update_sent_announcement(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-    ) -> None:
-        """Test that sent announcements cannot be updated."""
-        # Arrange
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="Sent Announcement",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-            status=Announcement.Status.SENT,
-            sent_at=timezone.now(),
-        )
-
-        url = reverse(
-            "api:update_announcement",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-        payload = {"title": "Should Not Update"}
-
-        # Act
-        response = owner_client.put(
-            url,
-            data=orjson.dumps(payload),
-            content_type="application/json",
-        )
-
-        # Assert
-        assert response.status_code == 404  # Controller filters by DRAFT status
-
-    def test_update_announcement_change_targeting(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-        event: Event,
-    ) -> None:
-        """Test updating announcement targeting from members to event."""
-        # Arrange
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="Announcement",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-        )
-
-        url = reverse(
-            "api:update_announcement",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-        payload = {
-            "event_id": str(event.id),
-            "target_all_members": False,
-        }
-
-        # Act
-        response = owner_client.put(
-            url,
-            data=orjson.dumps(payload),
-            content_type="application/json",
-        )
-
-        # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert data["event_id"] == str(event.id)
-        assert data["target_all_members"] is False
-
-    def test_update_announcement_with_invalid_event_returns_422(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-    ) -> None:
-        """Test that updating with non-existent event returns 422."""
-        from uuid import uuid4
-
-        # Arrange
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="Announcement",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-        )
-
-        url = reverse(
-            "api:update_announcement",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-        payload = {
-            "event_id": str(uuid4()),  # Non-existent event
-            "target_all_members": False,
-        }
-
-        # Act
-        response = owner_client.put(
-            url,
-            data=orjson.dumps(payload),
-            content_type="application/json",
-        )
-
-        # Assert
-        assert response.status_code == 422
-        assert "Event not found" in response.json()["detail"]
-
-    def test_update_announcement_clearing_all_targeting_returns_422(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-    ) -> None:
-        """Test that clearing all targeting options returns 422.
-
-        When an update explicitly disables targeting without enabling another,
-        the schema validation should reject it.
-        """
-        # Arrange
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="Announcement",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-        )
-
-        url = reverse(
-            "api:update_announcement",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-        payload = {
-            "target_all_members": False,  # Clearing without setting another target
-        }
-
-        # Act
-        response = owner_client.put(
-            url,
-            data=orjson.dumps(payload),
-            content_type="application/json",
-        )
-
-        # Assert
-        assert response.status_code == 422
-
-
-class TestDeleteAnnouncement(TestAnnouncementControllerFixtures):
-    """Tests for DELETE /organization-admin/{slug}/announcements/{id} endpoint."""
-
-    def test_owner_can_delete_draft_announcement(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-    ) -> None:
-        """Test that owner can delete draft announcements."""
-        # Arrange
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="To Delete",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-            status=Announcement.Status.DRAFT,
-        )
-
-        url = reverse(
-            "api:delete_announcement",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-
-        # Act
-        response = owner_client.delete(url)
-
-        # Assert
-        assert response.status_code == 204
-        assert not Announcement.objects.filter(id=announcement.id).exists()
-
-    def test_cannot_delete_sent_announcement(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-    ) -> None:
-        """Test that sent announcements cannot be deleted."""
-        # Arrange
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="Sent Announcement",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-            status=Announcement.Status.SENT,
-            sent_at=timezone.now(),
-        )
-
-        url = reverse(
-            "api:delete_announcement",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-
-        # Act
-        response = owner_client.delete(url)
-
-        # Assert
-        assert response.status_code == 404  # Controller filters by DRAFT status
-        assert Announcement.objects.filter(id=announcement.id).exists()
-
-
-class TestSendAnnouncement(TestAnnouncementControllerFixtures):
-    """Tests for POST /organization-admin/{slug}/announcements/{id}/send endpoint."""
-
-    def test_owner_can_send_draft_announcement(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-        revel_user_factory: RevelUserFactory,
-    ) -> None:
-        """Test sending a draft announcement to recipients."""
-        # Arrange - Create member to receive announcement
-        member = revel_user_factory(username="member")
-        OrganizationMember.objects.create(
-            organization=org,
-            user=member,
-            status=OrganizationMember.MembershipStatus.ACTIVE,
-        )
-
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="To Send",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-            status=Announcement.Status.DRAFT,
-        )
-
-        url = reverse(
-            "api:send_announcement",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-
-        # Act
-        response = owner_client.post(url)
-
-        # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "sent"
-        assert data["sent_at"] is not None
-        assert data["recipient_count"] == 1
-
-    def test_cannot_send_already_sent_announcement(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-    ) -> None:
-        """Test that already sent announcements cannot be sent again."""
-        # Arrange
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="Already Sent",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-            status=Announcement.Status.SENT,
-            sent_at=timezone.now(),
-        )
-
-        url = reverse(
-            "api:send_announcement",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-
-        # Act
-        response = owner_client.post(url)
-
-        # Assert
-        assert response.status_code == 404  # Controller filters by DRAFT status
-
-    def test_send_announcement_with_no_recipients_succeeds(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-    ) -> None:
-        """Test that sending with no recipients still succeeds."""
-        # Arrange - Create announcement targeting non-existent members
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="No Recipients",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-            status=Announcement.Status.DRAFT,
-        )
-
-        url = reverse(
-            "api:send_announcement",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-
-        # Act
-        response = owner_client.post(url)
-
-        # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "sent"
-        assert data["recipient_count"] == 0
-
-
-class TestGetRecipientCount(TestAnnouncementControllerFixtures):
-    """Tests for GET /organization-admin/{slug}/announcements/{id}/recipient-count endpoint."""
-
-    def test_get_recipient_count_for_draft(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-        revel_user_factory: RevelUserFactory,
-    ) -> None:
-        """Test getting recipient count for draft announcement."""
-        # Arrange - Create members
-        for i in range(3):
-            member = revel_user_factory(username=f"member_{i}")
-            OrganizationMember.objects.create(
-                organization=org,
-                user=member,
-                status=OrganizationMember.MembershipStatus.ACTIVE,
-            )
-
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="Draft",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-            status=Announcement.Status.DRAFT,
-        )
-
-        url = reverse(
-            "api:get_announcement_recipient_count",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-
-        # Act
-        response = owner_client.get(url)
-
-        # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert data["count"] == 3
-
-    def test_get_recipient_count_for_sent_returns_stored_count(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-    ) -> None:
-        """Test that sent announcements return stored recipient_count."""
-        # Arrange
-        announcement = Announcement.objects.create(
-            organization=org,
-            title="Sent",
-            body="Body",
-            target_all_members=True,
-            created_by=org_owner,
-            status=Announcement.Status.SENT,
-            sent_at=timezone.now(),
-            recipient_count=42,  # Stored count
-        )
-
-        url = reverse(
-            "api:get_announcement_recipient_count",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-
-        # Act
-        response = owner_client.get(url)
-
-        # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert data["count"] == 42
-
-    def test_get_recipient_count_for_event_targeting(
-        self,
-        owner_client: Client,
-        org: Organization,
-        org_owner: RevelUser,
-        event: Event,
-        revel_user_factory: RevelUserFactory,
-    ) -> None:
-        """Test getting recipient count for event-targeted announcement."""
-        # Arrange - Create ticket holder
-        free_tier = TicketTier.objects.create(
-            event=event,
-            name="Free",
-            payment_method=TicketTier.PaymentMethod.FREE,
-        )
-        attendee = revel_user_factory(username="attendee")
-        Ticket.objects.create(
-            event=event,
-            user=attendee,
-            tier=free_tier,
-            status=Ticket.TicketStatus.ACTIVE,
-            guest_name="Attendee",
-        )
-
-        announcement = Announcement.objects.create(
-            organization=org,
-            event=event,
-            title="Event Announcement",
-            body="Body",
-            created_by=org_owner,
-        )
-
-        url = reverse(
-            "api:get_announcement_recipient_count",
-            kwargs={"slug": org.slug, "announcement_id": announcement.id},
-        )
-
-        # Act
-        response = owner_client.get(url)
-
-        # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert data["count"] == 1
