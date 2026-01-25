@@ -344,7 +344,12 @@ def send_announcement(announcement: Announcement) -> int:
     from notifications.tasks import dispatch_notifications_batch
 
     # Lock the announcement row to prevent concurrent sends
-    announcement = Announcement.objects.select_for_update().get(pk=announcement.pk)
+    # Only select_related non-nullable FKs - PostgreSQL doesn't allow FOR UPDATE on outer joins
+    announcement = (
+        Announcement.objects.select_related("organization")
+        .select_for_update()
+        .get(pk=announcement.pk)
+    )
 
     if announcement.status != Announcement.AnnouncementStatus.DRAFT:
         raise ValueError("Only draft announcements can be sent")
