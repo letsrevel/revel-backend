@@ -121,15 +121,11 @@ class EventPublicDetailsController(EventPublicBaseController):
         """List announcements for an event.
 
         Returns sent announcements that the current user can see. Visibility is based on:
+        - User is organization owner or staff (sees all announcements)
         - User received the notification when it was sent, OR
         - User is currently an attendee and announcement has past_visibility enabled
 
         Announcements are ordered by sent date (newest first).
-
-        Note:
-            Visibility filtering performs N+1 queries (1-2 queries per announcement).
-            This is acceptable for typical announcement volumes per event.
-            See `is_user_eligible_for_announcement` for optimization notes.
         """
         event = self.get_one(event_id)
         user = self.user()
@@ -143,6 +139,16 @@ class EventPublicDetailsController(EventPublicBaseController):
             .select_related("organization", "event")
             .order_by("-sent_at")
         )
+
+        # Owner and staff see all announcements (single query check)
+        is_owner = event.organization.owner_id == user.id
+        is_staff = models.OrganizationStaff.objects.filter(
+            organization=event.organization,
+            user=user,
+        ).exists()
+
+        if is_owner or is_staff:
+            return announcements
 
         # Filter to only those the user can see
         visible_announcements = [

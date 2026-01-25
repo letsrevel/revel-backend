@@ -431,6 +431,7 @@ class OrganizationController(UserAwareController):
 
         Returns sent announcements visible to the current user based on their
         organization relationship. Visibility is determined by:
+        - User is organization owner or staff (sees all announcements)
         - User received the notification when it was sent, OR
         - User is currently eligible and announcement has past_visibility enabled
 
@@ -438,11 +439,6 @@ class OrganizationController(UserAwareController):
         For event announcements, use the event announcements endpoint.
 
         Announcements are ordered by sent date (newest first).
-
-        Note:
-            Visibility filtering performs N+1 queries (1-2 queries per announcement).
-            This is acceptable for typical announcement volumes per organization.
-            See `is_user_eligible_for_announcement` for optimization notes.
 
         **Returns:**
         - List of visible announcements
@@ -463,6 +459,16 @@ class OrganizationController(UserAwareController):
             .select_related("organization")
             .order_by("-sent_at")
         )
+
+        # Owner and staff see all announcements (single query check)
+        is_owner = organization.owner_id == user.id
+        is_staff = models.OrganizationStaff.objects.filter(
+            organization=organization,
+            user=user,
+        ).exists()
+
+        if is_owner or is_staff:
+            return announcements
 
         # Filter to only those the user can see
         visible_announcements = [
