@@ -345,11 +345,7 @@ def send_announcement(announcement: Announcement) -> int:
 
     # Lock the announcement row to prevent concurrent sends
     # Only select_related non-nullable FKs - PostgreSQL doesn't allow FOR UPDATE on outer joins
-    announcement = (
-        Announcement.objects.select_related("organization")
-        .select_for_update()
-        .get(pk=announcement.pk)
-    )
+    announcement = Announcement.objects.select_related("organization").select_for_update().get(pk=announcement.pk)
 
     if announcement.status != Announcement.AnnouncementStatus.DRAFT:
         raise ValueError("Only draft announcements can be sent")

@@ -12,16 +12,18 @@ from accounts.tasks import generate_user_data_export
 def test_generate_user_data_export_sends_failure_email(
     user: RevelUser, staff_user: RevelUser, mailoutbox: list[MagicMock]
 ) -> None:
-    """Test that the failure email is sent when the data export fails."""
+    """Test that the failure email is sent when the data export fails, then exception is re-raised."""
     with (
-        patch("accounts.service.gdpr.generate_user_data_export", side_effect=Exception),
+        patch("accounts.service.gdpr.generate_user_data_export", side_effect=Exception("Export failed")),
         patch(
             "common.tasks.to_safe_email_address",
         ) as to_safe_email_address_mock,
+        pytest.raises(Exception, match="Export failed"),
     ):
         to_safe_email_address_mock.side_effect = lambda e, site_settings=None: e
         generate_user_data_export(str(user.id))
 
+    # Emails should have been sent before the exception was re-raised
     assert len(mailoutbox) == 2
 
     user_email_sent = False
