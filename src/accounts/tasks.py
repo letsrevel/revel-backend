@@ -98,7 +98,7 @@ def generate_user_data_export(user_id: str) -> None:
     except Exception as e:
         logger.error("gdpr_export_task_failed", user_id=user_id, error=str(e), exc_info=True)
         _notify_data_export_failed(user, traceback.format_exc())
-        return
+        raise  # Re-raise so Celery marks task as failed for monitoring/alerting
     logger.info("gdpr_export_task_completed", user_id=user_id, export_id=str(data_export.id))
     _notify_user_data_export_ready(data_export)
 

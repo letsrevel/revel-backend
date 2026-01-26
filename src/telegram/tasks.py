@@ -97,6 +97,7 @@ def send_message_task(
 
     error_occurred = False
     error_message = None
+    unexpected_exception: Exception | None = None
 
     try:
         # Deserialize reply_markup if provided
@@ -107,6 +108,8 @@ def send_message_task(
 
         async_to_sync(utils.send_telegram_message)(telegram_id, message=message, reply_markup=keyboard, photo=photo)
     except TelegramForbiddenError as e:
+        # Expected business states - user blocked bot or account deactivated
+        # Not task failures, just states we handle gracefully
         error_occurred = True
         if "bot was blocked by the user" in e.message.lower():
             logger.warning(f"User {telegram_id} blocked the bot.")
@@ -122,15 +125,21 @@ def send_message_task(
         logger.warning(f"Telegram API rate limit exceeded. Retrying in {e.retry_after} seconds.")
         raise self.retry(exc=e, countdown=e.retry_after)
     except Exception as e:
+        # Unexpected error - store for re-raising after callback
         error_occurred = True
         error_message = str(e)
+        unexpected_exception = e
         logger.error(f"Error sending message to Telegram ID {telegram_id}: {e}")
     else:
         logger.info(f"Successfully sent message to Telegram ID {telegram_id} ({message=})")
 
-    # Execute callback if provided
+    # Execute callback if provided (before re-raising, so delivery status is tracked)
     if callback_data:
         _execute_callback(callback_data, error_occurred, error_message)
+
+    # Re-raise unexpected exceptions so Celery marks task as failed
+    if unexpected_exception is not None:
+        raise unexpected_exception
 
 
 @shared_task(name="telegram.send_broadcast_message_task", queue="telegram")

@@ -218,19 +218,29 @@ def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dic
 
 
 def _get_organization_owner(app: str, model: str, pk: str) -> RevelUser | None:
-    """Get organization owner for a given model instance."""
+    """Get organization owner for a given model instance.
+
+    Returns None if:
+    - Model/app doesn't exist (LookupError)
+    - Instance doesn't exist (ObjectDoesNotExist)
+    - Instance has no organization association
+    """
+    from django.core.exceptions import ObjectDoesNotExist
+
     try:
         model_class = apps.get_model(app, model)
         instance = model_class.objects.get(pk=pk)
-
-        # Check if the instance has an organization field
-        if hasattr(instance, "organization") and instance.organization:
-            return instance.organization.owner  # type: ignore[no-any-return]
-        # Check if the instance itself is an organization
-        elif model == "Organization":
-            return instance.owner  # type: ignore[no-any-return]
-    except Exception:
+    except (LookupError, ObjectDoesNotExist):
         logger.debug("organization_owner_resolution_failed", app=app, model=model, pk=pk)
+        return None
+
+    # Check if the instance has an organization field
+    if hasattr(instance, "organization") and instance.organization:
+        return instance.organization.owner  # type: ignore[no-any-return]
+    # Check if the instance itself is an organization
+    elif model == "Organization":
+        return instance.owner  # type: ignore[no-any-return]
+
     return None
 
 
