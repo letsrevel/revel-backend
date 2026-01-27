@@ -4,6 +4,8 @@ import json
 import typing as t
 
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -225,12 +227,32 @@ class FreeTextAnswerInline(TabularInline):  # type: ignore[misc]
     can_delete = False
 
 
+class FileUploadAnswerInline(TabularInline):  # type: ignore[misc]
+    """Inline for File Upload Answers within a Submission."""
+
+    model = models.FileUploadAnswer
+    extra = 0
+    readonly_fields = ["question", "files_display"]
+    can_delete = False
+    fields = ["question", "files_display"]
+
+    @admin.display(description="Files")
+    def files_display(self, obj: models.FileUploadAnswer) -> str:
+        files = obj.files.all()
+        if not files:
+            return "—"
+        links = []
+        for f in files:
+            links.append(format_html('<a href="{}" target="_blank">{}</a>', f.file.url, f.original_filename))
+        return mark_safe(", ".join(links))
+
+
 @admin.register(models.QuestionnaireSubmission)
 class QuestionnaireSubmissionAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     """Admin model for Questionnaire Submissions."""
 
-    list_display = ["__str__", "user_link", "questionnaire_link", "status", "submitted_at"]
-    list_filter = ["status", "questionnaire__name", "created_at", "submitted_at"]
+    list_display = ["__str__", "user_link", "questionnaire_link", "status", "evaluation_status", "submitted_at"]
+    list_filter = ["status", "evaluation__status", "questionnaire__name", "created_at", "submitted_at"]
     search_fields = ["user__username", "questionnaire__name"]
     autocomplete_fields = ["user", "questionnaire"]
     readonly_fields = ["submitted_at", "metadata_display"]
@@ -245,13 +267,31 @@ class QuestionnaireSubmissionAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[m
         QuestionnaireEvaluationInline,
         MultipleChoiceAnswerInline,
         FreeTextAnswerInline,
+        FileUploadAnswerInline,
     ]
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[models.QuestionnaireSubmission]:
+        qs: QuerySet[models.QuestionnaireSubmission] = super().get_queryset(request)
+        return qs.select_related("evaluation", "questionnaire", "user")
 
     def questionnaire_link(self, obj: models.QuestionnaireSubmission) -> str:
         url = reverse("admin:questionnaires_questionnaire_change", args=[obj.questionnaire.id])
         return format_html('<a href="{}">{}</a>', url, obj.questionnaire.name)
 
     questionnaire_link.short_description = "Questionnaire"  # type: ignore[attr-defined]
+
+    @admin.display(description="Evaluation")
+    def evaluation_status(self, obj: models.QuestionnaireSubmission) -> str:
+        evaluation = getattr(obj, "evaluation", None)
+        if not evaluation:
+            return "—"
+        colors = {
+            models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED: "green",
+            models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED: "red",
+            models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW: "orange",
+        }
+        color = colors.get(evaluation.status, "gray")
+        return mark_safe(f'<span style="color: {color};">{evaluation.get_status_display()}</span>')
 
     def metadata_display(self, obj: models.QuestionnaireSubmission) -> str:
         if not obj.metadata:
@@ -542,6 +582,65 @@ class FreeTextQuestionAdmin(ModelAdmin):  # type: ignore[misc]
         return bool(obj.llm_guidelines)
 
 
+@admin.register(models.FileUploadQuestion)
+class FileUploadQuestionAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for File Upload Questions."""
+
+    list_display = [
+        "question_short",
+        "questionnaire_link",
+        "section_link",
+        "is_mandatory",
+        "max_files",
+        "max_file_size_display",
+        "order",
+    ]
+    list_filter = ["questionnaire__name", "section__name", "is_mandatory"]
+    search_fields = ["question", "hint", "reviewer_notes", "questionnaire__name", "section__name"]
+    autocomplete_fields = ["questionnaire", "section", "depends_on_option"]
+    ordering = ["questionnaire", "section", "order"]
+
+    fieldsets = (
+        (None, {"fields": ("questionnaire", "section", "question", "hint")}),
+        (
+            "Configuration",
+            {
+                "fields": ("is_mandatory", "order", "depends_on_option"),
+            },
+        ),
+        (
+            "File Settings",
+            {
+                "fields": ("max_files", "max_file_size", "allowed_mime_types"),
+            },
+        ),
+        ("Scoring", {"fields": ("positive_weight", "negative_weight")}),
+        ("Reviewer Notes", {"fields": ("reviewer_notes",), "classes": ["collapse"]}),
+    )
+
+    @admin.display(description="Question")
+    def question_short(self, obj: models.FileUploadQuestion) -> str:
+        question = obj.question or ""
+        return question[:50] + "..." if len(question) > 50 else question
+
+    @admin.display(description="Questionnaire")
+    def questionnaire_link(self, obj: models.FileUploadQuestion) -> str:
+        url = reverse("admin:questionnaires_questionnaire_change", args=[obj.questionnaire.id])
+        return format_html('<a href="{}">{}</a>', url, obj.questionnaire.name)
+
+    @admin.display(description="Section")
+    def section_link(self, obj: models.FileUploadQuestion) -> str | None:
+        if not obj.section:
+            return None
+        url = reverse("admin:questionnaires_questionnairesection_change", args=[obj.section.id])
+        return format_html('<a href="{}">{}</a>', url, obj.section.name)
+
+    @admin.display(description="Max Size")
+    def max_file_size_display(self, obj: models.FileUploadQuestion) -> str:
+        size_mb = obj.max_file_size / (1024 * 1024)
+        return f"{size_mb:.1f} MB"
+
+
 @admin.register(models.QuestionnaireSection)
 class QuestionnaireSectionAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for Questionnaire Sections."""
@@ -562,4 +661,5 @@ class QuestionnaireSectionAdmin(ModelAdmin):  # type: ignore[misc]
     def question_count(self, obj: models.QuestionnaireSection) -> int:
         mc_count = obj.multiplechoicequestion_questions.count()
         ft_count = obj.freetextquestion_questions.count()
-        return mc_count + ft_count
+        fu_count = obj.fileuploadquestion_questions.count()
+        return mc_count + ft_count + fu_count
