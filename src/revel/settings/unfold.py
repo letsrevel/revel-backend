@@ -122,6 +122,16 @@ UNFOLD = {
                         "icon": "vpn_key",
                         "link": reverse_lazy("admin:events_organizationtoken_changelist"),
                     },
+                    {
+                        "title": _("Blacklist"),
+                        "icon": "block",
+                        "link": reverse_lazy("admin:events_blacklist_changelist"),
+                    },
+                    {
+                        "title": _("Whitelist Requests"),
+                        "icon": "check_circle",
+                        "link": reverse_lazy("admin:events_whitelistrequest_changelist"),
+                    },
                 ],
             },
             {
@@ -211,6 +221,11 @@ UNFOLD = {
                         "icon": "folder",
                         "link": reverse_lazy("admin:events_additionalresource_changelist"),
                     },
+                    {
+                        "title": _("Announcements"),
+                        "icon": "campaign",
+                        "link": reverse_lazy("admin:events_announcement_changelist"),
+                    },
                 ],
             },
             {
@@ -287,6 +302,11 @@ UNFOLD = {
                         "icon": "upload_file",
                         "link": reverse_lazy("admin:questionnaires_fileuploadquestion_changelist"),
                     },
+                    {
+                        "title": _("Uploaded Files"),
+                        "icon": "folder_open",
+                        "link": reverse_lazy("admin:questionnaires_questionnairefile_changelist"),
+                    },
                 ],
             },
             {
@@ -344,6 +364,11 @@ UNFOLD = {
                         "title": _("Site Settings"),
                         "icon": "settings",
                         "link": reverse_lazy("admin:common_sitesettings_change", args=[1]),
+                    },
+                    {
+                        "title": _("Impersonation Logs"),
+                        "icon": "admin_panel_settings",
+                        "link": reverse_lazy("admin:accounts_impersonationlog_changelist"),
                     },
                     {
                         "title": _("Legal Documents"),

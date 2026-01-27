@@ -33,6 +33,7 @@ from accounts.models import (
 from accounts.service.account import request_password_reset, send_verification_email_for_user
 from accounts.service.impersonation import can_impersonate, create_impersonation_request
 from common.models import SiteSettings
+from common.signing import get_file_url
 from events.models import GeneralUserPreferences
 
 # Monkey patch the missing attribute
@@ -289,10 +290,10 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     @admin.display(description="")
     def profile_thumbnail_display(self, obj: RevelUser) -> str:
         """Display profile picture thumbnail in list view."""
-        if obj.profile_picture_thumbnail:
+        if url := get_file_url(obj.profile_picture_thumbnail):
             return format_html(
                 '<img src="{}" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;" />',
-                obj.profile_picture_thumbnail.url,
+                url,
             )
         return format_html(
             '<span style="display: inline-block; width: 32px; height: 32px; '
@@ -304,15 +305,15 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     @admin.display(description="Profile Picture Preview")
     def profile_image_preview_display(self, obj: RevelUser) -> str:
         """Display profile picture preview in detail view."""
-        if obj.profile_picture_preview:
+        if url := get_file_url(obj.profile_picture_preview):
             return format_html(
                 '<img src="{}" style="max-width: 200px; max-height: 200px; border-radius: 8px;" />',
-                obj.profile_picture_preview.url,
+                url,
             )
-        if obj.profile_picture:
+        if url := get_file_url(obj.profile_picture):
             return format_html(
                 '<img src="{}" style="max-width: 200px; max-height: 200px; border-radius: 8px;" />',
-                obj.profile_picture.url,
+                url,
             )
         return "No profile picture"
 
@@ -819,5 +820,5 @@ class ImpersonationLogAdmin(ModelAdmin):  # type: ignore[misc]
         return False
 
     def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
-        """Prevent deletion of audit logs (only superusers can delete for compliance)."""
-        return t.cast(bool, request.user.is_superuser)
+        """Prevent deletion of audit logs."""
+        return False
