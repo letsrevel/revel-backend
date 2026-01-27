@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from django.utils import timezone
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import Event, EventQuestionnaireSubmission, Organization, OrganizationQuestionnaire
@@ -22,6 +23,7 @@ from questionnaires.models import (
     MultipleChoiceOption,
     MultipleChoiceQuestion,
     Questionnaire,
+    QuestionnaireEvaluation,
     QuestionnaireSubmission,
 )
 from questionnaires.schema import MultipleChoiceSubmissionSchema, QuestionnaireSubmissionSchema
@@ -310,8 +312,12 @@ class TestConditionalUniqueConstraint:
         eq_mcq: MultipleChoiceQuestion,
         eq_option: MultipleChoiceOption,
     ) -> None:
-        """Non-feedback questionnaires should create separate tracking records for each submission via service."""
-        # Create an admission questionnaire
+        """Non-feedback questionnaires should create separate tracking records when retake is allowed."""
+        # Create an admission questionnaire that allows retakes
+        eq_questionnaire.can_retake_after = timedelta(seconds=0)  # Immediate retake
+        eq_questionnaire.max_attempts = 0  # Unlimited
+        eq_questionnaire.save()
+
         org_q = OrganizationQuestionnaire.objects.create(
             organization=eq_org,
             questionnaire=eq_questionnaire,
@@ -336,7 +342,13 @@ class TestConditionalUniqueConstraint:
             submission_schema=submission_schema,
         )
 
-        # Second submission
+        # First submission gets REJECTED, allowing retake
+        QuestionnaireEvaluation.objects.create(
+            submission=result1,
+            status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
+        )
+
+        # Second submission (retake after rejection)
         result2 = event_questionnaire_service.submit_event_questionnaire(
             user=eq_user,
             event=eq_event,
@@ -450,3 +462,518 @@ class TestAtomicTransaction:
             event=eq_event,
             questionnaire=eq_org_questionnaire.questionnaire,
         ).exists()
+
+
+# --- Admission questionnaire resubmission validation tests ---
+
+
+class TestAdmissionResubmissionValidation:
+    """Tests for admission questionnaire resubmission validation.
+
+    This validates the same logic as QuestionnaireGate but at submission time.
+    """
+
+    @pytest.fixture
+    def admission_org_questionnaire(
+        self,
+        eq_org: Organization,
+        eq_questionnaire: Questionnaire,
+        eq_event: Event,
+    ) -> OrganizationQuestionnaire:
+        """Admission questionnaire linked to organization and event."""
+        org_q = OrganizationQuestionnaire.objects.create(
+            organization=eq_org,
+            questionnaire=eq_questionnaire,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
+        org_q.events.add(eq_event)
+        return org_q
+
+    def test_first_submission_allowed(
+        self,
+        eq_user: RevelUser,
+        eq_event: Event,
+        eq_questionnaire_service: QuestionnaireService,
+        admission_org_questionnaire: OrganizationQuestionnaire,
+        eq_mcq: MultipleChoiceQuestion,
+        eq_option: MultipleChoiceOption,
+    ) -> None:
+        """First admission submission should always be allowed."""
+        submission_schema = QuestionnaireSubmissionSchema(
+            questionnaire_id=admission_org_questionnaire.questionnaire_id,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            multiple_choice_answers=[MultipleChoiceSubmissionSchema(question_id=eq_mcq.id, options_id=[eq_option.id])],
+        )
+
+        result = event_questionnaire_service.submit_event_questionnaire(
+            user=eq_user,
+            event=eq_event,
+            questionnaire_service=eq_questionnaire_service,
+            org_questionnaire=admission_org_questionnaire,
+            submission_schema=submission_schema,
+        )
+
+        assert result is not None
+        assert EventQuestionnaireSubmission.objects.filter(
+            user=eq_user,
+            event=eq_event,
+            questionnaire=admission_org_questionnaire.questionnaire,
+        ).exists()
+
+    def test_blocks_when_pending_evaluation(
+        self,
+        eq_user: RevelUser,
+        eq_event: Event,
+        eq_questionnaire_service: QuestionnaireService,
+        admission_org_questionnaire: OrganizationQuestionnaire,
+        eq_mcq: MultipleChoiceQuestion,
+        eq_option: MultipleChoiceOption,
+    ) -> None:
+        """Should block resubmission when previous submission has no evaluation yet."""
+        # Create first submission (no evaluation)
+        first_submission = QuestionnaireSubmission.objects.create(
+            questionnaire=admission_org_questionnaire.questionnaire,
+            user=eq_user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=timezone.now(),
+        )
+        EventQuestionnaireSubmission.objects.create(
+            user=eq_user,
+            event=eq_event,
+            questionnaire=admission_org_questionnaire.questionnaire,
+            submission=first_submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
+
+        submission_schema = QuestionnaireSubmissionSchema(
+            questionnaire_id=admission_org_questionnaire.questionnaire_id,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            multiple_choice_answers=[MultipleChoiceSubmissionSchema(question_id=eq_mcq.id, options_id=[eq_option.id])],
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            event_questionnaire_service.submit_event_questionnaire(
+                user=eq_user,
+                event=eq_event,
+                questionnaire_service=eq_questionnaire_service,
+                org_questionnaire=admission_org_questionnaire,
+                submission_schema=submission_schema,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "pending evaluation" in str(exc_info.value.message)
+
+    def test_blocks_when_pending_review(
+        self,
+        eq_user: RevelUser,
+        eq_event: Event,
+        eq_questionnaire_service: QuestionnaireService,
+        admission_org_questionnaire: OrganizationQuestionnaire,
+        eq_mcq: MultipleChoiceQuestion,
+        eq_option: MultipleChoiceOption,
+    ) -> None:
+        """Should block resubmission when previous submission is PENDING_REVIEW."""
+        # Create first submission with PENDING_REVIEW evaluation
+        first_submission = QuestionnaireSubmission.objects.create(
+            questionnaire=admission_org_questionnaire.questionnaire,
+            user=eq_user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=timezone.now(),
+        )
+        EventQuestionnaireSubmission.objects.create(
+            user=eq_user,
+            event=eq_event,
+            questionnaire=admission_org_questionnaire.questionnaire,
+            submission=first_submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
+        QuestionnaireEvaluation.objects.create(
+            submission=first_submission,
+            status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW,
+        )
+
+        submission_schema = QuestionnaireSubmissionSchema(
+            questionnaire_id=admission_org_questionnaire.questionnaire_id,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            multiple_choice_answers=[MultipleChoiceSubmissionSchema(question_id=eq_mcq.id, options_id=[eq_option.id])],
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            event_questionnaire_service.submit_event_questionnaire(
+                user=eq_user,
+                event=eq_event,
+                questionnaire_service=eq_questionnaire_service,
+                org_questionnaire=admission_org_questionnaire,
+                submission_schema=submission_schema,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "pending evaluation" in str(exc_info.value.message)
+
+    def test_blocks_when_approved(
+        self,
+        eq_user: RevelUser,
+        eq_event: Event,
+        eq_questionnaire_service: QuestionnaireService,
+        admission_org_questionnaire: OrganizationQuestionnaire,
+        eq_mcq: MultipleChoiceQuestion,
+        eq_option: MultipleChoiceOption,
+    ) -> None:
+        """Should block resubmission when previous submission is APPROVED."""
+        # Create first submission with APPROVED evaluation
+        first_submission = QuestionnaireSubmission.objects.create(
+            questionnaire=admission_org_questionnaire.questionnaire,
+            user=eq_user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=timezone.now(),
+        )
+        EventQuestionnaireSubmission.objects.create(
+            user=eq_user,
+            event=eq_event,
+            questionnaire=admission_org_questionnaire.questionnaire,
+            submission=first_submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
+        QuestionnaireEvaluation.objects.create(
+            submission=first_submission,
+            status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        )
+
+        submission_schema = QuestionnaireSubmissionSchema(
+            questionnaire_id=admission_org_questionnaire.questionnaire_id,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            multiple_choice_answers=[MultipleChoiceSubmissionSchema(question_id=eq_mcq.id, options_id=[eq_option.id])],
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            event_questionnaire_service.submit_event_questionnaire(
+                user=eq_user,
+                event=eq_event,
+                questionnaire_service=eq_questionnaire_service,
+                org_questionnaire=admission_org_questionnaire,
+                submission_schema=submission_schema,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "already been approved" in str(exc_info.value.message)
+
+    def test_blocks_when_max_attempts_reached(
+        self,
+        eq_user: RevelUser,
+        eq_event: Event,
+        eq_questionnaire: Questionnaire,
+        eq_questionnaire_service: QuestionnaireService,
+        admission_org_questionnaire: OrganizationQuestionnaire,
+        eq_mcq: MultipleChoiceQuestion,
+        eq_option: MultipleChoiceOption,
+    ) -> None:
+        """Should block resubmission when max_attempts is reached."""
+        # Set max_attempts to 1
+        eq_questionnaire.max_attempts = 1
+        eq_questionnaire.can_retake_after = timedelta(seconds=0)
+        eq_questionnaire.save()
+
+        # Create first (and only allowed) submission with REJECTED evaluation
+        first_submission = QuestionnaireSubmission.objects.create(
+            questionnaire=admission_org_questionnaire.questionnaire,
+            user=eq_user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=timezone.now(),
+        )
+        EventQuestionnaireSubmission.objects.create(
+            user=eq_user,
+            event=eq_event,
+            questionnaire=admission_org_questionnaire.questionnaire,
+            submission=first_submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
+        QuestionnaireEvaluation.objects.create(
+            submission=first_submission,
+            status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
+        )
+
+        submission_schema = QuestionnaireSubmissionSchema(
+            questionnaire_id=admission_org_questionnaire.questionnaire_id,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            multiple_choice_answers=[MultipleChoiceSubmissionSchema(question_id=eq_mcq.id, options_id=[eq_option.id])],
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            event_questionnaire_service.submit_event_questionnaire(
+                user=eq_user,
+                event=eq_event,
+                questionnaire_service=eq_questionnaire_service,
+                org_questionnaire=admission_org_questionnaire,
+                submission_schema=submission_schema,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "maximum number of attempts" in str(exc_info.value.message)
+
+    def test_blocks_when_cooldown_not_elapsed(
+        self,
+        eq_user: RevelUser,
+        eq_event: Event,
+        eq_questionnaire: Questionnaire,
+        eq_questionnaire_service: QuestionnaireService,
+        admission_org_questionnaire: OrganizationQuestionnaire,
+        eq_mcq: MultipleChoiceQuestion,
+        eq_option: MultipleChoiceOption,
+    ) -> None:
+        """Should block resubmission when can_retake_after cooldown hasn't elapsed."""
+        # Set cooldown to 1 hour
+        eq_questionnaire.can_retake_after = timedelta(hours=1)
+        eq_questionnaire.max_attempts = 0  # Unlimited
+        eq_questionnaire.save()
+
+        # Create first submission with REJECTED evaluation (recently submitted)
+        first_submission = QuestionnaireSubmission.objects.create(
+            questionnaire=admission_org_questionnaire.questionnaire,
+            user=eq_user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=timezone.now(),  # Just submitted
+        )
+        EventQuestionnaireSubmission.objects.create(
+            user=eq_user,
+            event=eq_event,
+            questionnaire=admission_org_questionnaire.questionnaire,
+            submission=first_submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
+        QuestionnaireEvaluation.objects.create(
+            submission=first_submission,
+            status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
+        )
+
+        submission_schema = QuestionnaireSubmissionSchema(
+            questionnaire_id=admission_org_questionnaire.questionnaire_id,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            multiple_choice_answers=[MultipleChoiceSubmissionSchema(question_id=eq_mcq.id, options_id=[eq_option.id])],
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            event_questionnaire_service.submit_event_questionnaire(
+                user=eq_user,
+                event=eq_event,
+                questionnaire_service=eq_questionnaire_service,
+                org_questionnaire=admission_org_questionnaire,
+                submission_schema=submission_schema,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "retry after" in str(exc_info.value.message)
+
+    def test_blocks_when_retakes_not_allowed(
+        self,
+        eq_user: RevelUser,
+        eq_event: Event,
+        eq_questionnaire: Questionnaire,
+        eq_questionnaire_service: QuestionnaireService,
+        admission_org_questionnaire: OrganizationQuestionnaire,
+        eq_mcq: MultipleChoiceQuestion,
+        eq_option: MultipleChoiceOption,
+    ) -> None:
+        """Should block resubmission when can_retake_after is None (retakes disabled)."""
+        # Disable retakes
+        eq_questionnaire.can_retake_after = None
+        eq_questionnaire.max_attempts = 0
+        eq_questionnaire.save()
+
+        # Create first submission with REJECTED evaluation
+        first_submission = QuestionnaireSubmission.objects.create(
+            questionnaire=admission_org_questionnaire.questionnaire,
+            user=eq_user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=timezone.now(),
+        )
+        EventQuestionnaireSubmission.objects.create(
+            user=eq_user,
+            event=eq_event,
+            questionnaire=admission_org_questionnaire.questionnaire,
+            submission=first_submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
+        QuestionnaireEvaluation.objects.create(
+            submission=first_submission,
+            status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
+        )
+
+        submission_schema = QuestionnaireSubmissionSchema(
+            questionnaire_id=admission_org_questionnaire.questionnaire_id,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            multiple_choice_answers=[MultipleChoiceSubmissionSchema(question_id=eq_mcq.id, options_id=[eq_option.id])],
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            event_questionnaire_service.submit_event_questionnaire(
+                user=eq_user,
+                event=eq_event,
+                questionnaire_service=eq_questionnaire_service,
+                org_questionnaire=admission_org_questionnaire,
+                submission_schema=submission_schema,
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "not allowed" in str(exc_info.value.message)
+
+    def test_allows_retake_when_rejected_and_eligible(
+        self,
+        eq_user: RevelUser,
+        eq_event: Event,
+        eq_questionnaire: Questionnaire,
+        eq_questionnaire_service: QuestionnaireService,
+        admission_org_questionnaire: OrganizationQuestionnaire,
+        eq_mcq: MultipleChoiceQuestion,
+        eq_option: MultipleChoiceOption,
+    ) -> None:
+        """Should allow resubmission when rejected, cooldown elapsed, and attempts remaining."""
+        # Allow retakes immediately with unlimited attempts
+        eq_questionnaire.can_retake_after = timedelta(seconds=0)
+        eq_questionnaire.max_attempts = 0
+        eq_questionnaire.save()
+
+        # Create first submission with REJECTED evaluation (submitted in the past)
+        first_submission = QuestionnaireSubmission.objects.create(
+            questionnaire=admission_org_questionnaire.questionnaire,
+            user=eq_user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=timezone.now() - timedelta(hours=1),
+        )
+        EventQuestionnaireSubmission.objects.create(
+            user=eq_user,
+            event=eq_event,
+            questionnaire=admission_org_questionnaire.questionnaire,
+            submission=first_submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
+        QuestionnaireEvaluation.objects.create(
+            submission=first_submission,
+            status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
+        )
+
+        submission_schema = QuestionnaireSubmissionSchema(
+            questionnaire_id=admission_org_questionnaire.questionnaire_id,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            multiple_choice_answers=[MultipleChoiceSubmissionSchema(question_id=eq_mcq.id, options_id=[eq_option.id])],
+        )
+
+        # Should succeed
+        result = event_questionnaire_service.submit_event_questionnaire(
+            user=eq_user,
+            event=eq_event,
+            questionnaire_service=eq_questionnaire_service,
+            org_questionnaire=admission_org_questionnaire,
+            submission_schema=submission_schema,
+        )
+
+        assert result is not None
+        assert (
+            EventQuestionnaireSubmission.objects.filter(
+                user=eq_user,
+                event=eq_event,
+                questionnaire=admission_org_questionnaire.questionnaire,
+            ).count()
+            == 2
+        )
+
+    def test_draft_submissions_bypass_validation(
+        self,
+        eq_user: RevelUser,
+        eq_event: Event,
+        eq_questionnaire_service: QuestionnaireService,
+        admission_org_questionnaire: OrganizationQuestionnaire,
+        eq_mcq: MultipleChoiceQuestion,
+        eq_option: MultipleChoiceOption,
+    ) -> None:
+        """DRAFT submissions should bypass resubmission validation."""
+        # Create first submission with no evaluation (would block READY submission)
+        first_submission = QuestionnaireSubmission.objects.create(
+            questionnaire=admission_org_questionnaire.questionnaire,
+            user=eq_user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=timezone.now(),
+        )
+        EventQuestionnaireSubmission.objects.create(
+            user=eq_user,
+            event=eq_event,
+            questionnaire=admission_org_questionnaire.questionnaire,
+            submission=first_submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
+
+        # DRAFT submission should still be allowed
+        draft_schema = QuestionnaireSubmissionSchema(
+            questionnaire_id=admission_org_questionnaire.questionnaire_id,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.DRAFT,
+            multiple_choice_answers=[MultipleChoiceSubmissionSchema(question_id=eq_mcq.id, options_id=[eq_option.id])],
+        )
+
+        result = event_questionnaire_service.submit_event_questionnaire(
+            user=eq_user,
+            event=eq_event,
+            questionnaire_service=eq_questionnaire_service,
+            org_questionnaire=admission_org_questionnaire,
+            submission_schema=draft_schema,
+        )
+
+        assert result is not None
+        assert result.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.DRAFT
+
+    def test_membership_questionnaires_not_affected(
+        self,
+        eq_user: RevelUser,
+        eq_event: Event,
+        eq_questionnaire: Questionnaire,
+        eq_org: Organization,
+        eq_questionnaire_service: QuestionnaireService,
+        eq_mcq: MultipleChoiceQuestion,
+        eq_option: MultipleChoiceOption,
+    ) -> None:
+        """MEMBERSHIP questionnaires should not have resubmission validation."""
+        # Create a MEMBERSHIP questionnaire
+        org_q = OrganizationQuestionnaire.objects.create(
+            organization=eq_org,
+            questionnaire=eq_questionnaire,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP,
+        )
+        org_q.events.add(eq_event)
+
+        # Create first submission with no evaluation
+        first_submission = QuestionnaireSubmission.objects.create(
+            questionnaire=org_q.questionnaire,
+            user=eq_user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=timezone.now(),
+        )
+        EventQuestionnaireSubmission.objects.create(
+            user=eq_user,
+            event=eq_event,
+            questionnaire=org_q.questionnaire,
+            submission=first_submission,
+            questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.MEMBERSHIP,
+        )
+
+        # Second submission should be allowed (no validation for MEMBERSHIP)
+        submission_schema = QuestionnaireSubmissionSchema(
+            questionnaire_id=org_q.questionnaire_id,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            multiple_choice_answers=[MultipleChoiceSubmissionSchema(question_id=eq_mcq.id, options_id=[eq_option.id])],
+        )
+
+        result = event_questionnaire_service.submit_event_questionnaire(
+            user=eq_user,
+            event=eq_event,
+            questionnaire_service=eq_questionnaire_service,
+            org_questionnaire=org_q,
+            submission_schema=submission_schema,
+        )
+
+        assert result is not None
+        assert (
+            EventQuestionnaireSubmission.objects.filter(
+                user=eq_user,
+                event=eq_event,
+                questionnaire=org_q.questionnaire,
+            ).count()
+            == 2
+        )

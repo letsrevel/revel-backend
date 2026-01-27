@@ -4,6 +4,8 @@ import json
 import typing as t
 
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -229,8 +231,8 @@ class FreeTextAnswerInline(TabularInline):  # type: ignore[misc]
 class QuestionnaireSubmissionAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     """Admin model for Questionnaire Submissions."""
 
-    list_display = ["__str__", "user_link", "questionnaire_link", "status", "submitted_at"]
-    list_filter = ["status", "questionnaire__name", "created_at", "submitted_at"]
+    list_display = ["__str__", "user_link", "questionnaire_link", "status", "evaluation_status", "submitted_at"]
+    list_filter = ["status", "evaluation__status", "questionnaire__name", "created_at", "submitted_at"]
     search_fields = ["user__username", "questionnaire__name"]
     autocomplete_fields = ["user", "questionnaire"]
     readonly_fields = ["submitted_at", "metadata_display"]
@@ -247,11 +249,28 @@ class QuestionnaireSubmissionAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[m
         FreeTextAnswerInline,
     ]
 
+    def get_queryset(self, request: HttpRequest) -> QuerySet[models.QuestionnaireSubmission]:
+        qs: QuerySet[models.QuestionnaireSubmission] = super().get_queryset(request)
+        return qs.select_related("evaluation", "questionnaire", "user")
+
     def questionnaire_link(self, obj: models.QuestionnaireSubmission) -> str:
         url = reverse("admin:questionnaires_questionnaire_change", args=[obj.questionnaire.id])
         return format_html('<a href="{}">{}</a>', url, obj.questionnaire.name)
 
     questionnaire_link.short_description = "Questionnaire"  # type: ignore[attr-defined]
+
+    @admin.display(description="Evaluation")
+    def evaluation_status(self, obj: models.QuestionnaireSubmission) -> str:
+        evaluation = getattr(obj, "evaluation", None)
+        if not evaluation:
+            return "—"
+        colors = {
+            models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED: "green",
+            models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED: "red",
+            models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW: "orange",
+        }
+        color = colors.get(evaluation.status, "gray")
+        return mark_safe(f'<span style="color: {color};">{evaluation.get_status_display()}</span>')
 
     def metadata_display(self, obj: models.QuestionnaireSubmission) -> str:
         if not obj.metadata:
