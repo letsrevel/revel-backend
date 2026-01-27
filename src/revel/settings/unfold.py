@@ -282,6 +282,11 @@ UNFOLD = {
                         "icon": "text_fields",
                         "link": reverse_lazy("admin:questionnaires_freetextquestion_changelist"),
                     },
+                    {
+                        "title": _("File Upload Questions"),
+                        "icon": "upload_file",
+                        "link": reverse_lazy("admin:questionnaires_fileuploadquestion_changelist"),
+                    },
                 ],
             },
             {
