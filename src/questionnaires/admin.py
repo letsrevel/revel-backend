@@ -11,8 +11,6 @@ from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 
-from common.signing import get_file_url
-
 from . import models
 
 
@@ -240,14 +238,12 @@ class FileUploadAnswerInline(TabularInline):  # type: ignore[misc]
 
     @admin.display(description="Files")
     def files_display(self, obj: models.FileUploadAnswer) -> str:
-        if not (files := list(obj.files.all())):
+        files = obj.files.all()
+        if not files:
             return "—"
-        links: list[str] = []
+        links = []
         for f in files:
-            if url := get_file_url(f.file):
-                links.append(format_html('<a href="{}" target="_blank">{}</a>', url, f.original_filename))
-            else:
-                links.append(format_html("{}", f.original_filename))
+            links.append(format_html('<a href="{}" target="_blank">{}</a>', f.file.url, f.original_filename))
         return mark_safe(", ".join(links))
 
 
@@ -667,59 +663,3 @@ class QuestionnaireSectionAdmin(ModelAdmin):  # type: ignore[misc]
         ft_count = obj.freetextquestion_questions.count()
         fu_count = obj.fileuploadquestion_questions.count()
         return mc_count + ft_count + fu_count
-
-
-@admin.register(models.QuestionnaireFile)
-class QuestionnaireFileAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
-    """Admin for user-uploaded questionnaire files."""
-
-    list_display = [
-        "original_filename",
-        "user_link",
-        "mime_type",
-        "file_size_display",
-        "created_at",
-    ]
-    list_filter = ["mime_type", "created_at"]
-    search_fields = ["original_filename", "uploader__username", "uploader__email", "file_hash"]
-    autocomplete_fields = ["uploader"]
-    readonly_fields = [
-        "file_hash",
-        "file_size",
-        "thumbnail_preview",
-        "preview_image",
-        "created_at",
-        "updated_at",
-    ]
-    date_hierarchy = "created_at"
-    ordering = ["-created_at"]
-
-    fieldsets = (
-        (None, {"fields": ("uploader", "original_filename", "mime_type", "file")}),
-        ("File Details", {"fields": ("file_hash", "file_size")}),
-        ("Previews", {"fields": ("thumbnail_preview", "preview_image"), "classes": ["collapse"]}),
-        ("Timestamps", {"fields": ("created_at", "updated_at"), "classes": ["collapse"]}),
-    )
-
-    def get_queryset(self, request: HttpRequest) -> QuerySet[models.QuestionnaireFile]:
-        qs: QuerySet[models.QuestionnaireFile] = super().get_queryset(request)
-        return qs.select_related("uploader")
-
-    @admin.display(description="Size")
-    def file_size_display(self, obj: models.QuestionnaireFile) -> str:
-        size_kb = obj.file_size / 1024
-        if size_kb > 1024:
-            return f"{size_kb / 1024:.1f} MB"
-        return f"{size_kb:.1f} KB"
-
-    @admin.display(description="Thumbnail")
-    def thumbnail_preview(self, obj: models.QuestionnaireFile) -> str:
-        if url := get_file_url(obj.thumbnail):
-            return format_html('<img src="{}" style="max-height: 150px;" />', url)
-        return "—"
-
-    @admin.display(description="Preview")
-    def preview_image(self, obj: models.QuestionnaireFile) -> str:
-        if url := get_file_url(obj.preview):
-            return format_html('<img src="{}" style="max-height: 300px;" />', url)
-        return "—"
