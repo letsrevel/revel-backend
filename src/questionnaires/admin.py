@@ -670,12 +670,12 @@ class QuestionnaireSectionAdmin(ModelAdmin):  # type: ignore[misc]
 
 
 @admin.register(models.QuestionnaireFile)
-class QuestionnaireFileAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
+class QuestionnaireFileAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for user-uploaded questionnaire files."""
 
     list_display = [
         "original_filename",
-        "user_link",
+        "uploader_link",
         "mime_type",
         "file_size_display",
         "created_at",
@@ -704,6 +704,11 @@ class QuestionnaireFileAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     def get_queryset(self, request: HttpRequest) -> QuerySet[models.QuestionnaireFile]:
         qs: QuerySet[models.QuestionnaireFile] = super().get_queryset(request)
         return qs.select_related("uploader")
+
+    @admin.display(description="Uploader")
+    def uploader_link(self, obj: models.QuestionnaireFile) -> str:
+        url = reverse("admin:accounts_reveluser_change", args=[obj.uploader.id])
+        return format_html('<a href="{}">{}</a>', url, obj.uploader.username)
 
     @admin.display(description="Size")
     def file_size_display(self, obj: models.QuestionnaireFile) -> str:
