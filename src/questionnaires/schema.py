@@ -49,12 +49,15 @@ IMAGE_MIME_TYPES: frozenset[str] = frozenset(
 )
 
 # Common audio MIME types
+# Note: video/webm is included because browser MediaRecorder produces video/webm container
+# even for audio-only recordings (libmagic detects WebM container as video/webm)
 AUDIO_MIME_TYPES: frozenset[str] = frozenset(
     {
         "audio/mpeg",  # .mp3
         "audio/wav",
         "audio/ogg",
         "audio/webm",
+        "video/webm",  # WebM container for browser audio recordings
         "audio/aac",
         "audio/flac",
     }
