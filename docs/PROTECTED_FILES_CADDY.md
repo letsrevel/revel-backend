@@ -14,17 +14,19 @@ Add the following to your Caddyfile:
 # Protected media files - require signed URL validation
 # Single rule covers ALL protected files (protected/file/*, protected/questionnaire_files/*, etc.)
 handle_path /media/protected/* {
-    # Validate signature with Django
-    forward_auth revel_web:8000 {
-        uri /api/media/validate{uri}
-    }
+     # Validate signature with Django
+     # Note: handle_path strips /media/protected from {uri}, so we add /protected back
+     forward_auth web:8000 {
+         uri /api/media/validate/protected{uri}
+     }
 
-    # Serve from media directory
-    root * /srv/revel_media
-    file_server
+     # Serve from media directory
+     # Note: handle_path strips /media/protected, so root must include /protected
+     root * /srv/revel_media/protected
+     file_server
 
-    # Private caching (browser only, not CDN)
-    header Cache-Control "private, max-age=3600"
+     # Private caching (browser only, not CDN)
+     header Cache-Control "private, max-age=3600"
 }
 
 # Public media files - served directly without validation
