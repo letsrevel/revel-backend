@@ -483,6 +483,11 @@ class BaseQuestion(TimeStampedModel):
         abstract = True
         ordering = ["order"]
 
+    def __str__(self) -> str:
+        question_text = self.question or ""
+        short = question_text[:50] + "..." if len(question_text) > 50 else question_text
+        return short
+
 
 class BaseAnswer(TimeStampedModel):
     """An abstract model for a user's answer to a question."""
@@ -516,11 +521,6 @@ class MultipleChoiceQuestion(BaseQuestion):
     )
 
     objects = MultipleChoiceQuestionManager()
-
-    def __str__(self) -> str:
-        question_text = self.question or ""
-        short = question_text[:50] + "..." if len(question_text) > 50 else question_text
-        return short
 
 
 # ---- MultipleChoiceOption ----
@@ -634,11 +634,6 @@ class FreeTextQuestion(BaseQuestion):
 
     objects = FreeTextQuestionManager()
 
-    def __str__(self) -> str:
-        question_text = self.question or ""
-        short = question_text[:50] + "..." if len(question_text) > 50 else question_text
-        return short
-
 
 # ---- FreeTextAnswer ----
 
@@ -708,11 +703,6 @@ class FileUploadQuestion(InformationalQuestionMixin, BaseQuestion):
     )
 
     objects = FileUploadQuestionManager()
-
-    def __str__(self) -> str:
-        question_text = self.question or ""
-        short = question_text[:50] + "..." if len(question_text) > 50 else question_text
-        return short
 
 
 # ---- FileUploadAnswer ----
