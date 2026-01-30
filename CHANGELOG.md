@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.31.4] - 2026-01-30
+
+### Fixed
+- Timezone inconsistency in notification emails where event start time showed "UTC" but end time showed correct event timezone (e.g., "CET")
+- `get_formatted_context_for_template()` now preserves pre-formatted datetime fields instead of overwriting them with UTC-based reformatting
+
+### Changed
+- Added `__str__` methods to 26 models missing them (common, questionnaires, events apps)
+- Added `select_related()` to admin querysets for `QuarantinedFileAdmin` and `QuestionnaireEvaluationAdmin` to avoid N+1 queries
+
 ## [1.31.3] - 2026-01-27
 
 ### Added
@@ -643,7 +653,8 @@ Initial release of the Revel Backend platform.
 ### Internationalization
 - English, German, Italian support
 
-[Unreleased]: https://github.com/letsrevel/revel-backend/compare/v1.31.3...HEAD
+[Unreleased]: https://github.com/letsrevel/revel-backend/compare/v1.31.4...HEAD
+[1.31.4]: https://github.com/letsrevel/revel-backend/compare/v1.31.3...v1.31.4
 [1.31.3]: https://github.com/letsrevel/revel-backend/compare/v1.31.2...v1.31.3
 [1.31.2]: https://github.com/letsrevel/revel-backend/compare/v1.31.1...v1.31.2
 [1.31.1]: https://github.com/letsrevel/revel-backend/compare/v1.31.0...v1.31.1
