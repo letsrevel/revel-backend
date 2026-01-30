@@ -200,8 +200,12 @@ class TestGetFormattedContextForTemplate:
         # Since no timezone info preserved, will show UTC
         assert "2026" in result["event_start_formatted"]
 
-    def test_adds_short_format_when_only_full_exists(self) -> None:
-        """Test that short format is added even if full format exists."""
+    def test_skips_formatting_when_only_full_exists(self) -> None:
+        """Test that short format is NOT added when full format exists.
+
+        This prevents timezone inconsistency: if full format uses event timezone (CET)
+        but short format is generated from UTC ISO string, they would show different times.
+        """
         from notifications.utils import get_formatted_context_for_template
 
         context = {
@@ -214,5 +218,5 @@ class TestGetFormattedContextForTemplate:
 
         # Full format preserved
         assert result["event_start_formatted"] == "Friday, February 6, 2026 at 6:00 PM CET"
-        # Short format should be added
-        assert "event_start_short" in result
+        # Short format should NOT be added (would have wrong timezone)
+        assert "event_start_short" not in result

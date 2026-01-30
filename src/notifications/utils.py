@@ -209,12 +209,15 @@ def get_formatted_context_for_template(
 
         for field in datetime_fields:
             if field in enriched and enriched[field]:
-                # Only add formatted versions if they don't already exist
-                # (pre-formatted values use event timezone; reformatting would lose that)
-                if f"{field}_formatted" not in enriched:
-                    enriched[f"{field}_formatted"] = format_datetime(enriched[field], format_type="full")
-                if f"{field}_short" not in enriched:
-                    enriched[f"{field}_short"] = format_datetime(enriched[field], format_type="short")
+                # Only add formatted versions if neither formatted nor short versions exist.
+                # Pre-formatted values use event timezone; reformatting from the raw ISO string
+                # (which may be in UTC) could lose the correct event timezone and lead to
+                # inconsistencies between *_formatted and *_short.
+                formatted_key = f"{field}_formatted"
+                short_key = f"{field}_short"
+                if formatted_key not in enriched and short_key not in enriched:
+                    enriched[formatted_key] = format_datetime(enriched[field], format_type="full")
+                    enriched[short_key] = format_datetime(enriched[field], format_type="short")
 
         # Add organization signature if org info is present
         if "organization_name" in enriched and "organization_slug" in enriched:
