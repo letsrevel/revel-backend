@@ -154,3 +154,65 @@ class TestFormatEventDatetime:
         # Should use custom format
         assert "2026-02-06" in result
         assert "19:00" in result
+
+
+class TestGetFormattedContextForTemplate:
+    """Tests for get_formatted_context_for_template function."""
+
+    def test_preserves_existing_formatted_datetime_fields(self) -> None:
+        """Test that pre-formatted datetime fields are not overwritten.
+
+        This is critical for timezone correctness: signal handlers format dates
+        using the event's city timezone, but the ISO string stores UTC.
+        Re-formatting from ISO would lose the timezone information.
+        """
+        from notifications.utils import get_formatted_context_for_template
+
+        # Simulate context from reminder_service with pre-formatted dates
+        context = {
+            "event_start": "2026-02-06T17:00:00+00:00",  # UTC ISO string
+            "event_start_formatted": "Friday, February 6, 2026 at 6:00 PM CET",  # Pre-formatted with event timezone
+            "event_end_formatted": "Saturday, February 7, 2026 at 12:00 PM CET",  # No event_end ISO, only formatted
+        }
+
+        result = get_formatted_context_for_template(context)
+
+        # Pre-formatted values should be preserved, not overwritten with UTC
+        assert result["event_start_formatted"] == "Friday, February 6, 2026 at 6:00 PM CET"
+        assert result["event_end_formatted"] == "Saturday, February 7, 2026 at 12:00 PM CET"
+        # Should NOT contain UTC (which would happen if overwritten)
+        assert "UTC" not in result["event_start_formatted"]
+
+    def test_adds_formatted_fields_when_not_present(self) -> None:
+        """Test that formatted fields are added when they don't exist."""
+        from notifications.utils import get_formatted_context_for_template
+
+        context = {
+            "event_start": "2026-02-06T17:00:00+00:00",
+            # No event_start_formatted - should be created
+        }
+
+        result = get_formatted_context_for_template(context)
+
+        # Should have created the formatted version
+        assert "event_start_formatted" in result
+        assert "event_start_short" in result
+        # Since no timezone info preserved, will show UTC
+        assert "2026" in result["event_start_formatted"]
+
+    def test_adds_short_format_when_only_full_exists(self) -> None:
+        """Test that short format is added even if full format exists."""
+        from notifications.utils import get_formatted_context_for_template
+
+        context = {
+            "event_start": "2026-02-06T17:00:00+00:00",
+            "event_start_formatted": "Friday, February 6, 2026 at 6:00 PM CET",
+            # No event_start_short
+        }
+
+        result = get_formatted_context_for_template(context)
+
+        # Full format preserved
+        assert result["event_start_formatted"] == "Friday, February 6, 2026 at 6:00 PM CET"
+        # Short format should be added
+        assert "event_start_short" in result
