@@ -86,3 +86,6 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
             models.UniqueConstraint(fields=["organization", "slug"], name="unique_event_series_slug"),
         ]
         ordering = ("organization__name", "name")
+
+    def __str__(self) -> str:
+        return self.name

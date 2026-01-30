@@ -73,3 +73,6 @@ class EventRSVP(TimeStampedModel):
                 name="unique_event_user",
             )
         ]
+
+    def __str__(self) -> str:
+        return f"RSVP: {self.user_id} -> {self.event_id} ({self.status})"

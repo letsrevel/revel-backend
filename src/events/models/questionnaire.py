@@ -90,6 +90,9 @@ class OrganizationQuestionnaire(TimeStampedModel):
         ]
         ordering = ["-created_at"]
 
+    def __str__(self) -> str:
+        return f"{self.questionnaire_id} ({self.organization_id})"
+
 
 class EventQuestionnaireSubmission(TimeStampedModel):
     """Tracks questionnaire submissions per user per event.

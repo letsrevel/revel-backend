@@ -287,8 +287,14 @@ class FileUploadAudit(TimeStampedModel):
     )
     notified = models.BooleanField(default=False)
 
+    def __str__(self) -> str:
+        return f"{self.app}.{self.model}.{self.field} ({self.status})"
+
 
 class QuarantinedFile(TimeStampedModel):
     audit = models.OneToOneField(FileUploadAudit, on_delete=models.CASCADE)
     file = models.FileField(upload_to="quarantined_files")
     findings = models.JSONField()
+
+    def __str__(self) -> str:
+        return f"Quarantined: {self.audit_id}"

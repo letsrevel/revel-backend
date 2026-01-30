@@ -33,3 +33,6 @@ class PotluckItem(TimeStampedModel):
     assignee = models.ForeignKey(
         RevelUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="potluck_items"
     )
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.item_type})"

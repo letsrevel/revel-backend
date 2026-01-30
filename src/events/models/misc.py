@@ -146,6 +146,9 @@ class AdditionalResource(TimeStampedModel, VisibilityMixin):
 
     objects = AdditionalResourceManager()
 
+    def __str__(self) -> str:
+        return f"{self.name or 'Unnamed'} ({self.resource_type})"
+
     def clean(self) -> None:
         """Override the clean method."""
         super().clean()

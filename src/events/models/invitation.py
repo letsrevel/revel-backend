@@ -93,6 +93,9 @@ class EventInvitation(AbstractEventInvitation):
         ]
         ordering = ["-created_at"]
 
+    def __str__(self) -> str:
+        return f"Invitation: {self.user_id} to {self.event_id}"
+
 
 class PendingEventInvitation(AbstractEventInvitation):
     """Event invitation for unregistered users (by email)."""
@@ -129,6 +132,9 @@ class EventToken(TokenMixin):
             models.Index(fields=["event", "-created_at"], name="eventtoken_event_created"),
         ]
         ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Token {self.id} for {self.event_id}"
 
 
 class EventInvitationRequestQuerySet(models.QuerySet["EventInvitationRequest"]):
@@ -185,3 +191,6 @@ class EventInvitationRequest(UserRequestMixin):
             )
         ]
         ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Invitation request: {self.user_id} -> {self.event_id} ({self.status})"

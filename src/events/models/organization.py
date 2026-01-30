@@ -275,6 +275,9 @@ class OrganizationStaff(TimeStampedModel):
         constraints = [models.UniqueConstraint(fields=["organization", "user"], name="unique_organization_staff")]
         ordering = ["-created_at"]
 
+    def __str__(self) -> str:
+        return f"{self.user_id} @ {self.organization_id} (staff)"
+
     def has_permission(self, permission: str, event_id: str | None = None) -> bool:
         """Verify if a user has permission to perform this action."""
         if event_id:
@@ -390,6 +393,9 @@ class OrganizationMember(TimeStampedModel):
             models.UniqueConstraint(fields=["organization", "user"], name="unique_organization_member_user"),
         ]
 
+    def __str__(self) -> str:
+        return f"{self.user_id} @ {self.organization_id} ({self.status})"
+
     def clean(self) -> None:
         """Validate that tier belongs to the same organization."""
         super().clean()
@@ -418,6 +424,9 @@ class OrganizationToken(TokenMixin):
             models.Index(fields=["organization", "-created_at"], name="orgtoken_org_created"),
         ]
         ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Token {self.id} for {self.organization_id}"
 
     def clean(self) -> None:
         """Validate membership tier configuration."""
@@ -450,3 +459,6 @@ class OrganizationMembershipRequest(UserRequestMixin):
             )
         ]
         ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Membership request: {self.user_id} -> {self.organization_id} ({self.status})"
