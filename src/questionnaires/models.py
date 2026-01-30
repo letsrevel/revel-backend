@@ -238,6 +238,9 @@ class Questionnaire(TimeStampedModel):
 
     objects = QuestionnaireManager()
 
+    def __str__(self) -> str:
+        return self.name
+
     def get_llm_backend(self) -> FreeTextEvaluator:
         """Get the LLM backend."""
         backend = self.llm_backend
@@ -318,6 +321,9 @@ class QuestionnaireSubmission(TimeStampedModel):
         ]
         ordering = ["-submitted_at"]
 
+    def __str__(self) -> str:
+        return f"{self.user_id} - {self.questionnaire_id} ({self.status})"
+
     def clean(self) -> None:
         """Set submitted_at when status is changed to SUBMITTED."""
         super().clean()
@@ -370,6 +376,9 @@ class QuestionnaireSection(TimeStampedModel):
 
     class Meta:
         ordering = ["order"]
+
+    def __str__(self) -> str:
+        return f"{self.questionnaire_id} - {self.name}"
 
     def clean(self) -> None:
         """Validate that depends_on_option belongs to the same questionnaire."""
@@ -508,6 +517,11 @@ class MultipleChoiceQuestion(BaseQuestion):
 
     objects = MultipleChoiceQuestionManager()
 
+    def __str__(self) -> str:
+        question_text = self.question or ""
+        short = question_text[:50] + "..." if len(question_text) > 50 else question_text
+        return short
+
 
 # ---- MultipleChoiceOption ----
 
@@ -533,6 +547,9 @@ class MultipleChoiceOption(TimeStampedModel):
     )
 
     objects = MultipleChoiceOptionManager()
+
+    def __str__(self) -> str:
+        return self.option
 
     def clean(self) -> None:
         """Ensure that for single-answer questions, only one option can be marked as correct."""
@@ -570,6 +587,9 @@ class MultipleChoiceAnswer(BaseAnswer):
     option = models.ForeignKey(MultipleChoiceOption, on_delete=models.CASCADE, related_name="answers")
 
     objects = MultipleChoiceAnswerManager()
+
+    def __str__(self) -> str:
+        return f"MC Answer: {self.option_id} for Q{self.question_id}"
 
     def clean(self) -> None:
         """Ensure that a user cannot submit multiple answers to a question that does not allow it."""
@@ -614,6 +634,11 @@ class FreeTextQuestion(BaseQuestion):
 
     objects = FreeTextQuestionManager()
 
+    def __str__(self) -> str:
+        question_text = self.question or ""
+        short = question_text[:50] + "..." if len(question_text) > 50 else question_text
+        return short
+
 
 # ---- FreeTextAnswer ----
 
@@ -633,6 +658,9 @@ class FreeTextAnswer(BaseAnswer):
     answer = models.TextField()
 
     objects = FreeTextAnswerManager()
+
+    def __str__(self) -> str:
+        return f"FreeText Answer for Q{self.question_id}"
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["submission", "question"], name="unique_user_freetext_answer")]
@@ -680,6 +708,11 @@ class FileUploadQuestion(InformationalQuestionMixin, BaseQuestion):
     )
 
     objects = FileUploadQuestionManager()
+
+    def __str__(self) -> str:
+        question_text = self.question or ""
+        short = question_text[:50] + "..." if len(question_text) > 50 else question_text
+        return short
 
 
 # ---- FileUploadAnswer ----
@@ -785,6 +818,9 @@ class QuestionnaireEvaluation(TimeStampedModel):
     evaluator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
 
     objects = QuestionnaireEvaluationManager()
+
+    def __str__(self) -> str:
+        return f"Evaluation for {self.submission_id} ({self.status})"
 
     @cached_property
     def evaluation_data(self) -> EvaluationAuditData:

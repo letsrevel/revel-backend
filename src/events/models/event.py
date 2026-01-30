@@ -472,6 +472,9 @@ class EventWaitList(TimeStampedModel):
         constraints = [models.UniqueConstraint(fields=["event", "user"], name="unique_event_waitlist")]
         ordering = ["-created_at"]
 
+    def __str__(self) -> str:
+        return f"{self.user_id} on waitlist for {self.event_id}"
+
 
 class AttendeeVisibilityFlag(TimeStampedModel):
     user = models.ForeignKey(RevelUser, on_delete=models.CASCADE, related_name="visible_attendees")
@@ -491,3 +494,7 @@ class AttendeeVisibilityFlag(TimeStampedModel):
             models.Index(fields=["user", "event"]),
             models.Index(fields=["event", "target"]),
         ]
+
+    def __str__(self) -> str:
+        visibility = "visible" if self.is_visible else "hidden"
+        return f"{self.target_id} {visibility} to {self.user_id}"

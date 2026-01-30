@@ -369,6 +369,10 @@ class QuestionnaireEvaluationAdmin(ModelAdmin):  # type: ignore[misc]
         ("Timestamps", {"fields": ("created_at", "updated_at"), "classes": ["collapse"]}),
     )
 
+    def get_queryset(self, request: HttpRequest) -> QuerySet[models.QuestionnaireEvaluation]:
+        qs: QuerySet[models.QuestionnaireEvaluation] = super().get_queryset(request)
+        return qs.select_related("submission__user", "submission__questionnaire", "evaluator")
+
     def submission_user(self, obj: models.QuestionnaireEvaluation) -> str:
         url = reverse("admin:accounts_reveluser_change", args=[obj.submission.user.id])
         return format_html('<a href="{}">{}</a>', url, obj.submission.user.username)

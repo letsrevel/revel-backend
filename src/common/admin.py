@@ -124,6 +124,9 @@ class QuarantinedFileAdmin(ModelAdmin, UploaderLinkMixin):  # type: ignore[misc]
     date_hierarchy = "created_at"
     ordering = ["-created_at"]
 
+    def get_queryset(self, request: t.Any) -> t.Any:
+        return super().get_queryset(request).select_related("audit")
+
     def audit_link(self, obj: models.QuarantinedFile) -> str:
         url = reverse("admin:common_fileuploadaudit_change", args=[obj.audit.id])
         return format_html(
