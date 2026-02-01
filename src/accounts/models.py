@@ -13,7 +13,13 @@ from django.utils import timezone
 from encrypted_fields.fields import EncryptedTextField
 
 from accounts.validators import normalize_phone_number, validate_phone_number
-from common.fields import ALLOWED_IMAGE_EXTENSIONS, MarkdownField, ProtectedImageField, validate_image_file
+from common.fields import (
+    ALLOWED_IMAGE_EXTENSIONS,
+    MarkdownField,
+    ProtectedFileField,
+    ProtectedImageField,
+    validate_image_file,
+)
 from common.models import ExifStripMixin, TimeStampedModel
 
 
@@ -127,7 +133,7 @@ class UserDataExport(TimeStampedModel):
         FAILED = "FAILED", "Failed"
 
     user = models.OneToOneField(RevelUser, on_delete=models.CASCADE, related_name="data_export")
-    file = models.FileField(upload_to="user_data_exports/", null=True, blank=True)
+    file = ProtectedFileField(upload_to="user_data_exports/", null=True, blank=True)
     status = models.CharField(max_length=20, choices=UserDataExportStatus.choices, default=UserDataExportStatus.PENDING)
     error_message = models.TextField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)

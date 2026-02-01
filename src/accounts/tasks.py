@@ -18,8 +18,12 @@ from ninja_jwt.utils import aware_utcnow
 from accounts.models import EmailVerificationReminderTracking, RevelUser, UserDataExport
 from accounts.service import gdpr
 from common.models import SiteSettings
+from common.signing import generate_signed_url
 from common.tasks import send_email
 from events.models import EventToken
+
+# 7 days in seconds for data export download links
+DATA_EXPORT_URL_EXPIRES_IN = 7 * 24 * 60 * 60
 
 logger = structlog.get_logger(__name__)
 
@@ -140,7 +144,8 @@ def _notify_user_data_export_ready(data_export: UserDataExport) -> None:
         email=data_export.user.email,
         export_id=str(data_export.id),
     )
-    download_url = settings.BASE_URL + data_export.file.url
+    signed_path = generate_signed_url(data_export.file.name, expires_in=DATA_EXPORT_URL_EXPIRES_IN)
+    download_url = settings.BASE_URL + signed_path
     subject = "Your Revel Data Export is Ready"
     body = render_to_string(
         "accounts/emails/data_export_ready_body.txt", {"download_url": download_url, "user": data_export.user}
@@ -534,6 +539,44 @@ def deactivate_unverified_accounts() -> dict[str, int]:
 
     logger.info("accounts_deactivated", count=count)
     return {"count": count}
+
+
+@shared_task
+def cleanup_expired_data_exports() -> dict[str, int]:
+    """Delete files from expired data exports while preserving database records.
+
+    Data export download links are valid for 7 days. After that, the file is no longer
+    accessible via signed URL, so we can safely delete it to reclaim storage.
+
+    The database record is preserved for auditing purposes (shows user requested an export).
+
+    Returns:
+        Dict with count of files deleted.
+    """
+    now = timezone.now()
+    expiry_cutoff = now - timedelta(seconds=DATA_EXPORT_URL_EXPIRES_IN)
+
+    # Find exports with files that are older than the URL expiry time
+    expired_exports = UserDataExport.objects.filter(
+        completed_at__lte=expiry_cutoff,
+        status=UserDataExport.UserDataExportStatus.READY,
+    ).exclude(file="")
+
+    count = 0
+    for export in expired_exports:
+        export.file.delete(save=False)
+        export.file = None
+        export.save(update_fields=["file", "updated_at"])
+        count += 1
+        logger.info(
+            "data_export_file_deleted",
+            export_id=str(export.id),
+            user_id=str(export.user_id),
+            completed_at=export.completed_at.isoformat() if export.completed_at else None,
+        )
+
+    logger.info("data_export_cleanup_completed", files_deleted=count)
+    return {"files_deleted": count}
 
 
 @shared_task
