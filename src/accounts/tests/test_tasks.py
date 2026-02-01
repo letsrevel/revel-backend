@@ -20,12 +20,12 @@ def test_cleanup_expired_data_exports_deletes_old_files(user: RevelUser) -> None
         completed_at=timezone.now() - timedelta(seconds=DATA_EXPORT_URL_EXPIRES_IN + 1),
     )
     export.file.save("test_export.zip", ContentFile(b"test content"), save=True)
-    assert export.file
+    assert export.file.name
 
     result = cleanup_expired_data_exports()
 
     export.refresh_from_db()
-    assert not export.file
+    assert not export.file.name
     assert result == {"files_deleted": 1}
 
 
@@ -38,12 +38,12 @@ def test_cleanup_expired_data_exports_ignores_recent_exports(user: RevelUser) ->
         completed_at=timezone.now() - timedelta(days=1),
     )
     export.file.save("test_export.zip", ContentFile(b"test content"), save=True)
-    assert export.file
+    assert export.file.name
 
     result = cleanup_expired_data_exports()
 
     export.refresh_from_db()
-    assert export.file
+    assert export.file.name
     assert result == {"files_deleted": 0}
 
 

@@ -14,6 +14,6 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='userdataexport',
             name='file',
-            field=common.fields.ProtectedFileField(blank=True, null=True, upload_to='protected/user_data_exports/'),
+            field=common.fields.ProtectedFileField(blank=True, null=True, upload_to='user_data_exports/'),
         ),
     ]
