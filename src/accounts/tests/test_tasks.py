@@ -1,11 +1,50 @@
 """Tests for the accounts tasks."""
 
+from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.core.files.base import ContentFile
+from django.utils import timezone
 
-from accounts.models import RevelUser
-from accounts.tasks import generate_user_data_export
+from accounts.models import RevelUser, UserDataExport
+from accounts.tasks import DATA_EXPORT_URL_EXPIRES_IN, cleanup_expired_data_exports, generate_user_data_export
+
+
+@pytest.mark.django_db
+def test_cleanup_expired_data_exports_deletes_old_files(user: RevelUser) -> None:
+    """Test that files from expired exports are deleted."""
+    export = UserDataExport.objects.create(
+        user=user,
+        status=UserDataExport.UserDataExportStatus.READY,
+        completed_at=timezone.now() - timedelta(seconds=DATA_EXPORT_URL_EXPIRES_IN + 1),
+    )
+    export.file.save("test_export.zip", ContentFile(b"test content"), save=True)
+    assert export.file.name
+
+    result = cleanup_expired_data_exports()
+
+    export.refresh_from_db()
+    assert not export.file.name
+    assert result == {"files_deleted": 1}
+
+
+@pytest.mark.django_db
+def test_cleanup_expired_data_exports_ignores_recent_exports(user: RevelUser) -> None:
+    """Test that recent exports are not touched."""
+    export = UserDataExport.objects.create(
+        user=user,
+        status=UserDataExport.UserDataExportStatus.READY,
+        completed_at=timezone.now() - timedelta(days=1),
+    )
+    export.file.save("test_export.zip", ContentFile(b"test content"), save=True)
+    assert export.file.name
+
+    result = cleanup_expired_data_exports()
+
+    export.refresh_from_db()
+    assert export.file.name
+    assert result == {"files_deleted": 0}
 
 
 @pytest.mark.django_db(transaction=True)
