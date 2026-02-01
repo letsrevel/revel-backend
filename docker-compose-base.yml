@@ -64,7 +64,7 @@ services:
         target: /var/lib/postgresql/data
 
   clamav:
-    image: mkodockx/docker-clamav:alpine
+    image: clamav/clamav-debian:stable
     container_name: clamav
     restart: unless-stopped
     ports:
