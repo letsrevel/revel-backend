@@ -31,6 +31,7 @@ class NotificationType(TextChoices):
 
     # Potluck notifications (need 1 version for recipients, one for owners/staff)
     POTLUCK_ITEM_CREATED = "potluck_item_created"
+    POTLUCK_ITEM_CREATED_AND_CLAIMED = "potluck_item_created_and_claimed"  # Atomic create+claim
     POTLUCK_ITEM_UPDATED = "potluck_item_updated"
     POTLUCK_ITEM_CLAIMED = "potluck_item_claimed"
     POTLUCK_ITEM_UNCLAIMED = "potluck_item_unclaimed"

@@ -11,18 +11,25 @@ from events.models import Event, PotluckItem
 logger = structlog.get_logger(__name__)
 
 
-def create_potluck_item(event: Event, created_by: RevelUser, **kwargs: t.Any) -> PotluckItem:
+def create_potluck_item(
+    event: Event,
+    created_by: RevelUser,
+    *,
+    assignee: RevelUser | None = None,
+    **kwargs: t.Any,
+) -> PotluckItem:
     """Create a new potluck item for an event.
 
     Args:
         event: The event this item belongs to
         created_by: User who created the item
+        assignee: Optional user to immediately claim the item (atomic create+claim)
         **kwargs: Additional fields for the potluck item
 
     Returns:
         The created PotluckItem instance
     """
-    return PotluckItem.objects.create(event=event, created_by=created_by, **kwargs)
+    return PotluckItem.objects.create(event=event, created_by=created_by, assignee=assignee, **kwargs)
 
 
 def claim_potluck_item(potluck_item: PotluckItem, user: RevelUser) -> PotluckItem:

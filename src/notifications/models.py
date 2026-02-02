@@ -160,6 +160,9 @@ def get_default_notification_type_settings() -> dict[NotificationType, Notificat
         # Potluck notifications - IN_APP only
         NotificationType.POTLUCK_ITEM_CLAIMED: NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP]),
         NotificationType.POTLUCK_ITEM_CREATED: NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP]),
+        NotificationType.POTLUCK_ITEM_CREATED_AND_CLAIMED: NotificationTypeSetting(
+            enabled=True, channels=[DeliveryChannel.IN_APP]
+        ),
         NotificationType.POTLUCK_ITEM_UPDATED: NotificationTypeSetting(enabled=True, channels=[DeliveryChannel.IN_APP]),
         NotificationType.POTLUCK_ITEM_UNCLAIMED: NotificationTypeSetting(
             enabled=True, channels=[DeliveryChannel.IN_APP]

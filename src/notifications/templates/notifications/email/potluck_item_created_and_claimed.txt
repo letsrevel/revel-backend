@@ -1,0 +1,21 @@
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
+
+{% if context.is_organizer and context.actor_name %}
+🍽️✅ {% blocktranslate with actor=context.actor_name item=context.item_name event=context.event_name %}{{ actor }} added and claimed "{{ item }}" for {{ event }}.{% endblocktranslate %}
+{% else %}
+🍽️✅ {% blocktranslate with item=context.item_name event=context.event_name %}A new potluck item "{{ item }}" has been added and claimed for {{ event }}.{% endblocktranslate %}
+{% endif %}
+
+{% trans "Item Details:" %}
+- {% trans "Item:" %} {{ context.item_name }}
+- {% trans "Category:" %} {{ context.item_type }}
+{% if context.quantity %}- {% trans "Quantity:" %} {{ context.quantity }}{% endif %}
+{% if context.actor_name %}- {% trans "Added and claimed by:" %} {{ context.actor_name }}{% endif %}
+
+{% if context.note %}
+{% trans "Description:" %} {{ context.note }}
+{% endif %}
+
+{% trans "View potluck list:" %} {{ context.event_url }}
+
+{% include "notifications/email/_footer.txt" %}

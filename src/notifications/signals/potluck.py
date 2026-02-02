@@ -19,7 +19,7 @@ logger = structlog.get_logger(__name__)
 
 def _get_actor_name(instance: PotluckItem, action: str) -> str | None:
     """Get the name of the person who performed the action."""
-    if action == "created" and instance.created_by:
+    if action in ("created", "created_and_claimed") and instance.created_by:
         return instance.created_by.display_name
     if action == "claimed" and instance.assignee:
         return instance.assignee.display_name
@@ -59,15 +59,26 @@ def _build_potluck_context(instance: PotluckItem, action: str, user: RevelUser) 
     return context
 
 
-@receiver(post_save, sender=PotluckItem)
+@receiver(post_save, sender=PotluckItem, dispatch_uid="potluck_item_save_notification")
 def handle_potluck_item_save(sender: type[PotluckItem], instance: PotluckItem, created: bool, **kwargs: t.Any) -> None:
     """Handle potluck item creation and updates."""
     event = instance.event
 
     if created:
-        action = "created"
-        notification_type = NotificationType.POTLUCK_ITEM_CREATED
-        logger.info("potluck_item_created", potluck_item_id=str(instance.id), event_id=str(event.id))
+        # Atomic create+claim: item was created with an assignee already set
+        if instance.assignee:
+            action = "created_and_claimed"
+            notification_type = NotificationType.POTLUCK_ITEM_CREATED_AND_CLAIMED
+            logger.info(
+                "potluck_item_created_and_claimed",
+                potluck_item_id=str(instance.id),
+                event_id=str(event.id),
+                assignee_id=str(instance.assignee_id),
+            )
+        else:
+            action = "created"
+            notification_type = NotificationType.POTLUCK_ITEM_CREATED
+            logger.info("potluck_item_created", potluck_item_id=str(instance.id), event_id=str(event.id))
     else:
         # For updates, determine action based on assignee
         if instance.assignee:

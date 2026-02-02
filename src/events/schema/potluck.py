@@ -7,6 +7,7 @@ from events import models
 
 class PotluckItemCreateSchema(ModelSchema):
     item_type: models.PotluckItem.ItemTypes
+    claim: bool = False  # When True, immediately claim the item after creation
 
     class Meta:
         model = models.PotluckItem

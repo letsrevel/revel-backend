@@ -57,11 +57,14 @@ class PotluckController(UserAwareController):
     def create_potluck_item(self, event_id: UUID, payload: schema.PotluckItemCreateSchema) -> PotluckItem:
         """Add a new item to the event's potluck list.
 
-        Specify item name, quantity, and optional notes. Attendees can claim items via
+        Specify item name, quantity, and optional notes. Set claim=true to immediately
+        claim the item after creation. Attendees can also claim items later via
         POST /{event_id}/potluck/{item_id}/claim. Requires permission to create potluck items.
         """
         event = self.get_object_or_exception(self.get_event_queryset(), pk=event_id)
-        return potluck_service.create_potluck_item(event, created_by=self.user(), **payload.model_dump())
+        data = payload.model_dump(exclude={"claim"})
+        assignee = self.user() if payload.claim else None
+        return potluck_service.create_potluck_item(event, created_by=self.user(), assignee=assignee, **data)
 
     @route.put(
         "/{item_id}",
