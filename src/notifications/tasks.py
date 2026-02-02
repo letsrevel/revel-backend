@@ -16,8 +16,8 @@ from notifications.service.channels.registry import get_channel_instance
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(bind=True, max_retries=3)
-def dispatch_notification(self: t.Any, notification_id: str) -> dict[str, t.Any]:
+@shared_task
+def dispatch_notification(notification_id: str) -> dict[str, t.Any]:
     """Main dispatcher task - creates delivery records and dispatches to channels.
 
     This task:
@@ -28,7 +28,6 @@ def dispatch_notification(self: t.Any, notification_id: str) -> dict[str, t.Any]
     5. Dispatches to channel-specific delivery tasks
 
     Args:
-        self: Celery task instance (automatically passed when bind=True)
         notification_id: UUID of notification to dispatch
 
     Returns:
@@ -105,8 +104,23 @@ def dispatch_notification(self: t.Any, notification_id: str) -> dict[str, t.Any]
     }
 
 
-@shared_task(bind=True, max_retries=3)
-def dispatch_notifications_batch(self: t.Any, notification_ids: list[str]) -> dict[str, t.Any]:
+class BatchDispatchError(Exception):
+    """Raised when one or more notifications fail to dispatch in a batch."""
+
+    def __init__(self, failed_ids: list[str], total: int) -> None:
+        """Initialize BatchDispatchError.
+
+        Args:
+            failed_ids: List of notification IDs that failed to dispatch.
+            total: Total number of notifications in the batch.
+        """
+        self.failed_ids = failed_ids
+        self.total = total
+        super().__init__(f"{len(failed_ids)}/{total} notifications failed to dispatch")
+
+
+@shared_task
+def dispatch_notifications_batch(notification_ids: list[str]) -> dict[str, t.Any]:
     """Dispatch multiple notifications efficiently.
 
     This task is more efficient than dispatching individual tasks for each notification
@@ -117,11 +131,13 @@ def dispatch_notifications_batch(self: t.Any, notification_ids: list[str]) -> di
     to avoid memory issues and long task execution times.
 
     Args:
-        self: Celery task instance (automatically passed when bind=True)
         notification_ids: List of notification UUIDs to dispatch
 
     Returns:
         Dict with batch dispatch stats
+
+    Raises:
+        BatchDispatchError: If any notifications fail to dispatch (after processing all).
     """
     if not notification_ids:
         return {"processed": 0, "errors": 0}
@@ -145,14 +161,14 @@ def dispatch_notifications_batch(self: t.Any, notification_ids: list[str]) -> di
 
     # For smaller batches, process directly in this task
     processed = 0
-    errors = 0
+    failed_ids: list[str] = []
 
     for notification_id in notification_ids:
         try:
             dispatch_notification(notification_id)
             processed += 1
         except Exception as e:
-            errors += 1
+            failed_ids.append(notification_id)
             logger.exception(
                 "batch_dispatch_item_failed",
                 notification_id=notification_id,
@@ -163,12 +179,16 @@ def dispatch_notifications_batch(self: t.Any, notification_ids: list[str]) -> di
         "notifications_batch_dispatched",
         total=len(notification_ids),
         processed=processed,
-        errors=errors,
+        errors=len(failed_ids),
     )
+
+    # Fail loudly if any notifications failed - NO SILENT FAILURES
+    if failed_ids:
+        raise BatchDispatchError(failed_ids, len(notification_ids))
 
     return {
         "processed": processed,
-        "errors": errors,
+        "errors": 0,
         "total": len(notification_ids),
     }
 

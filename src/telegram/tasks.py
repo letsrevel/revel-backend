@@ -6,14 +6,9 @@ from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from aiogram.types import InlineKeyboardMarkup
 from asgiref.sync import async_to_sync
 from celery import Task, shared_task
-from django.db import transaction
 
-from events import utils as event_utils
-from events.models import EventInvitation
-from events.service.event_manager import EligibilityService
 from notifications.enums import DeliveryStatus
 from telegram import utils
-from telegram.keyboards import get_event_eligible_keyboard
 from telegram.models import TelegramUser
 
 logger = structlog.getLogger(__name__)
@@ -142,7 +137,7 @@ def send_message_task(
         raise unexpected_exception
 
 
-@shared_task(name="telegram.send_broadcast_message_task", queue="telegram")
+@shared_task(name="telegram.send_broadcast_message_task")
 def send_broadcast_message_task(message: str) -> int:
     """Sends a broadcast message to all Telegram users."""
     logger.info(f"telegram.tasks.send_broadcast_message_task({message=})")
@@ -152,32 +147,3 @@ def send_broadcast_message_task(message: str) -> int:
     total = telegram_users.count()
     logger.info(f"Queued {total} Telegram users to broadcast.")
     return total
-
-
-@shared_task(name="telegram.send_event_invitation_task", queue="telegram")
-@transaction.atomic
-def send_event_invitation_task(invitation_id: str) -> None:
-    """Fetches an event invitation and sends a message to the user via Telegram.
-
-    with the appropriate keyboard based on their eligibility.
-    """
-    invitation = EventInvitation.objects.select_related("user", "event").get(id=invitation_id)
-    user = invitation.user
-    event = invitation.event
-    tg_user = TelegramUser.objects.filter(user=user).first()
-    if not tg_user:
-        logger.warning(
-            f"No TelegramUser found for Django user {user.username} (ID: {user.id}). Cannot send invitation."
-        )
-        return
-
-    # Use the TicketHandler to determine the next steps
-    handler = EligibilityService(user=user, event=event)
-    eligibility = handler.check_eligibility()
-
-    # Construct the message and keyboard based on eligibility
-    message_text = event_utils.get_invitation_message(user, event)
-
-    reply_markup = get_event_eligible_keyboard(event, eligibility, user)
-
-    async_to_sync(utils.send_telegram_message)(tg_user.telegram_id, message=message_text, reply_markup=reply_markup)
