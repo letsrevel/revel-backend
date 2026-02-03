@@ -22,12 +22,16 @@ class PotluckItemTemplate(NotificationTemplate):
         if is_organizer and actor_name:
             if action == "created":
                 return _("%(actor)s added %(item)s") % {"actor": actor_name, "item": item_name}
+            if action == "created_and_claimed":
+                return _("%(actor)s added and claimed %(item)s") % {"actor": actor_name, "item": item_name}
             if action == "claimed":
                 return _("%(actor)s claimed %(item)s") % {"actor": actor_name, "item": item_name}
 
         # Regular participants get item-focused titles
         if action == "created":
             return _("New Potluck Item: %(item)s") % {"item": item_name}
+        if action == "created_and_claimed":
+            return _("New Potluck Item Claimed: %(item)s") % {"item": item_name}
         if action == "claimed":
             return _("Potluck Item Claimed: %(item)s") % {"item": item_name}
         if action == "unclaimed":
@@ -52,6 +56,12 @@ class PotluckItemTemplate(NotificationTemplate):
                     "item": item_name,
                     "event": event_name,
                 }
+            if action == "created_and_claimed":
+                return _("%(actor)s added and claimed %(item)s - %(event)s") % {
+                    "actor": actor_name,
+                    "item": item_name,
+                    "event": event_name,
+                }
             if action == "claimed":
                 return _("%(actor)s claimed %(item)s - %(event)s") % {
                     "actor": actor_name,
@@ -69,6 +79,7 @@ class PotluckItemTemplate(NotificationTemplate):
 
 # Register templates
 register_template(NotificationType.POTLUCK_ITEM_CREATED, PotluckItemTemplate())
+register_template(NotificationType.POTLUCK_ITEM_CREATED_AND_CLAIMED, PotluckItemTemplate())
 register_template(NotificationType.POTLUCK_ITEM_UPDATED, PotluckItemTemplate())
 register_template(NotificationType.POTLUCK_ITEM_CLAIMED, PotluckItemTemplate())
 register_template(NotificationType.POTLUCK_ITEM_UNCLAIMED, PotluckItemTemplate())

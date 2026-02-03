@@ -26,6 +26,7 @@ def _get_guest_notification_type_settings() -> dict[str, t.Any]:
     disabled_types = [
         NotificationType.EVENT_OPEN,  # Can't browse events
         NotificationType.POTLUCK_ITEM_CREATED,  # Typically not participating
+        NotificationType.POTLUCK_ITEM_CREATED_AND_CLAIMED,
         NotificationType.POTLUCK_ITEM_UPDATED,
         NotificationType.POTLUCK_ITEM_CLAIMED,
         NotificationType.POTLUCK_ITEM_UNCLAIMED,

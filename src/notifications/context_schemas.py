@@ -464,6 +464,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.RSVP_UPDATED: RSVPUpdatedContext,
     NotificationType.RSVP_CANCELLED: RSVPCancelledContext,
     NotificationType.POTLUCK_ITEM_CREATED: PotluckItemContext,
+    NotificationType.POTLUCK_ITEM_CREATED_AND_CLAIMED: PotluckItemContext,
     NotificationType.POTLUCK_ITEM_UPDATED: PotluckItemContext,
     NotificationType.POTLUCK_ITEM_CLAIMED: PotluckItemContext,
     NotificationType.POTLUCK_ITEM_UNCLAIMED: PotluckItemContext,

@@ -38,9 +38,9 @@ class TestCreateNotificationPreferences:
         assert DeliveryChannel.EMAIL in prefs.enabled_channels
 
         # Regular users have custom settings for certain notification types:
-        # - 5 potluck notifications (IN_APP only, no email)
+        # - 6 potluck notifications (IN_APP only, no email)
         # - 4 follow notifications (IN_APP only, no email)
-        assert len(prefs.notification_type_settings) == 9
+        assert len(prefs.notification_type_settings) == 10
 
     def test_creates_preferences_for_guest_user_with_restrictions(
         self,
@@ -66,13 +66,14 @@ class TestCreateNotificationPreferences:
         assert DeliveryChannel.IN_APP in prefs.enabled_channels
         assert DeliveryChannel.EMAIL in prefs.enabled_channels
 
-        # But have 14 notification types disabled
-        assert len(prefs.notification_type_settings) == 14
+        # But have 15 notification types disabled
+        assert len(prefs.notification_type_settings) == 15
 
         # Verify specific disabled types
         disabled_types = [
             NotificationType.EVENT_OPEN,
             NotificationType.POTLUCK_ITEM_CREATED,
+            NotificationType.POTLUCK_ITEM_CREATED_AND_CLAIMED,
             NotificationType.POTLUCK_ITEM_UPDATED,
             NotificationType.POTLUCK_ITEM_CLAIMED,
             NotificationType.POTLUCK_ITEM_UNCLAIMED,
