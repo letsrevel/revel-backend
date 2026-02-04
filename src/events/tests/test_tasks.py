@@ -38,8 +38,8 @@ def test_build_attendee_visibility_flags(
     # Viewer is attendee1, target is attendee2
     # Let's say attendee1 can see attendee2
     # Configure the mock to return boolean values directly
-    mock_resolve_visibility_fast.side_effect = (
-        lambda viewer, target, *args, **kwargs: viewer == attendee1 and target == attendee2
+    mock_resolve_visibility_fast.side_effect = lambda viewer, target, *args, **kwargs: (
+        viewer == attendee1 and target == attendee2
     )
 
     tier = event.ticket_tiers.first()
