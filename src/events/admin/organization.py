@@ -4,6 +4,8 @@
 import typing as t
 
 from django.contrib import admin
+from django.db.models import Count, QuerySet
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
@@ -26,7 +28,16 @@ from events.admin.base import (
 class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     """Admin model for Organizations."""
 
-    list_display = ["name", "slug", "owner_link", "visibility", "created_at"]
+    list_display = [
+        "name",
+        "slug",
+        "owner_link",
+        "members_count",
+        "events_count",
+        "stripe_connected",
+        "visibility",
+        "created_at",
+    ]
     search_fields = ["name", "slug", "owner__username"]
     autocomplete_fields = ["owner", "city", "staff_members", "members"]
     prepopulated_fields = {"slug": ("name",)}
@@ -46,10 +57,29 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         VenueInline,
     ]
 
+    def get_queryset(self, request: HttpRequest) -> QuerySet[models.Organization]:
+        qs: QuerySet[models.Organization] = super().get_queryset(request)
+        return qs.annotate(
+            _members_count=Count("memberships", distinct=True),
+            _events_count=Count("events", distinct=True),
+        )
+
     def owner_link(self, obj: models.Organization) -> str:
         return self.user_link(obj)
 
     owner_link.short_description = "Owner"  # type: ignore[attr-defined]
+
+    @admin.display(description="Members", ordering="_members_count")
+    def members_count(self, obj: models.Organization) -> int:
+        return t.cast(int, getattr(obj, "_members_count", 0))
+
+    @admin.display(description="Events", ordering="_events_count")
+    def events_count(self, obj: models.Organization) -> int:
+        return t.cast(int, getattr(obj, "_events_count", 0))
+
+    @admin.display(description="Stripe", boolean=True)
+    def stripe_connected(self, obj: models.Organization) -> bool:
+        return obj.is_stripe_connected
 
 
 @admin.register(models.OrganizationQuestionnaire)
