@@ -4,7 +4,7 @@
 import typing as t
 
 from django.contrib import admin
-from django.db.models import Count, QuerySet
+from django.db.models import Count, OuterRef, QuerySet, Subquery
 from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
@@ -59,9 +59,22 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[models.Organization]:
         qs: QuerySet[models.Organization] = super().get_queryset(request)
+        # Use subqueries to avoid Cartesian product from joining both tables
+        members_subquery = (
+            models.OrganizationMember.objects.filter(organization=OuterRef("pk"))
+            .values("organization")
+            .annotate(cnt=Count("id"))
+            .values("cnt")
+        )
+        events_subquery = (
+            models.Event.objects.filter(organization=OuterRef("pk"))
+            .values("organization")
+            .annotate(cnt=Count("id"))
+            .values("cnt")
+        )
         return qs.annotate(
-            _members_count=Count("memberships", distinct=True),
-            _events_count=Count("events", distinct=True),
+            _members_count=Subquery(members_subquery),
+            _events_count=Subquery(events_subquery),
         )
 
     def owner_link(self, obj: models.Organization) -> str:
