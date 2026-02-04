@@ -44,22 +44,6 @@ class EventSeriesController(UserAwareController):
         qs = self.get_queryset()
         return params.filter(qs).distinct()
 
-    @route.get(
-        "/{org_slug}/{series_slug}",
-        url_name="get_event_series_by_slugs",
-        response=schema.EventSeriesRetrieveSchema,
-    )
-    def get_event_series_by_slugs(self, org_slug: str, series_slug: str) -> models.EventSeries:
-        """Retrieve event series details using human-readable organization and series slugs.
-
-        Use this for clean URLs like /event-series/tech-meetup/monthly-sessions. Returns 404
-        if the series doesn't exist or you don't have permission to view it.
-        """
-        return t.cast(
-            models.EventSeries,
-            self.get_object_or_exception(self.get_queryset(), slug=series_slug, organization__slug=org_slug),
-        )
-
     @route.get("/{series_id}", url_name="get_event_series", response=schema.EventSeriesRetrieveSchema)
     def get_event_series(self, series_id: UUID) -> models.EventSeries:
         """Retrieve full event series details by ID.
@@ -202,3 +186,21 @@ class EventSeriesController(UserAwareController):
         event_series = t.cast(models.EventSeries, self.get_object_or_exception(self.get_queryset(), pk=series_id))
         follow_service.unfollow_event_series(self.user(), event_series)
         return 204, None
+
+    # NOTE: This catch-all slug route must be LAST to avoid matching UUID-based routes
+    # like /{series_id}/follow. In django-ninja-extra 0.31.0+, route order matters.
+    @route.get(
+        "/{org_slug}/{series_slug}",
+        url_name="get_event_series_by_slugs",
+        response=schema.EventSeriesRetrieveSchema,
+    )
+    def get_event_series_by_slugs(self, org_slug: str, series_slug: str) -> models.EventSeries:
+        """Retrieve event series details using human-readable organization and series slugs.
+
+        Use this for clean URLs like /event-series/tech-meetup/monthly-sessions. Returns 404
+        if the series doesn't exist or you don't have permission to view it.
+        """
+        return t.cast(
+            models.EventSeries,
+            self.get_object_or_exception(self.get_queryset(), slug=series_slug, organization__slug=org_slug),
+        )
