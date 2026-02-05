@@ -362,13 +362,17 @@ def test_unconfirm_ticket_payment_by_owner(
     assert active_offline_ticket.status == Ticket.TicketStatus.PENDING
 
 
-def test_unconfirm_ticket_payment_at_door_by_owner(
+def test_unconfirm_ticket_payment_at_door_rejected(
     organization_owner_client: Client,
     event: Event,
     at_door_tier: TicketTier,
     public_user: RevelUser,
 ) -> None:
-    """Test that organization owner can unconfirm payment for at-the-door tickets."""
+    """Test that unconfirm is rejected for AT_THE_DOOR tickets.
+
+    AT_THE_DOOR tickets are always ACTIVE (commitment to attend) and should
+    not be reverted to PENDING.
+    """
     # Create an active at-the-door ticket
     active_at_door_ticket = Ticket.objects.create(
         guest_name="Test Guest",
@@ -384,9 +388,11 @@ def test_unconfirm_ticket_payment_at_door_by_owner(
     )
     response = organization_owner_client.post(url)
 
-    assert response.status_code == 200
+    assert response.status_code == 404
+
+    # Verify ticket status unchanged
     active_at_door_ticket.refresh_from_db()
-    assert active_at_door_ticket.status == Ticket.TicketStatus.PENDING
+    assert active_at_door_ticket.status == Ticket.TicketStatus.ACTIVE
 
 
 def test_unconfirm_ticket_payment_by_staff_with_permission(

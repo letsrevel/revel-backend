@@ -417,7 +417,7 @@ class BatchTicketService:
             case TicketTier.PaymentMethod.OFFLINE:
                 return self._offline_checkout(items, seats, locked_tier, price_override)
             case TicketTier.PaymentMethod.AT_THE_DOOR:
-                return self._offline_checkout(items, seats, locked_tier, price_override)
+                return self._at_the_door_checkout(items, seats, locked_tier, price_override)
             case TicketTier.PaymentMethod.FREE:
                 return self._free_checkout(items, seats, locked_tier)
             case _:
@@ -551,6 +551,37 @@ class BatchTicketService:
             List of created PENDING tickets.
         """
         tickets = self._create_tickets(items, seats, Ticket.TicketStatus.PENDING, price_paid=price_override)
+
+        # Update quantity sold
+        TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))
+
+        # Trigger side effects that bulk_create doesn't handle
+        self._trigger_bulk_create_side_effects(tickets)
+
+        return tickets
+
+    def _at_the_door_checkout(
+        self,
+        items: list[TicketPurchaseItem],
+        seats: list[VenueSeat | None],
+        locked_tier: TicketTier,
+        price_override: Decimal | None = None,
+    ) -> list[Ticket]:
+        """Handle at-the-door checkout for batch tickets.
+
+        Creates ACTIVE tickets immediately. AT_THE_DOOR represents a commitment
+        to attend (pay at arrival), so tickets count toward attendee_count.
+
+        Args:
+            items: List of ticket purchase items.
+            seats: List of seats corresponding to items.
+            locked_tier: The locked tier.
+            price_override: Price override for PWYC tiers.
+
+        Returns:
+            List of created ACTIVE tickets.
+        """
+        tickets = self._create_tickets(items, seats, Ticket.TicketStatus.ACTIVE, price_paid=price_override)
 
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))

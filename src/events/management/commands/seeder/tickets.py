@@ -210,6 +210,15 @@ class TicketSeeder(BaseSeeder):
 
                 for user in ticket_users:
                     status = TICKET_STATUS_MAP[self.weighted_choice(self.config.ticket_status_weights)]
+
+                    # AT_THE_DOOR and FREE tickets are never PENDING
+                    # (AT_THE_DOOR = commitment to attend, FREE = instant activation)
+                    if status == Ticket.TicketStatus.PENDING and tier.payment_method in (
+                        TicketTier.PaymentMethod.AT_THE_DOOR,
+                        TicketTier.PaymentMethod.FREE,
+                    ):
+                        status = Ticket.TicketStatus.ACTIVE
+
                     checked_in_at = None
                     checked_in_by = None
 

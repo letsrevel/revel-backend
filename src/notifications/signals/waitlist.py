@@ -169,8 +169,8 @@ def handle_ticket_waitlist_logic(sender: type[Ticket], instance: Ticket, created
 
     Removal timing based on payment method:
     - Online payment: Remove when status becomes ACTIVE (payment completed)
-    - Offline/At-the-door: Remove when created as PENDING (spot reserved)
-    - Free: Remove when created as ACTIVE (immediate)
+    - Offline: Remove when created as PENDING (spot reserved)
+    - Free/At-the-door: Remove when created as ACTIVE (immediate)
 
     Also notify waitlist if ticket cancellation freed up a spot.
     """
@@ -180,17 +180,15 @@ def handle_ticket_waitlist_logic(sender: type[Ticket], instance: Ticket, created
         should_remove = False
 
         if instance.status == Ticket.TicketStatus.ACTIVE:
-            # Always remove for ACTIVE tickets (covers online payment completion and free tickets)
+            # Always remove for ACTIVE tickets (covers online payment completion, free, and at-the-door tickets)
             should_remove = True
         elif created and instance.status == Ticket.TicketStatus.PENDING:
-            # Remove for newly created PENDING tickets with offline/at-the-door payment
+            # Remove for newly created PENDING tickets with offline payment
             # (Online payment tickets start as PENDING but should only be removed when they become ACTIVE)
+            # (AT_THE_DOOR tickets are now created as ACTIVE, so no special handling needed)
             from events.models import TicketTier
 
-            if instance.tier.payment_method in (
-                TicketTier.PaymentMethod.OFFLINE,
-                TicketTier.PaymentMethod.AT_THE_DOOR,
-            ):
+            if instance.tier.payment_method == TicketTier.PaymentMethod.OFFLINE:
                 should_remove = True
 
         if should_remove:

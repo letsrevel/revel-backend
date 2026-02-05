@@ -199,17 +199,18 @@ class EventAdminTicketsController(EventAdminBaseController):
         permissions=[EventPermission("manage_tickets")],
     )
     def unconfirm_ticket_payment(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
-        """Revert a confirmed ticket back to pending status."""
+        """Revert a confirmed ticket back to pending status.
+
+        Only applies to OFFLINE payment method. AT_THE_DOOR tickets are always
+        ACTIVE (commitment to attend) and should not be reverted to PENDING.
+        """
         event = self.get_one(event_id)
         ticket = get_object_or_404(
             models.Ticket,
             pk=ticket_id,
             event=event,
             status=models.Ticket.TicketStatus.ACTIVE,
-            tier__payment_method__in=[
-                models.TicketTier.PaymentMethod.OFFLINE,
-                models.TicketTier.PaymentMethod.AT_THE_DOOR,
-            ],
+            tier__payment_method=models.TicketTier.PaymentMethod.OFFLINE,
         )
         # Store old status before updating (signal handler needs this)
         ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
