@@ -1,5 +1,6 @@
 """Telegram notification channel implementation."""
 
+import html
 import traceback
 
 import structlog
@@ -254,8 +255,8 @@ class TelegramChannel(NotificationChannel):
             # Sanitize for Telegram (remove unsupported tags)
             telegram_html = sanitize_for_telegram(html_body)
 
-            # Add title in bold
-            return f"<b>{notification.title}</b>\n\n{telegram_html}"
+            # Add title in bold (escape title since it's plain text inserted into HTML)
+            return f"<b>{html.escape(notification.title)}</b>\n\n{telegram_html}"
 
         except Exception as e:
             # Fallback to simple formatting if template fails
@@ -268,4 +269,4 @@ class TelegramChannel(NotificationChannel):
             # Use notification.body as fallback - render markdown to HTML
             fallback_html = render_markdown(notification.body or "")
             fallback_text = sanitize_for_telegram(fallback_html)
-            return f"<b>{notification.title}</b>\n\n{fallback_text}"
+            return f"<b>{html.escape(notification.title)}</b>\n\n{fallback_text}"
