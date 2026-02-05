@@ -8,6 +8,9 @@ from django.utils import timezone, translation
 
 ChannelType = t.Literal["email", "markdown", "telegram"]
 
+TELEGRAM_MESSAGE_LIMIT = 4096
+TELEGRAM_CAPTION_LIMIT = 1024
+
 
 def format_datetime(
     dt: datetime | str,
@@ -173,6 +176,112 @@ def sanitize_for_telegram(html: str) -> str:
     html = html.strip()
 
     return html
+
+
+def _find_safe_cut_point(text: str, target: int) -> int:
+    """Find the last position in *text* (up to *target*) that is outside an HTML tag or entity.
+
+    Args:
+        text: The HTML string to scan.
+        target: Maximum character index to consider.
+
+    Returns:
+        A safe cut index (never lands inside ``<…>`` or ``&…;``).
+    """
+    in_tag = False
+    in_entity = False
+    safe_cut = 0
+
+    for i, ch in enumerate(text[:target]):
+        if ch == "<":
+            in_tag = True
+        elif ch == ">" and in_tag:
+            in_tag = False
+        elif ch == "&" and not in_tag:
+            in_entity = True
+        elif ch == ";" and in_entity:
+            in_entity = False
+
+        if not in_tag and not in_entity:
+            safe_cut = i + 1
+
+    return safe_cut or target
+
+
+_TELEGRAM_SUPPORTED_TAGS = frozenset({"b", "strong", "i", "em", "u", "ins", "s", "strike", "del", "code", "pre", "a"})
+
+
+def _close_unclosed_tags(html_fragment: str) -> str:
+    """Return closing markup for any Telegram-supported tags opened but not closed.
+
+    Only tags that Telegram's HTML parser recognises are emitted; injecting
+    unsupported closing tags (e.g. ``</li>``, ``</br>``) would cause Telegram
+    to reject or mis-parse the entire message.
+
+    Tags are closed in reverse (innermost-first) order.
+
+    Args:
+        html_fragment: A possibly-truncated HTML string.
+
+    Returns:
+        A string of closing tags, e.g. ``"</i></b>"``.
+    """
+    tag_iter = re.finditer(r"<(/?)(\w+)(?:\s[^>]*)?>", html_fragment)
+    stack: list[str] = []
+
+    for match in tag_iter:
+        is_close = match.group(1) == "/"
+        tag = match.group(2).lower()
+        if tag not in _TELEGRAM_SUPPORTED_TAGS:
+            continue
+        if not is_close:
+            stack.append(tag)
+            continue
+
+        for i in range(len(stack) - 1, -1, -1):
+            if stack[i] == tag:
+                stack.pop(i)
+                break
+
+    return "".join(f"</{tag}>" for tag in reversed(stack))
+
+
+def truncate_telegram_html(message: str, max_length: int, suffix: str) -> str:
+    """Truncate an HTML message to fit within a character limit.
+
+    Safely truncates without breaking HTML tags or entities, then closes
+    any unclosed tags so Telegram's parser accepts the result.
+
+    Args:
+        message: The HTML message to truncate.
+        max_length: Maximum allowed length (e.g. 4096 or 1024).
+        suffix: Text appended after truncation (e.g. a "Read more" link).
+
+    Returns:
+        The original message if it fits, otherwise a truncated version
+        with the suffix appended and all HTML tags properly closed.
+    """
+    if len(message) <= max_length:
+        return message
+
+    target = max_length - len(suffix)
+    if target <= 0:
+        return suffix[:max_length]
+
+    cut = _find_safe_cut_point(message, target)
+    truncated = message[:cut]
+    closing_markup = _close_unclosed_tags(truncated)
+    result = truncated + closing_markup + suffix
+
+    # If closing tags pushed us over the limit, shorten and retry once.
+    if len(result) > max_length:
+        overshoot = len(result) - max_length
+        cut = _find_safe_cut_point(message, max(0, cut - overshoot))
+        truncated = message[:cut]
+        closing_markup = _close_unclosed_tags(truncated)
+        result = truncated + closing_markup + suffix
+
+    return result
 
 
 def get_formatted_context_for_template(
