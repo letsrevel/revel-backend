@@ -9,6 +9,7 @@ from notifications.enums import DeliveryChannel, DeliveryStatus
 from notifications.models import Notification, NotificationDelivery
 from notifications.service.channels.email import EmailChannel
 from notifications.service.channels.in_app import InAppChannel
+from notifications.service.channels.telegram import TelegramChannel
 
 pytestmark = pytest.mark.django_db
 
@@ -219,3 +220,205 @@ class TestEmailChannel:
         assert delivery.status == DeliveryStatus.FAILED
         assert "SMTP error" in delivery.error_message
         assert delivery.retry_count == 1
+
+
+class TestTelegramChannel:
+    """Test Telegram notification channel message formatting.
+
+    These tests verify that _format_telegram_message properly escapes
+    HTML special characters in notification titles to prevent injection
+    into Telegram's HTML parse mode.
+    """
+
+    @patch("notifications.service.channels.telegram.get_template")
+    def test_format_message_escapes_html_special_chars_in_title(
+        self,
+        mock_get_template: MagicMock,
+        notification: Notification,
+    ) -> None:
+        """Test that HTML special characters in the title are escaped.
+
+        When a notification title contains <, >, or & characters, they
+        must be escaped to prevent them from being interpreted as HTML
+        tags by Telegram's parser.
+        """
+        # Arrange
+        notification.title = "Event <script>alert('xss')</script> & more"
+        mock_template = MagicMock()
+        mock_template.get_telegram_body.return_value = "Some body text"
+        mock_get_template.return_value = mock_template
+
+        channel = TelegramChannel()
+
+        # Act
+        result = channel._format_telegram_message(notification)
+
+        # Assert
+        assert result.startswith("<b>")
+        assert "<script>" not in result
+        assert "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;" in result
+        assert "&amp; more" in result
+
+    @patch("notifications.service.channels.telegram.get_template")
+    def test_format_message_with_plain_title(
+        self,
+        mock_get_template: MagicMock,
+        notification: Notification,
+    ) -> None:
+        """Test that a title without special characters renders normally.
+
+        Titles containing only plain text should appear unchanged inside
+        the bold tag wrapper.
+        """
+        # Arrange
+        notification.title = "Your Ticket is Confirmed"
+        mock_template = MagicMock()
+        mock_template.get_telegram_body.return_value = "Body content"
+        mock_get_template.return_value = mock_template
+
+        channel = TelegramChannel()
+
+        # Act
+        result = channel._format_telegram_message(notification)
+
+        # Assert
+        assert "<b>Your Ticket is Confirmed</b>" in result
+
+    @patch("notifications.service.channels.telegram.get_template")
+    def test_format_message_fallback_escapes_html_special_chars_in_title(
+        self,
+        mock_get_template: MagicMock,
+        notification: Notification,
+    ) -> None:
+        """Test that the fallback path also escapes the title.
+
+        When template rendering raises an exception, the method falls
+        back to using notification.body directly. The title must still
+        be HTML-escaped in this fallback path.
+        """
+        # Arrange
+        notification.title = "Price: 5 < 10 & 10 > 5"
+        notification.body = "Fallback body content"
+        mock_get_template.side_effect = RuntimeError("Template not found")
+
+        channel = TelegramChannel()
+
+        # Act
+        result = channel._format_telegram_message(notification)
+
+        # Assert
+        assert "<b>Price: 5 &lt; 10 &amp; 10 &gt; 5</b>" in result
+        assert "Fallback body content" in result
+
+    @patch("notifications.service.channels.telegram.get_template")
+    def test_format_message_escapes_quotes_in_title(
+        self,
+        mock_get_template: MagicMock,
+        notification: Notification,
+    ) -> None:
+        """Test that quote characters in the title are escaped.
+
+        Single and double quotes could break HTML attribute values if
+        the title were ever used inside an attribute context. The
+        html.escape function escapes them by default.
+        """
+        # Arrange
+        notification.title = 'Event "Grand Opening" & Bob\'s Party'
+        mock_template = MagicMock()
+        mock_template.get_telegram_body.return_value = "Details here"
+        mock_get_template.return_value = mock_template
+
+        channel = TelegramChannel()
+
+        # Act
+        result = channel._format_telegram_message(notification)
+
+        # Assert
+        assert "&quot;" in result or "&#x27;" in result
+        assert "<b>" in result
+        # The raw quotes should not appear unescaped in the bold title
+        title_section = result.split("</b>")[0]
+        assert '"Grand Opening"' not in title_section
+        assert "&amp;" in title_section
+
+    @patch("notifications.service.channels.telegram.get_template")
+    def test_format_message_escapes_heart_emoticon_in_title(
+        self,
+        mock_get_template: MagicMock,
+        notification: Notification,
+    ) -> None:
+        """Test that <3 (heart emoticon) in org name is escaped in the title.
+
+        This reproduces the exact production failure where an organization
+        named "the secret sexpo home parties <3" caused Telegram to reject
+        the message with: "can't parse entities: Unsupported start tag 3</b".
+        """
+        # Arrange
+        notification.title = "You're now a member of the secret sexpo home parties <3"
+        mock_template = MagicMock()
+        mock_template.get_telegram_body.return_value = "Welcome to the org!"
+        mock_get_template.return_value = mock_template
+
+        channel = TelegramChannel()
+
+        # Act
+        result = channel._format_telegram_message(notification)
+
+        # Assert - <3 must be escaped so Telegram doesn't parse it as a tag
+        assert "<3" not in result.split("</b>")[0]
+        assert "&lt;3" in result
+
+    @patch("notifications.service.channels.telegram.get_template")
+    def test_format_message_includes_rendered_template_body(
+        self,
+        mock_get_template: MagicMock,
+        notification: Notification,
+    ) -> None:
+        """Test that the rendered template body appears after the title.
+
+        The formatted message should have the bold title first, followed
+        by a double newline separator, then the rendered body content.
+        """
+        # Arrange
+        notification.title = "Test Title"
+        mock_template = MagicMock()
+        mock_template.get_telegram_body.return_value = "**Bold** and _italic_ text"
+        mock_get_template.return_value = mock_template
+
+        channel = TelegramChannel()
+
+        # Act
+        result = channel._format_telegram_message(notification)
+
+        # Assert
+        assert result.startswith("<b>Test Title</b>\n\n")
+        # The markdown should have been converted to HTML
+        # render_markdown converts **Bold** -> <strong>Bold</strong>
+        assert "<strong>Bold</strong>" in result or "<b>Bold</b>" in result
+
+    @patch("notifications.service.channels.telegram.get_template")
+    def test_format_message_fallback_uses_notification_body(
+        self,
+        mock_get_template: MagicMock,
+        notification: Notification,
+    ) -> None:
+        """Test that the fallback path uses notification.body when template fails.
+
+        When the template cannot be rendered, the method should fall back
+        to rendering notification.body as markdown and including it after
+        the escaped title.
+        """
+        # Arrange
+        notification.title = "Simple Title"
+        notification.body = "This is the **fallback** body"
+        mock_get_template.side_effect = ValueError("Missing context key")
+
+        channel = TelegramChannel()
+
+        # Act
+        result = channel._format_telegram_message(notification)
+
+        # Assert
+        assert "<b>Simple Title</b>\n\n" in result
+        # The fallback body should be rendered from markdown
+        assert "<strong>fallback</strong>" in result or "fallback" in result
