@@ -293,7 +293,7 @@ class TicketService:
             case TicketTier.PaymentMethod.OFFLINE:
                 return self._offline_checkout()
             case TicketTier.PaymentMethod.AT_THE_DOOR:
-                return self._offline_checkout()
+                return self._at_the_door_checkout()
             case TicketTier.PaymentMethod.FREE:
                 return self._free_checkout()
             case _:
@@ -317,6 +317,14 @@ class TicketService:
         )
         # Notification sent automatically via post_save signal
         return ticket
+
+    def _at_the_door_checkout(self) -> Ticket:
+        """Handle at-the-door checkout - creates ACTIVE tickets immediately.
+
+        AT_THE_DOOR represents a commitment to attend (pay at arrival),
+        so tickets are marked ACTIVE and count toward attendee_count.
+        """
+        return self._free_checkout()
 
     @transaction.atomic
     def _free_checkout(self) -> Ticket:
@@ -342,10 +350,13 @@ def check_in_ticket(event: Event, ticket_id: UUID, checked_in_by: RevelUser) -> 
     )
 
     # Check if ticket status is valid for check-in
+    # ACTIVE tickets can be checked in directly.
+    # PENDING tickets are only allowed for OFFLINE payment method (payment will be collected at check-in).
+    # AT_THE_DOOR tickets are now created as ACTIVE, so no special handling needed.
     if ticket.status != Ticket.TicketStatus.ACTIVE:
         if not (
             ticket.status == Ticket.TicketStatus.PENDING
-            and ticket.tier.payment_method in (TicketTier.PaymentMethod.AT_THE_DOOR, TicketTier.PaymentMethod.OFFLINE)
+            and ticket.tier.payment_method == TicketTier.PaymentMethod.OFFLINE
         ):
             # Determine appropriate error message based on ticket status
             if ticket.status == Ticket.TicketStatus.CHECKED_IN:

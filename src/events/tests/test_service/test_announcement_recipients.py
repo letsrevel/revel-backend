@@ -153,7 +153,7 @@ class TestGetRecipients:
         # Assert
         assert ticket_holder in recipients
 
-    def test_get_recipients_for_event_includes_at_door_pending_tickets(
+    def test_get_recipients_for_event_includes_at_door_active_tickets(
         self,
         org: Organization,
         org_owner: RevelUser,
@@ -161,14 +161,18 @@ class TestGetRecipients:
         at_door_tier: TicketTier,
         revel_user_factory: RevelUserFactory,
     ) -> None:
-        """Test that AT_THE_DOOR pending tickets are included."""
+        """Test that AT_THE_DOOR ACTIVE tickets are included.
+
+        AT_THE_DOOR tickets are created as ACTIVE (commitment to attend),
+        so they are included via the standard active ticket query.
+        """
         # Arrange
         at_door_holder = revel_user_factory(username="at_door_holder")
         Ticket.objects.create(
             event=event,
             user=at_door_holder,
             tier=at_door_tier,
-            status=Ticket.TicketStatus.PENDING,
+            status=Ticket.TicketStatus.ACTIVE,
             guest_name="At Door User",
         )
 

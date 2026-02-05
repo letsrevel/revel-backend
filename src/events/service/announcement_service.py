@@ -21,7 +21,6 @@ from events.models import (
     Organization,
     OrganizationMember,
     Ticket,
-    TicketTier,
 )
 from events.schema.announcement import AnnouncementCreateSchema, AnnouncementUpdateSchema
 from notifications.enums import NotificationType
@@ -182,7 +181,7 @@ def get_recipients(announcement: Announcement) -> QuerySet[RevelUser]:
     """Get the recipients for an announcement.
 
     Determines recipients based on targeting options:
-    - event: Event attendees (active/checked-in tickets, AT_THE_DOOR pending, YES RSVPs)
+    - event: Event attendees (active/checked-in tickets, YES RSVPs)
     - target_all_members: All active organization members
     - target_tiers: Members of specified membership tiers
     - target_staff_only: Organization staff members
@@ -215,7 +214,6 @@ def _get_event_recipients(event: Event) -> QuerySet[RevelUser]:
 
     Includes:
     - Users with active or checked-in tickets
-    - Users with pending AT_THE_DOOR tickets
     - Users with YES RSVPs
 
     Args:
@@ -224,21 +222,13 @@ def _get_event_recipients(event: Event) -> QuerySet[RevelUser]:
     Returns:
         QuerySet of users who are event attendees.
     """
-    # Get ticket holder user IDs
+    # Get ticket holder user IDs (ACTIVE and CHECKED_IN tickets)
+    # Note: AT_THE_DOOR tickets are now created as ACTIVE, so no special handling needed
     active_ticket_statuses = [Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN]
     ticket_user_ids = set(
         Ticket.objects.filter(
             event=event,
             status__in=active_ticket_statuses,
-        ).values_list("user_id", flat=True)
-    )
-
-    # Include AT_THE_DOOR pending tickets
-    at_door_pending_user_ids = set(
-        Ticket.objects.filter(
-            event=event,
-            status=Ticket.TicketStatus.PENDING,
-            tier__payment_method=TicketTier.PaymentMethod.AT_THE_DOOR,
         ).values_list("user_id", flat=True)
     )
 
@@ -251,7 +241,7 @@ def _get_event_recipients(event: Event) -> QuerySet[RevelUser]:
     )
 
     # Combine all user IDs
-    all_user_ids = ticket_user_ids | at_door_pending_user_ids | rsvp_user_ids
+    all_user_ids = ticket_user_ids | rsvp_user_ids
 
     if not all_user_ids:
         return RevelUser.objects.none()

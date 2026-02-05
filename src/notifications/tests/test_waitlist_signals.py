@@ -162,27 +162,27 @@ class TestTicketWaitlistRemoval:
         # Assert - User removed from waitlist
         assert not EventWaitList.objects.filter(event=public_event, user=member_user).exists()
 
-    def test_at_the_door_payment_ticket_pending_removes_from_waitlist(
+    def test_at_the_door_payment_ticket_active_removes_from_waitlist(
         self,
         public_event: Event,
         at_the_door_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """Test that PENDING tickets with at-the-door payment remove from waitlist.
+        """Test that ACTIVE tickets with at-the-door payment remove from waitlist.
 
-        For at-the-door payment, the spot is reserved immediately when ticket is created
-        as PENDING, so user should be removed from waitlist.
+        AT_THE_DOOR tickets are created as ACTIVE (commitment to attend),
+        so user should be removed from waitlist via the ACTIVE ticket path.
         """
         # Arrange
         EventWaitList.objects.create(event=public_event, user=member_user)
 
-        # Act - Create PENDING ticket with at-the-door payment
+        # Act - Create ACTIVE ticket with at-the-door payment
         Ticket.objects.create(
             guest_name="Test Guest",
             event=public_event,
             user=member_user,
             tier=at_the_door_tier,
-            status=Ticket.TicketStatus.PENDING,
+            status=Ticket.TicketStatus.ACTIVE,
         )
 
         # Assert - User removed from waitlist

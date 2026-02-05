@@ -1,10 +1,12 @@
-"""Tests for ticket_service functions, specifically get_eligible_tiers."""
+"""Tests for ticket_service functions."""
 
 import typing as t
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from django.utils import timezone
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
@@ -17,9 +19,10 @@ from events.models import (
     OrganizationStaff,
     PermissionMap,
     PermissionsSchema,
+    Ticket,
     TicketTier,
 )
-from events.service.ticket_service import get_eligible_tiers
+from events.service.ticket_service import TicketService, check_in_ticket, get_eligible_tiers
 
 pytestmark = pytest.mark.django_db
 
@@ -760,3 +763,191 @@ class TestGetEligibleTiersQueryOptimization:
 
         # Should still work correctly (member doesn't have VIP tier)
         assert len(eligible) == 0
+
+
+class TestTicketServiceAtTheDoorCheckout:
+    """Tests for TicketService AT_THE_DOOR checkout."""
+
+    @pytest.fixture
+    def org_owner(self, revel_user_factory: RevelUserFactory) -> RevelUser:
+        """Organization owner."""
+        return revel_user_factory(username="org_owner")
+
+    @pytest.fixture
+    def org(self, org_owner: RevelUser) -> Organization:
+        """Test organization."""
+        return Organization.objects.create(
+            name="Test Org",
+            slug="test-org",
+            owner=org_owner,
+        )
+
+    @pytest.fixture
+    def event(self, org: Organization) -> Event:
+        """Test event."""
+        return Event.objects.create(
+            organization=org,
+            name="Test Event",
+            slug="test-event",
+            event_type=Event.EventType.PUBLIC,
+            visibility=Event.Visibility.PUBLIC,
+            status=Event.EventStatus.OPEN,
+            start=timezone.now() + timedelta(days=7),
+            requires_ticket=True,
+        )
+
+    @pytest.fixture
+    def at_the_door_tier(self, event: Event) -> TicketTier:
+        """AT_THE_DOOR payment tier."""
+        return TicketTier.objects.create(
+            event=event,
+            name="At The Door",
+            price=Decimal("25.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.AT_THE_DOOR,
+            total_quantity=100,
+        )
+
+    @pytest.fixture
+    def user(self, revel_user_factory: RevelUserFactory) -> RevelUser:
+        """Regular user."""
+        return revel_user_factory(username="at_door_user")
+
+    def test_at_the_door_checkout_creates_active_ticket(
+        self,
+        event: Event,
+        at_the_door_tier: TicketTier,
+        user: RevelUser,
+    ) -> None:
+        """AT_THE_DOOR checkout should create an ACTIVE ticket.
+
+        This is the key behavioral difference: AT_THE_DOOR represents a
+        commitment to attend, so tickets are ACTIVE and count toward attendee_count.
+        """
+        service = TicketService(event=event, tier=at_the_door_tier, user=user)
+
+        result = service.checkout()
+
+        assert isinstance(result, Ticket)
+        assert result.status == Ticket.TicketStatus.ACTIVE
+        assert result.event == event
+        assert result.tier == at_the_door_tier
+        assert result.user == user
+        assert result.guest_name == user.get_display_name()
+
+    def test_at_the_door_checkout_increments_quantity_sold(
+        self,
+        event: Event,
+        at_the_door_tier: TicketTier,
+        user: RevelUser,
+    ) -> None:
+        """AT_THE_DOOR checkout should increment quantity_sold on the tier."""
+        assert at_the_door_tier.quantity_sold == 0
+
+        service = TicketService(event=event, tier=at_the_door_tier, user=user)
+        service.checkout()
+
+        at_the_door_tier.refresh_from_db()
+        assert at_the_door_tier.quantity_sold == 1
+
+
+class TestCheckInTicketAtTheDoor:
+    """Tests for check_in_ticket rejecting AT_THE_DOOR PENDING tickets."""
+
+    @pytest.fixture
+    def org_owner(self, revel_user_factory: RevelUserFactory) -> RevelUser:
+        """Organization owner."""
+        return revel_user_factory(username="org_owner")
+
+    @pytest.fixture
+    def org(self, org_owner: RevelUser) -> Organization:
+        """Test organization."""
+        return Organization.objects.create(
+            name="Test Org",
+            slug="test-org",
+            owner=org_owner,
+        )
+
+    @pytest.fixture
+    def event(self, org: Organization) -> Event:
+        """Test event with open check-in window."""
+        now = timezone.now()
+        return Event.objects.create(
+            organization=org,
+            name="Test Event",
+            slug="test-event",
+            event_type=Event.EventType.PUBLIC,
+            visibility=Event.Visibility.PUBLIC,
+            status=Event.EventStatus.OPEN,
+            start=now + timedelta(hours=1),
+            check_in_starts_at=now - timedelta(hours=1),
+            check_in_ends_at=now + timedelta(hours=2),
+            requires_ticket=True,
+        )
+
+    @pytest.fixture
+    def at_the_door_tier(self, event: Event) -> TicketTier:
+        """AT_THE_DOOR payment tier."""
+        return TicketTier.objects.create(
+            event=event,
+            name="At The Door",
+            price=Decimal("25.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.AT_THE_DOOR,
+            total_quantity=100,
+        )
+
+    @pytest.fixture
+    def user(self, revel_user_factory: RevelUserFactory) -> RevelUser:
+        """Regular user."""
+        return revel_user_factory(username="checkin_user")
+
+    def test_check_in_rejects_at_the_door_pending_ticket(
+        self,
+        event: Event,
+        at_the_door_tier: TicketTier,
+        user: RevelUser,
+        org_owner: RevelUser,
+    ) -> None:
+        """Check-in should reject PENDING AT_THE_DOOR tickets.
+
+        AT_THE_DOOR tickets are now created as ACTIVE, so a PENDING
+        AT_THE_DOOR ticket is an anomaly that should be rejected.
+        """
+        # Manually create a PENDING AT_THE_DOOR ticket (shouldn't happen in normal flow)
+        ticket = Ticket.objects.create(
+            event=event,
+            tier=at_the_door_tier,
+            user=user,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name="Test Guest",
+        )
+
+        with pytest.raises(HttpError, match="pending payment confirmation"):
+            check_in_ticket(event, ticket.id, checked_in_by=org_owner)
+
+    def test_check_in_accepts_active_at_the_door_ticket(
+        self,
+        event: Event,
+        at_the_door_tier: TicketTier,
+        user: RevelUser,
+        org_owner: RevelUser,
+    ) -> None:
+        """Check-in should accept ACTIVE AT_THE_DOOR tickets.
+
+        This is the happy path: AT_THE_DOOR tickets are created as ACTIVE
+        and can be checked in like any other active ticket.
+        """
+        ticket = Ticket.objects.create(
+            event=event,
+            tier=at_the_door_tier,
+            user=user,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name="Test Guest",
+        )
+
+        result = check_in_ticket(event, ticket.id, checked_in_by=org_owner)
+
+        assert result.status == Ticket.TicketStatus.CHECKED_IN
+        assert result.checked_in_by == org_owner
+        assert result.checked_in_at is not None

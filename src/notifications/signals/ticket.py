@@ -29,7 +29,7 @@ def _get_ticket_action_for_payment_method(payment_method: str) -> str | None:
     action_map: dict[str, str] = {
         TicketTier.PaymentMethod.FREE: "free_ticket_created",
         TicketTier.PaymentMethod.OFFLINE: "offline_payment_pending",
-        TicketTier.PaymentMethod.AT_THE_DOOR: "at_door_payment_pending",
+        TicketTier.PaymentMethod.AT_THE_DOOR: "at_door_ticket_created",
     }
     return action_map.get(payment_method)
 

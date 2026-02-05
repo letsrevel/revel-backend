@@ -3,7 +3,7 @@
 from django.db.models import Count, Q
 
 from accounts.models import RevelUser
-from events.models import Event, EventRSVP, Ticket, TicketTier
+from events.models import Event, EventRSVP, Ticket
 from events.schema import EventPronounDistributionSchema, PronounCountSchema
 
 
@@ -12,8 +12,11 @@ def get_event_pronoun_distribution(event: Event) -> EventPronounDistributionSche
 
     Attendees are defined as:
     - Users with RSVP status YES
-    - Users with active tickets (for online payment)
-    - Users with any ticket status for offline/at_the_door/free payment methods
+    - Users with ACTIVE or CHECKED_IN tickets
+
+    This matches the definition used by attendee_count and attendees() everywhere
+    else in the codebase. PENDING tickets (e.g. OFFLINE) reserve capacity but are
+    not yet confirmed attendees.
 
     Args:
         event: The event to get pronoun distribution for
@@ -21,28 +24,9 @@ def get_event_pronoun_distribution(event: Event) -> EventPronounDistributionSche
     Returns:
         EventPronounDistributionSchema with distribution and totals
     """
-    # Build filter for tickets that count as attendance:
-    # - Online payment: must be ACTIVE status
-    # - Non-online payment (offline/at_the_door/free): any non-cancelled status
-    non_online_methods = [
-        TicketTier.PaymentMethod.OFFLINE,
-        TicketTier.PaymentMethod.AT_THE_DOOR,
-        TicketTier.PaymentMethod.FREE,
-    ]
-
-    valid_non_online_statuses = [
-        Ticket.TicketStatus.ACTIVE,
-        Ticket.TicketStatus.PENDING,
-        Ticket.TicketStatus.CHECKED_IN,
-    ]
-
     ticket_filter = Q(
         tickets__event=event,
-        tickets__status=Ticket.TicketStatus.ACTIVE,
-    ) | Q(
-        tickets__event=event,
-        tickets__tier__payment_method__in=non_online_methods,
-        tickets__status__in=valid_non_online_statuses,
+        tickets__status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],
     )
 
     rsvp_filter = Q(rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES)

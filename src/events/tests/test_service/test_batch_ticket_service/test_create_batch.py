@@ -113,6 +113,37 @@ class TestCreateBatch:
         assert len(result) == 2
         assert all(t.status == Ticket.TicketStatus.PENDING for t in result)
 
+    def test_at_the_door_checkout_creates_active_tickets(
+        self,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """AT_THE_DOOR checkout should create ACTIVE tickets.
+
+        AT_THE_DOOR represents a commitment to attend (pay at arrival),
+        so tickets are ACTIVE and count toward attendee_count.
+        """
+        at_the_door_tier = TicketTier.objects.create(
+            event=event,
+            name="At The Door",
+            price=Decimal("30.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.AT_THE_DOOR,
+            total_quantity=100,
+        )
+        service = BatchTicketService(event, at_the_door_tier, member_user)
+        items = [
+            TicketPurchaseItem(guest_name="Guest 1"),
+            TicketPurchaseItem(guest_name="Guest 2"),
+        ]
+        result = service.create_batch(items)
+
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert all(t.status == Ticket.TicketStatus.ACTIVE for t in result)
+        assert result[0].guest_name == "Guest 1"
+        assert result[1].guest_name == "Guest 2"
+
     @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_online_checkout_returns_stripe_url(
         self,
@@ -545,7 +576,11 @@ class TestCreateBatchPWYC:
         pwyc_at_the_door_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """PWYC at-the-door checkout should store price_paid on tickets."""
+        """PWYC at-the-door checkout should store price_paid on ACTIVE tickets.
+
+        AT_THE_DOOR tickets are created as ACTIVE because they represent a commitment
+        to attend (payment collected at arrival), so they count toward attendee_count.
+        """
         service = BatchTicketService(event, pwyc_at_the_door_tier, member_user)
         items = [
             TicketPurchaseItem(guest_name="Guest 1"),
@@ -558,7 +593,7 @@ class TestCreateBatchPWYC:
 
         assert isinstance(result, list)
         assert len(result) == 3
-        assert all(t.status == Ticket.TicketStatus.PENDING for t in result)
+        assert all(t.status == Ticket.TicketStatus.ACTIVE for t in result)
         assert all(t.price_paid == pwyc_amount for t in result)
 
     def test_pwyc_offline_without_price_override_stores_none(

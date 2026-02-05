@@ -361,13 +361,17 @@ def test_pending_online_ticket_not_included(
     assert result.total_attendees == 0
 
 
-def test_offline_ticket_any_status_included(
+def test_offline_pending_ticket_not_counted_as_attendee(
     event: Event,
     attendee_with_pronouns: RevelUser,
     attendee_with_she_pronouns: RevelUser,
     offline_tier: TicketTier,
 ) -> None:
-    """Test that offline tickets count regardless of status (except cancelled)."""
+    """Test that PENDING offline tickets don't count in pronoun distribution.
+
+    Only ACTIVE/CHECKED_IN tickets count as attendees, consistently with
+    attendee_count and attendees() elsewhere in the codebase.
+    """
     Ticket.objects.create(
         event=event,
         user=attendee_with_pronouns,
@@ -385,16 +389,19 @@ def test_offline_ticket_any_status_included(
 
     result = event_service.get_event_pronoun_distribution(event)
 
-    assert result.total_attendees == 2
+    assert result.total_attendees == 1
 
 
-def test_at_the_door_ticket_any_status_included(
+def test_at_the_door_active_tickets_included(
     event: Event,
     attendee_with_pronouns: RevelUser,
     attendee_with_she_pronouns: RevelUser,
     at_the_door_tier: TicketTier,
 ) -> None:
-    """Test that at_the_door tickets count regardless of status (except cancelled)."""
+    """Test that ACTIVE AT_THE_DOOR tickets are counted in pronoun distribution.
+
+    AT_THE_DOOR tickets are created as ACTIVE (commitment to attend).
+    """
     Ticket.objects.create(
         event=event,
         user=attendee_with_pronouns,
@@ -407,7 +414,7 @@ def test_at_the_door_ticket_any_status_included(
         user=attendee_with_she_pronouns,
         tier=at_the_door_tier,
         guest_name="Test2",
-        status=Ticket.TicketStatus.PENDING,
+        status=Ticket.TicketStatus.ACTIVE,
     )
 
     result = event_service.get_event_pronoun_distribution(event)
@@ -415,13 +422,16 @@ def test_at_the_door_ticket_any_status_included(
     assert result.total_attendees == 2
 
 
-def test_free_ticket_any_status_included(
+def test_free_active_tickets_included(
     event: Event,
     attendee_with_pronouns: RevelUser,
     attendee_with_she_pronouns: RevelUser,
     free_tier: TicketTier,
 ) -> None:
-    """Test that free tickets count regardless of status (except cancelled)."""
+    """Test that ACTIVE free tickets are counted in pronoun distribution.
+
+    Free tickets are created as ACTIVE immediately.
+    """
     Ticket.objects.create(
         event=event,
         user=attendee_with_pronouns,
@@ -434,7 +444,7 @@ def test_free_ticket_any_status_included(
         user=attendee_with_she_pronouns,
         tier=free_tier,
         guest_name="Test2",
-        status=Ticket.TicketStatus.PENDING,
+        status=Ticket.TicketStatus.ACTIVE,
     )
 
     result = event_service.get_event_pronoun_distribution(event)
