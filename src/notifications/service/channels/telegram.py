@@ -12,7 +12,12 @@ from notifications.enums import DeliveryChannel, DeliveryStatus
 from notifications.models import Notification, NotificationDelivery
 from notifications.service.channels.base import NotificationChannel
 from notifications.service.templates.registry import get_template
-from notifications.utils import sanitize_for_telegram
+from notifications.utils import (
+    TELEGRAM_CAPTION_LIMIT,
+    TELEGRAM_MESSAGE_LIMIT,
+    sanitize_for_telegram,
+    truncate_telegram_html,
+)
 from telegram.notification_keyboards import get_notification_keyboard
 from telegram.tasks import send_message_task
 
@@ -148,6 +153,20 @@ class TelegramChannel(NotificationChannel):
 
             # Get QR data (ticket ID for QR code) if applicable
             qr_data = self._get_qr_data(notification)
+
+            # Truncate message if it exceeds Telegram's character limit
+            max_length = TELEGRAM_CAPTION_LIMIT if qr_data else TELEGRAM_MESSAGE_LIMIT
+            if len(message) > max_length:
+                from django.utils.translation import gettext as _
+
+                from common.models import SiteSettings
+
+                user_language = getattr(notification.user, "language", settings.LANGUAGE_CODE)
+                notification_url = f"{SiteSettings.get_solo().frontend_base_url}/account/notifications"
+                with translation.override(user_language):
+                    read_more = _("Read more...")
+                suffix = f'…\n\n<a href="{notification_url}">{read_more}</a>'
+                message = truncate_telegram_html(message, max_length, suffix)
 
             # Send via telegram task with callback
             result = send_message_task.delay(
