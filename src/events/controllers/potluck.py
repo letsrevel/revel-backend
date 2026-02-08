@@ -29,7 +29,7 @@ class PotluckController(UserAwareController):
         own it. Available when event.potluck_open=true. Use this to display what's needed and
         what you've claimed.
         """
-        event = self.get_object_or_exception(self.get_event_queryset(), pk=event_id)
+        event = self.get_object_or_exception(self.get_event_queryset(include_past=True), pk=event_id)
         user_id = self.user().id
         return (
             PotluckItem.objects.filter(event=event)

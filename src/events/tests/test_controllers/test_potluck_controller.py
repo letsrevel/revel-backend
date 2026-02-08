@@ -1,7 +1,10 @@
+from datetime import timedelta
+
 import orjson
 import pytest
 from django.test.client import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events import models
@@ -19,6 +22,17 @@ class TestPotluckController:
         response = organization_owner_client.get(url)
         assert response.status_code == 200
         assert len(response.json()) == 2
+
+    def test_list_potluck_items_for_past_event(self, organization_owner_client: Client, event: Event) -> None:
+        """Test that potluck items for a past event can be listed."""
+        event.start = timezone.now() - timedelta(days=7)
+        event.end = timezone.now() - timedelta(days=6)
+        event.save()
+        PotluckItem.objects.create(event=event, name="Chips", item_type="food")
+        url = reverse("api:list_potluck_items", kwargs={"event_id": event.id})
+        response = organization_owner_client.get(url)
+        assert response.status_code == 200
+        assert len(response.json()) == 1
 
     def test_create_potluck_item_by_owner(self, organization_owner_client: Client, event: Event) -> None:
         """Test that an event owner can create a potluck item."""
