@@ -10,6 +10,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from telegram.bot import get_bot
 from telegram.models import AccountOTP, TelegramUser
+from telegram.signals import telegram_account_linked, telegram_account_unlinked
 from telegram.tasks import send_message_task
 
 
@@ -51,6 +52,10 @@ def connect_accounts(user: RevelUser, otp: str) -> None:
 
             link_blacklist_entries_by_telegram(user, tg_user.telegram_username)
 
+        transaction.on_commit(
+            lambda: telegram_account_linked.send(sender=TelegramUser, user=user, telegram_user=tg_user)
+        )
+
     # Send confirmation message to Telegram
     send_message_task.delay(
         tg_user.telegram_id,
@@ -72,8 +77,14 @@ def disconnect_account(user: RevelUser) -> None:
     if not tg_user:
         raise HttpError(400, "No Telegram account is linked to your account.")
 
+    # Capture `user` before clearing tg_user.user, since the on_commit lambda
+    # will see tg_user.user as None by the time it fires.
     tg_user.user = None
-    tg_user.save(update_fields=["user", "updated_at"])
+    with transaction.atomic():
+        tg_user.save(update_fields=["user", "updated_at"])
+        transaction.on_commit(
+            lambda: telegram_account_unlinked.send(sender=TelegramUser, user=user, telegram_user=tg_user)
+        )
 
 
 def get_bot_name() -> str:

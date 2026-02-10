@@ -1,12 +1,16 @@
-# src/telegram/signals.py
+"""Custom signals for Telegram account lifecycle events.
 
-# This file previously contained EventInvitation signal handlers that sent
-# Telegram messages directly, bypassing the notifications system.
-#
-# These have been migrated to use the notification_requested signal instead,
-# which allows for:
-# - Consistent notification delivery across all channels (email, telegram, in-app)
-# - User notification preferences to be respected
-# - Unified tracking and logging
-#
-# See events/signals.py:handle_invitation_save for the new implementation.
+These signals decouple the telegram app from notifications — telegram fires the
+signals, and notifications listens and reacts (e.g. enabling/disabling the
+TELEGRAM delivery channel).
+"""
+
+from django.dispatch import Signal
+
+# Fired after a user successfully links their Telegram account.
+# Kwargs: user (RevelUser), telegram_user (TelegramUser)
+telegram_account_linked = Signal()
+
+# Fired after a user disconnects their Telegram account.
+# Kwargs: user (RevelUser), telegram_user (TelegramUser)
+telegram_account_unlinked = Signal()

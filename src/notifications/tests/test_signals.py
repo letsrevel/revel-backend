@@ -5,6 +5,8 @@ import pytest
 from accounts.models import RevelUser
 from notifications.enums import DeliveryChannel, NotificationType
 from notifications.models import NotificationPreference
+from telegram.models import TelegramUser
+from telegram.signals import telegram_account_linked, telegram_account_unlinked
 
 pytestmark = pytest.mark.django_db
 
@@ -122,3 +124,79 @@ class TestCreateNotificationPreferences:
 
         # Should only have one preference
         assert NotificationPreference.objects.filter(user=user).count() == 1
+
+
+class TestTelegramChannelSignals:
+    """Test that linking/unlinking Telegram adds/removes the TELEGRAM delivery channel."""
+
+    _next_telegram_id = 100000
+
+    def _create_user_and_tg_user(
+        self, django_user_model: type[RevelUser], username: str
+    ) -> tuple[RevelUser, TelegramUser]:
+        user = django_user_model.objects.create_user(
+            username=username,
+            email=f"{username}@example.com",
+            password="password",
+        )
+        TestTelegramChannelSignals._next_telegram_id += 1
+        tg_user = TelegramUser.objects.create(
+            telegram_id=TestTelegramChannelSignals._next_telegram_id, telegram_username="tguser"
+        )
+        return user, tg_user
+
+    def test_telegram_channel_enabled_on_link(
+        self,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """Linking a Telegram account adds TELEGRAM to enabled_channels."""
+        user, tg_user = self._create_user_and_tg_user(django_user_model, "link_test")
+        prefs = NotificationPreference.objects.get(user=user)
+        assert DeliveryChannel.TELEGRAM not in prefs.enabled_channels
+
+        telegram_account_linked.send(sender=TelegramUser, user=user, telegram_user=tg_user)
+
+        prefs.refresh_from_db()
+        assert DeliveryChannel.TELEGRAM in prefs.enabled_channels
+
+    def test_telegram_channel_disabled_on_unlink(
+        self,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """Unlinking a Telegram account removes TELEGRAM from enabled_channels."""
+        user, tg_user = self._create_user_and_tg_user(django_user_model, "unlink_test")
+        prefs = NotificationPreference.objects.get(user=user)
+        prefs.enabled_channels.append(DeliveryChannel.TELEGRAM)
+        prefs.save(update_fields=["enabled_channels"])
+
+        telegram_account_unlinked.send(sender=TelegramUser, user=user, telegram_user=tg_user)
+
+        prefs.refresh_from_db()
+        assert DeliveryChannel.TELEGRAM not in prefs.enabled_channels
+
+    def test_enable_is_idempotent(
+        self,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """Sending the linked signal twice does not duplicate the channel."""
+        user, tg_user = self._create_user_and_tg_user(django_user_model, "idempotent_enable")
+
+        telegram_account_linked.send(sender=TelegramUser, user=user, telegram_user=tg_user)
+        telegram_account_linked.send(sender=TelegramUser, user=user, telegram_user=tg_user)
+
+        prefs = NotificationPreference.objects.get(user=user)
+        assert prefs.enabled_channels.count(DeliveryChannel.TELEGRAM) == 1
+
+    def test_disable_is_idempotent(
+        self,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """Sending the unlinked signal when TELEGRAM is not present is a no-op."""
+        user, tg_user = self._create_user_and_tg_user(django_user_model, "idempotent_disable")
+        prefs = NotificationPreference.objects.get(user=user)
+        assert DeliveryChannel.TELEGRAM not in prefs.enabled_channels
+
+        telegram_account_unlinked.send(sender=TelegramUser, user=user, telegram_user=tg_user)
+
+        prefs.refresh_from_db()
+        assert DeliveryChannel.TELEGRAM not in prefs.enabled_channels
