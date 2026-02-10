@@ -132,12 +132,17 @@ class SiteSettings(SingletonModel):
 
     history = HistoricalRecords()
 
+    def clean(self) -> None:
+        """Normalize maintenance_message so whitespace-only values become empty."""
+        if self.maintenance_message:
+            self.maintenance_message = self.maintenance_message.strip()
+
     @property
     def is_maintenance_banner_active(self) -> bool:
         """Whether the maintenance banner should currently be displayed."""
         from django.utils import timezone
 
-        if not self.maintenance_message:
+        if not self.maintenance_message or not self.maintenance_message.strip():
             return False
         if self.maintenance_ends_at and self.maintenance_ends_at < timezone.now():
             return False
