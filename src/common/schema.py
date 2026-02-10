@@ -1,10 +1,9 @@
 """Common schemas for the API."""
 
-import datetime
 import typing as t
 
 from ninja import Field, ModelSchema, Schema
-from pydantic import EmailStr, StringConstraints
+from pydantic import AwareDatetime, EmailStr, StringConstraints
 
 from .models import SiteSettings, Tag, TagAssignment
 from .signing import get_file_url
@@ -31,8 +30,8 @@ class BannerSchema(Schema):
 
     message: str
     severity: SiteSettings.BannerSeverity
-    scheduled_at: datetime.datetime | None = None
-    ends_at: datetime.datetime | None = None
+    scheduled_at: AwareDatetime | None = None
+    ends_at: AwareDatetime | None = None
 
 
 class VersionResponse(Schema):

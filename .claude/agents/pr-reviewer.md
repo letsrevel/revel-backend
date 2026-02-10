@@ -66,6 +66,10 @@ Note: exceptions to these patterns are allowed when it is justified by the concr
 - This applies to both `ModelSchema` and plain `Schema` classes
 - Ensures single source of truth and self-documenting OpenAPI spec
 
+**Schema Datetime Standards**
+- Datetime fields in schemas MUST use `pydantic.AwareDatetime`, never `datetime.datetime`
+- Ensures timezone-aware serialization and consistent OpenAPI contracts
+
 **Project-Specific Standards**
 - UV for dependency management (never pip)
 - Google-style docstrings for public APIs
