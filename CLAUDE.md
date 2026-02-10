@@ -223,14 +223,38 @@ When working on issues or new features, follow this collaborative workflow:
 - **ModelSchema**: Only declare fields at class level when they require special handling (e.g., enum conversion to string)
 - **Omit unnecessary fields**: Don't include `created_at`/`updated_at` in response schemas unless specifically needed
 - **DRY**: Let ModelSchema infer field types from the model definition
+- **Enum fields**: Always use the model's enum class directly (e.g., `Model.MyEnum`), never bare `str` or `Literal[...]`. This ensures the OpenAPI spec documents valid values and keeps a single source of truth.
+- **Datetime fields**: Always use `pydantic.AwareDatetime` for datetime fields in schemas, never `datetime.datetime`. This ensures timezone-aware serialization in the OpenAPI spec and consistent API contracts.
 - Example:
   ```python
-  # Good
+  # Good - enum referenced from the model
   class UserSchema(ModelSchema):
-      restriction_type: str  # Only for enum->string conversion
+      restriction_type: DietaryRestriction.RestrictionType
       class Meta:
           model = User
           fields = ["id", "name", "email"]
+
+  # Good - plain Schema also uses model enum
+  class BannerSchema(Schema):
+      severity: SiteSettings.BannerSeverity
+
+  # Good - AwareDatetime for timezone-aware fields
+  from pydantic import AwareDatetime
+  class EventSchema(Schema):
+      starts_at: AwareDatetime
+      ends_at: AwareDatetime | None = None
+
+  # Bad - datetime.datetime loses timezone enforcement
+  class EventSchema(Schema):
+      starts_at: datetime.datetime
+
+  # Bad - bare str loses enum contract
+  class BannerSchema(Schema):
+      severity: str
+
+  # Bad - Literal duplicates the enum values
+  class BannerSchema(Schema):
+      severity: Literal["info", "warning", "error"]
 
   # Bad - redundant declarations
   class UserSchema(ModelSchema):

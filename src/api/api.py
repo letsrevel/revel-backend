@@ -8,8 +8,8 @@ from accounts.controllers.auth import AuthController
 from accounts.controllers.dietary import DietaryController
 from accounts.controllers.otp import OtpController
 from common.controllers import MediaValidationController, TagController
-from common.models import Legal
-from common.schema import LegalSchema, ResponseOk, VersionResponse
+from common.models import Legal, SiteSettings
+from common.schema import BannerSchema, LegalSchema, ResponseOk, VersionResponse
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle
 from events.controllers.dashboard import DashboardController
 from events.controllers.event_admin import EVENT_ADMIN_CONTROLLERS
@@ -71,7 +71,7 @@ api = NinjaExtraAPI(
 
 @api.get("/version", tags=["Version"], response={200: VersionResponse})
 def version(request: HttpRequest) -> tuple[int, VersionResponse]:
-    """Get the API version.
+    """Get the API version and optional maintenance banner.
 
     Args:
         request: The incoming HTTP request.
@@ -79,7 +79,21 @@ def version(request: HttpRequest) -> tuple[int, VersionResponse]:
     Returns:
         The response status code and message.
     """
-    return 200, VersionResponse(version=settings.VERSION, demo=settings.DEMO_MODE)
+    banner = _get_active_banner()
+    return 200, VersionResponse(version=settings.VERSION, demo=settings.DEMO_MODE, banner=banner)
+
+
+def _get_active_banner() -> BannerSchema | None:
+    """Return the maintenance banner if active, None otherwise."""
+    site = SiteSettings.get_solo()
+    if not site.is_maintenance_banner_active:
+        return None
+    return BannerSchema(
+        message=site.maintenance_message,
+        severity=SiteSettings.BannerSeverity(site.maintenance_severity),
+        scheduled_at=site.maintenance_scheduled_at,
+        ends_at=site.maintenance_ends_at,
+    )
 
 
 @api.get("/healthcheck", tags=["Healthcheck"], response={200: ResponseOk})

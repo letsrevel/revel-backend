@@ -22,6 +22,36 @@
         {% endif %}
     </div>
 
+    {% if dashboard.maintenance_banner %}
+    <div class="mb-6 bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow overflow-hidden">
+        <div class="flex">
+            <div class="w-1.5 flex-shrink-0 {{ dashboard.maintenance_banner.accent }}"></div>
+            <div class="flex-1 p-4">
+                <div class="flex items-start gap-3">
+                    <span class="text-2xl flex-shrink-0">{{ dashboard.maintenance_banner.icon }}</span>
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2 mb-1">
+                            <span class="font-bold text-sm uppercase tracking-wide {{ dashboard.maintenance_banner.label }}">{{ dashboard.maintenance_banner.severity }}</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400">Maintenance Banner Active</span>
+                        </div>
+                        <p class="font-medium text-gray-900 dark:text-gray-100">{{ dashboard.maintenance_banner.message }}</p>
+                        {% if dashboard.maintenance_banner.scheduled_at or dashboard.maintenance_banner.ends_at %}
+                        <div class="mt-2 text-sm text-gray-600 dark:text-gray-400 flex gap-4">
+                            {% if dashboard.maintenance_banner.scheduled_at %}
+                                <span>Starts: {{ dashboard.maintenance_banner.scheduled_at|date:"N j, Y H:i T" }}</span>
+                            {% endif %}
+                            {% if dashboard.maintenance_banner.ends_at %}
+                                <span>Ends: {{ dashboard.maintenance_banner.ends_at|date:"N j, Y H:i T" }}</span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <h1 class="text-2xl font-semibold text-gray-900 dark:text-gray-100 mb-6">Revel Dashboard</h1>
 
     {% if dashboard %}

@@ -80,6 +80,13 @@ class Legal(SingletonModel):
 class SiteSettings(SingletonModel):
     """Singleton model for common application settings."""
 
+    class BannerSeverity(models.TextChoices):
+        DEBUG = "debug"
+        INFO = "info"
+        WARNING = "warning"
+        ERROR = "error"
+        CRITICAL = "critical"
+
     notify_user_joined = models.BooleanField(
         default=False, help_text="Send a notification when a new user joins the platform."
     )
@@ -99,7 +106,47 @@ class SiteSettings(SingletonModel):
         default=settings.INTERNAL_CATCHALL_EMAIL,
     )
 
+    # Maintenance banner
+    maintenance_message = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="Message to display in the maintenance banner. Leave blank to disable.",
+    )
+    maintenance_severity = models.CharField(
+        max_length=20,
+        choices=BannerSeverity.choices,
+        default=BannerSeverity.INFO,
+        help_text="Severity level of the maintenance banner.",
+    )
+    maintenance_scheduled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the maintenance window starts.",
+    )
+    maintenance_ends_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the maintenance window ends. Banner is hidden after this time.",
+    )
+
     history = HistoricalRecords()
+
+    def clean(self) -> None:
+        """Normalize maintenance_message so whitespace-only values become empty."""
+        if self.maintenance_message:
+            self.maintenance_message = self.maintenance_message.strip()
+
+    @property
+    def is_maintenance_banner_active(self) -> bool:
+        """Whether the maintenance banner should currently be displayed."""
+        from django.utils import timezone
+
+        if not self.maintenance_message or not self.maintenance_message.strip():
+            return False
+        if self.maintenance_ends_at and self.maintenance_ends_at < timezone.now():
+            return False
+        return True
 
     def __str__(self) -> str:  # pragma: no cover
         return "Common Settings"

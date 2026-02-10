@@ -201,6 +201,62 @@ def _get_notification_health(days: int = 7) -> dict[str, t.Any]:
     }
 
 
+_BANNER_SEVERITY_STYLES: dict[SiteSettings.BannerSeverity, dict[str, str]] = {
+    SiteSettings.BannerSeverity.DEBUG: {
+        "accent": "bg-gray-400",
+        "label": "text-gray-600 dark:text-gray-400",
+        "icon": "🔧",
+    },
+    SiteSettings.BannerSeverity.INFO: {
+        "accent": "bg-blue-500",
+        "label": "text-blue-600 dark:text-blue-400",
+        "icon": "ℹ️",
+    },
+    SiteSettings.BannerSeverity.WARNING: {
+        "accent": "bg-yellow-500",
+        "label": "text-yellow-600 dark:text-yellow-400",
+        "icon": "⚠️",
+    },
+    SiteSettings.BannerSeverity.ERROR: {
+        "accent": "bg-red-500",
+        "label": "text-red-600 dark:text-red-400",
+        "icon": "🚨",
+    },
+    SiteSettings.BannerSeverity.CRITICAL: {
+        "accent": "bg-red-600",
+        "label": "text-red-600 dark:text-red-400",
+        "icon": "🔴",
+    },
+}
+
+
+def _get_maintenance_banner(site_settings: SiteSettings) -> dict[str, t.Any] | None:
+    """Return maintenance banner data if a banner is currently active.
+
+    A banner is active when maintenance_message is non-empty and
+    maintenance_ends_at is either null or in the future.
+
+    Args:
+        site_settings: The SiteSettings singleton instance.
+
+    Returns:
+        Dictionary with banner data for the template, or None.
+    """
+    if not site_settings.is_maintenance_banner_active:
+        return None
+
+    severity = SiteSettings.BannerSeverity(site_settings.maintenance_severity)
+    styles = _BANNER_SEVERITY_STYLES.get(severity, _BANNER_SEVERITY_STYLES[SiteSettings.BannerSeverity.INFO])
+
+    return {
+        "message": site_settings.maintenance_message,
+        "severity": severity,
+        "scheduled_at": site_settings.maintenance_scheduled_at,
+        "ends_at": site_settings.maintenance_ends_at,
+        **styles,
+    }
+
+
 def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[str, t.Any]:
     """Prepare custom variables for the admin dashboard.
 
@@ -244,6 +300,9 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
     # Notification health
     notification_health = _get_notification_health(days=7)
 
+    # Active maintenance banner
+    maintenance_banner = _get_maintenance_banner(site_settings)
+
     # Quick action links
     quick_actions = [
         {
@@ -267,6 +326,7 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
     context.update(
         {
             "dashboard": {
+                "maintenance_banner": maintenance_banner,
                 "quick_actions": quick_actions,
                 "quick_stats": {
                     "total_users": total_users,

@@ -47,6 +47,8 @@ For Django Ninja controllers:
 - Test pagination, filtering, and search functionality
 - Validate response schemas and status codes
 - Test both authenticated and anonymous access patterns
+- Verify enum fields in responses match the model's enum values (e.g., `SiteSettings.BannerSeverity`), not arbitrary strings
+- Verify datetime fields in schemas use `pydantic.AwareDatetime`, not `datetime.datetime`
 
 ### Model Testing
 For Django models:
