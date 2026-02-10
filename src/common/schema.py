@@ -1,11 +1,12 @@
 """Common schemas for the API."""
 
+import datetime
 import typing as t
 
 from ninja import Field, ModelSchema, Schema
 from pydantic import EmailStr, StringConstraints
 
-from .models import Tag, TagAssignment
+from .models import SiteSettings, Tag, TagAssignment
 from .signing import get_file_url
 
 if t.TYPE_CHECKING:
@@ -25,9 +26,19 @@ class EmailSchema(Schema):
     email: EmailStr
 
 
+class BannerSchema(Schema):
+    """Active maintenance banner returned in the /version endpoint."""
+
+    message: str
+    severity: SiteSettings.BannerSeverity
+    scheduled_at: datetime.datetime | None = None
+    ends_at: datetime.datetime | None = None
+
+
 class VersionResponse(Schema):
     version: str
     demo: bool = False
+    banner: BannerSchema | None = None
 
 
 class ResponseOk(Schema):

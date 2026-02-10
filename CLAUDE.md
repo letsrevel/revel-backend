@@ -223,14 +223,27 @@ When working on issues or new features, follow this collaborative workflow:
 - **ModelSchema**: Only declare fields at class level when they require special handling (e.g., enum conversion to string)
 - **Omit unnecessary fields**: Don't include `created_at`/`updated_at` in response schemas unless specifically needed
 - **DRY**: Let ModelSchema infer field types from the model definition
+- **Enum fields**: Always use the model's enum class directly (e.g., `Model.MyEnum`), never bare `str` or `Literal[...]`. This ensures the OpenAPI spec documents valid values and keeps a single source of truth.
 - Example:
   ```python
-  # Good
+  # Good - enum referenced from the model
   class UserSchema(ModelSchema):
-      restriction_type: str  # Only for enum->string conversion
+      restriction_type: DietaryRestriction.RestrictionType
       class Meta:
           model = User
           fields = ["id", "name", "email"]
+
+  # Good - plain Schema also uses model enum
+  class BannerSchema(Schema):
+      severity: SiteSettings.BannerSeverity
+
+  # Bad - bare str loses enum contract
+  class BannerSchema(Schema):
+      severity: str
+
+  # Bad - Literal duplicates the enum values
+  class BannerSchema(Schema):
+      severity: Literal["info", "warning", "error"]
 
   # Bad - redundant declarations
   class UserSchema(ModelSchema):

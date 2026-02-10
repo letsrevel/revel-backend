@@ -61,6 +61,11 @@ Note: exceptions to these patterns are allowed when it is justified by the concr
 - No DI container - services are instantiated manually in controllers
 - Controller calls: import module for functions (`blacklist_service.add_to_blacklist()`), instantiate for classes (`TicketService(event, tier, user)`)
 
+**Schema & Enum Standards**
+- Enum fields in schemas MUST reference the model's enum class directly (e.g., `SiteSettings.BannerSeverity`, `Event.EventType`), never bare `str` or `Literal[...]`
+- This applies to both `ModelSchema` and plain `Schema` classes
+- Ensures single source of truth and self-documenting OpenAPI spec
+
 **Project-Specific Standards**
 - UV for dependency management (never pip)
 - Google-style docstrings for public APIs

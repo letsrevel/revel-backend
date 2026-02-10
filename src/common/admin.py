@@ -45,6 +45,18 @@ class SiteSettingsAdmin(ModelAdmin):  # type: ignore[misc]
         ("Notifications", {"fields": ("notify_user_joined", "live_emails")}),
         ("Data Management", {"fields": ("data_retention_days",)}),
         ("URLs & Emails", {"fields": ("frontend_base_url", "internal_catchall_email")}),
+        (
+            "Maintenance Banner",
+            {
+                "fields": (
+                    "maintenance_message",
+                    "maintenance_severity",
+                    "maintenance_scheduled_at",
+                    "maintenance_ends_at",
+                ),
+                "description": "Configure a maintenance banner shown to all users. Leave the message blank to disable.",
+            },
+        ),
         ("Timestamps", {"fields": ("created_at", "updated_at")}),
     )
 
