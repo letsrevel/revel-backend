@@ -79,23 +79,24 @@ class Command(BaseCommand):
         safe = True
 
         # Active tasks
-        if active_tasks is None:
+        active_total = sum(len(tasks) for tasks in active_tasks.values()) if active_tasks is not None else None
+        if active_total is None:
             lines.append(self.style.ERROR("Could not reach Celery workers (are they running?)."))
             safe = False
-        elif active_tasks:
-            safe = False
-            total = sum(len(tasks) for tasks in active_tasks.values())
-            lines.append(self.style.ERROR(f"Active tasks: {total}"))
-            for worker, tasks in active_tasks.items():
-                for task in tasks:
-                    name = task.get("name", "unknown")
-                    task_id = task.get("id", "?")
-                    lines.append(f"  {worker}: {name} ({task_id})")
-        else:
+        elif active_total == 0:
             lines.append(self.style.SUCCESS("Active tasks: 0"))
+        else:
+            safe = False
+            lines.append(self.style.ERROR(f"Active tasks: {active_total}"))
+            for worker, tasks in active_tasks.items():  # type: ignore[union-attr]
+                for task in tasks:
+                    lines.append(f"  {worker}: {task.get('name', 'unknown')} ({task.get('id', '?')})")
 
         # Queued tasks
-        if queued_count > 0:
+        if queued_count is None:
+            lines.append(self.style.ERROR("Could not reach Redis broker."))
+            safe = False
+        elif queued_count > 0:
             safe = False
             lines.append(self.style.ERROR(f"Queued tasks: {queued_count}"))
         else:
@@ -120,7 +121,7 @@ class Command(BaseCommand):
             return None
         return active
 
-    def _get_queue_depth(self) -> int:
+    def _get_queue_depth(self) -> int | None:
         """Check Redis for pending messages in the default Celery queue."""
         import redis
 
@@ -128,4 +129,4 @@ class Command(BaseCommand):
             r = redis.Redis.from_url(settings.CELERY_BROKER_URL)
             return r.llen("celery")  # type: ignore[return-value]
         except Exception:
-            return -1
+            return None
