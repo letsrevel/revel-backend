@@ -13,7 +13,7 @@ import json
 import typing as t
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import structlog
@@ -41,6 +41,10 @@ from wallet.apple.signer import ApplePassSigner, ApplePassSignerError
 
 logger = structlog.get_logger(__name__)
 
+# Grace period after event.end before the pass expires in Apple Wallet.
+# Gives attendees time after the event officially ends (e.g. encores, delays).
+PASS_EXPIRATION_GRACE_PERIOD = timedelta(hours=12)
+
 
 @dataclass
 class PassData:
@@ -59,6 +63,7 @@ class PassData:
     logo_image: bytes
     barcode_message: str = ""
     relevant_date: datetime | None = None
+    expiration_date: datetime | None = None
     guest_name: str | None = None
     venue_name: str | None = None  # Venue name for front of pass
     sector_name: str | None = None
@@ -172,6 +177,7 @@ class ApplePassGenerator:
             logo_image=logo_image,
             barcode_message=str(ticket.id),
             relevant_date=event.start,
+            expiration_date=event.end + PASS_EXPIRATION_GRACE_PERIOD,
             guest_name=ticket.guest_name,
             venue_name=venue_name,
             sector_name=sector_name,
@@ -324,6 +330,10 @@ class ApplePassGenerator:
         # Add relevant date for lock screen
         if data.relevant_date:
             pass_dict["relevantDate"] = format_iso_date(data.relevant_date)
+
+        # Expire pass after event ends (+ grace period)
+        if data.expiration_date:
+            pass_dict["expirationDate"] = format_iso_date(data.expiration_date)
 
         return json.dumps(pass_dict, indent=2).encode("utf-8")
 
