@@ -14,6 +14,43 @@ from questionnaires.models import Questionnaire
 from .event import MinimalEventSchema
 from .event_series import MinimalEventSeriesSchema
 
+# ===== Summary schemas =====
+
+
+class McOptionStatSchema(Schema):
+    option_id: UUID
+    option_text: str
+    is_correct: bool
+    count: int
+
+
+class McQuestionStatSchema(Schema):
+    question_id: UUID
+    question_text: str
+    options: list[McOptionStatSchema]
+
+
+class StatusBreakdownSchema(Schema):
+    approved: int = 0
+    rejected: int = 0
+    pending_review: int = 0
+    not_evaluated: int = 0
+
+
+class ScoreStatsSchema(Schema):
+    avg: Decimal | None = None
+    min: Decimal | None = None
+    max: Decimal | None = None
+
+
+class QuestionnaireSummarySchema(Schema):
+    total_submissions: int
+    unique_users: int
+    by_status: StatusBreakdownSchema
+    by_status_per_user: StatusBreakdownSchema
+    score_stats: ScoreStatsSchema
+    mc_question_stats: list[McQuestionStatSchema]
+
 
 class BaseOrganizationQuestionnaireSchema(Schema):
     id: UUID

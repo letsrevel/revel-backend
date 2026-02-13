@@ -175,11 +175,16 @@ from .questionnaire import (
     BaseOrganizationQuestionnaireSchema,
     EventAssignmentSchema,
     EventSeriesAssignmentSchema,
+    McOptionStatSchema,
+    McQuestionStatSchema,
     OrganizationQuestionnaireCreateSchema,
     OrganizationQuestionnaireFieldsMixin,
     OrganizationQuestionnaireInListSchema,
     OrganizationQuestionnaireSchema,
     OrganizationQuestionnaireUpdateSchema,
+    QuestionnaireSummarySchema,
+    ScoreStatsSchema,
+    StatusBreakdownSchema,
 )
 
 # Misc schemas
@@ -385,11 +390,16 @@ __all__ = [
     "BaseOrganizationQuestionnaireSchema",
     "EventAssignmentSchema",
     "EventSeriesAssignmentSchema",
+    "McOptionStatSchema",
+    "McQuestionStatSchema",
     "OrganizationQuestionnaireCreateSchema",
     "OrganizationQuestionnaireFieldsMixin",
     "OrganizationQuestionnaireInListSchema",
     "OrganizationQuestionnaireSchema",
     "OrganizationQuestionnaireUpdateSchema",
+    "QuestionnaireSummarySchema",
+    "ScoreStatsSchema",
+    "StatusBreakdownSchema",
     # Misc
     "AdditionalResourceCreateSchema",
     "AdditionalResourceSchema",
