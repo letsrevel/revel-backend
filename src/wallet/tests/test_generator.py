@@ -16,7 +16,7 @@ from events.models import Event, Ticket, TicketTier
 from events.models.ticket import Payment
 from events.models.venue import Venue
 from wallet.apple.formatting import PassColors
-from wallet.apple.generator import ApplePassGenerator, ApplePassGeneratorError, PassData
+from wallet.apple.generator import PASS_EXPIRATION_GRACE_PERIOD, ApplePassGenerator, ApplePassGeneratorError, PassData
 from wallet.apple.images import ICON_SIZES, LOGO_SIZES
 from wallet.apple.signer import ApplePassSignerError
 
@@ -183,6 +183,8 @@ class TestApplePassGeneratorBuildPassData:
         assert data.event_name == wallet_ticket.event.name
         assert data.ticket_tier == wallet_ticket.tier.name
         assert data.barcode_message == str(wallet_ticket.id)
+        assert data.relevant_date == wallet_ticket.event.start
+        assert data.expiration_date == wallet_ticket.event.end + PASS_EXPIRATION_GRACE_PERIOD
 
     def test_builds_pass_data_with_free_ticket(
         self,
@@ -220,17 +222,6 @@ class TestApplePassGeneratorBuildPassData:
         data = generator._build_pass_data(wallet_ticket)
 
         assert data.address is None
-
-    def test_builds_pass_data_with_relevant_date(
-        self,
-        wallet_ticket: Ticket,
-        mock_signer: MagicMock,
-    ) -> None:
-        """Should set relevant_date to event start."""
-        generator = ApplePassGenerator(signer=mock_signer)
-        data = generator._build_pass_data(wallet_ticket)
-
-        assert data.relevant_date == wallet_ticket.event.start
 
 
 class TestApplePassGeneratorBuildPassJson:
@@ -339,8 +330,8 @@ class TestApplePassGeneratorBuildPassJson:
         assert "auxiliaryFields" in event_ticket
         assert "backFields" in event_ticket
 
-    def test_includes_relevant_date(self, settings: t.Any, mock_signer: MagicMock) -> None:
-        """Should include relevantDate when provided."""
+    def test_includes_optional_dates(self, settings: t.Any, mock_signer: MagicMock) -> None:
+        """Should include relevantDate and expirationDate when provided."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
         settings.APPLE_WALLET_TEAM_ID = "TEAM123"
 
@@ -361,15 +352,17 @@ class TestApplePassGeneratorBuildPassJson:
             colors=colors,
             logo_image=b"logo",
             relevant_date=now,
+            expiration_date=now + timedelta(hours=13),
         )
 
         result = generator._build_pass_json(data)
         pass_dict = json.loads(result)
 
         assert "relevantDate" in pass_dict
+        assert "expirationDate" in pass_dict
 
-    def test_omits_relevant_date_when_none(self, settings: t.Any, mock_signer: MagicMock) -> None:
-        """Should omit relevantDate when not provided."""
+    def test_omits_optional_dates_when_none(self, settings: t.Any, mock_signer: MagicMock) -> None:
+        """Should omit relevantDate and expirationDate when not provided."""
         settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
         settings.APPLE_WALLET_TEAM_ID = "TEAM123"
 
@@ -389,13 +382,13 @@ class TestApplePassGeneratorBuildPassJson:
             ticket_price="Free",
             colors=colors,
             logo_image=b"logo",
-            relevant_date=None,
         )
 
         result = generator._build_pass_json(data)
         pass_dict = json.loads(result)
 
         assert "relevantDate" not in pass_dict
+        assert "expirationDate" not in pass_dict
 
 
 class TestApplePassGeneratorGenerateFiles:
