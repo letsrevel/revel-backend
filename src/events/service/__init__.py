@@ -79,7 +79,7 @@ def update_organization_questionnaire(
 
     # Extract OrganizationQuestionnaire-specific fields
     org_kwargs = {}
-    org_field_names = {"max_submission_age", "questionnaire_type", "members_exempt"}
+    org_field_names = {"max_submission_age", "questionnaire_type", "members_exempt", "per_event"}
     for field_name in org_field_names:
         if field_name in payload_dict:
             org_kwargs[field_name] = payload_dict[field_name]

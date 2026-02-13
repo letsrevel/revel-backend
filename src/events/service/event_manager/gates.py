@@ -246,7 +246,7 @@ class ApplyDeadlineGate(BaseEligibilityGate):
         if getattr(self.handler.invitation, "waives_questionnaire", False):
             return False
 
-        # Get user's submissions
+        # Get user's global submissions
         user_submissions = {sub.questionnaire_id: sub for sub in self.user.questionnaire_submissions.all()}
 
         for org_questionnaire in relevant_questionnaires:
@@ -255,7 +255,13 @@ class ApplyDeadlineGate(BaseEligibilityGate):
                 continue
 
             questionnaire_id = org_questionnaire.questionnaire_id
-            submission = user_submissions.get(questionnaire_id)
+
+            # Use event-scoped submissions when per_event is set
+            if org_questionnaire.per_event:
+                event_subs = self.handler.event_submission_map.get(questionnaire_id)
+                submission = event_subs[0] if event_subs else None
+            else:
+                submission = user_submissions.get(questionnaire_id)
 
             # No submission - needs to complete questionnaire
             if not submission:
@@ -399,6 +405,13 @@ class QuestionnaireGate(BaseEligibilityGate):
             if not (oq.members_exempt and self.user.id in self.handler.member_ids)
         ]
 
+    def _get_submissions(self, org_questionnaire: OrganizationQuestionnaire) -> list[QuestionnaireSubmission] | None:
+        """Get submissions for a questionnaire, scoped to the current event if per_event is set."""
+        if org_questionnaire.per_event:
+            subs = self.handler.event_submission_map.get(org_questionnaire.questionnaire_id)
+            return subs if subs else None
+        return self.handler.submission_map.get(org_questionnaire.questionnaire_id)
+
     def _is_submission_expired(
         self,
         org_questionnaire: OrganizationQuestionnaire,
@@ -454,7 +467,7 @@ class QuestionnaireGate(BaseEligibilityGate):
         questionnaires_missing = []
         for org_questionnaire in self._get_applicable_questionnaires():
             # Look up the submission in our O(1) map. No database query.
-            submissions = self.handler.submission_map.get(org_questionnaire.questionnaire_id)
+            submissions = self._get_submissions(org_questionnaire)
             if (
                 submissions is None
                 or submissions[0].status != QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
@@ -480,7 +493,7 @@ class QuestionnaireGate(BaseEligibilityGate):
         questionnaires_pending_review = []
         for org_questionnaire in self._get_applicable_questionnaires():
             # Look up the submission in our O(1) map. No database query.
-            if submissions := self.handler.submission_map.get(org_questionnaire.questionnaire_id):
+            if submissions := self._get_submissions(org_questionnaire):
                 evaluation = getattr(submissions[0], "evaluation", None)
                 if (
                     evaluation is None
@@ -503,7 +516,7 @@ class QuestionnaireGate(BaseEligibilityGate):
         for org_questionnaire in self._get_applicable_questionnaires():
             # Look up the submission in our O(1) map. No database query.
             questionnaire = org_questionnaire.questionnaire
-            submissions = self.handler.submission_map.get(questionnaire.id)
+            submissions = self._get_submissions(org_questionnaire)
             # Skip if no submissions or no evaluation yet
             if not submissions or not (evaluation := getattr(submissions[0], "evaluation", None)):
                 continue

@@ -115,6 +115,7 @@ class QuestionnaireController(UserAwareController):
                 max_submission_age=payload.max_submission_age,
                 questionnaire_type=payload.questionnaire_type,
                 members_exempt=payload.members_exempt,
+                per_event=payload.per_event,
             )
 
     @route.get(

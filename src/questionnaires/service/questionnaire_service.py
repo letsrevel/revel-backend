@@ -463,6 +463,7 @@ class QuestionnaireService:
                 "max_submission_age",
                 "questionnaire_type",
                 "members_exempt",
+                "per_event",
                 "can_retake_after",  # Exclude because serializer converts timedelta to int
             }
         )
