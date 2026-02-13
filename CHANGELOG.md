@@ -7,6 +7,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.34.3] - 2026-02-13
+
+### Fixed
+- Apple Wallet pass layout: venue name as field label with address as value, compact date header includes time, org name as primary field label
+
+## [1.34.2] - 2026-02-13
+
+### Added
+- Expiry date on Apple Wallet passes
+
+## [1.34.1] - 2026-02-13
+
+### Fixed
+- Apple Wallet pass address and price resolution
+- Apple Wallet pass date display formatting
+
+## [1.34.0] - 2026-02-13
+
+### Added
+- **Questionnaire Summary Endpoint**: `GET /{org_questionnaire_id}/summary` returning submission counts by status, score statistics (avg/min/max), and multiple-choice answer distributions with optional event/series filtering
+- **Per-Event Questionnaire Scoping**: Questionnaires can now be scoped to specific events
+- **Ticket Tier Ordering**: Support for ordering ticket tiers
+
+## [1.33.0] - 2026-02-11
+
+### Added
+- Safe reboot check endpoint for zero-downtime deployments
+
+## [1.32.0] - 2026-02-10
+
+### Added
+- **Maintenance Banner**: Configurable maintenance banner on `SiteSettings` with message, severity, `scheduled_at`, and `ends_at` fields
+- Banner exposed via `GET /version` as optional `banner` object (null when inactive)
+- Banner rendered on admin dashboard with severity-based styling
+- Automatic hiding when `maintenance_ends_at` is in the past
+
+## [1.31.13] - 2026-02-10
+
+### Fixed
+- Telegram delivery channel now automatically added to notification preferences when user links their Telegram account
+
+## [1.31.12] - 2026-02-08
+
+### Fixed
+- Potluck list queryset now uses `include_past=True` to show potluck items for past events
+
+## [1.31.11] - 2026-02-05
+
+### Fixed
+- Telegram messages longer than 4096 characters are now truncated to stay within Telegram API limits
+
+## [1.31.10] - 2026-02-05
+
+### Fixed
+- At-the-door ticket payments now treated as RSVPs
+- Telegram notification titles properly escaped to avoid formatting issues
+
+## [1.31.9] - 2026-02-04
+
+### Changed
+- Updated dependencies and removed unused packages
+
+## [1.31.8] - 2026-02-04
+
+### Added
+- Organization admin list view now shows event count, member count, and Stripe connection status
+
+## [1.31.7] - 2026-02-03
+
+### Added
+- Atomic create-and-claim potluck endpoint for creating and claiming a potluck item in a single request
+
+### Changed
+- Consolidated Celery tasks into fewer modules for better organization
+
+### Fixed
+- Local ClamAV Docker image configuration
+
+## [1.31.5] - 2026-02-01
+
+### Added
+- Improved GDPR user data export using `ProtectedFile` with automatic cleanup task
+
 ## [1.31.4] - 2026-01-30
 
 ### Fixed
@@ -653,7 +736,21 @@ Initial release of the Revel Backend platform.
 ### Internationalization
 - English, German, Italian support
 
-[Unreleased]: https://github.com/letsrevel/revel-backend/compare/v1.31.4...HEAD
+[Unreleased]: https://github.com/letsrevel/revel-backend/compare/v1.34.3...HEAD
+[1.34.3]: https://github.com/letsrevel/revel-backend/compare/v1.34.2...v1.34.3
+[1.34.2]: https://github.com/letsrevel/revel-backend/compare/v1.34.1...v1.34.2
+[1.34.1]: https://github.com/letsrevel/revel-backend/compare/v1.34.0...v1.34.1
+[1.34.0]: https://github.com/letsrevel/revel-backend/compare/v1.33.0...v1.34.0
+[1.33.0]: https://github.com/letsrevel/revel-backend/compare/v1.32.0...v1.33.0
+[1.32.0]: https://github.com/letsrevel/revel-backend/compare/v1.31.13...v1.32.0
+[1.31.13]: https://github.com/letsrevel/revel-backend/compare/v1.31.12...v1.31.13
+[1.31.12]: https://github.com/letsrevel/revel-backend/compare/v1.31.11...v1.31.12
+[1.31.11]: https://github.com/letsrevel/revel-backend/compare/v1.31.10...v1.31.11
+[1.31.10]: https://github.com/letsrevel/revel-backend/compare/v1.31.9...v1.31.10
+[1.31.9]: https://github.com/letsrevel/revel-backend/compare/v1.31.8...v1.31.9
+[1.31.8]: https://github.com/letsrevel/revel-backend/compare/v1.31.7...v1.31.8
+[1.31.7]: https://github.com/letsrevel/revel-backend/compare/v1.31.5...v1.31.7
+[1.31.5]: https://github.com/letsrevel/revel-backend/compare/v1.31.4...v1.31.5
 [1.31.4]: https://github.com/letsrevel/revel-backend/compare/v1.31.3...v1.31.4
 [1.31.3]: https://github.com/letsrevel/revel-backend/compare/v1.31.2...v1.31.3
 [1.31.2]: https://github.com/letsrevel/revel-backend/compare/v1.31.1...v1.31.2
