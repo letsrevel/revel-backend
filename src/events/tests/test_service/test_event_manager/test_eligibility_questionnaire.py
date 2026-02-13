@@ -8,7 +8,9 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from events.models import (
     Event,
+    EventQuestionnaireSubmission,
     EventSeries,
+    Organization,
     OrganizationMember,
     OrganizationQuestionnaire,
 )
@@ -462,3 +464,273 @@ def test_questionnaire_members_exempt_inactive_member_not_exempt(
     assert eligibility.allowed is False
     assert eligibility.reason == Reasons.QUESTIONNAIRE_MISSING
     assert eligibility.questionnaires_missing == [questionnaire.id]
+
+
+# --- Test Cases for per_event Questionnaire ---
+
+
+@pytest.fixture
+def event_questionnaire_submission(
+    member_user: RevelUser,
+    public_event: Event,
+    questionnaire: Questionnaire,
+    submitted_submission: QuestionnaireSubmission,
+    org_questionnaire: OrganizationQuestionnaire,
+) -> EventQuestionnaireSubmission:
+    """Create an EventQuestionnaireSubmission linking the submitted_submission to the public_event."""
+    return EventQuestionnaireSubmission.objects.create(
+        event=public_event,
+        user=member_user,
+        questionnaire=questionnaire,
+        submission=submitted_submission,
+        questionnaire_type=org_questionnaire.questionnaire_type,
+    )
+
+
+def test_per_event_missing_without_event_submission(
+    member_user: RevelUser,
+    public_event: Event,
+    organization_membership: OrganizationMember,
+    approved_evaluation: QuestionnaireEvaluation,
+    org_questionnaire: OrganizationQuestionnaire,
+) -> None:
+    """User has a globally approved submission but per_event=True and no EventQuestionnaireSubmission.
+
+    Should be denied with QUESTIONNAIRE_MISSING.
+    """
+    org_questionnaire.per_event = True
+    org_questionnaire.save()
+    org_questionnaire.events.add(public_event)
+
+    handler = EligibilityService(user=member_user, event=public_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.QUESTIONNAIRE_MISSING
+    assert eligibility.next_step == NextStep.COMPLETE_QUESTIONNAIRE
+    assert eligibility.questionnaires_missing == [org_questionnaire.questionnaire_id]
+
+
+def test_per_event_approved_with_event_submission(
+    member_user: RevelUser,
+    public_event: Event,
+    organization_membership: OrganizationMember,
+    approved_evaluation: QuestionnaireEvaluation,
+    event_questionnaire_submission: EventQuestionnaireSubmission,
+    org_questionnaire: OrganizationQuestionnaire,
+) -> None:
+    """User has an approved submission AND an EventQuestionnaireSubmission for this event.
+
+    Should be allowed.
+    """
+    org_questionnaire.per_event = True
+    org_questionnaire.save()
+    org_questionnaire.events.add(public_event)
+
+    handler = EligibilityService(user=member_user, event=public_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is True
+
+
+def test_per_event_false_uses_global_submissions(
+    member_user: RevelUser,
+    public_event: Event,
+    organization_membership: OrganizationMember,
+    approved_evaluation: QuestionnaireEvaluation,
+    org_questionnaire: OrganizationQuestionnaire,
+) -> None:
+    """Default behavior: per_event=False, user has a global approved submission.
+
+    Should be allowed (regression test).
+    """
+    org_questionnaire.per_event = False
+    org_questionnaire.save()
+    org_questionnaire.events.add(public_event)
+
+    handler = EligibilityService(user=member_user, event=public_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is True
+
+
+def test_per_event_pending_review_scoped_to_event(
+    member_user: RevelUser,
+    public_event: Event,
+    organization_membership: OrganizationMember,
+    submitted_submission: QuestionnaireSubmission,
+    event_questionnaire_submission: EventQuestionnaireSubmission,
+    org_questionnaire: OrganizationQuestionnaire,
+) -> None:
+    """User has a pending submission for this event with per_event=True.
+
+    Should return WAIT_FOR_QUESTIONNAIRE_EVALUATION.
+    """
+    org_questionnaire.per_event = True
+    org_questionnaire.save()
+    org_questionnaire.events.add(public_event)
+
+    handler = EligibilityService(user=member_user, event=public_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.QUESTIONNAIRE_PENDING_REVIEW
+    assert eligibility.next_step == NextStep.WAIT_FOR_QUESTIONNAIRE_EVALUATION
+
+
+def test_per_event_rejected_scoped_to_event(
+    member_user: RevelUser,
+    public_event: Event,
+    organization_membership: OrganizationMember,
+    rejected_evaluation: QuestionnaireEvaluation,
+    event_questionnaire_submission: EventQuestionnaireSubmission,
+    org_questionnaire: OrganizationQuestionnaire,
+) -> None:
+    """User has a rejected submission for this event with per_event=True.
+
+    Should check retake logic with event-scoped data.
+    """
+    org_questionnaire.per_event = True
+    org_questionnaire.save()
+    org_questionnaire.events.add(public_event)
+    org_questionnaire.questionnaire.max_attempts = 1
+    org_questionnaire.questionnaire.save()
+
+    handler = EligibilityService(user=member_user, event=public_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.QUESTIONNAIRE_FAILED
+    assert eligibility.questionnaires_failed == [org_questionnaire.questionnaire_id]
+
+
+# --- Test Cases for per_event + max_submission_age interaction ---
+
+
+def test_per_event_expired_submission_requires_retake(
+    member_user: RevelUser,
+    public_event: Event,
+    organization_membership: OrganizationMember,
+    approved_evaluation: QuestionnaireEvaluation,
+    event_questionnaire_submission: EventQuestionnaireSubmission,
+    org_questionnaire: OrganizationQuestionnaire,
+) -> None:
+    """Per-event submission that has expired should require retake."""
+    org_questionnaire.per_event = True
+    org_questionnaire.max_submission_age = timedelta(days=30)
+    org_questionnaire.save()
+    org_questionnaire.events.add(public_event)
+
+    # Expire the evaluation
+    expired_time = timezone.now() - timedelta(days=31)
+    QuestionnaireEvaluation.objects.filter(pk=approved_evaluation.pk).update(updated_at=expired_time)
+
+    handler = EligibilityService(user=member_user, event=public_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.QUESTIONNAIRE_MISSING
+    assert eligibility.next_step == NextStep.COMPLETE_QUESTIONNAIRE
+    assert eligibility.questionnaires_missing == [org_questionnaire.questionnaire_id]
+
+
+# --- Test Cases for per_event + members_exempt interaction ---
+
+
+def test_per_event_members_exempt_allows_member(
+    member_user: RevelUser,
+    public_event: Event,
+    organization_membership: OrganizationMember,
+    questionnaire: Questionnaire,
+    org_questionnaire: OrganizationQuestionnaire,
+) -> None:
+    """Member is exempt from per_event questionnaire when members_exempt=True."""
+    org_questionnaire.per_event = True
+    org_questionnaire.members_exempt = True
+    org_questionnaire.save()
+    org_questionnaire.events.add(public_event)
+
+    handler = EligibilityService(user=member_user, event=public_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is True
+
+
+# --- Test Cases for per_event event isolation ---
+
+
+def test_per_event_submission_for_other_event_does_not_grant_access(
+    member_user: RevelUser,
+    public_event: Event,
+    organization_membership: OrganizationMember,
+    approved_evaluation: QuestionnaireEvaluation,
+    org_questionnaire: OrganizationQuestionnaire,
+    organization: Organization,
+) -> None:
+    """User has EventQuestionnaireSubmission for Event A but checks eligibility for Event B.
+
+    Should be denied for Event B even though Event A submission exists.
+    """
+    org_questionnaire.per_event = True
+    org_questionnaire.save()
+
+    # Create Event B (the one we'll check eligibility for)
+    event_b = Event.objects.create(
+        organization=organization,
+        name="Event B",
+        slug="event-b",
+        visibility=Event.Visibility.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
+        max_attendees=10,
+        status="open",
+        start=public_event.start + timedelta(days=7),
+        end=public_event.end + timedelta(days=7),
+        requires_ticket=True,
+    )
+    org_questionnaire.events.add(public_event, event_b)
+
+    # Create EventQuestionnaireSubmission for Event A (public_event), NOT Event B
+    EventQuestionnaireSubmission.objects.create(
+        event=public_event,
+        user=member_user,
+        questionnaire=org_questionnaire.questionnaire,
+        submission=approved_evaluation.submission,
+        questionnaire_type=org_questionnaire.questionnaire_type,
+    )
+
+    handler = EligibilityService(user=member_user, event=event_b)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.QUESTIONNAIRE_MISSING
+    assert eligibility.questionnaires_missing == [org_questionnaire.questionnaire_id]
+
+
+# --- Test Cases for ApplyDeadlineGate + per_event interaction ---
+
+
+def test_apply_deadline_passed_with_per_event_and_global_submission(
+    member_user: RevelUser,
+    public_event: Event,
+    organization_membership: OrganizationMember,
+    approved_evaluation: QuestionnaireEvaluation,
+    org_questionnaire: OrganizationQuestionnaire,
+) -> None:
+    """Apply deadline has passed, user has global submission but no event-scoped one.
+
+    With per_event=True, ApplyDeadlineGate should recognise the user still needs
+    to submit for this event and block with APPLICATION_DEADLINE_PASSED.
+    """
+    org_questionnaire.per_event = True
+    org_questionnaire.save()
+    org_questionnaire.events.add(public_event)
+
+    # Set apply_before to the past
+    public_event.apply_before = timezone.now() - timedelta(hours=1)
+    public_event.save()
+
+    handler = EligibilityService(user=member_user, event=public_event)
+    eligibility = handler.check_eligibility()
+
+    assert eligibility.allowed is False
+    assert eligibility.reason == Reasons.APPLICATION_DEADLINE_PASSED

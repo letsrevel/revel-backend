@@ -1,5 +1,6 @@
 """EligibilityService for checking user eligibility for events."""
 
+import functools
 import uuid
 from collections import defaultdict
 
@@ -133,6 +134,28 @@ class EligibilityService:
                 return result
 
         return EventUserEligibility(allowed=True, event_id=self.event.id)
+
+    @functools.cached_property
+    def event_submission_map(self) -> dict[uuid.UUID, list[QuestionnaireSubmission]]:
+        """Build event-scoped submission map for per_event questionnaires.
+
+        Lazily evaluated — only queried when a per_event questionnaire is encountered.
+        """
+        from events.models import EventQuestionnaireSubmission
+
+        event_questionnaire_submissions = (
+            EventQuestionnaireSubmission.objects.filter(
+                user=self.user,
+                event__pk=self.event.pk,
+                submission__status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            )
+            .select_related("submission__evaluation")
+            .order_by("-submission__submitted_at")
+        )
+        result: dict[uuid.UUID, list[QuestionnaireSubmission]] = defaultdict(list)
+        for evt_sub in event_questionnaire_submissions:
+            result[evt_sub.questionnaire_id].append(evt_sub.submission)
+        return dict(result)
 
     def overrides_max_attendees(self) -> bool:
         """Check if invitation overrides max attendees."""

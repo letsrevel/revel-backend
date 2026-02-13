@@ -81,6 +81,10 @@ class OrganizationQuestionnaire(TimeStampedModel):
         help_text="How long a completed submission remains valid before user must retake.",
     )
     members_exempt = models.BooleanField(default=False)
+    per_event = models.BooleanField(
+        default=False,
+        help_text="When True, users must complete the questionnaire separately for each event.",
+    )
 
     objects = OrganizationQuestionnaireManager()
 
