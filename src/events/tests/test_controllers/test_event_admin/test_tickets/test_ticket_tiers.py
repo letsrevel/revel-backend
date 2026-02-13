@@ -24,8 +24,8 @@ def test_list_ticket_tiers_by_owner(
     assert response.status_code == 200
     data = response.json()
     assert data["count"] == 2  # there's a default
-    assert data["results"][1]["id"] == str(event_ticket_tier.pk)
-    assert data["results"][1]["name"] == "General"
+    tier_ids = {r["id"] for r in data["results"]}
+    assert str(event_ticket_tier.pk) in tier_ids
 
 
 def test_list_ticket_tiers_by_staff_with_permission(
@@ -38,7 +38,8 @@ def test_list_ticket_tiers_by_staff_with_permission(
     assert response.status_code == 200
     data = response.json()
     assert data["count"] == 2  # there's default
-    assert data["results"][1]["id"] == str(event_ticket_tier.pk)
+    tier_ids = {r["id"] for r in data["results"]}
+    assert str(event_ticket_tier.pk) in tier_ids
 
 
 @pytest.mark.parametrize(
@@ -609,3 +610,146 @@ def test_update_ticket_tier_preserve_membership_restrictions_when_not_provided(
     tier.refresh_from_db()
     assert tier.restricted_to_membership_tiers.count() == 1
     assert tier.restricted_to_membership_tiers.first() == gold_tier
+
+
+# --- Tests for Ticket Tier Reorder Endpoint ---
+
+
+def test_reorder_ticket_tiers_by_owner(
+    organization_owner_client: Client, event: Event, event_ticket_tier: TicketTier
+) -> None:
+    """Test that an event owner can reorder ticket tiers successfully.
+
+    The event has two tiers: a default "General Admission" tier created by a signal
+    and the event_ticket_tier fixture. Reordering should update display_order to
+    match the submitted list position.
+    """
+    # Arrange
+    default_tier = TicketTier.objects.filter(event=event).exclude(pk=event_ticket_tier.pk).get()
+    # Submit in reverse order: event_ticket_tier first, default tier second
+    desired_order = [str(event_ticket_tier.pk), str(default_tier.pk)]
+    url = reverse("api:reorder_ticket_tiers", kwargs={"event_id": event.pk})
+
+    # Act
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"tier_ids": desired_order}), content_type="application/json"
+    )
+
+    # Assert
+    assert response.status_code == 204
+    ordered_tiers = list(TicketTier.objects.filter(event=event).order_by("display_order"))
+    assert ordered_tiers[0].pk == event_ticket_tier.pk
+    assert ordered_tiers[1].pk == default_tier.pk
+    assert ordered_tiers[0].display_order == 0
+    assert ordered_tiers[1].display_order == 1
+
+
+def test_reorder_ticket_tiers_by_staff_with_permission(
+    organization_staff_client: Client, event: Event, event_ticket_tier: TicketTier
+) -> None:
+    """Test that staff with manage_tickets permission can reorder tiers."""
+    # Arrange
+    default_tier = TicketTier.objects.filter(event=event).exclude(pk=event_ticket_tier.pk).get()
+    desired_order = [str(event_ticket_tier.pk), str(default_tier.pk)]
+    url = reverse("api:reorder_ticket_tiers", kwargs={"event_id": event.pk})
+
+    # Act
+    response = organization_staff_client.patch(
+        url, data=orjson.dumps({"tier_ids": desired_order}), content_type="application/json"
+    )
+
+    # Assert
+    assert response.status_code == 204
+    ordered_tiers = list(TicketTier.objects.filter(event=event).order_by("display_order"))
+    assert ordered_tiers[0].pk == event_ticket_tier.pk
+    assert ordered_tiers[1].pk == default_tier.pk
+
+
+def test_reorder_ticket_tiers_by_staff_without_permission(
+    organization_staff_client: Client, event: Event, event_ticket_tier: TicketTier, staff_member: OrganizationStaff
+) -> None:
+    """Test that staff without manage_tickets permission cannot reorder tiers."""
+    # Arrange - remove manage_tickets permission
+    perms = staff_member.permissions
+    perms["default"]["manage_tickets"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+
+    default_tier = TicketTier.objects.filter(event=event).exclude(pk=event_ticket_tier.pk).get()
+    desired_order = [str(event_ticket_tier.pk), str(default_tier.pk)]
+    url = reverse("api:reorder_ticket_tiers", kwargs={"event_id": event.pk})
+
+    # Act
+    response = organization_staff_client.patch(
+        url, data=orjson.dumps({"tier_ids": desired_order}), content_type="application/json"
+    )
+
+    # Assert
+    assert response.status_code == 403
+
+
+def test_reorder_ticket_tiers_missing_tier_ids(
+    organization_owner_client: Client, event: Event, event_ticket_tier: TicketTier
+) -> None:
+    """Test that submitting a subset of the event's tier IDs returns 400.
+
+    The service validates that tier_ids must match ALL tiers for the event exactly.
+    Providing only one of the two tiers should be rejected.
+    """
+    # Arrange - only send one of the two tier IDs
+    url = reverse("api:reorder_ticket_tiers", kwargs={"event_id": event.pk})
+
+    # Act
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"tier_ids": [str(event_ticket_tier.pk)]}), content_type="application/json"
+    )
+
+    # Assert
+    assert response.status_code == 400
+
+
+def test_reorder_ticket_tiers_extra_foreign_tier_ids(
+    organization_owner_client: Client, event: Event, event_ticket_tier: TicketTier, vip_tier: TicketTier
+) -> None:
+    """Test that including a tier ID from another event returns 400.
+
+    The vip_tier belongs to public_event, not event. Including it along with
+    the correct tiers should be rejected since the set won't match exactly.
+    """
+    # Arrange
+    default_tier = TicketTier.objects.filter(event=event).exclude(pk=event_ticket_tier.pk).get()
+    # Include both correct tiers plus the foreign vip_tier
+    desired_order = [str(event_ticket_tier.pk), str(default_tier.pk), str(vip_tier.pk)]
+    url = reverse("api:reorder_ticket_tiers", kwargs={"event_id": event.pk})
+
+    # Act
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"tier_ids": desired_order}), content_type="application/json"
+    )
+
+    # Assert
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "client_fixture,expected_status_code", [("member_client", 403), ("nonmember_client", 403), ("client", 401)]
+)
+def test_reorder_ticket_tiers_unauthorized(
+    request: pytest.FixtureRequest,
+    client_fixture: str,
+    expected_status_code: int,
+    public_event: Event,
+    vip_tier: TicketTier,
+) -> None:
+    """Test that unauthorized users cannot reorder ticket tiers."""
+    # Arrange
+    client: Client = request.getfixturevalue(client_fixture)
+    default_tier = TicketTier.objects.filter(event=public_event).exclude(pk=vip_tier.pk).get()
+    desired_order = [str(vip_tier.pk), str(default_tier.pk)]
+    url = reverse("api:reorder_ticket_tiers", kwargs={"event_id": public_event.pk})
+
+    # Act
+    response = client.patch(url, data=orjson.dumps({"tier_ids": desired_order}), content_type="application/json")
+
+    # Assert
+    assert response.status_code == expected_status_code

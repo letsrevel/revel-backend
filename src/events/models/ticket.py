@@ -281,6 +281,8 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         help_text="Override event's max_tickets_per_user for this tier. Null = inherit from event.",
     )
 
+    display_order = models.PositiveIntegerField(default=0, db_index=True)
+
     objects = TicketTierManager()
 
     def get_max_tickets_per_user(self) -> int | None:
@@ -374,11 +376,13 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         return self.total_quantity - self.quantity_sold
 
     class Meta:
+        ordering = ["event", "display_order", "name"]
         constraints = [models.UniqueConstraint(fields=["event", "name"], name="unique_event_name")]
         indexes = [
             models.Index(
                 fields=["id", "event", "payment_method"],
-            )
+            ),
+            models.Index(fields=["event", "display_order"]),
         ]
 
     def __str__(self) -> str:
