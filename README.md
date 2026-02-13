@@ -397,7 +397,7 @@ The codebase is organized into a `src` directory with a clear separation of conc
 *   `src/notifications/`: Multi-channel notification system (in-app, email, Telegram) with user preferences, digest support, and event-driven delivery.
 *   `src/wallet/`: Apple Wallet pass generation for event tickets (.pkpass files).
 *   `src/geo/`: Geolocation features (cities, IP lookups).
-*   `src/telegram/`: Integration with the Telegram Bot API (note: this is a broken early prototype).
+*   `src/telegram/`: Telegram Bot integration with FSM-based conversation flows, inline keyboards, and organizer notifications.
 *   `src/api/`: Main API configuration, exception handlers, and global endpoints.
 
 Each app contains a `controllers/` directory for API endpoints and a `service/` directory for business logic.
