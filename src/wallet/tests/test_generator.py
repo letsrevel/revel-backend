@@ -5,6 +5,7 @@ import json
 import typing as t
 import zipfile
 from datetime import timedelta
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,6 +13,8 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier
+from events.models.ticket import Payment
+from events.models.venue import Venue
 from wallet.apple.formatting import PassColors
 from wallet.apple.generator import ApplePassGenerator, ApplePassGeneratorError, PassData
 from wallet.apple.images import ICON_SIZES, LOGO_SIZES
@@ -192,15 +195,16 @@ class TestApplePassGeneratorBuildPassData:
 
         assert data.ticket_price == "Free"
 
-    def test_builds_pass_data_with_address(
+    def test_builds_pass_data_with_event_address_fallback(
         self,
         wallet_ticket: Ticket,
         mock_signer: MagicMock,
     ) -> None:
-        """Should include address when event.address is present."""
+        """Should fall back to event.address when no venue has an address."""
         generator = ApplePassGenerator(signer=mock_signer)
         data = generator._build_pass_data(wallet_ticket)
 
+        # No venue set, so falls back to event.address
         assert data.address == wallet_ticket.event.address
 
     def test_builds_pass_data_without_address(
@@ -208,7 +212,7 @@ class TestApplePassGeneratorBuildPassData:
         wallet_ticket: Ticket,
         mock_signer: MagicMock,
     ) -> None:
-        """Should set address to None when event.address is empty."""
+        """Should set address to None when no address is available."""
         wallet_ticket.event.address = ""
         wallet_ticket.event.save()
 
@@ -616,3 +620,233 @@ class TestApplePassGeneratorConstants:
     def test_file_extension(self) -> None:
         """Should have correct file extension."""
         assert ApplePassGenerator.FILE_EXTENSION == "pkpass"
+
+
+class TestResolvePriceFromTicket:
+    """Tests for _resolve_price with actual price paid resolution."""
+
+    def test_uses_tier_price_for_fixed_price_ticket(
+        self,
+        wallet_ticket: Ticket,
+        mock_signer: MagicMock,
+    ) -> None:
+        """Should use tier.price when no price_paid or payment exists."""
+        generator = ApplePassGenerator(signer=mock_signer)
+        data = generator._build_pass_data(wallet_ticket)
+
+        assert data.ticket_price == "EUR 25.00"
+
+    def test_uses_price_paid_for_offline_pwyc(
+        self,
+        wallet_ticket: Ticket,
+        mock_signer: MagicMock,
+    ) -> None:
+        """Should use ticket.price_paid when set (offline PWYC)."""
+        wallet_ticket.price_paid = Decimal("15.00")
+        wallet_ticket.save()
+
+        generator = ApplePassGenerator(signer=mock_signer)
+        data = generator._build_pass_data(wallet_ticket)
+
+        assert data.ticket_price == "EUR 15.00"
+
+    def test_uses_payment_amount_for_online_payment(
+        self,
+        wallet_ticket: Ticket,
+        member_user: RevelUser,
+        mock_signer: MagicMock,
+    ) -> None:
+        """Should use payment.amount for online Stripe payments."""
+        Payment.objects.create(
+            ticket=wallet_ticket,
+            user=member_user,
+            stripe_session_id="cs_test_123",
+            status=Payment.PaymentStatus.SUCCEEDED,
+            amount=Decimal("42.00"),
+            platform_fee=Decimal("2.10"),
+            currency="EUR",
+        )
+        # Refresh to load the payment relation
+        wallet_ticket = Ticket.objects.full().get(pk=wallet_ticket.pk)
+
+        generator = ApplePassGenerator(signer=mock_signer)
+        data = generator._build_pass_data(wallet_ticket)
+
+        assert data.ticket_price == "EUR 42.00"
+
+    def test_price_paid_takes_precedence_over_payment(
+        self,
+        wallet_ticket: Ticket,
+        member_user: RevelUser,
+        mock_signer: MagicMock,
+    ) -> None:
+        """price_paid should take precedence over payment.amount."""
+        wallet_ticket.price_paid = Decimal("20.00")
+        wallet_ticket.save()
+        Payment.objects.create(
+            ticket=wallet_ticket,
+            user=member_user,
+            stripe_session_id="cs_test_456",
+            status=Payment.PaymentStatus.SUCCEEDED,
+            amount=Decimal("99.00"),
+            platform_fee=Decimal("4.95"),
+            currency="EUR",
+        )
+        wallet_ticket = Ticket.objects.full().get(pk=wallet_ticket.pk)
+
+        generator = ApplePassGenerator(signer=mock_signer)
+        data = generator._build_pass_data(wallet_ticket)
+
+        assert data.ticket_price == "EUR 20.00"
+
+    def test_free_ticket_shows_free(
+        self,
+        wallet_free_ticket: Ticket,
+        mock_signer: MagicMock,
+    ) -> None:
+        """Should show 'Free' for zero price tickets."""
+        generator = ApplePassGenerator(signer=mock_signer)
+        data = generator._build_pass_data(wallet_free_ticket)
+
+        assert data.ticket_price == "Free"
+
+    def test_uses_payment_currency(
+        self,
+        wallet_ticket: Ticket,
+        member_user: RevelUser,
+        mock_signer: MagicMock,
+    ) -> None:
+        """Should use the payment's currency for online payments."""
+        Payment.objects.create(
+            ticket=wallet_ticket,
+            user=member_user,
+            stripe_session_id="cs_test_789",
+            status=Payment.PaymentStatus.SUCCEEDED,
+            amount=Decimal("30.00"),
+            platform_fee=Decimal("1.50"),
+            currency="USD",
+        )
+        wallet_ticket = Ticket.objects.full().get(pk=wallet_ticket.pk)
+
+        generator = ApplePassGenerator(signer=mock_signer)
+        data = generator._build_pass_data(wallet_ticket)
+
+        assert data.ticket_price == "USD 30.00"
+
+
+class TestVenueAddressResolution:
+    """Tests for venue address resolution in pass data."""
+
+    def test_uses_venue_address_from_tier(
+        self,
+        event_with_address: Event,
+        wallet_ticket: Ticket,
+        mock_signer: MagicMock,
+    ) -> None:
+        """Should use tier's venue address when available."""
+        venue = Venue.objects.create(
+            organization=event_with_address.organization,
+            name="Tier Venue",
+            address="456 Venue Street",
+        )
+        wallet_ticket.tier.venue = venue
+        wallet_ticket.tier.save()
+        wallet_ticket = Ticket.objects.full().get(pk=wallet_ticket.pk)
+
+        generator = ApplePassGenerator(signer=mock_signer)
+        data = generator._build_pass_data(wallet_ticket)
+
+        assert data.venue_name == "Tier Venue"
+        assert data.address == "456 Venue Street"
+
+    def test_uses_venue_address_from_ticket(
+        self,
+        event_with_address: Event,
+        wallet_ticket: Ticket,
+        mock_signer: MagicMock,
+    ) -> None:
+        """Should use ticket's venue address when tier has no venue."""
+        venue = Venue.objects.create(
+            organization=event_with_address.organization,
+            name="Ticket Venue",
+            address="789 Ticket Ave",
+        )
+        wallet_ticket.venue = venue
+        wallet_ticket.save()
+        wallet_ticket = Ticket.objects.full().get(pk=wallet_ticket.pk)
+
+        generator = ApplePassGenerator(signer=mock_signer)
+        data = generator._build_pass_data(wallet_ticket)
+
+        assert data.venue_name == "Ticket Venue"
+        assert data.address == "789 Ticket Ave"
+
+    def test_falls_back_to_event_address(
+        self,
+        wallet_ticket: Ticket,
+        mock_signer: MagicMock,
+    ) -> None:
+        """Should fall back to event.address when no venue has an address."""
+        generator = ApplePassGenerator(signer=mock_signer)
+        data = generator._build_pass_data(wallet_ticket)
+
+        assert data.address == "123 Test Street, Test City"
+
+    def test_venue_without_address_falls_back_to_event(
+        self,
+        event_with_address: Event,
+        wallet_ticket: Ticket,
+        mock_signer: MagicMock,
+    ) -> None:
+        """Should fall back to event.address when venue has no address."""
+        venue = Venue.objects.create(
+            organization=event_with_address.organization,
+            name="No Address Venue",
+        )
+        wallet_ticket.tier.venue = venue
+        wallet_ticket.tier.save()
+        wallet_ticket = Ticket.objects.full().get(pk=wallet_ticket.pk)
+
+        generator = ApplePassGenerator(signer=mock_signer)
+        data = generator._build_pass_data(wallet_ticket)
+
+        assert data.venue_name == "No Address Venue"
+        # Venue has no address, so falls back to event.address
+        assert data.address == event_with_address.address
+
+
+class TestHeaderFields:
+    """Tests for header field layout in pass JSON."""
+
+    def test_header_contains_only_date(self, settings: t.Any, mock_signer: MagicMock) -> None:
+        """Header should only contain date, not org name (org is in organizationName)."""
+        settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
+        settings.APPLE_WALLET_TEAM_ID = "TEAM123"
+
+        generator = ApplePassGenerator(signer=mock_signer)
+        now = timezone.now()
+        colors = PassColors(background="rgb(0,0,0)", foreground="rgb(255,255,255)", label="rgb(128,128,128)")
+
+        data = PassData(
+            serial_number="serial",
+            description="Test",
+            organization_name="Test Org",
+            event_name="Test Event",
+            event_start=now,
+            event_end=now + timedelta(hours=1),
+            address=None,
+            ticket_tier="Tier",
+            ticket_price="Free",
+            colors=colors,
+            logo_image=b"logo",
+        )
+
+        result = generator._build_pass_json(data)
+        pass_dict = json.loads(result)
+        header_fields = pass_dict["eventTicket"]["headerFields"]
+
+        assert len(header_fields) == 1
+        assert header_fields[0]["key"] == "date"
+        # Org name should be at top level, not in header fields
+        assert pass_dict["organizationName"] == "Test Org"
+        assert all(f["key"] != "organization" for f in header_fields)
