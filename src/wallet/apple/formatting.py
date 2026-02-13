@@ -83,13 +83,16 @@ def format_iso_date(dt: datetime) -> str:
 def format_date_compact(dt: datetime) -> str:
     """Format a datetime compactly for pass header display.
 
+    Uses short format (e.g. "Mar 15") to avoid truncation in the
+    small header area next to the strip image.
+
     Args:
         dt: The datetime to format.
 
     Returns:
-        Formatted string like "Jan 3, 2025 19:00".
+        Formatted string like "Mar 15".
     """
-    return dt.strftime("%b %-d, %Y %H:%M")
+    return dt.strftime("%b %-d")
 
 
 def format_date_full(dt: datetime) -> str:

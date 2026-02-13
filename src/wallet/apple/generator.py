@@ -14,6 +14,7 @@ import typing as t
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 
 import structlog
 from django.conf import settings
@@ -130,20 +131,22 @@ class ApplePassGenerator:
         # Resolve logo image (cover_art with fallback to generated)
         logo_image = resolve_cover_art(event) or generate_fallback_logo(org)
 
-        # Format ticket price
-        if ticket.tier and ticket.tier.price > 0:
-            ticket_price = format_price(ticket.tier.price, ticket.tier.currency)
-        else:
-            ticket_price = "Free"
+        # Resolve actual price paid:
+        # 1. ticket.price_paid (offline/at_the_door PWYC)
+        # 2. ticket.payment.amount (online Stripe payment)
+        # 3. tier.price (fixed-price fallback)
+        price, currency = self._resolve_price(ticket)
+        ticket_price = format_price(price, currency) if price > 0 else "Free"
 
-        # Extract venue name (from tier's venue, ticket's venue, or event's venue)
-        venue_name: str | None = None
+        # Extract venue (from tier's venue, ticket's venue, or event's venue)
+        venue = None
         if ticket.tier and ticket.tier.venue:
-            venue_name = ticket.tier.venue.name
+            venue = ticket.tier.venue
         elif ticket.venue:
-            venue_name = ticket.venue.name
+            venue = ticket.venue
         elif event.venue:
-            venue_name = event.venue.name
+            venue = event.venue
+        venue_name = venue.name if venue else None
 
         # Extract sector name (from tier's sector or ticket's sector)
         sector_name: str | None = None
@@ -162,7 +165,7 @@ class ApplePassGenerator:
             event_name=event.name,
             event_start=event.start,
             event_end=event.end,
-            address=event.address or None,
+            address=(venue.full_address() if venue else None) or event.address or None,
             ticket_tier=ticket.tier.name if ticket.tier else "General Admission",
             ticket_price=ticket_price,
             colors=get_theme_colors(),
@@ -174,6 +177,32 @@ class ApplePassGenerator:
             sector_name=sector_name,
             seat_label=seat_label,
         )
+
+    @staticmethod
+    def _resolve_price(ticket: Ticket) -> tuple[Decimal, str]:
+        """Resolve the actual price paid for a ticket.
+
+        Priority:
+        1. ticket.price_paid — explicitly recorded for offline/at_the_door PWYC
+        2. ticket.payment.amount — online Stripe payment amount
+        3. tier.price — fixed-price fallback
+
+        Returns:
+            Tuple of (price, currency).
+        """
+        tier = ticket.tier
+        currency = tier.currency if tier else "EUR"
+
+        if ticket.price_paid is not None:
+            return ticket.price_paid, currency
+
+        try:
+            payment = ticket.payment
+            return payment.amount, payment.currency
+        except Ticket.payment.RelatedObjectDoesNotExist:
+            pass
+
+        return (tier.price if tier else Decimal(0)), currency
 
     def _generate_files(self, pass_data: PassData) -> dict[str, bytes]:
         """Generate all files needed for a pass."""
@@ -197,7 +226,7 @@ class ApplePassGenerator:
         """Build the pass.json content.
 
         Apple Wallet eventTicket layout:
-        - headerFields: Top row (org name, date)
+        - headerFields: Top row (date only — org name via organizationName)
         - primaryFields: Main content (event name)
         - secondaryFields: First info row (venue, section, seat)
         - auxiliaryFields: Second info row (ticket tier, price, guest name)
@@ -278,12 +307,9 @@ class ApplePassGenerator:
             ],
             "eventTicket": {
                 "headerFields": [
-                    {"key": "organization", "value": data.organization_name},
                     {
                         "key": "date",
-                        "label": "DATE",
                         "value": format_date_compact(data.event_start),
-                        "textAlignment": "PKTextAlignmentRight",
                     },
                 ],
                 "primaryFields": [
