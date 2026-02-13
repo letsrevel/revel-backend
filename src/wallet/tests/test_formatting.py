@@ -139,22 +139,22 @@ class TestFormatDateCompact:
     """Tests for format_date_compact function."""
 
     def test_format_basic(self) -> None:
-        """Should format date in short form without time."""
+        """Should format date with time but without year."""
         dt = datetime(2025, 1, 3, 19, 0, 0)
         result = format_date_compact(dt)
-        assert result == "Jan 3"
+        assert result == "Jan 3, 19:00"
 
     def test_format_single_digit_day(self) -> None:
         """Should not pad single-digit days."""
         dt = datetime(2025, 12, 5, 8, 30, 0)
         result = format_date_compact(dt)
-        assert result == "Dec 5"
+        assert result == "Dec 5, 08:30"
 
     def test_format_double_digit_day(self) -> None:
         """Should handle double-digit days."""
         dt = datetime(2025, 7, 25, 20, 45, 0)
         result = format_date_compact(dt)
-        assert result == "Jul 25"
+        assert result == "Jul 25, 20:45"
 
 
 class TestFormatDateFull:

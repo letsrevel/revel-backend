@@ -232,24 +232,42 @@ class ApplePassGenerator:
         """Build the pass.json content.
 
         Apple Wallet eventTicket layout:
-        - headerFields: Top row (date only — org name via organizationName)
-        - primaryFields: Main content (event name)
-        - secondaryFields: First info row (venue, section, seat)
-        - auxiliaryFields: Second info row (ticket tier, price, guest name)
-        - backFields: Back of pass (full details)
+        - headerFields: Top row (date)
+        - primaryFields: Org name as label, event name as value
+        - secondaryFields: Venue, address, section, seat
+        - auxiliaryFields: Ticket tier, price, guest name
+        - backFields: Detailed info (tap (i) button)
 
         Guest name is placed at the end of auxiliaryFields to allow it to
         use remaining space without being squeezed between other fields.
         """
-        # Build secondary fields: venue > section > seat (left to right)
+        # Build secondary fields: venue/address > section > seat
+        # Venue name is used as the label (small text) and address as the value,
+        # mirroring the primary field pattern (org name label, event name value).
         secondary_fields: list[dict[str, t.Any]] = []
 
-        if data.venue_name:
+        if data.venue_name and data.address:
+            secondary_fields.append(
+                {
+                    "key": "venue",
+                    "label": data.venue_name.upper(),
+                    "value": data.address,
+                }
+            )
+        elif data.venue_name:
             secondary_fields.append(
                 {
                     "key": "venue",
                     "label": "VENUE",
                     "value": data.venue_name,
+                }
+            )
+        elif data.address:
+            secondary_fields.append(
+                {
+                    "key": "address",
+                    "label": "ADDRESS",
+                    "value": data.address,
                 }
             )
 
@@ -319,7 +337,7 @@ class ApplePassGenerator:
                     },
                 ],
                 "primaryFields": [
-                    {"key": "event", "label": "EVENT", "value": data.event_name},
+                    {"key": "event", "label": data.organization_name, "value": data.event_name},
                 ],
                 "secondaryFields": secondary_fields,
                 "auxiliaryFields": auxiliary_fields,
