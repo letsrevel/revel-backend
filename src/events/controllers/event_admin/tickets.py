@@ -43,12 +43,7 @@ class EventAdminTicketsController(EventAdminBaseController):
     def list_ticket_tiers(self, event_id: UUID) -> QuerySet[models.TicketTier]:
         """List all ticket tiers for an event."""
         self.get_one(event_id)
-        return (
-            models.TicketTier.objects.with_venue_and_sector()
-            .filter(event_id=event_id)
-            .distinct()
-            .order_by("price", "name")
-        )
+        return models.TicketTier.objects.with_venue_and_sector().filter(event_id=event_id).distinct()
 
     @route.post(
         "/ticket-tier",
@@ -120,6 +115,18 @@ class EventAdminTicketsController(EventAdminBaseController):
         event = self.get_one(event_id)
         tier = get_object_or_404(models.TicketTier, pk=tier_id, event=event)
         tier.delete()
+        return 204, None
+
+    @route.patch(
+        "/ticket-tiers/reorder",
+        url_name="reorder_ticket_tiers",
+        response={204: None},
+        permissions=[EventPermission("manage_tickets")],
+    )
+    def reorder_ticket_tiers(self, event_id: UUID, payload: schema.ReorderSchema) -> tuple[int, None]:
+        """Reorder ticket tiers for an event."""
+        event = self.get_one(event_id)
+        ticket_service.reorder_ticket_tiers(event, payload.tier_ids)
         return 204, None
 
     # ---- Tickets ----

@@ -24,8 +24,8 @@ def test_list_ticket_tiers_by_owner(
     assert response.status_code == 200
     data = response.json()
     assert data["count"] == 2  # there's a default
-    assert data["results"][1]["id"] == str(event_ticket_tier.pk)
-    assert data["results"][1]["name"] == "General"
+    tier_ids = {r["id"] for r in data["results"]}
+    assert str(event_ticket_tier.pk) in tier_ids
 
 
 def test_list_ticket_tiers_by_staff_with_permission(
@@ -38,7 +38,8 @@ def test_list_ticket_tiers_by_staff_with_permission(
     assert response.status_code == 200
     data = response.json()
     assert data["count"] == 2  # there's default
-    assert data["results"][1]["id"] == str(event_ticket_tier.pk)
+    tier_ids = {r["id"] for r in data["results"]}
+    assert str(event_ticket_tier.pk) in tier_ids
 
 
 @pytest.mark.parametrize(

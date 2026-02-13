@@ -234,6 +234,8 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     venue_id: UUID | None = None
     sector_id: UUID | None = None
 
+    display_order: int = 0
+
     @model_validator(mode="after")
     def validate_pwyc_fields(self) -> t.Self:
         """Validate PWYC fields consistency."""
@@ -270,6 +272,8 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     max_tickets_per_user: int | None = None
     venue_id: UUID | None = None
     sector_id: UUID | None = None
+
+    display_order: int | None = None
 
     @model_validator(mode="after")
     def validate_pwyc_fields(self) -> t.Self:
@@ -325,7 +329,12 @@ class TicketTierDetailSchema(ModelSchema):
             "restricted_to_membership_tiers",
             "seat_assignment_mode",
             "max_tickets_per_user",
+            "display_order",
         ]
+
+
+class ReorderSchema(Schema):
+    tier_ids: list[UUID]
 
 
 # --- Stripe Schemas ---

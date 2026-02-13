@@ -431,6 +431,30 @@ def create_ticket_tier(
 
 
 @transaction.atomic
+def reorder_ticket_tiers(event: Event, tier_ids: list[UUID]) -> None:
+    """Reorder ticket tiers for an event by setting display_order from the list position.
+
+    Args:
+        event: The event whose tiers are being reordered.
+        tier_ids: Ordered list of tier UUIDs representing the desired display order.
+
+    Raises:
+        HttpError 400: If tier_ids don't match the event's tiers exactly.
+    """
+    existing_ids = set(TicketTier.objects.filter(event=event).values_list("id", flat=True))
+
+    if set(tier_ids) != existing_ids:
+        raise HttpError(400, str(_("Tier IDs must match all tiers for this event exactly.")))
+
+    tiers_to_update = []
+    for index, tier_id in enumerate(tier_ids):
+        tier = TicketTier(pk=tier_id, display_order=index)
+        tiers_to_update.append(tier)
+
+    TicketTier.objects.bulk_update(tiers_to_update, ["display_order"])
+
+
+@transaction.atomic
 def update_ticket_tier(
     tier: TicketTier, tier_data: dict[str, t.Any], restricted_to_membership_tiers_ids: list[UUID] | None = None
 ) -> TicketTier:
