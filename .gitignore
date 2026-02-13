@@ -204,3 +204,4 @@ worldcities.full.csv
 .artifacts
 
 rendered_templates/
+.claude/agent-memory
