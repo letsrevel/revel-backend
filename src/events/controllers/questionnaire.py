@@ -22,6 +22,7 @@ from events import filters
 from events import models as event_models
 from events import schema as event_schema
 from events.service import feedback_service, update_organization_questionnaire
+from events.service.event_questionnaire_service import get_questionnaire_summary
 from questionnaires import models as questionnaires_models
 from questionnaires import schema as questionnaire_schema
 from questionnaires.service import QuestionnaireService
@@ -161,6 +162,33 @@ class QuestionnaireController(UserAwareController):
         return t.cast(
             event_models.OrganizationQuestionnaire,
             self.get_object_or_exception(qs, pk=org_questionnaire_id),
+        )
+
+    @route.get(
+        "/{org_questionnaire_id}/summary",
+        url_name="questionnaire_summary",
+        response=event_schema.QuestionnaireSummarySchema,
+        permissions=[QuestionnairePermission("evaluate_questionnaire")],
+        throttle=UserDefaultThrottle(),
+    )
+    def get_summary(
+        self,
+        org_questionnaire_id: UUID,
+        event_id: UUID | None = None,
+        event_series_id: UUID | None = None,
+    ) -> event_schema.QuestionnaireSummarySchema:
+        """Get aggregate statistics for a questionnaire's submissions.
+
+        Returns status counts (per-submission and per-user), score stats, and
+        per-MC-question answer distributions. Optionally filter by event or event series.
+        Only one of event_id or event_series_id may be provided.
+        Requires 'evaluate_questionnaire' permission.
+        """
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+        return get_questionnaire_summary(
+            questionnaire_id=org_questionnaire.questionnaire_id,
+            event_id=event_id,
+            event_series_id=event_series_id,
         )
 
     @route.post(
