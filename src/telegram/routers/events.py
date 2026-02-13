@@ -175,103 +175,129 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
         await callback.answer()
 
 
-@router.callback_query(F.data.startswith("invitation_request_accept:"), flags={"requires_linked_user": True})
-async def cb_handle_invitation_request_accept(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+@router.callback_query(
+    F.data.startswith("invitation_request_accept:"),
+    flags={
+        "requires_linked_user": True,
+        "staff_permission": "invite_to_event",
+        "permission_entity": "invitation_request",
+    },
+)
+async def cb_handle_invitation_request_accept(
+    callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser, checked_entity: EventInvitationRequest
+) -> None:
     """Handles accepting an invitation request (organizer action)."""
-    assert callback.data is not None
     assert isinstance(callback.message, Message)
-    _, request_id_str = callback.data.split(":")
-    request_id = uuid.UUID(request_id_str)
 
     try:
-        request = await EventInvitationRequest.objects.select_related("event", "user").aget(pk=request_id)
-        await sync_to_async(event_service.approve_invitation_request)(request, decided_by=user)
+        await sync_to_async(event_service.approve_invitation_request)(checked_entity, decided_by=user)
         await callback.message.edit_text(
-            f"✅ Invitation request from <b>{request.user.get_display_name()}</b> "
-            f"for <b>{request.event.name}</b> has been <b>accepted</b>.",
+            f"✅ Invitation request from <b>{checked_entity.user.get_display_name()}</b> "
+            f"for <b>{checked_entity.event.name}</b> has been <b>accepted</b>.",
             reply_markup=None,
             parse_mode="HTML",
         )
     except Exception as e:
         logger.exception(
-            "failed_to_accept_invitation_request", request_id=str(request_id), user_id=str(user.id), error=str(e)
+            "failed_to_accept_invitation_request",
+            request_id=str(checked_entity.pk),
+            user_id=str(user.id),
+            error=str(e),
         )
         await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
 
 
-@router.callback_query(F.data.startswith("invitation_request_reject:"), flags={"requires_linked_user": True})
-async def cb_handle_invitation_request_reject(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+@router.callback_query(
+    F.data.startswith("invitation_request_reject:"),
+    flags={
+        "requires_linked_user": True,
+        "staff_permission": "invite_to_event",
+        "permission_entity": "invitation_request",
+    },
+)
+async def cb_handle_invitation_request_reject(
+    callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser, checked_entity: EventInvitationRequest
+) -> None:
     """Handles rejecting an invitation request (organizer action)."""
-    assert callback.data is not None
     assert isinstance(callback.message, Message)
-    _, request_id_str = callback.data.split(":")
-    request_id = uuid.UUID(request_id_str)
 
     try:
-        request = await EventInvitationRequest.objects.select_related("event", "user").aget(pk=request_id)
-        await sync_to_async(event_service.reject_invitation_request)(request, decided_by=user)
+        await sync_to_async(event_service.reject_invitation_request)(checked_entity, decided_by=user)
         await callback.message.edit_text(
-            f"❌ Invitation request from <b>{request.user.get_display_name()}</b> "
-            f"for <b>{request.event.name}</b> has been <b>rejected</b>.",
+            f"❌ Invitation request from <b>{checked_entity.user.get_display_name()}</b> "
+            f"for <b>{checked_entity.event.name}</b> has been <b>rejected</b>.",
             reply_markup=None,
             parse_mode="HTML",
         )
-    except EventInvitationRequest.DoesNotExist:
-        await callback.answer("❌ Invitation request not found.", show_alert=True)
     except Exception as e:
         logger.exception(
-            "failed_to_reject_invitation_request", request_id=str(request_id), user_id=str(user.id), error=str(e)
+            "failed_to_reject_invitation_request",
+            request_id=str(checked_entity.pk),
+            user_id=str(user.id),
+            error=str(e),
         )
         await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
 
 
-@router.callback_query(F.data.startswith("whitelist_request_approve:"), flags={"requires_linked_user": True})
-async def cb_handle_whitelist_request_approve(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+@router.callback_query(
+    F.data.startswith("whitelist_request_approve:"),
+    flags={
+        "requires_linked_user": True,
+        "staff_permission": "manage_members",
+        "permission_entity": "whitelist_request",
+    },
+)
+async def cb_handle_whitelist_request_approve(
+    callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser, checked_entity: WhitelistRequest
+) -> None:
     """Handles approving a whitelist request (organizer action)."""
-    assert callback.data is not None
     assert isinstance(callback.message, Message)
-    _, request_id_str = callback.data.split(":")
-    request_id = uuid.UUID(request_id_str)
 
     try:
-        request = await WhitelistRequest.objects.select_related("organization", "user").aget(pk=request_id)
-        await sync_to_async(whitelist_service.approve_whitelist_request)(request, decided_by=user)
+        await sync_to_async(whitelist_service.approve_whitelist_request)(checked_entity, decided_by=user)
         await callback.message.edit_text(
-            f"✅ Whitelist request from <b>{request.user.get_display_name()}</b> "
-            f"for <b>{request.organization.name}</b> has been <b>approved</b>.",
+            f"✅ Whitelist request from <b>{checked_entity.user.get_display_name()}</b> "
+            f"for <b>{checked_entity.organization.name}</b> has been <b>approved</b>.",
             reply_markup=None,
             parse_mode="HTML",
         )
-    except WhitelistRequest.DoesNotExist:
-        await callback.answer("❌ Whitelist request not found.", show_alert=True)
     except Exception as e:
         logger.exception(
-            "failed_to_approve_whitelist_request", request_id=str(request_id), user_id=str(user.id), error=str(e)
+            "failed_to_approve_whitelist_request",
+            request_id=str(checked_entity.pk),
+            user_id=str(user.id),
+            error=str(e),
         )
         await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
 
 
-@router.callback_query(F.data.startswith("whitelist_request_reject:"), flags={"requires_linked_user": True})
-async def cb_handle_whitelist_request_reject(callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser) -> None:
+@router.callback_query(
+    F.data.startswith("whitelist_request_reject:"),
+    flags={
+        "requires_linked_user": True,
+        "staff_permission": "manage_members",
+        "permission_entity": "whitelist_request",
+    },
+)
+async def cb_handle_whitelist_request_reject(
+    callback: CallbackQuery, user: RevelUser, tg_user: TelegramUser, checked_entity: WhitelistRequest
+) -> None:
     """Handles rejecting a whitelist request (organizer action)."""
-    assert callback.data is not None
     assert isinstance(callback.message, Message)
-    _, request_id_str = callback.data.split(":")
-    request_id = uuid.UUID(request_id_str)
 
     try:
-        request = await WhitelistRequest.objects.select_related("organization", "user").aget(pk=request_id)
-        await sync_to_async(whitelist_service.reject_whitelist_request)(request, decided_by=user)
+        await sync_to_async(whitelist_service.reject_whitelist_request)(checked_entity, decided_by=user)
         await callback.message.edit_text(
-            f"❌ Whitelist request from <b>{request.user.get_display_name()}</b> "
-            f"for <b>{request.organization.name}</b> has been <b>rejected</b>.",
+            f"❌ Whitelist request from <b>{checked_entity.user.get_display_name()}</b> "
+            f"for <b>{checked_entity.organization.name}</b> has been <b>rejected</b>.",
             reply_markup=None,
             parse_mode="HTML",
         )
-    except WhitelistRequest.DoesNotExist:
-        await callback.answer("❌ Whitelist request not found.", show_alert=True)
     except Exception as e:
         logger.exception(
-            "failed_to_reject_whitelist_request", request_id=str(request_id), user_id=str(user.id), error=str(e)
+            "failed_to_reject_whitelist_request",
+            request_id=str(checked_entity.pk),
+            user_id=str(user.id),
+            error=str(e),
         )
         await callback.answer("❌ Sorry, something went wrong. Please try again later.", show_alert=True)
