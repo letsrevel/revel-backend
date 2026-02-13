@@ -808,38 +808,78 @@ class TestVenueAddressResolution:
         assert data.address == event_with_address.address
 
 
-class TestHeaderFields:
-    """Tests for header field layout in pass JSON."""
+class TestPassJsonFieldLayout:
+    """Tests for field layout in pass JSON (header, primary, secondary)."""
 
-    def test_header_contains_only_date(self, settings: t.Any, mock_signer: MagicMock) -> None:
-        """Header should only contain date, not org name (org is in organizationName)."""
-        settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
-        settings.APPLE_WALLET_TEAM_ID = "TEAM123"
-
-        generator = ApplePassGenerator(signer=mock_signer)
+    def _build_and_parse(self, generator: ApplePassGenerator, **overrides: t.Any) -> dict[str, t.Any]:
         now = timezone.now()
         colors = PassColors(background="rgb(0,0,0)", foreground="rgb(255,255,255)", label="rgb(128,128,128)")
+        defaults: dict[str, t.Any] = {
+            "serial_number": "serial",
+            "description": "Test",
+            "organization_name": "Test Org",
+            "event_name": "Test Event",
+            "event_start": now,
+            "event_end": now + timedelta(hours=1),
+            "address": None,
+            "ticket_tier": "Tier",
+            "ticket_price": "Free",
+            "colors": colors,
+            "logo_image": b"logo",
+        }
+        defaults.update(overrides)
+        data = PassData(**defaults)
+        result: dict[str, t.Any] = json.loads(generator._build_pass_json(data))
+        return result
 
-        data = PassData(
-            serial_number="serial",
-            description="Test",
-            organization_name="Test Org",
-            event_name="Test Event",
-            event_start=now,
-            event_end=now + timedelta(hours=1),
-            address=None,
-            ticket_tier="Tier",
-            ticket_price="Free",
-            colors=colors,
-            logo_image=b"logo",
-        )
+    def test_header_and_primary(self, settings: t.Any, mock_signer: MagicMock) -> None:
+        """Header has date only; primary uses org name as label."""
+        settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
+        settings.APPLE_WALLET_TEAM_ID = "TEAM123"
+        generator = ApplePassGenerator(signer=mock_signer)
 
-        result = generator._build_pass_json(data)
-        pass_dict = json.loads(result)
+        pass_dict = self._build_and_parse(generator)
         header_fields = pass_dict["eventTicket"]["headerFields"]
 
         assert len(header_fields) == 1
         assert header_fields[0]["key"] == "date"
-        # Org name should be at top level, not in header fields
-        assert pass_dict["organizationName"] == "Test Org"
-        assert all(f["key"] != "organization" for f in header_fields)
+
+        primary = pass_dict["eventTicket"]["primaryFields"][0]
+        assert primary["label"] == "Test Org"
+        assert primary["value"] == "Test Event"
+
+    def test_venue_name_as_label_address_as_value(self, settings: t.Any, mock_signer: MagicMock) -> None:
+        """When venue and address both exist, venue name is the label and address is the value."""
+        settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
+        settings.APPLE_WALLET_TEAM_ID = "TEAM123"
+        generator = ApplePassGenerator(signer=mock_signer)
+
+        pass_dict = self._build_and_parse(generator, venue_name="Yoga Bar", address="Stühmeyerstr. 33, Bochum")
+        secondary = pass_dict["eventTicket"]["secondaryFields"]
+
+        assert secondary[0]["key"] == "venue"
+        assert secondary[0]["label"] == "YOGA BAR"
+        assert secondary[0]["value"] == "Stühmeyerstr. 33, Bochum"
+
+    def test_address_without_venue(self, settings: t.Any, mock_signer: MagicMock) -> None:
+        """When no venue but address exists, address is the main secondary field."""
+        settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
+        settings.APPLE_WALLET_TEAM_ID = "TEAM123"
+        generator = ApplePassGenerator(signer=mock_signer)
+
+        pass_dict = self._build_and_parse(generator, address="123 Event Street")
+        secondary = pass_dict["eventTicket"]["secondaryFields"]
+
+        assert secondary[0]["key"] == "address"
+        assert secondary[0]["value"] == "123 Event Street"
+
+    def test_no_address_no_venue(self, settings: t.Any, mock_signer: MagicMock) -> None:
+        """When neither venue nor address exist, secondary has no location fields."""
+        settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.test"
+        settings.APPLE_WALLET_TEAM_ID = "TEAM123"
+        generator = ApplePassGenerator(signer=mock_signer)
+
+        pass_dict = self._build_and_parse(generator)
+        secondary = pass_dict["eventTicket"]["secondaryFields"]
+
+        assert all(f["key"] not in ("venue", "address") for f in secondary)
