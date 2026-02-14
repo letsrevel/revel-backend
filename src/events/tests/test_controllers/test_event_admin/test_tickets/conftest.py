@@ -1,5 +1,7 @@
 """Shared fixtures for ticket tests."""
 
+from decimal import Decimal
+
 import pytest
 
 from accounts.models import RevelUser
@@ -61,4 +63,75 @@ def active_online_ticket(organization_staff_user: RevelUser, event: Event, event
         event=event,
         tier=event_ticket_tier,
         status=Ticket.TicketStatus.ACTIVE,
+    )
+
+
+@pytest.fixture
+def pwyc_offline_tier(event: Event) -> TicketTier:
+    """Create a PWYC tier with offline payment."""
+    return TicketTier.objects.create(
+        event=event,
+        name="PWYC Offline",
+        price=Decimal("0"),
+        price_type=TicketTier.PriceType.PWYC,
+        pwyc_min=Decimal("5"),
+        pwyc_max=Decimal("50"),
+        payment_method=TicketTier.PaymentMethod.OFFLINE,
+    )
+
+
+@pytest.fixture
+def pending_pwyc_offline_ticket(public_user: RevelUser, event: Event, pwyc_offline_tier: TicketTier) -> Ticket:
+    """Create a pending ticket linked to a PWYC offline tier."""
+    return Ticket.objects.create(
+        guest_name="PWYC Guest",
+        user=public_user,
+        event=event,
+        tier=pwyc_offline_tier,
+        status=Ticket.TicketStatus.PENDING,
+    )
+
+
+@pytest.fixture
+def pwyc_at_door_tier(event: Event) -> TicketTier:
+    """Create a PWYC tier with at-the-door payment."""
+    return TicketTier.objects.create(
+        event=event,
+        name="PWYC At Door",
+        price=Decimal("0"),
+        price_type=TicketTier.PriceType.PWYC,
+        pwyc_min=Decimal("5"),
+        pwyc_max=Decimal("50"),
+        payment_method=TicketTier.PaymentMethod.AT_THE_DOOR,
+    )
+
+
+@pytest.fixture
+def pending_pwyc_at_door_ticket(member_user: RevelUser, event: Event, pwyc_at_door_tier: TicketTier) -> Ticket:
+    """Create a pending ticket linked to a PWYC at-the-door tier."""
+    return Ticket.objects.create(
+        guest_name="PWYC Door Guest",
+        user=member_user,
+        event=event,
+        tier=pwyc_at_door_tier,
+        status=Ticket.TicketStatus.PENDING,
+    )
+
+
+@pytest.fixture
+def pending_pwyc_offline_ticket_with_price(
+    public_user: RevelUser, event: Event, pwyc_offline_tier: TicketTier
+) -> Ticket:
+    """Create a pending PWYC offline ticket with price_paid already set.
+
+    This simulates the realistic batch-checkout scenario where the user
+    chose a price during checkout but payment hasn't been confirmed yet.
+    """
+    return Ticket.objects.create(
+        guest_name="PWYC Priced Guest",
+        user=public_user,
+        event=event,
+        tier=pwyc_offline_tier,
+        status=Ticket.TicketStatus.PENDING,
+        price_paid=Decimal("10.00"),
     )

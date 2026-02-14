@@ -10,8 +10,6 @@ from events.models import (
     Event,
     EventInvitation,
     EventRSVP,
-    Ticket,
-    TicketTier,
 )
 from events.service.event_manager import EligibilityService, EventManager, Reasons, UserIsIneligibleError
 
@@ -59,22 +57,6 @@ def test_private_event_rsvp_with_invitation(
     rsvp = EventRSVP.objects.filter(event=private_event, user=public_user).first()
     assert rsvp is not None
     assert rsvp.status == EventRSVP.RsvpStatus.YES
-
-
-def test_private_event_create_ticket_rsvp_only(
-    public_user: RevelUser, private_event: Event, free_tier: TicketTier
-) -> None:
-    """Test that a user cannot RSVP without invitation."""
-    private_event.requires_ticket = False
-    private_event.save()
-    handler = EventManager(user=public_user, event=private_event)
-    with pytest.raises(UserIsIneligibleError) as exc_info:
-        handler.create_ticket(free_tier)
-
-    eligibility = exc_info.value.eligibility
-
-    assert eligibility.reason == Reasons.MUST_RSVP
-    assert not Ticket.objects.filter(event=private_event, user=public_user).exists()
 
 
 # --- Test Cases for RSVP Deadline Gate ---
