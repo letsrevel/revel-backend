@@ -7,7 +7,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, F
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -16,7 +16,6 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, EventRSVP, MembershipTier, OrganizationMember, Ticket, TicketTier
 from events.models.mixins import VisibilityMixin
-from events.service import stripe_service
 
 if t.TYPE_CHECKING:
     from events.service.event_manager import EventUserEligibility
@@ -273,75 +272,90 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
     return EventManager(user, event).check_eligibility()
 
 
-class TicketService:
-    def __init__(self, *, event: Event, tier: TicketTier, user: RevelUser) -> None:
-        """Initialize the ticket service."""
-        self.event = event
-        self.tier = tier
-        self.user = user
+@transaction.atomic
+def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) -> Ticket:
+    """Confirm payment for a pending offline/at-the-door ticket and activate it.
 
-    def checkout(self, price_override: Decimal | None = None) -> str | Ticket:
-        """Conditional checkout."""
-        if (
-            Ticket.objects.filter(event=self.event, tier=self.tier, user=self.user).exists()
-            and self.tier.payment_method != TicketTier.PaymentMethod.ONLINE
-        ):
-            raise HttpError(400, str(_("You already have a ticket.")))
-        match self.tier.payment_method:
-            case TicketTier.PaymentMethod.ONLINE:
-                return self._stripe_checkout(price_override=price_override)
-            case TicketTier.PaymentMethod.OFFLINE:
-                return self._offline_checkout()
-            case TicketTier.PaymentMethod.AT_THE_DOOR:
-                return self._at_the_door_checkout()
-            case TicketTier.PaymentMethod.FREE:
-                return self._free_checkout()
-            case _:
-                raise HttpError(400, str(_("Unknown payment method.")))
+    Args:
+        ticket: The ticket to confirm. Must have tier prefetched via select_related.
+        price_paid: Amount paid. Required for PWYC tiers that don't already have a
+            recorded price. Optional as an override for PWYC tiers that already have
+            a price (e.g. set during batch checkout). Forbidden for fixed-price tiers.
 
-    def _stripe_checkout(self, price_override: Decimal | None = None) -> str:
-        checkout_url, _ = stripe_service.create_checkout_session(
-            self.event, self.tier, self.user, price_override=price_override
-        )
-        return checkout_url
+    Returns:
+        The re-fetched ticket with full() relations for serialization.
 
-    @transaction.atomic
-    def _offline_checkout(self) -> Ticket:
-        TicketTier.objects.select_for_update().filter(pk=self.tier.pk).update(quantity_sold=F("quantity_sold") + 1)
-        ticket = Ticket.objects.create(
-            event=self.event,
-            tier=self.tier,
-            user=self.user,
-            status=Ticket.TicketStatus.PENDING,
-            guest_name=self.user.get_display_name(),
-        )
-        # Notification sent automatically via post_save signal
-        return ticket
+    Note:
+        price_paid is intentionally not validated against the tier's pwyc_min/pwyc_max
+        bounds. Admins are trusted to override these limits when confirming payment
+        (e.g. accepting a lower amount or granting a discount).
 
-    def _at_the_door_checkout(self) -> Ticket:
-        """Handle at-the-door checkout - creates ACTIVE tickets immediately.
+    Raises:
+        HttpError 400: If price_paid is missing for PWYC without existing price,
+            or provided for fixed-price.
+    """
+    is_pwyc = ticket.tier.price_type == TicketTier.PriceType.PWYC
 
-        AT_THE_DOOR represents a commitment to attend (pay at arrival),
-        so tickets are marked ACTIVE and count toward attendee_count.
-        """
-        return self._free_checkout()
+    if not is_pwyc and price_paid is not None:
+        raise HttpError(400, str(_("Price paid is not allowed for fixed-price tiers.")))
 
-    @transaction.atomic
-    def _free_checkout(self) -> Ticket:
-        TicketTier.objects.select_for_update().filter(pk=self.tier.pk).update(quantity_sold=F("quantity_sold") + 1)
-        ticket = Ticket.objects.create(
-            event=self.event,
-            tier=self.tier,
-            user=self.user,
-            status=Ticket.TicketStatus.ACTIVE,
-            guest_name=self.user.get_display_name(),
-        )
-        # Notification sent automatically via post_save signal
-        return ticket
+    if is_pwyc and price_paid is None and ticket.price_paid is None:
+        raise HttpError(400, str(_("Price paid is required for Pay What You Can tiers.")))
+
+    update_fields = ["status"]
+
+    # Store old status before updating (signal handler needs this)
+    ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
+    ticket.status = Ticket.TicketStatus.ACTIVE
+
+    if is_pwyc and price_paid is not None:
+        ticket.price_paid = price_paid
+        update_fields.append("price_paid")
+
+    ticket.save(update_fields=update_fields)
+
+    # Re-fetch with full() to include all related objects for serialization
+    return Ticket.objects.full().get(pk=ticket.pk)
 
 
-def check_in_ticket(event: Event, ticket_id: UUID, checked_in_by: RevelUser) -> Ticket:
-    """Check in an attendee by scanning their ticket."""
+@transaction.atomic
+def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
+    """Revert a confirmed offline ticket back to pending status, clearing price_paid.
+
+    Args:
+        ticket: The ticket to unconfirm. Must be ACTIVE with OFFLINE payment method.
+
+    Returns:
+        The re-fetched ticket with full() relations for serialization.
+    """
+    # Store old status before updating (signal handler needs this)
+    ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
+    ticket.status = Ticket.TicketStatus.PENDING
+    ticket.price_paid = None
+    ticket.save(update_fields=["status", "price_paid"])
+
+    # Re-fetch with full() to include all related objects for serialization
+    return Ticket.objects.full().get(pk=ticket.pk)
+
+
+def check_in_ticket(
+    event: Event, ticket_id: UUID, checked_in_by: RevelUser, price_paid: Decimal | None = None
+) -> Ticket:
+    """Check in an attendee by scanning their ticket.
+
+    Args:
+        event: The event the ticket belongs to.
+        ticket_id: UUID of the ticket to check in.
+        checked_in_by: The user performing the check-in.
+        price_paid: Amount paid. Required for PWYC offline/at-the-door tickets
+            that don't have a price recorded yet. Optional as an override for
+            PWYC offline/at-the-door tickets that already have a price.
+            Forbidden for non-PWYC or online tickets.
+
+    Note:
+        price_paid is intentionally not validated against the tier's pwyc_min/pwyc_max
+        bounds. Admins are trusted to override these limits at check-in.
+    """
     # Get the ticket
     ticket = get_object_or_404(
         Ticket.objects.select_related("user", "tier"),
@@ -373,11 +387,28 @@ def check_in_ticket(event: Event, ticket_id: UUID, checked_in_by: RevelUser) -> 
     if not event.is_check_in_open():
         raise HttpError(400, str(_("Check-in is not currently open for this event.")))
 
+    # PWYC price_paid handling
+    is_pwyc_offsite = ticket.tier.price_type == TicketTier.PriceType.PWYC and ticket.tier.payment_method in (
+        TicketTier.PaymentMethod.OFFLINE,
+        TicketTier.PaymentMethod.AT_THE_DOOR,
+    )
+
+    if not is_pwyc_offsite and price_paid is not None:
+        raise HttpError(400, str(_("Price paid is not allowed for this ticket.")))
+
+    if is_pwyc_offsite and price_paid is None and ticket.price_paid is None:
+        raise HttpError(400, str(_("Price paid is required for Pay What You Can tickets without a recorded payment.")))
+
     # Update ticket status
+    update_fields = ["status", "checked_in_at", "checked_in_by"]
+    if is_pwyc_offsite and price_paid is not None:
+        ticket.price_paid = price_paid
+        update_fields.append("price_paid")
+
     ticket.status = Ticket.TicketStatus.CHECKED_IN
     ticket.checked_in_at = timezone.now()
     ticket.checked_in_by = checked_in_by
-    ticket.save(update_fields=["status", "checked_in_at", "checked_in_by"])
+    ticket.save(update_fields=update_fields)
 
     return ticket
 

@@ -4,7 +4,7 @@ from django.db import transaction
 from django.db.models import F, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
-from ninja import Query
+from ninja import Body, Query
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
@@ -16,7 +16,6 @@ from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.service import ticket_service
-from events.service.ticket_service import check_in_ticket
 
 from .base import EventAdminBaseController
 
@@ -178,26 +177,25 @@ class EventAdminTicketsController(EventAdminBaseController):
         response={200: schema.UserTicketSchema},
         permissions=[EventPermission("manage_tickets")],
     )
-    def confirm_ticket_payment(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
+    def confirm_ticket_payment(
+        self,
+        event_id: UUID,
+        ticket_id: UUID,
+        payload: schema.ConfirmPaymentSchema | None = Body(None),  # type: ignore[type-arg]
+    ) -> models.Ticket:
         """Confirm payment for a pending offline ticket and activate it."""
         event = self.get_one(event_id)
         ticket = get_object_or_404(
-            models.Ticket,
+            models.Ticket.objects.select_related("tier"),
             pk=ticket_id,
             event=event,
+            status=models.Ticket.TicketStatus.PENDING,
             tier__payment_method__in=[
                 models.TicketTier.PaymentMethod.OFFLINE,
                 models.TicketTier.PaymentMethod.AT_THE_DOOR,
             ],
         )
-        # Store old status before updating (signal handler needs this)
-        ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
-        ticket.status = models.Ticket.TicketStatus.ACTIVE
-        ticket.save(update_fields=["status"])
-
-        # Notification sent automatically via signal handler
-        # Re-fetch with full() to include all related objects for UserTicketSchema
-        return models.Ticket.objects.full().get(pk=ticket.pk)
+        return ticket_service.confirm_ticket_payment(ticket, price_paid=payload.price_paid if payload else None)
 
     @route.post(
         "/tickets/{ticket_id}/unconfirm-payment",
@@ -219,13 +217,7 @@ class EventAdminTicketsController(EventAdminBaseController):
             status=models.Ticket.TicketStatus.ACTIVE,
             tier__payment_method=models.TicketTier.PaymentMethod.OFFLINE,
         )
-        # Store old status before updating (signal handler needs this)
-        ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
-        ticket.status = models.Ticket.TicketStatus.PENDING
-        ticket.save(update_fields=["status"])
-
-        # Re-fetch with full() to include all related objects for UserTicketSchema
-        return models.Ticket.objects.full().get(pk=ticket.pk)
+        return ticket_service.unconfirm_ticket_payment(ticket)
 
     @route.post(
         "/tickets/{ticket_id}/mark-refunded",
@@ -313,7 +305,14 @@ class EventAdminTicketsController(EventAdminBaseController):
         response={200: schema.CheckInResponseSchema, 400: ValidationErrorResponse},
         permissions=[EventPermission("check_in_attendees")],
     )
-    def check_in_ticket(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
+    def check_in_ticket(
+        self,
+        event_id: UUID,
+        ticket_id: UUID,
+        payload: schema.ConfirmPaymentSchema | None = Body(None),  # type: ignore[type-arg]
+    ) -> models.Ticket:
         """Check in an attendee by scanning their ticket."""
         event = self.get_one(event_id)
-        return check_in_ticket(event, ticket_id, self.user())
+        return ticket_service.check_in_ticket(
+            event, ticket_id, self.user(), price_paid=payload.price_paid if payload else None
+        )

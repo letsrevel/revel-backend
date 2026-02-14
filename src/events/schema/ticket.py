@@ -191,10 +191,20 @@ class CheckInResponseSchema(ModelSchema):
 
     user: MinimalRevelUserSchema
     tier: TicketTierSchema | None = None
+    price_paid: Decimal | None = None
 
     class Meta:
         model = Ticket
-        fields = ["id", "status", "checked_in_at", "tier"]
+        fields = ["id", "status", "checked_in_at", "tier", "price_paid"]
+
+
+class ConfirmPaymentSchema(Schema):
+    """Optional payload for confirming offline/at-the-door ticket payment.
+
+    price_paid is required for PWYC tiers and must be omitted for fixed-price tiers.
+    """
+
+    price_paid: Decimal | None = Field(None, gt=0)
 
 
 # ---- TicketTier Schemas for Admin CRUD ----
