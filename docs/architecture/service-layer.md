@@ -1,6 +1,6 @@
 # Service Layer
 
-Revel uses a **hybrid approach** to services: function-based for stateless operations, class-based for stateful workflows. This is an intentional design decision -- not every service needs to be a class, and not every operation needs to be a standalone function.
+Revel uses a **hybrid approach** to services: function-based for stateless operations, class-based for stateful workflows. This is an intentional design decision: not every service needs to be a class, and not every operation needs to be a standalone function.
 
 !!! info "Related decisions"
     See [ADR-0002: Hybrid Service Architecture](../adr/0002-hybrid-service-architecture.md) and [ADR-0004: No Dependency Injection](../adr/0004-no-dependency-injection.md) for the rationale behind this approach.
@@ -80,13 +80,13 @@ flowchart TD
 
     - Shared context via `__init__` avoids passing the same arguments everywhere
     - Private methods (`_stripe_checkout`) encapsulate implementation details
-    - Instantiated per-request -- never a singleton
+    - Instantiated per-request (never a singleton)
     - Makes complex workflows readable and maintainable
 
 ## Mixed Modules Are OK
 
 !!! tip "A single service module can contain both patterns"
-    `ticket_service.py` has standalone functions like `check_in_ticket()` while `batch_ticket_service.py` has the class-based `BatchTicketService`. This is intentional -- don't force everything into one pattern.
+    `ticket_service.py` has standalone functions like `check_in_ticket()` while `batch_ticket_service.py` has the class-based `BatchTicketService`. This is intentional; don't force everything into one pattern.
 
 ```python
 # batch_ticket_service.py contains the class-based service
@@ -96,7 +96,7 @@ def check_in_ticket(
     event: Event, ticket_id: UUID, checked_in_by: RevelUser,
     price_paid: Decimal | None = None,
 ) -> Ticket:
-    """Standalone operation -- no shared state needed."""
+    """Standalone operation: no shared state needed."""
     ...
 
 def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) -> Ticket:
@@ -131,7 +131,7 @@ result = service.create_batch(items=purchase_items)
 
 | Concern | Our approach | DI container |
 |---|---|---|
-| **Request context** | Services need user, event, org -- instantiated per request | DI containers favour singletons or request-scoped factories |
+| **Request context** | Services need user, event, org (instantiated per request) | DI containers favour singletons or request-scoped factories |
 | **Traceability** | `grep BatchTicketService` finds all usages | DI registration is indirect and harder to trace |
 | **Framework coupling** | Zero lock-in beyond Django Ninja | Tied to the DI framework's lifecycle |
 | **Complexity** | Manual instantiation is simple and clear | Registration, resolution, scoping add cognitive overhead |
@@ -141,7 +141,7 @@ The KISS principle wins here. Explicit instantiation is one line of code and mak
 ## Key Guidelines
 
 !!! danger "Business logic belongs in services, not controllers or models"
-    Controllers should be thin -- validate input, call a service, return output. Models should define data and relationships. Services contain the business rules.
+    Controllers should be thin: validate input, call a service, return output. Models should define data and relationships. Services contain the business rules.
 
 !!! tip "Let exceptions propagate"
     Do not catch exceptions for the sake of catching them. Especially in Celery tasks, it may be important to let them propagate instead of having the tasks fail silently.

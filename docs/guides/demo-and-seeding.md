@@ -10,16 +10,16 @@ Revel includes management commands to populate the database with realistic test 
 
 Runs the `bootstrap` management command from `common/management/commands/bootstrap.py`, which orchestrates the full setup:
 
-1. **`migrate`** -- applies all pending database migrations
-2. **`bootstrap_events`** -- creates the main demo dataset (users, organizations, events, questionnaires, etc.)
-3. **`bootstrap_test_events`** -- creates a third organization with events designed to test every eligibility gate
-4. **`generate_test_jwts`** -- prints JWT access/refresh tokens for the superuser to stdout
+1. **`migrate`**: applies all pending database migrations
+2. **`bootstrap_events`**: creates the main demo dataset (users, organizations, events, questionnaires, etc.)
+3. **`bootstrap_test_events`**: creates a third organization with events designed to test every eligibility gate
+4. **`generate_test_jwts`**: prints JWT access/refresh tokens for the superuser to stdout
 
 ```bash
 make bootstrap
 ```
 
-Safe to run multiple times -- it checks for existing data.
+Safe to run multiple times; it checks for existing data.
 
 ### `make seed`
 
@@ -36,7 +36,7 @@ uv run python src/manage.py seed --seed 42 --users 500 --organizations 10 --even
 uv run python src/manage.py seed --seed 42 --clear
 ```
 
-The seed command runs 12 phases: files, users, organizations, venues, events, questionnaires, tickets, interactions, notifications, social, preferences, and Telegram links. It also creates (or verifies) a superuser (`admin@revel.io` / `password` by default -- note this differs from `make bootstrap` which uses `admin@letsrevel.io`).
+The seed command runs 12 phases: files, users, organizations, venues, events, questionnaires, tickets, interactions, notifications, social, preferences, and Telegram links. It also creates (or verifies) a superuser (`admin@revel.io` / `password` by default; note this differs from `make bootstrap` which uses `admin@letsrevel.io`).
 
 The seed command also supports a `--yes` flag to skip confirmation prompts, useful for automated scripts:
 
@@ -45,7 +45,7 @@ uv run python src/manage.py seed --seed 42 --yes
 ```
 
 !!! info "Bootstrap vs Seed"
-    `make bootstrap` creates a small, hand-crafted dataset with known users and scenarios that are easy to reason about during development. `make seed` creates a large, randomly generated dataset for stress testing and realistic-scale QA. They are independent -- you can run one or both.
+    `make bootstrap` creates a small, hand-crafted dataset with known users and scenarios that are easy to reason about during development. `make seed` creates a large, randomly generated dataset for stress testing and realistic-scale QA. They are independent; you can run one or both.
 
 ### `bootstrap_perf_tests`
 
@@ -144,7 +144,7 @@ Users are assigned random pronouns from a seeded list (`he/him`, `she/her`, `the
 
 | Email | Display Name | Role |
 |---|---|---|
-| `test.random@example.com` | Random Tester | No organization -- used for testing public access |
+| `test.random@example.com` | Random Tester | No organization (used for testing public access) |
 | `test.admin@example.com` | Test Admin | Owner of Eligibility Test Organization |
 | `test.staff@example.com` | Test Staff | Staff at Eligibility Test Organization |
 | `test.member@example.com` | Test Member | Member of Eligibility Test Organization |
@@ -242,17 +242,17 @@ These events are all in the **Eligibility Test Organization** and are designed t
 
 | Event Name | Scenario Tested |
 |---|---|
-| Accessible Public Event | No restrictions -- any user can RSVP |
-| Event Requires Questionnaire | QuestionnaireGate -- must complete questionnaire first |
-| Members-Only Event | MembershipGate -- must be organization member |
-| Private Event (Invitation Required) | InvitationGate -- must have valid invitation |
-| Event at Full Capacity | AvailabilityGate -- event is full (10/10), waitlist available |
-| RSVP Deadline Passed | RSVPDeadlineGate -- RSVP period ended |
-| Tickets Not Yet On Sale | TicketSalesGate -- sales start in the future |
-| Draft Event (Not Yet Open) | EventStatusGate -- event not yet open |
-| Past Event (Finished) | EventStatusGate -- event already ended |
+| Accessible Public Event | No restrictions; any user can RSVP |
+| Event Requires Questionnaire | QuestionnaireGate: must complete questionnaire first |
+| Members-Only Event | MembershipGate: must be organization member |
+| Private Event (Invitation Required) | InvitationGate: must have valid invitation |
+| Event at Full Capacity | AvailabilityGate: event is full (10/10), waitlist available |
+| RSVP Deadline Passed | RSVPDeadlineGate: RSVP period ended |
+| Tickets Not Yet On Sale | TicketSalesGate: sales start in the future |
+| Draft Event (Not Yet Open) | EventStatusGate: event not yet open |
+| Past Event (Finished) | EventStatusGate: event already ended |
 | Event Requires Ticket Purchase | Tickets on sale, must purchase |
-| Sold Out Event | AvailabilityGate -- all tickets sold (5/5), waitlist available |
+| Sold Out Event | AvailabilityGate: all tickets sold (5/5), waitlist available |
 
 ### Ticket Tiers
 
@@ -316,13 +316,13 @@ These events are all in the **Eligibility Test Organization** and are designed t
 | **Tech Innovators Network Membership Application** | Hybrid (AI + human) | Tech Innovators Network (org-level) | Admission |
 | **Event Feedback** | Manual | NYE Gala 2024 (event) | Feedback |
 
-**Code of Conduct Agreement** -- Simple yes/no agreement. Fatal question (wrong answer = automatic fail). Max 3 attempts, requires 100% score.
+**Code of Conduct Agreement.** Simple yes/no agreement. Fatal question (wrong answer = automatic fail). Max 3 attempts, requires 100% score.
 
-**Wine Tasting Dinner Application** -- Multi-question application with a conditional question: if the user selects "Advanced" wine knowledge, they get an additional free-text question about their specialization. Max 1 attempt, requires 60% score.
+**Wine Tasting Dinner Application.** Multi-question application with a conditional question: if the user selects "Advanced" wine knowledge, they get an additional free-text question about their specialization. Max 1 attempt, requires 60% score.
 
-**Tech Innovators Network Membership Application** -- Multi-section questionnaire with conditional questions and conditional sections. Selecting "AI/Machine Learning" reveals a follow-up multi-select about AI areas. Selecting "Blockchain/Web3" reveals an entire section about Web3 experience. Max 2 attempts (can retake after 30 days), requires 70% score.
+**Tech Innovators Network Membership Application.** Multi-section questionnaire with conditional questions and conditional sections. Selecting "AI/Machine Learning" reveals a follow-up multi-select about AI areas. Selecting "Blockchain/Web3" reveals an entire section about Web3 experience. Max 2 attempts (can retake after 30 days), requires 70% score.
 
-**Event Feedback** -- Simple post-event feedback with a yes/no question and optional free-text comments. Linked as `FEEDBACK` type to the past event.
+**Event Feedback.** Simple post-event feedback with a yes/no question and optional free-text comments. Linked as `FEEDBACK` type to the past event.
 
 #### Eligibility Test Questionnaire
 
@@ -372,10 +372,10 @@ For the **Spring Community Potluck & Garden Party**:
 | Event | Users (YES) | MAYBE | NO |
 |---|---|---|---|
 | Spring Potluck | George, Hannah, Ivan, Julia, Karen, Charlie | Bob Staff | Leo Pending |
-| AI APIs Workshop | Frank, Eve, Karen | -- | -- |
-| Tech Talk May | Frank | -- | -- |
-| Networking Happy Hour | Frank, Eve, Karen, George | -- | -- |
-| Art Exhibition | Hannah, Ivan, Charlie | -- | -- |
+| AI APIs Workshop | Frank, Eve, Karen | (none) | (none) |
+| Tech Talk May | Frank | (none) | (none) |
+| Networking Happy Hour | Frank, Eve, Karen, George | (none) | (none) |
+| Art Exhibition | Hannah, Ivan, Charlie | (none) | (none) |
 
 ### Tickets
 
@@ -409,19 +409,19 @@ Every bootstrap user has dietary preferences and/or food restrictions configured
 
 | User | Dietary Preference | Food Restriction |
 |---|---|---|
-| Alice Owner | Vegetarian | Milk (intolerant -- mild lactose) |
-| Bob Staff | Vegan | -- |
-| Charlie Member | Gluten-Free | Gluten (allergy -- celiac) |
-| Diana Owner | -- | Peanuts (severe allergy -- anaphylaxis) |
+| Alice Owner | Vegetarian | Milk (intolerant, mild lactose) |
+| Bob Staff | Vegan | (none) |
+| Charlie Member | Gluten-Free | Gluten (allergy, celiac) |
+| Diana Owner | (none) | Peanuts (severe allergy, anaphylaxis) |
 | Eve Staff | Pescatarian | Shellfish (allergy) |
-| Frank Member | Halal | -- |
-| George Attendee | -- | Tree nuts (allergy) |
+| Frank Member | Halal | (none) |
+| George Attendee | (none) | Tree nuts (allergy) |
 | Hannah Attendee | Dairy-Free | Eggs (allergy) |
-| Ivan Attendee | -- | Soy (intolerant) |
+| Ivan Attendee | (none) | Soy (intolerant) |
 | Julia Attendee | Vegetarian | Sesame (allergy) |
-| Karen Multi | Kosher | -- |
-| Leo Pending | -- | Celery (allergy) |
-| Maria Invited | Pescatarian, Gluten-Free | -- |
+| Karen Multi | Kosher | (none) |
+| Leo Pending | (none) | Celery (allergy) |
+| Maria Invited | Pescatarian, Gluten-Free | (none) |
 
 ---
 
@@ -448,8 +448,8 @@ Every bootstrap user has dietary preferences and/or food restrictions configured
 | Waitlist behavior | Try to get a ticket for **Advanced Machine Learning Workshop** (sold out) |
 | Past event data | View **New Year's Eve Gala 2024** for historical event information |
 | Event feedback | Log in as `charlie.member@example.com` (checked-in at NYE Gala) and submit feedback |
-| Questionnaire flow (simple) | Attend **FutureStack 2025** -- complete the Code of Conduct Agreement |
-| Questionnaire flow (complex) | Apply to **Wine Tasting** -- conditional questions based on wine experience level |
+| Questionnaire flow (simple) | Attend **FutureStack 2025**: complete the Code of Conduct Agreement |
+| Questionnaire flow (complex) | Apply to **Wine Tasting**: conditional questions based on wine experience level |
 | Membership application | Apply to join **Tech Innovators Network** via the membership questionnaire |
 | Members-only access | Try accessing **Hands-on Workshop: Building with AI APIs** as a non-member |
 | Invitation-only access | Try accessing **Exclusive Wine Tasting & Pairing Dinner** without an invitation |

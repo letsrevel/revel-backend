@@ -2,7 +2,7 @@
 
 **An open-source, community-focused event management platform.**
 
-Revel is an event management and ticketing platform designed with community at its heart. Built for groups that value privacy, control, and transparency -- from queer and LGBTQ+ communities to activist collectives and beyond.
+Revel is an event management and ticketing platform designed with community at its heart. Built for groups that value privacy, control, and transparency, from queer and LGBTQ+ communities to activist collectives and beyond.
 
 <div class="grid cards" markdown>
 

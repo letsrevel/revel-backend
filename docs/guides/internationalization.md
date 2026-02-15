@@ -86,7 +86,7 @@ src/locale/
 ## Rules & Best Practices
 
 !!! success "Do"
-    - **Always** use `I18nJWTAuth` for authenticated endpoints -- it activates the user's language automatically
+    - **Always** use `I18nJWTAuth` for authenticated endpoints. It activates the user's language automatically
     - **Always** wrap user-facing strings with `_()`
     - **Always** call `str()` on lazy translations when used in API responses (e.g., in serializers or plain dicts)
     - **Always** commit `.mo` files to git (see rationale below)
@@ -97,8 +97,8 @@ src/locale/
 
 !!! failure "Don't"
     - **Don't** translate log messages or developer-facing content
-    - **Don't** hardcode user-facing strings -- always use `_()`
-    - **Don't** use f-strings with `_()` -- the variable parts won't be extracted:
+    - **Don't** hardcode user-facing strings; always use `_()`
+    - **Don't** use f-strings with `_()`. The variable parts won't be extracted:
       ```python
       # Bad - f-string breaks extraction
       _(f"Welcome, {name}!")

@@ -8,8 +8,8 @@ Accepted
 
 Django uses two file types for internationalization:
 
-- **`.po` files** -- human-readable translation source files
-- **`.mo` files** -- compiled binary files that Django reads at runtime
+- **`.po` files**: human-readable translation source files
+- **`.mo` files**: compiled binary files that Django reads at runtime
 
 The traditional approach is to `.gitignore` compiled `.mo` files and generate them
 during the build process (Docker build, CI setup, deployment script). This requires
@@ -41,11 +41,11 @@ CI catches it.
 
 **Positive:**
 
-- **Reproducible builds everywhere** -- no gettext dependency in Docker, CI, or
+- **Reproducible builds everywhere**: no gettext dependency in Docker, CI, or
   developer machines
-- **Docker builds are simpler** -- no compilation step needed
-- **CI can verify translations** -- `make i18n-check` confirms freshness
-- **Consistent for all developers** -- what you see in git is what runs
+- **Docker builds are simpler**: no compilation step needed
+- **CI can verify translations**: `make i18n-check` confirms freshness
+- **Consistent for all developers**: what you see in git is what runs
 
 **Negative:**
 

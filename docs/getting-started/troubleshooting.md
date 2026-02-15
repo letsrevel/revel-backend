@@ -22,7 +22,7 @@ FileNotFoundError: City import failed: file does not exist at /app/src/geo/data/
 ```
 
 !!! tip "Quick fix"
-    Download the file from [SimpleMaps](https://simplemaps.com/data/world-cities) and place it at `src/geo/data/worldcities.csv`. For development, `worldcities.mini.csv` (a smaller subset) also works — rename it to `worldcities.csv`.
+    Download the file from [SimpleMaps](https://simplemaps.com/data/world-cities) and place it at `src/geo/data/worldcities.csv`. For development, `worldcities.mini.csv` (a smaller subset) also works; rename it to `worldcities.csv`.
 
 ### IP2Location database
 
@@ -76,11 +76,11 @@ Place these in `src/certs/`:
 
     ```bash
     chmod 644 src/certs/pass_certificate.pem src/certs/wwdr.pem
-    chmod 600 src/certs/pass_key.pem  # private key — restrict access
+    chmod 600 src/certs/pass_key.pem  # private key (restrict access)
     ```
 
 !!! info "Feature is optional"
-    If the environment variables are not set, the wallet feature is simply disabled. The app starts normally — you'll only see errors if you try to generate a pass without the configuration.
+    If the environment variables are not set, the wallet feature is simply disabled. The app starts normally. You will only see errors if you try to generate a pass without the configuration.
 
 ---
 
@@ -133,10 +133,10 @@ If you see `PermissionError` or `EACCES` in logs:
 
 | Path | Why |
 |------|-----|
-| `src/certs/` | Apple Wallet certificates — never modified at runtime |
+| `src/certs/` | Apple Wallet certificates (never modified at runtime) |
 
 !!! note "tmpfs and data loss"
-    The development Docker setup uses **tmpfs** for PostgreSQL (configured in `docker-compose-base.yml`), meaning the database lives in memory. Data is lost when the container stops. This is intentional for fast test cycles — use `make bootstrap` to repopulate after a restart.
+    The development Docker setup uses **tmpfs** for PostgreSQL (configured in `docker-compose-base.yml`), meaning the database lives in memory. Data is lost when the container stops. This is intentional for fast test cycles. Use `make bootstrap` to repopulate after a restart.
 
 ---
 
@@ -166,7 +166,7 @@ Most external services have safe defaults for local development. Here's what act
     The default `TELEGRAM_BOT_TOKEN` is a non-functional placeholder. The app starts fine with it, but Telegram features won't work. To develop with a real bot, create one via [@BotFather](https://t.me/BotFather) and set the token in your `.env`.
 
 !!! tip "Stripe test mode"
-    The default Stripe keys are test keys (prefixed `sk_test_` / `pk_test_`). These are safe for development — no real charges are made.
+    The default Stripe keys are test keys (prefixed `sk_test_` / `pk_test_`). These are safe for development; no real charges are made.
 
 ---
 

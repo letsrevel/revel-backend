@@ -25,11 +25,11 @@ Key observations:
 codebase.
 
 ```python
-# Function-based -- import the module, call the function
+# Function-based: import the module, call the function
 from events.service import blacklist_service
 entry = blacklist_service.add_to_blacklist(organization, email=email)
 
-# Class-based -- instantiate per request with context
+# Class-based: instantiate per request with context
 from events.service.batch_ticket_service import BatchTicketService
 service = BatchTicketService(event=event, tier=tier, user=user)
 result = service.create_batch(items=purchase_items)
@@ -39,9 +39,9 @@ result = service.create_batch(items=purchase_items)
 
 **Positive:**
 
-- **Traceable**: `grep` and IDE "Find Usages" work reliably -- no magic resolution
+- **Traceable**: `grep` and IDE "Find Usages" work reliably; no magic resolution
 - **No framework lock-in**: Services are plain Python, not tied to Ninja Extra's DI
-- **Simple and clear**: Follows KISS -- manual instantiation is easy to understand
+- **Simple and clear**: Follows KISS; manual instantiation is easy to understand
 - **Natural fit**: Request-contextual services are instantiated where they are used,
   with exactly the data they need
 
@@ -53,5 +53,5 @@ result = service.create_batch(items=purchase_items)
 **Neutral:**
 
 - Services that need user/event/organization context are instantiated per-request
-  regardless of whether DI is used -- the container would add indirection without
+  regardless of whether DI is used. The container would add indirection without
   reducing code

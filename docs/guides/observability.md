@@ -38,7 +38,7 @@ flowchart TB
 | **Tempo** | Distributed tracing (OpenTelemetry) | 30 days |
 | **Prometheus** | Time-series metrics | 30 days |
 | **Pyroscope** | Continuous profiling (flamegraphs) | 30 days |
-| **Grafana** | Unified visualization & alerting | -- |
+| **Grafana** | Unified visualization & alerting | N/A |
 
 ---
 

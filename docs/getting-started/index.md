@@ -8,7 +8,7 @@ Everything you need to go from zero to a running local development environment.
 
     ---
 
-    Clone, setup, run -- in under 5 minutes.
+    Clone, setup, run: in under 5 minutes.
 
     [:octicons-arrow-right-24: Quick Start](quickstart.md)
 

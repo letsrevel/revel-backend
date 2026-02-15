@@ -16,7 +16,7 @@ several factors made this less attractive:
 - **MinIO licensing**: MinIO moved to AGPL v3 and dropped pre-compiled binaries for
   the community edition, creating licensing concerns for our deployment model.
 - **File size**: Our files are small (< 100 MB). We do not need streaming, multipart
-  uploads, or CDN distribution -- the typical drivers for object storage.
+  uploads, or CDN distribution (the typical drivers for object storage).
 - **Operational complexity**: Running MinIO adds another stateful service to manage,
   monitor, and back up.
 
@@ -41,7 +41,7 @@ This is a **pure Django + Caddy** solution with no external object storage depen
 
 - No AGPL license concerns from MinIO
 - No additional service to deploy, monitor, or upgrade
-- Simpler infrastructure -- Caddy already serves as the reverse proxy
+- Simpler infrastructure: Caddy already serves as the reverse proxy
 - No vendor lock-in to any cloud storage provider
 - Full control over authorization logic in Django
 

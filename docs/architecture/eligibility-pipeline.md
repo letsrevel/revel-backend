@@ -7,7 +7,7 @@ The eligibility pipeline is the **most critical flow** in Revel. It determines w
 
 ## Pipeline Overview
 
-The pipeline consists of **11 gates** executed in strict order. The first gate to return a result short-circuits the pipeline -- no subsequent gates are evaluated.
+The pipeline consists of **11 gates** executed in strict order. The first gate to return a result short-circuits the pipeline; no subsequent gates are evaluated.
 
 ```mermaid
 flowchart TD
@@ -76,12 +76,12 @@ flowchart TD
 
 ### 1. PrivilegedAccessGate
 
-The first gate provides a **fast path** for organization owners and staff. If the requesting user is the organization owner or a staff member, they are immediately granted access with `allowed=True` -- no further gates are checked.
+The first gate provides a **fast path** for organization owners and staff. If the requesting user is the organization owner or a staff member, they are immediately granted access with `allowed=True`; no further gates are checked.
 
 !!! tip "Why this is first"
     Owners and staff always need access to their own events for management purposes (check-in, monitoring, testing). Placing this gate first avoids unnecessary computation.
 
-**Source:** `events/service/event_manager/gates.py` -- `PrivilegedAccessGate`
+**Source:** `events/service/event_manager/gates.py`: `PrivilegedAccessGate`
 
 ---
 
@@ -89,8 +89,8 @@ The first gate provides a **fast path** for organization owners and staff. If th
 
 Checks whether the user is blocked from participating in the organization's events. This gate has two levels of blocking:
 
-1. **Hard block** -- The user is definitively blacklisted (FK match or hard identifier match). Returns `allowed=False` with no `next_step` and no recourse.
-2. **Soft block (fuzzy match)** -- The user's name fuzzy-matches a blacklist entry. This requires verification through a whitelist request flow:
+1. **Hard block**: The user is definitively blacklisted (FK match or hard identifier match). Returns `allowed=False` with no `next_step` and no recourse.
+2. **Soft block (fuzzy match)**: The user's name fuzzy-matches a blacklist entry. This requires verification through a whitelist request flow:
     - **Active members** bypass fuzzy matching entirely (trusted users).
     - If fuzzy-matched but **already whitelisted**, the gate passes.
     - If a **whitelist request is pending**, returns `next_step=WAIT_FOR_WHITELIST_APPROVAL`.
@@ -100,7 +100,7 @@ Checks whether the user is blocked from participating in the organization's even
 !!! note
     This gate cannot be waived by invitations. Blacklist checks are absolute.
 
-**Source:** `events/service/event_manager/gates.py` -- `BlacklistGate`
+**Source:** `events/service/event_manager/gates.py`: `BlacklistGate`
 
 ---
 
@@ -114,7 +114,7 @@ Checks the fundamental state of the event:
 !!! note
     This gate cannot be waived. A closed or ended event is closed for everyone.
 
-**Source:** `events/service/event_manager/gates.py` -- `EventStatusGate`
+**Source:** `events/service/event_manager/gates.py`: `EventStatusGate`
 
 ---
 
@@ -122,14 +122,14 @@ Checks the fundamental state of the event:
 
 For **non-ticketed events**, checks whether the RSVP deadline (`event.rsvp_before`) has passed.
 
-- **Ticketed events** -- gate is skipped entirely (returns `None`).
-- **No deadline set** -- gate passes.
-- **Deadline passed** -- returns `allowed=False` with reason `RSVP_DEADLINE_PASSED`.
+- **Ticketed events**: gate is skipped entirely (returns `None`).
+- **No deadline set**: gate passes.
+- **Deadline passed**: returns `allowed=False` with reason `RSVP_DEADLINE_PASSED`.
 
 !!! info "Invitation waiver: `waives_rsvp_deadline`"
     This gate **can be waived** by an `EventInvitation` with `waives_rsvp_deadline=True`. Invited users can RSVP even after the deadline has passed.
 
-**Source:** `events/service/event_manager/gates.py` -- `RSVPDeadlineGate`
+**Source:** `events/service/event_manager/gates.py`: `RSVPDeadlineGate`
 
 ---
 
@@ -147,7 +147,7 @@ Users who have already applied (submitted a request or completed questionnaires)
 !!! info "Invitation waiver: `waives_apply_deadline`"
     This gate **can be waived** by an `EventInvitation` with `waives_apply_deadline=True`.
 
-**Source:** `events/service/event_manager/gates.py` -- `ApplyDeadlineGate`
+**Source:** `events/service/event_manager/gates.py`: `ApplyDeadlineGate`
 
 ---
 
@@ -155,13 +155,13 @@ Users who have already applied (submitted a request or completed questionnaires)
 
 For **private events**, ensures the user has a valid `EventInvitation`.
 
-- **Public / members-only events** -- gate is skipped entirely.
-- **Has invitation** -- gate passes.
-- **Pending invitation request** -- returns `next_step=WAIT_FOR_INVITATION_APPROVAL`.
-- **Rejected invitation request** -- returns no `next_step` (no recourse).
-- **No invitation and no request** -- returns `next_step=REQUEST_INVITATION` if the event accepts invitation requests, otherwise no `next_step`.
+- **Public / members-only events**: gate is skipped entirely.
+- **Has invitation**: gate passes.
+- **Pending invitation request**: returns `next_step=WAIT_FOR_INVITATION_APPROVAL`.
+- **Rejected invitation request**: returns no `next_step` (no recourse).
+- **No invitation and no request**: returns `next_step=REQUEST_INVITATION` if the event accepts invitation requests, otherwise no `next_step`.
 
-**Source:** `events/service/event_manager/gates.py` -- `InvitationGate`
+**Source:** `events/service/event_manager/gates.py`: `InvitationGate`
 
 ---
 
@@ -169,15 +169,15 @@ For **private events**, ensures the user has a valid `EventInvitation`.
 
 For **members-only events**, ensures the user is an active member of the organization.
 
-- **Not a members-only event** -- gate is skipped.
-- **User is an active member** -- gate passes.
-- **User has inactive membership** -- returns reason `MEMBERSHIP_INACTIVE` with no `next_step`.
-- **User has no membership** -- returns reason `MEMBERS_ONLY` with `next_step=BECOME_MEMBER` if the organization accepts membership requests.
+- **Not a members-only event**: gate is skipped.
+- **User is an active member**: gate passes.
+- **User has inactive membership**: returns reason `MEMBERSHIP_INACTIVE` with no `next_step`.
+- **User has no membership**: returns reason `MEMBERS_ONLY` with `next_step=BECOME_MEMBER` if the organization accepts membership requests.
 
 !!! info "Invitation waiver: `waives_membership_required`"
     This gate **can be waived** by an `EventInvitation` with `waives_membership_required=True`. Non-members can participate in members-only events if they were explicitly invited with this waiver.
 
-**Source:** `events/service/event_manager/gates.py` -- `MembershipGate`
+**Source:** `events/service/event_manager/gates.py`: `MembershipGate`
 
 ---
 
@@ -194,7 +194,7 @@ If any fields are missing, returns `allowed=False` with `next_step=COMPLETE_PROF
 !!! note
     This gate cannot be waived by invitations.
 
-**Source:** `events/service/event_manager/gates.py` -- `FullProfileGate`
+**Source:** `events/service/event_manager/gates.py`: `FullProfileGate`
 
 ---
 
@@ -202,18 +202,18 @@ If any fields are missing, returns `allowed=False` with `next_step=COMPLETE_PROF
 
 Checks whether the user has submitted and passed all required admission questionnaires linked to the event's organization. This gate performs three sub-checks in order:
 
-1. **Missing questionnaires** -- User has not submitted a required questionnaire, or their approved submission has expired (`max_submission_age`). Returns `next_step=COMPLETE_QUESTIONNAIRE` with `questionnaires_missing` list.
-2. **Pending review** -- Submission exists but evaluation is `PENDING_REVIEW` or not yet created. Returns `next_step=WAIT_FOR_QUESTIONNAIRE_EVALUATION` with `questionnaires_pending_review` list.
-3. **Failed questionnaires** -- Evaluation was `REJECTED`:
+1. **Missing questionnaires**: User has not submitted a required questionnaire, or their approved submission has expired (`max_submission_age`). Returns `next_step=COMPLETE_QUESTIONNAIRE` with `questionnaires_missing` list.
+2. **Pending review**: Submission exists but evaluation is `PENDING_REVIEW` or not yet created. Returns `next_step=WAIT_FOR_QUESTIONNAIRE_EVALUATION` with `questionnaires_pending_review` list.
+3. **Failed questionnaires**: Evaluation was `REJECTED`:
     - If max attempts exceeded, returns `questionnaires_failed` list with no `next_step`.
     - If retake is allowed and cooldown has passed, adds to `questionnaires_missing` for resubmission.
     - If retake is allowed but cooldown has not passed, returns `next_step=WAIT_TO_RETAKE_QUESTIONNAIRE` with `retry_on` datetime.
 
 **Questionnaire scoping:**
 
-- **Global questionnaires** -- Submission is shared across all events.
-- **Per-event questionnaires** (`per_event=True`) -- Submission is scoped to the specific event.
-- **Member exemptions** (`members_exempt=True`) -- Active members skip the questionnaire.
+- **Global questionnaires**: Submission is shared across all events.
+- **Per-event questionnaires** (`per_event=True`): Submission is scoped to the specific event.
+- **Member exemptions** (`members_exempt=True`): Active members skip the questionnaire.
 
 !!! info "Invitation waiver: `waives_questionnaire`"
     This gate **can be waived** by an `EventInvitation` with `waives_questionnaire=True`. All questionnaire requirements are bypassed.
@@ -221,7 +221,7 @@ Checks whether the user has submitted and passed all required admission question
 !!! warning "Questionnaires can use AI evaluation"
     Some questionnaires use LLM-powered evaluation. See [Questionnaires](questionnaires.md) for details on evaluation modes and scoring.
 
-**Source:** `events/service/event_manager/gates.py` -- `QuestionnaireGate`
+**Source:** `events/service/event_manager/gates.py`: `QuestionnaireGate`
 
 ---
 
@@ -229,11 +229,11 @@ Checks whether the user has submitted and passed all required admission question
 
 Checks whether the event has reached its capacity limit. Uses `event.effective_capacity`, which is the minimum of `max_attendees` and `venue.capacity` (or whichever is set; 0 means unlimited).
 
-- **Unlimited capacity** (`effective_capacity == 0`) -- gate passes.
+- **Unlimited capacity** (`effective_capacity == 0`): gate passes.
 - **Counting logic:**
-    - **Ticketed events** -- counts non-cancelled tickets.
-    - **RSVP events** -- counts `YES` RSVPs.
-- **Event full** -- returns `next_step=JOIN_WAITLIST` if waitlist is open and user is not already waitlisted, `next_step=WAIT_FOR_OPEN_SPOT` if already on the waitlist, or no `next_step` if no waitlist.
+    - **Ticketed events**: counts non-cancelled tickets.
+    - **RSVP events**: counts `YES` RSVPs.
+- **Event full**: returns `next_step=JOIN_WAITLIST` if waitlist is open and user is not already waitlisted, `next_step=WAIT_FOR_OPEN_SPOT` if already on the waitlist, or no `next_step` if no waitlist.
 
 !!! info "Invitation waiver: `overrides_max_attendees`"
     This gate **can be bypassed** by an `EventInvitation` with `overrides_max_attendees=True`. Invited users can join even when the event is technically full.
@@ -241,7 +241,7 @@ Checks whether the event has reached its capacity limit. Uses `event.effective_c
 !!! note "Two-phase capacity check"
     This gate performs a **preliminary** check using prefetched in-memory data (zero DB queries). The final authoritative capacity check happens in `EventManager._assert_capacity()` within a database transaction with row-level locking (`select_for_update`) to prevent race conditions.
 
-**Source:** `events/service/event_manager/gates.py` -- `AvailabilityGate`
+**Source:** `events/service/event_manager/gates.py`: `AvailabilityGate`
 
 ---
 
@@ -249,7 +249,7 @@ Checks whether the event has reached its capacity limit. Uses `event.effective_c
 
 For **ticketed events**, checks whether there is at least one ticket tier with an active sales window.
 
-- **Non-ticketed events** -- gate is skipped.
+- **Non-ticketed events**: gate is skipped.
 - For each tier, checks if the current time falls within the sales window:
     - `sales_start_at` to `sales_end_at` (falls back to `event.start` if `sales_end_at` is not set).
     - Tiers with no sales window configured are assumed to always be on sale.
@@ -258,7 +258,7 @@ For **ticketed events**, checks whether there is at least one ticket tier with a
 !!! note
     This gate cannot be waived by invitations. Ticket sales windows are strict.
 
-**Source:** `events/service/event_manager/gates.py` -- `TicketSalesGate`
+**Source:** `events/service/event_manager/gates.py`: `TicketSalesGate`
 
 ---
 
@@ -350,9 +350,9 @@ Additionally, `waives_purchase` is available on invitations and checked by `Elig
 
 The `EligibilityService` class (`events/service/event_manager/service.py`) is the orchestrator. It:
 
-1. **Pre-fetches all data** in `__init__` using optimized queries with `select_related`, `prefetch_related`, and annotations -- ensuring subsequent gate checks require **zero additional database queries**.
+1. **Pre-fetches all data** in `__init__` using optimized queries with `select_related`, `prefetch_related`, and annotations, ensuring subsequent gate checks require **zero additional database queries**.
 2. **Instantiates all 11 gates** in order, passing itself as a handler so gates can access shared prefetched data.
-3. **Runs gates sequentially** in `check_eligibility()` -- the first gate to return an `EventUserEligibility` short-circuits the pipeline.
+3. **Runs gates sequentially** in `check_eligibility()`. The first gate to return an `EventUserEligibility` short-circuits the pipeline.
 4. If all gates pass, returns `EventUserEligibility(allowed=True, event_id=...)`.
 
 ```python
@@ -369,8 +369,8 @@ def check_eligibility(self, bypass: bool = False) -> EventUserEligibility:
 
 The `EventManager` class (`events/service/event_manager/manager.py`) wraps `EligibilityService` and adds transactional operations:
 
-- **`rsvp()`** -- Checks eligibility, then asserts capacity with row-level locking, then creates/updates the RSVP. Users who already have a `YES` RSVP bypass eligibility checks when changing status (to prevent them from being "trapped" if requirements change).
-- **`check_eligibility()`** -- Delegates to `EligibilityService.check_eligibility()` with an optional `raise_on_false` parameter that raises `UserIsIneligibleError`.
+- **`rsvp()`**: Checks eligibility, then asserts capacity with row-level locking, then creates/updates the RSVP. Users who already have a `YES` RSVP bypass eligibility checks when changing status (to prevent them from being "trapped" if requirements change).
+- **`check_eligibility()`**: Delegates to `EligibilityService.check_eligibility()` with an optional `raise_on_false` parameter that raises `UserIsIneligibleError`.
 
 ### Sequence Diagram
 

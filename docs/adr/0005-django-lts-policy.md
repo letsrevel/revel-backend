@@ -15,7 +15,7 @@ the stable LTS release?
 
 Our priorities:
 
-- **Stability**: The platform handles real events with real users -- regressions in
+- **Stability**: The platform handles real events with real users. Regressions in
   core framework behavior are costly.
 - **Security**: We need guaranteed security patches for the foreseeable future.
 - **Ecosystem compatibility**: Third-party packages (Django Ninja, django-storages,
@@ -37,7 +37,7 @@ We do **not** upgrade for bleeding-edge features alone.
 
 **Positive:**
 
-- Stability and predictability -- 5.2 is battle-tested
+- Stability and predictability: 5.2 is battle-tested
 - Security updates guaranteed until April 2028
 - Full third-party package compatibility
 - No risk of regressions from major version changes

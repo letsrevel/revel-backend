@@ -57,10 +57,10 @@ That's it. The `setup` target handles everything else automatically.
 !!! tip "What `make setup` does behind the scenes"
     The setup command runs several steps in sequence:
 
-    1. **Installs all dependencies** (production + development) via `uv sync` -- also creates `.venv/` if needed
+    1. **Installs all dependencies** (production + development) via `uv sync` (also creates `.venv/` if needed)
     2. **Copies `.env.example` to `.env`** for local configuration
-    3. **Restarts Docker services** -- PostgreSQL (with PostGIS), Redis, ClamAV, and Mailpit
-    4. **Bootstraps the database** -- runs migrations, creates the admin user, and loads sample event data
+    3. **Restarts Docker services**: PostgreSQL (with PostGIS), Redis, ClamAV, and Mailpit
+    4. **Bootstraps the database**: runs migrations, creates the admin user, and loads sample event data
     5. **Starts the Django development server** with observability disabled
 
 ## Start the Development Server
@@ -104,5 +104,5 @@ Once the server is running, you have access to several services:
 
 ## Next Steps
 
-- [Project Structure](project-structure.md) -- Understand how the codebase is organized
-- [Development Commands](development-commands.md) -- Full reference for all `make` targets
+- [Project Structure](project-structure.md): Understand how the codebase is organized
+- [Development Commands](development-commands.md): Full reference for all `make` targets

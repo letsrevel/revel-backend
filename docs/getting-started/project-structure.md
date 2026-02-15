@@ -1,6 +1,6 @@
 # Project Structure
 
-This page provides a map of the Revel backend codebase -- where things live, why they are organized the way they are, and how the pieces fit together.
+This page provides a map of the Revel backend codebase: where things live, why they are organized the way they are, and how the pieces fit together.
 
 ## Top-Level Directory
 
@@ -26,7 +26,7 @@ revel-backend/
 
 ## Application Breakdown
 
-### `revel/` -- Django Project Core
+### `revel/`: Django Project Core
 
 The Django project package containing settings, root URL configuration, WSGI/ASGI entry points, and Celery app initialization.
 
@@ -34,7 +34,7 @@ Settings are modular, split across multiple files under `revel/settings/` by **f
 
 ---
 
-### `accounts/` -- Users and Authentication
+### `accounts/`: Users and Authentication
 
 Handles everything related to users: registration, login, JWT token management, profile updates, and GDPR compliance (data export and deletion).
 
@@ -47,24 +47,24 @@ Key responsibilities:
 
 ---
 
-### `events/` -- Organizations, Events, and Tickets
+### `events/`: Organizations, Events, and Tickets
 
 The largest and most central app. Manages the full lifecycle of events, from organization setup to ticket checkout and check-in.
 
 Key responsibilities:
 
-- **Organizations** -- creation, membership, roles (Owner, Staff, Member)
-- **Events** -- creation, configuration, publishing
-- **Ticket tiers** -- pricing, capacity, payment methods (free, online, PWYC)
-- **Tickets** -- checkout, payment confirmation, check-in
-- **Venues** -- location management
-- **Invitations** -- invite-based access control
-- **Blacklists** -- organization-level email blocking
-- **Followers** -- user-to-organization following
+- **Organizations**: creation, membership, roles (Owner, Staff, Member)
+- **Events**: creation, configuration, publishing
+- **Ticket tiers**: pricing, capacity, payment methods (free, online, PWYC)
+- **Tickets**: checkout, payment confirmation, check-in
+- **Venues**: location management
+- **Invitations**: invite-based access control
+- **Blacklists**: organization-level email blocking
+- **Followers**: user-to-organization following
 
 ---
 
-### `questionnaires/` -- Dynamic Questionnaires
+### `questionnaires/`: Dynamic Questionnaires
 
 A flexible questionnaire system that can be attached to events for eligibility screening or data collection. Supports LLM-powered evaluation of open-ended responses.
 
@@ -76,7 +76,7 @@ Key responsibilities:
 
 ---
 
-### `notifications/` -- Multi-Channel Notifications
+### `notifications/`: Multi-Channel Notifications
 
 Delivers notifications to users across multiple channels: in-app, email, and Telegram.
 
@@ -88,13 +88,13 @@ Key responsibilities:
 
 ---
 
-### `wallet/` -- Apple Wallet Integration
+### `wallet/`: Apple Wallet Integration
 
 Generates Apple Wallet passes (`.pkpass` files) for event tickets, allowing attendees to add their tickets to the iOS Wallet app.
 
 ---
 
-### `geo/` -- Geolocation
+### `geo/`: Geolocation
 
 Provides geolocation features including city search, IP-based location detection, and geographic data management.
 
@@ -106,7 +106,7 @@ Key responsibilities:
 
 ---
 
-### `telegram/` -- Telegram Bot
+### `telegram/`: Telegram Bot
 
 A Telegram bot integration using **aiogram** for user interaction and notification delivery. Runs in **long-polling** mode.
 
@@ -119,13 +119,13 @@ Key responsibilities:
 
 ---
 
-### `api/` -- Global API Configuration
+### `api/`: Global API Configuration
 
 Houses API-wide concerns: the root API instance, global exception handlers, rate limiting configuration, and middleware.
 
 ---
 
-### `common/` -- Shared Utilities
+### `common/`: Shared Utilities
 
 A library of reusable components used across all apps.
 
@@ -143,9 +143,9 @@ Each app follows a consistent internal structure that separates concerns into th
 
 ```
 app_name/
-├── models(.py or /)    # Django models -- data and schema
-├── controllers(.py or /) # API endpoints -- HTTP layer
-├── service(.py or /)   # Business logic -- orchestration
+├── models(.py or /)    # Django models: data and schema
+├── controllers(.py or /) # API endpoints: HTTP layer
+├── service(.py or /)   # Business logic: orchestration
 ├── schema(.py or /)    # Request/response schemas (Django Ninja)
 ├── tasks.py            # Celery task definitions
 ├── admin.py            # Django admin registration
@@ -161,7 +161,7 @@ app_name/
 
 !!! tip "Where does business logic go?"
     Business logic belongs in the **service layer**, not in controllers or models.
-    Controllers should be thin -- validate input, call a service, return the result.
+    Controllers should be thin: validate input, call a service, return the result.
     Models should define data and relationships, not orchestrate workflows.
 
 ## Key Configuration Files
@@ -187,4 +187,4 @@ The project uses multiple Docker Compose files for different environments:
 
 !!! info "Extending compose files"
     `compose.yaml` and `docker-compose-ci.yml` both extend `docker-compose-base.yml`.
-    You only need to run one of them -- `compose.yaml` for local development, or the CI variant in pipelines.
+    You only need to run one of them: `compose.yaml` for local development, or the CI variant in pipelines.

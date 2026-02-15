@@ -30,7 +30,7 @@ The `make check` command runs six checks in sequence:
 
     Locally, `make check` **auto-fixes** formatting and lint issues (`ruff format .` and `ruff check . --fix`).
     In CI, formatting is checked with `ruff format --check .` (read-only) and linting with `ruff check .` (no `--fix`). Both will fail if any changes are needed.
-    This means running `make check` locally may modify files -- review and commit any changes before pushing.
+    This means running `make check` locally may modify files. Review and commit any changes before pushing.
 
 ### 2. Tests
 
@@ -104,6 +104,6 @@ Waitlisted users are notified automatically when spots open up.
 
 Before opening a pull request, verify locally:
 
-- [ ] `make check` -- format + lint + mypy + migration-check + i18n-check + file-length
-- [ ] `make test` (or `make test-parallel`) -- all tests pass with 90%+ coverage
+- [ ] `make check`: format + lint + mypy + migration-check + i18n-check + file-length
+- [ ] `make test` (or `make test-parallel`): all tests pass with 90%+ coverage
 - [ ] No file exceeds 1,000 lines
