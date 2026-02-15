@@ -1,14 +1,17 @@
 # src/telegram/tests/conftest.py
 import random
 import typing as t
-from unittest.mock import MagicMock
+from datetime import timedelta
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import Chat
+from aiogram.types import Chat, Message
 from aiogram.types import User as AiogramUser
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, Organization
@@ -96,9 +99,15 @@ async def organization(django_superuser: RevelUser) -> t.AsyncIterator[Organizat
 
 @pytest_asyncio.fixture
 async def private_event(organization: Organization) -> t.AsyncIterator[Event]:
-    """Fixture for an Event."""
+    """Fixture for a private Event."""
+    now = timezone.now()
     event = await Event.objects.acreate(
-        organization=organization, name="Test Event", slug="test-event", event_type=Event.EventType.PRIVATE
+        organization=organization,
+        name="Test Event",
+        slug="test-event",
+        event_type=Event.EventType.PRIVATE,
+        start=now + timedelta(days=7),
+        end=now + timedelta(days=7, hours=3),
     )
     yield event
     await event.adelete()
@@ -110,3 +119,53 @@ async def event_invitation(django_user: RevelUser, private_event: Event) -> t.As
     invitation = await EventInvitation.objects.acreate(event=private_event, user=django_user)
     yield invitation
     await invitation.adelete()
+
+
+def _make_mock_message(chat: Chat) -> AsyncMock:
+    """Create a mock Message that passes ``isinstance(msg, Message)`` checks.
+
+    We use ``spec=Message`` so that ``isinstance`` works (handlers assert
+    this), but explicitly override async methods because ``unittest.mock``
+    fails to detect aiogram's methods as coroutines.
+    """
+    msg = AsyncMock(spec=Message)
+    msg.chat = chat
+    msg.answer = AsyncMock(name="Message.answer")
+    msg.reply = AsyncMock(name="Message.reply")
+    msg.edit_text = AsyncMock(name="Message.edit_text")
+    msg.delete = AsyncMock(name="Message.delete")
+    return msg
+
+
+@pytest.fixture
+def mock_callback_query(aiogram_user: AiogramUser, chat: Chat) -> AsyncMock:
+    """Reusable mock CallbackQuery fixture."""
+    cb = AsyncMock()
+    cb.id = "test_callback"
+    cb.from_user = aiogram_user
+    cb.chat_instance = "test"
+    cb.message = _make_mock_message(chat)
+    cb.data = ""
+    return cb
+
+
+@pytest.fixture
+def mock_message(aiogram_user: AiogramUser, chat: Chat) -> AsyncMock:
+    """Reusable mock Message fixture."""
+    msg = _make_mock_message(chat)
+    msg.message_id = 1
+    msg.from_user = aiogram_user
+    msg.text = ""
+    return msg
+
+
+@pytest.fixture
+def mock_fsm_context() -> AsyncMock:
+    """Mock FSMContext for unit tests."""
+    ctx = AsyncMock(spec=FSMContext)
+    ctx.get_state = AsyncMock(return_value=None)
+    ctx.set_state = AsyncMock()
+    ctx.update_data = AsyncMock()
+    ctx.get_data = AsyncMock(return_value={})
+    ctx.clear = AsyncMock()
+    return ctx

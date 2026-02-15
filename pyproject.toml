@@ -302,5 +302,4 @@ omit = [
     "src/*/migrations/**",
     "src/playground.py",
     "functional_tests/*",
-    "src/telegram/**"
 ]

@@ -60,14 +60,14 @@ async def test_user_middleware_new_user(middleware: TelegramUserMiddleware, aiog
     event = Message(message_id=1, date=timezone.now(), chat=MagicMock(spec=Chat), text="test")
     data = {"event_from_user": aiogram_user}
 
-    assert await TelegramUser.objects.acount() == 0
+    assert not await TelegramUser.objects.filter(telegram_id=aiogram_user.id).aexists()
 
     await middleware(handler, event, data)
 
     handler.assert_awaited_once()
     assert "tg_user" in data
     tg_user: TelegramUser = data["tg_user"]  # type: ignore[assignment]
-    assert await TelegramUser.objects.acount() == 1
+    assert await TelegramUser.objects.filter(telegram_id=aiogram_user.id).aexists()
     assert tg_user.user is None  # No RevelUser is created automatically
     assert tg_user.telegram_id == aiogram_user.id
     assert tg_user.telegram_username == aiogram_user.username
