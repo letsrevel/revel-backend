@@ -101,6 +101,7 @@ class TicketTierSchema(ModelSchema):
             "manual_payment_instructions",
             "seat_assignment_mode",
             "max_tickets_per_user",
+            "display_order",
         ]
 
 

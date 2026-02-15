@@ -175,13 +175,6 @@ def get_default_notification_type_settings() -> dict[NotificationType, Notificat
         NotificationType.EVENT_SERIES_FOLLOWED: NotificationTypeSetting(
             enabled=True, channels=[DeliveryChannel.IN_APP]
         ),
-        # Notifications to followers about new events - IN_APP only by default
-        NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG: NotificationTypeSetting(
-            enabled=True, channels=[DeliveryChannel.IN_APP]
-        ),
-        NotificationType.NEW_EVENT_FROM_FOLLOWED_SERIES: NotificationTypeSetting(
-            enabled=True, channels=[DeliveryChannel.IN_APP]
-        ),
     }
 
 

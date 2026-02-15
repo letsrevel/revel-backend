@@ -41,8 +41,8 @@ class TestCreateNotificationPreferences:
 
         # Regular users have custom settings for certain notification types:
         # - 6 potluck notifications (IN_APP only, no email)
-        # - 4 follow notifications (IN_APP only, no email)
-        assert len(prefs.notification_type_settings) == 10
+        # - 2 follow-admin notifications (IN_APP only, no email)
+        assert len(prefs.notification_type_settings) == 8
 
     def test_creates_preferences_for_guest_user_with_restrictions(
         self,
