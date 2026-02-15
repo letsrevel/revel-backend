@@ -2,7 +2,7 @@ from decouple import Csv, config
 
 from .base import REDIS_HOST, REDIS_PORT
 
-TELEGRAM_BOT_TOKEN = config("TELEGRAM_BOT_TOKEN")
+TELEGRAM_BOT_TOKEN = config("TELEGRAM_BOT_TOKEN", default="0000000000:AABBCCDD")
 TELEGRAM_SUPERUSER_IDS = [int(tg_id) for tg_id in config("TELEGRAM_SUPERUSER_IDS", cast=Csv(), default="")]
 TELEGRAM_STAFF_IDS = [int(tg_id) for tg_id in config("TELEGRAM_STAFF_IDS", cast=Csv(), default="")]
 TELEGRAM_OTP_EXPIRATION_MINUTES = config("TELEGRAM_OTP_EXPIRATION_MINUTES", default=15, cast=int)
