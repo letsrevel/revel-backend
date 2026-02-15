@@ -7,6 +7,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](./LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/zy8nTDqQ)
 ![Django](https://img.shields.io/badge/django-5.2_LTS-092E20.svg?logo=django&logoColor=white&style=for-the-badge)
+[![Docs](https://img.shields.io/badge/docs-docs.letsrevel.io-blue?style=for-the-badge&logo=readthedocs&logoColor=white)](https://docs.letsrevel.io)
 
 <!-- Tooling / meta -->
 ![Python](https://img.shields.io/badge/python-3.13%2B-3776AB.svg?logo=python&logoColor=white)
@@ -16,6 +17,7 @@
 <!-- CI -->
 [![Test](https://github.com/letsrevel/revel-backend/actions/workflows/test.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/test.yaml)
 [![Build](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml)
+[![Docs](https://github.com/letsrevel/revel-backend/actions/workflows/docs.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/docs.yaml)
 
 ---
 
