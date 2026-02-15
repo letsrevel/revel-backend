@@ -155,9 +155,9 @@ erDiagram
 
 | Type | Model | Description | Evaluation | Default `positive_weight` |
 |---|---|---|---|---|
-| **Multiple Choice** | `MultipleChoiceQuestion` | Predefined options via `MultipleChoiceOption`, single or multiple correct answers | Automatic -- correct options are marked via `is_correct` on each `MultipleChoiceOption` | `1.0` |
+| **Multiple Choice** | `MultipleChoiceQuestion` | Predefined options via `MultipleChoiceOption`, single or multiple correct answers | Automatic: correct options are marked via `is_correct` on each `MultipleChoiceOption` | `1.0` |
 | **Free Text** | `FreeTextQuestion` | Open-ended text response | LLM-powered (batch) or manual evaluation; supports per-question `llm_guidelines` | `1.0` |
-| **File Upload** | `FileUploadQuestion` | File/image uploads (PDF, images, etc.) | Informational only -- no automatic scoring; manual review by evaluators | `0.0` |
+| **File Upload** | `FileUploadQuestion` | File/image uploads (PDF, images, etc.) | Informational only; no automatic scoring; manual review by evaluators | `0.0` |
 
 ### Common Fields (BaseQuestion)
 
@@ -165,15 +165,15 @@ All question types inherit from `BaseQuestion` and share these fields:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `question` | MarkdownField | -- | The question text (supports Markdown) |
+| `question` | MarkdownField | (required) | The question text (supports Markdown) |
 | `hint` | MarkdownField | `null` | Additional context shown to the user below the question |
 | `reviewer_notes` | MarkdownField | `null` | Notes for reviewers, not shown to users |
-| `positive_weight` | Decimal (0--100) | `1.0` | Points awarded for a correct answer |
-| `negative_weight` | Decimal (-100--100) | `0.0` | Points deducted for an incorrect answer |
+| `positive_weight` | Decimal (0 to 100) | `1.0` | Points awarded for a correct answer |
+| `negative_weight` | Decimal (-100 to 100) | `0.0` | Points deducted for an incorrect answer |
 | `is_fatal` | Boolean | `False` | Failing this question fails the entire submission |
 | `is_mandatory` | Boolean | `False` | The question must be answered for submission |
 | `order` | Integer | `0` | Display order (ignored if `shuffle_questions` is enabled) |
-| `depends_on_option` | FK to `MultipleChoiceOption` | `null` | Conditional display -- question shown only if this option was selected |
+| `depends_on_option` | FK to `MultipleChoiceOption` | `null` | Conditional display: question shown only if this option was selected |
 
 ### FileUploadQuestion Extra Fields
 
@@ -181,7 +181,7 @@ All question types inherit from `BaseQuestion` and share these fields:
 |---|---|---|---|
 | `allowed_mime_types` | ArrayField (list of strings) | `[]` (allow all) | Restrict accepted file types (e.g., `image/jpeg`, `application/pdf`) |
 | `max_file_size` | PositiveInteger | `5242880` (5 MB) | Maximum file size in bytes per file |
-| `max_files` | PositiveInteger (1--10) | `1` | Maximum number of files allowed |
+| `max_files` | PositiveInteger (1 to 10) | `1` | Maximum number of files allowed |
 
 !!! info "File Upload Scoring"
     `FileUploadQuestion` uses the `InformationalQuestionMixin` which overrides the default `positive_weight` to `0.0`. These questions are treated as informational/supplementary since automatic LLM evaluation of files is not yet implemented.
@@ -262,7 +262,7 @@ Each submission can have at most one `QuestionnaireEvaluation` (OneToOne relatio
 |---|---|---|
 | `score` | Decimal | Percentage score (can be `-100.0` for fatal/mandatory failures) |
 | `status` | Enum | `APPROVED`, `REJECTED`, or `PENDING_REVIEW` |
-| `proposed_status` | Enum | `APPROVED` or `REJECTED` -- the automatic evaluation's recommendation |
+| `proposed_status` | Enum | `APPROVED` or `REJECTED` (the automatic evaluation's recommendation) |
 | `comments` | Text | Evaluator comments |
 | `automatically_evaluated` | Boolean | Whether this evaluation was created by the automatic pipeline |
 | `evaluator` | FK to User | The human evaluator (if manually reviewed) |
@@ -270,16 +270,16 @@ Each submission can have at most one `QuestionnaireEvaluation` (OneToOne relatio
 
 The `raw_evaluation_data` field stores an `EvaluationAuditData` Pydantic model containing:
 
-- `mc_points_scored` / `max_mc_points` -- multiple choice scoring breakdown
-- `ft_points_scored` / `max_ft_points` -- free text scoring breakdown
-- `missing_mandatory` -- list of UUIDs for unanswered mandatory questions
-- `llm_response` -- the complete `EvaluationResponse` from the LLM batch evaluation
+- `mc_points_scored` / `max_mc_points`: multiple choice scoring breakdown
+- `ft_points_scored` / `max_ft_points`: free text scoring breakdown
+- `missing_mandatory`: list of UUIDs for unanswered mandatory questions
+- `llm_response`: the complete `EvaluationResponse` from the LLM batch evaluation
 
 ## Scoring System
 
 ### Weights and Thresholds
 
-Each question has a `positive_weight` (points for correct answers) and a `negative_weight` (points deducted for incorrect answers). The questionnaire defines a `min_score` (0--100 scale) that the percentage score must meet or exceed.
+Each question has a `positive_weight` (points for correct answers) and a `negative_weight` (points deducted for incorrect answers). The questionnaire defines a `min_score` (0 to 100 scale) that the percentage score must meet or exceed.
 
 ```
 total_points_scored = mc_points_scored + ft_points_scored
@@ -308,8 +308,8 @@ Free text answers are evaluated in a single batch call to the configured LLM bac
 
 LLM guidelines are provided at two levels:
 
-1. **Questionnaire-level**: `Questionnaire.llm_guidelines` -- global guidelines sent to every LLM call
-2. **Question-level**: `FreeTextQuestion.llm_guidelines` -- per-question guidelines that supplement the questionnaire-level guidelines
+1. **Questionnaire-level**: `Questionnaire.llm_guidelines`: global guidelines sent to every LLM call
+2. **Question-level**: `FreeTextQuestion.llm_guidelines`: per-question guidelines that supplement the questionnaire-level guidelines
 
 ### Fatal Questions
 
@@ -331,7 +331,7 @@ flowchart TD
     Answer["User's Free Text Answers<br/>(batch)"] --> Backend["LLM Backend"]
 
     Backend --> Mock["MockEvaluator<br/>(testing)"]
-    Backend --> Vulnerable["VulnerableChatGPTEvaluator<br/>(demo -- no protection)"]
+    Backend --> Vulnerable["VulnerableChatGPTEvaluator<br/>(demo, no protection)"]
     Backend --> Intermediate["IntermediateChatGPTEvaluator<br/>(tag-based protection)"]
     Backend --> Better["BetterChatGPTEvaluator<br/>(defensive prompting)"]
     Backend --> Sanitizing["SanitizingChatGPTEvaluator<br/>(input sanitization)"]
@@ -359,7 +359,7 @@ All backends implement the `FreeTextEvaluator` protocol and accept a batch of `A
 | `MockEvaluator` | `questionnaires.llms.MockEvaluator` | N/A | Approves answers containing the word "good", rejects otherwise. For testing only |
 | `VulnerableChatGPTEvaluator` | `questionnaires.llms.VulnerableChatGPTEvaluator` | None | Intentionally vulnerable to prompt injection. For demonstration purposes |
 | `IntermediateChatGPTEvaluator` | `questionnaires.llms.IntermediateChatGPTEvaluator` | Low-Medium | Uses simple XML-like tags (`<ANSWER_TEXT>`, `<GUIDELINES>`) to separate user input from instructions |
-| `BetterChatGPTEvaluator` | `questionnaires.llms.BetterChatGPTEvaluator` | Medium | Aggressive defensive prompting -- explicitly instructs the LLM to ignore instructions within `<ANSWER_TEXT>` tags and fail prompt injection attempts |
+| `BetterChatGPTEvaluator` | `questionnaires.llms.BetterChatGPTEvaluator` | Medium | Aggressive defensive prompting; explicitly instructs the LLM to ignore instructions within `<ANSWER_TEXT>` tags and fail prompt injection attempts |
 | `SanitizingChatGPTEvaluator` | `questionnaires.llms.SanitizingChatGPTEvaluator` | Medium-High | Extends `BetterChatGPTEvaluator` by stripping all XML-like tags and their content from user answers before sending to the LLM |
 | `SentinelChatGPTEvaluator` | `questionnaires.llms.SentinelChatGPTEvaluator` | **Highest** | Extends `BetterChatGPTEvaluator` with a local ML model (Hugging Face Transformers) that classifies answers as `benign` or `jailbreak` before LLM evaluation |
 
@@ -421,11 +421,11 @@ The entire evaluation runs inside a database transaction (`@transaction.atomic`)
 
 The `QuestionnaireService` class provides CRUD operations for questionnaires and handles submission:
 
-- **`build()`** -- Constructs the questionnaire schema for API responses, applying shuffle logic for questions, options, and sections
-- **`submit()`** -- Validates answers against the questionnaire, checks mandatory questions, validates file uploads, and creates the submission with all answers
-- **`create_questionnaire()`** -- Creates a complete questionnaire with sections, questions, and options from a single schema
-- **`create_section()` / `create_mc_question()` / `create_ft_question()` / `create_fu_question()`** -- Individual creation methods supporting nested conditional content
-- **`evaluate_submission()`** -- Creates or updates a manual evaluation for a submission
+- **`build()`**: Constructs the questionnaire schema for API responses, applying shuffle logic for questions, options, and sections
+- **`submit()`**: Validates answers against the questionnaire, checks mandatory questions, validates file uploads, and creates the submission with all answers
+- **`create_questionnaire()`**: Creates a complete questionnaire with sections, questions, and options from a single schema
+- **`create_section()` / `create_mc_question()` / `create_ft_question()` / `create_fu_question()`**: Individual creation methods supporting nested conditional content
+- **`evaluate_submission()`**: Creates or updates a manual evaluation for a submission
 
 ## Integration with Eligibility
 

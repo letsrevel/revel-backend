@@ -79,7 +79,7 @@ sequenceDiagram
 ```
 
 !!! info "Payment records"
-    Payment records cascade-delete with the user account. This works because Stripe retains the financial records on their side for the organization, so local deletion does not cause data loss for accounting purposes. This is a pragmatic simplification -- a future iteration may introduce soft-deletion or anonymization of payment records instead.
+    Payment records cascade-delete with the user account. This works because Stripe retains the financial records on their side for the organization, so local deletion does not cause data loss for accounting purposes. This is a pragmatic simplification; a future iteration may introduce soft-deletion or anonymization of payment records instead.
 
 ---
 
@@ -87,7 +87,7 @@ sequenceDiagram
 
 ### Event Eligibility Check
 
-Before a user can RSVP or purchase a ticket, they must pass the **eligibility pipeline** -- a series of gates that check membership, questionnaire status, blacklists, capacity, and more.
+Before a user can RSVP or purchase a ticket, they must pass the **eligibility pipeline**, a series of gates that check membership, questionnaire status, blacklists, capacity, and more.
 
 !!! info "See Also"
     The eligibility pipeline is documented in detail in the [Architecture section](../architecture/index.md). This section covers only the user-facing flow.
@@ -231,8 +231,8 @@ flowchart TD
 
 Organizers can invite users to events in two ways:
 
-- **Direct invitation**: User has an account -- invitation is linked immediately
-- **Pending invitation**: User does not have an account -- invitation is stored by email and linked upon registration
+- **Direct invitation**: User has an account; invitation is linked immediately
+- **Pending invitation**: User does not have an account; invitation is stored by email and linked upon registration
 
 ### Building Questionnaires
 

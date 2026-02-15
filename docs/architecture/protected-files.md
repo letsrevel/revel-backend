@@ -47,11 +47,11 @@ sequenceDiagram
 
 | Factor | HMAC + Caddy | MinIO/S3 Pre-Signed URLs |
 |---|---|---|
-| **Additional services** | None -- Caddy already serves files | Requires running MinIO or S3 |
+| **Additional services** | None (Caddy already serves files) | Requires running MinIO or S3 |
 | **Licensing** | No restrictions | MinIO is AGPL v3 |
 | **Complexity** | Django generates URLs, Caddy validates | SDK integration, bucket policies, IAM |
 | **File size** | Perfect for <100MB (no streaming needed) | Better for large files with multipart upload |
-| **Vendor lock-in** | None -- pure Django + Caddy | Tied to S3-compatible API |
+| **Vendor lock-in** | None (pure Django + Caddy) | Tied to S3-compatible API |
 | **Cost** | Zero additional infrastructure | Storage service costs |
 
 !!! tip "Simple is better"

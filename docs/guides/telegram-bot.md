@@ -96,4 +96,4 @@ Superusers can broadcast messages to all bot users via a dedicated FSM flow.
 | `TELEGRAM_OTP_EXPIRATION_MINUTES` | `15` | How long an OTP code is valid for account linking |
 
 !!! note "Active Development"
-    The Telegram bot is an active area of development. Features and conversation flows are being expanded -- refer to the [GitHub issues](https://github.com/letsrevel/revel-backend/issues) for planned work. Check the source code in `src/telegram/` for the most current implementation details.
+    The Telegram bot is an active area of development. Features and conversation flows are being expanded. Refer to the [GitHub issues](https://github.com/letsrevel/revel-backend/issues) for planned work. Check the source code in `src/telegram/` for the most current implementation details.

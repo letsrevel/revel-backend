@@ -51,8 +51,8 @@ uv remove <package>
 
 UV manages dependencies through two files:
 
-- **`pyproject.toml`** -- declares dependencies and their version constraints
-- **`uv.lock`** -- the resolved lockfile with exact versions (committed to git)
+- **`pyproject.toml`**: declares dependencies and their version constraints
+- **`uv.lock`**: the resolved lockfile with exact versions (committed to git)
 
 This replaces the traditional `requirements.txt` / `requirements-dev.txt` workflow.
 

@@ -56,7 +56,7 @@ class BatchTicketService:
 
 **Positive:**
 
-- Right tool for the job -- simple operations stay simple, complex workflows get
+- Right tool for the job: simple operations stay simple, complex workflows get
   proper encapsulation
 - Clean, readable code with minimal boilerplate
 - Easy to grep for usages (explicit imports, no DI magic)
@@ -64,7 +64,7 @@ class BatchTicketService:
 **Negative:**
 
 - Developers need to understand when to use which pattern
-- Not a single universal pattern -- requires judgment
+- Not a single universal pattern; requires judgment
 
 **Neutral:**
 

@@ -38,7 +38,7 @@ consistent authentication, throttling, and permission handling at the class leve
 - **Type-hint driven schemas**: Pydantic models replace verbose serializer classes,
   with automatic validation, documentation, and the full power of Pydantic's
   ecosystem (custom validators, computed fields, JSON Schema generation)
-- **Automatic OpenAPI docs**: No additional tooling needed -- schemas, examples, and
+- **Automatic OpenAPI docs**: No additional tooling needed. Schemas, examples, and
   endpoints are documented from code
 - **Performance**: Faster request/response cycle than DRF for typical workloads
 - **Less boilerplate**: Schema definitions are concise and DRY

@@ -162,10 +162,10 @@ Users configure their notification preferences per channel and per type. The pre
 
 The notification system is implemented in `notifications/service/`, which includes:
 
-- **Dispatcher** -- Routes notifications to the appropriate channels based on user preferences
-- **Eligibility checks** -- Determines which users should receive a given notification (e.g., only attendees of an event)
-- **Reminder scheduling** -- Schedules event reminders via Celery Beat periodic tasks
-- **Digest batching** -- Aggregates notifications into periodic digest emails
-- **Unsubscribe handling** -- Manages per-type and per-channel opt-outs
+- **Dispatcher**: Routes notifications to the appropriate channels based on user preferences
+- **Eligibility checks**: Determines which users should receive a given notification (e.g., only attendees of an event)
+- **Reminder scheduling**: Schedules event reminders via Celery Beat periodic tasks
+- **Digest batching**: Aggregates notifications into periodic digest emails
+- **Unsubscribe handling**: Manages per-type and per-channel opt-outs
 
 Notifications are triggered from the service layer via Django signals and direct dispatcher calls. Delivery for email and Telegram channels is always asynchronous via Celery tasks.
