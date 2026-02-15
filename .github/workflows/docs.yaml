@@ -1,3 +1,11 @@
+# Build MkDocs documentation and deploy to the server via rsync.
+#
+# On pull requests: builds only (validation via --strict).
+# On push to main: builds and deploys to docs.letsrevel.io.
+#
+# Deployment uses plain rsync over SSH instead of appleboy/scp-action,
+# which caused persistent timeouts due to UFW rate-limiting on port 22
+# (the action opens multiple parallel SSH connections that trip LIMIT rules).
 name: Docs
 
 on:
@@ -28,15 +36,19 @@ jobs:
       - name: Build docs
         run: mkdocs build --strict
 
-      - name: Deploy via SCP
+      # Deploy steps only run on push to main (not on PRs)
+      - name: Setup SSH key
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SERVER_PORT }}
-          timeout: 60s
-          command_timeout: 10m
-          source: site/*
-          target: /home/${{ secrets.SERVER_USER }}/infra/docs/
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ secrets.SERVER_PORT }} ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy via rsync
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.SERVER_PORT }}" \
+            site/ \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/home/${{ secrets.SERVER_USER }}/infra/docs/site/
