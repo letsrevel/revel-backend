@@ -76,7 +76,7 @@ definition.
             fields = ["id", "name", "email", "created_at"]
     ```
 
-    1. All of these are redundant -- ModelSchema already infers them.
+    1. All of these are redundant. ModelSchema already infers them.
 
 ### Omit Timestamp Fields
 
@@ -102,11 +102,11 @@ This ensures the OpenAPI spec documents valid values and keeps a single source o
 === "Bad"
 
     ```python
-    # Bare str -- loses the enum contract entirely
+    # Bare str: loses the enum contract entirely
     class BannerSchema(Schema):
         severity: str
 
-    # Literal -- duplicates enum values, drifts over time
+    # Literal: duplicates enum values, drifts over time
     class BannerSchema(Schema):
         severity: Literal["info", "warning", "error"]
     ```
@@ -203,9 +203,9 @@ Keep controller methods flat. Avoid nested conditionals and try-except blocks.
             return item
     ```
 
-    1. Repetitive auth on every endpoint -- should be at class level.
-    2. Manual try-except -- use `get_object_or_404` instead.
-    3. Nested conditionals -- use `model_dump(exclude_unset=True)` loop.
+    1. Repetitive auth on every endpoint. Should be at class level.
+    2. Manual try-except. Use `get_object_or_404` instead.
+    3. Nested conditionals. Use `model_dump(exclude_unset=True)` loop.
 
 !!! tip "Lookups"
 
@@ -309,11 +309,11 @@ class BatchTicketService:
 ### Controller Integration
 
 ```python
-# Function-based -- import module, call directly
+# Function-based: import module, call directly
 from events.service import blacklist_service
 entry = blacklist_service.add_to_blacklist(organization, email=email)
 
-# Class-based -- instantiate per request
+# Class-based: instantiate per request
 from events.service.batch_ticket_service import BatchTicketService
 service = BatchTicketService(event=event, tier=tier, user=user)
 result = service.create_batch(items=purchase_items)
@@ -323,5 +323,5 @@ result = service.create_batch(items=purchase_items)
 
     A single service module can contain both patterns. For example,
     `batch_ticket_service.py` has `BatchTicketService` (ticket purchase workflow) while
-    `ticket_service.py` has `check_in_ticket()` (standalone operation). This is intentional --
+    `ticket_service.py` has `check_in_ticket()` (standalone operation). This is intentional;
     do not force everything into one pattern.

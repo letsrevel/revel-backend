@@ -16,10 +16,10 @@ graph LR
 
 ## Core Principles
 
-- **Service layer owns business logic** -- controllers are thin, models are data-only
-- **Hybrid service pattern** -- functions for stateless ops, classes for stateful workflows
-- **Explicit over magic** -- no DI container, no framework lock-in beyond Django Ninja
-- **Type safety** -- strict mypy, typed schemas, model enums as source of truth
+- **Service layer owns business logic**: controllers are thin, models are data-only
+- **Hybrid service pattern**: functions for stateless ops, classes for stateful workflows
+- **Explicit over magic**: no DI container, no framework lock-in beyond Django Ninja
+- **Type safety**: strict mypy, typed schemas, model enums as source of truth
 
 ## Sections
 

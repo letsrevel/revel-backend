@@ -107,10 +107,10 @@ These fixtures ensure tests are fast, isolated, and don't depend on external ser
 
 Always mock services that reach outside the application boundary:
 
-- **Celery tasks** -- prevent actual async execution
-- **Email sending** -- avoid SMTP calls
-- **File uploads** -- skip storage backends
-- **External APIs** -- Stripe, Telegram, etc.
+- **Celery tasks**: prevent actual async execution
+- **Email sending**: avoid SMTP calls
+- **File uploads**: skip storage backends
+- **External APIs**: Stripe, Telegram, etc.
 
 ```python
 from unittest.mock import patch
@@ -127,10 +127,10 @@ def test_sends_notification_email() -> None:
 
 Every feature should have tests covering:
 
-- **Happy path** -- the expected successful outcome
-- **Validation errors** -- invalid input, missing fields
-- **Permission errors** -- unauthorized access attempts
-- **Edge cases** -- empty collections, boundary values, race conditions
+- **Happy path**: the expected successful outcome
+- **Validation errors**: invalid input, missing fields
+- **Permission errors**: unauthorized access attempts
+- **Edge cases**: empty collections, boundary values, race conditions
 
 ```python
 @pytest.mark.django_db
@@ -160,7 +160,7 @@ coverage.
 
     The CI pipeline enforces **90%+ branch coverage** via `--cov-fail-under=90`. Any drop below this threshold
     will cause the pipeline to fail. Local `make test` generates a coverage report but does **not** enforce
-    the threshold -- you'll only see a failure in CI. Use `# pragma: no cover` sparingly and
+    the threshold. You will only see a failure in CI. Use `# pragma: no cover` sparingly and
     only for genuinely unreachable code paths.
 
 ---

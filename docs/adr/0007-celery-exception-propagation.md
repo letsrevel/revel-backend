@@ -26,7 +26,7 @@ drawbacks:
 
 - **Bugs are hidden**: Errors are logged but never surfaced to alerting systems
 - **Retry mechanism is broken**: Celery's built-in retry logic only triggers on task
-  failure -- swallowed exceptions bypass it entirely
+  failure. Swallowed exceptions bypass it entirely
 - **Silent data corruption**: A task that "succeeds" despite an error may leave the
   system in an inconsistent state
 - **Debugging is harder**: Issues only show up as log lines, not as failed tasks in
@@ -66,11 +66,11 @@ def send_notification(self, user_id: int) -> None:
 
 **Positive:**
 
-- Bugs are **visible** -- failed tasks appear in monitoring and alerting
-- Celery's **retry mechanism works correctly** -- only triggers on actual failures
+- Bugs are **visible**: failed tasks appear in monitoring and alerting
+- Celery's **retry mechanism works correctly**: only triggers on actual failures
 - The **observability stack** (Flower, OpenTelemetry) captures errors
   automatically
-- **Debugging is straightforward** -- stack traces are preserved in task results
+- **Debugging is straightforward**: stack traces are preserved in task results
 
 **Negative:**
 

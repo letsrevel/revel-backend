@@ -1,6 +1,6 @@
 # Controllers
 
-Revel uses [Django Ninja Extra](https://django-ninja-extra.readthedocs.io/) controllers to organize API endpoints into cohesive, class-based units. Controllers handle request parsing, authentication, throttling, and response serialization -- but **not** business logic.
+Revel uses [Django Ninja Extra](https://django-ninja-extra.readthedocs.io/) controllers to organize API endpoints into cohesive, class-based units. Controllers handle request parsing, authentication, throttling, and response serialization, but **not** business logic.
 
 ## Core Patterns
 
@@ -37,9 +37,9 @@ class MyController(ControllerBase):
 | HTTP Method | Default Throttle | Override Needed? |
 |---|---|---|
 | `GET` | `UserDefaultThrottle` (class-level) | No |
-| `POST` | `WriteThrottle` | Yes -- per-endpoint |
-| `PATCH` | `WriteThrottle` | Yes -- per-endpoint |
-| `DELETE` | `WriteThrottle` | Yes -- per-endpoint |
+| `POST` | `WriteThrottle` | Yes (per-endpoint) |
+| `PATCH` | `WriteThrottle` | Yes (per-endpoint) |
+| `DELETE` | `WriteThrottle` | Yes (per-endpoint) |
 
 ## Good vs Bad Patterns
 
@@ -130,7 +130,7 @@ def list_events(self, filters: EventFilterSchema = Query(...)) -> QuerySet[Event
 
 ## Schema Conventions
 
-### ModelSchema -- Let It Infer
+### ModelSchema: Let It Infer
 
 !!! tip "Only declare fields that need special handling"
     `ModelSchema` infers field types from the model. Only override fields that need transformation (e.g., enum to string).
@@ -152,7 +152,7 @@ def list_events(self, filters: EventFilterSchema = Query(...)) -> QuerySet[Event
 
     ```python
     class UserSchema(ModelSchema):
-        id: UUID4           # Redundant -- ModelSchema infers this
+        id: UUID4           # Redundant: ModelSchema infers this
         name: str           # Redundant
         email: str          # Redundant
         created_at: datetime.datetime  # Not needed for API responses

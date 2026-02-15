@@ -76,7 +76,7 @@ These are the commands you will use most often during day-to-day development.
 
 ## Background Services
 
-Revel uses Celery for asynchronous task processing. In development, Celery runs in **eager mode** by default (`CELERY_TASK_ALWAYS_EAGER=True` when `DEBUG=True`), meaning tasks execute synchronously in the same process — no separate workers needed.
+Revel uses Celery for asynchronous task processing. In development, Celery runs in **eager mode** by default (`CELERY_TASK_ALWAYS_EAGER=True` when `DEBUG=True`), meaning tasks execute synchronously in the same process. No separate workers needed.
 
 To test with real async processing, set `CELERY_TASK_ALWAYS_EAGER=False` in your `.env` and start the workers:
 
@@ -92,16 +92,16 @@ To test with real async processing, set `CELERY_TASK_ALWAYS_EAGER=False` in your
     For a complete local environment with real async processing, open separate terminal tabs:
 
     ```bash
-    # Tab 1 -- Django server
+    # Tab 1: Django server
     make run
 
-    # Tab 2 -- Celery worker
+    # Tab 2: Celery worker
     make run-celery
 
-    # Tab 3 -- Celery beat (if you need periodic tasks)
+    # Tab 3: Celery beat (if you need periodic tasks)
     make run-celery-beat
 
-    # Tab 4 -- Telegram bot (if working on Telegram features)
+    # Tab 4: Telegram bot (if working on Telegram features)
     make run-telegram
     ```
 

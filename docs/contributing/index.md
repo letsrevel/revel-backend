@@ -4,9 +4,9 @@ We welcome contributions! Whether you're reporting a bug, suggesting a feature, 
 
 ## Ways to Contribute
 
-- **Report bugs** -- Check [GitHub Issues](https://github.com/letsrevel/revel-backend/issues), open a new one if it doesn't exist
-- **Suggest features** -- Open an issue to start a discussion
-- **Write code** -- Pick an existing issue or propose a new one
+- **Report bugs**: Check [GitHub Issues](https://github.com/letsrevel/revel-backend/issues), open a new one if it doesn't exist
+- **Suggest features**: Open an issue to start a discussion
+- **Write code**: Pick an existing issue or propose a new one
 
 ## Quick Reference
 

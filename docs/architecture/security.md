@@ -83,9 +83,9 @@ sequenceDiagram
 
 When malware is detected, the system sends email notifications to three audiences:
 
-- **Uploader** -- informed that their upload was flagged
-- **Organization owner** -- if the file belongs to an organization-scoped model
-- **Superusers and staff** -- receive detailed findings and a link to the quarantined file in Django Admin
+- **Uploader**: informed that their upload was flagged
+- **Organization owner**: if the file belongs to an organization-scoped model
+- **Superusers and staff**: receive detailed findings and a link to the quarantined file in Django Admin
 
 ### Configuration
 
@@ -99,4 +99,4 @@ ClamAV connection settings are in `revel/settings/base.py`:
 In development, ClamAV runs as a Docker service defined in `compose.yaml`. See [Troubleshooting](../getting-started/troubleshooting.md#external-services) for setup details.
 
 !!! note "Async scanning"
-    Files are available immediately after upload. The malware scan runs asynchronously -- if a file is found to be malicious, it is removed retroactively. This trade-off prioritizes user experience over strict pre-screening.
+    Files are available immediately after upload. The malware scan runs asynchronously. If a file is found to be malicious, it is removed retroactively. This trade-off prioritizes user experience over strict pre-screening.
