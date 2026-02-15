@@ -37,7 +37,11 @@ class EventPublicTicketsController(EventPublicBaseController):
         """
         event = self.get_one(event_id)
         return (
-            models.TicketTier.objects.for_user(self.maybe_user()).filter(event=event).with_venue_and_sector().distinct()
+            models.TicketTier.objects.for_user(self.maybe_user())
+            .filter(event=event)
+            .with_venue_and_sector()
+            .distinct()
+            .order_by("display_order", "name")
         )
 
     @route.get(
