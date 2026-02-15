@@ -1,0 +1,145 @@
+site_name: Revel Backend Documentation
+site_url: https://docs.letsrevel.io
+site_description: Developer documentation for the Revel event management platform backend.
+repo_url: https://github.com/letsrevel/revel-backend
+repo_name: letsrevel/revel-backend
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/brightness-7
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: purple
+      toggle:
+        icon: material/brightness-4
+        name: Switch to dark mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  features:
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - navigation.indexes
+    - navigation.footer
+    - header.autohide
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tooltips
+    - content.tabs.link
+    - palette.toggle
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - getting-started/index.md
+      - Quick Start: getting-started/quickstart.md
+      - Project Structure: getting-started/project-structure.md
+      - Development Commands: getting-started/development-commands.md
+      - Troubleshooting: getting-started/troubleshooting.md
+  - Architecture:
+      - architecture/index.md
+      - Service Layer: architecture/service-layer.md
+      - Controllers: architecture/controllers.md
+      - Permissions & Roles: architecture/permissions.md
+      - Eligibility Pipeline: architecture/eligibility-pipeline.md
+      - Protected Files (HMAC): architecture/protected-files.md
+      - Notifications: architecture/notifications.md
+      - Questionnaires: architecture/questionnaires.md
+  - Guides:
+      - guides/index.md
+      - User Journey: guides/user-journey.md
+      - Internationalization: guides/internationalization.md
+      - Observability: guides/observability.md
+      - Telegram Bot: guides/telegram-bot.md
+      - Demo & Seeding: guides/demo-and-seeding.md
+  - Contributing:
+      - contributing/index.md
+      - Code Style: contributing/code-style.md
+      - Testing: contributing/testing.md
+      - Dependency Management: contributing/dependency-management.md
+      - CI Pipeline: contributing/ci-pipeline.md
+  - ADR:
+      - adr/index.md
+      - adr/0001-hmac-caddy-over-s3.md
+      - adr/0002-hybrid-service-architecture.md
+      - adr/0003-uv-over-pip.md
+      - adr/0004-django-ninja-over-drf.md
+      - adr/0005-no-dependency-injection.md
+      - adr/0006-django-lts-policy.md
+      - adr/0007-mo-files-in-git.md
+      - adr/0008-celery-exception-propagation.md
+
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/letsrevel
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/zy8nTDqQ
+  generator: false

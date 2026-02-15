@@ -224,12 +224,12 @@ bump-minor:
 
 .PHONY: serve-docs
 serve-docs:
-	cd docs && uv run mkdocs serve
+	uv run mkdocs serve -a localhost:8800
 
 
 .PHONY: build-docs
 build-docs:
-	cd docs && uv run mkdocs build
+	uv run mkdocs build
 
 
 .PHONY: flush
