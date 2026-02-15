@@ -58,8 +58,8 @@ sequenceDiagram
 |---|---|---|
 | `/api/account/me` | `GET` | Retrieve current user profile |
 | `/api/account/me` | `PUT` | Update profile fields |
-| `/api/account/password-reset` | `POST` | Request password reset email |
-| `/api/account/password-reset-confirm` | `POST` | Confirm reset with token + new password |
+| `/api/account/password/reset-request` | `POST` | Request password reset email |
+| `/api/account/password/reset` | `POST` | Confirm reset with token + new password |
 
 ### Account Deletion
 
@@ -78,8 +78,8 @@ sequenceDiagram
     API-->>U: Account deleted
 ```
 
-!!! bug "Known Limitation"
-    Account deletion fails with a `ProtectedError` if the user has associated `Payment` records. This is a known issue -- users with payment history cannot currently self-delete their accounts.
+!!! info "Payment records"
+    Payment records cascade-delete with the user account. This works because Stripe retains the financial records on their side for the organization, so local deletion does not cause data loss for accounting purposes. This is a pragmatic simplification -- a future iteration may introduce soft-deletion or anonymization of payment records instead.
 
 ---
 
@@ -194,6 +194,9 @@ For potluck-style events, attendees can:
 3. Release items they can no longer bring
 4. Add custom items to the list
 
+!!! info "Automatic release"
+    If a user cancels their RSVP or ticket, any potluck items they claimed are automatically released back to the pool.
+
 ---
 
 ## Organizer Flows
@@ -264,3 +267,39 @@ sequenceDiagram
 
 !!! note "Permission Required"
     Check-in requires the `check_in_attendees` permission, typically granted to staff members.
+
+---
+
+## Additional Flows
+
+### Apple Wallet Pass
+
+After obtaining a ticket, users can add it to Apple Wallet:
+
+1. User requests a wallet pass for their ticket via the API
+2. The system generates a `.pkpass` file containing event details, QR code, and branding
+3. The pass is returned for download and can be added to Apple Wallet
+
+### GDPR Data Export
+
+Users can request a full export of their personal data:
+
+1. User requests data export via `POST /api/account/export-data`
+2. A Celery task gathers all personal data (profile, tickets, RSVPs, questionnaire submissions, etc.)
+3. The export file is made available for download
+
+### Organization Following
+
+Users can follow organizations and event series to receive notifications about new events:
+
+- Follow/unfollow via the API
+- Configure notification preferences (new events, announcements)
+- Choose public or private follow visibility
+
+### Waitlist
+
+When an event or ticket tier reaches capacity:
+
+1. User joins the waitlist
+2. When a spot opens (cancellation or capacity increase), the next waitlisted user is notified
+3. The user can then complete their RSVP or ticket purchase

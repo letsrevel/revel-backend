@@ -1,4 +1,4 @@
-# ADR-0007: Compiled Translation Files (.mo) in Git
+# ADR-0006: Compiled Translation Files (.mo) in Git
 
 ## Status
 

@@ -20,7 +20,7 @@ flowchart TB
         SL --> LK[Loki<br/>Log Aggregation]
         OT --> TP[Tempo<br/>Distributed Tracing]
         PM --> PR[Prometheus]
-        AL[Grafana Alloy<br/>eBPF Agent] --> PY[Pyroscope<br/>Continuous Profiling]
+        AL[External Profiler<br/>e.g. Alloy eBPF] -.-> PY[Pyroscope<br/>Continuous Profiling]
     end
 
     subgraph Visualization
@@ -45,8 +45,11 @@ flowchart TB
 ## Quick Start
 
 ```bash
-# Start the full observability stack
+# Start development services (PostgreSQL, Redis, ClamAV, Mailpit)
 docker compose up -d
+
+# Start the observability stack (Loki, Tempo, Prometheus, Grafana, Pyroscope)
+docker compose -f docker-compose-observability.yml up -d
 
 # Start Django with observability enabled
 make run
@@ -66,7 +69,7 @@ Revel uses **structlog** with JSON output, optimized for Loki ingestion.
 ### Key Features
 
 - **JSON output**: Machine-parseable log events for Loki
-- **PII scrubbing**: Automatic redaction of passwords, card numbers, SSNs, and email addresses
+- **PII scrubbing**: Automatic redaction of passwords, card numbers, and SSNs. Email addresses in non-email fields are replaced with `[EMAIL]`, but fields named `email` are intentionally preserved for log correlation.
 - **Async logging**: `QueueHandler` for non-blocking log emission (~50-100x faster than synchronous)
 - **Automatic context enrichment**: Every log event includes contextual fields from middleware
 
@@ -74,7 +77,7 @@ Revel uses **structlog** with JSON output, optimized for Loki ingestion.
 
 === "HTTP Requests"
 
-    Fields automatically added by the logging middleware:
+    Fields automatically added by the logging middleware (`StructlogContextMiddleware`):
 
     | Field | Description |
     |---|---|
@@ -83,6 +86,9 @@ Revel uses **structlog** with JSON output, optimized for Loki ingestion.
     | `ip_address` | Client IP address |
     | `method` | HTTP method (GET, POST, etc.) |
     | `path` | Request path |
+    | `trace_id` | OpenTelemetry trace ID (for log-to-trace correlation) |
+    | `endpoint` | Resolved Django view name |
+    | `organization_id` | Organization context (when available) |
 
 === "Celery Tasks"
 
@@ -107,7 +113,9 @@ logger.info("ticket_purchased", user_id=user.id, event_id=event.id, tier=tier.na
 
 # Automatic PII scrubbing
 logger.info("login_attempt", email=email, password=password)
-# Output: {"event": "login_attempt", "email": "[REDACTED]", "password": "[REDACTED]"}
+# Output: {"event": "login_attempt", "email": "user@example.com", "password": "[REDACTED]"}
+# Note: `email` fields are preserved for log correlation; only passwords/cards/SSNs are redacted.
+# Email patterns in non-email fields (e.g., a free-text "message" field) are replaced with [EMAIL].
 ```
 
 ---
@@ -160,7 +168,7 @@ Exposes Prometheus-format metrics from the Django application.
 Revel uses **Pyroscope** for continuous profiling with flamegraph visualization.
 
 !!! warning "Pyroscope SDK Incompatibility"
-    The Pyroscope Python SDK (`pyroscope-io`) is currently disabled due to incompatibility with Python 3.13+. Profiling is instead provided by the **Grafana Alloy eBPF agent**, which profiles at the kernel level without requiring SDK integration. This may change when the SDK is updated.
+    The Pyroscope Python SDK (`pyroscope-io`) is currently disabled due to incompatibility with Grafana Pyroscope 1.6+. Profiling can be provided externally (e.g., via a Grafana Alloy eBPF agent at the infrastructure level) without requiring SDK integration. This may change when the SDK is updated.
 
 ---
 
@@ -173,12 +181,12 @@ Grafana provides the alerting layer, replacing the previous database-based error
 | Alert | Trigger |
 |---|---|
 | High error rate | 5xx responses exceed threshold |
-| Payment failures | Stripe webhook errors or checkout failures |
 | Auth failures | Repeated failed login attempts |
-| GDPR export failures | Data export tasks failing |
-| LLM evaluation failures | AI evaluation errors or timeouts |
 | Database errors | Connection pool exhaustion, slow queries |
-| Celery task failures | Task error rate exceeds threshold |
+| Payment failures | Stripe webhook errors or checkout failures *(planned)* |
+| Celery task failures | Task error rate exceeds threshold *(planned)* |
+| GDPR export failures | Data export tasks failing *(planned)* |
+| LLM evaluation failures | AI evaluation errors or timeouts *(planned)* |
 
 ### Notification Channels
 

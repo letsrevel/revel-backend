@@ -1,8 +1,8 @@
 # CI Pipeline
 
-The Revel backend uses **GitHub Actions** for continuous integration. Every push and
-pull request triggers the pipeline to verify code quality, type safety, translations,
-and test coverage.
+The Revel backend uses **GitHub Actions** for continuous integration. Every pull request
+(and manual dispatch) triggers the pipeline to verify code quality, type safety,
+translations, and test coverage.
 
 ---
 
@@ -10,34 +10,42 @@ and test coverage.
 
 ### 1. Code Quality (`make check`)
 
-The `make check` command runs four checks in sequence:
+The `make check` command runs six checks in sequence:
 
 | Check | Tool | What It Does |
 |---|---|---|
-| **Format** | ruff | Verifies code formatting (auto-fixable) |
+| **Format** | ruff | Auto-formats code to match project style (`ruff format .`) |
 | **Lint** | ruff | Catches code quality issues and anti-patterns |
 | **Type check** | mypy (strict) | Validates type annotations across the entire codebase |
+| **Migration check** | Django | Verifies no migrations are missing (`makemigrations --check`) |
 | **i18n check** | custom | Ensures compiled `.mo` files are up-to-date with `.po` sources |
+| **File length** | custom | Ensures no source file exceeds 1,000 lines |
 
 !!! tip "Run Locally First"
 
     Always run `make check` before pushing. It catches the same issues CI will flag,
     saving you a round-trip.
 
-### 2. Tests (`make test-pipeline`)
+!!! note "Local vs CI Behavior"
 
-Runs the full pytest suite with a **100% coverage** requirement.
+    Locally, `make check` **auto-fixes** formatting and lint issues (`ruff format .` and `ruff check . --fix`).
+    In CI, formatting is checked with `ruff format --check .` (read-only) and linting with `ruff check .` (no `--fix`). Both will fail if any changes are needed.
+    This means running `make check` locally may modify files -- review and commit any changes before pushing.
+
+### 2. Tests
+
+CI runs the full pytest suite in parallel with a **90% branch coverage** requirement:
 
 ```
-pytest --cov --cov-report=html --cov-fail-under=100
+pytest -n auto --cov=src --cov-branch --cov-fail-under=90
 ```
 
-Any uncovered line fails the pipeline.
+Any drop below 90% coverage fails the pipeline.
 
-### 3. File Length Enforcement
+### 3. Lockfile Consistency
 
-All source files must stay under **1,000 lines**. This is checked automatically and
-will fail the build if violated.
+CI verifies that `uv.lock` is consistent with `pyproject.toml`. If you've changed
+dependencies, make sure to run `uv sync` and commit the updated lockfile.
 
 ---
 
@@ -45,8 +53,8 @@ will fail the build if violated.
 
 ### Docker Services
 
-The CI environment uses a minimal `docker-compose` configuration with only the
-services needed for testing:
+The CI environment uses `docker-compose-ci.yml` with only the services needed for
+testing:
 
 | Service | Purpose |
 |---|---|
@@ -56,18 +64,9 @@ services needed for testing:
 
 !!! note "No Observability Stack in CI"
 
-    The observability services (OpenTelemetry Collector, Jaeger, Prometheus, Grafana)
-    are **not** started in CI. The environment variable `ENABLE_OBSERVABILITY=False`
+    The observability services (Loki, Tempo, Prometheus, Grafana, Pyroscope) are
+    **not** started in CI. The environment variable `ENABLE_OBSERVABILITY=False`
     disables all observability instrumentation during test runs.
-
-### Environment Configuration
-
-Key CI-specific settings:
-
-```bash
-ENABLE_OBSERVABILITY=False
-DJANGO_SETTINGS_MODULE=revel.settings.test
-```
 
 ---
 
@@ -105,9 +104,6 @@ Waitlisted users are notified automatically when spots open up.
 
 Before opening a pull request, verify locally:
 
-- [ ] `make format` -- code is formatted
-- [ ] `make lint` -- no linting errors
-- [ ] `make mypy` -- no type errors
-- [ ] `make i18n-check` -- translations are compiled
-- [ ] `make test` -- all tests pass
+- [ ] `make check` -- format + lint + mypy + migration-check + i18n-check + file-length
+- [ ] `make test` (or `make test-parallel`) -- all tests pass with 90%+ coverage
 - [ ] No file exceeds 1,000 lines

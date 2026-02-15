@@ -1,6 +1,6 @@
 # Telegram Bot
 
-The `telegram` app (`src/telegram/`) integrates Revel with Telegram, providing conversational bot interactions and organizer notifications.
+The `telegram` app (`src/telegram/`) integrates Revel with Telegram, providing account linking, event interactions, and organizer notifications.
 
 ---
 
@@ -13,52 +13,51 @@ flowchart LR
     end
 
     subgraph Revel Backend
-        Bot <--> WH[Webhook Handler]
-        WH <--> FSM[FSM Engine]
-        FSM <--> SVC[Services Layer]
+        Bot <--> LP[Long-Polling Handler]
+        LP <--> R[Routers]
+        R <--> SVC[Services Layer]
         NS[Notification System] --> Bot
     end
 ```
 
 ## Core Features
 
-### FSM-Based Conversation Flows
+### Account Linking via OTP
 
-The bot uses a **finite state machine** (FSM) pattern to manage multi-step conversations. Each conversation flow defines states and transitions, allowing the bot to guide users through structured interactions.
+Users link their Telegram account to their Revel account using a one-time password (OTP):
 
-```mermaid
-stateDiagram-v2
-    [*] --> Start: /start
-    Start --> LanguageSelection: First interaction
-    LanguageSelection --> AccountLinking: Language chosen
-    AccountLinking --> Ready: Account linked
-    Ready --> [*]
+1. User sends `/connect` to the bot
+2. Bot generates a 9-digit OTP code and displays it to the user
+3. User enters the OTP code in the Revel web app
+4. The web app validates the code and links the accounts
 
-    Ready --> EventBrowsing: Browse events
-    Ready --> TicketInfo: My tickets
-    Ready --> Settings: Settings
-```
+Once linked, the user can receive notifications and interact with events directly from Telegram.
 
 ### Inline Keyboards
 
-User interactions are driven by inline keyboard buttons rather than free-text input, providing a guided experience and reducing input errors.
+User interactions are driven by inline keyboard buttons rather than free-text input, providing a guided experience. Organizers receive action buttons on notifications (e.g., approve/reject invitation requests, approve/reject whitelist requests).
 
-### Account Linking
+### Notification Delivery
 
-Users can link their Telegram account to their Revel account, enabling:
+The bot integrates with Revel's notification system to deliver messages to users and organizers via Celery tasks:
 
-- Receiving notifications via Telegram
-- Viewing their tickets and RSVPs
-- Interacting with events directly from the chat
-
-### Organizer Notifications
-
-The bot integrates with Revel's notification system to deliver messages to organizers:
-
-- New ticket purchases
-- RSVP updates
+- Event updates and reminders
+- RSVP and ticket confirmations
 - Questionnaire submissions requiring review
-- Event capacity warnings
+- Invitation and whitelist request actions
+
+### Event Interactions
+
+Users can interact with events directly from Telegram callback queries:
+
+- RSVP to events
+- Request invitations
+- Join waitlists
+- Request membership
+
+### Superuser Broadcast
+
+Superusers can broadcast messages to all bot users via a dedicated FSM flow.
 
 ---
 
@@ -67,10 +66,34 @@ The bot integrates with Revel's notification system to deliver messages to organ
 | Aspect | Detail |
 |---|---|
 | **Location** | `src/telegram/` |
-| **Webhook** | Receives updates from Telegram via webhook |
-| **State management** | FSM states stored in the database |
-| **Authentication** | Telegram user ID mapped to Revel accounts |
+| **Framework** | [aiogram](https://docs.aiogram.dev/) |
+| **Update mode** | Long-polling (not webhooks) |
+| **State management** | Minimal FSM via aiogram (preferences and broadcast flows) |
+| **Authentication** | Telegram user ID mapped to Revel accounts via `TelegramUser` model |
 | **Notifications** | Delivered via Celery tasks for async processing |
+| **Commands** | `/start`, `/connect`, `/preferences`, `/cancel`, `/unsubscribe` (plus hidden handlers: `/toc`, `/privacy`) |
+| **Management command** | `python src/manage.py run_telegram_bot` (or `make run-telegram`) |
+
+### Bot Commands
+
+| Command | Description |
+|---|---|
+| `/start` | Welcome message, shows linked status |
+| `/connect` | Link Telegram account to Revel via OTP |
+| `/preferences` | Manage notification preferences *(not yet implemented)* |
+| `/cancel` | Cancel current FSM conversation |
+| `/toc` | Terms and conditions |
+| `/privacy` | Privacy policy |
+| `/unsubscribe` | Turn off all Telegram notifications |
+
+### Configuration
+
+| Setting | Default | Description |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | `0000000000:AABBCCDD` (placeholder) | Bot token from [@BotFather](https://t.me/BotFather) |
+| `TELEGRAM_SUPERUSER_IDS` | `""` | Comma-separated Telegram user IDs with superuser access |
+| `TELEGRAM_STAFF_IDS` | `""` | Comma-separated Telegram user IDs with staff access |
+| `TELEGRAM_OTP_EXPIRATION_MINUTES` | `15` | How long an OTP code is valid for account linking |
 
 !!! note "Active Development"
-    The Telegram bot is an active area of development. Features and conversation flows are being expanded. Refer to the source code in `src/telegram/` for the most current implementation details.
+    The Telegram bot is an active area of development. Features and conversation flows are being expanded -- refer to the [GitHub issues](https://github.com/letsrevel/revel-backend/issues) for planned work. Check the source code in `src/telegram/` for the most current implementation details.

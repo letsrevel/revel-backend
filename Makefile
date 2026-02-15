@@ -33,18 +33,6 @@ test-parallel:
 test-failed:
 	uv run pytest --cov=src --cov-report=term --cov-report=html --cov-branch -v --last-failed src/ && uv run coverage html --skip-covered
 
-.PHONY: test-pipeline
-test-pipeline:
-	uv run pytest --cov=src --cov-report=term --cov-report=html --cov-branch --cov-fail-under=100 -v src
-
-.PHONY: test-functional
-test-functional:
-	uv run pytest --cov=functional_tests --cov-report=term --cov-report=html:functional_tests/htmlcov --cov-branch -v functional_tests/ && uv run coverage html --skip-covered
-
-.PHONY: test-functional-failed
-test-functional-failed:
-	uv run pytest --cov=functional_tests --cov-report=term --cov-report=html:functional_tests/htmlcov --cov-branch -v --last-failed functional_tests/ && uv run coverage html --skip-covered
-
 
 # Combined command: Runs format, lint, mypy, migration-check, i18n-check, and file-length in sequence
 .PHONY: check
@@ -62,7 +50,7 @@ migration-check:
 
 .PHONY: db-diagram
 db-diagram:
-	uv run python src/manage.py graph_models api authentication common datastore onboarding tlsn l1 fireblocks site_settings -a -g -o database.png
+	uv run python src/manage.py graph_models accounts events questionnaires notifications wallet geo telegram api common -a -g -o database.png
 
 .PHONY: bootstrap
 bootstrap:
@@ -198,28 +186,6 @@ check-version:
 	@echo "Checking versions..."
 	@curl -s https://main.api.revel.io/api/v1/version | jq -r '"Main Prod: \(.version)"'
 	@curl -s https://dev.api.revel.io/api/v1/version | jq -r '"Main Dev: \(.version)"'
-
-
-VERSION_FILE = VERSION
-
-.PHONY: bump-version bump-minor
-
-bump-version:
-	@current=$$(cat $(VERSION_FILE)); \
-	major=$$(echo $$current | cut -d. -f1); \
-	minor=$$(echo $$current | cut -d. -f2); \
-	patch=$$(echo $$current | cut -d. -f3); \
-	new_patch=$$((patch + 1)); \
-	echo "$$major.$$minor.$$new_patch" > $(VERSION_FILE); \
-	echo "New version: $$major.$$minor.$$new_patch"
-
-bump-minor:
-	@current=$$(cat $(VERSION_FILE)); \
-	major=$$(echo $$current | cut -d. -f1); \
-	minor=$$(echo $$current | cut -d. -f2); \
-	new_minor=$$((minor + 1)); \
-	echo "$$major.$$new_minor.0" > $(VERSION_FILE); \
-	echo "New version: $$major.$$new_minor.0"
 
 
 .PHONY: serve-docs

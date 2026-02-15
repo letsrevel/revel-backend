@@ -61,7 +61,7 @@ jobs:
         run: cp geo/data/worldcities.mini.csv geo/data/worldcities.csv
 
       - name: Run ruff formatting check
-        run: uv run ruff check . --select F
+        run: uv run ruff format --check .
 
       - name: Run ruff linting check
         run: uv run ruff check .

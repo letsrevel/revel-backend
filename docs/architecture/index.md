@@ -31,4 +31,5 @@ graph LR
 | [Eligibility Pipeline](eligibility-pipeline.md) | The gate-by-gate system that determines event access |
 | [Protected Files](protected-files.md) | HMAC-signed URLs with Caddy (and why not S3) |
 | [Notifications](notifications.md) | Multi-channel delivery: in-app, email, Telegram |
+| [File Security](security.md) | EXIF stripping, ClamAV malware scanning, quarantine |
 | [Questionnaires](questionnaires.md) | LLM-powered evaluation, prompt injection protection |

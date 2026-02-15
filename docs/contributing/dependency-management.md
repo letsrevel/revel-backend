@@ -1,7 +1,7 @@
 # Dependency Management
 
 Revel uses [UV](https://docs.astral.sh/uv/) for all dependency management.
-See [ADR-0003](../adr/0003-uv-over-pip.md) for the full rationale behind this choice.
+**Never use pip directly.**
 
 !!! danger "Never Use pip"
 
@@ -19,17 +19,12 @@ See [ADR-0003](../adr/0003-uv-over-pip.md) for the full rationale behind this ch
 | Production | `uv add <package>` |
 | Development | `uv add --dev <package>` |
 | Development (explicit group) | `uv add --group dev <package>` |
-| Optional group | `uv add --optional <group> <package>` |
-
 ```bash
 # Add a production dependency
 uv add httpx
 
 # Add a development-only dependency
 uv add --dev pytest-randomly
-
-# Add to an optional dependency group
-uv add --optional observability opentelemetry-api
 ```
 
 ### Removing Dependencies
@@ -42,13 +37,13 @@ uv remove <package>
 
 | Command | Description |
 |---|---|
-| `uv sync` | Install all dependencies from the lockfile |
-| `uv sync --dev` | Include development dependencies |
+| `uv sync` | Install all dependencies from the lockfile (includes dev dependencies by default) |
+| `uv sync --group dev` | Explicitly include the dev dependency group |
 
 !!! tip
 
     After pulling changes that modify `pyproject.toml` or `uv.lock`, run
-    `uv sync --dev` to ensure your local environment matches.
+    `uv sync` to ensure your local environment matches.
 
 ---
 
@@ -75,5 +70,5 @@ This replaces the traditional `requirements.txt` / `requirements-dev.txt` workfl
 !!! info
 
     Contributors need to [install UV](https://docs.astral.sh/uv/getting-started/installation/)
-    before working on the project. The `make setup` command handles this for new
-    contributors.
+    before working on the project. Once UV is installed, run `make setup` to
+    complete the environment configuration.

@@ -42,13 +42,13 @@ def add_to_blacklist(organization: Organization, email: str, ...) -> Blacklist:
 **Class-based** (stateful workflow):
 
 ```python
-class TicketService:
-    def __init__(self, *, event: Event, tier: TicketTier, user: RevelUser) -> None:
+class BatchTicketService:
+    def __init__(self, event: Event, tier: TicketTier, user: RevelUser) -> None:
         self.event = event
         self.tier = tier
         self.user = user
 
-    def checkout(self) -> str | Ticket:
+    def create_batch(self, items: list[TicketPurchaseItem]) -> list[Ticket] | str:
         ...
 ```
 

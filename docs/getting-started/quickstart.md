@@ -9,7 +9,7 @@ Before you begin, make sure the following tools are installed on your machine:
 | Tool | Version | Purpose |
 |------|---------|---------|
 | **Make** | Any | Task runner for development commands |
-| **Docker** | 20+ | Runs PostgreSQL, Redis, MinIO, Mailpit |
+| **Docker** | 20+ | Runs PostgreSQL, Redis, ClamAV, Mailpit |
 | **Python** | 3.13+ | Runtime for the Django application |
 | **UV** | Latest | Dependency management (replaces pip) |
 
@@ -27,7 +27,27 @@ Before you begin, make sure the following tools are installed on your machine:
 # 1. Clone the repository
 git clone git@github.com:letsrevel/revel-backend.git
 cd revel-backend
+```
 
+!!! warning "Geo data file required before setup"
+    The database migration `0002_load_cities` requires a cities CSV file that is **not** included in the repository due to licensing.
+    **`make setup` will fail** if this file is missing.
+
+    Download `worldcities.csv` from [SimpleMaps](https://simplemaps.com/data/world-cities) and place it at:
+
+    ```
+    src/geo/data/worldcities.csv
+    ```
+
+    For a lighter alternative during development, rename the included `worldcities.mini.csv` (a small subset):
+
+    ```bash
+    cp src/geo/data/worldcities.mini.csv src/geo/data/worldcities.csv
+    ```
+
+    The IP-to-location database (`IP2LOCATION-LITE-DB5.BIN`) is **not** required for setup. It is downloaded automatically by a periodic Celery task if the `IP2LOCATION_TOKEN` environment variable is set.
+
+```bash
 # 2. Run the one-time setup
 make setup
 ```
@@ -37,22 +57,11 @@ That's it. The `setup` target handles everything else automatically.
 !!! tip "What `make setup` does behind the scenes"
     The setup command runs several steps in sequence:
 
-    1. **Creates a virtual environment** in `.venv/` using UV
-    2. **Installs all dependencies** (production + development) from the lockfile
-    3. **Starts Docker services** -- PostgreSQL (with PostGIS), Redis, MinIO, and Mailpit
-    4. **Applies database migrations** to create the schema
-    5. **Bootstraps base data** (default admin user, site settings, etc.)
-    6. **Seeds the database** with sample data for local development
-    7. **Starts the Django development server**
-
-!!! warning "Geo data files"
-    Some geolocation features require data files that are **not** included in the repository due to licensing:
-
-    - `src/geo/data/IP2LOCATION-LITE-DB5.BIN` -- IP-to-location database
-    - `src/geo/data/worldcities.csv` -- World cities dataset
-
-    The application will start without these files, but geo-related endpoints will not work correctly.
-    Download them from their respective sources and place them in `src/geo/data/` before using geo features.
+    1. **Installs all dependencies** (production + development) via `uv sync` -- also creates `.venv/` if needed
+    2. **Copies `.env.example` to `.env`** for local configuration
+    3. **Restarts Docker services** -- PostgreSQL (with PostGIS), Redis, ClamAV, and Mailpit
+    4. **Bootstraps the database** -- runs migrations, creates the admin user, and loads sample event data
+    5. **Starts the Django development server** with observability disabled
 
 ## Start the Development Server
 
@@ -86,6 +95,12 @@ Once the server is running, you have access to several services:
     ```bash
     make jwt EMAIL=admin@letsrevel.io
     ```
+
+!!! warning "Observability is disabled by default"
+    `make setup` starts the server with `ENABLE_OBSERVABILITY=False` because the observability stack (Loki, Tempo, Prometheus) is not running under `compose.yaml`. However, `.env.example` sets `ENABLE_OBSERVABILITY=True`. If you see connection errors in logs after running `make run` on subsequent sessions, either:
+
+    - Set `ENABLE_OBSERVABILITY=False` in your `.env`, or
+    - Start the observability stack: `docker compose -f docker-compose-observability.yml up -d`
 
 ## Next Steps
 

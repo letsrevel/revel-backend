@@ -30,7 +30,7 @@ The flow:
 1. Django generates a time-limited HMAC-signed URL for the requested file.
 2. The client requests the file from Caddy using this signed URL.
 3. Caddy forwards the authorization check to a Django endpoint via `forward_auth`.
-4. Django validates the HMAC signature and expiry, returning 200 (allow) or 403 (deny).
+4. Django validates the HMAC signature and expiry, returning 200 (allow) or 401 (deny).
 5. Caddy serves the file directly from disk if authorized.
 
 This is a **pure Django + Caddy** solution with no external object storage dependency.

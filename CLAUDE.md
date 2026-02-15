@@ -10,7 +10,7 @@ This project uses a comprehensive Makefile for development tasks:
 - `make setup` - Complete one-time setup: creates venv, installs dependencies, sets up Docker services, and starts the server
 - `make run` - Start Django development server (generates test JWTs first)
 - `make jwt EMAIL=user@example.com` - Get JWT access and refresh tokens for a specific user
-- `make check` - Run all code quality checks (format, lint, mypy, i18n-check)
+- `make check` - Run all code quality checks (format, lint, mypy, migration-check, i18n-check, file-length)
 - `make test` - Run pytest test suite with coverage reporting
 - `make test-failed` - Re-run only failed tests
 
@@ -30,8 +30,8 @@ This project uses a comprehensive Makefile for development tasks:
 - `make migrate` - Apply pending migrations
 - `make bootstrap` - Initialize database with base data
 - `make seed` - Populate database with test data
-- `make nuke-db` - **DESTRUCTIVE**: Delete database and migration files
-- `make restart` - **DESTRUCTIVE**: Restart Docker and recreate database
+- `make nuke-db` - **DESTRUCTIVE**: Reset database and regenerate migration files (preserves special data migrations)
+- `make restart` - **DESTRUCTIVE**: Deletes all migration files, regenerates them, restarts Docker, and bootstraps from scratch
 
 ### Background Services
 - `make run-celery` - Start Celery worker for background tasks
@@ -39,8 +39,7 @@ This project uses a comprehensive Makefile for development tasks:
 - `make run-flower` - Start Flower (Celery monitoring UI)
 
 ### Testing Variants
-- `make test-functional` - Run functional tests
-- `make test-pipeline` - Run tests with 100% coverage requirement
+- `make test-parallel` - Run tests in parallel with pytest-xdist
 
 ## Project Architecture
 
@@ -50,6 +49,8 @@ Revel is a Django-based event management platform with the following structure:
 - **accounts/** - User authentication, registration, JWT handling, GDPR compliance
 - **events/** - Core event management, organizations, tickets, memberships, invitations
 - **questionnaires/** - Dynamic questionnaire system with LLM-powered evaluation
+- **notifications/** - Multi-channel notification system (in-app, email, Telegram) with user preferences and digest support
+- **wallet/** - Apple Wallet pass generation for event tickets (.pkpass files)
 - **geo/** - Geolocation features, city data, IP-based location detection
 - **telegram/** - Telegram bot integration with FSM-based conversation flows
 - **api/** - Global API configuration, exception handlers, rate limiting
@@ -61,7 +62,8 @@ Revel is a Django-based event management platform with the following structure:
 Business logic is encapsulated in service modules:
 - `events/service/` - Event management, organization services
 - `accounts/service/` - User management, authentication services
-- `questionnaires/service.py` - Questionnaire evaluation logic
+- `questionnaires/service/` - Questionnaire evaluation logic
+- `notifications/service/` - Notification dispatching, eligibility, digests, reminders
 
 #### Controller Pattern (Django Ninja)
 API endpoints are organized in controller classes:
@@ -71,7 +73,7 @@ API endpoints are organized in controller classes:
 - Support search with `@searching` decorator
 
 #### Permission System
-- Custom permission classes in `events/permissions.py`
+- Custom permission classes in `events/controllers/permissions.py`
 - Organization-based access control with roles (Owner, Staff, Member)
 - Event-level permissions with eligibility checking
 - JWT-based authentication with optional anonymous access
@@ -81,14 +83,13 @@ API endpoints are organized in controller classes:
 - **Database**: PostgreSQL with PostGIS for geo features
 - **Async Tasks**: Celery with Redis
 - **Authentication**: JWT with custom user model
-- **File Storage**: Configurable (local/S3)
-- **Containerization**: Docker with docker-compose for development
+- **File Storage**: Local filesystem in development; configurable for production
+- **Containerization**: Docker Compose for development services
 
 ### Testing Framework
 - **pytest** with Django integration
-- Factory-based test data generation
+- Test data generation via ORM and shared fixtures in `conftest.py`
 - Coverage reporting with HTML output
-- Separate functional and unit test suites
 - Celery task testing with pytest-celery
 
 ### Code Quality Standards
@@ -96,18 +97,18 @@ API endpoints are organized in controller classes:
 - **Linting**: ruff with Django-specific rules
 - **Type Checking**: mypy with strict settings and Django plugin
 - **Docstrings**: Google-style format required
-- **Coverage**: Aim for high coverage, 100% required in CI pipeline
+- **Coverage**: 90%+ branch coverage required in CI pipeline
 
 ### Development Environment
 - Python 3.13+ required
 - **UV for dependency management** (use `uv add`/`uv remove` - NEVER use pip directly)
-- Docker for services (PostgreSQL, Redis, MinIO)
+- Docker for services (PostgreSQL, Redis, ClamAV)
 - Virtual environment automatically created in `.venv/`
 
 ### Key Configuration Files
 - `pyproject.toml` - Dependencies, tool configuration (ruff, mypy, pytest)
 - `Makefile` - Development commands and workflows
-- `docker-compose-dev.yml` - Development services
+- `compose.yaml` - Development services
 - `src/revel/settings/` - Modular Django settings
 
 ### Security Features
@@ -120,7 +121,7 @@ API endpoints are organized in controller classes:
 ## Testing Guidelines
 
 When writing tests:
-- Use factory classes for test data generation
+- Create test data via ORM and shared fixtures from `conftest.py`
 - Mock external services (Celery tasks, email, file uploads)
 - Test both success and error cases
 - Include integration tests for complex workflows
@@ -323,7 +324,7 @@ When working on issues or new features, follow this collaborative workflow:
   # Good
   from common.utils import get_or_create_with_race_protection
 
-  food_item = get_or_create_with_race_protection(
+  food_item, created = get_or_create_with_race_protection(
       FoodItem,
       Q(name__iexact=name),
       {"name": name}
@@ -371,23 +372,20 @@ def create_venue(organization: Organization, payload: VenueCreateSchema) -> Venu
 
 ```python
 # Good - stateful workflow as class
-class TicketService:
-    def __init__(self, *, event: Event, tier: TicketTier, user: RevelUser) -> None:
+class BatchTicketService:
+    def __init__(self, event: Event, tier: TicketTier, user: RevelUser) -> None:
         self.event = event
         self.tier = tier
         self.user = user
 
-    def checkout(self, price_override: Decimal | None = None) -> str | Ticket:
-        match self.tier.payment_method:
-            case TicketTier.PaymentMethod.ONLINE:
-                return self._stripe_checkout(price_override)
-            case TicketTier.PaymentMethod.FREE:
-                return self._free_checkout()
+    def create_batch(self, items: list[TicketPurchaseItem]) -> list[Ticket] | str:
+        # Validates batch size, resolves seats, delegates to payment flow
+        ...
 ```
 
 #### Mixed Modules Are OK
 A single service module can contain both patterns when they serve different purposes:
-- `ticket_service.py` has `TicketService` (checkout workflow) AND `check_in_ticket()` (standalone operation)
+- `batch_ticket_service.py` has `BatchTicketService` (ticket purchase workflow) and `ticket_service.py` has `check_in_ticket()` (standalone operation)
 - This is intentional - don't force everything into one pattern
 
 #### Controller Integration
@@ -397,9 +395,9 @@ from events.service import blacklist_service
 entry = blacklist_service.add_to_blacklist(organization, email=email)
 
 # Class-based - instantiate per request
-from events.service.ticket_service import TicketService
-service = TicketService(event=event, tier=tier, user=user)
-result = service.checkout()
+from events.service.batch_ticket_service import BatchTicketService
+service = BatchTicketService(event=event, tier=tier, user=user)
+result = service.create_batch(items=purchase_items)
 ```
 
 #### Why Not Dependency Injection?

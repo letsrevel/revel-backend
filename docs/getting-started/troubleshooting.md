@@ -136,7 +136,7 @@ If you see `PermissionError` or `EACCES` in logs:
 | `src/certs/` | Apple Wallet certificates — never modified at runtime |
 
 !!! note "tmpfs and data loss"
-    The development `docker-compose-dev.yml` uses **tmpfs** for PostgreSQL, meaning the database lives in memory. Data is lost when the container stops. This is intentional for fast test cycles — use `make seed` to repopulate after a restart.
+    The development Docker setup uses **tmpfs** for PostgreSQL (configured in `docker-compose-base.yml`), meaning the database lives in memory. Data is lost when the container stops. This is intentional for fast test cycles — use `make bootstrap` to repopulate after a restart.
 
 ---
 
@@ -148,26 +148,22 @@ Most external services have safe defaults for local development. Here's what act
 
 | Service | Env Var | Default | Notes |
 |---------|---------|---------|-------|
-| PostgreSQL | `DATABASE_URL` | `postgres://revel:db-password@localhost:5432/revel` | Provided by Docker Compose |
-| Redis | `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` | Provided by Docker Compose |
+| PostgreSQL | `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `DB_PORT` | `revel`, `db-password`, `revel`, `5432` | Provided by Docker Compose (values from `.env.example`) |
+| Redis | `REDIS_HOST` | `localhost` | Provided by Docker Compose |
 
 ### Required for specific features
 
 | Service | Env Var | Default | Feature |
 |---------|---------|---------|---------|
 | Stripe | `STRIPE_SECRET_KEY` | Test key (`sk_test_...`) | Paid ticket checkout |
-| Telegram | `TELEGRAM_BOT_TOKEN` | **None** — will error | Telegram bot |
+| Telegram | `TELEGRAM_BOT_TOKEN` | `0000000000:AABBCCDD` | Telegram bot |
 | OpenAI | `OPENAI_API_KEY` | `fake-key` | Questionnaire AI evaluation |
 | Google SSO | `GOOGLE_SSO_CLIENT_ID` | `fake-id` | Google login |
 | IP2Location | `IP2LOCATION_TOKEN` | `None` | IP geolocation |
 | HuggingFace | `HUGGING_FACE_HUB_TOKEN` | **None** | Sentinel model download |
 
-!!! danger "Telegram token has no default"
-    Unlike other services, `TELEGRAM_BOT_TOKEN` has no fallback. If you don't need the Telegram bot, you still need to set a placeholder value to avoid startup errors:
-
-    ```bash
-    TELEGRAM_BOT_TOKEN=fake-token
-    ```
+!!! info "Telegram token"
+    The default `TELEGRAM_BOT_TOKEN` is a non-functional placeholder. The app starts fine with it, but Telegram features won't work. To develop with a real bot, create one via [@BotFather](https://t.me/BotFather) and set the token in your `.env`.
 
 !!! tip "Stripe test mode"
     The default Stripe keys are test keys (prefixed `sk_test_` / `pk_test_`). These are safe for development — no real charges are made.

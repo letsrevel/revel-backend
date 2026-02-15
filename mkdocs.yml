@@ -66,6 +66,7 @@ nav:
       - Permissions & Roles: architecture/permissions.md
       - Eligibility Pipeline: architecture/eligibility-pipeline.md
       - Protected Files (HMAC): architecture/protected-files.md
+      - File Security: architecture/security.md
       - Notifications: architecture/notifications.md
       - Questionnaires: architecture/questionnaires.md
   - Guides:
@@ -85,12 +86,11 @@ nav:
       - adr/index.md
       - adr/0001-hmac-caddy-over-s3.md
       - adr/0002-hybrid-service-architecture.md
-      - adr/0003-uv-over-pip.md
-      - adr/0004-django-ninja-over-drf.md
-      - adr/0005-no-dependency-injection.md
-      - adr/0006-django-lts-policy.md
-      - adr/0007-mo-files-in-git.md
-      - adr/0008-celery-exception-propagation.md
+      - adr/0003-django-ninja-over-drf.md
+      - adr/0004-no-dependency-injection.md
+      - adr/0005-django-lts-policy.md
+      - adr/0006-mo-files-in-git.md
+      - adr/0007-celery-exception-propagation.md
 
 plugins:
   - search

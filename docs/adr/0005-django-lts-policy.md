@@ -1,4 +1,4 @@
-# ADR-0006: Django 5.2 LTS Policy
+# ADR-0005: Django 5.2 LTS Policy
 
 ## Status
 

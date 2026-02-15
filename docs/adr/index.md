@@ -41,18 +41,17 @@ What becomes easier or harder because of this change?
 |---|---|---|
 | [ADR-0001](0001-hmac-caddy-over-s3.md) | HMAC-Signed URLs with Caddy Instead of S3/MinIO | Accepted |
 | [ADR-0002](0002-hybrid-service-architecture.md) | Hybrid Service Architecture (Functions + Classes) | Accepted |
-| [ADR-0003](0003-uv-over-pip.md) | UV Over pip for Dependency Management | Accepted |
-| [ADR-0004](0004-django-ninja-over-drf.md) | Django Ninja Over Django REST Framework | Accepted |
-| [ADR-0005](0005-no-dependency-injection.md) | No Dependency Injection Container | Accepted |
-| [ADR-0006](0006-django-lts-policy.md) | Django 5.2 LTS Policy | Accepted |
-| [ADR-0007](0007-mo-files-in-git.md) | Compiled Translation Files (.mo) in Git | Accepted |
-| [ADR-0008](0008-celery-exception-propagation.md) | Let Celery Exceptions Propagate | Accepted |
+| [ADR-0003](0003-django-ninja-over-drf.md) | Django Ninja Over Django REST Framework | Accepted |
+| [ADR-0004](0004-no-dependency-injection.md) | No Dependency Injection Container | Accepted |
+| [ADR-0005](0005-django-lts-policy.md) | Django 5.2 LTS Policy | Accepted |
+| [ADR-0006](0006-mo-files-in-git.md) | Compiled Translation Files (.mo) in Git | Accepted |
+| [ADR-0007](0007-celery-exception-propagation.md) | Let Celery Exceptions Propagate | Accepted |
 
 ---
 
 ## Adding a New ADR
 
-1. Determine the next sequential number (e.g., `0009`).
+1. Determine the next sequential number (e.g., `0008`).
 2. Create a new file: `docs/adr/NNNN-short-slug.md`.
 3. Use the template above.
 4. Set the status to **Proposed** until the team reviews it, then update to

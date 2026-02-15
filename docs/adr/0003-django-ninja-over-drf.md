@@ -1,4 +1,4 @@
-# ADR-0004: Django Ninja Over Django REST Framework
+# ADR-0003: Django Ninja Over Django REST Framework
 
 ## Status
 
@@ -36,7 +36,8 @@ consistent authentication, throttling, and permission handling at the class leve
 **Positive:**
 
 - **Type-hint driven schemas**: Pydantic models replace verbose serializer classes,
-  with automatic validation and documentation
+  with automatic validation, documentation, and the full power of Pydantic's
+  ecosystem (custom validators, computed fields, JSON Schema generation)
 - **Automatic OpenAPI docs**: No additional tooling needed -- schemas, examples, and
   endpoints are documented from code
 - **Performance**: Faster request/response cycle than DRF for typical workloads

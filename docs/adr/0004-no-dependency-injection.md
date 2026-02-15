@@ -1,4 +1,4 @@
-# ADR-0005: No Dependency Injection Container
+# ADR-0004: No Dependency Injection Container
 
 ## Status
 
@@ -30,9 +30,9 @@ from events.service import blacklist_service
 entry = blacklist_service.add_to_blacklist(organization, email=email)
 
 # Class-based -- instantiate per request with context
-from events.service.ticket_service import TicketService
-service = TicketService(event=event, tier=tier, user=user)
-result = service.checkout()
+from events.service.batch_ticket_service import BatchTicketService
+service = BatchTicketService(event=event, tier=tier, user=user)
+result = service.create_batch(items=purchase_items)
 ```
 
 ## Consequences

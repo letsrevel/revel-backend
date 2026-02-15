@@ -14,8 +14,8 @@ sequenceDiagram
     participant Django as Django API
     participant Storage as File Storage
 
-    Client->>Caddy: GET /media/protected/{hmac}/{expiry}/{path}
-    Caddy->>Django: forward_auth → /api/media/validate/{hmac}/{expiry}/{path}
+    Client->>Caddy: GET /media/{path}?exp={expiry}&sig={hmac}
+    Caddy->>Django: forward_auth → /api/media/validate/protected{uri}
 
     Django->>Django: Validate HMAC signature
     Django->>Django: Check expiry timestamp
@@ -64,7 +64,7 @@ sequenceDiagram
 Custom model fields that store files in a protected storage location:
 
 ```python
-from common.storage import ProtectedFileField, ProtectedImageField
+from common.fields import ProtectedFileField, ProtectedImageField
 
 class Event(models.Model):
     banner = ProtectedImageField(
@@ -86,7 +86,7 @@ These fields work identically to Django's `FileField` and `ImageField` but store
 In schemas, use `get_file_url()` to generate signed URLs:
 
 ```python
-from common.storage import get_file_url
+from common.signing import get_file_url
 
 class EventSchema(ModelSchema):
     banner_url: str | None = None
@@ -101,7 +101,7 @@ class EventSchema(ModelSchema):
 The generated URL has this structure:
 
 ```
-/media/protected/{hmac_signature}/{expiry_timestamp}/{file_path}
+/media/{file_path}?exp={expiry_timestamp}&sig={hmac_signature}
 ```
 
 ## Security Details
@@ -111,7 +111,7 @@ The generated URL has this structure:
 
 | Security Feature | Implementation |
 |---|---|
-| **Signing key** | Django `SECRET_KEY` |
+| **Signing key** | Derived from Django `SECRET_KEY` via domain-separated HKDF |
 | **URL expiry** | 1 hour (configurable) |
 | **Comparison** | Timing-safe (`hmac.compare_digest`) |
 | **Rate limiting** | Applied to the validation endpoint |
@@ -130,31 +130,33 @@ The generated URL has this structure:
 ```
 # Protected files - requires forward_auth
 handle_path /media/protected/* {
-    forward_auth django:8000 {
-        uri /api/media/validate/{path}
+    forward_auth web:8000 {
+        uri /api/media/validate/protected{uri}
     }
-    file_server {
-        root /data/media/protected
-    }
+    root * /srv/revel_media/protected
+    header Cache-Control "private, max-age=3600"
+    file_server
 }
 
 # Public files - served directly
-handle_path /media/public/* {
-    header Cache-Control "public, max-age=31536000"
-    file_server {
-        root /data/media/public
-    }
+handle_path /media/* {
+    root * /srv/revel_media
+    header Cache-Control "public, max-age=86400"
+    file_server
 }
 ```
+
+!!! note "Path ordering"
+    The `handle_path /media/protected/*` block must come before `handle_path /media/*` so that protected files are intercepted first.
 
 ### Cache Headers
 
 | File Type | Cache-Control | Rationale |
 |---|---|---|
-| Protected files | `private` | Must not be cached by shared caches; URL expires |
-| Public files | `public, max-age=31536000` | Static assets (logos, public images) can be cached aggressively |
+| Protected files | `private, max-age=3600` | Must not be cached by shared caches; 1h matches URL expiry |
+| Public files | `public, max-age=86400` | Public assets cached for 1 day |
 
 ## File Upload & Malware Scanning
 
-!!! info "ClamAV integration"
-    Uploaded files pass through a malware scanning pipeline using ClamAV before being stored. Files that fail scanning are quarantined and never served. See the security documentation for details.
+!!! info "See [File Security](security.md)"
+    Uploaded files are processed through an EXIF stripping and ClamAV malware scanning pipeline. Files that fail scanning are quarantined and never served. See the [File Security](security.md) page for the full architecture, scan flow, and notification details.

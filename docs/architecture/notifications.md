@@ -70,6 +70,7 @@ The following notification types are supported across all channels:
 | `payment_confirmation` | Payment was processed successfully |
 | `rsvp_confirmation` | RSVP was confirmed |
 | `rsvp_updated` | RSVP details were updated |
+| `rsvp_cancelled` | RSVP was cancelled |
 
 ### Waitlist & Availability
 
@@ -82,12 +83,14 @@ The following notification types are supported across all channels:
 | Type | Description |
 |---|---|
 | `questionnaire_submitted` | A questionnaire submission was received (staff notification) |
+| `questionnaire_evaluation_result` | Evaluation result sent to the user |
 
 ### Potluck
 
 | Type | Description |
 |---|---|
 | `potluck_item_created` | A new potluck item was added |
+| `potluck_item_created_and_claimed` | A potluck item was added and claimed in one action |
 | `potluck_item_claimed` | Someone claimed a potluck item |
 | `potluck_item_unclaimed` | A potluck claim was removed |
 | `potluck_item_updated` | A potluck item was updated |
@@ -97,7 +100,15 @@ The following notification types are supported across all channels:
 
 | Type | Description |
 |---|---|
-| `whitelist_request_*` | Whitelist request lifecycle notifications |
+| `whitelist_request_created` | User requested whitelist access (staff notification) |
+| `whitelist_request_approved` | Whitelist request was approved |
+| `whitelist_request_rejected` | Whitelist request was rejected |
+
+### Announcements
+
+| Type | Description |
+|---|---|
+| `org_announcement` | Organization-wide announcement |
 
 ### Following
 
@@ -117,17 +128,24 @@ notifications/
   templates/
     notifications/
       in_app/
-        event_cancelled.txt
-        event_open.txt
+        event_cancelled.md
+        event_open.md
         ...
+      email/
+        event_cancelled.html
+        event_cancelled.txt
+        ...
+      emails/
+        digest.html
+        digest.txt
       telegram/
         event_cancelled.md
         event_open.md
         ...
 ```
 
-!!! note "Telegram templates use Markdown"
-    Telegram templates are written in Markdown format, compatible with Telegram's MarkdownV2 parse mode. In-app templates are plain text. Email templates use Django's standard template system.
+!!! note "Template formats"
+    Both in-app and Telegram templates use Markdown (`.md` files). Email templates use Django's standard template system with `.html` and `.txt` variants.
 
 ## User Preferences
 
@@ -138,4 +156,16 @@ Users configure their notification preferences per channel and per type. The pre
 - **Digest mode**: Batch notifications into periodic summaries instead of sending individually
 
 !!! info "Defaults"
-    New users receive all notification types on all available channels by default. Telegram notifications require the user to have linked their Telegram account.
+    New users receive most notification types on all available channels by default. Exceptions: **potluck notifications** are restricted to in-app only (no email or Telegram) and **guest users** have potluck notifications disabled entirely. Telegram notifications always require the user to have linked their Telegram account.
+
+## Implementation Details
+
+The notification system is implemented in `notifications/service/`, which includes:
+
+- **Dispatcher** -- Routes notifications to the appropriate channels based on user preferences
+- **Eligibility checks** -- Determines which users should receive a given notification (e.g., only attendees of an event)
+- **Reminder scheduling** -- Schedules event reminders via Celery Beat periodic tasks
+- **Digest batching** -- Aggregates notifications into periodic digest emails
+- **Unsubscribe handling** -- Manages per-type and per-channel opt-outs
+
+Notifications are triggered from the service layer via Django signals and direct dispatcher calls. Delivery for email and Telegram channels is always asynchronous via Celery tasks.

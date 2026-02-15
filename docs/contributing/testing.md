@@ -10,9 +10,8 @@ This guide covers how to write, organize, and run tests.
 | Command | Description |
 |---|---|
 | `make test` | Run the full test suite with coverage reporting |
+| `make test-parallel` | Run tests in parallel with `pytest -n auto` |
 | `make test-failed` | Re-run only previously failed tests |
-| `make test-functional` | Run functional tests only |
-| `make test-pipeline` | Run tests with **100% coverage** requirement (used in CI) |
 
 !!! tip
 
@@ -23,10 +22,7 @@ This guide covers how to write, organize, and run tests.
 
 ## Test Organization
 
-The project maintains separate **unit** and **functional** test suites:
-
-- **Unit tests** validate individual functions, services, and models in isolation.
-- **Functional tests** validate API endpoints and multi-step workflows end-to-end.
+Tests live alongside the code they test, inside each app's `tests/` directory.
 
 ### File Length Limit
 
@@ -40,25 +36,25 @@ The project maintains separate **unit** and **functional** test suites:
 
 ## Writing Tests
 
-### Factory-Based Test Data
+### Test Data
 
-Use **factory classes** for test data generation instead of manually constructing
-model instances. Factories produce realistic, consistent test data and reduce
-boilerplate.
+Tests create data directly using Django ORM and shared fixtures from `conftest.py`:
 
 ```python
 import typing as t
 
-from events.factories import EventFactory, TicketTierFactory
-from accounts.factories import UserFactory
+import pytest
+
+from accounts.models import RevelUser
 
 
+@pytest.mark.django_db
 class TestTicketCheckout:
-    def test_successful_checkout(self, db: t.Any) -> None:
-        user = UserFactory()
-        event = EventFactory()
-        tier = TicketTierFactory(event=event)
-
+    def test_successful_checkout(self) -> None:
+        user = RevelUser.objects.create_user(
+            email="test@example.com",
+            password="testpass123",
+        )
         # ... test logic
 ```
 
@@ -69,13 +65,11 @@ class TestTicketCheckout:
     All test functions and fixtures must include **type hints**. The project runs
     `mypy --strict`, and tests are not exempt.
 
-```python
-import typing as t
+Use the `@pytest.mark.django_db` decorator (class-level or function-level) for tests that need database access:
 
+```python
 import pytest
 from django.test import RequestFactory
-
-from accounts.models import RevelUser
 
 
 @pytest.fixture
@@ -84,13 +78,30 @@ def request_factory() -> RequestFactory:
     return RequestFactory()
 
 
-def test_user_creation(db: t.Any) -> None:
+@pytest.mark.django_db
+def test_user_creation() -> None:
     user = RevelUser.objects.create_user(
         email="test@example.com",
         password="testpass123",
     )
     assert user.email == "test@example.com"
 ```
+
+### Auto-Use Fixtures
+
+The root `conftest.py` defines several `autouse=True` fixtures that apply to **all tests** automatically:
+
+| Fixture | Purpose |
+|---|---|
+| `mock_ip2location` | Mocks IP2Location to avoid `.BIN` file dependency |
+| `increase_rate_limit` | Raises rate limits so tests don't get throttled |
+| `enable_celery_eager_mode` | Forces Celery tasks to execute synchronously |
+| `use_locmem_cache` | Uses in-memory cache instead of Redis (safe for parallel runs) |
+| `use_fast_password_hasher` | Uses MD5 hasher for faster user creation in tests |
+| `mock_telegram_send_message` | Prevents real Telegram messages from being sent |
+| `mock_clamav` | Mocks ClamAV scanning so tests don't need a running daemon |
+
+These fixtures ensure tests are fast, isolated, and don't depend on external services.
 
 ### Mock External Services
 
@@ -105,10 +116,11 @@ Always mock services that reach outside the application boundary:
 from unittest.mock import patch
 
 
-def test_sends_welcome_email(db: t.Any) -> None:
-    with patch("accounts.tasks.send_welcome_email.delay") as mock_task:
+@pytest.mark.django_db
+def test_sends_notification_email() -> None:
+    with patch("notifications.tasks.dispatch_notification.delay") as mock_task:
         # ... trigger the action
-        mock_task.assert_called_once_with(user_id=user.id)
+        mock_task.assert_called_once()
 ```
 
 ### Test Both Success and Error Cases
@@ -121,6 +133,7 @@ Every feature should have tests covering:
 - **Edge cases** -- empty collections, boundary values, race conditions
 
 ```python
+@pytest.mark.django_db
 class TestEventCreation:
     def test_create_event_success(self, auth_client: t.Any) -> None:
         response = auth_client.post("/api/events/", payload)
@@ -145,8 +158,9 @@ coverage.
 
 !!! info "CI Requirement"
 
-    The CI pipeline (`make test-pipeline`) enforces **100% coverage**. Any uncovered
-    lines will cause the pipeline to fail. Use `# pragma: no cover` sparingly and
+    The CI pipeline enforces **90%+ branch coverage** via `--cov-fail-under=90`. Any drop below this threshold
+    will cause the pipeline to fail. Local `make test` generates a coverage report but does **not** enforce
+    the threshold -- you'll only see a failure in CI. Use `# pragma: no cover` sparingly and
     only for genuinely unreachable code paths.
 
 ---
@@ -156,9 +170,10 @@ coverage.
 | Guideline | Details |
 |---|---|
 | Framework | pytest + Django integration |
-| Test data | Factory classes |
+| Test data | Direct ORM creation + conftest fixtures |
+| DB access | `@pytest.mark.django_db` decorator |
 | Type hints | Required on all tests and fixtures |
 | External services | Always mocked |
-| Coverage target | 100% in CI |
+| Coverage target | 90%+ in CI |
 | Max file length | 1,000 lines |
 | Error cases | Always tested alongside success cases |

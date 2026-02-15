@@ -30,7 +30,7 @@ revel-backend/
 
 The Django project package containing settings, root URL configuration, WSGI/ASGI entry points, and Celery app initialization.
 
-Settings are modular, split across multiple files under `revel/settings/` for clarity and environment-specific overrides.
+Settings are modular, split across multiple files under `revel/settings/` by **feature domain**: `base.py`, `celery.py`, `email.py`, `stripe.py`, `telegram.py`, `wallet.py`, `sso.py`, `observability.py`, `ninja.py`, `unfold.py`.
 
 ---
 
@@ -108,13 +108,13 @@ Key responsibilities:
 
 ### `telegram/` -- Telegram Bot
 
-A Telegram bot integration with FSM (Finite State Machine) based conversation flows for user interaction and notification delivery.
+A Telegram bot integration using **aiogram** for user interaction and notification delivery. Runs in **long-polling** mode.
 
 Key responsibilities:
 
-- Webhook handling for Telegram updates
-- FSM-based conversation management
-- Account linking (Telegram user to Revel user)
+- Long-polling handler for Telegram updates
+- Minimal FSM-based conversation management (preferences, broadcast)
+- Account linking (Telegram user to Revel user via OTP)
 - Notification delivery via Telegram
 
 ---
@@ -139,23 +139,15 @@ Key contents:
 
 ## The Controller / Service / Model Pattern
 
-Each app follows a consistent internal structure that separates concerns into three layers:
+Each app follows a consistent internal structure that separates concerns into three layers. Larger apps (e.g., `events/`) use **directories** for each layer, while smaller apps (e.g., `wallet/`, `geo/`) use **single files** (e.g., `models.py` instead of `models/`).
 
 ```
 app_name/
-├── models/             # Django models -- data and schema
-│   ├── __init__.py
-│   └── my_model.py
-├── controllers/        # API endpoints -- HTTP layer
-│   ├── __init__.py
-│   └── my_controller.py
-├── service/            # Business logic -- orchestration
-│   ├── __init__.py
-│   └── my_service.py
-├── schema/             # Request/response schemas (Django Ninja)
-│   ├── __init__.py
-│   └── my_schema.py
-├── factories.py        # Test data factories
+├── models(.py or /)    # Django models -- data and schema
+├── controllers(.py or /) # API endpoints -- HTTP layer
+├── service(.py or /)   # Business logic -- orchestration
+├── schema(.py or /)    # Request/response schemas (Django Ninja)
+├── tasks.py            # Celery task definitions
 ├── admin.py            # Django admin registration
 └── tests/              # Unit and integration tests
 ```
@@ -179,7 +171,7 @@ app_name/
 | `pyproject.toml` | Dependencies, ruff/mypy/pytest configuration |
 | `Makefile` | All development commands and workflows |
 | `uv.lock` | Locked dependency versions for reproducible installs |
-| `src/revel/settings/` | Modular Django settings (base, local, CI, production) |
+| `src/revel/settings/` | Modular Django settings split by feature domain |
 | `mkdocs.yml` | Documentation site configuration |
 
 ## Docker Compose Files
@@ -188,10 +180,10 @@ The project uses multiple Docker Compose files for different environments:
 
 | File | Purpose | Services |
 |------|---------|----------|
-| `docker-compose-base.yml` | Shared service definitions | PostgreSQL/PostGIS, Redis, MinIO |
-| `compose.yaml` | Local development | Extends base + adds Mailpit |
+| `docker-compose-base.yml` | Shared service definitions | PostgreSQL/PostGIS, Redis, ClamAV (plus MinIO and Meilisearch for legacy/dev use) |
+| `compose.yaml` | Local development | Extends Redis, PostgreSQL, ClamAV from base + adds Mailpit |
 | `docker-compose-ci.yml` | CI/CD pipelines | Minimal services for testing |
-| `docker-compose-observability.yml` | Observability stack (optional) | Monitoring and tracing tools |
+| `docker-compose-observability.yml` | Full stack including observability (**standalone**, not additive to `compose.yaml`) | Core services (PostgreSQL, Redis, ClamAV) + Loki, Tempo, Prometheus, Grafana, Pyroscope, Alloy, exporters |
 
 !!! info "Extending compose files"
     `compose.yaml` and `docker-compose-ci.yml` both extend `docker-compose-base.yml`.

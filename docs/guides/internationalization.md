@@ -72,15 +72,14 @@ src/locale/
 │   └── LC_MESSAGES/
 │       ├── django.po    # German translations (source)
 │       └── django.mo    # German translations (compiled)
-├── en/
-│   └── LC_MESSAGES/
-│       ├── django.po
-│       └── django.mo
 └── it/
     └── LC_MESSAGES/
-        ├── django.po
-        └── django.mo
+        ├── django.po    # Italian translations (source)
+        └── django.mo    # Italian translations (compiled)
 ```
+
+!!! note "No English locale directory"
+    English is the source language. Translatable strings are written in English directly in the code, so there is no `en/` locale directory.
 
 ---
 
@@ -109,7 +108,7 @@ src/locale/
       ```
 
 !!! info "Why .mo Files Are in Git"
-    Unlike traditional Django projects, Revel commits compiled `.mo` files to version control. This ensures deployment environments don't need `gettext` installed and eliminates a build step. See **ADR-0007** for the full rationale.
+    Unlike traditional Django projects, Revel commits compiled `.mo` files to version control. This ensures deployment environments don't need `gettext` installed and eliminates a build step. See [ADR-0006: .mo Files in Git](../adr/0006-mo-files-in-git.md) for the full rationale.
 
 ---
 

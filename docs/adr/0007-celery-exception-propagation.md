@@ -1,4 +1,4 @@
-# ADR-0008: Let Celery Exceptions Propagate
+# ADR-0007: Let Celery Exceptions Propagate
 
 ## Status
 
@@ -68,7 +68,7 @@ def send_notification(self, user_id: int) -> None:
 
 - Bugs are **visible** -- failed tasks appear in monitoring and alerting
 - Celery's **retry mechanism works correctly** -- only triggers on actual failures
-- The **observability stack** (Flower, Sentry, OpenTelemetry) captures errors
+- The **observability stack** (Flower, OpenTelemetry) captures errors
   automatically
 - **Debugging is straightforward** -- stack traces are preserved in task results
 

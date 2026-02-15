@@ -6,7 +6,7 @@
 [![Status](https://img.shields.io/badge/status-Live-green?style=for-the-badge)](https://letsrevel.io)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](./LICENSE)
 [![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/zy8nTDqQ)
-![Django](https://img.shields.io/badge/django-5.2+-092E20.svg?logo=django&logoColor=white&style=for-the-badge)
+![Django](https://img.shields.io/badge/django-5.2_LTS-092E20.svg?logo=django&logoColor=white&style=for-the-badge)
 
 <!-- Tooling / meta -->
 ![Python](https://img.shields.io/badge/python-3.13%2B-3776AB.svg?logo=python&logoColor=white)
@@ -15,7 +15,7 @@
 
 <!-- CI -->
 [![Test](https://github.com/letsrevel/revel-backend/actions/workflows/test.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/test.yaml)
-[![Build](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/tests.yaml)
+[![Build](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml)
 
 ---
 
@@ -23,7 +23,7 @@
 
 This repository contains the **backend API and business logic** for Revel. The complete platform consists of:
 
-- **[revel-backend](https://github.com/letsrevel/revel-backend)** (this repository) - Django REST API, business logic, database models
+- **[revel-backend](https://github.com/letsrevel/revel-backend)** (this repository) - Django Ninja REST API, business logic, database models
 - **[revel-frontend](https://github.com/letsrevel/revel-frontend)** - SvelteKit web application, user interface
 - **[infra](https://github.com/letsrevel/infra)** - Docker Compose setup, reverse proxy, observability stack, deployment configurations
 
@@ -139,7 +139,7 @@ We intentionally stay on Django 5.2 LTS rather than upgrading to Django 6.x. Our
 
 ## 🏁 Quick Start (Development)
 
-Get a local development environment running in minutes. You'll need `make`, `Docker`, and Python 3.12+.
+Get a local development environment running in minutes. You'll need `make`, `Docker`, Python 3.13+, and [UV](https://docs.astral.sh/uv/getting-started/installation/).
 
 1.  **Clone the repository:**
     ```bash
@@ -175,7 +175,7 @@ The project uses multiple Docker Compose files for different purposes:
 | `compose.yaml` | **Local development** - includes Mailpit for email testing | `docker compose up -d` |
 | `docker-compose-ci.yml` | **CI/CD pipeline** - minimal services for testing | `docker compose -f docker-compose-ci.yml up -d` |
 | `docker-compose-base.yml` | **Shared services** - extended by other compose files | Not used directly |
-| `docker-compose-observability.yml` | **Observability stack** - Grafana, Prometheus, Loki, etc. | Optional for local dev |
+| `docker-compose-observability.yml` | **Full stack with observability** - standalone (includes core services + Grafana, Prometheus, Loki, etc.) | Alternative to `compose.yaml` |
 
 For local development, simply run:
 ```bash
@@ -188,18 +188,24 @@ This starts PostgreSQL, Redis, ClamAV, and **Mailpit**. All emails sent by the a
 
 ## 📊 Observability
 
-Revel includes a comprehensive observability stack built on the LGTM (Loki, Grafana, Tempo, Mimir) framework plus Pyroscope for continuous profiling.
+Revel includes a comprehensive observability stack built on the LGTM (Loki, Grafana, Tempo, Mimir) framework.
 
 ### Available Services
 
-Once you run `make setup` or start the Docker services, the following observability tools are available:
+The observability stack requires a separate Docker Compose file. After `make setup`, only the core services (PostgreSQL, Redis, ClamAV, Mailpit) are running. To enable full observability:
+
+```bash
+docker compose -f docker-compose-observability.yml up -d
+```
+
+!!! note
+    `docker-compose-observability.yml` is a **standalone** compose file that includes both core services and the observability stack. Do not run it alongside `compose.yaml`.
 
 | Service | Purpose | URL | Credentials |
 |---------|---------|-----|-------------|
 | **Mailpit** | Email testing - catches all outgoing emails | [http://localhost:8025](http://localhost:8025) | - |
-| **Grafana** | Unified dashboard for logs, traces, metrics, and profiles | [http://localhost:3000](http://localhost:3000) | admin / admin |
+| **Grafana** | Unified dashboard for logs, traces, and metrics | [http://localhost:3000](http://localhost:3000) | admin / admin |
 | **Prometheus** | Metrics collection and querying | [http://localhost:9090](http://localhost:9090) | - |
-| **Pyroscope** | Continuous profiling with flamegraphs 🔥 | [http://localhost:4040](http://localhost:4040) | - |
 | **Loki** | Log aggregation | [http://localhost:3100](http://localhost:3100) | - |
 | **Tempo** | Distributed tracing | [http://localhost:3200](http://localhost:3200) | - |
 | **Django Metrics** | Application metrics endpoint | [http://localhost:8000/metrics](http://localhost:8000/metrics) | - |
@@ -209,10 +215,12 @@ Once you run `make setup` or start the Docker services, the following observabil
 - **Structured Logging**: All logs in JSON format with automatic context (request_id, user_id, task_id, etc.)
 - **Distributed Tracing**: Automatic tracing of HTTP requests, database queries, Redis operations, and Celery tasks
 - **Metrics**: Django, PostgreSQL, Redis, and Celery metrics automatically collected
-- **Flamegraphs**: Continuous profiling for CPU and memory performance analysis
 - **PII Scrubbing**: Automatic redaction of sensitive data (passwords, card numbers, emails, etc.)
 - **Trace-to-Log Correlation**: Jump from traces to related logs and vice versa in Grafana
 - **Grafana Alerting**: Production-ready alerts for errors, payments, auth failures, and more (no DB overhead)
+
+!!! warning "Pyroscope SDK Disabled"
+    The Pyroscope Python SDK (`pyroscope-io`) is currently disabled due to incompatibility with Grafana Pyroscope 1.6+. Profiling can be provided externally (e.g., via a Grafana Alloy eBPF agent at the infrastructure level). This may change when the SDK is updated.
 
 ### Quick Start
 
@@ -228,10 +236,8 @@ Once you run `make setup` or start the Docker services, the following observabil
    rate(django_http_requests_total[5m])
    ```
 
-4. **View flamegraphs in Pyroscope**: Go to `http://localhost:4040` → Select `revel.development`
-
-5. **Set up alerts**: Configure Grafana alert rules for production monitoring
-   - See [GRAFANA_ALERTING.md](GRAFANA_ALERTING.md) for 10+ ready-to-use alert examples
+4. **Set up alerts**: Configure Grafana alert rules for production monitoring
+   - See [GRAFANA_ALERTING.md](observability/GRAFANA_ALERTING.md) for 10+ ready-to-use alert examples
    - Supports Email, Slack, Discord, PagerDuty notifications
 
 ### Configuration
@@ -240,29 +246,27 @@ Observability can be configured via environment variables in `.env`:
 
 ```bash
 ENABLE_OBSERVABILITY=True          # Enable/disable all observability features
-TRACING_SAMPLE_RATE=1.0            # 100% sampling (use 0.1 for 10% in production)
-PYROSCOPE_SERVER_ADDRESS=http://localhost:4040
+TRACING_SAMPLE_RATE=1.0            # 100% in dev (auto-switches to 0.1 in production)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
+!!! note
+    `make setup` runs with `ENABLE_OBSERVABILITY=False` to avoid connection errors to non-existent services. If you start the observability stack later, set `ENABLE_OBSERVABILITY=True` in your `.env`.
+
 ### Verifying Observability Setup
 
-After starting the Django application with `make run`, verify the setup:
+After starting the observability stack and Django with `make run`, verify the setup:
 
 1. **Check startup logs**: Look for initialization messages:
    ```
    OpenTelemetry tracing initialized: service=revel, sample_rate=1.0, endpoint=http://localhost:4318
-   Pyroscope profiling initialized: app=revel.development, server=http://localhost:4040
    ```
 
 2. **Check metrics endpoint**: Visit [http://localhost:8000/metrics](http://localhost:8000/metrics) - should show Prometheus metrics
 
 3. **Generate some traffic**: Make API requests to create traces and logs
    ```bash
-   # Visit the API docs to generate requests
    curl http://localhost:8000/api/docs
-   # Or make a few test API calls
-   curl http://localhost:8000/api/health  # if you have a health endpoint
    ```
 
 4. **Check Grafana**: Go to [http://localhost:3000](http://localhost:3000) → Explore → Select datasource
@@ -270,15 +274,11 @@ After starting the Django application with `make run`, verify the setup:
    - **Tempo** for traces: Search by service name "revel"
    - **Prometheus** for metrics: `rate(django_http_requests_total[5m])`
 
-5. **Check Pyroscope**: Visit [http://localhost:4040](http://localhost:4040) → Select `revel.development`
-   - Note: Pyroscope may take 10-15 seconds to start showing data
-   - Make sure you're generating CPU activity (API requests, database queries, etc.)
-
 For detailed documentation, see:
-- [OBSERVABILITY_SPEC.md](OBSERVABILITY_SPEC.md) - Full specification and implementation plan
-- [OBSERVABILITY_IMPLEMENTATION.md](OBSERVABILITY_IMPLEMENTATION.md) - What's implemented and how to use it
-- [GRAFANA_ALERTING.md](GRAFANA_ALERTING.md) - Production-ready alert rules and notification setup
-- [ASYNC_LOGGING.md](ASYNC_LOGGING.md) - Async logging architecture (50-100x faster)
+- [OBSERVABILITY_SPEC.md](observability/OBSERVABILITY_SPEC.md) - Full specification and implementation plan
+- [OBSERVABILITY_IMPLEMENTATION.md](observability/OBSERVABILITY_IMPLEMENTATION.md) - What's implemented and how to use it
+- [GRAFANA_ALERTING.md](observability/GRAFANA_ALERTING.md) - Production-ready alert rules and notification setup
+- [ASYNC_LOGGING.md](observability/ASYNC_LOGGING.md) - Async logging architecture (50-100x faster)
 
 ---
 
@@ -290,15 +290,15 @@ The project uses a `Makefile` to streamline common development tasks.
 | -------------------- | ---------------------------------------------------------------- |
 | `make setup`         | Runs the complete one-time setup for the dev environment.        |
 | `make run`           | Starts the Django development server.                            |
-| `make check`         | Runs all checks: formatting, linting, and type checking.         |
+| `make check`         | Runs all checks: formatting, linting, type checking, migration check, i18n check, and file length. |
 | `make test`          | Runs the full `pytest` test suite and generates a coverage report. |
 | `make run-celery`      | Starts the Celery worker for processing background tasks.        |
 | `make run-celery-beat` | Starts the Celery beat scheduler for periodic tasks.             |
 | `make migrations`    | Creates new database migrations based on model changes.          |
 | `make migrate`       | Applies pending database migrations.                             |
 | `make shell`         | Opens the Django shell.                                          |
-| `make restart`       | Restarts the Docker environment and recreates the database.      |
-| `make nuke-db`       | **Deletes** the database and all migration files. Use with caution. |
+| `make restart`       | **Destructive**: Deletes all migrations, regenerates them, restarts Docker, and bootstraps. |
+| `make nuke-db`       | **Destructive**: Resets database and regenerates migrations (preserves special data migrations). |
 
 ---
 
@@ -382,7 +382,7 @@ The `get_file_url()` function automatically:
 
 ### Caddy Configuration
 
-See [docs/PROTECTED_FILES_CADDY.md](docs/PROTECTED_FILES_CADDY.md) for the required Caddy configuration.
+See the [Protected Files architecture docs](docs/architecture/protected-files.md) for details. The Caddy configuration lives in the [infra](https://github.com/letsrevel/infra) repository.
 
 ---
 
@@ -399,8 +399,9 @@ The codebase is organized into a `src` directory with a clear separation of conc
 *   `src/geo/`: Geolocation features (cities, IP lookups).
 *   `src/telegram/`: Telegram Bot integration with FSM-based conversation flows, inline keyboards, and organizer notifications.
 *   `src/api/`: Main API configuration, exception handlers, and global endpoints.
+*   `src/common/`: Shared utilities, authentication backends, base models, and admin customizations.
 
-Each app contains a `controllers/` directory for API endpoints and a `service/` directory for business logic.
+Most apps contain controllers and service modules for API endpoints and business logic respectively, either as directories or single files depending on complexity.
 
 ---
 

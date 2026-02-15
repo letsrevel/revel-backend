@@ -226,7 +226,7 @@ Keep controller methods flat. Avoid nested conditionals and try-except blocks.
     ```python
     from common.utils import get_or_create_with_race_protection
 
-    food_item = get_or_create_with_race_protection(
+    food_item, created = get_or_create_with_race_protection(
         FoodItem,
         Q(name__iexact=name),
         {"name": name},
@@ -267,7 +267,7 @@ def list_items(self) -> QuerySet[Item]:
 !!! tip
 
     When a `ModelSchema` includes nested relationships, always verify the queryset
-    prefetches them. Django Debug Toolbar or `django.db.connection.queries` can help
+    prefetches them. [Django Silk](https://github.com/jazzband/django-silk) (enabled with `SILK_PROFILER=True`) or `django.db.connection.queries` can help
     identify N+1 issues during development.
 
 ---
@@ -295,18 +295,15 @@ def create_venue(organization: Organization, payload: VenueCreateSchema) -> Venu
 Use for request-scoped workflows, multi-step processes, and stateful computations.
 
 ```python
-class TicketService:
-    def __init__(self, *, event: Event, tier: TicketTier, user: RevelUser) -> None:
+class BatchTicketService:
+    def __init__(self, event: Event, tier: TicketTier, user: RevelUser) -> None:
         self.event = event
         self.tier = tier
         self.user = user
 
-    def checkout(self, price_override: Decimal | None = None) -> str | Ticket:
-        match self.tier.payment_method:
-            case TicketTier.PaymentMethod.ONLINE:
-                return self._stripe_checkout(price_override)
-            case TicketTier.PaymentMethod.FREE:
-                return self._free_checkout()
+    def create_batch(self, items: list[TicketPurchaseItem]) -> list[Ticket] | str:
+        # Validates batch size, resolves seats, delegates to payment flow
+        ...
 ```
 
 ### Controller Integration
@@ -317,14 +314,14 @@ from events.service import blacklist_service
 entry = blacklist_service.add_to_blacklist(organization, email=email)
 
 # Class-based -- instantiate per request
-from events.service.ticket_service import TicketService
-service = TicketService(event=event, tier=tier, user=user)
-result = service.checkout()
+from events.service.batch_ticket_service import BatchTicketService
+service = BatchTicketService(event=event, tier=tier, user=user)
+result = service.create_batch(items=purchase_items)
 ```
 
 !!! info "Mixed Modules Are Fine"
 
     A single service module can contain both patterns. For example,
-    `ticket_service.py` has `TicketService` (checkout workflow) **and**
-    `check_in_ticket()` (standalone operation). This is intentional -- do not force
-    everything into one pattern.
+    `batch_ticket_service.py` has `BatchTicketService` (ticket purchase workflow) while
+    `ticket_service.py` has `check_in_ticket()` (standalone operation). This is intentional --
+    do not force everything into one pattern.
