@@ -1,5 +1,6 @@
 # src/telegram/tests/test_handlers_common.py
 import typing as t
+from datetime import timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -250,7 +251,7 @@ class TestHandleConnect:
         tg_user = await _get_unlinked_tg_user(aiogram_user.id)
         expired_otp = await AccountOTP.objects.acreate(tg_user=tg_user)
         # Force-expire it
-        expired_otp.expires_at = timezone.now() - timezone.timedelta(minutes=1)
+        expired_otp.expires_at = timezone.now() - timedelta(minutes=1)
         await expired_otp.asave(update_fields=["expires_at"])
 
         await handle_connect(mock_message, tg_user=tg_user)
