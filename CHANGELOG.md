@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.35.0] - 2026-02-14
+
+### Added
+- `price_paid` override support for PWYC ticket confirmation and check-in endpoints
+- `ConfirmPaymentSchema` for typed optional `price_paid` payload on confirm endpoint
+
+### Changed
+- Removed dead `TicketService` class, `EventManager.create_ticket()`, and related methods (all traffic uses `BatchTicketService`)
+
+## [1.34.4] - 2026-02-13
+
+### Fixed
+- Telegram authorization bypass edge case
+
 ## [1.34.3] - 2026-02-13
 
 ### Fixed
@@ -736,7 +750,9 @@ Initial release of the Revel Backend platform.
 ### Internationalization
 - English, German, Italian support
 
-[Unreleased]: https://github.com/letsrevel/revel-backend/compare/v1.34.3...HEAD
+[Unreleased]: https://github.com/letsrevel/revel-backend/compare/v1.35.0...HEAD
+[1.35.0]: https://github.com/letsrevel/revel-backend/compare/v1.34.4...v1.35.0
+[1.34.4]: https://github.com/letsrevel/revel-backend/compare/v1.34.3...v1.34.4
 [1.34.3]: https://github.com/letsrevel/revel-backend/compare/v1.34.2...v1.34.3
 [1.34.2]: https://github.com/letsrevel/revel-backend/compare/v1.34.1...v1.34.2
 [1.34.1]: https://github.com/letsrevel/revel-backend/compare/v1.34.0...v1.34.1
