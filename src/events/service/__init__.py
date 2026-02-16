@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from events.schema import OrganizationQuestionnaireUpdateSchema
 from events.service import announcement_service as announcement_service
 from events.service import event_questionnaire_service as event_questionnaire_service
+from events.service import ticket_file_service as ticket_file_service
 from events.service import venue_service as venue_service
 
 T = t.TypeVar("T", bound=models.Model)

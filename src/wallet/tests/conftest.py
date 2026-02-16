@@ -22,7 +22,6 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from PIL import Image
 
-import wallet.controllers
 from accounts.models import RevelUser
 
 # --- Mock Certificate Fixtures ---
@@ -225,17 +224,18 @@ def apple_wallet_not_configured(settings: t.Any) -> None:
 
 @pytest.fixture
 def mock_pass_generator() -> Generator[MagicMock, None, None]:
-    """Mock the ApplePassGenerator for controller tests."""
-    wallet.controllers._apple_pass_generator = None
+    """Mock the ticket file service pkpass generation for controller tests."""
+    with patch("events.service.ticket_file_service.get_or_generate_pkpass") as mock_fn:
+        mock_fn.return_value = b"mock_pkpass_content"
+        yield mock_fn
 
-    with patch("wallet.controllers.ApplePassGenerator") as MockGenerator:
-        mock_gen = MagicMock()
-        mock_gen.generate_pass.return_value = b"mock_pkpass_content"
-        mock_gen.CONTENT_TYPE = "application/vnd.apple.pkpass"
-        MockGenerator.return_value = mock_gen
-        yield mock_gen
 
-    wallet.controllers._apple_pass_generator = None
+@pytest.fixture
+def mock_pdf_generator() -> Generator[MagicMock, None, None]:
+    """Mock the ticket file service PDF generation for controller tests."""
+    with patch("events.service.ticket_file_service.get_or_generate_pdf") as mock_fn:
+        mock_fn.return_value = b"%PDF-mock-content"
+        yield mock_fn
 
 
 # --- Model and Client Fixtures for Controller Tests ---

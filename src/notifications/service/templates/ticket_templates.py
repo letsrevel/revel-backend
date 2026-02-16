@@ -18,23 +18,31 @@ logger = logging.getLogger(__name__)
 # --- Attachment Generation Helpers ---
 
 
-def _generate_pdf_attachment(ticket: Ticket) -> dict[str, t.Any] | None:
+class AttachmentResult(t.NamedTuple):
+    """Result of generating a ticket attachment (PDF or pkpass)."""
+
+    attachment: dict[str, str]
+    raw_bytes: bytes
+
+
+def _generate_pdf_attachment(ticket: Ticket) -> AttachmentResult | None:
     """Generate PDF attachment for a ticket.
 
     Args:
         ticket: The ticket to generate PDF for.
 
     Returns:
-        Attachment dict with content_base64 and mimetype, or None on error.
+        AttachmentResult or None on error.
     """
     try:
         from events.utils import create_ticket_pdf
 
         pdf_content = create_ticket_pdf(ticket)
-        return {
+        attachment = {
             "content_base64": base64.b64encode(pdf_content).decode("utf-8"),
             "mimetype": "application/pdf",
         }
+        return AttachmentResult(attachment, pdf_content)
     except Exception:
         logger.exception("Failed to generate PDF for ticket %s", ticket.id)
         return None
@@ -60,27 +68,31 @@ def _generate_ics_attachment(event: Event) -> dict[str, t.Any] | None:
         return None
 
 
-def _generate_pkpass_attachment(ticket: Ticket) -> dict[str, t.Any] | None:
+def _generate_pkpass_attachment(ticket: Ticket) -> AttachmentResult | None:
     """Generate Apple Wallet pkpass attachment for a ticket.
+
+    Uses the cached ApplePassGenerator from ticket_file_service to avoid
+    reloading certificates from disk on every call.
 
     Args:
         ticket: The ticket to generate pkpass for.
 
     Returns:
-        Attachment dict with content_base64 and mimetype, or None if not available.
+        AttachmentResult or None if not available.
     """
     if not ticket.apple_pass_available:
         return None
 
     try:
-        from wallet.apple.generator import ApplePassGenerator
+        from events.service.ticket_file_service import get_apple_pass_generator
 
-        generator = ApplePassGenerator()
+        generator = get_apple_pass_generator()
         pkpass_content = generator.generate_pass(ticket)
-        return {
+        attachment = {
             "content_base64": base64.b64encode(pkpass_content).decode("utf-8"),
             "mimetype": "application/vnd.apple.pkpass",
         }
+        return AttachmentResult(attachment, pkpass_content)
     except Exception:
         logger.exception("Failed to generate pkpass for ticket %s", ticket.id)
         return None
@@ -149,18 +161,34 @@ def _build_ticket_attachments(
     # Load event if needed for ICS
     event = _load_event(event_id) if include_ics else None
 
-    # Generate attachments
+    # Generate attachments — helpers return (attachment_dict, raw_bytes) tuples
+    # so raw bytes are available for caching without a base64 round-trip.
+    pdf_bytes: bytes | None = None
+    pkpass_bytes: bytes | None = None
+
     if include_pdf and ticket:
-        if pdf := _generate_pdf_attachment(ticket):
-            attachments["ticket.pdf"] = pdf
+        pdf_result = _generate_pdf_attachment(ticket)
+        if pdf_result is not None:
+            attachments["ticket.pdf"], pdf_bytes = pdf_result
 
     if include_ics and event:
         if ics := _generate_ics_attachment(event):
             attachments["event.ics"] = ics
 
     if include_pkpass and ticket:
-        if pkpass := _generate_pkpass_attachment(ticket):
-            attachments["ticket.pkpass"] = pkpass
+        pkpass_result = _generate_pkpass_attachment(ticket)
+        if pkpass_result is not None:
+            attachments["ticket.pkpass"], pkpass_bytes = pkpass_result
+
+    # Side effect: persist generated files on the ticket so subsequent
+    # download requests can serve them from cache via signed URLs.
+    if ticket and (pdf_bytes is not None or pkpass_bytes is not None):
+        try:
+            from events.service import ticket_file_service
+
+            ticket_file_service.cache_files(ticket, pdf_bytes=pdf_bytes, pkpass_bytes=pkpass_bytes)
+        except Exception:
+            logger.warning("Failed to cache ticket files for ticket %s", ticket.id, exc_info=True)
 
     return attachments
 
