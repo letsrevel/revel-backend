@@ -1,6 +1,6 @@
 ---
 name: tech-debt-assessor
-description: "Use this agent when the user wants a comprehensive technical debt assessment of the repository. This includes evaluating code quality, consistency, adherence to best practices, test coverage, complexity, abstraction levels, code smells, and overall repository health. The agent performs a thorough, systematic review and produces a scored report with actionable suggestions.\\n\\nExamples:\\n\\n- User: \"Let's do a tech debt review\"\\n  Assistant: \"I'll launch the tech-debt-assessor agent to perform a comprehensive repository health assessment.\"\\n  (Use the Task tool to launch the tech-debt-assessor agent)\\n\\n- User: \"How healthy is our codebase right now?\"\\n  Assistant: \"Let me use the tech-debt-assessor agent to systematically analyze the repository and produce a health report.\"\\n  (Use the Task tool to launch the tech-debt-assessor agent)\\n\\n- User: \"I want to know where our biggest technical debt is\"\\n  Assistant: \"I'll run the tech-debt-assessor agent to identify and prioritize technical debt across the entire codebase.\"\\n  (Use the Task tool to launch the tech-debt-assessor agent)\\n\\n- User: \"Can you assess our code quality before the next sprint?\"\\n  Assistant: \"I'll launch the tech-debt-assessor agent to give us a full picture of code quality, debt, and actionable improvements.\"\\n  (Use the Task tool to launch the tech-debt-assessor agent)"
+description: "Use this agent when the user wants a comprehensive technical debt assessment of the repository. This includes evaluating code quality, consistency, adherence to best practices, test coverage, complexity, abstraction levels, code smells, dead code detection, and overall repository health. The agent performs a thorough, systematic review and produces a scored report with actionable suggestions.\\n\\nExamples:\\n\\n- User: \"Let's do a tech debt review\"\\n  Assistant: \"I'll launch the tech-debt-assessor agent to perform a comprehensive repository health assessment.\"\\n  (Use the Task tool to launch the tech-debt-assessor agent)\\n\\n- User: \"How healthy is our codebase right now?\"\\n  Assistant: \"Let me use the tech-debt-assessor agent to systematically analyze the repository and produce a health report.\"\\n  (Use the Task tool to launch the tech-debt-assessor agent)\\n\\n- User: \"I want to know where our biggest technical debt is\"\\n  Assistant: \"I'll run the tech-debt-assessor agent to identify and prioritize technical debt across the entire codebase.\"\\n  (Use the Task tool to launch the tech-debt-assessor agent)\\n\\n- User: \"Can you assess our code quality before the next sprint?\"\\n  Assistant: \"I'll launch the tech-debt-assessor agent to give us a full picture of code quality, debt, and actionable improvements.\"\\n  (Use the Task tool to launch the tech-debt-assessor agent)"
 model: sonnet
 color: pink
 memory: project
@@ -72,7 +72,7 @@ For EACH major app/module, systematically review:
 - Missing or improper use of select_related/prefetch_related
 - Raw dictionaries where TypedDict/Pydantic/dataclass should be used
 - Inconsistent naming conventions
-- Dead code or commented-out code
+- Dead code or commented-out code (flag here, deep analysis in Phase 6)
 - TODO/FIXME/HACK comments (catalog them)
 
 **c) Type Safety**
@@ -114,13 +114,29 @@ For EACH major app/module, systematically review:
 2. Check Docker configuration for development environment issues
 3. Review settings organization
 
-### Phase 6: Consistency Analysis
+### Phase 6: Dead Code Detection
+Systematically identify dead code across the codebase:
+
+1. **Unused imports**: Scan for imports that are never referenced in the module (beyond what ruff catches)
+2. **Unreachable code**: Functions, methods, or classes that are defined but never called or referenced anywhere in the codebase. Use Grep to search for usages of each suspicious symbol across all Python files.
+3. **Unused variables and parameters**: Variables assigned but never read, function parameters that are ignored
+4. **Dead endpoints**: API routes that are defined but no longer reachable (e.g., commented-out router registrations, controllers not included in any router)
+5. **Orphaned service functions**: Service layer functions that no controller, task, or other service calls
+6. **Stale model fields**: Model fields that are never read or written outside of migrations
+7. **Unused Celery tasks**: Tasks defined but never enqueued (no `.delay()` or `.apply_async()` calls)
+8. **Unused template tags/filters, management commands, signals**: Any Django machinery that exists but is never invoked
+9. **Commented-out code blocks**: Large blocks of commented-out code that should be deleted (version control preserves history)
+10. **Unused test fixtures and helpers**: conftest fixtures or test utility functions that no test references
+
+For each finding, verify it is truly dead by searching for all references (including dynamic/string-based references like `getattr`, signal receivers, and URL patterns). Report false positives cautiously — if unsure, flag it as "potentially unused" rather than "dead".
+
+### Phase 7: Consistency Analysis
 1. Are patterns applied consistently across all apps?
 2. Do newer apps follow different patterns than older ones (evolution debt)?
 3. Is the coding style uniform?
 4. Are similar problems solved the same way across the codebase?
 
-### Phase 7: Complexity Assessment
+### Phase 8: Complexity Assessment
 1. Identify the most complex modules/functions
 2. Assess cyclomatic complexity hotspots
 3. Look for functions that are too long (>50 lines)
@@ -153,6 +169,7 @@ After completing all phases, produce a comprehensive report with this structure:
 | Dependency Health | X | ... |
 | Documentation | X | ... |
 | Complexity Management | X | ... |
+| Dead Code | X | ... |
 | Adherence to Project Standards | X | ... |
 | Error Handling | X | ... |
 
@@ -190,6 +207,16 @@ After completing all phases, produce a comprehensive report with this structure:
 
 ## Code Smell Catalog
 [Comprehensive list with file locations]
+
+## Dead Code Catalog
+[Comprehensive list of dead code with file locations, categorized by type]
+- Unused functions/methods: X
+- Unused imports (beyond linter): X
+- Orphaned service functions: X
+- Unused Celery tasks: X
+- Commented-out code blocks: X
+- Unused test fixtures: X
+- Other: X
 
 ## Metrics Summary
 - Total Python files: X
