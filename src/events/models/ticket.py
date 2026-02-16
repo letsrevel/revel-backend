@@ -11,7 +11,7 @@ from django.db.models import Prefetch, Q
 from django.utils import timezone
 from django.utils.functional import cached_property
 
-from common.fields import MarkdownField
+from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
 
 from .mixins import VisibilityMixin
@@ -539,6 +539,11 @@ class Ticket(TimeStampedModel):
         blank=True,
         related_name="tickets",
     )
+
+    # Cached ticket files (generated on-demand, cleaned up after event ends)
+    pdf_file = ProtectedFileField(upload_to="tickets/pdf/", null=True, blank=True)
+    pkpass_file = ProtectedFileField(upload_to="tickets/pkpass/", null=True, blank=True)
+    file_content_hash = models.CharField(max_length=64, null=True, blank=True)
 
     objects = TicketManager()
 

@@ -190,15 +190,17 @@ class TestGeneratePdfAttachment:
         mock_create_pdf: MagicMock,
         active_ticket: Ticket,
     ) -> None:
-        """Should return base64-encoded PDF content."""
+        """Should return (attachment_dict, raw_bytes) tuple."""
         pdf_bytes = b"%PDF-1.4 test content"
         mock_create_pdf.return_value = pdf_bytes
 
         result = _generate_pdf_attachment(active_ticket)
 
         assert result is not None
-        assert result["mimetype"] == "application/pdf"
-        assert result["content_base64"] == base64.b64encode(pdf_bytes).decode("utf-8")
+        attachment, raw_bytes = result
+        assert attachment["mimetype"] == "application/pdf"
+        assert attachment["content_base64"] == base64.b64encode(pdf_bytes).decode("utf-8")
+        assert raw_bytes == pdf_bytes
         mock_create_pdf.assert_called_once_with(active_ticket)
 
     @patch("events.utils.create_ticket_pdf")
@@ -268,37 +270,39 @@ class TestGeneratePkpassAttachment:
 
         assert result is None
 
-    @patch("wallet.apple.generator.ApplePassGenerator")
+    @patch("events.service.ticket_file_service.get_apple_pass_generator")
     def test_generates_pkpass_with_base64_encoding(
         self,
-        mock_generator_class: MagicMock,
+        mock_get_generator: MagicMock,
         active_ticket: Ticket,
     ) -> None:
-        """Should return base64-encoded pkpass content when available."""
+        """Should return (attachment_dict, raw_bytes) tuple when available."""
         pkpass_bytes = b"PK\x03\x04 pkpass content"
         mock_generator = MagicMock()
         mock_generator.generate_pass.return_value = pkpass_bytes
-        mock_generator_class.return_value = mock_generator
+        mock_get_generator.return_value = mock_generator
 
         # Mock apple_pass_available to return True
         with patch.object(Ticket, "apple_pass_available", True):
             result = _generate_pkpass_attachment(active_ticket)
 
         assert result is not None
-        assert result["mimetype"] == "application/vnd.apple.pkpass"
-        assert result["content_base64"] == base64.b64encode(pkpass_bytes).decode("utf-8")
+        attachment, raw_bytes = result
+        assert attachment["mimetype"] == "application/vnd.apple.pkpass"
+        assert attachment["content_base64"] == base64.b64encode(pkpass_bytes).decode("utf-8")
+        assert raw_bytes == pkpass_bytes
         mock_generator.generate_pass.assert_called_once_with(active_ticket)
 
-    @patch("wallet.apple.generator.ApplePassGenerator")
+    @patch("events.service.ticket_file_service.get_apple_pass_generator")
     def test_returns_none_on_exception(
         self,
-        mock_generator_class: MagicMock,
+        mock_get_generator: MagicMock,
         active_ticket: Ticket,
     ) -> None:
         """Should return None and log exception on failure."""
         mock_generator = MagicMock()
         mock_generator.generate_pass.side_effect = Exception("pkpass generation failed")
-        mock_generator_class.return_value = mock_generator
+        mock_get_generator.return_value = mock_generator
 
         with patch.object(Ticket, "apple_pass_available", True):
             result = _generate_pkpass_attachment(active_ticket)
@@ -347,7 +351,8 @@ class TestBuildTicketAttachments:
         active_ticket: Ticket,
     ) -> None:
         """Should include PDF attachment when include_pdf is True."""
-        mock_pdf.return_value = {"content_base64": "pdf_content", "mimetype": "application/pdf"}
+        pdf_att = {"content_base64": "pdf_content", "mimetype": "application/pdf"}
+        mock_pdf.return_value = (pdf_att, b"pdf_raw")
         mock_ics.return_value = None
         mock_pkpass.return_value = None
 
@@ -401,10 +406,11 @@ class TestBuildTicketAttachments:
         """Should include pkpass attachment when include_pkpass is True."""
         mock_pdf.return_value = None
         mock_ics.return_value = None
-        mock_pkpass.return_value = {
+        pkpass_att = {
             "content_base64": "pkpass_content",
             "mimetype": "application/vnd.apple.pkpass",
         }
+        mock_pkpass.return_value = (pkpass_att, b"pkpass_raw")
 
         result = _build_ticket_attachments(
             ticket_id=str(active_ticket.id),
@@ -428,12 +434,15 @@ class TestBuildTicketAttachments:
         active_ticket: Ticket,
     ) -> None:
         """Should include all attachments when all flags are True."""
-        mock_pdf.return_value = {"content_base64": "pdf", "mimetype": "application/pdf"}
+        mock_pdf.return_value = (
+            {"content_base64": "pdf", "mimetype": "application/pdf"},
+            b"pdf_raw",
+        )
         mock_ics.return_value = {"content_base64": "ics", "mimetype": "text/calendar"}
-        mock_pkpass.return_value = {
-            "content_base64": "pkpass",
-            "mimetype": "application/vnd.apple.pkpass",
-        }
+        mock_pkpass.return_value = (
+            {"content_base64": "pkpass", "mimetype": "application/vnd.apple.pkpass"},
+            b"pkpass_raw",
+        )
 
         result = _build_ticket_attachments(
             ticket_id=str(active_ticket.id),
@@ -459,7 +468,10 @@ class TestBuildTicketAttachments:
         active_ticket: Ticket,
     ) -> None:
         """Should not include attachments that return None."""
-        mock_pdf.return_value = {"content_base64": "pdf", "mimetype": "application/pdf"}
+        mock_pdf.return_value = (
+            {"content_base64": "pdf", "mimetype": "application/pdf"},
+            b"pdf_raw",
+        )
         mock_ics.return_value = None  # Failed to generate
         mock_pkpass.return_value = None  # Not configured
 
@@ -475,6 +487,67 @@ class TestBuildTicketAttachments:
         assert "ticket.pdf" in result
         assert "event.ics" not in result
         assert "ticket.pkpass" not in result
+
+    @patch("events.service.ticket_file_service.cache_files")
+    @patch("notifications.service.templates.ticket_templates._generate_pdf_attachment")
+    @patch("notifications.service.templates.ticket_templates._generate_ics_attachment")
+    @patch("notifications.service.templates.ticket_templates._generate_pkpass_attachment")
+    def test_caches_generated_files_via_service(
+        self,
+        mock_pkpass: MagicMock,
+        mock_ics: MagicMock,
+        mock_pdf: MagicMock,
+        mock_cache_files: MagicMock,
+        active_ticket: Ticket,
+    ) -> None:
+        """Should call ticket_file_service.cache_files with raw bytes."""
+        mock_pdf.return_value = (
+            {"content_base64": "pdf_b64", "mimetype": "application/pdf"},
+            b"pdf_raw_bytes",
+        )
+        mock_ics.return_value = None
+        pkpass_att = {"content_base64": "pk_b64", "mimetype": "application/vnd.apple.pkpass"}
+        mock_pkpass.return_value = (pkpass_att, b"pkpass_raw_bytes")
+
+        _build_ticket_attachments(
+            ticket_id=str(active_ticket.id),
+            event_id=str(active_ticket.event.id),
+            include_pdf=True,
+            include_ics=False,
+            include_pkpass=True,
+        )
+
+        mock_cache_files.assert_called_once()
+        call_kwargs = mock_cache_files.call_args[1]
+        assert call_kwargs["pdf_bytes"] == b"pdf_raw_bytes"
+        assert call_kwargs["pkpass_bytes"] == b"pkpass_raw_bytes"
+
+    @patch("events.service.ticket_file_service.cache_files")
+    @patch("notifications.service.templates.ticket_templates._generate_pdf_attachment")
+    @patch("notifications.service.templates.ticket_templates._generate_ics_attachment")
+    @patch("notifications.service.templates.ticket_templates._generate_pkpass_attachment")
+    def test_does_not_cache_when_no_files_generated(
+        self,
+        mock_pkpass: MagicMock,
+        mock_ics: MagicMock,
+        mock_pdf: MagicMock,
+        mock_cache_files: MagicMock,
+        active_ticket: Ticket,
+    ) -> None:
+        """Should not call cache_files when pdf and pkpass both fail."""
+        mock_pdf.return_value = None
+        mock_ics.return_value = {"content_base64": "ics", "mimetype": "text/calendar"}
+        mock_pkpass.return_value = None
+
+        _build_ticket_attachments(
+            ticket_id=str(active_ticket.id),
+            event_id=str(active_ticket.event.id),
+            include_pdf=True,
+            include_ics=True,
+            include_pkpass=True,
+        )
+
+        mock_cache_files.assert_not_called()
 
 
 # --- Template Class Tests ---

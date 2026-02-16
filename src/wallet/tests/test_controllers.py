@@ -7,49 +7,9 @@ import pytest
 from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
 
-import wallet.controllers
 from events.models import Ticket
-from wallet.controllers import get_apple_pass_generator
 
 pytestmark = pytest.mark.django_db
-
-
-class TestGetApplePassGenerator:
-    """Tests for get_apple_pass_generator function."""
-
-    def test_returns_generator(self) -> None:
-        """Should return an ApplePassGenerator instance."""
-        wallet.controllers._apple_pass_generator = None
-
-        with patch("wallet.controllers.ApplePassGenerator") as MockGenerator:
-            mock_instance = MagicMock()
-            MockGenerator.return_value = mock_instance
-
-            result = get_apple_pass_generator()
-
-            assert result is mock_instance
-            MockGenerator.assert_called_once()
-
-        wallet.controllers._apple_pass_generator = None
-
-    def test_caches_generator(self) -> None:
-        """Should cache and reuse the generator."""
-        wallet.controllers._apple_pass_generator = None
-
-        with patch("wallet.controllers.ApplePassGenerator") as MockGenerator:
-            mock_instance = MagicMock()
-            MockGenerator.return_value = mock_instance
-
-            result1 = get_apple_pass_generator()
-            result2 = get_apple_pass_generator()
-
-            assert result1 is result2
-            MockGenerator.assert_called_once()
-
-        wallet.controllers._apple_pass_generator = None
-
-
-# --- Controller Integration Tests ---
 
 
 class TestTicketWalletControllerDownloadApplePass:
@@ -148,3 +108,119 @@ class TestTicketWalletControllerDownloadApplePass:
         response = member_client.get(url)
 
         assert response.status_code == 200
+
+
+class TestTicketWalletControllerDownloadPdf:
+    """Tests for TicketWalletController.download_pdf endpoint."""
+
+    def test_returns_pdf_with_correct_content_type(
+        self,
+        member_client: Client,
+        ticket: Ticket,
+        mock_pdf_generator: MagicMock,
+    ) -> None:
+        """Should return PDF with application/pdf content type and attachment disposition."""
+        url = reverse("api:ticket_pdf_download", kwargs={"ticket_id": ticket.id})
+        response = member_client.get(url)
+
+        assert response.status_code == 200
+        assert response["Content-Type"] == "application/pdf"
+        assert "Content-Disposition" in response
+        assert ".pdf" in response["Content-Disposition"]
+        assert response.content == b"%PDF-mock-content"
+
+    def test_returns_404_for_nonexistent_ticket(
+        self,
+        member_client: Client,
+    ) -> None:
+        """Should return 404 for a ticket that does not exist."""
+        fake_id = uuid4()
+        url = reverse("api:ticket_pdf_download", kwargs={"ticket_id": fake_id})
+        response = member_client.get(url)
+
+        assert response.status_code == 404
+
+    def test_returns_404_for_other_users_ticket(
+        self,
+        nonmember_client: Client,
+        ticket: Ticket,
+    ) -> None:
+        """Should return 404 when a user tries to access another user's ticket."""
+        url = reverse("api:ticket_pdf_download", kwargs={"ticket_id": ticket.id})
+        response = nonmember_client.get(url)
+
+        assert response.status_code == 404
+
+    def test_returns_401_for_unauthenticated_user(
+        self,
+        client: Client,
+        ticket: Ticket,
+    ) -> None:
+        """Should return 401 for unauthenticated requests."""
+        url = reverse("api:ticket_pdf_download", kwargs={"ticket_id": ticket.id})
+        response = client.get(url)
+
+        assert response.status_code == 401
+
+    def test_excludes_cancelled_tickets(
+        self,
+        member_client: Client,
+        ticket: Ticket,
+    ) -> None:
+        """Should return 404 for cancelled tickets."""
+        ticket.status = Ticket.TicketStatus.CANCELLED
+        ticket.save()
+
+        url = reverse("api:ticket_pdf_download", kwargs={"ticket_id": ticket.id})
+        response = member_client.get(url)
+
+        assert response.status_code == 404
+
+    def test_allows_pending_tickets(
+        self,
+        member_client: Client,
+        ticket: Ticket,
+        mock_pdf_generator: MagicMock,
+    ) -> None:
+        """Should allow downloading PDF for pending tickets."""
+        ticket.status = Ticket.TicketStatus.PENDING
+        ticket.save()
+
+        url = reverse("api:ticket_pdf_download", kwargs={"ticket_id": ticket.id})
+        response = member_client.get(url)
+
+        assert response.status_code == 200
+        assert response["Content-Type"] == "application/pdf"
+
+    def test_content_disposition_contains_ticket_id_prefix(
+        self,
+        member_client: Client,
+        ticket: Ticket,
+        mock_pdf_generator: MagicMock,
+    ) -> None:
+        """Should include ticket ID prefix in the filename."""
+        url = reverse("api:ticket_pdf_download", kwargs={"ticket_id": ticket.id})
+        response = member_client.get(url)
+
+        ticket_id_short = str(ticket.id).split("-")[0]
+        assert ticket_id_short in response["Content-Disposition"]
+
+    def test_redirects_to_signed_url_when_file_cached(
+        self,
+        member_client: Client,
+        ticket: Ticket,
+        mock_pdf_generator: MagicMock,
+    ) -> None:
+        """Should redirect via the fast path when cache is valid."""
+        signed = "/media/protected/tickets/pdf/ticket_abc.pdf?exp=123&sig=abc"
+        with (
+            patch("wallet.controllers.ticket_file_service.is_cache_valid", return_value=True),
+            patch("wallet.controllers.get_file_url", return_value=signed),
+            patch("wallet.controllers.ticket_file_service.get_or_generate_pdf") as mock_generate,
+        ):
+            url = reverse("api:ticket_pdf_download", kwargs={"ticket_id": ticket.id})
+            response = member_client.get(url)
+
+        assert response.status_code == 302
+        assert response["Location"] == signed
+        mock_generate.assert_not_called()

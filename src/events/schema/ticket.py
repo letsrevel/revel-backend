@@ -9,6 +9,7 @@ from pydantic import UUID4, AwareDatetime, EmailStr, Field, model_validator
 
 from accounts.schema import MemberUserSchema, MinimalRevelUserSchema, _BaseEmailJWTPayloadSchema
 from common.schema import OneToOneFiftyString, StrippedString
+from common.signing import get_file_url
 from events import models
 from events.models import Payment, Ticket, TicketTier
 
@@ -168,6 +169,8 @@ class UserTicketSchema(ModelSchema):
     payment: MinimalPaymentSchema | None = None
     seat: MinimalSeatSchema | None = None
     price_paid: Decimal | None = None
+    pdf_url: str | None = None
+    pkpass_url: str | None = None
 
     class Meta:
         model = Ticket
@@ -179,6 +182,16 @@ class UserTicketSchema(ModelSchema):
         if hasattr(obj, "payment"):
             return obj.payment
         return None
+
+    @staticmethod
+    def resolve_pdf_url(obj: Ticket) -> str | None:
+        """Resolve cached PDF file to signed URL."""
+        return get_file_url(obj.pdf_file)
+
+    @staticmethod
+    def resolve_pkpass_url(obj: Ticket) -> str | None:
+        """Resolve cached pkpass file to signed URL."""
+        return get_file_url(obj.pkpass_file)
 
 
 class CheckInRequestSchema(Schema):

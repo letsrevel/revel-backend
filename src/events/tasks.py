@@ -204,6 +204,43 @@ def send_guest_ticket_confirmation(email: str, token: str, event_name: str, tier
     logger.info("guest_ticket_confirmation_sent", email=email)
 
 
+@shared_task(name="events.cleanup_ticket_file_cache")
+def cleanup_ticket_file_cache() -> dict[str, int]:
+    """Delete cached PDF/pkpass files for tickets whose events have ended.
+
+    Frees storage for past events since cached files are no longer needed.
+    Files can always be regenerated on demand if needed.
+
+    Returns:
+        Dict with count of cleaned tickets.
+    """
+    now = timezone.now()
+    tickets_with_files = Ticket.objects.filter(
+        event__end__lt=now,
+    ).filter(Q(pdf_file__gt="") | Q(pkpass_file__gt=""))
+
+    cleaned_pks: list[UUID] = []
+    for ticket in tickets_with_files.only("pk", "pdf_file", "pkpass_file").iterator():
+        try:
+            if ticket.pdf_file:
+                ticket.pdf_file.delete(save=False)
+            if ticket.pkpass_file:
+                ticket.pkpass_file.delete(save=False)
+            cleaned_pks.append(ticket.pk)
+        except OSError:
+            logger.warning("Failed to clean cached files for ticket %s", ticket.pk, exc_info=True)
+
+    if cleaned_pks:
+        Ticket.objects.filter(pk__in=cleaned_pks).update(
+            pdf_file="",
+            pkpass_file="",
+            file_content_hash=None,
+        )
+        logger.info("cleanup_ticket_file_cache_done", cleaned=len(cleaned_pks))
+
+    return {"cleaned": len(cleaned_pks)}
+
+
 @shared_task
 def send_organization_contact_email_verification(
     email: str, token: str, organization_name: str, organization_slug: str
