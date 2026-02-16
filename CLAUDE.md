@@ -11,7 +11,8 @@ This project uses a comprehensive Makefile for development tasks:
 - `make run` - Start Django development server (generates test JWTs first)
 - `make jwt EMAIL=user@example.com` - Get JWT access and refresh tokens for a specific user
 - `make check` - Run all code quality checks (format, lint, mypy, migration-check, i18n-check, file-length)
-- `make test` - Run pytest test suite with coverage reporting
+- `make test` - Run pytest test suite in parallel with coverage reporting
+- `make test-linear` - Run pytest test suite sequentially (single process)
 - `make test-failed` - Re-run only failed tests
 
 ### Code Quality & Formatting
@@ -39,7 +40,7 @@ This project uses a comprehensive Makefile for development tasks:
 - `make run-flower` - Start Flower (Celery monitoring UI)
 
 ### Testing Variants
-- `make test-parallel` - Run tests in parallel with pytest-xdist
+- `make test-linear` - Run tests sequentially (single process, useful for debugging)
 
 ## Project Architecture
 

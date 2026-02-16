@@ -18,8 +18,8 @@ These are the commands you will use most often during day-to-day development.
 | `make setup` | Complete one-time setup: installs deps, copies `.env.example`, starts Docker, bootstraps database, starts server |
 | `make run` | Start the Django development server (also generates test JWTs) |
 | `make check` | Run **all** code quality checks (see below) |
-| `make test` | Run the full pytest suite with coverage reporting |
-| `make test-parallel` | Run the full test suite in parallel (`pytest -n auto`) |
+| `make test` | Run the full pytest suite in parallel (`pytest -n auto`) with coverage reporting |
+| `make test-linear` | Run the full test suite sequentially (single process, useful for debugging) |
 | `make test-failed` | Re-run only previously failed tests |
 
 ## Code Quality and Formatting
@@ -109,8 +109,8 @@ To test with real async processing, set `CELERY_TASK_ALWAYS_EAGER=False` in your
 
 | Command | Description |
 |---------|-------------|
-| `make test` | Run the full test suite with coverage reporting |
-| `make test-parallel` | Run tests in parallel with `pytest -n auto` |
+| `make test` | Run the full test suite in parallel (`pytest -n auto`) with coverage reporting |
+| `make test-linear` | Run the full test suite sequentially (single process, useful for debugging) |
 | `make test-failed` | Re-run only tests that failed in the previous run |
 
 ## Authentication
@@ -173,5 +173,5 @@ make run              # Start the server
 
 ```bash
 make check            # Format + lint + mypy + migration-check + i18n-check + file-length
-make test             # (or make test-parallel)
+make test             # (or make test-linear for sequential execution)
 ```

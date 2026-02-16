@@ -105,5 +105,5 @@ Waitlisted users are notified automatically when spots open up.
 Before opening a pull request, verify locally:
 
 - [ ] `make check`: format + lint + mypy + migration-check + i18n-check + file-length
-- [ ] `make test` (or `make test-parallel`): all tests pass with 90%+ coverage
+- [ ] `make test`: all tests pass with 90%+ coverage
 - [ ] No file exceeds 1,000 lines

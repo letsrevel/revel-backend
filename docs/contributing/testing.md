@@ -9,8 +9,8 @@ This guide covers how to write, organize, and run tests.
 
 | Command | Description |
 |---|---|
-| `make test` | Run the full test suite with coverage reporting |
-| `make test-parallel` | Run tests in parallel with `pytest -n auto` |
+| `make test` | Run the full test suite in parallel (`pytest -n auto`) with coverage reporting |
+| `make test-linear` | Run the full test suite sequentially (single process, useful for debugging) |
 | `make test-failed` | Re-run only previously failed tests |
 
 !!! tip
