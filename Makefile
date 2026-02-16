@@ -29,6 +29,10 @@ test:
 test-parallel:
 	uv run pytest -n auto --cov=src --cov-report=term --cov-report=html --cov-branch -v src/ && uv run coverage html --skip-covered
 
+.PHONY: test-integration
+test-integration:
+	uv run pytest -m integration -v src/
+
 .PHONY: test-failed
 test-failed:
 	uv run pytest --cov=src --cov-report=term --cov-report=html --cov-branch -v --last-failed src/ && uv run coverage html --skip-covered

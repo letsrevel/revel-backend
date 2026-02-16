@@ -127,7 +127,7 @@ This flow manages how users are screened for events via questionnaires.
     *   After a successful submission, the controller dispatches a Celery task: `questionnaires.tasks.evaluate_questionnaire_submission`.
 3.  **Automatic Evaluation:**
     *   **Task:** The Celery task uses the `questionnaires.evaluator.SubmissionEvaluator` service.
-    *   **Logic:** The `SubmissionEvaluator` calculates a score based on multiple-choice answers and, for free-text questions, calls a configurable LLM backend (e.g., `VulnerableChatGPTEvaluator`) to get a pass/fail result. It creates a `QuestionnaireEvaluation` record with the results.
+    *   **Logic:** The `SubmissionEvaluator` calculates a score based on multiple-choice answers and, for free-text questions, calls a configurable LLM backend (e.g., `SanitizingLLMEvaluator`) to get a pass/fail result. It creates a `QuestionnaireEvaluation` record with the results.
     *   If the questionnaire's `evaluation_mode` is `AUTOMATIC`, the evaluation status is set directly to `APPROVED` or `REJECTED`. If it's `HYBRID` or `MANUAL`, it's set to `PENDING_REVIEW`.
 
 ## Attendee Flows

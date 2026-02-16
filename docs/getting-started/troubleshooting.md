@@ -157,7 +157,7 @@ Most external services have safe defaults for local development. Here's what act
 |---------|---------|---------|---------|
 | Stripe | `STRIPE_SECRET_KEY` | Test key (`sk_test_...`) | Paid ticket checkout |
 | Telegram | `TELEGRAM_BOT_TOKEN` | `0000000000:AABBCCDD` | Telegram bot |
-| OpenAI | `OPENAI_API_KEY` | `fake-key` | Questionnaire AI evaluation |
+| LLM Provider | `LLM_API_KEY`, `LLM_DEFAULT_MODEL` | Ollama local | Questionnaire AI evaluation (see `revel/settings/llm.py`) |
 | Google SSO | `GOOGLE_SSO_CLIENT_ID` | `fake-id` | Google login |
 | IP2Location | `IP2LOCATION_TOKEN` | `None` | IP geolocation |
 | HuggingFace | `HUGGING_FACE_HUB_TOKEN` | **None** | Sentinel model download |

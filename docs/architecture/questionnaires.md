@@ -324,6 +324,8 @@ Questions marked as `is_mandatory=True` must be answered. If any applicable mand
 
 Free text questions are evaluated by a pluggable LLM backend. The backend is configured per questionnaire via the `llm_backend` field, which stores the fully-qualified Python path to the evaluator class.
 
+The system uses **Instructor** with an OpenAI-compatible client for vendor-agnostic LLM access. Any OpenAI-compatible provider (OpenAI, Ollama, Azure, vLLM, etc.) can be used — only Django settings need to change.
+
 ### Backend Pipeline
 
 ```mermaid
@@ -331,20 +333,15 @@ flowchart TD
     Answer["User's Free Text Answers<br/>(batch)"] --> Backend["LLM Backend"]
 
     Backend --> Mock["MockEvaluator<br/>(testing)"]
-    Backend --> Vulnerable["VulnerableChatGPTEvaluator<br/>(demo, no protection)"]
-    Backend --> Intermediate["IntermediateChatGPTEvaluator<br/>(tag-based protection)"]
-    Backend --> Better["BetterChatGPTEvaluator<br/>(defensive prompting)"]
-    Backend --> Sanitizing["SanitizingChatGPTEvaluator<br/>(input sanitization)"]
-    Backend --> Sentinel["SentinelChatGPTEvaluator<br/>(ML detection)"]
+    Backend --> Sanitizing["SanitizingLLMEvaluator<br/>(input sanitization + defense)"]
+    Backend --> Sentinel["SentinelLLMEvaluator<br/>(ML detection + sanitization)"]
 
     Mock -->|"keyword match"| Result["EvaluationResponse"]
-    Vulnerable -->|"no protection"| Result
-    Intermediate -->|"XML tags"| Result
-    Better -->|"aggressive defense"| Result
-    Sanitizing -->|"strip tags + defense"| Result
+    Sanitizing -->|"strip tags + defensive prompting"| Result
     Sentinel -->|"ML check first"| Detection{"Injection<br/>detected?"}
     Detection -->|"Yes"| Reject["Automatic Fail"]
-    Detection -->|"No"| Result
+    Detection -->|"No"| SanitizeFirst["Sanitize + evaluate"]
+    SanitizeFirst --> Result
 
     style Reject fill:#c62828,color:#fff
     style Sentinel fill:#1565c0,color:#fff
@@ -357,31 +354,59 @@ All backends implement the `FreeTextEvaluator` protocol and accept a batch of `A
 | Backend | Class | Security Level | Description |
 |---|---|---|---|
 | `MockEvaluator` | `questionnaires.llms.MockEvaluator` | N/A | Approves answers containing the word "good", rejects otherwise. For testing only |
-| `VulnerableChatGPTEvaluator` | `questionnaires.llms.VulnerableChatGPTEvaluator` | None | Intentionally vulnerable to prompt injection. For demonstration purposes |
-| `IntermediateChatGPTEvaluator` | `questionnaires.llms.IntermediateChatGPTEvaluator` | Low-Medium | Uses simple XML-like tags (`<ANSWER_TEXT>`, `<GUIDELINES>`) to separate user input from instructions |
-| `BetterChatGPTEvaluator` | `questionnaires.llms.BetterChatGPTEvaluator` | Medium | Aggressive defensive prompting; explicitly instructs the LLM to ignore instructions within `<ANSWER_TEXT>` tags and fail prompt injection attempts |
-| `SanitizingChatGPTEvaluator` | `questionnaires.llms.SanitizingChatGPTEvaluator` | Medium-High | Extends `BetterChatGPTEvaluator` by stripping all XML-like tags and their content from user answers before sending to the LLM |
-| `SentinelChatGPTEvaluator` | `questionnaires.llms.SentinelChatGPTEvaluator` | **Highest** | Extends `BetterChatGPTEvaluator` with a local ML model (Hugging Face Transformers) that classifies answers as `benign` or `jailbreak` before LLM evaluation |
+| `SanitizingLLMEvaluator` | `questionnaires.llms.SanitizingLLMEvaluator` | **High** | Strips all XML-like tags from user answers, then evaluates with defensive prompting that instructs the LLM to ignore injected instructions |
+| `SentinelLLMEvaluator` | `questionnaires.llms.SentinelLLMEvaluator` | **Highest** | Extends `SanitizingLLMEvaluator` with a local ML model (Hugging Face Transformers) that classifies answers as `benign` or `jailbreak` before sanitization and LLM evaluation |
 
 !!! info "Default backend"
-    The default LLM backend is `SanitizingChatGPTEvaluator`. In `DEMO_MODE`, the backend is overridden to `MockEvaluator` regardless of configuration.
+    The default LLM backend is `SanitizingLLMEvaluator`. In `DEMO_MODE`, the backend is overridden to `MockEvaluator` regardless of configuration.
 
 !!! note "Sentinel model setup"
-    The `SentinelChatGPTEvaluator` requires the `transformers` library (`uv sync --group sentinel`) and a downloaded model (`python manage.py download_sentinel_model`). It is conditionally imported only when `transformers` is available.
+    The `SentinelLLMEvaluator` requires the `transformers` library (`uv sync --group sentinel`) and a downloaded model (`python manage.py download_sentinel_model`). It is conditionally imported only when `transformers` is available.
+
+### LLM Provider Configuration
+
+The LLM provider is configured via Django settings (see `revel/settings/llm.py`), all sourced from environment variables:
+
+```bash
+# Model identifier including provider prefix: "provider/model-name"
+LLM_DEFAULT_MODEL="ollama/llama3.1:8b"  # Ollama (default for local dev)
+# LLM_DEFAULT_MODEL="openai/gpt-4o-mini"  # OpenAI (production)
+
+# API key — not needed for local providers like Ollama
+# LLM_API_KEY=sk-...
+
+# Override the provider's default base URL (typically not needed)
+# LLM_BASE_URL=
+
+# Max retries on validation failure (Instructor handles this)
+# LLM_MAX_RETRIES=3
+
+# Instructor mode for structured output extraction (see below)
+# LLM_INSTRUCTOR_MODE=JSON
+```
+
+See [Instructor integrations](https://python.useinstructor.com/integrations/) for all supported providers.
+
+#### Instructor Mode (JSON vs TOOLS)
+
+Instructor extracts structured output from LLMs in two ways:
+
+- **JSON mode** (`LLM_INSTRUCTOR_MODE=JSON`): LLM returns JSON in the message content, validated against the Pydantic schema. Works universally.
+- **TOOLS mode** (`LLM_INSTRUCTOR_MODE=TOOLS`): Uses the provider's native function/tool-calling API. More reliable with large models that support it well (GPT-4o, Claude, etc.).
+
+The default is **JSON** because Instructor's auto-detection can misfire for smaller models. For example, `ollama/llama3.1:8b` is listed as "tool capable" in Instructor's internal registry, but the 8B variant doesn't handle TOOLS mode reliably — it fails with `Instructor does not support multiple tool calls`. Forcing JSON mode avoids this.
+
+!!! tip "When to change the mode"
+    If you deploy with a provider that fully supports function calling (OpenAI, Anthropic, etc.), you can set `LLM_INSTRUCTOR_MODE=TOOLS` for potentially better structured output adherence, or leave it empty to let Instructor auto-detect.
 
 ### Inheritance Hierarchy
-
-All ChatGPT-based evaluators share a common base class:
 
 ```
 FreeTextEvaluator (Protocol)
 ├── MockEvaluator
-└── BaseChatGPTEvaluator
-    ├── VulnerableChatGPTEvaluator
-    ├── IntermediateChatGPTEvaluator
-    └── BetterChatGPTEvaluator
-        ├── SanitizingChatGPTEvaluator (sanitizes input, then calls super)
-        └── SentinelChatGPTEvaluator (ML check, then calls super)
+└── BaseLLMEvaluator (defensive prompting)
+    └── SanitizingLLMEvaluator (sanitizes input, then calls super) — DEFAULT
+        └── SentinelLLMEvaluator (ML check, then delegates to sanitize + evaluate)
 ```
 
 ### Prompt Injection Protection
@@ -389,10 +414,11 @@ FreeTextEvaluator (Protocol)
 !!! warning "LLM evaluators are attack surfaces"
     Users submitting free text answers can attempt prompt injection attacks to manipulate the LLM into granting a passing score.
 
-The **SentinelChatGPTEvaluator** provides the strongest protection. It works in two stages:
+The **SentinelLLMEvaluator** provides the strongest protection. It works in three stages:
 
 1. **Detection**: Each answer is classified by the local Sentinel ML model as `benign` or `jailbreak`
-2. **Evaluation**: Only if all answers pass the injection check are they forwarded to the LLM for evaluation
+2. **Sanitization**: XML-like tags and their content are stripped from user answers
+3. **Evaluation**: Defensive prompting instructs the LLM to ignore any injected instructions
 
 !!! danger "Zero tolerance policy"
     If the Sentinel model detects prompt injection in **any** answer, the **entire batch** is short-circuited: flagged answers receive automatic failure results, and the remaining answers are not forwarded to the LLM. This prevents any possibility of an injected prompt reaching the evaluator.
