@@ -94,7 +94,6 @@ dev = [
     "mkdocs>=1.6.1",
     "mkdocs-material>=9.7.1",
     "mkdocs-minify-plugin>=0.8.0",
-    "mkdocs-redirects>=1.2.2",
     "mypy>=1.19.1",
     "piexif>=1.1.3",
     "pre-commit>=4.5.1",
@@ -159,7 +158,7 @@ exclude = [
 # Same as Black.
 line-length = 120
 
-target-version = "py312"
+target-version = "py313"
 
 [tool.ruff.lint]
 # Allow unused variables when underscore-prefixed.
@@ -301,5 +300,4 @@ omit = [
     "src/*/management/**",
     "src/*/migrations/**",
     "src/playground.py",
-    "functional_tests/*",
 ]
