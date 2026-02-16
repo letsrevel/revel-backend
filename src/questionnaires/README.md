@@ -5,8 +5,8 @@ The questionnaires app provides a comprehensive system for creating, managing, a
 ## Overview
 
 This Django app implements a flexible questionnaire system that supports:
-- **Multiple question types** (multiple choice, free text)
-- **AI-powered evaluation** with pluggable LLM backends
+- **Multiple question types** (multiple choice, free text, file upload)
+- **AI-powered evaluation** with pluggable LLM backends via Instructor
 - **Prompt injection detection** using the Sentinel model
 - **Manual, automatic, and hybrid evaluation modes**
 - **Scoring system** with weighted questions and fatal question handling
@@ -22,10 +22,12 @@ Questionnaire
 ├── QuestionnaireSection (optional)
 │   ├── MultipleChoiceQuestion
 │   │   └── MultipleChoiceOption
-│   └── FreeTextQuestion
+│   ├── FreeTextQuestion
+│   └── FileUploadQuestion
 └── Direct Questions (no section)
     ├── MultipleChoiceQuestion
-    └── FreeTextQuestion
+    ├── FreeTextQuestion
+    └── FileUploadQuestion
 ```
 
 #### Key Model Features
@@ -52,11 +54,12 @@ Questionnaire
 ```
 FreeTextEvaluator (Protocol)
 ├── MockEvaluator (testing)
-├── VulnerableChatGPTEvaluator (demo)
-├── BetterChatGPTEvaluator (secured)
-├── SanitizingChatGPTEvaluator (content filtering)
-└── SentinelChatGPTEvaluator (prompt injection detection)
+└── BaseLLMEvaluator (defensive prompting)
+    └── SanitizingLLMEvaluator (content filtering — default)
+        └── SentinelLLMEvaluator (ML prompt injection detection)
 ```
+
+The system uses **Instructor** for vendor-agnostic LLM access with validated structured outputs. Any provider supported by Instructor can be used (OpenAI, Anthropic, Ollama, Google Gemini, Mistral, etc.).
 
 #### Evaluation Backends
 
@@ -64,22 +67,13 @@ FreeTextEvaluator (Protocol)
 - Simple keyword-based evaluation (contains "good" = pass)
 - Used for testing and development
 
-**VulnerableChatGPTEvaluator**
-- Basic ChatGPT integration
-- Vulnerable to prompt injection attacks (for demonstration)
-
-**BetterChatGPTEvaluator**
-- Enhanced prompt structure with XML tags
-- Defensive instructions against prompt injection
-- Uses structured templates for consistent evaluation
-
-**SanitizingChatGPTEvaluator**
-- Inherits from BetterChatGPTEvaluator
+**SanitizingLLMEvaluator** (default)
+- Inherits from BaseLLMEvaluator (defensive prompting with XML tag isolation)
 - Strips HTML-like tags from user input before evaluation
 - Prevents tag-based injection attempts
 
-**SentinelChatGPTEvaluator** ⚡ **New**
-- Inherits from BetterChatGPTEvaluator
+**SentinelLLMEvaluator**
+- Inherits from SanitizingLLMEvaluator (gets both sanitization + defensive prompting)
 - Uses machine learning model to detect prompt injection
 - **Complete failure policy**: Any detected injection causes total evaluation failure
 - In-memory model caching for performance
@@ -97,7 +91,7 @@ python manage.py download_sentinel_model
 
 **Detection Process**
 1. Load model once into memory for reuse
-2. Check all answer texts and guidelines for injection
+2. Check all answer texts for injection
 3. Return "benign" or "jailbreak" classification
 4. **Zero tolerance**: Any "jailbreak" detection = complete evaluation failure
 
@@ -131,7 +125,7 @@ questionnaire = QuestionnaireService.create_questionnaire(
     QuestionnaireCreateSchema(
         name="Security Awareness Quiz",
         evaluation_mode="automatic",
-        llm_backend="questionnaires.llms.SentinelChatGPTEvaluator",
+        llm_backend="questionnaires.llms.SentinelLLMEvaluator",
         llm_guidelines="Evaluate based on cybersecurity best practices...",
         min_score=80.0,
         # ... questions and sections
@@ -154,29 +148,56 @@ print(f"Score: {evaluation.score}, Status: {evaluation.status}")
 # Mock for testing
 questionnaire.llm_backend = "questionnaires.llms.MockEvaluator"
 
-# Prompt injection protection
-questionnaire.llm_backend = "questionnaires.llms.SentinelChatGPTEvaluator"
+# Prompt injection protection (sanitization + ML detection)
+questionnaire.llm_backend = "questionnaires.llms.SentinelLLMEvaluator"
 
-# Content sanitization
-questionnaire.llm_backend = "questionnaires.llms.SanitizingChatGPTEvaluator"
+# Content sanitization (default)
+questionnaire.llm_backend = "questionnaires.llms.SanitizingLLMEvaluator"
 ```
 
 ## Configuration
 
-### Required Settings
-```python
-# settings.py
-OPENAI_API_KEY = "your-openai-api-key"
-HUGGING_FACE_HUB_TOKEN = "your-hf-token"  # For downloading Sentinel model
+### LLM Settings
+
+The LLM system is configured via environment variables:
+
+```bash
+# Model identifier including provider prefix: "provider/model-name"
+LLM_DEFAULT_MODEL="ollama/llama3.1:8b"  # Local dev (default)
+# LLM_DEFAULT_MODEL="openai/gpt-4o-mini"  # Production
+LLM_MAX_RETRIES=3
+
+# API key — not needed for local providers like Ollama
+# LLM_API_KEY=sk-...
+
+# Override the provider's default base URL (typically not needed)
+# LLM_BASE_URL=
+
+# Instructor mode for structured output extraction.
+# Valid values: JSON, TOOLS, JSON_SCHEMA, MD_JSON (see instructor.Mode).
+# Empty string = let Instructor auto-detect based on the provider.
+# Default: JSON (safest for small Ollama models — see note below).
+# LLM_INSTRUCTOR_MODE=JSON
 ```
+
+#### Instructor Mode: JSON vs TOOLS
+
+Instructor supports two main approaches for extracting structured output from LLMs:
+
+- **JSON** (`LLM_INSTRUCTOR_MODE=JSON`): The LLM returns JSON in the message content, validated by Instructor against the Pydantic schema. Works with all providers and models.
+- **TOOLS** (`LLM_INSTRUCTOR_MODE=TOOLS`): Uses the provider's native function/tool-calling API. More reliable with large models that support it (e.g. GPT-4o, Claude).
+
+**Why JSON is the default:** Instructor auto-detects the mode based on the provider and model name. However, some smaller models (e.g. `ollama/llama3.1:8b`) are listed as "tool capable" in Instructor's registry but don't handle TOOLS mode reliably — they fail with `Instructor does not support multiple tool calls`. Setting the mode to JSON explicitly avoids this issue.
+
+**When to use TOOLS:** If you're using a provider/model that fully supports function calling (OpenAI GPT-4o, Anthropic Claude, etc.), you can set `LLM_INSTRUCTOR_MODE=TOOLS` or leave it empty for auto-detection.
+
+See `revel/settings/llm.py` for Django settings and https://python.useinstructor.com/integrations/ for all supported providers.
 
 ### LLM Backend Selection
 Configure in the Questionnaire model:
 - `MockEvaluator`: Development and testing
-- `VulnerableChatGPTEvaluator`: Demonstration of vulnerabilities
-- `BetterChatGPTEvaluator`: Improved prompt injection resistance
-- `SanitizingChatGPTEvaluator`: Content filtering approach
-- `SentinelChatGPTEvaluator`: ML-based prompt injection detection
+- `SanitizingLLMEvaluator`: Content filtering + defensive prompting (default)
+- `SentinelLLMEvaluator`: ML-based prompt injection detection + sanitization
 
 ## Management Commands
 
@@ -189,10 +210,10 @@ Downloads the prompt injection detection model to `questionnaires/llms/sentinel/
 ## Security Features
 
 ### Prompt Injection Protection
-- **Multiple Defense Layers**: Template-based, sanitization, and ML detection
+- **Defensive Prompting**: XML tag isolation with explicit instructions to ignore injected content
+- **Content Sanitization**: Strips potentially harmful markup before LLM evaluation
 - **Sentinel Model**: Machine learning classification of malicious inputs
 - **Zero Tolerance Policy**: Any injection attempt = complete failure
-- **Content Sanitization**: Strips potentially harmful markup
 
 ### Data Validation
 - **Schema Validation**: Pydantic models ensure data integrity

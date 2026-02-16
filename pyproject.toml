@@ -1,6 +1,6 @@
 [project]
 name = "revel"
-version = "1.35.1"
+version = "1.36.0"
 description = "The Revel Event Manager"
 readme = "README.md"
 license = "MIT"
@@ -47,10 +47,10 @@ dependencies = [
     "gunicorn>=25.0.1",
     "httpx[http2]>=0.28.1",
     "ics>=0.7.2",
+    "instructor>=1.14.5",
     "ip2location>=8.11.0",
     "markdown>=3.10.1",
     "nh3>=0.3.2",
-    "openai>=2.16.0",
     "opentelemetry-api>=1.39.1",
     "opentelemetry-exporter-otlp>=1.39.1",
     "opentelemetry-instrumentation-celery>=0.59b0",
@@ -273,6 +273,10 @@ disable_error_code = ["django-manager-missing"]
 pythonpath = "src"
 DJANGO_SETTINGS_MODULE = "revel.settings"
 testpaths = ["src"]
+addopts = "-m 'not integration'"
+markers = [
+    "integration: slow tests that hit real external services (LLM, etc.) — run explicitly with pytest -m integration",
+]
 norecursedirs = [
     ".*",
     "build",

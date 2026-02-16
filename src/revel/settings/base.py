@@ -302,8 +302,7 @@ ADMIN_URL = config("ADMIN_URL", default="admin/")
 TOTP_ISSUER_NAME = config("TOTP_ISSUER_NAME", default="Revel")
 
 
-# OPENAI
-OPENAI_API_KEY = config("OPENAI_API_KEY", default="fake-key")
+# LLM — see revel/settings/llm.py for configuration details
 
 
 # DATA UPLOADS

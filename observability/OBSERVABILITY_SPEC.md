@@ -66,7 +66,7 @@ Implement comprehensive observability for the Revel platform using the **LGTM st
 - OpenTelemetry-compatible distributed tracing
 - Automatic trace-to-log correlation via trace IDs
 - Samples complex request flows across services
-- Integration with Django, Celery, external APIs (Stripe, OpenAI)
+- Integration with Django, Celery, external APIs (Stripe, LLM providers)
 - 30-day retention
 
 ### 3. **Prometheus + Mimir** - Metrics
@@ -607,7 +607,7 @@ Update `/Users/biagio/repos/personal/infra/revel/docker-compose.yaml`:
    - Span: `questionnaire.evaluate`
      - Span: `questionnaire.score_multiple_choice`
      - Span: `questionnaire.evaluate_free_text`
-       - Span: `llm.api_call` (OpenAI API)
+       - Span: `llm.api_call` (LLM provider API)
      - Span: `questionnaire.check_fatal_flags`
      - Span: `questionnaire.create_evaluation`
      - Span: `notification.send_evaluation_result`
@@ -743,7 +743,7 @@ Update `/Users/biagio/repos/personal/infra/revel/docker-compose.yaml`:
 
 3. **External Service Tracing**
    - Instrument Stripe API calls
-   - Instrument OpenAI API calls
+   - Instrument LLM provider API calls
    - Instrument email sending (SMTP)
    - Add error tracking and status codes
 

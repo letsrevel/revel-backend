@@ -1,23 +1,17 @@
 from .llm_backends import (
     TRANSFORMERS_AVAILABLE,
-    BetterChatGPTEvaluator,
-    IntermediateChatGPTEvaluator,
     MockEvaluator,
-    SanitizingChatGPTEvaluator,
-    VulnerableChatGPTEvaluator,
+    SanitizingLLMEvaluator,
 )
 
 __all__ = [
     "MockEvaluator",
-    "VulnerableChatGPTEvaluator",
-    "IntermediateChatGPTEvaluator",
-    "BetterChatGPTEvaluator",
-    "SanitizingChatGPTEvaluator",
+    "SanitizingLLMEvaluator",
     "TRANSFORMERS_AVAILABLE",
 ]
 
-# Conditionally import SentinelChatGPTEvaluator only if transformers is available
+# Conditionally import SentinelLLMEvaluator only if transformers is available
 if TRANSFORMERS_AVAILABLE:
-    from .llm_backends import SentinelChatGPTEvaluator as SentinelChatGPTEvaluator  # noqa: F401
+    from .llm_backends import SentinelLLMEvaluator as SentinelLLMEvaluator  # noqa: F401
 
-    __all__.append("SentinelChatGPTEvaluator")
+    __all__.append("SentinelLLMEvaluator")

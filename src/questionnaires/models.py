@@ -202,11 +202,8 @@ class Questionnaire(TimeStampedModel):
 
     class QuestionnaireLLMBackend(models.TextChoices):
         MOCK = "questionnaires.llms.MockEvaluator", "Mock Evaluator"
-        VULNERABLE = "questionnaires.llms.VulnerableChatGPTEvaluator", "Vulnerable ChatGPTEvaluator"
-        INTERMEDIATE = "questionnaires.llms.IntermediateChatGPTEvaluator", "Intermediate ChatGPTEvaluator"
-        BETTER = "questionnaires.llms.BetterChatGPTEvaluator", "Better ChatGPTEvaluator"
-        SANITIZING = "questionnaires.llms.SanitizingChatGPTEvaluator", "Sanitizing ChatGPTEvaluator"
-        SENTINEL = "questionnaires.llms.SentinelChatGPTEvaluator", "Sentinel ChatGPTEvaluator"
+        SANITIZING = "questionnaires.llms.SanitizingLLMEvaluator", "Sanitizing LLM Evaluator"
+        SENTINEL = "questionnaires.llms.SentinelLLMEvaluator", "Sentinel LLM Evaluator"
 
     name = models.CharField(max_length=255, db_index=True)
     description = MarkdownField(
@@ -254,7 +251,7 @@ class Questionnaire(TimeStampedModel):
         try:
             return t.cast(FreeTextEvaluator, getattr(module, class_name)())
         except AttributeError as e:
-            if class_name == "SentinelChatGPTEvaluator":
+            if class_name == "SentinelLLMEvaluator":
                 msg = (
                     f"The {class_name} backend requires the 'transformers' library which is not installed. "
                     "Please install it with: uv sync --group sentinel"
