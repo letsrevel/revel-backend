@@ -6,7 +6,6 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import jwt
-import pydantic
 import structlog
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
@@ -15,7 +14,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import check_blacklist, create_token
@@ -174,7 +173,7 @@ def validate_and_decode_guest_token(token: str) -> schema.GuestActionPayload:
     try:
         adapter: TypeAdapter[schema.GuestActionPayload] = TypeAdapter(schema.GuestActionPayload)
         payload: schema.GuestActionPayload = adapter.validate_python(raw_payload)
-    except pydantic.ValidationError as e:
+    except ValidationError as e:
         logger.warning("guest_payload_validation_failed", error=str(e))
         raise HttpError(400, str(_("Invalid token payload.")))
 
