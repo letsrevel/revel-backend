@@ -186,19 +186,15 @@ def create_checkout_session(
     application_fee_amount = int((platform_fee + fixed_fee) * 100)
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
-    try:
-        session = _create_stripe_checkout_session(
-            event=event,
-            tier=tier,
-            user=user,
-            ticket=ticket,
-            effective_price=effective_price,
-            application_fee_amount=application_fee_amount,
-            expires_at=expires_at,
-        )
-    except HttpError:
-        ticket.delete()
-        raise
+    session = _create_stripe_checkout_session(
+        event=event,
+        tier=tier,
+        user=user,
+        ticket=ticket,
+        effective_price=effective_price,
+        application_fee_amount=application_fee_amount,
+        expires_at=expires_at,
+    )
 
     # application_fee_amount is in cents.
     db_platform_fee = (Decimal(application_fee_amount) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -305,8 +301,6 @@ def create_batch_checkout_session(
     try:
         session = Session.create(**session_data)  # type: ignore[arg-type]
     except Exception as e:
-        # Delete the tickets if session creation fails
-        Ticket.objects.filter(id__in=[_t.id for _t in tickets]).delete()
         raise HttpError(500, str(_("Stripe API error: {error}")).format(error=e)) from e
 
     # Create Payment records for each ticket
