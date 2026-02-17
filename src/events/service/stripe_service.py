@@ -125,7 +125,7 @@ def _create_stripe_checkout_session(
 
     try:
         return Session.create(**session_data)  # type: ignore[arg-type]
-    except Exception as e:
+    except stripe.error.StripeError as e:
         raise HttpError(500, str(_("Stripe API error: {error}")).format(error=e)) from e
 
 
@@ -304,7 +304,7 @@ def create_batch_checkout_session(
 
     try:
         session = Session.create(**session_data)  # type: ignore[arg-type]
-    except Exception as e:
+    except stripe.error.StripeError as e:
         # Delete the tickets if session creation fails
         Ticket.objects.filter(id__in=[_t.id for _t in tickets]).delete()
         raise HttpError(500, str(_("Stripe API error: {error}")).format(error=e)) from e

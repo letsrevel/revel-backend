@@ -6,6 +6,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import jwt
+import pydantic
 import structlog
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
@@ -165,17 +166,17 @@ def validate_and_decode_guest_token(token: str) -> schema.GuestActionPayload:
     except jwt.ExpiredSignatureError:
         logger.warning("guest_token_validation_expired")
         raise HttpError(400, str(_("Token has expired.")))
-    except Exception as e:
-        logger.warning("guest_token_validation_failed", error=str(e))
-        raise HttpError(400, str(_("Invalid token: {error}")).format(error=e))
+    except jwt.PyJWTError:
+        logger.warning("guest_token_validation_failed")
+        raise HttpError(400, str(_("Invalid token.")))
 
     # Validate with discriminated union
     try:
         adapter: TypeAdapter[schema.GuestActionPayload] = TypeAdapter(schema.GuestActionPayload)
         payload: schema.GuestActionPayload = adapter.validate_python(raw_payload)
-    except Exception as e:
+    except pydantic.ValidationError as e:
         logger.warning("guest_payload_validation_failed", error=str(e))
-        raise HttpError(400, str(_("Invalid token payload: {error}")).format(error=e))
+        raise HttpError(400, str(_("Invalid token payload.")))
 
     check_blacklist(payload.jti)
     logger.info("guest_token_validated", user_id=str(payload.user_id), event_id=str(payload.event_id))
