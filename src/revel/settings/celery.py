@@ -1,11 +1,11 @@
 from decouple import config
 
-from .base import DEBUG, REDIS_HOST, TIME_ZONE
+from .base import DEBUG, REDIS_HOST, REDIS_PORT, TIME_ZONE
 
 CELERY_REDIS_DB = config("CELERY_REDIS_DB", default=0, cast=int)
 
 # CELERY
-CELERY_BROKER_URL = f"redis://{REDIS_HOST}:6379/{CELERY_REDIS_DB}"
+CELERY_BROKER_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/{CELERY_REDIS_DB}"
 CELERY_ACCEPT_CONTENT = ["application/json"]
 CELERY_RESULT_EXTENDED = True
 CELERY_TASK_SERIALIZER = "json"
