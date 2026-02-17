@@ -26,6 +26,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           version: "0.6.10"
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync
@@ -39,9 +40,9 @@ jobs:
           fi
 
       - name: Install system deps
-        run: |
-          sudo apt update
-          sudo apt install -y curl gnupg software-properties-common jq unzip gdal-bin libgdal-dev gettext
+        uses: awalsh17/cache-apt-pkgs-action@latest
+        with:
+          packages: curl gnupg software-properties-common jq unzip gdal-bin libgdal-dev gettext
 
       - name: Export GDAL path
         run: |
