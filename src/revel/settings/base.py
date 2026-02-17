@@ -166,11 +166,6 @@ _postgres_db = {
 if not USE_PGBOUNCER:
     _postgres_db["CONN_HEALTH_CHECKS"] = config("DB_CONN_HEALTH_CHECKS", cast=bool, default=True)
 
-_sqlite_db = {
-    "ENGINE": "django.db.backends.sqlite3",
-    "NAME": BASE_DIR / "db.sqlite3",
-}
-
 default_db = _postgres_db
 
 DATABASES = {"default": default_db}
@@ -264,10 +259,14 @@ VERSION = version("revel")
 API_DOCS_URL: str | None = "/docs"
 
 SITE_DOMAIN = config("SITE_DOMAIN", default="localhost")
-SITE_NAME = config("SITE_NAME", default="Revel")
 
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = True
+_cors_origins: list[str] = config("CORS_ALLOWED_ORIGINS", default="", cast=Csv())
+if _cors_origins and _cors_origins != [""]:
+    CORS_ALLOWED_ORIGINS: list[str] = _cors_origins
+    CORS_ALLOW_ALL_ORIGINS = False
+else:
+    CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_HEADERS = [
     "accept",
     "accept-encoding",
