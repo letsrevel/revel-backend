@@ -1,11 +1,14 @@
 """Tests for guest service layer functions."""
 
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
 
 import jwt
 import pytest
 from django.conf import settings
+from django.utils import timezone
+from ninja.errors import HttpError
 from ninja_jwt.token_blacklist.models import BlacklistedToken
 
 from accounts.models import RevelUser
@@ -150,6 +153,98 @@ class TestGuestServiceLayer:
         assert payload.tier_id == free_tier.id
         assert len(payload.tickets) == 1
         assert payload.tickets[0].guest_name == "Test Guest"
+
+    def test_validate_and_decode_guest_token_rejects_expired(
+        self, existing_guest_user: RevelUser, guest_event: Event
+    ) -> None:
+        """Test that an expired token raises HttpError 400."""
+        # Arrange
+        past_time = timezone.now() - timedelta(hours=2)
+        payload = schema.GuestRSVPJWTPayloadSchema(
+            user_id=existing_guest_user.id,
+            email=existing_guest_user.email,
+            event_id=guest_event.id,
+            answer="yes",
+            exp=past_time,
+            jti="expired-jti",
+        )
+        expired_token = jwt.encode(
+            payload.model_dump(mode="json"), settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM
+        )
+
+        # Act & Assert
+        with pytest.raises(HttpError) as exc_info:
+            guest_service.validate_and_decode_guest_token(expired_token)
+
+        assert exc_info.value.status_code == 400
+        assert "expired" in str(exc_info.value.message).lower()
+
+    def test_validate_and_decode_guest_token_rejects_tampered(self) -> None:
+        """Test that a tampered/garbled token raises HttpError 400."""
+        with pytest.raises(HttpError) as exc_info:
+            guest_service.validate_and_decode_guest_token("not.a.valid.jwt")
+
+        assert exc_info.value.status_code == 400
+        assert "invalid token" in str(exc_info.value.message).lower()
+
+    def test_validate_and_decode_guest_token_rejects_wrong_key(
+        self, existing_guest_user: RevelUser, guest_event: Event
+    ) -> None:
+        """Test that a token signed with a different key raises HttpError 400."""
+        # Arrange
+        payload = schema.GuestRSVPJWTPayloadSchema(
+            user_id=existing_guest_user.id,
+            email=existing_guest_user.email,
+            event_id=guest_event.id,
+            answer="yes",
+            exp=timezone.now() + timedelta(hours=1),
+            jti="wrong-key-jti",
+        )
+        wrong_key_token = jwt.encode(
+            payload.model_dump(mode="json"), "wrong-secret-key", algorithm=settings.JWT_ALGORITHM
+        )
+
+        # Act & Assert
+        with pytest.raises(HttpError) as exc_info:
+            guest_service.validate_and_decode_guest_token(wrong_key_token)
+
+        assert exc_info.value.status_code == 400
+        assert "invalid token" in str(exc_info.value.message).lower()
+
+    def test_validate_and_decode_guest_token_rejects_invalid_payload(self) -> None:
+        """Test that a valid JWT with an invalid payload structure raises HttpError 400."""
+        # Arrange: valid JWT but payload doesn't match the discriminated union schema
+        raw_payload = {
+            "type": "guest_rsvp",
+            "user_id": "not-a-uuid",
+            "aud": settings.JWT_AUDIENCE,
+        }
+        token = jwt.encode(raw_payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+        # Act & Assert
+        with pytest.raises(HttpError) as exc_info:
+            guest_service.validate_and_decode_guest_token(token)
+
+        assert exc_info.value.status_code == 400
+        assert "invalid token payload" in str(exc_info.value.message).lower()
+
+    def test_validate_and_decode_guest_token_rejects_unknown_type(self) -> None:
+        """Test that a valid JWT with an unrecognized type discriminator raises HttpError 400."""
+        # Arrange
+        raw_payload = {
+            "type": "unknown_type",
+            "user_id": "550e8400-e29b-41d4-a716-446655440000",
+            "email": "test@test.com",
+            "aud": settings.JWT_AUDIENCE,
+        }
+        token = jwt.encode(raw_payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+        # Act & Assert
+        with pytest.raises(HttpError) as exc_info:
+            guest_service.validate_and_decode_guest_token(token)
+
+        assert exc_info.value.status_code == 400
+        assert "invalid token payload" in str(exc_info.value.message).lower()
 
     @patch("events.tasks.send_guest_rsvp_confirmation.delay")
     def test_handle_guest_rsvp(self, mock_send_email: Mock, guest_event: Event) -> None:
