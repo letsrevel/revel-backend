@@ -390,16 +390,22 @@ def get_followers_for_new_event_notification(
     Yields:
         Tuples of (user, notification_type) to notify
     """
-    # Get member user IDs to exclude - they already get EVENT_OPEN notifications
-    member_user_ids: set[UUID] = set(
+    # Build exclusion set: users who already get EVENT_OPEN or are banned.
+    # 1. ACTIVE/PAUSED/BANNED members (ACTIVE/PAUSED get EVENT_OPEN, BANNED get nothing)
+    #    CANCELLED members are NOT excluded — they left voluntarily but may still follow.
+    excluded_user_ids: set[UUID] = set(
         OrganizationMember.objects.filter(
             organization=organization,
-            status__in=[
-                OrganizationMember.MembershipStatus.ACTIVE,
-                OrganizationMember.MembershipStatus.PAUSED,
-            ],
-        ).values_list("user_id", flat=True)
+        )
+        .exclude(status=OrganizationMember.MembershipStatus.CANCELLED)
+        .values_list("user_id", flat=True)
     )
+
+    # 2. Staff members (get EVENT_OPEN via staff path)
+    excluded_user_ids.update(organization.staff_members.values_list("id", flat=True))
+
+    # 3. Organization owner (gets EVENT_OPEN via owner path)
+    excluded_user_ids.add(organization.owner_id)
 
     notified_user_ids: set[UUID] = set()
 
@@ -412,8 +418,9 @@ def get_followers_for_new_event_notification(
         ).select_related("user")
 
         for follow in series_followers:
-            # Skip members - they get EVENT_OPEN notification instead
-            if follow.user_id in member_user_ids:
+            # Skip staff/owner/active/paused/banned members — they already
+            # get EVENT_OPEN or should not receive any org notifications.
+            if follow.user_id in excluded_user_ids:
                 continue
             if follow.user_id not in notified_user_ids:
                 notified_user_ids.add(follow.user_id)
@@ -427,8 +434,8 @@ def get_followers_for_new_event_notification(
     ).select_related("user")
 
     for org_follow in org_followers:
-        # Skip members - they get EVENT_OPEN notification instead
-        if org_follow.user_id in member_user_ids:
+        # Skip staff/owner/active/paused/banned members
+        if org_follow.user_id in excluded_user_ids:
             continue
         if org_follow.user_id not in notified_user_ids:
             notified_user_ids.add(org_follow.user_id)

@@ -74,11 +74,12 @@ class BatchParticipationChecker:
             EventInvitation.objects.filter(event=self.event).values_list("user_id", flat=True)
         )
 
-        # Organization members (for EVENT_OPEN notifications)
+        # Organization members with visibility access (for EVENT_OPEN notifications)
+        # Excludes CANCELLED and BANNED members
         self.member_user_ids: set[UUID] = set(
-            OrganizationMember.objects.filter(
-                organization=self.organization,
-            ).values_list("user_id", flat=True)
+            OrganizationMember.objects.for_visibility()
+            .filter(organization=self.organization)
+            .values_list("user_id", flat=True)
         )
 
     def is_org_staff(self, user_id: UUID) -> bool:
@@ -295,7 +296,7 @@ def is_org_member(user: RevelUser, organization: Organization) -> bool:
     Returns:
         True if user is a member
     """
-    return OrganizationMember.objects.filter(user=user, organization=organization).exists()
+    return OrganizationMember.objects.for_visibility().filter(user=user, organization=organization).exists()
 
 
 def is_org_staff(user: RevelUser, organization: Organization) -> bool:
@@ -422,14 +423,23 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
     )
     participants_q |= staff_and_owners_q
 
+    # Reusable Q for org members with visibility access (ACTIVE/PAUSED only)
+    active_members_q = Q(
+        organization_memberships__organization_id=event.organization_id,
+        organization_memberships__status__in=[
+            OrganizationMember.MembershipStatus.ACTIVE,
+            OrganizationMember.MembershipStatus.PAUSED,
+        ],
+    )
+
     # Apply visibility-specific rules
     if event.visibility == Event.Visibility.STAFF_ONLY:
         # Only staff and owners (already added above)
         pass
 
     elif event.visibility == Event.Visibility.MEMBERS_ONLY:
-        # Include org members
-        participants_q |= Q(organization_memberships__organization_id=event.organization_id)
+        # Include org members with visibility access
+        participants_q |= active_members_q
 
         # Include users with explicit participation
         participants_q |= Q(
@@ -451,9 +461,9 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
         participants_q |= Q(invitations__event=event)
 
     elif event.visibility == Event.Visibility.PUBLIC:
-        # For EVENT_OPEN notifications, include all org members
+        # For EVENT_OPEN notifications, include org members with visibility access
         if notification_type == NotificationType.EVENT_OPEN:
-            participants_q |= Q(organization_memberships__organization_id=event.organization_id)
+            participants_q |= active_members_q
 
         # Include users with explicit participation
         participants_q |= Q(

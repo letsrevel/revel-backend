@@ -408,6 +408,60 @@ class TestBatchParticipationCheckerParity:
         assert checker.is_org_member(random_user.id) == is_org_member(random_user, organization)
         assert checker.is_org_member(random_user.id) is False
 
+    def test_is_org_member_excludes_cancelled(
+        self,
+        event: Event,
+        organization: Organization,
+        member_user: RevelUser,
+    ) -> None:
+        """BatchParticipationChecker.is_org_member returns False for CANCELLED members."""
+        OrganizationMember.objects.create(
+            organization=organization,
+            user=member_user,
+            status=OrganizationMember.MembershipStatus.CANCELLED,
+        )
+
+        checker = BatchParticipationChecker(event)
+
+        assert checker.is_org_member(member_user.id) is False
+        assert is_org_member(member_user, organization) is False
+
+    def test_is_org_member_excludes_banned(
+        self,
+        event: Event,
+        organization: Organization,
+        member_user: RevelUser,
+    ) -> None:
+        """BatchParticipationChecker.is_org_member returns False for BANNED members."""
+        OrganizationMember.objects.create(
+            organization=organization,
+            user=member_user,
+            status=OrganizationMember.MembershipStatus.BANNED,
+        )
+
+        checker = BatchParticipationChecker(event)
+
+        assert checker.is_org_member(member_user.id) is False
+        assert is_org_member(member_user, organization) is False
+
+    def test_is_org_member_includes_paused(
+        self,
+        event: Event,
+        organization: Organization,
+        member_user: RevelUser,
+    ) -> None:
+        """BatchParticipationChecker.is_org_member returns True for PAUSED members."""
+        OrganizationMember.objects.create(
+            organization=organization,
+            user=member_user,
+            status=OrganizationMember.MembershipStatus.PAUSED,
+        )
+
+        checker = BatchParticipationChecker(event)
+
+        assert checker.is_org_member(member_user.id) is True
+        assert is_org_member(member_user, organization) is True
+
     def test_is_participating_parity(
         self,
         event: Event,
@@ -590,6 +644,132 @@ class TestGetEligibleUsersOptimization:
         eligible_ids = {u.id for u in eligible_users}
 
         assert member_user.id in eligible_ids
+
+    def test_event_open_excludes_cancelled_members(
+        self,
+        event: Event,
+        organization: Organization,
+        member_user: RevelUser,
+    ) -> None:
+        """EVENT_OPEN notifications exclude CANCELLED members."""
+        OrganizationMember.objects.create(
+            organization=organization,
+            user=member_user,
+            status=OrganizationMember.MembershipStatus.CANCELLED,
+        )
+
+        eligible_users = list(get_eligible_users_for_event_notification(event, NotificationType.EVENT_OPEN))
+        eligible_ids = {u.id for u in eligible_users}
+
+        assert member_user.id not in eligible_ids
+
+    def test_event_open_excludes_banned_members(
+        self,
+        event: Event,
+        organization: Organization,
+        member_user: RevelUser,
+    ) -> None:
+        """EVENT_OPEN notifications exclude BANNED members."""
+        OrganizationMember.objects.create(
+            organization=organization,
+            user=member_user,
+            status=OrganizationMember.MembershipStatus.BANNED,
+        )
+
+        eligible_users = list(get_eligible_users_for_event_notification(event, NotificationType.EVENT_OPEN))
+        eligible_ids = {u.id for u in eligible_users}
+
+        assert member_user.id not in eligible_ids
+
+    def test_members_only_event_includes_active_members(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+    ) -> None:
+        """MEMBERS_ONLY events include ACTIVE members in EVENT_OPEN notifications."""
+        next_week = timezone.now() + timedelta(days=7)
+        members_only_event = Event.objects.create(
+            organization=organization,
+            name="Members Only Event",
+            slug="members-only-event",
+            visibility=Event.Visibility.MEMBERS_ONLY,
+            event_type=Event.EventType.MEMBERS_ONLY,
+            status=Event.EventStatus.OPEN,
+            start=next_week,
+            end=next_week + timedelta(hours=2),
+        )
+        OrganizationMember.objects.create(
+            organization=organization,
+            user=member_user,
+            status=OrganizationMember.MembershipStatus.ACTIVE,
+        )
+
+        eligible_users = list(
+            get_eligible_users_for_event_notification(members_only_event, NotificationType.EVENT_OPEN)
+        )
+        eligible_ids = {u.id for u in eligible_users}
+
+        assert member_user.id in eligible_ids
+
+    def test_members_only_event_excludes_cancelled_members(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+    ) -> None:
+        """MEMBERS_ONLY events exclude CANCELLED members from EVENT_OPEN notifications."""
+        next_week = timezone.now() + timedelta(days=7)
+        members_only_event = Event.objects.create(
+            organization=organization,
+            name="Members Only Event",
+            slug="members-only-event-cancelled",
+            visibility=Event.Visibility.MEMBERS_ONLY,
+            event_type=Event.EventType.MEMBERS_ONLY,
+            status=Event.EventStatus.OPEN,
+            start=next_week,
+            end=next_week + timedelta(hours=2),
+        )
+        OrganizationMember.objects.create(
+            organization=organization,
+            user=member_user,
+            status=OrganizationMember.MembershipStatus.CANCELLED,
+        )
+
+        eligible_users = list(
+            get_eligible_users_for_event_notification(members_only_event, NotificationType.EVENT_OPEN)
+        )
+        eligible_ids = {u.id for u in eligible_users}
+
+        assert member_user.id not in eligible_ids
+
+    def test_members_only_event_excludes_banned_members(
+        self,
+        organization: Organization,
+        member_user: RevelUser,
+    ) -> None:
+        """MEMBERS_ONLY events exclude BANNED members from EVENT_OPEN notifications."""
+        next_week = timezone.now() + timedelta(days=7)
+        members_only_event = Event.objects.create(
+            organization=organization,
+            name="Members Only Event",
+            slug="members-only-event-banned",
+            visibility=Event.Visibility.MEMBERS_ONLY,
+            event_type=Event.EventType.MEMBERS_ONLY,
+            status=Event.EventStatus.OPEN,
+            start=next_week,
+            end=next_week + timedelta(hours=2),
+        )
+        OrganizationMember.objects.create(
+            organization=organization,
+            user=member_user,
+            status=OrganizationMember.MembershipStatus.BANNED,
+        )
+
+        eligible_users = list(
+            get_eligible_users_for_event_notification(members_only_event, NotificationType.EVENT_OPEN)
+        )
+        eligible_ids = {u.id for u in eligible_users}
+
+        assert member_user.id not in eligible_ids
 
 
 @pytest.mark.django_db
