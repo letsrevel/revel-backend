@@ -14,7 +14,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import check_blacklist, create_token
@@ -165,17 +165,17 @@ def validate_and_decode_guest_token(token: str) -> schema.GuestActionPayload:
     except jwt.ExpiredSignatureError:
         logger.warning("guest_token_validation_expired")
         raise HttpError(400, str(_("Token has expired.")))
-    except Exception as e:
-        logger.warning("guest_token_validation_failed", error=str(e))
-        raise HttpError(400, str(_("Invalid token: {error}")).format(error=e))
+    except jwt.PyJWTError:
+        logger.warning("guest_token_validation_failed")
+        raise HttpError(400, str(_("Invalid token.")))
 
     # Validate with discriminated union
     try:
         adapter: TypeAdapter[schema.GuestActionPayload] = TypeAdapter(schema.GuestActionPayload)
         payload: schema.GuestActionPayload = adapter.validate_python(raw_payload)
-    except Exception as e:
+    except ValidationError as e:
         logger.warning("guest_payload_validation_failed", error=str(e))
-        raise HttpError(400, str(_("Invalid token payload: {error}")).format(error=e))
+        raise HttpError(400, str(_("Invalid token payload.")))
 
     check_blacklist(payload.jti)
     logger.info("guest_token_validated", user_id=str(payload.user_id), event_id=str(payload.event_id))
