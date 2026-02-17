@@ -40,7 +40,7 @@ jobs:
           fi
 
       - name: Install system deps
-        uses: awalsh17/cache-apt-pkgs-action@latest
+        uses: awalsh128/cache-apt-pkgs-action@latest
         with:
           packages: curl gnupg software-properties-common jq unzip gdal-bin libgdal-dev gettext
 
