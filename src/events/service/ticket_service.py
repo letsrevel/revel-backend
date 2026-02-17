@@ -217,59 +217,54 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
     # Get all user's tickets for this event using the optimized full() queryset
     tickets = list(Ticket.objects.full().filter(event=event, user_id=user.id).order_by("-created_at"))
 
-    if tickets and event.requires_ticket:
-        # Calculate event-level capacity remaining (once, to avoid N+1)
-        # Uses effective_capacity (min of max_attendees and venue.capacity)
-        event_capacity_remaining: int | None = None
-        effective_cap = event.effective_capacity
-        if effective_cap > 0:
-            total_sold = Ticket.objects.filter(event=event).exclude(status=Ticket.TicketStatus.CANCELLED).count()
-            event_capacity_remaining = max(0, effective_cap - total_sold)
+    if not tickets or not event.requires_ticket:
+        # Check for RSVP (non-ticketed events)
+        if rsvp := EventRSVP.objects.filter(event=event, user_id=user.id).first():
+            return UserEventStatus(tickets=[], rsvp=rsvp)
+        # No tickets or RSVP - return eligibility check
+        return EventManager(user, event).check_eligibility()
 
-        # Pre-compute user's ticket counts per tier in ONE query (avoids N+1)
-        user_ticket_counts: dict[UUID, int] = dict(
-            Ticket.objects.filter(
-                event=event,
-                user=user,
-                status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-            )
-            .values("tier_id")
-            .annotate(count=Count("id"))
-            .values_list("tier_id", "count")
+    # Calculate event-level capacity remaining (once, to avoid N+1)
+    # Uses effective_capacity (min of max_attendees and venue.capacity)
+    event_capacity_remaining: int | None = None
+    if (effective_cap := event.effective_capacity) > 0:
+        total_sold = Ticket.objects.filter(event=event).exclude(status=Ticket.TicketStatus.CANCELLED).count()
+        event_capacity_remaining = max(0, effective_cap - total_sold)
+
+    # Pre-compute user's ticket counts per tier in ONE query (avoids N+1)
+    user_ticket_counts: dict[UUID, int] = dict(
+        Ticket.objects.filter(
+            event=event,
+            user=user,
+            status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
         )
+        .values("tier_id")
+        .annotate(count=Count("id"))
+        .values_list("tier_id", "count")
+    )
 
-        # Get all eligible tiers for this user and calculate remaining for each
-        eligible_tiers = get_eligible_tiers(event, user)
-        remaining_list: list[TierRemainingTickets] = []
+    # Get all eligible tiers for this user and calculate remaining for each
+    eligible_tiers = get_eligible_tiers(event, user)
+    remaining_list: list[TierRemainingTickets] = []
 
-        for tier in eligible_tiers:
-            service = BatchTicketService(event, tier, user)
-            tier_count = user_ticket_counts.get(tier.id, 0)
-            remaining = service.get_remaining_tickets(event_capacity_remaining, user_ticket_count=tier_count)
+    for tier in eligible_tiers:
+        service = BatchTicketService(event, tier, user)
+        tier_count = user_ticket_counts.get(tier.id, 0)
+        remaining = service.get_remaining_tickets(event_capacity_remaining, user_ticket_count=tier_count)
 
-            # Check if tier is sold out (total_quantity - quantity_sold <= 0)
-            tier_sold_out = False
-            if tier.total_quantity is not None:
-                tier_sold_out = (tier.total_quantity - tier.quantity_sold) <= 0
+        # Check if tier is sold out (total_quantity - quantity_sold <= 0)
+        tier_sold_out = tier.total_quantity is not None and (tier.total_quantity - tier.quantity_sold) <= 0
 
-            remaining_list.append(TierRemainingTickets(tier_id=tier.id, remaining=remaining, sold_out=tier_sold_out))
+        remaining_list.append(TierRemainingTickets(tier_id=tier.id, remaining=remaining, sold_out=tier_sold_out))
 
-        # can_purchase_more is True if any tier has remaining quota AND is not sold out
-        can_purchase = any((r.remaining is None or r.remaining > 0) and not r.sold_out for r in remaining_list)
+    # can_purchase_more is True if any tier has remaining quota AND is not sold out
+    can_purchase = any((r.remaining is None or r.remaining > 0) and not r.sold_out for r in remaining_list)
 
-        return UserEventStatus(
-            tickets=tickets,
-            can_purchase_more=can_purchase,
-            remaining_tickets=remaining_list,
-        )
-
-    # Check for RSVP (non-ticketed events)
-    rsvp = EventRSVP.objects.filter(event=event, user_id=user.id).first()
-    if rsvp:
-        return UserEventStatus(tickets=[], rsvp=rsvp)
-
-    # No tickets or RSVP - return eligibility check
-    return EventManager(user, event).check_eligibility()
+    return UserEventStatus(
+        tickets=tickets,
+        can_purchase_more=can_purchase,
+        remaining_tickets=remaining_list,
+    )
 
 
 @transaction.atomic
