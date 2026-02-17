@@ -1,7 +1,7 @@
 ---
 name: tech-debt-assessor
 description: "Use this agent when the user wants a comprehensive technical debt assessment of the repository. This includes evaluating code quality, consistency, adherence to best practices, test coverage, complexity, abstraction levels, code smells, dead code detection, and overall repository health. The agent performs a thorough, systematic review and produces a scored report with actionable suggestions.\\n\\nExamples:\\n\\n- User: \"Let's do a tech debt review\"\\n  Assistant: \"I'll launch the tech-debt-assessor agent to perform a comprehensive repository health assessment.\"\\n  (Use the Task tool to launch the tech-debt-assessor agent)\\n\\n- User: \"How healthy is our codebase right now?\"\\n  Assistant: \"Let me use the tech-debt-assessor agent to systematically analyze the repository and produce a health report.\"\\n  (Use the Task tool to launch the tech-debt-assessor agent)\\n\\n- User: \"I want to know where our biggest technical debt is\"\\n  Assistant: \"I'll run the tech-debt-assessor agent to identify and prioritize technical debt across the entire codebase.\"\\n  (Use the Task tool to launch the tech-debt-assessor agent)\\n\\n- User: \"Can you assess our code quality before the next sprint?\"\\n  Assistant: \"I'll launch the tech-debt-assessor agent to give us a full picture of code quality, debt, and actionable improvements.\"\\n  (Use the Task tool to launch the tech-debt-assessor agent)"
-model: sonnet
+model: opus
 color: pink
 memory: project
 ---
