@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.36.0] - 2026-02-16
+
+### Added
+- **Ticket File Caching**: generated PDF and pkpass files are now persisted on the Ticket model with content-hash-based invalidation, avoiding regeneration on every download
+- PDF download endpoint (`GET /tickets/{id}/pdf`) with signed-URL redirects
+- Daily cleanup task for cached ticket files of past events
+- MkDocs documentation site
+
+### Changed
+- Replaced OpenAI SDK with Instructor's `from_provider()` for vendor-agnostic structured LLM output in questionnaire evaluation
+- Consolidated evaluator class hierarchy from 6 classes to 3 with dedicated LLM settings module
+
+## [1.35.1] - 2026-02-15
+
+### Fixed
+- Follower notifications (`NEW_EVENT_FROM_FOLLOWED_ORG`/`NEW_EVENT_FROM_FOLLOWED_SERIES`) now receive email notifications (previously restricted to in-app only)
+- `display_order` field exposed on `TicketTierSchema` with proper ordering
+
 ## [1.35.0] - 2026-02-14
 
 ### Added
@@ -750,7 +768,9 @@ Initial release of the Revel Backend platform.
 ### Internationalization
 - English, German, Italian support
 
-[Unreleased]: https://github.com/letsrevel/revel-backend/compare/v1.35.0...HEAD
+[Unreleased]: https://github.com/letsrevel/revel-backend/compare/v1.36.0...HEAD
+[1.36.0]: https://github.com/letsrevel/revel-backend/compare/v1.35.1...v1.36.0
+[1.35.1]: https://github.com/letsrevel/revel-backend/compare/v1.35.0...v1.35.1
 [1.35.0]: https://github.com/letsrevel/revel-backend/compare/v1.34.4...v1.35.0
 [1.34.4]: https://github.com/letsrevel/revel-backend/compare/v1.34.3...v1.34.4
 [1.34.3]: https://github.com/letsrevel/revel-backend/compare/v1.34.2...v1.34.3
