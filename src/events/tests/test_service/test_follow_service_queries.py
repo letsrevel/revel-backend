@@ -9,7 +9,7 @@ import typing as t
 import pytest
 
 from accounts.models import RevelUser
-from events.models import EventSeries, Organization, OrganizationMember
+from events.models import EventSeries, Organization, OrganizationMember, OrganizationStaff
 from events.models.follow import EventSeriesFollow, OrganizationFollow
 from events.service import follow_service
 from notifications.enums import NotificationType
@@ -254,6 +254,136 @@ class TestGetFollowersForNewEventNotification:
         assert len(results) == 1
         user, _ = results[0]
         assert user == nonmember_user
+
+    def test_excludes_staff_from_follower_notifications(
+        self,
+        organization: Organization,
+        organization_staff_user: RevelUser,
+        staff_member: OrganizationStaff,
+        nonmember_user: RevelUser,
+    ) -> None:
+        """Test that staff members are excluded from follower notifications.
+
+        Staff already receive EVENT_OPEN notifications via the staff path,
+        so they should not also get follower notifications.
+        """
+        # Arrange - Staff user follows the org
+        OrganizationFollow.objects.create(
+            user=organization_staff_user,
+            organization=organization,
+            is_archived=False,
+            notify_new_events=True,
+        )
+        # Non-member follower
+        OrganizationFollow.objects.create(
+            user=nonmember_user,
+            organization=organization,
+            is_archived=False,
+            notify_new_events=True,
+        )
+
+        # Act
+        results = list(follow_service.get_followers_for_new_event_notification(organization, event_series=None))
+
+        # Assert - Only non-member follower notified
+        assert len(results) == 1
+        user, _ = results[0]
+        assert user == nonmember_user
+
+    def test_excludes_owner_from_follower_notifications(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        nonmember_user: RevelUser,
+    ) -> None:
+        """Test that the org owner is excluded from follower notifications.
+
+        Owner already receives EVENT_OPEN notifications via the owner path.
+        """
+        # Arrange - Owner follows their own org
+        OrganizationFollow.objects.create(
+            user=organization_owner_user,
+            organization=organization,
+            is_archived=False,
+            notify_new_events=True,
+        )
+        # Non-member follower
+        OrganizationFollow.objects.create(
+            user=nonmember_user,
+            organization=organization,
+            is_archived=False,
+            notify_new_events=True,
+        )
+
+        # Act
+        results = list(follow_service.get_followers_for_new_event_notification(organization, event_series=None))
+
+        # Assert - Only non-member follower notified
+        assert len(results) == 1
+        user, _ = results[0]
+        assert user == nonmember_user
+
+    def test_cancelled_member_receives_follower_notification(
+        self,
+        organization: Organization,
+        revel_user_factory: t.Any,
+    ) -> None:
+        """Test that cancelled members DO receive follower notifications.
+
+        Cancelled members left voluntarily and no longer get EVENT_OPEN,
+        so they should receive follower notifications if they still follow.
+        """
+        # Arrange
+        cancelled_member = revel_user_factory()
+        OrganizationMember.objects.create(
+            user=cancelled_member,
+            organization=organization,
+            status=OrganizationMember.MembershipStatus.CANCELLED,
+        )
+        OrganizationFollow.objects.create(
+            user=cancelled_member,
+            organization=organization,
+            is_archived=False,
+            notify_new_events=True,
+        )
+
+        # Act
+        results = list(follow_service.get_followers_for_new_event_notification(organization, event_series=None))
+
+        # Assert - Cancelled member should receive follower notification
+        assert len(results) == 1
+        user, notification_type = results[0]
+        assert user == cancelled_member
+        assert notification_type == NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG
+
+    def test_banned_member_receives_no_follower_notification(
+        self,
+        organization: Organization,
+        revel_user_factory: t.Any,
+    ) -> None:
+        """Test that banned members do NOT receive follower notifications.
+
+        Banned members should not receive any notifications from the org.
+        """
+        # Arrange
+        banned_member = revel_user_factory()
+        OrganizationMember.objects.create(
+            user=banned_member,
+            organization=organization,
+            status=OrganizationMember.MembershipStatus.BANNED,
+        )
+        OrganizationFollow.objects.create(
+            user=banned_member,
+            organization=organization,
+            is_archived=False,
+            notify_new_events=True,
+        )
+
+        # Act
+        results = list(follow_service.get_followers_for_new_event_notification(organization, event_series=None))
+
+        # Assert - Banned member should NOT receive any notification
+        assert len(results) == 0
 
     def test_excludes_paused_members_from_follower_notifications(
         self,

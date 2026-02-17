@@ -11,7 +11,7 @@ import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, EventSeries, Organization, OrganizationMember
+from events.models import Event, EventSeries, Organization, OrganizationMember, OrganizationStaff
 from events.models.follow import EventSeriesFollow, OrganizationFollow
 from notifications.enums import NotificationType
 
@@ -320,6 +320,238 @@ class TestHandleEventOpenedNotifyFollowers:
             and c.kwargs.get("notification_type") == NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG
         ]
         assert len(member_follower_calls) == 0
+
+    def test_excludes_staff_from_follower_notifications(
+        self,
+        organization: Organization,
+        nonmember_user: RevelUser,
+        revel_user_factory: t.Any,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Test that staff members who also follow the org don't get follower notifications.
+
+        Staff already receive EVENT_OPEN via the staff notification path, so they
+        must be excluded from follower notifications to prevent duplicates.
+        """
+        # Arrange
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save()
+
+        staff_user = revel_user_factory()
+        OrganizationStaff.objects.create(organization=organization, user=staff_user)
+        OrganizationFollow.objects.create(
+            user=staff_user,
+            organization=organization,
+            is_archived=False,
+            notify_new_events=True,
+        )
+
+        # Non-member follower
+        OrganizationFollow.objects.create(
+            user=nonmember_user,
+            organization=organization,
+            is_archived=False,
+            notify_new_events=True,
+        )
+
+        event = Event.objects.create(
+            organization=organization,
+            name="Staff Dedup Event",
+            slug="staff-dedup-event",
+            event_type=Event.EventType.PUBLIC,
+            visibility=Event.Visibility.PUBLIC,
+            max_attendees=100,
+            start=timezone.now(),
+            status=Event.EventStatus.DRAFT,
+        )
+
+        # Act
+        with patch("events.signals.notification_requested.send") as mock_send:
+            with django_capture_on_commit_callbacks(execute=True):
+                event.status = Event.EventStatus.OPEN
+                event.save(update_fields=["status"])
+
+        # Assert - Staff should NOT get follower notification
+        follower_calls = [
+            c
+            for c in mock_send.call_args_list
+            if c.kwargs.get("notification_type") == NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG
+        ]
+        assert len(follower_calls) == 1
+        assert follower_calls[0].kwargs["user"] == nonmember_user
+
+        staff_follower_calls = [
+            c
+            for c in mock_send.call_args_list
+            if c.kwargs.get("user") == staff_user
+            and c.kwargs.get("notification_type") == NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG
+        ]
+        assert len(staff_follower_calls) == 0
+
+    def test_excludes_owner_from_follower_notifications(
+        self,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+        nonmember_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Test that the org owner who also follows the org doesn't get follower notification.
+
+        Owner already receives EVENT_OPEN via the owner notification path.
+        """
+        # Arrange
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save()
+
+        OrganizationFollow.objects.create(
+            user=organization_owner_user,
+            organization=organization,
+            is_archived=False,
+            notify_new_events=True,
+        )
+
+        # Non-member follower
+        OrganizationFollow.objects.create(
+            user=nonmember_user,
+            organization=organization,
+            is_archived=False,
+            notify_new_events=True,
+        )
+
+        event = Event.objects.create(
+            organization=organization,
+            name="Owner Dedup Event",
+            slug="owner-dedup-event",
+            event_type=Event.EventType.PUBLIC,
+            visibility=Event.Visibility.PUBLIC,
+            max_attendees=100,
+            start=timezone.now(),
+            status=Event.EventStatus.DRAFT,
+        )
+
+        # Act
+        with patch("events.signals.notification_requested.send") as mock_send:
+            with django_capture_on_commit_callbacks(execute=True):
+                event.status = Event.EventStatus.OPEN
+                event.save(update_fields=["status"])
+
+        # Assert - Owner should NOT get follower notification
+        follower_calls = [
+            c
+            for c in mock_send.call_args_list
+            if c.kwargs.get("notification_type") == NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG
+        ]
+        assert len(follower_calls) == 1
+        assert follower_calls[0].kwargs["user"] == nonmember_user
+
+    def test_cancelled_member_receives_follower_notification(
+        self,
+        organization: Organization,
+        revel_user_factory: t.Any,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Test that cancelled members DO receive follower notifications.
+
+        Cancelled members left voluntarily and no longer receive EVENT_OPEN,
+        so they should still get follower notifications if they follow the org.
+        """
+        # Arrange
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save()
+
+        cancelled_member = revel_user_factory()
+        OrganizationMember.objects.create(
+            user=cancelled_member,
+            organization=organization,
+            status=OrganizationMember.MembershipStatus.CANCELLED,
+        )
+        OrganizationFollow.objects.create(
+            user=cancelled_member,
+            organization=organization,
+            is_archived=False,
+            notify_new_events=True,
+        )
+
+        event = Event.objects.create(
+            organization=organization,
+            name="Cancelled Member Event",
+            slug="cancelled-member-event",
+            event_type=Event.EventType.PUBLIC,
+            visibility=Event.Visibility.PUBLIC,
+            max_attendees=100,
+            start=timezone.now(),
+            status=Event.EventStatus.DRAFT,
+        )
+
+        # Act
+        with patch("events.signals.notification_requested.send") as mock_send:
+            with django_capture_on_commit_callbacks(execute=True):
+                event.status = Event.EventStatus.OPEN
+                event.save(update_fields=["status"])
+
+        # Assert - Cancelled member should receive follower notification
+        follower_calls = [
+            c
+            for c in mock_send.call_args_list
+            if c.kwargs.get("notification_type") == NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG
+        ]
+        assert len(follower_calls) == 1
+        assert follower_calls[0].kwargs["user"] == cancelled_member
+
+    def test_banned_member_receives_no_notifications(
+        self,
+        organization: Organization,
+        revel_user_factory: t.Any,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Test that banned members receive NO notifications at all.
+
+        Banned members should not receive EVENT_OPEN (via membership) or
+        follower notifications.
+        """
+        # Arrange
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save()
+
+        banned_member = revel_user_factory()
+        OrganizationMember.objects.create(
+            user=banned_member,
+            organization=organization,
+            status=OrganizationMember.MembershipStatus.BANNED,
+        )
+        OrganizationFollow.objects.create(
+            user=banned_member,
+            organization=organization,
+            is_archived=False,
+            notify_new_events=True,
+        )
+
+        event = Event.objects.create(
+            organization=organization,
+            name="Banned Member Event",
+            slug="banned-member-event",
+            event_type=Event.EventType.PUBLIC,
+            visibility=Event.Visibility.PUBLIC,
+            max_attendees=100,
+            start=timezone.now(),
+            status=Event.EventStatus.DRAFT,
+        )
+
+        # Act
+        with patch("events.signals.notification_requested.send") as mock_send:
+            with django_capture_on_commit_callbacks(execute=True):
+                event.status = Event.EventStatus.OPEN
+                event.save(update_fields=["status"])
+
+        # Assert - Banned member should NOT receive any follower notification
+        banned_calls = [
+            c
+            for c in mock_send.call_args_list
+            if c.kwargs.get("user") == banned_member
+            and c.kwargs.get("notification_type")
+            in [NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG, NotificationType.NEW_EVENT_FROM_FOLLOWED_SERIES]
+        ]
+        assert len(banned_calls) == 0
 
     def test_no_notification_when_status_unchanged(
         self,
