@@ -55,13 +55,6 @@ class LogoCoverArtThumbnailMixin(Schema):
         return _get_image_field_url(obj, "cover_art_social")
 
 
-def ensure_url(value: str) -> str:
-    """Mock function for now."""
-    if not value.startswith("http"):
-        return "http://localhost:8000" + value
-    return value
-
-
 class CityBaseMixin(Schema):
     city_id: int | None = None
 
