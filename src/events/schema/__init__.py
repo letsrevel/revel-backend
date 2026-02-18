@@ -11,13 +11,10 @@ from .mixins import (
     CityBaseMixin,
     CityEditMixin,
     CityRetrieveMixin,
+    LogoCoverArtThumbnailMixin,
     SocialMediaSchemaEditMixin,
     SocialMediaSchemaRetrieveMixin,
     TaggableSchemaMixin,
-    _SOCIAL_MEDIA_FIELDS,
-    _SOCIAL_MEDIA_PATTERNS,
-    _validate_social_media_url,
-    ensure_url,
 )
 
 # Organization schemas
@@ -255,13 +252,10 @@ __all__ = [
     "CityBaseMixin",
     "CityEditMixin",
     "CityRetrieveMixin",
+    "LogoCoverArtThumbnailMixin",
     "SocialMediaSchemaEditMixin",
     "SocialMediaSchemaRetrieveMixin",
     "TaggableSchemaMixin",
-    "_SOCIAL_MEDIA_FIELDS",
-    "_SOCIAL_MEDIA_PATTERNS",
-    "_validate_social_media_url",
-    "ensure_url",
     # Organization
     "ApproveMembershipRequestSchema",
     "MemberAddSchema",

@@ -1,9 +1,9 @@
 """Templates for ticket-related notifications."""
 
 import base64
-import logging
 import typing as t
 
+import structlog
 from django.utils.translation import gettext as _
 
 from events.models import Event, Ticket
@@ -12,7 +12,7 @@ from notifications.models import Notification
 from notifications.service.templates.base import NotificationTemplate
 from notifications.service.templates.registry import register_template
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 # --- Attachment Generation Helpers ---
@@ -44,7 +44,7 @@ def _generate_pdf_attachment(ticket: Ticket) -> AttachmentResult | None:
         }
         return AttachmentResult(attachment, pdf_content)
     except Exception:
-        logger.exception("Failed to generate PDF for ticket %s", ticket.id)
+        logger.exception("failed_to_generate_pdf", ticket_id=str(ticket.id))
         return None
 
 
@@ -64,7 +64,7 @@ def _generate_ics_attachment(event: Event) -> dict[str, t.Any] | None:
             "mimetype": "text/calendar",
         }
     except Exception:
-        logger.exception("Failed to generate ICS for event %s", event.id)
+        logger.exception("failed_to_generate_ics", event_id=str(event.id))
         return None
 
 
@@ -94,7 +94,7 @@ def _generate_pkpass_attachment(ticket: Ticket) -> AttachmentResult | None:
         }
         return AttachmentResult(attachment, pkpass_content)
     except Exception:
-        logger.exception("Failed to generate pkpass for ticket %s", ticket.id)
+        logger.exception("failed_to_generate_pkpass", ticket_id=str(ticket.id))
         return None
 
 
@@ -111,7 +111,7 @@ def _load_ticket(ticket_id: str) -> Ticket | None:
         # TicketManager already selects event and event__organization by default
         return Ticket.objects.full().get(pk=ticket_id)
     except Ticket.DoesNotExist:
-        logger.warning("Ticket %s not found for attachment generation", ticket_id)
+        logger.warning("ticket_not_found_for_attachment", ticket_id=str(ticket_id))
         return None
 
 
@@ -127,7 +127,7 @@ def _load_event(event_id: str) -> Event | None:
     try:
         return Event.objects.select_related("city").get(pk=event_id)
     except Event.DoesNotExist:
-        logger.warning("Event %s not found for attachment generation", event_id)
+        logger.warning("event_not_found_for_attachment", event_id=str(event_id))
         return None
 
 
@@ -188,7 +188,7 @@ def _build_ticket_attachments(
 
             ticket_file_service.cache_files(ticket, pdf_bytes=pdf_bytes, pkpass_bytes=pkpass_bytes)
         except Exception:
-            logger.warning("Failed to cache ticket files for ticket %s", ticket.id, exc_info=True)
+            logger.warning("failed_to_cache_ticket_files", ticket_id=str(ticket.id), exc_info=True)
 
     return attachments
 

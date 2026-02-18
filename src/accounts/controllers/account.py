@@ -1,11 +1,9 @@
 """This module contains the controllers for the authentication app."""
 
-import typing as t
-
 from django.utils.translation import gettext_lazy as _
 from ninja import File
 from ninja.files import UploadedFile
-from ninja_extra import ControllerBase, api_controller, route, status
+from ninja_extra import api_controller, route, status
 
 from accounts import schema, tasks
 from accounts.models import RevelUser
@@ -17,23 +15,19 @@ from accounts.schema import (
 from accounts.service import account as account_service
 from accounts.service.auth import get_token_pair_for_user
 from common.authentication import I18nJWTAuth
+from common.controllers.base import UserAwareController
 from common.schema import EmailSchema, ResponseMessage
 from common.throttling import AuthThrottle, UserDataExportThrottle, UserRegistrationThrottle, WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 
 
-@api_controller("/account", tags=["Account"], throttle=AuthThrottle())
-class AccountController(ControllerBase):
-    def user(self) -> RevelUser:
-        """Get the user for this request."""
-        return t.cast(RevelUser, self.context.request.user)  # type: ignore[union-attr]
-
+@api_controller("/account", tags=["Account"], auth=I18nJWTAuth(), throttle=AuthThrottle())
+class AccountController(UserAwareController):
     @route.post(
         "/export-data",
         response={200: ResponseMessage},
         url_name="export-data",
-        auth=I18nJWTAuth(),
         throttle=UserDataExportThrottle(),
     )
     def export_data(self) -> ResponseMessage:
@@ -50,7 +44,6 @@ class AccountController(ControllerBase):
         "/me",
         response=RevelUserSchema,
         url_name="me",
-        auth=I18nJWTAuth(),
     )
     def me(self) -> RevelUser:
         """Retrieve the authenticated user's profile information.
@@ -58,13 +51,12 @@ class AccountController(ControllerBase):
         Returns complete user profile including email, name, location preferences, and 2FA status.
         Use this to display user info in the UI or verify authentication status.
         """
-        return t.cast(RevelUser, self.context.request.user)  # type: ignore[union-attr]
+        return self.user()
 
     @route.put(
         "/me",
         response=RevelUserSchema,
         url_name="update-profile",
-        auth=I18nJWTAuth(),
     )
     def update_profile(self, payload: ProfileUpdateSchema) -> RevelUser:
         """Update the authenticated user's profile information.
@@ -73,9 +65,12 @@ class AccountController(ControllerBase):
         fields are updated. Returns the updated user profile.
         """
         user = self.user()
-        for key, value in payload.dict().items():
+        update_data = payload.model_dump(exclude_unset=True)
+        if not update_data:
+            return user
+        for key, value in update_data.items():
             setattr(user, key, value)
-        user.save(update_fields=list(payload.dict().keys()))
+        user.save(update_fields=list(update_data.keys()))
         # Refresh from DB to ensure all fields (including file fields) have correct values
         user.refresh_from_db()
         return user
@@ -84,7 +79,6 @@ class AccountController(ControllerBase):
         "/language",
         response={200: None},
         url_name="update-language",
-        auth=I18nJWTAuth(),
     )
     def update_language(self, payload: LanguageUpdateSchema) -> tuple[int, None]:
         """Update the authenticated user's preferred language.
@@ -102,6 +96,7 @@ class AccountController(ControllerBase):
         tags=["Account"],
         response={201: RevelUserSchema},
         url_name="register-account",
+        auth=None,
         throttle=UserRegistrationThrottle(),
     )
     def register(self, payload: schema.RegisterUserSchema) -> tuple[int, RevelUser]:
@@ -120,6 +115,7 @@ class AccountController(ControllerBase):
         tags=["Account"],
         response=schema.VerifyEmailResponseSchema,
         url_name="verify-email",
+        auth=None,
     )
     def verify_email(self, payload: schema.VerifyEmailSchema) -> schema.VerifyEmailResponseSchema:
         """Verify email address using the token from the verification email.
@@ -137,6 +133,7 @@ class AccountController(ControllerBase):
         tags=["Account"],
         response=ResponseMessage,
         url_name="resend-verification-email",
+        auth=None,
         throttle=UserRegistrationThrottle(),
     )
     def resend_verification_email(self, payload: EmailSchema) -> ResponseMessage:
@@ -154,7 +151,6 @@ class AccountController(ControllerBase):
         tags=["Account"],
         response=ResponseMessage,
         url_name="delete-account-request",
-        auth=I18nJWTAuth(),
     )
     def delete_account_request(self) -> ResponseMessage:
         """Initiate GDPR-compliant account deletion by sending confirmation email.
@@ -171,6 +167,7 @@ class AccountController(ControllerBase):
         tags=["Account"],
         response=ResponseMessage,
         url_name="delete-account-confirm",
+        auth=None,
     )
     def delete_account_confirm(self, payload: schema.DeleteAccountConfirmSchema) -> ResponseMessage:
         """Permanently delete the account using the confirmation token from email.
@@ -190,6 +187,7 @@ class AccountController(ControllerBase):
         tags=["Account"],
         response=ResponseMessage,
         url_name="reset-password-request",
+        auth=None,
         throttle=UserRegistrationThrottle(),
     )
     def reset_password_request(self, payload: EmailSchema) -> ResponseMessage:
@@ -207,6 +205,7 @@ class AccountController(ControllerBase):
         tags=["Account"],
         response=ResponseMessage,
         url_name="reset-password",
+        auth=None,
     )
     def reset_password(self, payload: schema.PasswordResetSchema) -> ResponseMessage:
         """Reset password using the token from the password reset email.
@@ -222,7 +221,6 @@ class AccountController(ControllerBase):
         "/me/upload-profile-picture",
         response=RevelUserSchema,
         url_name="upload-profile-picture",
-        auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
     def upload_profile_picture(self, profile_picture: File[UploadedFile]) -> RevelUser:
@@ -243,7 +241,6 @@ class AccountController(ControllerBase):
         "/me/delete-profile-picture",
         response={204: None},
         url_name="delete-profile-picture",
-        auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
     def delete_profile_picture(self) -> tuple[int, None]:

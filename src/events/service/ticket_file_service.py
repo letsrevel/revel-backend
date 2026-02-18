@@ -10,10 +10,10 @@ invalidate the hash we just stored.
 """
 
 import hashlib
-import logging
 import typing as t
 from functools import lru_cache
 
+import structlog
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 
@@ -22,7 +22,7 @@ from events.models import Ticket
 if t.TYPE_CHECKING:
     from wallet.apple.generator import ApplePassGenerator
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -90,7 +90,7 @@ def get_or_generate_pdf(ticket: Ticket) -> bytes:
                 data: bytes = f.read()
                 return data
         except Exception:
-            logger.warning("Failed to read cached PDF for ticket %s, regenerating", ticket.id)
+            logger.warning("failed_to_read_cached_pdf", ticket_id=str(ticket.id))
 
     from events.utils import create_ticket_pdf
 
@@ -114,7 +114,7 @@ def get_or_generate_pkpass(ticket: Ticket) -> bytes:
                 data: bytes = f.read()
                 return data
         except Exception:
-            logger.warning("Failed to read cached pkpass for ticket %s, regenerating", ticket.id)
+            logger.warning("failed_to_read_cached_pkpass", ticket_id=str(ticket.id))
 
     generator = get_apple_pass_generator()
     pkpass_bytes = generator.generate_pass(ticket)
@@ -196,6 +196,6 @@ def _persist_and_update(
             try:
                 default_storage.delete(old_name)
             except OSError:
-                logger.debug("Could not delete old file %s", old_name, exc_info=True)
+                logger.debug("could_not_delete_old_file", file_name=old_name, exc_info=True)
     except OSError:
-        logger.warning("Failed to persist cached files for ticket %s", ticket.id, exc_info=True)
+        logger.warning("failed_to_persist_cached_files", ticket_id=str(ticket.id), exc_info=True)

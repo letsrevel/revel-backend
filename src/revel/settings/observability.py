@@ -29,9 +29,7 @@ SERVICE_VERSION = VERSION
 OTEL_EXPORTER_OTLP_ENDPOINT = config("OTEL_EXPORTER_OTLP_ENDPOINT", default="http://localhost:4318")
 OTEL_EXPORTER_OTLP_PROTOCOL = config("OTEL_EXPORTER_OTLP_PROTOCOL", default="http/protobuf")
 
-# Pyroscope configuration (DISABLED - SDK incompatible with Grafana Pyroscope 1.6+)
-# PYROSCOPE_SERVER_ADDRESS = config("PYROSCOPE_SERVER_ADDRESS", default="http://localhost:4040")
-# PYROSCOPE_APPLICATION_NAME = f"{SERVICE_NAME}.{DEPLOYMENT_ENVIRONMENT}"
+# Pyroscope: disabled (SDK incompatible with Grafana Pyroscope 1.6+)
 
 # Prometheus configuration
 PROMETHEUS_EXPORT_MIGRATIONS = False  # Don't export migration metrics

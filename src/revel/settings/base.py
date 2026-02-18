@@ -266,7 +266,7 @@ if _cors_origins and _cors_origins != [""]:
     CORS_ALLOWED_ORIGINS: list[str] = _cors_origins
     CORS_ALLOW_ALL_ORIGINS = False
 else:
-    CORS_ALLOW_ALL_ORIGINS = True
+    CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOW_HEADERS = [
     "accept",
     "accept-encoding",

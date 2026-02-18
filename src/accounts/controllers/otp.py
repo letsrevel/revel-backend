@@ -1,13 +1,10 @@
 """This module contains the controllers for the authentication app."""
 
-import typing as t
-
 import pyotp
 import structlog
 from django.conf import settings
 from ninja.errors import HttpError
 from ninja_extra import (
-    ControllerBase,
     api_controller,
     route,
     status,
@@ -16,6 +13,7 @@ from ninja_extra import (
 from accounts import schema
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
+from common.controllers.base import UserAwareController
 from common.throttling import AuthThrottle
 from common.types import HttpRequest
 
@@ -23,11 +21,7 @@ logger = structlog.get_logger(__name__)
 
 
 @api_controller("/otp", tags=["OTP"], auth=I18nJWTAuth(), throttle=AuthThrottle())
-class OtpController(ControllerBase):
-    def user(self) -> RevelUser:
-        """Get the user for this request."""
-        return t.cast(RevelUser, self.context.request.user)  # type: ignore[union-attr]
-
+class OtpController(UserAwareController):
     @route.get(
         "/setup",
         response=schema.TOTPProvisioningUriSchema,

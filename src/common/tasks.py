@@ -161,12 +161,6 @@ def cleanup_email_logs() -> None:
     older_than_a_day.update(compressed_body=None, compressed_html=None)
 
 
-@shared_task
-def dummy_add(a: int, b: int) -> int:
-    """Dummy task to add two numbers."""
-    return a + b
-
-
 def to_safe_email_address(email: str, site_settings: SiteSettings | None = None) -> str:
     """Convert an email address to a safe format for sending.
 
