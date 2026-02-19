@@ -42,7 +42,8 @@ consistent authentication, throttling, and permission handling at the class leve
   endpoints are documented from code
 - **Performance**: Faster request/response cycle than DRF for typical workloads
 - **Less boilerplate**: Schema definitions are concise and DRY
-- **Async support**: Native async view support when needed
+- **Async support**: Native async view support when needed (currently unused —
+  see [ADR-0000](0000-no-async-orm.md))
 
 **Negative:**
 

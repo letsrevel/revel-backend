@@ -39,6 +39,7 @@ What becomes easier or harder because of this change?
 
 | ADR | Title | Status |
 |---|---|---|
+| [ADR-0000](0000-no-async-orm.md) | Synchronous ORM Over Django Async ORM | Accepted |
 | [ADR-0001](0001-hmac-caddy-over-s3.md) | HMAC-Signed URLs with Caddy Instead of S3/MinIO | Accepted |
 | [ADR-0002](0002-hybrid-service-architecture.md) | Hybrid Service Architecture (Functions + Classes) | Accepted |
 | [ADR-0003](0003-django-ninja-over-drf.md) | Django Ninja Over Django REST Framework | Accepted |
