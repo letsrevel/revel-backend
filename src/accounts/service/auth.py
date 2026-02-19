@@ -88,6 +88,7 @@ def get_token_pair_for_user(user: RevelUser) -> TokenObtainPairOutputSchema:
     )
 
 
+@transaction.atomic
 def google_login(id_token: str) -> TokenObtainPairOutputSchema:
     """Log in or register a user using Google SSO."""
     id_info = verify_oauth2_token(id_token)
@@ -109,27 +110,38 @@ def google_login(id_token: str) -> TokenObtainPairOutputSchema:
         "is_superuser": id_info.email in settings.GOOGLE_SSO_SUPERUSER_LIST,
         "is_active": True,
         "email_verified": True,
+        "guest": False,
         "language": language,
     }
+
+    sso_defaults = {"google_id": id_info.sub, "picture_url": id_info.picture, "locale": id_info.locale}
+
     if settings.GOOGLE_SSO_ALWAYS_UPDATE_USER_DATA:
         user, created = RevelUser.objects.update_or_create(
             username=id_info.email,
             defaults=defaults,
             create_defaults=defaults,
         )
+        # update_or_create clears guest flag via defaults; ensure SSO record exists
+        # for users who were guests (the flag is already overwritten so we can't check it)
+        if not created:
+            GoogleSSOUser.objects.get_or_create(user=user, defaults=sso_defaults)
     else:
-        user, created = RevelUser.objects.get_or_create(
+        user, created = RevelUser.objects.select_for_update().get_or_create(
             username=id_info.email,
             defaults=defaults,
         )
+        # get_or_create doesn't apply defaults on retrieval — clear guest flag explicitly
+        if not created and user.guest:
+            user.guest = False
+            user.email_verified = True
+            user.is_active = True
+            user.save(update_fields=["guest", "email_verified", "is_active"])
+            GoogleSSOUser.objects.create(user=user, **sso_defaults)
+
     if created:
+        GoogleSSOUser.objects.create(user=user, **sso_defaults)
         logger.info("google_sso_user_created", user_id=str(user.id), email=user.email, google_id=id_info.sub)
-        GoogleSSOUser.objects.create(
-            user=user,
-            google_id=id_info.sub,
-            picture_url=id_info.picture,
-            locale=id_info.locale,
-        )
     else:
         logger.info("google_sso_login", user_id=str(user.id), email=user.email)
     return get_token_pair_for_user(user)

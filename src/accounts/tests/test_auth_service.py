@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django_google_sso.models import GoogleSSOUser
 from ninja_jwt.schema import TokenObtainPairOutputSchema
 
 from accounts import schema
@@ -109,3 +110,61 @@ def test_google_login_existing_user(mock_verify_token: MagicMock, google_user: R
     assert RevelUser.objects.count() == 1
     google_user.refresh_from_db()
     assert google_user.first_name == "Updated"  # Data was updated
+    assert google_user.guest is False  # Regression: must not gain guest flag
+
+
+@patch("accounts.service.auth._verify_oauth2_token")
+def test_google_login_clears_guest_flag(
+    mock_verify_token: MagicMock, guest_user: RevelUser, settings: MagicMock
+) -> None:
+    """Test that Google SSO login clears the guest flag on an existing guest user."""
+    mock_id_info = schema.GoogleIDInfo(
+        email=guest_user.email,
+        given_name="Guest",
+        family_name="User",
+        sub="google-id-for-guest",
+    )
+    mock_verify_token.return_value = mock_id_info
+    settings.GOOGLE_SSO_ALWAYS_UPDATE_USER_DATA = True
+    settings.GOOGLE_SSO_STAFF_LIST = []
+    settings.GOOGLE_SSO_SUPERUSER_LIST = []
+
+    token_pair = auth_service.google_login("fake-id-token")
+
+    assert RevelUser.objects.count() == 1  # No new user created
+    guest_user.refresh_from_db()
+    assert guest_user.guest is False
+    assert guest_user.email_verified is True
+    assert isinstance(token_pair, TokenObtainPairOutputSchema)
+    assert GoogleSSOUser.objects.filter(user=guest_user).exists()
+    sso_record = GoogleSSOUser.objects.get(user=guest_user)
+    assert sso_record.google_id == "google-id-for-guest"
+
+
+@patch("accounts.service.auth._verify_oauth2_token")
+def test_google_login_clears_guest_flag_without_always_update(
+    mock_verify_token: MagicMock, guest_user: RevelUser, settings: MagicMock
+) -> None:
+    """Test that Google SSO clears guest flag even when ALWAYS_UPDATE_USER_DATA is False."""
+    mock_id_info = schema.GoogleIDInfo(
+        email=guest_user.email,
+        given_name="Guest",
+        family_name="User",
+        sub="google-id-for-guest",
+    )
+    mock_verify_token.return_value = mock_id_info
+    settings.GOOGLE_SSO_ALWAYS_UPDATE_USER_DATA = False
+    settings.GOOGLE_SSO_STAFF_LIST = []
+    settings.GOOGLE_SSO_SUPERUSER_LIST = []
+
+    token_pair = auth_service.google_login("fake-id-token")
+
+    assert RevelUser.objects.count() == 1  # No new user created
+    guest_user.refresh_from_db()
+    assert guest_user.guest is False
+    assert guest_user.email_verified is True
+    assert guest_user.is_active is True
+    assert isinstance(token_pair, TokenObtainPairOutputSchema)
+    assert GoogleSSOUser.objects.filter(user=guest_user).exists()
+    sso_record = GoogleSSOUser.objects.get(user=guest_user)
+    assert sso_record.google_id == "google-id-for-guest"
