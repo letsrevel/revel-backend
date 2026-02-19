@@ -126,3 +126,20 @@ def inactive_user(django_user_model: t.Type[RevelUser]) -> RevelUser:
         password="strong-password-123!",
         is_active=False,
     )
+
+
+@pytest.fixture
+def guest_user(django_user_model: t.Type[RevelUser]) -> RevelUser:
+    """A guest user created via the unauthenticated checkout flow."""
+    from django.contrib.auth.hashers import make_password
+
+    return django_user_model.objects.create(
+        username="guest@example.com",
+        email="guest@example.com",
+        first_name="Guest",
+        last_name="User",
+        guest=True,
+        email_verified=False,
+        is_active=True,
+        password=make_password(None),
+    )

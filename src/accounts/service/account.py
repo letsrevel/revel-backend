@@ -28,18 +28,37 @@ from common.testing import (
 logger = structlog.get_logger(__name__)
 
 
+@transaction.atomic
 def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
-    """Register a new user and send a verification email.
+    """Register a new user or convert a guest user, and send a verification email.
+
+    If the email belongs to an existing guest user, converts them to a full user
+    (sets password, updates name, clears guest flag) rather than rejecting.
+
+    Uses ``select_for_update`` on the existing-user lookup so that concurrent
+    registrations for the same guest email serialise correctly.
 
     Args:
-        payload (schema.RegisterUserSchema): The user data.
+        payload: The registration data.
 
     Returns:
-        RevelUser: The newly created user.
+        A tuple of the user and the verification token.
     """
     logger.info("user_registration_started", email=payload.email)
-    if existing_user := RevelUser.objects.filter(username=payload.email).first():
-        if not existing_user.email_verified:  # pragma: no branch
+    if existing_user := RevelUser.objects.select_for_update().filter(username=payload.email).first():
+        # Guest user registering for a full account — convert them
+        if existing_user.guest:
+            existing_user.set_password(payload.password1)
+            existing_user.first_name = payload.first_name
+            existing_user.last_name = payload.last_name
+            existing_user.guest = False
+            existing_user.email_verified = False
+            existing_user.save(update_fields=["password", "first_name", "last_name", "guest", "email_verified"])
+            logger.info(
+                "guest_user_converted_via_registration", user_id=str(existing_user.id), email=existing_user.email
+            )
+            return send_verification_email_for_user(existing_user)
+        if not existing_user.email_verified:
             logger.info("user_registration_duplicate_unverified", email=payload.email)
             send_verification_email_for_user(existing_user)
         logger.warning("user_registration_duplicate", email=payload.email)
@@ -120,6 +139,10 @@ def verify_email(token: str) -> RevelUser:
     payload = token_to_payload(token, schema.VerifyEmailJWTPayloadSchema)
     check_blacklist(payload.jti)
     if user := RevelUser.objects.filter(id=payload.user_id).first():
+        # Guest users must not be verified through this flow — they were never registered
+        if user.guest:
+            logger.warning("email_verification_blocked_guest_user", user_id=str(user.id), email=user.email)
+            raise HttpError(400, str(_("Invalid verification token.")))
         blacklist_token(token)
         was_inactive = not user.is_active
         user.is_active = user.email_verified = True
@@ -150,6 +173,11 @@ def resend_verification_email(email: str) -> None:
         user = RevelUser.objects.get(username=email)
     except RevelUser.DoesNotExist:
         logger.info("verification_email_resend_user_not_found", email=email)
+        return None
+
+    # Guest users must not receive verification emails — they were never registered
+    if user.guest:
+        logger.warning("verification_email_resend_blocked_guest_user", user_id=str(user.id), email=email)
         return None
 
     if user.email_verified:
