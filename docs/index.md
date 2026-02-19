@@ -46,6 +46,14 @@ Revel is an event management and ticketing platform designed with community at i
 
     [:octicons-arrow-right-24: Browse ADRs](adr/index.md)
 
+-   :material-alert-circle-outline:{ .lg .middle } **Post-Mortems**
+
+    ---
+
+    Security incidents, production bugs, and lessons learned.
+
+    [:octicons-arrow-right-24: Browse Post-Mortems](postmortems/index.md)
+
 </div>
 
 ---
