@@ -31,7 +31,7 @@ except when registering, users do not have a way to navigate to a
 
 #### 2. Guest user handling
 It was deemed important to give event organizers the ability to choose whether potential attendees to their events
-must create an account on Revel in order to purchase tickets or RSVP
+must create an account on Revel in order to purchase tickets or RSVP.
 
 Handling guest checkout is a non-trivial feat. Therefore, in order not to re-architect the platform to enforce
 strict separation between `identity` and `users`, it was decided to go with the tradeoff of users marked
