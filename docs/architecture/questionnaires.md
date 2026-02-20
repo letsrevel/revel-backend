@@ -46,7 +46,7 @@ erDiagram
         string name
         string description
         int order
-        FK depends_on_option
+        uuid depends_on_option FK
     }
 
     MultipleChoiceQuestion {
@@ -60,7 +60,7 @@ erDiagram
         int order
         boolean allow_multiple_answers
         boolean shuffle_options
-        FK depends_on_option
+        uuid depends_on_option FK
     }
 
     FreeTextQuestion {
@@ -73,7 +73,7 @@ erDiagram
         boolean is_mandatory
         int order
         string llm_guidelines
-        FK depends_on_option
+        uuid depends_on_option FK
     }
 
     FileUploadQuestion {
@@ -85,10 +85,10 @@ erDiagram
         boolean is_fatal
         boolean is_mandatory
         int order
-        list allowed_mime_types
+        string[] allowed_mime_types
         int max_file_size
         int max_files
-        FK depends_on_option
+        uuid depends_on_option FK
     }
 
     MultipleChoiceOption {
@@ -98,26 +98,26 @@ erDiagram
     }
 
     MultipleChoiceAnswer {
-        FK submission
-        FK question
-        FK option
+        uuid submission FK
+        uuid question FK
+        uuid option FK
     }
 
     FreeTextAnswer {
-        FK submission
-        FK question
+        uuid submission FK
+        uuid question FK
         string answer
     }
 
     FileUploadAnswer {
-        FK submission
-        FK question
-        M2M files
+        uuid submission FK
+        uuid question FK
+        uuid[] files
     }
 
     QuestionnaireFile {
-        FK uploader
-        file file
+        uuid uploader FK
+        binary file
         string original_filename
         string file_hash
         string mime_type
@@ -125,21 +125,21 @@ erDiagram
     }
 
     QuestionnaireSubmission {
-        FK questionnaire
-        FK user
+        uuid questionnaire FK
+        uuid user FK
         string status
         datetime submitted_at
         json metadata
     }
 
     QuestionnaireEvaluation {
-        FK submission
+        uuid submission FK
         decimal score
         string status
         string proposed_status
         string comments
         boolean automatically_evaluated
-        FK evaluator
+        uuid evaluator FK
         json raw_evaluation_data
     }
 ```
