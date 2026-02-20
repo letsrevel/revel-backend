@@ -432,8 +432,8 @@ class TestListWaitlist:
         """
         # Arrange
         EventWaitList.objects.all().delete()
-        user1 = revel_user_factory(email="john@example.com")
-        user2 = revel_user_factory(email="jane@example.com")
+        user1 = revel_user_factory(email="john@example.com", first_name="John", last_name="Doe")
+        user2 = revel_user_factory(email="jane@example.com", first_name="Jane", last_name="Smith")
         EventWaitList.objects.create(event=public_event, user=user1)
         EventWaitList.objects.create(event=public_event, user=user2)
 
