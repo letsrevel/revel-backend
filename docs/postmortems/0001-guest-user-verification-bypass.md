@@ -2,27 +2,57 @@
 
 ## Summary
 
-Guest users — created via the unauthenticated checkout/RSVP flow — could
+Guest users created via the unauthenticated checkout/RSVP flow could
 escalate to fully authenticated users while retaining `guest=True`. The users
 who triggered this were legitimately eligible for the events they participated
-in — they passed all screening gates normally. However, they obtained full JWT
+in, as they passed all screening gates normally. However, they obtained full JWT
 tokens without ever setting a password, effectively receiving a magic-link login
-through the verification flow. The root cause was that the registration and
+through the email verification flow. The root cause was that the registration and
 email verification flows did not distinguish between guest and non-guest users.
 
 ## Detection
 
+### Context
+
+Two UX tradeoffs provide relevant context to understand the scenario at hand.
+
+#### 1. Alternative email verification flow
+At the beginning of the implementation of Revel a decision was made: if a registered user,
+with unverified email, attempts to register again with the same email, the backend:
+
+- silently (re-)sends an email verification link
+- responds with a 400
+
+This decision was made to strike a trade-off between security by obscurity and usability:
+accounts with unverified emails are eventually deleted
+(after a few warning emails over the course of several weeks), and,
+except when registering, users do not have a way to navigate to a
+"verify my email again" page without logging in first.
+
+#### 2. Guest user handling
+It was deemed important to give event organizers the ability to choose whether potential attendees to their events
+must create an account on Revel in order to purchase tickets or RSVP
+
+Handling guest checkout is a non-trivial feat. Therefore, in order not to re-architect the platform to enforce
+strict separation between `identity` and `users`, it was decided to go with the tradeoff of users marked
+as `guest` with an unusable password. This way, for the checkout flows, the same business logic
+and models could be used to perform the eligibility checks.
+Going through a password reset flow activates the users, verifies their email and removes the `guest` flag.
+
+
+### Discovery
+
 The issue was discovered during a routine admin panel inspection. Several users
 displayed an inconsistent combination of flags:
 
-- `guest = True` (checkmark in admin)
-- `email_verified = True` (checkmark in admin)
+- `guest = True`
+- `email_verified = True`
 - Active participation in an event that required a mandatory screening
-  questionnaire — something only regular (non-guest) users can submit
+  questionnaire, which only regular (non-guest) users can submit
 
 Further inspection revealed these users also had pronouns and a preferred name
-set, which is only possible via the `PUT /account/me` endpoint — an
-authenticated endpoint. Structured logs confirmed that these users were
+set, which is only possible via the `PUT /account/me` authenticated endpoint.
+Log timestamps compatible with `date_joined` and `last_login` revealed that users were
 successfully calling `update_profile`, meaning they held valid JWT tokens.
 
 ### Investigating bottom-up
@@ -65,7 +95,7 @@ the only viable path.
 11. The frontend logs the user in with the JWT. The user is now fully
     authenticated but still `guest=True`.
 12. The user updates their profile (pronouns, preferred name) and submits the
-    screening questionnaire — all through legitimate flows, but as a user who
+    screening questionnaire: all through legitimate flows, but as a user who
     should never have held a JWT in the first place.
 
 ## Root Cause
