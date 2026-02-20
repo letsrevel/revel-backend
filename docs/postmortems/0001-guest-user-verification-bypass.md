@@ -52,7 +52,7 @@ displayed an inconsistent combination of flags:
 
 Further inspection revealed these users also had pronouns and a preferred name
 set, which is only possible via the `PUT /account/me` authenticated endpoint.
-Log timestamps compatible with `date_joined` and `last_login` revealed that users were
+Log timestamps consistent with `date_joined` and `last_login` revealed that users were
 successfully calling `update_profile`, meaning they held valid JWT tokens.
 
 ### Investigating bottom-up
