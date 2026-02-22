@@ -389,6 +389,10 @@ class TestDuplicateEvent:
             new_start=new_start,
         )
 
+        # Refresh so sales dates are UTC-aware (as stored in DB), avoiding
+        # DST mismatch with the in-memory Vienna-aware originals.
+        original_tier.refresh_from_db()
+
         new_tiers = list(new_event.ticket_tiers.all())
         # Should have the Early Bird tier (default tier excluded because of signal disconnect)
         early_bird_tier = next((t for t in new_tiers if t.name == "Early Bird"), None)
