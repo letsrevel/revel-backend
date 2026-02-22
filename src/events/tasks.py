@@ -220,7 +220,7 @@ def cleanup_ticket_file_cache() -> dict[str, int]:
     ).filter(Q(pdf_file__gt="") | Q(pkpass_file__gt=""))
 
     cleaned_pks: list[UUID] = []
-    for ticket in tickets_with_files.only("pk", "pdf_file", "pkpass_file").iterator():
+    for ticket in tickets_with_files.only("pk", "pdf_file", "pkpass_file"):
         try:
             if ticket.pdf_file:
                 ticket.pdf_file.delete(save=False)
