@@ -1,5 +1,6 @@
 """Utility functions for notification formatting."""
 
+import html
 import re
 import typing as t
 from datetime import datetime
@@ -75,13 +76,15 @@ def format_org_signature(
 
     if channel == "email":
         # HTML format for email
+        safe_name = html.escape(org_name)
         logo_html = ""
         if include_logo and logo_url:
             logo_style = "height: 32px; margin-right: 8px; vertical-align: middle;"
-            logo_html = f'<img src="{logo_url}" alt="{org_name}" style="{logo_style}">'
+            logo_html = f'<img src="{html.escape(logo_url)}" alt="{safe_name}" style="{logo_style}">'
 
         link_style = "color: #2196F3; text-decoration: none;"
-        return f'<p style="margin: 0;">{logo_html}<a href="{org_url}" style="{link_style}">{org_name}</a></p>'
+        escaped_url = html.escape(org_url)
+        return f'<p style="margin: 0;">{logo_html}<a href="{escaped_url}" style="{link_style}">{safe_name}</a></p>'
 
     # Markdown format for in-app and telegram
     return f"[{org_name}]({org_url})"
