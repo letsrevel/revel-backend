@@ -1,11 +1,14 @@
 """Tests for notification dispatcher service."""
 
+import pickle
+
 import pytest
 
 from accounts.models import RevelUser
 from notifications.enums import DeliveryChannel, NotificationType
 from notifications.models import NotificationPreference
 from notifications.service.dispatcher import create_notification, determine_delivery_channels
+from notifications.tasks import BatchDispatchError
 
 pytestmark = pytest.mark.django_db
 
@@ -261,3 +264,28 @@ class TestDetermineDeliveryChannels:
         # Assert - Should use global channels
         assert set(channels) == {DeliveryChannel.IN_APP, DeliveryChannel.TELEGRAM}
         assert DeliveryChannel.EMAIL not in channels
+
+
+class TestBatchDispatchError:
+    """Test BatchDispatchError pickle round-tripping for Celery result backend."""
+
+    def test_pickle_round_trip_preserves_attributes(self) -> None:
+        """Verify failed_ids and total survive pickle/unpickle."""
+        failed_ids = ["id-1", "id-2", "id-3"]
+        total = 10
+        original = BatchDispatchError(failed_ids=failed_ids, total=total)
+
+        restored = pickle.loads(pickle.dumps(original))
+
+        assert restored.failed_ids == failed_ids
+        assert restored.total == total
+        assert str(restored) == str(original)
+
+    def test_pickle_round_trip_empty_failed_ids(self) -> None:
+        """Verify edge case with no failed IDs."""
+        original = BatchDispatchError(failed_ids=[], total=0)
+
+        restored = pickle.loads(pickle.dumps(original))
+
+        assert restored.failed_ids == []
+        assert restored.total == 0

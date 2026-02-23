@@ -118,6 +118,10 @@ class BatchDispatchError(Exception):
         self.total = total
         super().__init__(f"{len(failed_ids)}/{total} notifications failed to dispatch")
 
+    def __reduce__(self) -> tuple[type["BatchDispatchError"], tuple[list[str], int]]:
+        """Make exception picklable for Celery result backend."""
+        return (self.__class__, (self.failed_ids, self.total))
+
 
 @shared_task
 def dispatch_notifications_batch(notification_ids: list[str]) -> dict[str, t.Any]:

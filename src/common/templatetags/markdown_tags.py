@@ -5,6 +5,7 @@ import re
 from django import template
 from django.utils.html import strip_tags
 from django.utils.safestring import mark_safe
+from markdownify import markdownify
 
 from common.fields import render_markdown
 
@@ -56,3 +57,20 @@ def html_to_text(value: str | None) -> str:
     text = re.sub(r"[ \t]*\n", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+@register.filter
+def html_to_markdown(value: str | None) -> str:
+    """Convert HTML to Markdown, preserving links and formatting.
+
+    Uses markdownify to convert WYSIWYG (Trix) HTML into Markdown suitable
+    for the in-app notification channel where the frontend renders Markdown.
+
+    Usage:
+        {% load markdown_tags %}
+        {{ context.announcement_body|html_to_markdown }}
+    """
+    if not value:
+        return ""
+
+    return markdownify(value).strip()
