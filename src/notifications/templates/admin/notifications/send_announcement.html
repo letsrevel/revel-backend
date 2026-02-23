@@ -1,0 +1,122 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+    {{ block.super }}
+    {{ form.media }}
+{% endblock %}
+
+{% block bodyclass %}{{ block.super }} app-notifications model-notification send-announcement{% endblock %}
+
+{% block breadcrumbs %}
+    <nav class="flex font-medium mb-4 text-sm" aria-label="Breadcrumb">
+        <ol class="inline-flex items-center">
+            <li class="inline-flex items-center">
+                <a href="{% url 'admin:index' %}" class="inline-flex items-center text-primary-600 hover:text-primary-700 dark:text-primary-500 dark:hover:text-primary-400">
+                    {% translate 'Home' %}
+                </a>
+            </li>
+            <li>
+                <div class="flex items-center">
+                    <span class="mx-2 text-base-400">/</span>
+                    <a href="{% url 'admin:app_list' 'notifications' %}" class="text-primary-600 hover:text-primary-700 dark:text-primary-500 dark:hover:text-primary-400">
+                        {% translate 'Notifications' %}
+                    </a>
+                </div>
+            </li>
+            <li>
+                <div class="flex items-center">
+                    <span class="mx-2 text-base-400">/</span>
+                    <span class="text-base-500 dark:text-base-400">{% translate 'Send Announcement' %}</span>
+                </div>
+            </li>
+        </ol>
+    </nav>
+{% endblock %}
+
+{% block content_title %}
+    <h1 class="font-semibold mb-6 text-xl text-font-important-light dark:text-font-important-dark">
+        {% translate "Send System Announcement" %}
+    </h1>
+{% endblock %}
+
+{% block content %}
+    <div class="border border-base-200 rounded-default shadow-xs dark:border-base-800">
+        <form method="post" class="p-6 space-y-6">
+            {% csrf_token %}
+
+            {% if form.errors %}
+                <div class="border border-red-300 bg-red-50 rounded-default p-4 dark:border-red-800 dark:bg-red-900/20">
+                    <p class="font-semibold text-red-800 dark:text-red-200 mb-2">
+                        {% translate "Please correct the errors below." %}
+                    </p>
+                    {{ form.errors }}
+                </div>
+            {% endif %}
+
+            {# Title #}
+            <div class="group">
+                <label for="{{ form.title.id_for_label }}" class="block font-medium text-sm text-font-important-light dark:text-font-important-dark mb-1">
+                    {% translate "Title" %} <span class="text-red-500">*</span>
+                </label>
+                {{ form.title }}
+                {% if form.title.help_text %}
+                    <p class="mt-1 text-xs text-base-500 dark:text-base-400">{{ form.title.help_text }}</p>
+                {% endif %}
+            </div>
+
+            {# Body (Trix WYSIWYG) #}
+            <div class="group">
+                <label for="{{ form.body.id_for_label }}" class="block font-medium text-sm text-font-important-light dark:text-font-important-dark mb-1">
+                    {% translate "Body" %} <span class="text-red-500">*</span>
+                </label>
+                {{ form.body }}
+                {% if form.body.help_text %}
+                    <p class="mt-1 text-xs text-base-500 dark:text-base-400">{{ form.body.help_text }}</p>
+                {% endif %}
+            </div>
+
+            {# URL #}
+            <div class="group">
+                <label for="{{ form.url.id_for_label }}" class="block font-medium text-sm text-font-important-light dark:text-font-important-dark mb-1">
+                    {% translate "URL" %}
+                </label>
+                {{ form.url }}
+                {% if form.url.help_text %}
+                    <p class="mt-1 text-xs text-base-500 dark:text-base-400">{{ form.url.help_text }}</p>
+                {% endif %}
+            </div>
+
+            {# Include guests #}
+            <div class="group flex items-center gap-2">
+                {{ form.include_guests }}
+                <label for="{{ form.include_guests.id_for_label }}" class="font-medium text-sm text-font-important-light dark:text-font-important-dark">
+                    {% translate "Include guest users" %}
+                </label>
+                {% if form.include_guests.help_text %}
+                    <p class="text-xs text-base-500 dark:text-base-400 ml-2">{{ form.include_guests.help_text }}</p>
+                {% endif %}
+            </div>
+
+            {# Warning #}
+            <div class="bg-amber-50 border border-amber-200 rounded-default p-4 dark:bg-amber-900/20 dark:border-amber-800">
+                <p class="text-sm text-amber-800 dark:text-amber-200">
+                    <strong>{% translate "Warning" %}:</strong>
+                    {% translate "This will send a notification to all matching active users via all enabled channels (in-app, email, Telegram). This action cannot be undone." %}
+                </p>
+            </div>
+
+            {# Actions #}
+            <div class="flex items-center justify-end gap-3 border-t border-base-200 dark:border-base-800 pt-4">
+                <a href="{% url 'admin:notifications_notification_changelist' %}"
+                   class="bg-base-100 border border-base-300 font-medium px-4 py-2 rounded-default text-sm text-base-700 hover:bg-base-200 dark:bg-base-800 dark:border-base-600 dark:text-base-200 dark:hover:bg-base-700">
+                    {% translate "Cancel" %}
+                </a>
+                <button type="submit"
+                        class="bg-primary-600 border border-transparent font-medium px-4 py-2 rounded-default text-sm text-white hover:bg-primary-700">
+                    {% translate "Send Announcement" %}
+                </button>
+            </div>
+        </form>
+    </div>
+{% endblock %}

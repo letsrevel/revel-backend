@@ -64,6 +64,9 @@ class NotificationType(TextChoices):
     WHITELIST_REQUEST_APPROVED = "whitelist_request_approved"  # Notify user when approved
     WHITELIST_REQUEST_REJECTED = "whitelist_request_rejected"  # Notify user when rejected
 
+    # System notifications
+    SYSTEM_ANNOUNCEMENT = "system_announcement"  # Platform-wide announcements (privacy, ToC, etc.)
+
     # Follow notifications
     ORGANIZATION_FOLLOWED = "organization_followed"  # Notify org admins when someone follows
     EVENT_SERIES_FOLLOWED = "event_series_followed"  # Notify org admins when someone follows a series

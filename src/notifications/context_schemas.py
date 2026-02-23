@@ -346,6 +346,14 @@ class OrgAnnouncementContext(BaseNotificationContext):
     event_url: t.NotRequired[str]
 
 
+class SystemAnnouncementContext(BaseNotificationContext):
+    """Context for SYSTEM_ANNOUNCEMENT notification."""
+
+    announcement_title: str
+    announcement_body: str
+    policy_url: t.NotRequired[str]
+
+
 # ===== Waitlist Contexts =====
 
 
@@ -480,6 +488,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_REQUEST_APPROVED: MembershipContext,
     NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,
+    NotificationType.SYSTEM_ANNOUNCEMENT: SystemAnnouncementContext,
     NotificationType.WAITLIST_SPOT_AVAILABLE: WaitlistSpotAvailableContext,
     NotificationType.WHITELIST_REQUEST_CREATED: WhitelistRequestCreatedContext,
     NotificationType.WHITELIST_REQUEST_APPROVED: WhitelistRequestApprovedContext,
