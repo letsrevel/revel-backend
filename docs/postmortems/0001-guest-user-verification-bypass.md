@@ -6,7 +6,7 @@ Guest users created via the unauthenticated checkout/RSVP flow could
 escalate to fully authenticated users while retaining `guest=True`. The users
 who triggered this were legitimately eligible for the events they participated
 in, as they passed all screening gates normally. However, they obtained full `JWT`
-tokens without ever setting a password, effectively receiving a magic-link login
+without ever setting a password, effectively receiving a magic-link login
 through the email verification flow. The root cause was that the registration and
 email verification flows did not distinguish between guest and non-guest users.
 
