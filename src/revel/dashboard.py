@@ -320,6 +320,11 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
             "url": "https://grafana.letsrevel.io",
             "icon": "📊",
         },
+        {
+            "title": "Send Announcement",
+            "url": reverse("admin:notifications_notification_send_announcement"),
+            "icon": "📢",
+        },
     ]
 
     # Update context with dashboard data

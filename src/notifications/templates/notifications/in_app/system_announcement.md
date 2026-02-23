@@ -1,0 +1,4 @@
+{%load i18n %}{{context.announcement_body}}
+{% if context.policy_url %}
+[{%trans "Read more"%}]({{context.policy_url}})
+{% endif %}
