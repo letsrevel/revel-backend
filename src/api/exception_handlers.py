@@ -42,8 +42,6 @@ def handle_general_exception(request: HttpRequest, exc: Exception | t.Type[Excep
     Returns:
         The response.
     """
-    is_staff = getattr(request, "user", None) and request.user.is_staff
-
     # Parse JSON payload if present (for better debugging context)
     json_payload = None
     if request.method in ("POST", "PUT", "PATCH") and request.headers.get("Content-Type") == "application/json":
@@ -69,7 +67,7 @@ def handle_general_exception(request: HttpRequest, exc: Exception | t.Type[Excep
 
     # Return response
     data = {"detail": str(_("Internal Server Error."))}
-    if settings.DEBUG or is_staff:  # pragma: no cover
+    if settings.DEBUG:  # pragma: no cover
         data["traceback"] = traceback.format_exc()
 
     return Response(status=500, data=data)

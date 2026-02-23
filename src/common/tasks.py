@@ -32,6 +32,13 @@ from common.thumbnails.tasks import (  # noqa: F401
 logger = structlog.get_logger(__name__)
 
 
+_ALLOWED_EMAIL_CALLBACKS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("accounts.tasks", "mark_reminder_sent"),
+    }
+)
+
+
 def _execute_email_callback(callback_data: dict[str, t.Any], success: bool, error_message: str | None) -> None:
     """Execute callback function after email delivery attempt.
 
@@ -47,6 +54,15 @@ def _execute_email_callback(callback_data: dict[str, t.Any], success: bool, erro
 
         if not module_path or not function_name:
             logger.error("Invalid callback_data: missing module or function", callback_data=callback_data)
+            return
+
+        if (module_path, function_name) not in _ALLOWED_EMAIL_CALLBACKS:
+            logger.error(
+                "email_callback_blocked",
+                module=module_path,
+                function=function_name,
+                reason="not in allowlist",
+            )
             return
 
         # Import module and get function
