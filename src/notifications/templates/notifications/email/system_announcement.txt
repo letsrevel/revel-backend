@@ -1,7 +1,7 @@
 {%load i18n %}{{ context.announcement_title }}
 Revel
 
-{{ context.announcement_body }}
+{{ context.announcement_body|striptags }}
 {% if context.policy_url %}
 {%trans "Read more:" %} {{ context.policy_url }}
 {% endif %}
