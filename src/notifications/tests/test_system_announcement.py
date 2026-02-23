@@ -224,6 +224,15 @@ def admin_client(superuser: RevelUser) -> Client:
     return client
 
 
+@pytest.fixture(autouse=True)
+def _use_simple_staticfiles(settings: t.Any) -> None:
+    """Use plain StaticFilesStorage so admin templates don't need a manifest."""
+    settings.STORAGES = {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+    }
+
+
 class TestSendSystemAnnouncementAdminView:
     """Tests for the admin Send System Announcement view."""
 

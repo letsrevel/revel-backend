@@ -181,8 +181,8 @@ class NotificationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
             if url:
                 context["policy_url"] = url
 
-            # Query target users
-            users = RevelUser.objects.filter(is_active=True)
+            # Query target users (exclude the sender)
+            users = RevelUser.objects.filter(is_active=True).exclude(pk=request.user.pk)
             if not include_guests:
                 users = users.filter(guest=False)
 
