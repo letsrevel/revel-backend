@@ -9,6 +9,14 @@ from django.utils import timezone, translation
 
 ChannelType = t.Literal["email", "markdown", "telegram"]
 
+_MARKDOWN_SPECIAL_CHARS = re.compile(r"([\[\]()\\`*_{}##+\-!|~>])")
+
+
+def _escape_markdown(text: str) -> str:
+    """Escape markdown special characters in text."""
+    return _MARKDOWN_SPECIAL_CHARS.sub(r"\\\1", text)
+
+
 TELEGRAM_MESSAGE_LIMIT = 4096
 TELEGRAM_CAPTION_LIMIT = 1024
 
@@ -87,7 +95,8 @@ def format_org_signature(
         return f'<p style="margin: 0;">{logo_html}<a href="{escaped_url}" style="{link_style}">{safe_name}</a></p>'
 
     # Markdown format for in-app and telegram
-    return f"[{org_name}]({org_url})"
+    safe_name = _escape_markdown(org_name)
+    return f"[{safe_name}]({org_url})"
 
 
 def format_event_link(
@@ -127,10 +136,11 @@ def format_event_link(
         return f'<a href="{event_url}" style="{link_style}">{event_name}</a>'
 
     # Markdown format
-    return f"[{event_name}]({event_url})"
+    safe_name = _escape_markdown(event_name)
+    return f"[{safe_name}]({event_url})"
 
 
-def sanitize_for_telegram(html: str) -> str:
+def sanitize_for_telegram(content_html: str) -> str:
     """Sanitize HTML for Telegram's HTML parser.
 
     Telegram only supports a limited subset of HTML tags:
@@ -139,46 +149,46 @@ def sanitize_for_telegram(html: str) -> str:
     This function converts or removes unsupported tags.
 
     Args:
-        html: HTML or text string to sanitize for Telegram
+        content_html: HTML or text string to sanitize for Telegram
 
     Returns:
         Telegram-compatible HTML string
     """
     # Remove unsupported tags but keep their content
     # Headers -> bold
-    html = re.sub(r"<h[1-6]>(.*?)</h[1-6]>", r"<b>\1</b>", html, flags=re.DOTALL)
+    result = re.sub(r"<h[1-6]>(.*?)</h[1-6]>", r"<b>\1</b>", content_html, flags=re.DOTALL)
 
     # Paragraphs -> newlines
-    html = re.sub(r"<p>(.*?)</p>", r"\1\n", html, flags=re.DOTALL)
+    result = re.sub(r"<p>(.*?)</p>", r"\1\n", result, flags=re.DOTALL)
 
     # Line breaks
-    html = html.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+    result = result.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
 
     # Lists -> text with bullets/numbers
     # Unordered lists
-    html = re.sub(r"<ul>(.*?)</ul>", r"\1", html, flags=re.DOTALL)
-    html = re.sub(r"<li>(.*?)</li>", r"• \1\n", html, flags=re.DOTALL)
+    result = re.sub(r"<ul>(.*?)</ul>", r"\1", result, flags=re.DOTALL)
+    result = re.sub(r"<li>(.*?)</li>", r"• \1\n", result, flags=re.DOTALL)
 
     # Ordered lists (simple conversion - won't be perfect)
-    html = re.sub(r"<ol>(.*?)</ol>", r"\1", html, flags=re.DOTALL)
+    result = re.sub(r"<ol>(.*?)</ol>", r"\1", result, flags=re.DOTALL)
 
     # Blockquotes -> just keep content
-    html = re.sub(r"<blockquote>(.*?)</blockquote>", r"\1", html, flags=re.DOTALL)
+    result = re.sub(r"<blockquote>(.*?)</blockquote>", r"\1", result, flags=re.DOTALL)
 
     # Horizontal rule
-    html = html.replace("<hr>", "\n---\n").replace("<hr/>", "\n---\n").replace("<hr />", "\n---\n")
+    result = result.replace("<hr>", "\n---\n").replace("<hr/>", "\n---\n").replace("<hr />", "\n---\n")
 
     # Remove any remaining unsupported tags (tables, divs, etc.)
     # Keep only supported tags: b, strong, i, em, u, ins, s, strike, del, code, pre, a
-    html = re.sub(r"<(?!/?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|a)\b)[^>]+>", "", html)
+    result = re.sub(r"<(?!/?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|a)\b)[^>]+>", "", result)
 
     # Clean up excessive newlines
-    html = re.sub(r"\n{3,}", "\n\n", html)
+    result = re.sub(r"\n{3,}", "\n\n", result)
 
     # Strip leading/trailing whitespace
-    html = html.strip()
+    result = result.strip()
 
-    return html
+    return result
 
 
 def _find_safe_cut_point(text: str, target: int) -> int:

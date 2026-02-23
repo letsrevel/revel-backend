@@ -48,6 +48,7 @@ dependencies = [
     "instructor>=1.14.5",
     "ip2location>=8.11.0",
     "markdown>=3.10.1",
+    "markdownify>=1.2.2",
     "nh3>=0.3.2",
     "opentelemetry-api>=1.39.1",
     "opentelemetry-exporter-otlp>=1.39.1",
