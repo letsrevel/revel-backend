@@ -1,3 +1,4 @@
+import os
 import secrets
 import typing as t
 import uuid
@@ -25,7 +26,7 @@ from common.models import ExifStripMixin, TimeStampedModel
 
 def profile_picture_upload_path(instance: "RevelUser", filename: str) -> str:
     """Generate upload path for profile pictures."""
-    return f"profile-pictures/{instance.id}/{filename}"
+    return f"profile-pictures/{instance.id}/{os.path.basename(filename)}"
 
 
 class RevelUserQueryset(models.QuerySet["RevelUser"]):

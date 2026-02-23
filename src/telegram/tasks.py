@@ -17,6 +17,13 @@ logger = structlog.getLogger(__name__)
 # --- Async Helper Functions ---
 
 
+_ALLOWED_TELEGRAM_CALLBACKS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("notifications.service.channels.telegram", "update_delivery_status"),
+    }
+)
+
+
 def _execute_callback(callback_data: dict[str, t.Any], error_occurred: bool, error_message: str | None) -> None:
     """Execute callback function after telegram message delivery attempt.
 
@@ -32,6 +39,15 @@ def _execute_callback(callback_data: dict[str, t.Any], error_occurred: bool, err
 
         if not module_path or not function_name:
             logger.error("Invalid callback_data: missing module or function", callback_data=callback_data)
+            return
+
+        if (module_path, function_name) not in _ALLOWED_TELEGRAM_CALLBACKS:
+            logger.error(
+                "telegram_callback_blocked",
+                module=module_path,
+                function=function_name,
+                reason="not in allowlist",
+            )
             return
 
         # Import module and get function

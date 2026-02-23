@@ -79,7 +79,13 @@ def claim_invitation(user: RevelUser, token: str) -> EventInvitation | None:
         The EventInvitation if successfully claimed, None if token is invalid,
         doesn't grant invitations, or has reached max uses.
     """
-    event_token = get_event_token(token)
+    # Lock the token row to prevent concurrent requests from exceeding max_uses.
+    event_token = (
+        EventToken.objects.select_for_update()
+        .select_related("event")
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()), pk=token)
+        .first()
+    )
     if event_token is None:
         return None
     if not event_token.grants_invitation:
