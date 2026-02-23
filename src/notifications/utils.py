@@ -133,7 +133,8 @@ def format_event_link(
             )
             return f'<a href="{event_url}" class="button" style="{button_style}">View Event Details</a>'
         link_style = "color: #2196F3; text-decoration: none;"
-        return f'<a href="{event_url}" style="{link_style}">{event_name}</a>'
+        safe_name = html.escape(event_name)
+        return f'<a href="{event_url}" style="{link_style}">{safe_name}</a>'
 
     # Markdown format
     safe_name = _escape_markdown(event_name)

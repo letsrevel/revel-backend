@@ -12,6 +12,7 @@ from unfold.contrib.forms.widgets import WysiwygWidget
 from unfold.widgets import CHECKBOX_CLASSES, UnfoldAdminTextInputWidget
 
 from accounts.models import RevelUser
+from common.fields import sanitize_html
 from notifications.context_schemas import SystemAnnouncementContext
 from notifications.enums import NotificationType
 from notifications.models import Notification, NotificationDelivery, NotificationPreference
@@ -176,7 +177,7 @@ class NotificationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
             # Build context
             context: SystemAnnouncementContext = {
                 "announcement_title": title,
-                "announcement_body": body,
+                "announcement_body": sanitize_html(body),
             }
             if url:
                 context["policy_url"] = url
