@@ -5,7 +5,7 @@
 Guest users created via the unauthenticated checkout/RSVP flow could
 escalate to fully authenticated users while retaining `guest=True`. The users
 who triggered this were legitimately eligible for the events they participated
-in, as they passed all screening gates normally. However, they obtained full JWT
+in, as they passed all screening gates normally. However, they obtained full `JWT`
 tokens without ever setting a password, effectively receiving a magic-link login
 through the email verification flow. The root cause was that the registration and
 email verification flows did not distinguish between guest and non-guest users.
@@ -53,11 +53,11 @@ displayed an inconsistent combination of flags:
 Further inspection revealed these users also had pronouns and a preferred name
 set, which is only possible via the `PUT /account/me` authenticated endpoint.
 Log timestamps consistent with `date_joined` and `last_login` revealed that users were
-successfully calling `update_profile`, meaning they held valid JWT tokens.
+successfully calling `update_profile`, meaning they held valid `JWTs`.
 
 ### Investigating bottom-up
 
-The only way a user obtains a JWT is through `get_token_pair_for_user()` in
+The only way a user obtains a `JWT` is through `get_token_pair_for_user()` in
 `accounts/service/auth.py`. This function is called from exactly two places:
 
 1. **Login endpoints** — `AuthController.obtain_token` (`POST /auth/token/pair`)
@@ -91,12 +91,12 @@ the only viable path.
    `email_verified=True` and `is_active=True`. The `guest` flag is **never
    touched**.
 10. The `AccountController.verify_email` endpoint calls
-    `get_token_pair_for_user(user)` and returns a full JWT token pair.
-11. The frontend logs the user in with the JWT. The user is now fully
+    `get_token_pair_for_user(user)` and returns a full `JWT` pair.
+11. The frontend logs the user in with the `JWT`. The user is now fully
     authenticated but still `guest=True`.
 12. The user updates their profile (pronouns, preferred name) and submits the
     screening questionnaire: all through legitimate flows, but as a user who
-    should never have held a JWT in the first place.
+    should never have held a `JWT` in the first place.
 
 ## Root Cause
 
@@ -128,14 +128,14 @@ There was no defense-in-depth check.
 The Google SSO flow (`google_login()` in `accounts/service/auth.py`) also
 lacked a `guest=False` in its `update_or_create` defaults. While the SSO
 endpoint is not enabled in the frontend, the API endpoint is live. A guest user
-logging in via Google SSO would receive full JWT tokens while keeping
+logging in via Google SSO would receive full `JWTs` while keeping
 `guest=True`.
 
 ## Impact
 
 ### Severity: Medium
 
-- **Unintended authentication path**: Guest users obtained full JWT tokens
+- **Unintended authentication path**: Guest users obtained full `JWTs`
   without ever setting a password. Functionally equivalent to a magic-link
   login via the email verification flow.
 - **Inconsistent state**: Multiple users were found in production with the
@@ -247,12 +247,12 @@ query for `guest=True, email_verified=True`).
 ### 5. Unused API endpoints are still attack surface
 
 The Google SSO endpoint is not wired in the frontend, but it is live and
-reachable. Any endpoint that issues JWT tokens must be hardened regardless of
+reachable. Any endpoint that issues `JWTs` must be hardened regardless of
 whether the frontend uses it.
 
 ## References
 
 - **Issue**: [#271 — Security: guest users can obtain full auth tokens via email verification flow](https://github.com/letsrevel/revel-backend/issues/271)
-- **Fix PR**: [#272 — fix: prevent guest users from obtaining JWT via email verification flow](https://github.com/letsrevel/revel-backend/pull/272)
+- **Fix PR**: [#272 — fix: prevent guest users from obtaining `JWT` via email verification flow](https://github.com/letsrevel/revel-backend/pull/272)
 - **Affected files**: `accounts/service/account.py`, `accounts/service/auth.py`
 - **Test files**: `accounts/tests/test_account_service.py`, `accounts/tests/test_auth_service.py`
