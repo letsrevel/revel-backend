@@ -135,6 +135,7 @@ When writing tests:
 - Follow Google-style docstrings for public APIs
 - Controllers should inherit from `UserAwareController` for consistent user handling
 - Business logic belongs in service modules, not controllers or models
+- **Models must never import from service modules.** Pure utility functions needed by models belong in `<app>/utils/` (e.g., `accounts/utils/email_normalization.py`). The dependency direction is: controllers → services → models/utils. Services and models may both import from utils.
 - Use Django Ninja's automatic OpenAPI documentation features
 - Use the context7 MCP to look up documentation
 - Adhere to DRY, KISS and SOLID principles. Exceptions are allowed when they make sense.

@@ -5,9 +5,15 @@ from asgiref.sync import async_to_sync
 from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
+from django.utils.translation import gettext as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from accounts.service.global_ban_service import (
+    BAN_ERROR_MESSAGE,
+    deactivate_user_for_ban,
+    is_telegram_globally_banned,
+)
 from telegram.bot import get_bot
 from telegram.models import AccountOTP, TelegramUser
 from telegram.signals import telegram_account_linked, telegram_account_unlinked
@@ -39,6 +45,12 @@ def connect_accounts(user: RevelUser, otp: str) -> None:
 
     if not tg_user:
         raise HttpError(400, "Invalid or expired OTP code.")
+
+    # Check if the Telegram account is globally banned
+    if tg_user.telegram_username and is_telegram_globally_banned(tg_user.telegram_username):
+        AccountOTP.objects.filter(tg_user=tg_user, used_at__isnull=True).update(used_at=timezone.now())
+        deactivate_user_for_ban(user, reason=str(_("Connected banned Telegram account")))
+        raise HttpError(403, str(BAN_ERROR_MESSAGE))
 
     # Link accounts
     tg_user.user = user

@@ -64,6 +64,9 @@ class NotificationType(TextChoices):
     WHITELIST_REQUEST_APPROVED = "whitelist_request_approved"  # Notify user when approved
     WHITELIST_REQUEST_REJECTED = "whitelist_request_rejected"  # Notify user when rejected
 
+    # Account notifications
+    ACCOUNT_BANNED = "account_banned"
+
     # System notifications
     SYSTEM_ANNOUNCEMENT = "system_announcement"  # Platform-wide announcements (privacy, ToC, etc.)
 

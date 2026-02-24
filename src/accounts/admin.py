@@ -25,6 +25,7 @@ from accounts.models import (
     DietaryRestriction,
     EmailVerificationReminderTracking,
     FoodItem,
+    GlobalBan,
     ImpersonationLog,
     RevelUser,
     UserDataExport,
@@ -32,6 +33,7 @@ from accounts.models import (
 )
 from accounts.service.account import request_password_reset, send_verification_email_for_user
 from accounts.service.impersonation import can_impersonate, create_impersonation_request
+from accounts.utils.email_normalization import normalize_email_for_matching
 from common.models import SiteSettings
 from common.signing import get_file_url
 from events.models import GeneralUserPreferences
@@ -214,7 +216,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     autocomplete_fields = ["groups"]
 
     # Actions
-    actions = ["send_verification_email", "send_password_reset_email"]
+    actions = ["send_verification_email", "send_password_reset_email", "ban_selected_users"]
 
     @admin.action(description="Send verification email")
     def send_verification_email(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
@@ -280,6 +282,53 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
                 ngettext(
                     "Skipped %d user (Google SSO or not found).",
                     "Skipped %d users (Google SSO or not found).",
+                    skipped_count,
+                )
+                % skipped_count,
+                messages.WARNING,
+            )
+
+    @admin.action(description=_("Ban selected users (global ban by email)"))
+    def ban_selected_users(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> None:
+        """Create global email bans for selected users, deactivating them."""
+        banned_count = 0
+        skipped_count = 0
+        for target_user in queryset:
+            if target_user.is_superuser or target_user.is_staff:
+                skipped_count += 1
+                continue
+            _ban, created = GlobalBan.objects.get_or_create(
+                ban_type=GlobalBan.BanType.EMAIL,
+                normalized_value=normalize_email_for_matching(target_user.email),
+                defaults={
+                    "value": target_user.email,
+                    "reason": str(_("Violation of terms of service")),
+                    "created_by": t.cast(RevelUser, request.user),
+                    "user": target_user,
+                },
+            )
+            if created:
+                banned_count += 1
+            else:
+                skipped_count += 1
+
+        if banned_count:
+            self.message_user(
+                request,
+                ngettext(
+                    "Banned %d user.",
+                    "Banned %d users.",
+                    banned_count,
+                )
+                % banned_count,
+                messages.SUCCESS,
+            )
+        if skipped_count:
+            self.message_user(
+                request,
+                ngettext(
+                    "Skipped %d user (staff/superuser or already banned).",
+                    "Skipped %d users (staff/superuser or already banned).",
                     skipped_count,
                 )
                 % skipped_count,
@@ -822,3 +871,84 @@ class ImpersonationLogAdmin(ModelAdmin):  # type: ignore[misc]
     def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
         """Prevent deletion of audit logs."""
         return False
+
+
+# --- Global Ban Admin ---
+
+
+@admin.register(GlobalBan)
+class GlobalBanAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for platform-wide user bans."""
+
+    list_display = [
+        "ban_type",
+        "value",
+        "linked_user",
+        "reason_preview",
+        "created_by_link",
+        "created_at",
+    ]
+    list_select_related = ["user", "created_by"]
+    list_filter = ["ban_type", "created_at"]
+    search_fields = ["value", "normalized_value", "user__email", "reason"]
+    readonly_fields = ["normalized_value", "user", "created_at", "updated_at"]
+    autocomplete_fields = ["created_by"]
+
+    fieldsets = [
+        (
+            "Ban Details",
+            {
+                "fields": (
+                    "ban_type",
+                    "value",
+                    "normalized_value",
+                    "reason",
+                )
+            },
+        ),
+        (
+            "Linked Records",
+            {
+                "fields": (
+                    "user",
+                    "created_by",
+                )
+            },
+        ),
+        (
+            "Metadata",
+            {
+                "fields": (
+                    "created_at",
+                    "updated_at",
+                ),
+                "classes": ["collapse"],
+            },
+        ),
+    ]
+
+    @admin.display(description="User")
+    def linked_user(self, obj: GlobalBan) -> str:
+        if obj.user:
+            url = reverse("admin:accounts_reveluser_change", args=[obj.user.id])
+            return format_html('<a href="{}">{}</a>', url, obj.user.email)
+        return "—"
+
+    @admin.display(description="Reason")
+    def reason_preview(self, obj: GlobalBan) -> str:
+        if obj.reason:
+            return obj.reason[:80] + ("..." if len(obj.reason) > 80 else "")
+        return "—"
+
+    @admin.display(description="Created By")
+    def created_by_link(self, obj: GlobalBan) -> str:
+        if obj.created_by:
+            url = reverse("admin:accounts_reveluser_change", args=[obj.created_by.id])
+            return format_html('<a href="{}">{}</a>', url, obj.created_by.email)
+        return "—"
+
+    def save_model(self, request: HttpRequest, obj: GlobalBan, form: t.Any, change: bool) -> None:
+        """Auto-set created_by from the request user on creation."""
+        if not change:
+            obj.created_by = t.cast(RevelUser, request.user)
+        super().save_model(request, obj, form, change)

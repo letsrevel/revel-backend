@@ -11,8 +11,14 @@ from django.core.validators import FileExtensionValidator, MaxLengthValidator
 from django.db import models
 from django.db.models.functions import Lower
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from encrypted_fields.fields import EncryptedTextField
 
+from accounts.utils.email_normalization import (
+    normalize_domain_for_matching,
+    normalize_email_for_matching,
+    normalize_telegram_for_matching,
+)
 from accounts.validators import normalize_phone_number, validate_phone_number
 from common.fields import (
     ALLOWED_IMAGE_EXTENSIONS,
@@ -380,3 +386,61 @@ class ImpersonationLog(models.Model):
     def is_redeemed(self) -> bool:
         """Check if the impersonation token has been redeemed."""
         return self.redeemed_at is not None
+
+
+class GlobalBan(TimeStampedModel):
+    """Platform-wide ban by email, domain, or Telegram username.
+
+    When created, a signal handler automatically deactivates matching users
+    and sends notifications. Domain bans are processed asynchronously via Celery.
+    """
+
+    class BanType(models.TextChoices):
+        EMAIL = "email", "Specific Email"
+        DOMAIN = "domain", "Email Domain"
+        TELEGRAM = "telegram", "Telegram Username"
+
+    ban_type = models.CharField(max_length=20, choices=BanType.choices, db_index=True)
+    value = models.CharField(max_length=255, db_index=True, help_text="Original input value")
+    normalized_value = models.CharField(max_length=255, db_index=True, help_text="Normalized value for matching")
+    user = models.ForeignKey(
+        RevelUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="global_bans",
+        help_text="The user affected by this ban (linked automatically)",
+    )
+    reason = models.TextField(blank=True, help_text="Reason for the ban")
+    created_by = models.ForeignKey(
+        RevelUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Admin who created this ban",
+    )
+
+    class Meta:
+        verbose_name = _("Global Ban")
+        verbose_name_plural = _("Global Bans")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["ban_type", "normalized_value"],
+                name="unique_global_ban",
+            )
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.get_ban_type_display()}: {self.value}"
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Compute normalized_value before saving."""
+        if self.ban_type == self.BanType.EMAIL:
+            self.normalized_value = normalize_email_for_matching(self.value)
+        elif self.ban_type == self.BanType.DOMAIN:
+            self.normalized_value = normalize_domain_for_matching(self.value)
+        elif self.ban_type == self.BanType.TELEGRAM:
+            self.normalized_value = normalize_telegram_for_matching(self.value)
+        super().save(*args, **kwargs)

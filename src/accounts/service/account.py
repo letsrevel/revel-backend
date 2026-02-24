@@ -44,7 +44,11 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
     Returns:
         A tuple of the user and the verification token.
     """
+    from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
+
     logger.info("user_registration_started", email=payload.email)
+    if is_email_globally_banned(payload.email):
+        raise HttpError(403, str(BAN_ERROR_MESSAGE))
     if existing_user := RevelUser.objects.select_for_update().filter(username=payload.email).first():
         # Guest user registering for a full account — convert them
         if existing_user.guest:
@@ -135,6 +139,7 @@ def verify_email(token: str) -> RevelUser:
         RevelUser: The verified user.
     """
     from accounts.models import EmailVerificationReminderTracking
+    from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
 
     payload = token_to_payload(token, schema.VerifyEmailJWTPayloadSchema)
     check_blacklist(payload.jti)
@@ -143,6 +148,9 @@ def verify_email(token: str) -> RevelUser:
         if user.guest:
             logger.warning("email_verification_blocked_guest_user", user_id=str(user.id), email=user.email)
             raise HttpError(400, str(_("Invalid verification token.")))
+        if is_email_globally_banned(user.email):
+            blacklist_token(token)
+            raise HttpError(403, str(BAN_ERROR_MESSAGE))
         blacklist_token(token)
         was_inactive = not user.is_active
         user.is_active = user.email_verified = True
@@ -182,6 +190,12 @@ def resend_verification_email(email: str) -> None:
 
     if user.email_verified:
         logger.info("verification_email_resend_already_verified", user_id=str(user.id), email=email)
+        return None
+
+    from accounts.service.global_ban_service import is_email_globally_banned
+
+    if is_email_globally_banned(user.email):
+        logger.info("verification_email_resend_blocked_banned_user", user_id=str(user.id), email=email)
         return None
 
     send_verification_email_for_user(user)

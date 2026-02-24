@@ -328,6 +328,15 @@ class MembershipRequestCreatedContext(BaseNotificationContext):
     request_message: t.NotRequired[str]
 
 
+# ===== Account Contexts =====
+
+
+class AccountBannedContext(BaseNotificationContext):
+    """Context for ACCOUNT_BANNED notification."""
+
+    ban_reason: str
+
+
 # ===== System Contexts =====
 
 
@@ -487,6 +496,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_REQUEST_CREATED: MembershipRequestCreatedContext,
     NotificationType.MEMBERSHIP_REQUEST_APPROVED: MembershipContext,
     NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipContext,
+    NotificationType.ACCOUNT_BANNED: AccountBannedContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,
     NotificationType.SYSTEM_ANNOUNCEMENT: SystemAnnouncementContext,
     NotificationType.WAITLIST_SPOT_AVAILABLE: WaitlistSpotAvailableContext,
