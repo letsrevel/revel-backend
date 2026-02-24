@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-24 12:51+0100\n"
+"POT-Creation-Date: 2026-02-24 23:24+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -44,6 +44,21 @@ msgid "Skipped %d user (Google SSO or not found)."
 msgid_plural "Skipped %d users (Google SSO or not found)."
 msgstr[0] ""
 msgstr[1] ""
+
+msgid "Ban selected users (global ban by email)"
+msgstr "Blocca utenti selezionati (blocco globale per email)"
+
+#, python-format
+msgid "Banned %d user."
+msgid_plural "Banned %d users."
+msgstr[0] "%d utente bloccato."
+msgstr[1] "%d utenti bloccati."
+
+#, python-format
+msgid "Skipped %d user (staff/superuser or already banned)."
+msgid_plural "Skipped %d users (staff/superuser or already banned)."
+msgstr[0] "%d utente saltato (staff/superuser o già bloccato)."
+msgstr[1] "%d utenti saltati (staff/superuser o già bloccati)."
 
 msgid "Impersonate"
 msgstr ""
@@ -115,6 +130,12 @@ msgstr "Hai già un biglietto."
 msgid "You have already added this dietary preference."
 msgstr "Sei già invitato a questo evento."
 
+msgid "Global Ban"
+msgstr "Blocco globale"
+
+msgid "Global Bans"
+msgstr "Blocchi globali"
+
 msgid "Password must contain at least one uppercase letter."
 msgstr "La password deve contenere almeno una lettera maiuscola."
 
@@ -145,6 +166,9 @@ msgstr ""
 msgid "A user with this email already exists."
 msgstr "Esiste già un utente con questa email."
 
+msgid "Invalid verification token."
+msgstr "Token di verifica non valido."
+
 msgid "A user with this email no longer exists."
 msgstr "Non esiste più un utente con questa email."
 
@@ -171,6 +195,9 @@ msgstr "Tipo di token non valido."
 
 msgid "Invalid Google ID Token."
 msgstr "Token ID Google non valido."
+
+msgid "Registration is not available."
+msgstr "La registrazione non è disponibile."
 
 msgid "Only superusers can impersonate users."
 msgstr ""
@@ -925,6 +952,29 @@ msgstr "La tua richiesta di verifica è stata rifiutata."
 msgid "You are not eligible."
 msgstr "Non sei idoneo."
 
+msgid "You have a submission pending evaluation."
+msgstr ""
+
+#, fuzzy
+#| msgid "Your questionnaire %(questionnaire)s has been approved!"
+msgid "Your questionnaire has already been approved."
+msgstr "Il tuo questionario %(questionnaire)s è stato approvato!"
+
+#, fuzzy
+#| msgid "You have created too many items."
+msgid "You have reached the maximum number of attempts."
+msgstr "Hai creato troppi elementi."
+
+msgid "Retakes are not allowed for this questionnaire."
+msgstr ""
+
+#, python-format
+msgid "You can retry after %(retry_on)s."
+msgstr ""
+
+msgid "Cannot filter by both event_id and event_series_id."
+msgstr ""
+
 msgid "Feedback questionnaire is only available after the event ends."
 msgstr ""
 
@@ -944,9 +994,14 @@ msgstr ""
 msgid "An account with this email already exists. Please log in."
 msgstr "Esiste già un utente con questa email."
 
-#, fuzzy, python-brace-format
+#, fuzzy
+#| msgid "Invalid token type."
+msgid "Invalid token."
+msgstr "Tipo di token non valido."
+
+#, fuzzy
 #| msgid "Invalid token: {error}"
-msgid "Invalid token payload: {error}"
+msgid "Invalid token payload."
 msgstr "Token non valido: {error}"
 
 msgid "This event requires login to RSVP."
@@ -1058,8 +1113,13 @@ msgstr "Informazioni pagamento"
 msgid "Only pending payments can be cancelled."
 msgstr ""
 
-msgid "You already have a ticket."
-msgstr "Hai già un biglietto."
+msgid "Price paid is not allowed for fixed-price tiers."
+msgstr ""
+
+#, fuzzy
+#| msgid "ticket_tier_id is required for events that require tickets."
+msgid "Price paid is required for Pay What You Can tiers."
+msgstr "ticket_tier_id è obbligatorio per eventi che richiedono biglietti."
 
 msgid "This ticket has already been checked in."
 msgstr "Questo biglietto è già stato registrato."
@@ -1077,6 +1137,14 @@ msgstr "Stato del biglietto non valido: {status}"
 msgid "Check-in is not currently open for this event."
 msgstr "Il check-in non è attualmente aperto per questo evento."
 
+msgid "Price paid is not allowed for this ticket."
+msgstr ""
+
+msgid ""
+"Price paid is required for Pay What You Can tickets without a recorded "
+"payment."
+msgstr ""
+
 #, fuzzy
 #| msgid "One or more events do not exist or belong to this organization."
 msgid ""
@@ -1084,6 +1152,9 @@ msgid ""
 "organization."
 msgstr ""
 "Uno o più eventi non esistono o non appartengono a questa organizzazione."
+
+msgid "Tier IDs must match all tiers for this event exactly."
+msgstr ""
 
 msgid "Seat '{}' position is outside the sector shape."
 msgstr ""
@@ -1206,9 +1277,18 @@ msgstr ""
 msgid "Visible to both"
 msgstr ""
 
+msgid "Read more..."
+msgstr ""
+
 #, python-format
 msgid "%(count)d new notification%(plural)s"
 msgstr ""
+
+msgid "Account Suspended"
+msgstr "Account sospeso"
+
+msgid "Revel - Your account has been suspended"
+msgstr "Revel - Il tuo account è stato sospeso"
 
 #, fuzzy, python-format
 #| msgid "New Event: %(event_name)s"
@@ -1359,12 +1439,21 @@ msgid "%(actor)s added %(item)s"
 msgstr ""
 
 #, python-format
+msgid "%(actor)s added and claimed %(item)s"
+msgstr ""
+
+#, python-format
 msgid "%(actor)s claimed %(item)s"
 msgstr ""
 
 #, fuzzy, python-format
 #| msgid "Potluck Update: %(event_name)s"
 msgid "New Potluck Item: %(item)s"
+msgstr "Aggiornamento Potluck: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "Potluck Update: %(event_name)s"
+msgid "New Potluck Item Claimed: %(item)s"
 msgstr "Aggiornamento Potluck: %(event_name)s"
 
 #, fuzzy, python-format
@@ -1390,6 +1479,11 @@ msgstr "Aggiornamento Potluck: %(event_name)s"
 #, python-format
 msgid "%(actor)s added %(item)s - %(event)s"
 msgstr ""
+
+#, fuzzy, python-format
+#| msgid "New Event: %(event_name)s"
+msgid "%(actor)s added and claimed %(item)s - %(event)s"
+msgstr "Nuovo evento: %(event_name)s"
 
 #, python-format
 msgid "%(actor)s claimed %(item)s - %(event)s"
@@ -1470,6 +1564,13 @@ msgstr "RSVP annullata: %(event)s (%(user)s)"
 #, python-format
 msgid "RSVP Cancelled: %(event)s"
 msgstr "RSVP annullata: %(event)s"
+
+msgid "System Announcement"
+msgstr ""
+
+#, python-format
+msgid "Revel - %(title)s"
+msgstr ""
 
 #, fuzzy, python-format
 #| msgid "New Ticket Issued: %(event_name)s"
@@ -1574,11 +1675,56 @@ msgstr "Email di verifica inviata."
 msgid "Event details have been updated."
 msgstr "È stata inviata un'email."
 
+#, fuzzy
+#| msgid "Staff Notification"
+msgid "Notifications"
+msgstr "Notifica per lo staff"
+
+msgid "Send Announcement"
+msgstr ""
+
+msgid "Send System Announcement"
+msgstr ""
+
+msgid "Please correct the errors below."
+msgstr ""
+
+msgid "Title"
+msgstr ""
+
+msgid "Body"
+msgstr ""
+
+msgid "URL"
+msgstr ""
+
+msgid "Include guest users"
+msgstr ""
+
+msgid "Warning"
+msgstr ""
+
+msgid ""
+"This will send a notification to all matching active users via all enabled "
+"channels (in-app, email, Telegram). This action cannot be undone."
+msgstr ""
+
 msgid "Unsubscribe or manage notification preferences"
 msgstr ""
 
 msgid "Unsubscribe or manage notification preferences:"
 msgstr ""
+
+msgid "Your account has been suspended for violating our Terms of Service."
+msgstr ""
+"Il tuo account è stato sospeso per violazione dei nostri Termini di Servizio."
+
+msgid "Reason"
+msgstr "Motivo"
+
+msgid "If you believe this is a mistake, please contact our support team."
+msgstr ""
+"Se ritieni che si tratti di un errore, contatta il nostro team di supporto."
 
 #, fuzzy
 #| msgid "Event Date:"
@@ -1595,9 +1741,6 @@ msgstr ""
 
 msgid "Event Details"
 msgstr "Dettagli evento"
-
-msgid "Reason"
-msgstr ""
 
 #, fuzzy
 #| msgid "Event Information"
@@ -2109,6 +2252,39 @@ msgstr ""
 msgid "Claim this item or view the potluck list:"
 msgstr ""
 
+msgid "New Item Added & Claimed"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid ""
+"<strong>%(actor)s</strong> added and claimed <strong>\"%(item)s\"</strong> "
+"for <strong>%(event)s</strong>."
+msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid ""
+"A new potluck item <strong>\"%(item)s\"</strong> has been added and claimed "
+"for <strong>%(event)s</strong>."
+msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+
+#, fuzzy
+#| msgid "Claimed by:"
+msgid "Added and claimed by:"
+msgstr "Riservato da:"
+
+#, fuzzy, python-format
+#| msgid "%(user)s has cancelled their RSVP for %(event)s."
+msgid "%(actor)s added and claimed \"%(item)s\" for %(event)s."
+msgstr "%(user)s ha annullato la RSVP per %(event)s."
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid ""
+"A new potluck item \"%(item)s\" has been added and claimed for %(event)s."
+msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+
 #, fuzzy
 #| msgid "Item Removed"
 msgid "Removed"
@@ -2415,6 +2591,12 @@ msgid "Your RSVP for %(event)s has been updated from %(old)s to %(new)s."
 msgstr ""
 
 msgid "Updated Response:"
+msgstr ""
+
+msgid "Read More"
+msgstr ""
+
+msgid "Read more:"
 msgstr ""
 
 #, fuzzy
@@ -2803,6 +2985,14 @@ msgstr ""
 msgid "Organization Tokens"
 msgstr "Organizzazione:"
 
+msgid "Blacklist"
+msgstr ""
+
+#, fuzzy
+#| msgid "Invitation not found."
+msgid "Whitelist Requests"
+msgstr "Invito non trovato."
+
 msgid "Venues & Seating"
 msgstr ""
 
@@ -2871,6 +3061,9 @@ msgstr "🥘 Aggiornamento Potluck"
 msgid "Additional Resources"
 msgstr ""
 
+msgid "Announcements"
+msgstr ""
+
 #, fuzzy
 #| msgid "Payment ID:"
 msgid "Payments"
@@ -2913,10 +3106,13 @@ msgstr ""
 msgid "Free Text Questions"
 msgstr ""
 
+msgid "File Upload Questions"
+msgstr ""
+
 #, fuzzy
-#| msgid "Staff Notification"
-msgid "Notifications"
-msgstr "Notifica per lo staff"
+#| msgid "Uploader"
+msgid "Uploaded Files"
+msgstr "Caricato da"
 
 msgid "Notification Deliveries"
 msgstr ""
@@ -2941,6 +3137,11 @@ msgstr ""
 
 msgid "Site Settings"
 msgstr ""
+
+#, fuzzy
+#| msgid "Event Details"
+msgid "Impersonation Logs"
+msgstr "Dettagli evento"
 
 msgid "Legal Documents"
 msgstr ""
@@ -2978,6 +3179,9 @@ msgstr ""
 
 msgid "Groups"
 msgstr ""
+
+msgid "Connected banned Telegram account"
+msgstr "Account Telegram bloccato collegato"
 
 msgid "Django site admin"
 msgstr ""

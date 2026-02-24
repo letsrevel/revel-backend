@@ -91,7 +91,12 @@ def get_token_pair_for_user(user: RevelUser) -> TokenObtainPairOutputSchema:
 @transaction.atomic
 def google_login(id_token: str) -> TokenObtainPairOutputSchema:
     """Log in or register a user using Google SSO."""
+    from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
+
     id_info = verify_oauth2_token(id_token)
+
+    if is_email_globally_banned(id_info.email):
+        raise HttpError(403, str(BAN_ERROR_MESSAGE))
 
     # Extract language from Google locale (e.g., "en-US" -> "en", "de-DE" -> "de")
     language = settings.LANGUAGE_CODE  # Default

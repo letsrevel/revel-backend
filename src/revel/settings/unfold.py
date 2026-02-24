@@ -58,6 +58,11 @@ UNFOLD = {
                         "icon": "download",
                         "link": reverse_lazy("admin:accounts_userdataexport_changelist"),
                     },
+                    {
+                        "title": _("Global Bans"),
+                        "icon": "gavel",
+                        "link": reverse_lazy("admin:accounts_globalban_changelist"),
+                    },
                 ],
             },
             {
