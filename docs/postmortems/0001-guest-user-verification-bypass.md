@@ -158,19 +158,19 @@ logging in via Google SSO would receive full `JWTs` while keeping
 
 ## Resolution
 
-Fixed in PR #272 (`fix/guest-user-verification-bypass`), addressing all four
-vectors:
+Initially fixed in PR #272 (`fix/guest-user-verification-bypass`), then
+refined in [PR #287](https://github.com/letsrevel/revel-backend/pull/287)
+to close a remaining account-takeover vector. All four vectors addressed:
 
-### 1. `register_user()` — Guest conversion
+### 1. `register_user()` — Activation email instead of direct conversion
 
-When a registration request targets an existing guest email, the function now
-**converts** the guest to a full user rather than rejecting with a 400:
-
-- Sets the password from the registration payload
-- Updates `first_name` and `last_name`
-- Clears `guest=False`
-- Resets `email_verified=False` (forces re-verification)
-- Sends a verification email
+PR #272 converted the guest to a full user inline (setting password, name, and
+clearing the guest flag directly from the registration payload). PR #287
+tightened this: registration for a guest email now **sends an activation email**
+(a password-reset link) instead of converting the account on the spot. Only the
+real email owner can complete the conversion by clicking the link, which routes
+through `reset_password()` — the existing guest-to-full-user path that clears
+`guest=False` and sets `email_verified=True`.
 
 This path is wrapped in `@transaction.atomic` with `select_for_update()` to
 prevent race conditions on concurrent registrations for the same guest email.
@@ -254,5 +254,6 @@ whether the frontend uses it.
 
 - **Issue**: [#271 — Security: guest users can obtain full auth tokens via email verification flow](https://github.com/letsrevel/revel-backend/issues/271)
 - **Fix PR**: [#272 — fix: prevent guest users from obtaining `JWT` via email verification flow](https://github.com/letsrevel/revel-backend/pull/272)
+- **Refinement PR**: [#287 — fix: send activation email instead of directly converting guest account](https://github.com/letsrevel/revel-backend/pull/287)
 - **Affected files**: `accounts/service/account.py`, `accounts/service/auth.py`
 - **Test files**: `accounts/tests/test_account_service.py`, `accounts/tests/test_auth_service.py`
