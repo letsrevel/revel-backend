@@ -227,7 +227,7 @@ def _get_sentinel_pipeline() -> t.Any:
 
         try:
             tokenizer = AutoTokenizer.from_pretrained(str(SENTINEL_MODEL_PATH))  # nosec B615 - local path, not downloading
-            model = AutoModelForSequenceClassification.from_pretrained(str(SENTINEL_MODEL_PATH))  # nosec B615
+            model = AutoModelForSequenceClassification.from_pretrained(str(SENTINEL_MODEL_PATH))  # nosec B615 - local path, not downloading
             _sentinel_pipeline = pipeline("text-classification", model=model, tokenizer=tokenizer)
         except Exception as e:
             msg = f"Failed to load sentinel model: {e}"
