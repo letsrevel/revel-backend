@@ -1,0 +1,21 @@
+{% load i18n %}<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{% trans "Activate Your Account" %}</title>
+</head>
+<body>
+    <h2>{% trans "Activate Your Account" %}</h2>
+    <p>{% blocktrans %}To complete setting up your Revel account, please click the link below to set your password:{% endblocktrans %}</p>
+
+    <p>
+        <a href="{{ activation_link }}" style="display: inline-block; padding: 10px 20px; background-color: #007bff; color: #ffffff; text-decoration: none; border-radius: 5px;">
+            {% trans "Set Password" %}
+        </a>
+    </p>
+
+    <p>{% blocktrans %}If you didn't request this, you can safely ignore this email.{% endblocktrans %}</p>
+
+    <p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
+</body>
+</html>
