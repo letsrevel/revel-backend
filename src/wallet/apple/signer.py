@@ -139,7 +139,7 @@ class ApplePassSigner:
             # Skip manifest and signature files themselves
             if filename in ("manifest.json", "signature"):
                 continue
-            sha1_hash = hashlib.sha1(content).hexdigest()
+            sha1_hash = hashlib.sha1(content).hexdigest()  # nosec B324 - SHA-1 required by Apple Wallet spec
             manifest[filename] = sha1_hash
 
         return json.dumps(manifest, indent=2).encode("utf-8")

@@ -111,6 +111,7 @@ dev = [
     "types-qrcode>=8.2.0.20250914",
     "types-stripe>=3.5.2.20240106",
     "types-tqdm>=4.67.0.20250809",
+    "bandit>=1.9.4",
 ]
 sentinel = [
     "torch>=2.8.0",
@@ -291,6 +292,14 @@ norecursedirs = [
     "node_modules",
 ]
 
+
+[tool.bandit]
+exclude_dirs = ["src/*/tests", "src/*/tests/*", "src/conftest.py"]
+skips = [
+    "B101",  # assert_used - ubiquitous in tests
+    "B308",  # mark_safe blacklist - redundant with B703 (Django-specific check)
+    "B703",  # mark_safe in admin display methods - all controlled data, staff-only
+]
 
 [tool.coverage.run]
 omit = [

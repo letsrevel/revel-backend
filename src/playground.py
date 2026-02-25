@@ -52,7 +52,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     for filename, expected_hash in manifest.items():
         filepath = tmppath / filename
         if filepath.exists():
-            actual_hash = hashlib.sha1(filepath.read_bytes()).hexdigest()
+            actual_hash = hashlib.sha1(filepath.read_bytes()).hexdigest()  # nosec B324 - integrity check, not security
             status = "OK" if actual_hash == expected_hash else "MISMATCH"
             print(f"  {filename}: {status}")
             if status == "MISMATCH":
