@@ -20,6 +20,9 @@
 [![Build](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/build.yaml)
 [![Docs](https://github.com/letsrevel/revel-backend/actions/workflows/docs.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/docs.yaml)
 
+<!-- Security -->
+[![Bandit](https://github.com/letsrevel/revel-backend/actions/workflows/bandit.yaml/badge.svg)](https://github.com/letsrevel/revel-backend/actions/workflows/bandit.yaml)
+
 ---
 
 ## 🔗 Related Repositories

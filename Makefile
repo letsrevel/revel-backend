@@ -38,6 +38,10 @@ test-failed:
 	uv run pytest --cov=src --cov-report=term --cov-report=html --cov-branch -v --last-failed src/ && uv run coverage html --skip-covered
 
 
+.PHONY: bandit
+bandit:
+	uv run bandit -c pyproject.toml -r src/ -ll -ii
+
 # Combined command: Runs format, lint, mypy, migration-check, i18n-check, and file-length in sequence
 .PHONY: check
 check: format lint mypy migration-check i18n-check file-length

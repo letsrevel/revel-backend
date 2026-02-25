@@ -47,13 +47,13 @@ class Command(BaseCommand):
         try:
             # Download and save tokenizer
             self.stdout.write("Downloading tokenizer...")
-            tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
+            tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)  # nosec B615
             tokenizer.save_pretrained(str(save_directory))
             self.stdout.write("Tokenizer saved successfully.", self.style.SUCCESS)
 
             # Download and save model
             self.stdout.write("Downloading model...")
-            model = AutoModelForSequenceClassification.from_pretrained(model_name, token=hf_token)
+            model = AutoModelForSequenceClassification.from_pretrained(model_name, token=hf_token)  # nosec B615
             model.save_pretrained(str(save_directory))
             self.stdout.write("Model saved successfully.", self.style.SUCCESS)
 
