@@ -43,6 +43,18 @@ def send_verification_email(email: str, token: str) -> None:
 
 
 @shared_task
+def send_account_activation_link(email: str, token: str) -> None:
+    """Send an account activation email to a guest user registering for a full account."""
+    logger.info("account_activation_email_sending", email=email)
+    subject = str(render_to_string("accounts/emails/account_activation_subject.txt"))
+    activation_link = SiteSettings.get_solo().frontend_base_url + f"/login/reset-password?token={token}"
+    body = render_to_string("accounts/emails/account_activation_body.txt", {"activation_link": activation_link})
+    html_body = render_to_string("accounts/emails/account_activation_body.html", {"activation_link": activation_link})
+    send_email(to=email, subject=subject, body=body, html_body=html_body)
+    logger.info("account_activation_email_sent", email=email)
+
+
+@shared_task
 def send_password_reset_link(email: str, token: str) -> None:
     """Send a password reset email."""
     logger.info("password_reset_email_sending", email=email)

@@ -93,9 +93,10 @@ def test_register_user_already_exists(
     mock_send_email.assert_not_called()
 
 
-@patch("accounts.tasks.send_verification_email.delay")
-def test_register_user_converts_guest_user(mock_send_email: MagicMock, guest_user: RevelUser) -> None:
-    """Test that registering with a guest user's email converts them to a full user."""
+@patch("accounts.tasks.send_account_activation_link.delay")
+def test_register_user_sends_activation_for_guest(mock_activation: MagicMock, guest_user: RevelUser) -> None:
+    """Test that registering with a guest email sends activation email and raises 400."""
+    original_password = guest_user.password
     payload = schema.RegisterUserSchema(
         email=guest_user.email,
         password1="a-Strong-password-123!",
@@ -105,21 +106,21 @@ def test_register_user_converts_guest_user(mock_send_email: MagicMock, guest_use
         accept_toc_and_privacy=True,
     )
 
-    user, token = account_service.register_user(payload)
+    with pytest.raises(HttpError, match="A user with this email already exists."):
+        account_service.register_user(payload)
 
-    assert RevelUser.objects.count() == 1  # No new user created
-    assert user.id == guest_user.id
-    assert user.guest is False
-    assert user.email_verified is False
-    assert user.first_name == "Real"
-    assert user.last_name == "Person"
-    assert user.check_password("a-Strong-password-123!")
-    mock_send_email.assert_called_once_with(user.email, token)
+    mock_activation.assert_called_once()
+    # Guest account must NOT be modified
+    guest_user.refresh_from_db()
+    assert guest_user.guest is True
+    assert guest_user.first_name == "Guest"
+    assert guest_user.last_name == "User"
+    assert guest_user.password == original_password
 
 
-@patch("accounts.tasks.send_verification_email.delay")
-def test_register_user_converts_verified_guest_user(mock_send_email: MagicMock, guest_user: RevelUser) -> None:
-    """Test that registration converts a guest even if they anomalously have email_verified=True."""
+@patch("accounts.tasks.send_account_activation_link.delay")
+def test_register_user_sends_activation_for_verified_guest(mock_activation: MagicMock, guest_user: RevelUser) -> None:
+    """Test that registration sends activation for a guest even with anomalous email_verified=True."""
     guest_user.email_verified = True
     guest_user.save(update_fields=["email_verified"])
 
@@ -132,13 +133,32 @@ def test_register_user_converts_verified_guest_user(mock_send_email: MagicMock, 
         accept_toc_and_privacy=True,
     )
 
-    user, token = account_service.register_user(payload)
+    with pytest.raises(HttpError, match="A user with this email already exists."):
+        account_service.register_user(payload)
 
-    assert RevelUser.objects.count() == 1
-    assert user.id == guest_user.id
-    assert user.guest is False
-    assert user.email_verified is False  # Must re-verify even if anomalously verified before
-    mock_send_email.assert_called_once_with(user.email, token)
+    mock_activation.assert_called_once()
+    guest_user.refresh_from_db()
+    assert guest_user.guest is True
+
+
+@patch("accounts.tasks.send_account_activation_link.delay")
+def test_register_guest_activation_uses_password_reset_token(mock_activation: MagicMock, guest_user: RevelUser) -> None:
+    """Test that the activation email uses a password-reset token so reset_password() handles conversion."""
+    payload = schema.RegisterUserSchema(
+        email=guest_user.email,
+        password1="a-Strong-password-123!",
+        password2="a-Strong-password-123!",
+        accept_toc_and_privacy=True,
+    )
+
+    with pytest.raises(HttpError):
+        account_service.register_user(payload)
+
+    mock_activation.assert_called_once()
+    token = mock_activation.call_args[0][1]
+    # The token must be decodable as a PasswordResetJWTPayloadSchema
+    decoded = account_service.token_to_payload(token, schema.PasswordResetJWTPayloadSchema)
+    assert decoded.user_id == guest_user.id
 
 
 def test_verify_email_success(user: RevelUser) -> None:
@@ -198,33 +218,23 @@ def test_verify_email_consistently_rejects_guest_on_retry(guest_user: RevelUser)
         account_service.verify_email(token)
 
 
-@patch("accounts.tasks.send_verification_email.delay")
-def test_verify_email_succeeds_for_converted_guest(mock_send_email: MagicMock, guest_user: RevelUser) -> None:
-    """Test that a former guest who registered properly can verify their email.
+def test_verify_email_succeeds_for_converted_guest(guest_user: RevelUser) -> None:
+    """Test that a former guest who set their password can verify their email.
 
-    Exercises the path where a token was created for a user who was originally a
-    guest but has since been converted via register_user. The verify_email call
-    must succeed because user.guest is now False.
+    Exercises the path where a guest was converted via reset_password() (the
+    activation link flow). After conversion, the user is no longer a guest and
+    email verification succeeds.
     """
-    # Convert the guest via registration
-    payload = schema.RegisterUserSchema(
-        email=guest_user.email,
-        password1="a-Strong-password-123!",
-        password2="a-Strong-password-123!",
-        first_name="Real",
-        last_name="Person",
-        accept_toc_and_privacy=True,
+    # Convert the guest via password reset (activation link flow)
+    reset_payload = schema.PasswordResetJWTPayloadSchema(
+        user_id=guest_user.id, email=guest_user.email, exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME
     )
-    user, token = account_service.register_user(payload)
-    assert user.guest is False
-    assert user.email_verified is False
+    reset_token = create_token(reset_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    account_service.reset_password(reset_token, "a-Strong-password-123!")
 
-    # Verify using the token from registration
-    verified_user = account_service.verify_email(token)
-
-    assert verified_user.id == guest_user.id
-    assert verified_user.email_verified is True
-    assert verified_user.guest is False
+    guest_user.refresh_from_db()
+    assert guest_user.guest is False
+    assert guest_user.email_verified is True
 
 
 @patch("accounts.service.account.send_verification_email_for_user")
@@ -350,3 +360,45 @@ def test_confirm_account_deletion_success(user: RevelUser) -> None:
     account_service.confirm_account_deletion(token)
     # With CELERY_TASK_ALWAYS_EAGER=True, the task runs synchronously
     assert not RevelUser.objects.filter(id=user_id).exists()
+
+
+@patch("accounts.tasks.send_account_activation_link.delay")
+def test_full_guest_to_full_user_lifecycle(mock_activation: MagicMock, guest_user: RevelUser) -> None:
+    """Test the complete guest activation lifecycle.
+
+    1. Guest user exists with event data
+    2. Someone registers with that email → 400, activation email sent
+    3. Click activation link (password reset) → guest converted to full user
+    """
+    guest_id = guest_user.id
+
+    # Step 1: Attempt registration — should get 400 + activation email
+    payload = schema.RegisterUserSchema(
+        email=guest_user.email,
+        password1="a-Strong-password-123!",
+        password2="a-Strong-password-123!",
+        first_name="Real",
+        last_name="Person",
+        accept_toc_and_privacy=True,
+    )
+
+    with pytest.raises(HttpError, match="A user with this email already exists."):
+        account_service.register_user(payload)
+
+    mock_activation.assert_called_once()
+    activation_token = mock_activation.call_args[0][1]
+
+    # Guest is still a guest
+    guest_user.refresh_from_db()
+    assert guest_user.guest is True
+
+    # Step 2: Click the activation link (password reset with the token)
+    converted_user = account_service.reset_password(activation_token, "a-Strong-password-123!")
+
+    # User is now a full user
+    converted_user.refresh_from_db()
+    assert converted_user.id == guest_id
+    assert converted_user.guest is False
+    assert converted_user.email_verified is True
+    assert converted_user.check_password("a-Strong-password-123!")
+    assert RevelUser.objects.count() == 1

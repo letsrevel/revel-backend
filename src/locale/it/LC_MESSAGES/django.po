@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-02-24 23:24+0100\n"
+"POT-Creation-Date: 2026-02-25 09:26+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -47,6 +47,9 @@ msgstr[1] ""
 
 msgid "Ban selected users (global ban by email)"
 msgstr "Blocca utenti selezionati (blocco globale per email)"
+
+msgid "Violation of terms of service"
+msgstr ""
 
 #, python-format
 msgid "Banned %d user."
@@ -214,6 +217,38 @@ msgstr ""
 msgid "Cannot impersonate inactive users."
 msgstr ""
 
+msgid "Activate Your Account"
+msgstr "Attiva il tuo account"
+
+msgid ""
+"To complete setting up your Revel account, please click the link below to "
+"set your password:"
+msgstr ""
+"Per completare la configurazione del tuo account Revel, clicca il link qui "
+"sotto per impostare la tua password:"
+
+msgid "Set Password"
+msgstr "Imposta password"
+
+msgid "If you didn't request this, you can safely ignore this email."
+msgstr "Se non hai richiesto questa operazione, puoi ignorare questa email."
+
+msgid "Thank you,<br>The Revel Team"
+msgstr "Grazie,<br>Il Team di Revel"
+
+msgid "Activate your account."
+msgstr "Attiva il tuo account."
+
+msgid ""
+"Thank you,\n"
+"The Revel Team"
+msgstr ""
+"Grazie,\n"
+"Il Team di Revel"
+
+msgid "Activate your account"
+msgstr "Attiva il tuo account"
+
 msgid "Account Deactivated"
 msgstr ""
 
@@ -248,22 +283,12 @@ msgid ""
 "account immediately</a>."
 msgstr ""
 
-msgid "Thank you,<br>The Revel Team"
-msgstr "Grazie,<br>Il Team di Revel"
-
 msgid "Hi,"
 msgstr ""
 
 msgid ""
 "If you didn't sign up for Revel, you can delete your account immediately:"
 msgstr ""
-
-msgid ""
-"Thank you,\n"
-"The Revel Team"
-msgstr ""
-"Grazie,\n"
-"Il Team di Revel"
 
 #, fuzzy
 #| msgid "Your data export has been initiated."

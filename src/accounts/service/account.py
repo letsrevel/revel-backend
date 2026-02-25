@@ -28,15 +28,28 @@ from common.testing import (
 logger = structlog.get_logger(__name__)
 
 
+def _send_activation_email_for_guest(user: RevelUser) -> None:
+    """Send an account activation email (password-reset link) to a guest user.
+
+    Uses a password-reset token so that ``reset_password()`` handles the
+    guest-to-full-user conversion when the link is clicked.
+    """
+    token = create_password_reset_token(user)
+    tasks.send_account_activation_link.delay(user.email, token)
+    logger.info("account_activation_email_sent", user_id=str(user.id), email=user.email)
+
+
 @transaction.atomic
 def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
-    """Register a new user or convert a guest user, and send a verification email.
+    """Register a new user, and send a verification email.
 
-    If the email belongs to an existing guest user, converts them to a full user
-    (sets password, updates name, clears guest flag) rather than rejecting.
+    If the email belongs to an existing guest user, sends an account activation
+    email (password-reset link) instead of converting the account directly.
+    This prevents account takeover — only the real email owner can complete
+    activation.
 
     Uses ``select_for_update`` on the existing-user lookup so that concurrent
-    registrations for the same guest email serialise correctly.
+    registrations for the same email serialise correctly.
 
     Args:
         payload: The registration data.
@@ -50,19 +63,9 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
     if is_email_globally_banned(payload.email):
         raise HttpError(403, str(BAN_ERROR_MESSAGE))
     if existing_user := RevelUser.objects.select_for_update().filter(username=payload.email).first():
-        # Guest user registering for a full account — convert them
         if existing_user.guest:
-            existing_user.set_password(payload.password1)
-            existing_user.first_name = payload.first_name
-            existing_user.last_name = payload.last_name
-            existing_user.guest = False
-            existing_user.email_verified = False
-            existing_user.save(update_fields=["password", "first_name", "last_name", "guest", "email_verified"])
-            logger.info(
-                "guest_user_converted_via_registration", user_id=str(existing_user.id), email=existing_user.email
-            )
-            return send_verification_email_for_user(existing_user)
-        if not existing_user.email_verified:
+            _send_activation_email_for_guest(existing_user)
+        elif not existing_user.email_verified:
             logger.info("user_registration_duplicate_unverified", email=payload.email)
             send_verification_email_for_user(existing_user)
         logger.warning("user_registration_duplicate", email=payload.email)
@@ -95,6 +98,25 @@ def create_verification_token(user: RevelUser) -> str:
     )
     token = create_token(verification_payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
     store_test_token(TOKEN_TYPE_VERIFICATION, token)
+    return token
+
+
+def create_password_reset_token(user: RevelUser) -> str:
+    """Create a password reset token for a user without sending email.
+
+    Args:
+        user: The user to create a token for.
+
+    Returns:
+        The password reset token.
+    """
+    payload = schema.PasswordResetJWTPayloadSchema(
+        user_id=user.id,
+        email=user.email,
+        exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
+    )
+    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    store_test_token(TOKEN_TYPE_PASSWORD_RESET, token)
     return token
 
 
@@ -220,13 +242,7 @@ def request_password_reset(email: str) -> str | None:
     if GoogleSSOUser.objects.filter(user=user).exists():
         logger.info("password_reset_blocked_google_sso", user_id=str(user.id), email=email)
         return None
-    payload = schema.PasswordResetJWTPayloadSchema(
-        user_id=user.id,
-        email=user.email,
-        exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
-    )
-    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
-    store_test_token(TOKEN_TYPE_PASSWORD_RESET, token)
+    token = create_password_reset_token(user)
     tasks.send_password_reset_link.delay(user.email, token)
     logger.info("password_reset_email_sent", user_id=str(user.id), email=email)
     return token

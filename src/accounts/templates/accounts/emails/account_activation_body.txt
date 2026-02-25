@@ -1,0 +1,10 @@
+{% load i18n %}{% trans "Activate your account." %}
+
+{% blocktrans %}To complete setting up your Revel account, please click the link below to set your password:{% endblocktrans %}
+
+{{ activation_link }}
+
+{% blocktrans %}If you didn't request this, you can safely ignore this email.{% endblocktrans %}
+
+{% blocktrans %}Thank you,
+The Revel Team{% endblocktrans %}
