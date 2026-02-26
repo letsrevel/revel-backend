@@ -177,6 +177,11 @@ LOGGING = {
             "level": "WARNING",  # Suppress runserver request logs (we emit our own)
             "propagate": False,
         },
+        "gunicorn.access": {
+            "handlers": DEFAULT_HANDLERS,
+            "level": "WARNING",  # Suppress gunicorn access logs (we emit our own via middleware)
+            "propagate": False,
+        },
         "django.db.backends": {
             "handlers": DEFAULT_HANDLERS,
             "level": "WARNING",  # Only log slow queries/errors
