@@ -1,5 +1,6 @@
 """Observability middleware for context enrichment."""
 
+import time
 import typing as t
 import uuid
 
@@ -7,6 +8,10 @@ import structlog
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from opentelemetry import trace
+
+logger = structlog.get_logger("common.middleware.observability")
+
+_SKIP_LOG_PATHS: frozenset[str] = frozenset({"/metrics", "/health", "/api/healthcheck"})
 
 
 class StructlogContextMiddleware:
@@ -76,10 +81,24 @@ class StructlogContextMiddleware:
         structlog.contextvars.bind_contextvars(**context)
 
         # Process request
+        start_time = time.monotonic()
         response = self.get_response(request)
 
         # Add request_id to response headers for client-side correlation
         response["X-Request-ID"] = request_id
+
+        # Emit structured request completion log
+        if request.path not in _SKIP_LOG_PATHS:
+            logger.info(
+                "request_finished",
+                status_code=response.status_code,
+                response_time_ms=round((time.monotonic() - start_time) * 1000, 2),
+                # content_length is 0 for streaming responses (no Content-Length header, no .content)
+                content_length=int(
+                    response.get("Content-Length") or (len(response.content) if hasattr(response, "content") else 0)
+                ),
+                user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            )
 
         # Clear context after request
         structlog.contextvars.clear_contextvars()
