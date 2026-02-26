@@ -1,6 +1,6 @@
 [project]
 name = "revel"
-version = "1.38.1"
+version = "1.38.2"
 description = "The Revel Event Manager"
 readme = "README.md"
 license = "MIT"
@@ -67,7 +67,6 @@ dependencies = [
     "pyotp>=2.9.0",
     "python-decouple>=3.8",
     "python-json-logger>=4.0.0",
-    "python-logging-loki>=0.3.1",
     "python-magic>=0.4.27",
     "qrcode>=8.2",
     "rapidfuzz>=3.14.3",
@@ -257,10 +256,6 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "transformers.*"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "logging_loki.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

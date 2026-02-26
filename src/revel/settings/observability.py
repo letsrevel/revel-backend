@@ -1,7 +1,7 @@
 """Observability settings for Revel.
 
 Configures:
-- Structlog (structured logging with JSON output for Loki)
+- Structlog (structured logging with JSON output to stdout, scraped by Alloy)
 - OpenTelemetry (distributed tracing for Tempo)
 - Prometheus (metrics collection)
 - Pyroscope (continuous profiling - DISABLED due to SDK incompatibility)
@@ -129,10 +129,7 @@ structlog.configure(
 )
 
 
-# Loki configuration
-LOKI_URL = config("LOKI_URL", default="http://localhost:3100")
-
-# Django logging configuration (send to structlog + Loki)
+# Django logging configuration (structlog JSON to stdout, Alloy scrapes from Docker)
 LOGGING_HANDLERS: dict[str, dict[str, t.Any]] = {
     "console": {
         "class": "logging.StreamHandler",
@@ -151,35 +148,8 @@ if DEBUG:
         "level": "WARNING",
     }
 
-# Add Loki handler if observability is enabled
-# Use QueueHandler to prevent blocking on HTTP requests to Loki
-if ENABLE_OBSERVABILITY:
-    # Background Loki handler (runs in separate thread via QueueListener)
-    LOGGING_HANDLERS["loki"] = {
-        "class": "logging_loki.LokiHandler",
-        "url": f"{LOKI_URL}/loki/api/v1/push",
-        "tags": {
-            "service": SERVICE_NAME,
-            "version": SERVICE_VERSION,
-            "environment": DEPLOYMENT_ENVIRONMENT,
-        },
-        "version": "1",
-    }
-
-    # Queue handler for async logging (non-blocking)
-    LOGGING_HANDLERS["queue"] = {
-        "class": "logging.handlers.QueueHandler",
-        "queue": {
-            "()": "queue.Queue",
-            "maxsize": 10000,  # Drop logs if queue fills (prevents memory exhaustion)
-        },
-    }
-
 # Determine handlers based on environment
-if DEBUG:
-    DEFAULT_HANDLERS = ["console", "file", "queue"] if ENABLE_OBSERVABILITY else ["console", "file"]
-else:
-    DEFAULT_HANDLERS = ["console", "queue"] if ENABLE_OBSERVABILITY else ["console"]
+DEFAULT_HANDLERS = ["console", "file"] if DEBUG else ["console"]
 
 LOGGING = {
     "version": 1,
@@ -193,7 +163,6 @@ LOGGING = {
     },
     "handlers": LOGGING_HANDLERS,
     "root": {
-        # Use queue handler instead of direct Loki handler (non-blocking)
         "handlers": DEFAULT_HANDLERS,
         "level": "INFO",
     },
@@ -201,6 +170,11 @@ LOGGING = {
         "django": {
             "handlers": DEFAULT_HANDLERS,
             "level": "INFO",
+            "propagate": False,
+        },
+        "django.server": {
+            "handlers": DEFAULT_HANDLERS,
+            "level": "WARNING",  # Suppress runserver request logs (we emit our own)
             "propagate": False,
         },
         "django.db.backends": {
