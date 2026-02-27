@@ -295,7 +295,7 @@ class TestCreateCheckoutSession:
             stripe_service.create_checkout_session(event, paid_ticket_tier, organization_owner_user)
 
         assert exc_info.value.status_code == 500
-        assert "Stripe API error" in exc_info.value.message
+        assert "Payment processing failed" in exc_info.value.message
 
         # Verify no ticket or payment was left behind
         assert Ticket.objects.filter(user=organization_owner_user, event=event).count() == 0
