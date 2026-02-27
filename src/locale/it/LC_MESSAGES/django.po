@@ -775,6 +775,11 @@ msgstr ""
 "Solo il proprietario dell'organizzazione può modificare i permessi dello "
 "staff."
 
+msgid "Only the organization owner can create staff-granting tokens."
+msgstr ""
+"Solo il proprietario dell'organizzazione può creare token che concedono "
+"accesso allo staff."
+
 msgid "One or more events do not exist or belong to this organization."
 msgstr ""
 "Uno o più eventi non esistono o non appartengono a questa organizzazione."

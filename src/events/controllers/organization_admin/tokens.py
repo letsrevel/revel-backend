@@ -1,6 +1,8 @@
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
 from ninja import Query
+from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
@@ -204,6 +206,8 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         - 404: Organization slug not found or user lacks access
         """
         organization = self.get_one(slug)
+        if payload.grants_staff_status and organization.owner != self.user():
+            raise HttpError(403, str(_("Only the organization owner can manage staff-granting tokens.")))
         payload_dict = payload.model_dump(exclude_unset=True)
 
         # Resolve membership_tier_id to MembershipTier object
@@ -315,6 +319,8 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         token = get_object_or_404(models.OrganizationToken, pk=token_id, organization=organization)
 
         payload_dict = payload.model_dump(exclude_unset=True)
+        if payload_dict.get("grants_staff_status") and organization.owner != self.user():
+            raise HttpError(403, str(_("Only the organization owner can manage staff-granting tokens.")))
 
         # Resolve membership_tier_id to MembershipTier object
         if "membership_tier_id" in payload_dict:

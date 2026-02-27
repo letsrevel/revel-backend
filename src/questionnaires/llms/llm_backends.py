@@ -5,7 +5,7 @@ import typing as t
 from textwrap import dedent
 
 from django.conf import settings
-from jinja2 import Template
+from jinja2.sandbox import SandboxedEnvironment
 
 from .llm_helpers import call_llm
 from .llm_interfaces import (
@@ -22,6 +22,9 @@ try:
     TRANSFORMERS_AVAILABLE = True
 except ImportError:
     TRANSFORMERS_AVAILABLE = False
+
+
+_jinja_env = SandboxedEnvironment()
 
 
 class MockEvaluator(FreeTextEvaluator):
@@ -135,11 +138,11 @@ class BaseLLMEvaluator(FreeTextEvaluator):
         questionnaire_guidelines: str | None,
     ) -> EvaluationResponse:
         """Evaluate via LLM."""
-        system_prompt = Template(self.SYSTEM_PROMPT).render(
+        system_prompt = _jinja_env.from_string(self.SYSTEM_PROMPT).render(
             guidelines=questionnaire_guidelines or "No specific guidelines provided."
         )
 
-        user_prompt = Template(self.USER_PROMPT).render(answers=questions_to_evaluate)
+        user_prompt = _jinja_env.from_string(self.USER_PROMPT).render(answers=questions_to_evaluate)
 
         return call_llm(
             model=settings.LLM_DEFAULT_MODEL,

@@ -4,8 +4,9 @@ import orjson
 import pytest
 from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.utils import timezone
 
-from events.models import Event, EventToken, TicketTier
+from events.models import Event, EventToken, Organization, TicketTier
 
 pytestmark = pytest.mark.django_db
 
@@ -84,6 +85,27 @@ def test_update_event_token(organization_owner_client: Client, event_token: Even
     assert response.status_code == 200, response.json()
     event_token.refresh_from_db()
     assert event_token.name == "Updated Token Name"
+
+
+def test_update_event_token_scoped_to_event(
+    organization_owner_client: Client, event: Event, event_token: EventToken, organization: Organization
+) -> None:
+    """Token update is scoped to the event: using a different event's URL returns 404 (IDOR prevention)."""
+    other_event = Event.objects.create(
+        organization=organization,
+        name="Other Event",
+        slug="other-event",
+        event_type=Event.EventType.PUBLIC,
+        status="open",
+        start=timezone.now(),
+    )
+    url = reverse("api:edit_event_token", kwargs={"event_id": other_event.pk, "token_id": event_token.pk})
+    response = organization_owner_client.put(
+        url, data=orjson.dumps({"name": "Hacked"}), content_type="application/json"
+    )
+    assert response.status_code == 404
+    event_token.refresh_from_db()
+    assert event_token.name != "Hacked"
 
 
 # --- Tests for DELETE /event-admin/token/{token_id} ---

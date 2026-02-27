@@ -32,6 +32,8 @@ def markdown(value: str | None) -> str:
     if not value:
         return ""
 
+    # render_markdown calls nh3.clean() with a strict allowlist, so the output
+    # is sanitized and safe to mark as such.
     return mark_safe(render_markdown(value))
 
 

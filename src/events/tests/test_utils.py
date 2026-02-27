@@ -27,16 +27,16 @@ def test_get_invitation_message_default_template(public_user: RevelUser, public_
 @pytest.mark.django_db
 def test_get_invitation_message_custom_template(public_user: RevelUser, public_event: models.Event) -> None:
     """Test that a custom invitation message is used when provided by the event."""
-    # Set a custom invitation message
-    custom_message = "Hi {{ user.username }}! Welcome to {{ event.name }}. This is a custom message."
+    # Set a custom invitation message using safe {placeholder} syntax
+    custom_message = "Hi {user_name}! Welcome to {event_name}. This is a custom message."
     public_event.invitation_message = custom_message
     public_event.save()
 
     # Get the invitation message
     message = get_invitation_message(public_user, public_event)
 
-    # Check that the message matches the expected custom template rendering
-    expected = f"Hi {public_user.username}! Welcome to {public_event.name}. This is a custom message."
+    # Check that the message matches the expected rendering
+    expected = f"Hi {public_user.get_display_name()}! Welcome to {public_event.name}. This is a custom message."
     assert message == expected
 
 
@@ -57,29 +57,59 @@ def test_get_invitation_message_with_event_description(public_user: RevelUser, p
 
 @pytest.mark.django_db
 def test_get_invitation_message_with_template_variables(public_user: RevelUser, public_event: models.Event) -> None:
-    """Test that template variables are correctly rendered in custom invitation messages."""
-    # Set a custom invitation message with various template variables
-    custom_message = """
-    Hello {{ user.get_short_name|default:user.username }}!
-    
-    You're invited to {{ event.name }} on {{ event.start|date:"F j, Y" }}.
-    
-    {% if event.description %}
-    Event details: {{ event.description }}
-    {% endif %}
-    
-    Organized by: {{ event.organization.name }}
-    """
+    """Test that safe {placeholder} variables are correctly substituted in custom invitation messages."""
+    custom_message = (
+        "Hello {user_name}! You're invited to {event_name} on {event_date}. Organized by: {organization_name}."
+    )
     public_event.invitation_message = custom_message
     public_event.save()
 
-    # Get the invitation message
     message = get_invitation_message(public_user, public_event)
 
-    # Check that template variables are rendered correctly
-    assert public_user.username in message
+    assert public_user.get_display_name() in message
     assert public_event.name in message
     assert public_event.organization.name in message
+
+
+@pytest.mark.django_db
+def test_get_invitation_message_unknown_placeholder_resolves_to_empty(
+    public_user: RevelUser, public_event: models.Event
+) -> None:
+    """Unknown placeholders are silently replaced with empty string (no KeyError, no data leak)."""
+    public_event.invitation_message = "Hi {user_name}! Secret: {user.email}."
+    public_event.save()
+
+    message = get_invitation_message(public_user, public_event)
+
+    assert public_user.get_display_name() in message
+    # The unknown placeholder resolves to empty string, not a real email
+    assert public_user.email not in message
+    assert "{user.email}" not in message
+
+
+@pytest.mark.django_db
+def test_get_invitation_message_django_template_syntax_not_executed(
+    public_user: RevelUser, public_event: models.Event
+) -> None:
+    """Legacy Django template syntax is treated as literal text, preventing SSTI."""
+    public_event.invitation_message = "Hello {{ user.email }}!"
+    public_event.save()
+
+    message = get_invitation_message(public_user, public_event)
+
+    # Django template syntax must NOT be executed — email must not appear
+    assert public_user.email not in message
+
+
+@pytest.mark.django_db
+def test_get_invitation_message_malformed_format_returns_raw(
+    public_user: RevelUser, public_event: models.Event
+) -> None:
+    """Malformed format strings (stray braces) fall back to the raw invitation message without raising."""
+    public_event.invitation_message = "Save 50% }"  # stray '}' causes ValueError in format_map
+    public_event.save()
+    message = get_invitation_message(public_user, public_event)
+    assert message == "Save 50% }"
 
 
 @pytest.mark.django_db
