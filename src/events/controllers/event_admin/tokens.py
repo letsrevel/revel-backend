@@ -71,7 +71,7 @@ class EventAdminTokensController(EventAdminBaseController):
         event = self.get_one(event_id)
         if payload.ticket_tier_id:
             get_object_or_404(models.TicketTier, pk=payload.ticket_tier_id, event=event)
-        token = get_object_or_404(models.EventToken, pk=token_id)
+        token = get_object_or_404(models.EventToken, pk=token_id, event=event)
         return update_db_instance(token, payload)
 
     @route.delete(

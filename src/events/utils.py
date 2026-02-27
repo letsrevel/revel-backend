@@ -1,11 +1,11 @@
 import base64
 import mimetypes
 import typing as t
+from collections import defaultdict
 from io import BytesIO
 
 import qrcode
 import structlog
-from django.template import Context, Template
 from django.template.loader import render_to_string
 from weasyprint import HTML
 
@@ -17,18 +17,48 @@ from .models import Ticket
 logger = structlog.get_logger(__name__)
 
 
+class _SafeAccessStr(str):
+    """Empty string that silently absorbs attribute and item access.
+
+    Used as the defaultdict factory for format_map so that unknown placeholders
+    — including dotted ones like {user.email} or indexed ones like {user[0]} —
+    always resolve to an empty string instead of raising AttributeError/KeyError.
+    """
+
+    def __getattr__(self, name: str) -> "_SafeAccessStr":
+        return _SafeAccessStr()
+
+    def __getitem__(self, key: object) -> "_SafeAccessStr":
+        return _SafeAccessStr()
+
+
 def get_invitation_message(user: RevelUser, event: models.Event) -> str:
     """Get invitation message.
 
-    If the event has a custom invitation message, render it as a Django template.
+    If the event has a custom invitation message, render it using safe string
+    interpolation with a curated allowlist of variables. This prevents SSTI by
+    never executing event.invitation_message as a Django template.
+
+    Supported placeholders: {user_name}, {event_name}, {organization_name}, {event_date}.
+    Unknown placeholders (including dotted ones like {user.email}) resolve to an
+    empty string and never leak sensitive data.
+
     Otherwise, use the default template.
     """
-    context = {"user": user, "event": event}
-
     if event.invitation_message:
-        template = Template(event.invitation_message)
-        return template.render(Context(context))
+        safe_context: dict[str, _SafeAccessStr] = {
+            "user_name": _SafeAccessStr(user.get_display_name()),
+            "event_name": _SafeAccessStr(event.name),
+            "organization_name": _SafeAccessStr(event.organization.name),
+            "event_date": _SafeAccessStr(event.start.strftime("%B %d, %Y") if event.start else ""),
+        }
+        try:
+            return event.invitation_message.format_map(defaultdict(_SafeAccessStr, safe_context))
+        except (ValueError, AttributeError):
+            logger.warning("invitation_message_format_error", event_id=str(event.id))
+            return event.invitation_message
 
+    context = {"user": user, "event": event}
     return render_to_string("events/default_invitation_message.txt", context=context)
 
 

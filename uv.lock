@@ -3609,7 +3609,7 @@ wheels = [
 
 [[package]]
 name = "revel"
-version = "1.38.3"
+version = "1.38.4"
 source = { editable = "." }
 dependencies = [
     { name = "aiogram" },
@@ -3665,7 +3665,6 @@ dependencies = [
     { name = "redis" },
     { name = "stripe" },
     { name = "structlog" },
-    { name = "tqdm" },
     { name = "tzfpy" },
     { name = "uvicorn" },
     { name = "uvloop" },
@@ -3699,6 +3698,7 @@ dev = [
     { name = "pytest-django" },
     { name = "pytest-xdist" },
     { name = "ruff" },
+    { name = "tqdm" },
     { name = "types-markdown" },
     { name = "types-qrcode" },
     { name = "types-stripe" },
@@ -3764,7 +3764,6 @@ requires-dist = [
     { name = "redis", specifier = ">=7.1.0" },
     { name = "stripe", specifier = ">=14.3.0" },
     { name = "structlog", specifier = ">=25.5.0" },
-    { name = "tqdm", specifier = ">=4.67.1" },
     { name = "tzfpy", specifier = ">=1.1.1" },
     { name = "uvicorn", specifier = ">=0.40.0" },
     { name = "uvloop", specifier = ">=0.22.1" },
@@ -3798,6 +3797,7 @@ dev = [
     { name = "pytest-django", specifier = ">=4.11.1" },
     { name = "pytest-xdist", specifier = ">=3.8.0" },
     { name = "ruff", specifier = ">=0.15.0" },
+    { name = "tqdm", specifier = ">=4.67.1" },
     { name = "types-markdown", specifier = ">=3.10.0.20251106" },
     { name = "types-qrcode", specifier = ">=8.2.0.20250914" },
     { name = "types-stripe", specifier = ">=3.5.2.20240106" },

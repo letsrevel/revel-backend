@@ -138,7 +138,19 @@ class EventInvitationRequestInternalSchema(EventInvitationRequestSchema):
 class EventTokenSchema(ModelSchema):
     class Meta:
         model = models.EventToken
-        fields = "__all__"
+        fields = [
+            "id",
+            "name",
+            "issuer",
+            "event",
+            "expires_at",
+            "uses",
+            "max_uses",
+            "grants_invitation",
+            "ticket_tier",
+            "invitation_payload",
+            "created_at",
+        ]
 
 
 class EventTokenBaseSchema(Schema):

@@ -1,6 +1,6 @@
 [project]
 name = "revel"
-version = "1.38.3"
+version = "1.38.4"
 description = "The Revel Event Manager"
 readme = "README.md"
 license = "MIT"
@@ -73,7 +73,6 @@ dependencies = [
     "redis>=7.1.0",
     "stripe>=14.3.0",
     "structlog>=25.5.0",
-    "tqdm>=4.67.1",
     "tzfpy>=1.1.1",
     "uvicorn>=0.40.0",
     "uvloop>=0.22.1",
@@ -111,6 +110,7 @@ dev = [
     "types-stripe>=3.5.2.20240106",
     "types-tqdm>=4.67.0.20250809",
     "bandit>=1.9.4",
+    "tqdm>=4.67.1",
 ]
 sentinel = [
     "torch>=2.8.0",

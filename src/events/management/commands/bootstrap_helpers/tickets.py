@@ -14,6 +14,32 @@ from .base import BootstrapState
 
 logger = structlog.get_logger(__name__)
 
+_OFFLINE_INSTRUCTIONS = """## Payment Instructions
+
+Please transfer **{price} {currency}** to the following account:
+
+- **Bank**: Revel Events Bank
+- **IBAN**: AT12 3456 7890 1234 5678
+- **BIC**: REVELAT2X
+- **Reference**: Your ticket confirmation number
+
+Once your payment is received, your ticket will be activated within 24 hours.
+You will receive an email confirmation when your ticket is ready.
+
+**Questions?** Contact us at tickets@revelcollective.example.com
+"""
+
+_EVENT_CURRENCIES: dict[str, str] = {
+    "summer_festival": "USD",
+    "wine_tasting": "USD",
+    "tech_conference": "EUR",
+    "wellness_retreat": "EUR",
+    "past_event": "USD",
+    "sold_out_workshop": "EUR",
+    "draft_event": "EUR",
+    "seated_concert": "EUR",
+}
+
 
 def create_ticket_tiers(state: BootstrapState) -> None:
     """Create diverse ticket tiers for events."""
@@ -44,6 +70,9 @@ def create_ticket_tiers(state: BootstrapState) -> None:
     _create_past_event_tier(state, now)
     _create_sold_out_workshop_tier(state, now)
     _create_seated_concert_tiers(state, now)
+
+    # Ensure every ticketed event covers all payment method × price type combinations
+    _add_comprehensive_tiers(state, now)
 
     logger.info("Created ticket tiers for events with tickets")
 
@@ -288,18 +317,113 @@ def _create_seated_concert_tiers(state: BootstrapState, now: "datetime.datetime"
         sales_start_at=now,
         sales_end_at=now + timedelta(days=49),
         description="Standing room at the back of the venue. Pay via bank transfer.",
-        manual_payment_instructions="""## Payment Instructions
-
-Please transfer **35.00 EUR** to the following account:
-
-- **Bank**: Revel Events Bank
-- **IBAN**: AT12 3456 7890 1234 5678
-- **BIC**: REVELAT2X
-- **Reference**: Your ticket confirmation number
-
-Once your payment is received, your ticket will be activated within 24 hours.
-You will receive an email confirmation when your ticket is ready.
-
-**Questions?** Contact us at tickets@revelcollective.example.com
-""",
+        manual_payment_instructions=_OFFLINE_INSTRUCTIONS.format(price="35.00", currency="EUR"),
     )
+
+
+def _add_comprehensive_tiers(state: BootstrapState, now: "datetime.datetime") -> None:
+    """Ensure every ticketed event has a tier for each payment method × price type combination.
+
+    Covers:
+    - ONLINE × FIXED (already present for most events)
+    - ONLINE × PWYC
+    - OFFLINE × FIXED (seated_concert already has this)
+    - OFFLINE × PWYC
+    - AT_THE_DOOR × FIXED
+    - AT_THE_DOOR × PWYC
+    - FREE × FIXED
+    """
+    logger.info("Adding comprehensive tier combinations to all ticketed events...")
+
+    TM = events_models.TicketTier.PaymentMethod
+    PT = events_models.TicketTier.PriceType
+
+    # (payment_method, price_type, name, price, extra_kwargs)
+    combos: list[tuple[str, str, str, Decimal, dict[str, object]]] = [
+        (
+            TM.ONLINE,
+            PT.PWYC,
+            "Pay What You Can (Online)",
+            Decimal("10.00"),
+            {
+                "pwyc_min": Decimal("5.00"),
+                "pwyc_max": Decimal("50.00"),
+                "description": "Pay what you can to support this event (online payment).",
+            },
+        ),
+        (
+            TM.OFFLINE,
+            PT.FIXED,
+            "Offline Payment (Fixed)",
+            Decimal("20.00"),
+            {"description": "Fixed-price ticket — pay via bank transfer."},
+        ),
+        (
+            TM.OFFLINE,
+            PT.PWYC,
+            "Pay What You Can (Bank Transfer)",
+            Decimal("10.00"),
+            {
+                "pwyc_min": Decimal("5.00"),
+                "pwyc_max": Decimal("50.00"),
+                "description": "Pay what you can via bank transfer.",
+            },
+        ),
+        (
+            TM.AT_THE_DOOR,
+            PT.FIXED,
+            "At The Door",
+            Decimal("15.00"),
+            {"description": "Pay a fixed price at the door on arrival."},
+        ),
+        (
+            TM.AT_THE_DOOR,
+            PT.PWYC,
+            "Pay What You Can (At The Door)",
+            Decimal("10.00"),
+            {
+                "pwyc_min": Decimal("5.00"),
+                "pwyc_max": Decimal("50.00"),
+                "description": "Pay what you can at the door on arrival.",
+            },
+        ),
+        (
+            TM.FREE,
+            PT.FIXED,
+            "Free Admission",
+            Decimal("0.00"),
+            {"description": "Free entry — no payment required."},
+        ),
+    ]
+
+    for event_key, event in state.events.items():
+        if not event.requires_ticket:
+            continue
+
+        currency = _EVENT_CURRENCIES.get(event_key, "EUR")
+        existing: set[tuple[str, str]] = set(event.ticket_tiers.values_list("payment_method", "price_type"))
+
+        for payment_method, price_type, name, price, extra in combos:
+            if (payment_method, price_type) in existing:
+                continue
+
+            manual_instructions: str | None = None
+            if payment_method == TM.OFFLINE:
+                manual_instructions = _OFFLINE_INSTRUCTIONS.format(price=price, currency=currency)
+
+            events_models.TicketTier.objects.create(
+                event=event,
+                name=name,
+                visibility=events_models.TicketTier.Visibility.PUBLIC,
+                payment_method=payment_method,
+                price_type=price_type,
+                purchasable_by=events_models.TicketTier.PurchasableBy.PUBLIC,
+                price=price,
+                currency=currency,
+                total_quantity=10,
+                quantity_sold=0,
+                sales_start_at=event.start - timedelta(days=30),
+                sales_end_at=event.start + timedelta(hours=12),
+                manual_payment_instructions=manual_instructions,
+                **extra,
+            )

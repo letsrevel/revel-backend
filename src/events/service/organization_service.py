@@ -251,7 +251,12 @@ def get_organization_token(token: str) -> OrganizationToken | None:
 @transaction.atomic
 def claim_invitation(user: RevelUser, token: str) -> Organization | None:
     """Claim an invitation given a Token."""
-    organization_token = get_organization_token(token)
+    organization_token = (
+        OrganizationToken.objects.select_for_update()
+        .select_related("organization")
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()), pk=token)
+        .first()
+    )
     if organization_token is None:
         return None
     if organization_token.max_uses and organization_token.uses >= organization_token.max_uses:

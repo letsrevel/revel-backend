@@ -214,7 +214,19 @@ class StaffAddSchema(Schema):
 class OrganizationTokenSchema(ModelSchema):
     class Meta:
         model = models.OrganizationToken
-        fields = "__all__"
+        fields = [
+            "id",
+            "name",
+            "issuer",
+            "organization",
+            "expires_at",
+            "uses",
+            "max_uses",
+            "grants_membership",
+            "grants_staff_status",
+            "membership_tier",
+            "created_at",
+        ]
 
 
 class OrganizationTokenBaseSchema(Schema):
