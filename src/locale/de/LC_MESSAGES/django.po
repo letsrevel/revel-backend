@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-02-27 23:54+0100\n"
+"POT-Creation-Date: 2026-02-28 00:24+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -775,6 +775,9 @@ msgstr "Der PWYC-Betrag muss mindestens {min_amount} betragen"
 msgid "PWYC amount must be at most {max_amount}"
 msgstr "Der PWYC-Betrag darf höchstens {max_amount} betragen"
 
+msgid "Token does not match this organization."
+msgstr "Dieses Token gehört nicht zu dieser Organisation."
+
 msgid "Only the organization owner can create staff members."
 msgstr "Nur der/die Organisationsinhaber:in kann Mitarbeiter:innen erstellen."
 
@@ -782,11 +785,9 @@ msgid "Only the organization owner can change staff permissions."
 msgstr ""
 "Nur der/die Organisationsinhaber:in kann Mitarbeiterberechtigungen ändern."
 
-#, fuzzy
-#| msgid "Only the organization owner can create staff-granting tokens."
 msgid "Only the organization owner can manage staff-granting tokens."
 msgstr ""
-"Nur der/die Organisationsinhaber:in kann Token erstellen, die "
+"Nur der/die Organisationsinhaber:in kann Token verwalten, die "
 "Mitarbeiterstatus gewähren."
 
 msgid "One or more events do not exist or belong to this organization."
@@ -1112,9 +1113,8 @@ msgstr "Eine Datei muss bereitgestellt werden, wenn resource_type 'file' ist."
 msgid "You must connect your Stripe account first."
 msgstr "Du musst zuerst dein Stripe-Konto verbinden."
 
-#, python-brace-format
-msgid "Stripe API error: {error}"
-msgstr "Stripe-API-Fehler: {error}"
+msgid "Payment processing failed. Please try again later."
+msgstr "Zahlung fehlgeschlagen. Bitte versuche es später erneut."
 
 msgid "This organization is not configured to accept payments."
 msgstr ""

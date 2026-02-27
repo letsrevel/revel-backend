@@ -131,6 +131,18 @@ class BaseLLMEvaluator(FreeTextEvaluator):
     Always reply in the provided JSON schema.
     """)
 
+    @staticmethod
+    def _escape_jinja2(text: str) -> str:
+        """Escape Jinja2 delimiters in user-supplied text to prevent template injection."""
+        return (
+            text.replace("{{", "{ {")
+            .replace("}}", "} }")
+            .replace("{%", "{ %")
+            .replace("%}", "% }")
+            .replace("{#", "{ #")
+            .replace("#}", "# }")
+        )
+
     def evaluate(
         self,
         *,
@@ -138,11 +150,21 @@ class BaseLLMEvaluator(FreeTextEvaluator):
         questionnaire_guidelines: str | None,
     ) -> EvaluationResponse:
         """Evaluate via LLM."""
+        escaped_items = [
+            AnswerToEvaluate(
+                question_id=item.question_id,
+                question_text=self._escape_jinja2(item.question_text),
+                answer_text=self._escape_jinja2(item.answer_text),
+                guidelines=self._escape_jinja2(item.guidelines),
+            )
+            for item in questions_to_evaluate
+        ]
+
         system_prompt = _jinja_env.from_string(self.SYSTEM_PROMPT).render(
             guidelines=questionnaire_guidelines or "No specific guidelines provided."
         )
 
-        user_prompt = _jinja_env.from_string(self.USER_PROMPT).render(answers=questions_to_evaluate)
+        user_prompt = _jinja_env.from_string(self.USER_PROMPT).render(answers=escaped_items)
 
         return call_llm(
             model=settings.LLM_DEFAULT_MODEL,

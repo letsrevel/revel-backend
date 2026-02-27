@@ -1,4 +1,6 @@
+from django.utils.translation import gettext_lazy as _
 from ninja import File
+from ninja.errors import HttpError
 from ninja.files import UploadedFile
 from ninja_extra import api_controller, route
 
@@ -111,8 +113,12 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         - 400: Token is invalid, expired, or already used
         - 400: Organization not found
         - 400: Email address has changed since verification was sent
+        - 400: Token does not match the organization in the URL
         """
-        return organization_service.verify_contact_email(payload.token)
+        result = organization_service.verify_contact_email(payload.token)
+        if result.slug != slug:
+            raise HttpError(400, str(_("Token does not match this organization.")))
+        return result
 
     @route.post(
         "/stripe/connect",

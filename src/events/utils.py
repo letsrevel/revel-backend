@@ -46,15 +46,15 @@ def get_invitation_message(user: RevelUser, event: models.Event) -> str:
     Otherwise, use the default template.
     """
     if event.invitation_message:
-        safe_context: dict[str, str] = {
-            "user_name": user.get_display_name(),
-            "event_name": event.name,
-            "organization_name": event.organization.name,
-            "event_date": event.start.strftime("%B %d, %Y") if event.start else "",
+        safe_context: dict[str, _SafeAccessStr] = {
+            "user_name": _SafeAccessStr(user.get_display_name()),
+            "event_name": _SafeAccessStr(event.name),
+            "organization_name": _SafeAccessStr(event.organization.name),
+            "event_date": _SafeAccessStr(event.start.strftime("%B %d, %Y") if event.start else ""),
         }
         try:
             return event.invitation_message.format_map(defaultdict(_SafeAccessStr, safe_context))
-        except ValueError:
+        except (ValueError, AttributeError):
             logger.warning("invitation_message_format_error", event_id=str(event.id))
             return event.invitation_message
 

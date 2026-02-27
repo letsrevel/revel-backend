@@ -319,7 +319,8 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         token = get_object_or_404(models.OrganizationToken, pk=token_id, organization=organization)
 
         payload_dict = payload.model_dump(exclude_unset=True)
-        if payload_dict.get("grants_staff_status") and organization.owner != self.user():
+        resulting_grants_staff = payload_dict.get("grants_staff_status", token.grants_staff_status)
+        if resulting_grants_staff and organization.owner != self.user():
             raise HttpError(403, str(_("Only the organization owner can manage staff-granting tokens.")))
 
         # Resolve membership_tier_id to MembershipTier object

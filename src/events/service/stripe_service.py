@@ -126,7 +126,8 @@ def _create_stripe_checkout_session(
     try:
         return Session.create(**session_data)  # type: ignore[arg-type]
     except Exception as e:
-        raise HttpError(500, str(_("Stripe API error: {error}")).format(error=e)) from e
+        logger.error("stripe_session_creation_failed", error=str(e), event_id=str(event.id))
+        raise HttpError(500, str(_("Payment processing failed. Please try again later."))) from e
 
 
 @transaction.atomic
@@ -301,7 +302,8 @@ def create_batch_checkout_session(
     try:
         session = Session.create(**session_data)  # type: ignore[arg-type]
     except Exception as e:
-        raise HttpError(500, str(_("Stripe API error: {error}")).format(error=e)) from e
+        logger.error("stripe_batch_session_creation_failed", error=str(e), event_id=str(event.id))
+        raise HttpError(500, str(_("Payment processing failed. Please try again later."))) from e
 
     # Create Payment records for each ticket
     db_platform_fee_per_ticket = (Decimal(application_fee_amount) / Decimal(100) / len(tickets)).quantize(
