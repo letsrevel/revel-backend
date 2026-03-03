@@ -326,7 +326,7 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
                 422,
                 str(_("At least one of grants_membership or grants_staff_status must be True.")),
             )
-        if resulting_grants_staff and organization.owner != self.user():
+        if (token.grants_staff_status or resulting_grants_staff) and organization.owner != self.user():
             raise HttpError(403, str(_("Only the organization owner can manage staff-granting tokens.")))
 
         # Resolve membership_tier_id to MembershipTier object
@@ -427,6 +427,7 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
 
         **Error Cases:**
         - 403: User lacks "manage_members" permission
+        - 403: Only the organization owner can delete staff-granting tokens
         - 404: Token ID not found or doesn't belong to this organization
         """
         organization = self.get_one(slug)

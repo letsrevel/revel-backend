@@ -267,16 +267,11 @@ class OrganizationTokenUpdateSchema(OrganizationTokenBaseSchema):
         - membership_tier_id is provided when grants_membership is explicitly set to True
         """
         both_explicitly_set = (
-            "grants_membership" in self.__pydantic_fields_set__
-            and "grants_staff_status" in self.__pydantic_fields_set__
+            "grants_membership" in self.model_fields_set and "grants_staff_status" in self.model_fields_set
         )
         if both_explicitly_set and not self.grants_membership and not self.grants_staff_status:
             raise ValueError("At least one of grants_membership or grants_staff_status must be True")
         # Only validate tier if grants_membership was explicitly set to True in the update payload
-        if (
-            "grants_membership" in self.__pydantic_fields_set__
-            and self.grants_membership
-            and not self.membership_tier_id
-        ):
+        if "grants_membership" in self.model_fields_set and self.grants_membership and not self.membership_tier_id:
             raise ValueError("membership_tier_id is required when grants_membership is True")
         return self
