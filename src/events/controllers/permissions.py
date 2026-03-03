@@ -236,10 +236,14 @@ class CanPurchaseTicket(RootPermission):
             models.TicketTier.PurchasableBy.MEMBERS,
             models.TicketTier.PurchasableBy.INVITED_AND_MEMBERS,
         ]:
-            if models.OrganizationMember.objects.filter(
-                organization_id=obj.event.organization_id,
-                user_id=user.id,
-            ).exists():
+            if (
+                models.OrganizationMember.objects.active_only()
+                .filter(
+                    organization_id=obj.event.organization_id,
+                    user_id=user.id,
+                )
+                .exists()
+            ):
                 return True
         if obj.purchasable_by in [
             models.TicketTier.PurchasableBy.INVITED,

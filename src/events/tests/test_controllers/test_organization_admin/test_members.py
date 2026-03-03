@@ -121,6 +121,46 @@ class TestManageMembersAndStaff:
         assert response.status_code == 204
         assert not OrganizationStaff.objects.filter(organization=organization, user=staff_member.user).exists()
 
+    def test_remove_staff_by_staff_with_manage_members_fails(
+        self,
+        organization_staff_client: Client,
+        organization: Organization,
+        staff_member: OrganizationStaff,
+    ) -> None:
+        """Test that a staff member with manage_members cannot remove staff (owner-only)."""
+        # Grant manage_members to the requesting staff
+        perms = staff_member.permissions
+        perms["default"]["manage_members"] = True
+        staff_member.permissions = perms
+        staff_member.save()
+
+        # Create another staff member to attempt removal on
+        other_staff_user = RevelUser.objects.create_user("otherstaff_remove@example.com")
+        OrganizationStaff.objects.create(organization=organization, user=other_staff_user)
+
+        url = reverse(
+            "api:remove_organization_staff", kwargs={"slug": organization.slug, "user_id": other_staff_user.id}
+        )
+        response = organization_staff_client.delete(url)
+        assert response.status_code == 403
+        # Verify staff was NOT removed
+        assert OrganizationStaff.objects.filter(organization=organization, user=other_staff_user).exists()
+
+    def test_remove_staff_by_nonmember_fails(
+        self,
+        nonmember_client: Client,
+        organization: Organization,
+        staff_member: OrganizationStaff,
+    ) -> None:
+        """Test that a nonmember gets 404 (org not visible via scoped queryset)."""
+        url = reverse(
+            "api:remove_organization_staff", kwargs={"slug": organization.slug, "user_id": staff_member.user.id}
+        )
+        response = nonmember_client.delete(url)
+        assert response.status_code == 404
+        # Verify staff was NOT removed
+        assert OrganizationStaff.objects.filter(organization=organization, user=staff_member.user).exists()
+
     def test_update_staff_permissions_by_owner(
         self, organization_owner_client: Client, organization: Organization, staff_member: OrganizationStaff
     ) -> None:

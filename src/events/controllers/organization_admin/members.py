@@ -15,7 +15,7 @@ from common.models import Tag
 from common.schema import TagSchema
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
-from events.controllers.permissions import IsOrganizationStaff, OrganizationPermission
+from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
 from events.service import organization_service, update_db_instance
 
 from .base import OrganizationAdminBaseController
@@ -201,7 +201,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/staff/{user_id}",
         url_name="remove_organization_staff",
         response={204: None},
-        permissions=[OrganizationPermission("manage_members")],
+        permissions=[IsOrganizationOwner()],
     )
     def remove_staff(self, slug: str, user_id: UUID) -> tuple[int, None]:
         """Remove a staff member from an organization."""

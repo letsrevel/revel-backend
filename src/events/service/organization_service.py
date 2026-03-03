@@ -25,6 +25,7 @@ from events.models import (
     PermissionsSchema,
 )
 from events.models.organization import _get_default_permissions
+from events.service import blacklist_service
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
@@ -129,9 +130,26 @@ def create_organization(
 def create_membership_request(
     organization: Organization, user: RevelUser, message: str | None = None
 ) -> OrganizationMembershipRequest:
-    """Create a membership request."""
+    """Create a membership request.
+
+    Args:
+        organization: The organization to request membership for.
+        user: The user requesting membership.
+        message: Optional message from the user.
+
+    Returns:
+        The created OrganizationMembershipRequest instance.
+
+    Raises:
+        HttpError: If the organization does not accept requests, or the user is blacklisted.
+        AlreadyMemberError: If the user is already a member.
+        PendingMembershipRequestExistsError: If a pending request already exists.
+    """
     if not organization.accept_membership_requests:
         raise HttpError(400, str(_("The organization does not accept new members.")))
+
+    if blacklist_service.check_user_hard_blacklisted(user, organization):
+        raise HttpError(403, str(_("You are not allowed to request membership for this organization.")))
 
     if models.OrganizationMember.objects.filter(organization=organization, user=user).exists():
         raise AlreadyMemberError
@@ -222,10 +240,26 @@ def create_organization_token(
     name: str | None = None,
     max_uses: int = 0,
 ) -> OrganizationToken:
-    """Get a temporary JWT.
+    """Create an organization token for sharing invitation links.
 
-    This will need to be used by a user in combination with their OTP code to obtain a valid JWT.
+    Args:
+        organization: The organization the token belongs to.
+        issuer: The user creating the token.
+        duration: Token validity duration in minutes (or timedelta).
+        grants_membership: Whether the token grants membership.
+        membership_tier: The membership tier to assign (required if grants_membership is True).
+        grants_staff_status: Whether the token grants staff status.
+        name: Display name for the token.
+        max_uses: Maximum number of uses (0 = unlimited).
+
+    Returns:
+        The created OrganizationToken.
+
+    Raises:
+        ValueError: If both grants_membership and grants_staff_status are False.
     """
+    if not grants_membership and not grants_staff_status:
+        raise ValueError("At least one of grants_membership or grants_staff_status must be True")
     duration = timedelta(minutes=duration) if isinstance(duration, int) else duration
     return OrganizationToken.objects.create(
         name=name,

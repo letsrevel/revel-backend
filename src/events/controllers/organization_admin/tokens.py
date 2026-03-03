@@ -320,6 +320,12 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
 
         payload_dict = payload.model_dump(exclude_unset=True)
         resulting_grants_staff = payload_dict.get("grants_staff_status", token.grants_staff_status)
+        resulting_grants_membership = payload_dict.get("grants_membership", token.grants_membership)
+        if not resulting_grants_membership and not resulting_grants_staff:
+            raise HttpError(
+                422,
+                str(_("At least one of grants_membership or grants_staff_status must be True.")),
+            )
         if resulting_grants_staff and organization.owner != self.user():
             raise HttpError(403, str(_("Only the organization owner can manage staff-granting tokens.")))
 
@@ -425,5 +431,7 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         """
         organization = self.get_one(slug)
         token = get_object_or_404(models.OrganizationToken, pk=token_id, organization=organization)
+        if token.grants_staff_status and organization.owner != self.user():
+            raise HttpError(403, str(_("Only the organization owner can manage staff-granting tokens.")))
         token.delete()
         return 204, None
