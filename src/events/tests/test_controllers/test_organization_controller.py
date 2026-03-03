@@ -188,6 +188,38 @@ class TestCreateMembershipRequest:
         response = member_client.post(url)
         assert response.status_code == 400
 
+    def test_create_membership_request_blacklisted_user_rejected(
+        self,
+        nonmember_client: Client,
+        nonmember_user: RevelUser,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """Test that a blacklisted user cannot create a membership request.
+
+        The for_user() queryset excludes blacklisted orgs, so the user gets 404
+        (org not visible). The service-layer blacklist check provides defense-in-depth
+        and is tested separately in test_organization_service.py.
+        """
+        from events.models import Blacklist
+
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save()
+
+        # Blacklist the nonmember user
+        Blacklist.objects.create(
+            organization=organization,
+            user=nonmember_user,
+            email=nonmember_user.email,
+            created_by=organization_owner_user,
+            reason="Banned",
+        )
+
+        url = reverse("api:create_membership_request", kwargs={"slug": organization.slug})
+        response = nonmember_client.post(url, content_type="application/json")
+        assert response.status_code == 404
+        assert not OrganizationMembershipRequest.objects.filter(organization=organization, user=nonmember_user).exists()
+
 
 class TestCreateOrganization:
     """Tests for POST /organizations/ endpoint."""

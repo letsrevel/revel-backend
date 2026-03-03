@@ -76,6 +76,45 @@ class TestCreateMembershipRequest:
         with pytest.raises(PendingMembershipRequestExistsError):
             organization_service.create_membership_request(organization, nonmember_user)
 
+    def test_create_membership_request_blacklisted_user_fails(
+        self, organization: Organization, nonmember_user: RevelUser, organization_owner_user: RevelUser
+    ) -> None:
+        """Test that a blacklisted user cannot create a membership request."""
+        from events.models import Blacklist
+
+        # Arrange - blacklist the user by direct FK match
+        Blacklist.objects.create(
+            organization=organization,
+            user=nonmember_user,
+            email=nonmember_user.email,
+            created_by=organization_owner_user,
+            reason="Test blacklist",
+        )
+
+        # Act & Assert
+        with pytest.raises(HttpError) as exc_info:
+            organization_service.create_membership_request(organization, nonmember_user)
+        assert exc_info.value.status_code == 403
+
+    def test_create_membership_request_blacklisted_by_email_fails(
+        self, organization: Organization, nonmember_user: RevelUser, organization_owner_user: RevelUser
+    ) -> None:
+        """Test that a user blacklisted by email (without FK) cannot create a membership request."""
+        from events.models import Blacklist
+
+        # Arrange - blacklist by email only (no user FK)
+        Blacklist.objects.create(
+            organization=organization,
+            email=nonmember_user.email,
+            created_by=organization_owner_user,
+            reason="Test blacklist by email",
+        )
+
+        # Act & Assert
+        with pytest.raises(HttpError) as exc_info:
+            organization_service.create_membership_request(organization, nonmember_user)
+        assert exc_info.value.status_code == 403
+
 
 @pytest.mark.django_db
 class TestApproveMembershipRequest:
@@ -492,3 +531,63 @@ class TestVerifyContactEmail:
         # Act & Assert
         with pytest.raises(HttpError):
             organization_service.verify_contact_email(token)
+
+
+@pytest.mark.django_db
+class TestCreateOrganizationTokenValidation:
+    """Tests for M-02: organization tokens must grant at least one type of access."""
+
+    def test_create_token_with_grants_membership_succeeds(
+        self, organization: Organization, organization_owner_user: RevelUser
+    ) -> None:
+        """Token with grants_membership=True can be created via service."""
+        default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        token = organization_service.create_organization_token(
+            organization=organization,
+            issuer=organization_owner_user,
+            grants_membership=True,
+            grants_staff_status=False,
+            membership_tier=default_tier,
+        )
+        assert token.grants_membership is True
+        assert token.grants_staff_status is False
+
+    def test_create_token_with_grants_staff_status_succeeds(
+        self, organization: Organization, organization_owner_user: RevelUser
+    ) -> None:
+        """Token with grants_staff_status=True can be created via service."""
+        token = organization_service.create_organization_token(
+            organization=organization,
+            issuer=organization_owner_user,
+            grants_membership=False,
+            grants_staff_status=True,
+        )
+        assert token.grants_membership is False
+        assert token.grants_staff_status is True
+
+    def test_create_token_with_both_grants_succeeds(
+        self, organization: Organization, organization_owner_user: RevelUser
+    ) -> None:
+        """Token with both grants enabled can be created via service."""
+        default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        token = organization_service.create_organization_token(
+            organization=organization,
+            issuer=organization_owner_user,
+            grants_membership=True,
+            grants_staff_status=True,
+            membership_tier=default_tier,
+        )
+        assert token.grants_membership is True
+        assert token.grants_staff_status is True
+
+    def test_create_token_with_no_grants_raises_value_error(
+        self, organization: Organization, organization_owner_user: RevelUser
+    ) -> None:
+        """Token with both grants disabled raises ValueError in service."""
+        with pytest.raises(ValueError, match="At least one of grants_membership or grants_staff_status must be True"):
+            organization_service.create_organization_token(
+                organization=organization,
+                issuer=organization_owner_user,
+                grants_membership=False,
+                grants_staff_status=False,
+            )

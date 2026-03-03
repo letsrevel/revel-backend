@@ -241,8 +241,15 @@ class OrganizationTokenCreateSchema(OrganizationTokenBaseSchema):
     duration: int = 24 * 60
 
     @model_validator(mode="after")
-    def validate_membership_tier(self) -> "OrganizationTokenCreateSchema":
-        """Validate that membership_tier_id is provided when grants_membership is True."""
+    def validate_token_grants(self) -> "OrganizationTokenCreateSchema":
+        """Validate token grant configuration.
+
+        Ensures:
+        - At least one of grants_membership or grants_staff_status is True
+        - membership_tier_id is provided when grants_membership is True
+        """
+        if not self.grants_membership and not self.grants_staff_status:
+            raise ValueError("At least one of grants_membership or grants_staff_status must be True")
         if self.grants_membership and not self.membership_tier_id:
             raise ValueError("membership_tier_id is required when grants_membership is True")
         return self
@@ -252,13 +259,19 @@ class OrganizationTokenUpdateSchema(OrganizationTokenBaseSchema):
     expires_at: AwareDatetime | None = None
 
     @model_validator(mode="after")
-    def validate_membership_tier(self) -> "OrganizationTokenUpdateSchema":
-        """Validate that membership_tier_id is provided when grants_membership is explicitly set to True."""
-        # Only validate if grants_membership was explicitly set to True in the update payload
-        if (
-            "grants_membership" in self.__pydantic_fields_set__
-            and self.grants_membership
-            and not self.membership_tier_id
-        ):
+    def validate_token_grants(self) -> "OrganizationTokenUpdateSchema":
+        """Validate token grant configuration for updates.
+
+        Ensures:
+        - If both grants are explicitly set, at least one must be True
+        - membership_tier_id is provided when grants_membership is explicitly set to True
+        """
+        both_explicitly_set = (
+            "grants_membership" in self.model_fields_set and "grants_staff_status" in self.model_fields_set
+        )
+        if both_explicitly_set and not self.grants_membership and not self.grants_staff_status:
+            raise ValueError("At least one of grants_membership or grants_staff_status must be True")
+        # Only validate tier if grants_membership was explicitly set to True in the update payload
+        if "grants_membership" in self.model_fields_set and self.grants_membership and not self.membership_tier_id:
             raise ValueError("membership_tier_id is required when grants_membership is True")
         return self

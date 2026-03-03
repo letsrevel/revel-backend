@@ -165,8 +165,10 @@ class TestGuestDuplicateActions:
     """Test handling of duplicate guest actions."""
 
     @patch("events.tasks.send_guest_rsvp_confirmation.delay")
-    def test_guest_initiates_rsvp_twice_updates_name(self, mock_send_email: Mock, guest_event: Event) -> None:
-        """Test that initiating RSVP twice updates the guest user's name."""
+    def test_guest_initiates_rsvp_twice_preserves_original_name(
+        self, mock_send_email: Mock, guest_event: Event
+    ) -> None:
+        """Test that initiating RSVP twice does not overwrite the guest user's name."""
         # First RSVP
         client = Client()
         url = reverse("api:guest_rsvp", kwargs={"event_id": guest_event.pk, "answer": "yes"})
@@ -187,9 +189,9 @@ class TestGuestDuplicateActions:
         response2 = client.post(url, data=payload2, content_type="application/json")
         assert response2.status_code == 200
 
-        # Assert: User's name was updated
+        # Assert: User's name was NOT updated (preserves original)
         user = RevelUser.objects.get(email="duplicate@example.com")
-        assert user.first_name == "Second"
+        assert user.first_name == "First"
         assert user.last_name == "Name"
 
         # Assert: Email sent twice (once for each attempt)
