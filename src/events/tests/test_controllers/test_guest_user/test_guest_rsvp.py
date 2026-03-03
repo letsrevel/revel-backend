@@ -112,10 +112,10 @@ class TestGuestRSVP:
         assert "already exists" in data["detail"].lower() or "log in" in data["detail"].lower()
 
     @patch("events.tasks.send_guest_rsvp_confirmation.delay")
-    def test_guest_rsvp_updates_existing_guest_user(
+    def test_guest_rsvp_preserves_existing_guest_name(
         self, mock_send_email: Mock, guest_event: Event, existing_guest_user: RevelUser
     ) -> None:
-        """Test that guest RSVP updates name for existing guest users."""
+        """Test that guest RSVP does not overwrite name on existing guest users."""
         # Arrange
         client = Client()
         url = reverse("api:guest_rsvp", kwargs={"event_id": guest_event.pk, "answer": "yes"})
@@ -131,7 +131,7 @@ class TestGuestRSVP:
         # Assert
         assert response.status_code == 200
         existing_guest_user.refresh_from_db()
-        assert existing_guest_user.first_name == "Updated"
+        assert existing_guest_user.first_name == "Old"
         assert existing_guest_user.last_name == "Name"
         mock_send_email.assert_called_once()
 

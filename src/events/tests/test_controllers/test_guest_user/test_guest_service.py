@@ -37,14 +37,14 @@ class TestGuestServiceLayer:
         assert user.email_verified is False
         assert not user.has_usable_password()
 
-    def test_get_or_create_guest_user_updates_existing_guest(self, existing_guest_user: RevelUser) -> None:
-        """Test updating an existing guest user's name."""
+    def test_get_or_create_guest_user_preserves_existing_guest_name(self, existing_guest_user: RevelUser) -> None:
+        """Test that existing guest user's name is not overwritten."""
         # Act
         user = guest_service.get_or_create_guest_user(existing_guest_user.email, "Updated", "Name")
 
         # Assert
         assert user.id == existing_guest_user.id
-        assert user.first_name == "Updated"
+        assert user.first_name == "Old"
         assert user.last_name == "Name"
 
     def test_get_or_create_guest_user_rejects_non_guest(self, existing_regular_user: RevelUser) -> None:

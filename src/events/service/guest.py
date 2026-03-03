@@ -64,13 +64,8 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
         logger.warning("guest_user_creation_blocked_existing_account", email=email)
         raise HttpError(400, str(_("An account with this email already exists. Please log in.")))
 
-    # Guest user exists, update name if provided
-    if existing_user.first_name != first_name or existing_user.last_name != last_name:
-        existing_user.first_name = first_name
-        existing_user.last_name = last_name
-        existing_user.save(update_fields=["first_name", "last_name"])
-        logger.info("guest_user_updated", email=email, user_id=str(existing_user.id))
-
+    # Guest user already exists — keep existing names to prevent overwrite by third parties.
+    # Per-ticket guest_name is captured separately in the JWT payload.
     return existing_user
 
 
