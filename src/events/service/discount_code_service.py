@@ -6,7 +6,6 @@ from uuid import UUID
 
 import structlog
 from django.db.models import F
-from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -32,10 +31,33 @@ _M2M_FIELDS: dict[str, tuple[str, type[Event] | type[EventSeries] | type[TicketT
 
 
 def _set_m2m_relations(dc: DiscountCode, m2m_data: dict[str, list[UUID]]) -> None:
-    """Set M2M relationships on a discount code from a {schema_field: ids} dict."""
+    """Set M2M relationships on a discount code, scoped to its organization.
+
+    Validates that all referenced objects belong to the same organization
+    as the discount code. Tiers are validated via their event's organization.
+
+    Raises:
+        HttpError: If any provided IDs don't exist or belong to another organization.
+    """
+    org = dc.organization
+    err_msg = str(_("One or more referenced objects are invalid or do not belong to this organization."))
+
     for schema_field, ids in m2m_data.items():
-        attr_name, model_cls = _M2M_FIELDS[schema_field]
-        getattr(dc, attr_name).set(model_cls.objects.filter(id__in=ids))
+        attr_name, _model_cls = _M2M_FIELDS[schema_field]
+        unique_ids = set(ids)
+
+        # Scope by organization; tiers are linked through their event
+        if schema_field == "tier_ids":
+            scoped = TicketTier.objects.filter(id__in=ids, event__organization=org)
+        elif schema_field == "event_ids":
+            scoped = Event.objects.filter(id__in=ids, organization=org)  # type: ignore[assignment]
+        else:
+            scoped = EventSeries.objects.filter(id__in=ids, organization=org)  # type: ignore[assignment]
+
+        if scoped.count() != len(unique_ids):
+            raise HttpError(400, err_msg)
+
+        getattr(dc, attr_name).set(scoped)
 
 
 def create_discount_code(
@@ -76,7 +98,8 @@ def update_discount_code(
     from events.service import update_db_instance
 
     data = payload.model_dump(exclude_unset=True)
-    m2m_data = {key: data.pop(key) for key in list(_M2M_FIELDS) if key in data}
+    # Pop M2M keys; treat explicit null as "clear relation"
+    m2m_data = {key: (data.pop(key) or []) for key in _M2M_FIELDS if key in data}
 
     # Update scalar fields with race-condition-safe locking
     if data:
@@ -129,7 +152,10 @@ def _validate_core(
     """
     now = timezone.now()
 
-    dc = get_object_or_404(DiscountCode, code=code.upper(), organization=organization, is_active=True)
+    try:
+        dc = DiscountCode.objects.get(code=code.upper(), organization=organization, is_active=True)
+    except DiscountCode.DoesNotExist:
+        raise HttpError(400, str(_("Invalid discount code.")))
 
     # Date validity
     if dc.valid_from and dc.valid_from > now:
@@ -292,16 +318,16 @@ def calculate_discounted_price(tier: TicketTier, discount_code: DiscountCode) ->
         discount_code: The validated discount code.
 
     Returns:
-        The discounted unit price.
+        The discounted unit price (2 decimal places, non-negative).
     """
     if discount_code.discount_type == DiscountCode.DiscountType.PERCENTAGE:
         discounted = (tier.price * (Decimal("100") - discount_code.discount_value) / Decimal("100")).quantize(
             Decimal("0.01")
         )
-        return max(discounted, Decimal("0"))
+        return max(discounted, Decimal("0.00"))
 
     # FIXED_AMOUNT
-    return max(tier.price - discount_code.discount_value, Decimal("0"))
+    return max((tier.price - discount_code.discount_value).quantize(Decimal("0.01")), Decimal("0.00"))
 
 
 def calculate_discount_amount(tier: TicketTier, discount_code: DiscountCode) -> Decimal:
@@ -320,8 +346,10 @@ def calculate_discount_amount(tier: TicketTier, discount_code: DiscountCode) -> 
 def apply_discount(discount_code: DiscountCode, user: RevelUser, batch_size: int) -> None:
     """Atomically verify limits and increment the usage counter.
 
-    Must be called inside @transaction.atomic. Uses select_for_update to
-    serialize concurrent access and prevent exceeding usage limits.
+    Must be called inside @transaction.atomic, AFTER bulk_create. Uses
+    select_for_update to serialize concurrent access and prevent exceeding
+    usage limits. The per-user ticket count already includes tickets created
+    by bulk_create in the current transaction.
 
     Args:
         discount_code: The discount code to increment.
@@ -337,13 +365,14 @@ def apply_discount(discount_code: DiscountCode, user: RevelUser, batch_size: int
     if dc.max_uses is not None and dc.times_used + batch_size > dc.max_uses:
         raise HttpError(400, str(_("This discount code has reached its usage limit.")))
 
-    # Re-check per-user limit under lock
+    # Re-check per-user limit under lock.
+    # user_usage already includes tickets from this transaction's bulk_create.
     user_usage = Ticket.objects.filter(
         discount_code=dc,
         user=user,
         status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
     ).count()
-    if user_usage + batch_size > dc.max_uses_per_user:
+    if user_usage > dc.max_uses_per_user:
         raise HttpError(400, str(_("You have already used this discount code the maximum number of times.")))
 
     DiscountCode.objects.filter(pk=dc.pk).update(times_used=F("times_used") + batch_size)

@@ -163,17 +163,13 @@ class TestValidateDiscountEndpoint:
         assert data["valid"] is True
         assert data["discounted_price"] == "40.00"
 
-    def test_nonexistent_code_returns_404(
+    def test_nonexistent_code_returns_invalid(
         self,
         authenticated_client: Client,
         dc_event: Event,
         dc_paid_tier: TicketTier,
     ) -> None:
-        """Should return 404 for a non-existent code.
-
-        The service calls get_object_or_404 which raises Http404,
-        and that is not caught by the controller's HttpError handler.
-        """
+        """Should return valid=False for a non-existent code."""
         url = reverse(
             "api:validate_discount_code",
             kwargs={"event_id": dc_event.pk, "tier_id": dc_paid_tier.pk},
@@ -182,7 +178,9 @@ class TestValidateDiscountEndpoint:
 
         response = authenticated_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
-        assert response.status_code == 404
+        assert response.status_code == 200
+        data = orjson.loads(response.content)
+        assert data["valid"] is False
 
     def test_expired_code_returns_invalid(
         self,
@@ -247,14 +245,14 @@ class TestValidateDiscountEndpoint:
         data = response.json()
         assert data["valid"] is True
 
-    def test_inactive_code_returns_404(
+    def test_inactive_code_returns_invalid(
         self,
         authenticated_client: Client,
         dc_event: Event,
         dc_paid_tier: TicketTier,
         dc_active_code: DiscountCode,
     ) -> None:
-        """Should return 404 when the code is inactive (filtered out by get_object_or_404)."""
+        """Should return valid=False when the code is inactive."""
         dc_active_code.is_active = False
         dc_active_code.save(update_fields=["is_active"])
 
@@ -266,5 +264,6 @@ class TestValidateDiscountEndpoint:
 
         response = authenticated_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
-        # Http404 from get_object_or_404 propagates (not caught by the HttpError handler)
-        assert response.status_code == 404
+        assert response.status_code == 200
+        data = orjson.loads(response.content)
+        assert data["valid"] is False

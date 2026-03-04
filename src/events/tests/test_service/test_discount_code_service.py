@@ -478,7 +478,13 @@ class TestApplyDiscount:
     def test_rejects_when_per_user_limit_exceeded(
         self, dc_owner: RevelUser, dc_org: Organization, dc_event: Event, dc_paid_tier: TicketTier
     ) -> None:
-        """Should reject when per-user usage limit would be exceeded."""
+        """Should reject when per-user usage limit would be exceeded.
+
+        Simulates the real flow: bulk_create already ran before apply_discount,
+        so user_usage includes both old tickets and the current batch's tickets.
+        With max_uses_per_user=1, having 2 tickets (1 old + 1 from current batch)
+        means user_usage=2 > 1 → reject.
+        """
         dc = DiscountCode.objects.create(
             code="PERUSER",
             organization=dc_org,
@@ -487,15 +493,24 @@ class TestApplyDiscount:
             is_active=True,
             max_uses_per_user=1,
         )
-        # Create existing ticket using this code
         from events.models import Ticket
 
+        # Old ticket from a previous purchase
         Ticket.objects.create(
             event=dc_event,
             tier=dc_paid_tier,
             user=dc_owner,
             status=Ticket.TicketStatus.ACTIVE,
-            guest_name="Test",
+            guest_name="Old",
+            discount_code=dc,
+        )
+        # Current batch ticket (already bulk_created before apply_discount runs)
+        Ticket.objects.create(
+            event=dc_event,
+            tier=dc_paid_tier,
+            user=dc_owner,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name="New",
             discount_code=dc,
         )
 

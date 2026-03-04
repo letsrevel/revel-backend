@@ -225,10 +225,8 @@ class TestValidateDiscountCode:
         dc_paid_tier: TicketTier,
         dc_buyer: RevelUser,
     ) -> None:
-        """Should raise 404 when the discount code does not exist."""
-        from django.http import Http404
-
-        with pytest.raises(Http404):
+        """Should raise HttpError when the discount code does not exist."""
+        with pytest.raises(HttpError):
             discount_code_service.validate_discount_code(
                 code="NONEXISTENT",
                 organization=dc_org,
@@ -244,13 +242,11 @@ class TestValidateDiscountCode:
         dc_buyer: RevelUser,
         dc_percentage: DiscountCode,
     ) -> None:
-        """Should raise 404 when the code exists but is inactive (get_object_or_404 filter)."""
-        from django.http import Http404
-
+        """Should raise HttpError when the code exists but is inactive."""
         dc_percentage.is_active = False
         dc_percentage.save(update_fields=["is_active"])
 
-        with pytest.raises(Http404):
+        with pytest.raises(HttpError):
             discount_code_service.validate_discount_code(
                 code="SAVE20",
                 organization=dc_org,
@@ -896,10 +892,8 @@ class TestPreviewDiscountCode:
         dc_paid_tier: TicketTier,
         dc_buyer: RevelUser,
     ) -> None:
-        """Should raise Http404 for non-existent codes (caller catches in controller)."""
-        from django.http import Http404
-
-        with pytest.raises(Http404):
+        """Should raise HttpError for non-existent codes."""
+        with pytest.raises(HttpError):
             discount_code_service.preview_discount_code(
                 code="INVALID",
                 organization=dc_org,
