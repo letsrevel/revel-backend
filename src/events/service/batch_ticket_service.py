@@ -10,6 +10,7 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier, VenueSeat
+from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
 from events.tasks import build_attendee_visibility_flags
 from notifications.signals.ticket import send_batch_ticket_created_notifications
@@ -28,17 +29,25 @@ class BatchTicketService:
     - Payment flow delegation (online, offline, free)
     """
 
-    def __init__(self, event: Event, tier: TicketTier, user: RevelUser) -> None:
+    def __init__(
+        self,
+        event: Event,
+        tier: TicketTier,
+        user: RevelUser,
+        discount_code: DiscountCode | None = None,
+    ) -> None:
         """Initialize the batch ticket service.
 
         Args:
             event: The event for which tickets are being purchased.
             tier: The ticket tier being purchased.
             user: The user purchasing the tickets.
+            discount_code: Optional validated discount code to apply.
         """
         self.event = event
         self.tier = tier
         self.user = user
+        self.discount_code = discount_code
 
     def get_user_ticket_count(self) -> int:
         """Get count of user's existing non-cancelled tickets for this tier.
@@ -372,7 +381,7 @@ class BatchTicketService:
 
         Args:
             items: List of ticket purchase items with guest_name and optional seat_id.
-            price_override: Price override for PWYC tiers.
+            price_override: Price override for PWYC or discounted tiers.
 
         Returns:
             Either a Stripe checkout URL (str) or list of created Tickets.
@@ -410,6 +419,14 @@ class BatchTicketService:
             has_seats=any(s is not None for s in seats),
         )
 
+        # If discount makes price zero for an ONLINE tier, treat as free checkout
+        if (
+            locked_tier.payment_method == TicketTier.PaymentMethod.ONLINE
+            and price_override is not None
+            and price_override <= 0
+        ):
+            return self._free_checkout(items, seats, locked_tier)
+
         # Delegate to payment-specific method
         match locked_tier.payment_method:
             case TicketTier.PaymentMethod.ONLINE:
@@ -441,6 +458,14 @@ class BatchTicketService:
         Returns:
             List of created Ticket objects.
         """
+        # Calculate discount amount if a discount code is applied
+        dc = self.discount_code
+        discount_amount: Decimal | None = None
+        if dc is not None:
+            from events.service import discount_code_service
+
+            discount_amount = discount_code_service.calculate_discount_amount(self.tier, dc)
+
         tickets = []
         for item, seat in zip(items, seats, strict=True):
             ticket = Ticket(
@@ -450,6 +475,8 @@ class BatchTicketService:
                 status=status,
                 guest_name=item.guest_name,
                 price_paid=price_paid,
+                discount_code=dc,
+                discount_amount=discount_amount,
             )
             if seat:
                 ticket.seat = seat
@@ -462,11 +489,19 @@ class BatchTicketService:
 
             # Skip FK validation - we've already validated event, tier, user exist
             # full_clean() would query DB to check each FK exists (3+ queries per ticket)
-            ticket.clean_fields(exclude=["event", "tier", "user", "seat", "sector", "venue"])
+            ticket.clean_fields(exclude=["event", "tier", "user", "seat", "sector", "venue", "discount_code"])
             ticket.clean()
             tickets.append(ticket)
 
-        return Ticket.objects.bulk_create(tickets)
+        created = Ticket.objects.bulk_create(tickets)
+
+        # Apply discount usage increment after successful ticket creation
+        if dc is not None:
+            from events.service import discount_code_service
+
+            discount_code_service.apply_discount(dc, self.user, len(created))
+
+        return created
 
     def _online_checkout(
         self,

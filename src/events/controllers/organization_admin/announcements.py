@@ -30,6 +30,7 @@ from .base import OrganizationAdminBaseController
     auth=I18nJWTAuth(),
     tags=["Organization Admin - Announcements"],
     throttle=WriteThrottle(),
+    permissions=[OrganizationPermission("send_announcements")],
 )
 class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
     """Organization announcement management endpoints."""
@@ -38,7 +39,6 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
         "/announcements",
         url_name="list_announcements",
         response=PaginatedResponseSchema[AnnouncementListSchema],
-        permissions=[OrganizationPermission("send_announcements")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -72,7 +72,6 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
         "/announcements",
         url_name="create_announcement",
         response={201: AnnouncementSchema},
-        permissions=[OrganizationPermission("send_announcements")],
     )
     def create_announcement(
         self,
@@ -112,7 +111,6 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
         "/announcements/{announcement_id}",
         url_name="get_announcement",
         response=AnnouncementSchema,
-        permissions=[OrganizationPermission("send_announcements")],
         throttle=UserDefaultThrottle(),
     )
     def get_announcement(
@@ -136,7 +134,6 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
         "/announcements/{announcement_id}",
         url_name="update_announcement",
         response=AnnouncementSchema,
-        permissions=[OrganizationPermission("send_announcements")],
     )
     def update_announcement(
         self,
@@ -168,7 +165,6 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
         "/announcements/{announcement_id}",
         url_name="delete_announcement",
         response={204: None},
-        permissions=[OrganizationPermission("send_announcements")],
     )
     def delete_announcement(
         self,
@@ -194,7 +190,6 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
         "/announcements/{announcement_id}/send",
         url_name="send_announcement",
         response=AnnouncementSchema,
-        permissions=[OrganizationPermission("send_announcements")],
         throttle=SendAnnouncementThrottle(),
     )
     def send_announcement(
@@ -232,7 +227,6 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
         "/announcements/{announcement_id}/recipient-count",
         url_name="get_announcement_recipient_count",
         response=RecipientCountSchema,
-        permissions=[OrganizationPermission("send_announcements")],
         throttle=UserDefaultThrottle(),
     )
     def get_recipient_count(

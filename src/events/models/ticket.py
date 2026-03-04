@@ -540,6 +540,22 @@ class Ticket(TimeStampedModel):
         related_name="tickets",
     )
 
+    # Discount code tracking
+    discount_code = models.ForeignKey(
+        "events.DiscountCode",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tickets",
+    )
+    discount_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Amount discounted from the original tier price.",
+    )
+
     # Cached ticket files (generated on-demand, cleaned up after event ends)
     pdf_file = ProtectedFileField(upload_to="tickets/pdf/", null=True, blank=True)
     pkpass_file = ProtectedFileField(upload_to="tickets/pkpass/", null=True, blank=True)

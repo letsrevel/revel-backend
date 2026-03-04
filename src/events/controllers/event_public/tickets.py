@@ -13,6 +13,7 @@ from common.schema import ResponseMessage
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.controllers.permissions import CanPurchaseTicket
+from events.service import discount_code_service
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.event_manager import EventManager, EventUserEligibility
 
@@ -128,9 +129,18 @@ class EventPublicTicketsController(EventPublicBaseController):
         manager = EventManager(user, event)
         manager.check_eligibility(raise_on_false=True)
 
+        # Validate discount code if provided
+        dc = None
+        price_override = None
+        if payload.discount_code:
+            dc = discount_code_service.validate_discount_code(
+                payload.discount_code, event.organization, tier, user, len(payload.tickets)
+            )
+            price_override = discount_code_service.calculate_discounted_price(tier, dc)
+
         # Create batch of tickets
-        service = BatchTicketService(event, tier, user)
-        result = service.create_batch(payload.tickets)
+        service = BatchTicketService(event, tier, user, discount_code=dc)
+        result = service.create_batch(payload.tickets, price_override=price_override)
 
         if isinstance(result, str):
             return schema.BatchCheckoutResponse(checkout_url=result, tickets=[])
@@ -208,3 +218,36 @@ class EventPublicTicketsController(EventPublicBaseController):
             checkout_url=None,
             tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
         )
+
+    @route.post(
+        "/{uuid:event_id}/tickets/{tier_id}/validate-discount",
+        url_name="validate_discount_code",
+        response={200: schema.DiscountCodeValidationResponse},
+        throttle=WriteThrottle(),
+    )
+    def validate_discount(
+        self,
+        event_id: UUID,
+        tier_id: UUID,
+        payload: schema.DiscountCodeValidationSchema,
+    ) -> schema.DiscountCodeValidationResponse:
+        """Validate a discount code and preview the discounted price.
+
+        Works for both authenticated and guest users. Does not decrement usage - preview only.
+        Returns whether the code is valid and what the discounted price would be.
+        """
+        event = self.get_one(event_id)
+        user = self.maybe_user()
+        tier = get_object_or_404(
+            models.TicketTier.objects.for_user(user),
+            pk=tier_id,
+            event=event,
+        )
+
+        try:
+            return discount_code_service.preview_discount_code(payload.code, event.organization, tier, user)
+        except HttpError as e:
+            return schema.DiscountCodeValidationResponse(
+                valid=False,
+                message=str(e.message),
+            )

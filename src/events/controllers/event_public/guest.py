@@ -81,7 +81,13 @@ class EventPublicGuestController(EventPublicBaseController):
         if tier.price_type == models.TicketTier.PriceType.PWYC:
             raise HttpError(400, str(_("Use /pwyc endpoint for pay-what-you-can tickets")))
         return guest_service.handle_guest_ticket_checkout(
-            event, tier, payload.email, payload.first_name, payload.last_name, payload.tickets
+            event,
+            tier,
+            payload.email,
+            payload.first_name,
+            payload.last_name,
+            payload.tickets,
+            discount_code=payload.discount_code,
         )
 
     @route.post(

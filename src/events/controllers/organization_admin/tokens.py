@@ -16,7 +16,13 @@ from events.service import organization_service
 from .base import OrganizationAdminBaseController
 
 
-@api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
+@api_controller(
+    "/organization-admin/{slug}",
+    auth=I18nJWTAuth(),
+    tags=["Organization Admin"],
+    throttle=WriteThrottle(),
+    permissions=[OrganizationPermission("manage_members")],
+)
 class OrganizationAdminTokensController(OrganizationAdminBaseController):
     """Organization token management endpoints."""
 
@@ -24,7 +30,6 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         "/tokens",
         url_name="list_organization_tokens",
         response=PaginatedResponseSchema[schema.OrganizationTokenSchema],
-        permissions=[OrganizationPermission("manage_members")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -102,7 +107,6 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         "/tokens",
         url_name="create_organization_token",
         response=schema.OrganizationTokenSchema,
-        permissions=[OrganizationPermission("manage_members")],
     )
     def create_organization_token(
         self, slug: str, payload: schema.OrganizationTokenCreateSchema
@@ -225,7 +229,6 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         "/tokens/{token_id}",
         url_name="edit_organization_token",
         response=schema.OrganizationTokenSchema,
-        permissions=[OrganizationPermission("manage_members")],
     )
     def update_organization_token(
         self, slug: str, token_id: str, payload: schema.OrganizationTokenUpdateSchema
@@ -348,7 +351,6 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         "/tokens/{token_id}",
         url_name="delete_organization_token",
         response={204: None},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def delete_organization_token(self, slug: str, token_id: str) -> tuple[int, None]:
         """Permanently delete an organization token and invalidate all links using it.

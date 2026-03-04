@@ -16,7 +16,13 @@ from events.service import whitelist_service
 from .base import OrganizationAdminBaseController
 
 
-@api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
+@api_controller(
+    "/organization-admin/{slug}",
+    auth=I18nJWTAuth(),
+    tags=["Organization Admin"],
+    throttle=WriteThrottle(),
+    permissions=[OrganizationPermission("manage_members")],
+)
 class OrganizationAdminWhitelistController(OrganizationAdminBaseController):
     """Organization whitelist management endpoints.
 
@@ -29,7 +35,6 @@ class OrganizationAdminWhitelistController(OrganizationAdminBaseController):
         "/whitelist-requests",
         url_name="list_whitelist_requests",
         response=PaginatedResponseSchema[schema.WhitelistRequestSchema],
-        permissions=[OrganizationPermission("manage_members")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -58,7 +63,6 @@ class OrganizationAdminWhitelistController(OrganizationAdminBaseController):
         "/whitelist-requests/{request_id}",
         url_name="get_whitelist_request",
         response=schema.WhitelistRequestSchema,
-        permissions=[OrganizationPermission("manage_members")],
         throttle=UserDefaultThrottle(),
     )
     def get_whitelist_request(self, slug: str, request_id: UUID) -> models.WhitelistRequest:
@@ -76,7 +80,6 @@ class OrganizationAdminWhitelistController(OrganizationAdminBaseController):
         "/whitelist-requests/{request_id}/approve",
         url_name="approve_whitelist_request",
         response={204: None},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def approve_whitelist_request(self, slug: str, request_id: UUID) -> tuple[int, None]:
         """Approve a whitelist request.
@@ -93,7 +96,6 @@ class OrganizationAdminWhitelistController(OrganizationAdminBaseController):
         "/whitelist-requests/{request_id}/reject",
         url_name="reject_whitelist_request",
         response={204: None},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def reject_whitelist_request(self, slug: str, request_id: UUID) -> tuple[int, None]:
         """Reject a whitelist request.
@@ -112,7 +114,6 @@ class OrganizationAdminWhitelistController(OrganizationAdminBaseController):
         "/whitelist",
         url_name="list_whitelist_entries",
         response=PaginatedResponseSchema[schema.WhitelistEntrySchema],
-        permissions=[OrganizationPermission("manage_members")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -137,7 +138,6 @@ class OrganizationAdminWhitelistController(OrganizationAdminBaseController):
         "/whitelist/{entry_id}",
         url_name="delete_whitelist_entry",
         response={204: None},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def delete_whitelist_entry(self, slug: str, entry_id: UUID) -> tuple[int, None]:
         """Remove a user from the whitelist.
