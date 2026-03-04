@@ -15,6 +15,7 @@ from accounts.models import RevelUser
 from events.models import Event, EventSeries, Organization, OrganizationQuestionnaire
 from events.schema import OrganizationQuestionnaireCreateSchema
 from questionnaires.models import (
+    FreeTextQuestion,
     Questionnaire,
     QuestionnaireEvaluation,
     QuestionnaireSubmission,
@@ -508,6 +509,45 @@ def test_update_org_questionnaire_permission_denied(organization: Organization, 
     response = nonmember_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 404
+
+
+def test_update_org_questionnaire_to_auto_with_free_text_rejected_when_llm_disabled(
+    organization: Organization, organization_owner_client: Client, settings: object
+) -> None:
+    """Test that updating to AUTOMATIC mode with free-text questions is rejected when LLM is disabled."""
+    settings.FEATURE_LLM_EVALUATION = False  # type: ignore[attr-defined]
+    questionnaire = Questionnaire.objects.create(
+        name="Test",
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL,
+    )
+    FreeTextQuestion.objects.create(questionnaire=questionnaire, question="Why?")
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    payload = {"evaluation_mode": Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC}
+    url = reverse("api:update_org_questionnaire", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+
+
+def test_update_org_questionnaire_to_auto_without_free_text_allowed_when_llm_disabled(
+    organization: Organization, organization_owner_client: Client, settings: object
+) -> None:
+    """Test that updating to AUTOMATIC mode without free-text questions is allowed when LLM is disabled."""
+    settings.FEATURE_LLM_EVALUATION = False  # type: ignore[attr-defined]
+    questionnaire = Questionnaire.objects.create(
+        name="Test",
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL,
+    )
+    org_questionnaire = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
+
+    payload = {"evaluation_mode": Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC}
+    url = reverse("api:update_org_questionnaire", kwargs={"org_questionnaire_id": org_questionnaire.id})
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    questionnaire.refresh_from_db()
+    assert questionnaire.evaluation_mode == Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
 
 
 # --- Delete questionnaire tests ---

@@ -87,6 +87,20 @@ def test_google_login_success(mock_google_login: MagicMock, client: Client) -> N
     mock_google_login.assert_called_once_with("google.id.token")
 
 
+@patch("accounts.service.auth.google_login")
+def test_google_login_returns_403_when_feature_disabled(
+    mock_google_login: MagicMock, client: Client, settings: MagicMock
+) -> None:
+    """Test that google_login returns 403 when FEATURE_GOOGLE_SSO is disabled."""
+    settings.FEATURE_GOOGLE_SSO = False
+    url = reverse("api:google_sso_login")
+    payload = {"id_token": "google.id.token"}
+    response = client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 403
+    mock_google_login.assert_not_called()
+
+
 # --- OtpController Tests ---
 
 

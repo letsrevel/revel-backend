@@ -5,8 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import Field, field_serializer, model_validator
-from pydantic_core import PydanticCustomError
+from pydantic import Field, field_serializer
 
 from events.models import OrganizationQuestionnaire
 from questionnaires import schema as questionnaires_schema
@@ -126,22 +125,6 @@ class OrganizationQuestionnaireUpdateSchema(Schema):
     questionnaire_type: OrganizationQuestionnaire.QuestionnaireType | None = None
     members_exempt: bool | None = None
     per_event: bool | None = None
-
-    @model_validator(mode="after")
-    def check_llm_evaluation_feature(self) -> "OrganizationQuestionnaireUpdateSchema":
-        """Validate that LLM evaluation is enabled when setting automatic/hybrid mode."""
-        if self.evaluation_mode in [
-            Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
-            Questionnaire.QuestionnaireEvaluationMode.HYBRID,
-        ]:
-            from django.conf import settings
-
-            if not settings.FEATURE_LLM_EVALUATION:
-                raise PydanticCustomError(
-                    "llm_evaluation_disabled",
-                    "LLM evaluation is not available.",
-                )
-        return self
 
 
 class EventAssignmentSchema(Schema):
