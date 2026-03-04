@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import structlog
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -60,6 +61,7 @@ def _set_m2m_relations(dc: DiscountCode, m2m_data: dict[str, list[UUID]]) -> Non
         getattr(dc, attr_name).set(scoped)
 
 
+@transaction.atomic
 def create_discount_code(
     organization: Organization,
     payload: "DiscountCodeCreateSchema",
@@ -82,6 +84,7 @@ def create_discount_code(
     return dc
 
 
+@transaction.atomic
 def update_discount_code(
     dc: DiscountCode,
     payload: "DiscountCodeUpdateSchema",

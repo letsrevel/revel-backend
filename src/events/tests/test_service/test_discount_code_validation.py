@@ -219,14 +219,14 @@ class TestValidateDiscountCode:
 
         assert result.pk == dc_percentage.pk
 
-    def test_code_not_found_raises_404(
+    def test_code_not_found_raises_400(
         self,
         dc_org: Organization,
         dc_paid_tier: TicketTier,
         dc_buyer: RevelUser,
     ) -> None:
-        """Should raise HttpError when the discount code does not exist."""
-        with pytest.raises(HttpError):
+        """Should raise HttpError 400 when the discount code does not exist."""
+        with pytest.raises(HttpError) as exc_info:
             discount_code_service.validate_discount_code(
                 code="NONEXISTENT",
                 organization=dc_org,
@@ -235,18 +235,20 @@ class TestValidateDiscountCode:
                 batch_size=1,
             )
 
-    def test_inactive_code_raises_404(
+        assert exc_info.value.status_code == 400
+
+    def test_inactive_code_raises_400(
         self,
         dc_org: Organization,
         dc_paid_tier: TicketTier,
         dc_buyer: RevelUser,
         dc_percentage: DiscountCode,
     ) -> None:
-        """Should raise HttpError when the code exists but is inactive."""
+        """Should raise HttpError 400 when the code exists but is inactive."""
         dc_percentage.is_active = False
         dc_percentage.save(update_fields=["is_active"])
 
-        with pytest.raises(HttpError):
+        with pytest.raises(HttpError) as exc_info:
             discount_code_service.validate_discount_code(
                 code="SAVE20",
                 organization=dc_org,
@@ -254,6 +256,8 @@ class TestValidateDiscountCode:
                 user=dc_buyer,
                 batch_size=1,
             )
+
+        assert exc_info.value.status_code == 400
 
     def test_not_yet_active_raises_400(
         self,
