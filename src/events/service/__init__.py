@@ -1,9 +1,12 @@
 import typing as t
 
+from django.conf import settings
 from django.db import models, transaction
+from ninja.errors import HttpError
 from pydantic import BaseModel
 
 from events.schema import OrganizationQuestionnaireUpdateSchema
+from questionnaires.models import Questionnaire
 from events.service import announcement_service as announcement_service
 from events.service import event_questionnaire_service as event_questionnaire_service
 from events.service import ticket_file_service as ticket_file_service
@@ -49,6 +52,21 @@ def update_organization_questionnaire(
     Returns:
         The updated OrganizationQuestionnaire instance
     """
+    # Validate feature flag: block LLM evaluation modes when the questionnaire has free-text questions
+    if not settings.FEATURE_LLM_EVALUATION and payload.evaluation_mode in [
+        Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
+        Questionnaire.QuestionnaireEvaluationMode.HYBRID,
+    ]:
+        questionnaire = org_questionnaire.questionnaire  # type: ignore[attr-defined]
+        has_free_text = questionnaire.freetextquestion_questions.exists()
+        if not has_free_text:
+            has_free_text = any(
+                section.freetextquestion_questions.exists()
+                for section in questionnaire.sections.all()
+            )
+        if has_free_text:
+            raise HttpError(400, "LLM evaluation is not available.")
+
     # Extract questionnaire-specific fields with type conversions
     questionnaire_kwargs = {}
     payload_dict = payload.model_dump(exclude_unset=True)

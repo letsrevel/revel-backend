@@ -756,6 +756,7 @@ class QuestionnaireCreateSchema(QuestionnaireBaseSchema):
         """Validate that LLM guidelines are present.
 
         If the questionnaire has free-text questions and an automatic or hybrid evaluation mode they are mandatory.
+        Also validates that LLM evaluation is enabled via feature flags when free-text questions are present.
         """
         has_top_level_ftq = self.freetextquestion_questions and len(self.freetextquestion_questions) > 0
         has_section_ftq = any(
@@ -768,12 +769,20 @@ class QuestionnaireCreateSchema(QuestionnaireBaseSchema):
             Questionnaire.QuestionnaireEvaluationMode.HYBRID,
         ]
 
-        if is_auto_or_hybrid and has_free_text and not self.llm_guidelines:
-            raise PydanticCustomError(
-                "missing_llm_guidelines",
-                "LLM guidelines are required for automatic or hybrid evaluation "
-                "of questionnaires with free text questions.",
-            )
+        if is_auto_or_hybrid and has_free_text:
+            from django.conf import settings
+
+            if not settings.FEATURE_LLM_EVALUATION:
+                raise PydanticCustomError(
+                    "llm_evaluation_disabled",
+                    "LLM evaluation is not available.",
+                )
+            if not self.llm_guidelines:
+                raise PydanticCustomError(
+                    "missing_llm_guidelines",
+                    "LLM guidelines are required for automatic or hybrid evaluation "
+                    "of questionnaires with free text questions.",
+                )
         return self
 
 

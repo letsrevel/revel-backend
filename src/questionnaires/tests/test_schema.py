@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 from accounts.models import RevelUser
 from questionnaires.models import (
@@ -13,7 +14,9 @@ from questionnaires.models import (
 from questionnaires.schema import (
     EvaluationCreateSchema,
     EvaluationResponseSchema,
+    FreeTextQuestionCreateSchema,
     QuestionAnswerDetailSchema,
+    QuestionnaireCreateSchema,
     SubmissionListItemSchema,
 )
 
@@ -230,3 +233,55 @@ def test_evaluation_response_schema_from_model(
     assert schema.evaluator_id == evaluation_user.id
     assert schema.created_at == evaluation.created_at
     assert schema.updated_at == evaluation.updated_at
+
+
+# --- Feature flag: FEATURE_LLM_EVALUATION ---
+
+
+def test_create_schema_rejects_auto_eval_with_free_text_when_llm_disabled(settings: object) -> None:
+    """Test that QuestionnaireCreateSchema rejects AUTOMATIC mode with free-text questions when LLM is disabled."""
+    settings.FEATURE_LLM_EVALUATION = False  # type: ignore[attr-defined]
+    with pytest.raises(ValidationError, match="llm_evaluation_disabled"):
+        QuestionnaireCreateSchema(
+            name="Test",
+            min_score=Decimal(0),
+            evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
+            freetextquestion_questions=[FreeTextQuestionCreateSchema(question="Why?")],
+            llm_guidelines="guidelines",
+        )
+
+
+def test_create_schema_rejects_hybrid_eval_with_free_text_when_llm_disabled(settings: object) -> None:
+    """Test that QuestionnaireCreateSchema rejects HYBRID mode with free-text questions when LLM is disabled."""
+    settings.FEATURE_LLM_EVALUATION = False  # type: ignore[attr-defined]
+    with pytest.raises(ValidationError, match="llm_evaluation_disabled"):
+        QuestionnaireCreateSchema(
+            name="Test",
+            min_score=Decimal(0),
+            evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.HYBRID,
+            freetextquestion_questions=[FreeTextQuestionCreateSchema(question="Why?")],
+            llm_guidelines="guidelines",
+        )
+
+
+def test_create_schema_allows_auto_eval_without_free_text_when_llm_disabled(settings: object) -> None:
+    """Test that QuestionnaireCreateSchema allows AUTOMATIC mode without free-text questions when LLM is disabled."""
+    settings.FEATURE_LLM_EVALUATION = False  # type: ignore[attr-defined]
+    schema = QuestionnaireCreateSchema(
+        name="Test",
+        min_score=Decimal(0),
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
+    )
+    assert schema.evaluation_mode == Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC
+
+
+def test_create_schema_allows_manual_eval_with_free_text_when_llm_disabled(settings: object) -> None:
+    """Test that QuestionnaireCreateSchema allows MANUAL mode with free-text questions when LLM is disabled."""
+    settings.FEATURE_LLM_EVALUATION = False  # type: ignore[attr-defined]
+    schema = QuestionnaireCreateSchema(
+        name="Test",
+        min_score=Decimal(0),
+        evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL,
+        freetextquestion_questions=[FreeTextQuestionCreateSchema(question="Why?")],
+    )
+    assert schema.evaluation_mode == Questionnaire.QuestionnaireEvaluationMode.MANUAL

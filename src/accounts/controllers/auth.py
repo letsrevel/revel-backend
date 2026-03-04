@@ -3,6 +3,7 @@
 import typing as t
 
 import structlog
+from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 from django_google_sso.models import GoogleSSOUser
 from ninja.errors import HttpError
@@ -60,6 +61,8 @@ class AuthController(TokenObtainPairController):
         For existing Google SSO users, this is the only valid login method - they cannot
         use password-based authentication.
         """
+        if not settings.FEATURE_GOOGLE_SSO:
+            raise HttpError(403, str(_("Google SSO is not available.")))
         return auth_service.google_login(payload.id_token)
 
     @route.post("/impersonate", response=schema.ImpersonationTokenResponseSchema, url_name="impersonate")
