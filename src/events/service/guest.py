@@ -99,6 +99,7 @@ def create_guest_ticket_token(
     tier_id: UUID,
     tickets: list[schema.TicketPurchaseItem],
     pwyc_amount: Decimal | None = None,
+    discount_code: str | None = None,
 ) -> str:
     """Create JWT token for guest ticket purchase confirmation.
 
@@ -111,6 +112,7 @@ def create_guest_ticket_token(
         tier_id: Ticket tier ID
         tickets: List of ticket purchase items with guest_name and optional seat_id
         pwyc_amount: Optional PWYC amount
+        discount_code: Optional discount code string
 
     Returns:
         JWT token string
@@ -124,6 +126,7 @@ def create_guest_ticket_token(
         event_id=event_id,
         tier_id=tier_id,
         pwyc_amount=pwyc_amount,
+        discount_code=discount_code,
         tickets=ticket_payloads,
         exp=timezone.now() + timedelta(hours=1),
         jti=str(uuid4()),
@@ -226,6 +229,7 @@ def handle_guest_ticket_checkout(
     last_name: str,
     tickets: list[schema.TicketPurchaseItem],
     pwyc_amount: Decimal | None = None,
+    discount_code: str | None = None,
 ) -> schema.GuestCheckoutResponseSchema:
     """Handle guest ticket checkout request (business logic extracted from controller).
 
@@ -237,6 +241,7 @@ def handle_guest_ticket_checkout(
         last_name: Guest last name
         tickets: List of ticket purchase items with guest_name and optional seat_id
         pwyc_amount: Optional PWYC amount (must be the same for all tickets)
+        discount_code: Optional discount code string
 
     Returns:
         GuestCheckoutResponseSchema with either message (non-online) or checkout_url (online)
@@ -244,6 +249,7 @@ def handle_guest_ticket_checkout(
     Raises:
         HttpError: If event doesn't allow guest access, tier issues, or eligibility checks fail
     """
+    from events.service import discount_code_service
     from events.service.batch_ticket_service import BatchTicketService
     from events.tasks import send_guest_ticket_confirmation
 
@@ -266,11 +272,18 @@ def handle_guest_ticket_checkout(
         if tier.pwyc_max and pwyc_amount > tier.pwyc_max:
             raise HttpError(400, str(_("PWYC amount must be at most {max_amount}")).format(max_amount=tier.pwyc_max))
 
+    # Validate discount code if provided
+    dc = None
+    price_override = pwyc_amount
+    if discount_code:
+        dc = discount_code_service.validate_discount_code(discount_code, event.organization, tier, user, len(tickets))
+        price_override = discount_code_service.calculate_discounted_price(tier, dc)
+
     # Branch by payment method
     if tier.payment_method == models.TicketTier.PaymentMethod.ONLINE:
         # Online payment: use BatchTicketService (Stripe provides security)
-        service = BatchTicketService(event, tier, user)
-        result = service.create_batch(tickets, price_override=pwyc_amount)
+        service = BatchTicketService(event, tier, user, discount_code=dc)
+        result = service.create_batch(tickets, price_override=price_override)
 
         if isinstance(result, str):
             return schema.GuestCheckoutResponseSchema(message=None, checkout_url=result, tickets=[])
@@ -287,7 +300,7 @@ def handle_guest_ticket_checkout(
     else:
         # Non-online payment: require email confirmation
         # Store ticket info in JWT token for later creation
-        token = create_guest_ticket_token(user, event.id, tier.id, tickets, pwyc_amount)
+        token = create_guest_ticket_token(user, event.id, tier.id, tickets, pwyc_amount, discount_code)
         send_guest_ticket_confirmation.delay(user.email, token, event.name, tier.name)
         return schema.GuestCheckoutResponseSchema(
             message=str(_("Please check your email to confirm your ticket purchase")),
@@ -337,6 +350,8 @@ def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.BatchChe
 
     elif isinstance(payload, schema.GuestTicketJWTPayloadSchema):
         # Handle ticket confirmation
+        from events.service import discount_code_service
+
         event = get_object_or_404(models.Event, id=payload.event_id)
         tier = get_object_or_404(models.TicketTier, id=payload.tier_id, event=event)
 
@@ -354,9 +369,18 @@ def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.BatchChe
             # Legacy token without tickets list - create single ticket with user's name
             ticket_items = [schema.TicketPurchaseItem(guest_name=user.get_display_name())]
 
+        # Re-validate discount code if one was stored in the token
+        dc = None
+        price_override = payload.pwyc_amount
+        if payload.discount_code:
+            dc = discount_code_service.validate_discount_code(
+                payload.discount_code, event.organization, tier, user, len(ticket_items)
+            )
+            price_override = discount_code_service.calculate_discounted_price(tier, dc)
+
         # Use BatchTicketService for proper seat handling
-        service = BatchTicketService(event, tier, user)
-        result = service.create_batch(ticket_items, price_override=payload.pwyc_amount)
+        service = BatchTicketService(event, tier, user, discount_code=dc)
+        result = service.create_batch(ticket_items, price_override=price_override)
 
         # Blacklist token after successful creation
         blacklist_token(token)

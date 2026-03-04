@@ -169,12 +169,23 @@ class UserTicketSchema(ModelSchema):
     payment: MinimalPaymentSchema | None = None
     seat: MinimalSeatSchema | None = None
     price_paid: Decimal | None = None
+    discount_amount: Decimal | None = None
     pdf_url: str | None = None
     pkpass_url: str | None = None
 
     class Meta:
         model = Ticket
-        fields = ["id", "status", "tier", "created_at", "checked_in_at", "guest_name", "seat", "price_paid"]
+        fields = [
+            "id",
+            "status",
+            "tier",
+            "created_at",
+            "checked_in_at",
+            "guest_name",
+            "seat",
+            "price_paid",
+            "discount_amount",
+        ]
 
     @staticmethod
     def resolve_payment(obj: Ticket) -> Payment | None:
@@ -398,6 +409,7 @@ class BatchCheckoutPayload(Schema):
     """Payload for batch ticket checkout (authenticated users)."""
 
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
+    discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
 
 
 class BatchCheckoutPWYCPayload(BatchCheckoutPayload):
@@ -436,6 +448,7 @@ class GuestBatchCheckoutPayload(GuestUserDataSchema):
     """Payload for batch checkout by guest (unauthenticated) users."""
 
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
+    discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
 
 
 class GuestBatchCheckoutPWYCPayload(GuestBatchCheckoutPayload):
@@ -498,6 +511,7 @@ class GuestTicketJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
     event_id: UUID4
     tier_id: UUID4
     pwyc_amount: Decimal | None = None
+    discount_code: str | None = None
     tickets: list[GuestTicketItemPayload] = Field(default_factory=list)
 
 

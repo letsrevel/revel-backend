@@ -16,7 +16,13 @@ from events.service import blacklist_service
 from .base import OrganizationAdminBaseController
 
 
-@api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
+@api_controller(
+    "/organization-admin/{slug}",
+    auth=I18nJWTAuth(),
+    tags=["Organization Admin"],
+    throttle=WriteThrottle(),
+    permissions=[OrganizationPermission("manage_members")],
+)
 class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
     """Organization blacklist management endpoints."""
 
@@ -24,7 +30,6 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
         "/blacklist",
         url_name="list_blacklist_entries",
         response=PaginatedResponseSchema[schema.BlacklistEntrySchema],
-        permissions=[OrganizationPermission("manage_members")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -54,7 +59,6 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
         "/blacklist",
         url_name="create_blacklist_entry",
         response={201: schema.BlacklistEntrySchema},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def create_blacklist_entry(self, slug: str, payload: schema.BlacklistCreateSchema) -> tuple[int, models.Blacklist]:
         """Add an entry to the organization blacklist.
@@ -105,7 +109,6 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
         "/blacklist/{entry_id}",
         url_name="get_blacklist_entry",
         response=schema.BlacklistEntrySchema,
-        permissions=[OrganizationPermission("manage_members")],
         throttle=UserDefaultThrottle(),
     )
     def get_blacklist_entry(self, slug: str, entry_id: UUID) -> models.Blacklist:
@@ -121,7 +124,6 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
         "/blacklist/{entry_id}",
         url_name="update_blacklist_entry",
         response=schema.BlacklistEntrySchema,
-        permissions=[OrganizationPermission("manage_members")],
     )
     def update_blacklist_entry(
         self, slug: str, entry_id: UUID, payload: schema.BlacklistUpdateSchema
@@ -144,7 +146,6 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
         "/blacklist/{entry_id}",
         url_name="delete_blacklist_entry",
         response={204: None},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def delete_blacklist_entry(self, slug: str, entry_id: UUID) -> tuple[int, None]:
         """Remove an entry from the blacklist.

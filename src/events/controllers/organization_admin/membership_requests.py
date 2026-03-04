@@ -16,7 +16,13 @@ from events.service import organization_service
 from .base import OrganizationAdminBaseController
 
 
-@api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
+@api_controller(
+    "/organization-admin/{slug}",
+    auth=I18nJWTAuth(),
+    tags=["Organization Admin"],
+    throttle=WriteThrottle(),
+    permissions=[OrganizationPermission("manage_members")],
+)
 class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseController):
     """Organization membership request management endpoints."""
 
@@ -24,7 +30,6 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
         "/membership-requests",
         url_name="list_membership_requests",
         response=PaginatedResponseSchema[schema.OrganizationMembershipRequestRetrieve],
-        permissions=[OrganizationPermission("manage_members")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -45,7 +50,6 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
         "/membership-requests/{request_id}/approve",
         url_name="approve_membership_request",
         response={204: None},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def approve_membership_request(
         self, slug: str, request_id: UUID, payload: schema.ApproveMembershipRequestSchema
@@ -67,7 +71,6 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
         "/membership-requests/{request_id}/reject",
         url_name="reject_membership_request",
         response={204: None},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def reject_membership_request(self, slug: str, request_id: UUID) -> tuple[int, None]:
         """Reject a membership request."""

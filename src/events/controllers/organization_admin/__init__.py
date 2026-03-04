@@ -6,6 +6,7 @@ while preserving the original endpoint order.
 
 from .announcements import OrganizationAdminAnnouncementsController
 from .blacklist import OrganizationAdminBlacklistController
+from .discount_codes import OrganizationAdminDiscountCodesController
 from .core import OrganizationAdminCoreController
 from .members import OrganizationAdminMembersController
 from .membership_requests import OrganizationAdminMembershipRequestsController
@@ -25,10 +26,12 @@ ORGANIZATION_ADMIN_CONTROLLERS: list[type] = [
     OrganizationAdminBlacklistController,
     OrganizationAdminWhitelistController,
     OrganizationAdminAnnouncementsController,
+    OrganizationAdminDiscountCodesController,
 ]
 
 __all__ = [
     "OrganizationAdminAnnouncementsController",
+    "OrganizationAdminDiscountCodesController",
     "OrganizationAdminCoreController",
     "OrganizationAdminTokensController",
     "OrganizationAdminMembershipRequestsController",

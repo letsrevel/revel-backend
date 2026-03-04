@@ -13,6 +13,7 @@ from pydantic import AwareDatetime
 from events.models import (
     AdditionalResource,
     Announcement,
+    DiscountCode,
     Event,
     EventInvitationRequest,
     EventRSVP,
@@ -404,3 +405,10 @@ class AnnouncementFilterSchema(FilterSchema):
         if has_event is None:
             return Q()
         return Q(event__isnull=not has_event)
+
+
+class DiscountCodeFilterSchema(FilterSchema):
+    """Filter schema for discount codes."""
+
+    is_active: bool | None = None
+    discount_type: DiscountCode.DiscountType | None = None

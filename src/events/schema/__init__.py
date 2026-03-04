@@ -223,6 +223,15 @@ from .follow import (
     OrganizationFollowUpdateSchema,
 )
 
+# Discount code schemas
+from .discount_code import (
+    DiscountCodeCreateSchema,
+    DiscountCodeSchema,
+    DiscountCodeUpdateSchema,
+    DiscountCodeValidationResponse,
+    DiscountCodeValidationSchema,
+)
+
 # Announcement schemas
 from .announcement import (
     AnnouncementCreateSchema,
@@ -403,6 +412,12 @@ __all__ = [
     "OrganizationFollowSchema",
     "OrganizationFollowStatusSchema",
     "OrganizationFollowUpdateSchema",
+    # Discount codes
+    "DiscountCodeCreateSchema",
+    "DiscountCodeSchema",
+    "DiscountCodeUpdateSchema",
+    "DiscountCodeValidationResponse",
+    "DiscountCodeValidationSchema",
     # Announcement
     "AnnouncementCreateSchema",
     "AnnouncementListSchema",

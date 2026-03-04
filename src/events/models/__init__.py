@@ -1,5 +1,6 @@
 from .announcement import Announcement
 from .blacklist import Blacklist, WhitelistRequest
+from .discount_code import DiscountCode
 from .event import (
     AttendeeVisibilityFlag,
     Event,
@@ -90,4 +91,6 @@ __all__ = [
     "WhitelistRequest",
     # Announcements
     "Announcement",
+    # Discount codes
+    "DiscountCode",
 ]
