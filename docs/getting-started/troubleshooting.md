@@ -157,10 +157,17 @@ Most external services have safe defaults for local development. Here's what act
 |---------|---------|---------|---------|
 | Stripe | `STRIPE_SECRET_KEY` | Test key (`sk_test_...`) | Paid ticket checkout |
 | Telegram | `TELEGRAM_BOT_TOKEN` | `0000000000:AABBCCDD` | Telegram bot |
-| LLM Provider | `LLM_API_KEY`, `LLM_DEFAULT_MODEL` | Ollama local | Questionnaire AI evaluation (see `revel/settings/llm.py`) |
-| Google SSO | `GOOGLE_SSO_CLIENT_ID` | `fake-id` | Google login |
+| LLM Provider | `LLM_API_KEY`, `LLM_DEFAULT_MODEL` | Ollama local | Questionnaire AI evaluation (requires `FEATURE_LLM_EVALUATION=True`) |
+| Google SSO | `GOOGLE_SSO_CLIENT_ID` | `fake-id` | Google login (requires `FEATURE_GOOGLE_SSO=True`) |
 | IP2Location | `IP2LOCATION_TOKEN` | `None` | IP geolocation |
 | HuggingFace | `HUGGING_FACE_HUB_TOKEN` | **None** | Sentinel model download |
+
+### Feature flags
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `FEATURE_LLM_EVALUATION` | `True` | Enable LLM-powered evaluation for questionnaires with free-text questions |
+| `FEATURE_GOOGLE_SSO` | `True` | Enable Google SSO login endpoint |
 
 !!! info "Telegram token"
     The default `TELEGRAM_BOT_TOKEN` is a non-functional placeholder. The app starts fine with it, but Telegram features won't work. To develop with a real bot, create one via [@BotFather](https://t.me/BotFather) and set the token in your `.env`.

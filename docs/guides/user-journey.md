@@ -52,6 +52,9 @@ sequenceDiagram
 
     Users can authenticate via Google Single Sign-On. The flow exchanges a Google OAuth token for Revel JWT tokens.
 
+    !!! note "Feature flag"
+        Google SSO is gated behind the `FEATURE_GOOGLE_SSO` environment variable. When disabled, the endpoint returns `403`.
+
 ### Profile & Password Management
 
 | Endpoint | Method | Description |

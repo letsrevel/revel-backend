@@ -254,6 +254,9 @@ Questionnaires support three evaluation modes:
 !!! tip "Choose wisely"
     Use AUTOMATIC for high-volume events where speed matters. Use MANUAL when human judgment is critical. Use HYBRID for a balance of both.
 
+!!! note "Feature flag"
+    LLM evaluation for questionnaires with free-text questions is gated behind the `FEATURE_LLM_EVALUATION` environment variable (default: `True`). When disabled, creating or updating a questionnaire with AUTOMATIC or HYBRID mode that contains free-text questions will return a validation error. Questionnaires with only multiple-choice questions are unaffected.
+
 ### QuestionnaireEvaluation
 
 Each submission can have at most one `QuestionnaireEvaluation` (OneToOne relationship). The evaluation stores:
