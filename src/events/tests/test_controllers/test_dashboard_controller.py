@@ -67,6 +67,26 @@ def test_dashboard_events_default_filters(dashboard_client: Client, dashboard_se
     assert names == expected_names
 
 
+def test_dashboard_events_filter_requires_ticket(dashboard_client: Client, dashboard_setup: dict[str, t.Any]) -> None:
+    """Test filtering dashboard events by requires_ticket."""
+    # All events in dashboard_setup have requires_ticket=True (model default).
+    # Create one event with requires_ticket=False in the owned org so it appears in the dashboard.
+    Event.objects.create(
+        name="RSVP-Only Event",
+        organization=dashboard_setup["orgs"]["owner"],
+        status="open",
+        start=timezone.now(),
+        requires_ticket=False,
+    )
+    url = reverse("api:dashboard_events")
+
+    response = dashboard_client.get(url, {"requires_ticket": "false"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["name"] == "RSVP-Only Event"
+
+
 def test_dashboard_events_filtered_by_ticket(dashboard_client: Client, dashboard_setup: dict[str, t.Any]) -> None:
     """Test filtering events to only those where the user has a ticket."""
     url = reverse("api:dashboard_events")
