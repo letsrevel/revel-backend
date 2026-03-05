@@ -64,7 +64,10 @@ class DashboardController(UserAwareController):
 
         # 4. Return the base queryset filtered by these IDs
         # Using a simple IN clause is much faster for pagination COUNT
-        return models.Event.objects.full().filter(id__in=list(final_event_ids))
+        qs = models.Event.objects.full().filter(id__in=list(final_event_ids))
+        if params.requires_ticket is not None:
+            qs = qs.filter(requires_ticket=params.requires_ticket)
+        return qs
 
     @route.get(
         "/organizations",
