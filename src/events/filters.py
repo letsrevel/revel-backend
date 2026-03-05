@@ -56,6 +56,7 @@ class EventFilterSchema(CityFilterMixin):
     event_type: Event.EventType | None = None
     visibility: Event.Visibility | None = None
     event_series: t.Annotated[UUID | None, FilterLookup(q="event_series_id")] = None
+    requires_ticket: bool | None = None
     next_events: bool | None = True
     past_events: bool | None = None
     status: Event.EventStatus | None = None
@@ -228,6 +229,7 @@ class DashboardEventsFiltersSchema(Schema):
     rsvp_maybe: bool = True
     got_ticket: bool = True
     got_invitation: bool = True
+    requires_ticket: bool | None = None
 
     def get_events_queryset(self, user_id: UUID) -> models.QuerySet[Event]:
         """This is the high-performance query builder for the dashboard.
