@@ -3,7 +3,6 @@
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils import timezone
-
 from django.utils.translation import gettext as _
 
 from common.models import FileExport
@@ -44,7 +43,11 @@ def notify_export_ready(export: FileExport) -> None:
     user = export.requested_by
 
     subject = _("Your Revel Export is Ready")
-    context = {"download_url": download_url, "display_name": user.get_display_name(), "export_type": export.get_export_type_display()}
+    context = {
+        "download_url": download_url,
+        "display_name": user.get_display_name(),
+        "export_type": export.get_export_type_display(),
+    }
     body = render_to_string("events/emails/export_ready_body.txt", context)
     html_body = render_to_string("events/emails/export_ready_body.html", context)
     send_email.delay(to=user.email, subject=subject, body=body, html_body=html_body)

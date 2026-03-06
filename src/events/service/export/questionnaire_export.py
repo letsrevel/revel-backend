@@ -23,6 +23,7 @@ from questionnaires.models import (
 
 logger = structlog.get_logger(__name__)
 
+
 class QuestionColumn(t.NamedTuple):
     """A column descriptor for a question in the export."""
 
@@ -127,13 +128,19 @@ def _load_question_columns(questionnaire_id: UUID) -> tuple[list[QuestionColumn]
     all_questions: list[QuestionColumn] = []
     for mc_q in mc_questions:
         sec_order = mc_q.section.order if mc_q.section else 0
-        all_questions.append(QuestionColumn("mc", mc_q.id, _question_header(mc_q.question, "MC"), sec_order, mc_q.order))
+        all_questions.append(
+            QuestionColumn("mc", mc_q.id, _question_header(mc_q.question, "MC"), sec_order, mc_q.order)
+        )
     for ft_q in ft_questions:
         sec_order = ft_q.section.order if ft_q.section else 0
-        all_questions.append(QuestionColumn("ft", ft_q.id, _question_header(ft_q.question, "FT"), sec_order, ft_q.order))
+        all_questions.append(
+            QuestionColumn("ft", ft_q.id, _question_header(ft_q.question, "FT"), sec_order, ft_q.order)
+        )
     for fu_q in fu_questions:
         sec_order = fu_q.section.order if fu_q.section else 0
-        all_questions.append(QuestionColumn("fu", fu_q.id, _question_header(fu_q.question, "FU"), sec_order, fu_q.order))
+        all_questions.append(
+            QuestionColumn("fu", fu_q.id, _question_header(fu_q.question, "FU"), sec_order, fu_q.order)
+        )
 
     all_questions.sort(key=lambda q: (q.section_order, q.question_order))
 
