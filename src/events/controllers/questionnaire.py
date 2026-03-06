@@ -6,6 +6,7 @@ from django.db.models import Count, Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
+from ninja.errors import HttpError
 from ninja_extra import (
     api_controller,
     route,
@@ -442,11 +443,20 @@ class QuestionnaireController(UserAwareController):
 
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
 
-        existing = FileExport.objects.filter(
+        if event_id and event_series_id:
+            raise HttpError(400, str(_("Cannot filter by both event_id and event_series_id.")))
+
+        existing_qs = FileExport.objects.filter(
             requested_by=self.user(),
             export_type=FileExport.ExportType.QUESTIONNAIRE_SUBMISSIONS,
             status__in=[FileExport.ExportStatus.PENDING, FileExport.ExportStatus.PROCESSING],
-        ).first()
+            parameters__questionnaire_id=str(org_questionnaire.questionnaire_id),
+        )
+        if event_id:
+            existing_qs = existing_qs.filter(parameters__event_id=str(event_id))
+        elif event_series_id:
+            existing_qs = existing_qs.filter(parameters__event_series_id=str(event_series_id))
+        existing = existing_qs.first()
         if existing:
             return 202, existing
 
@@ -732,8 +742,6 @@ class QuestionnaireController(UserAwareController):
             pk__in=payload.event_ids, organization=org_questionnaire.organization
         )
         if events.count() != len(payload.event_ids):
-            from ninja.errors import HttpError
-
             raise HttpError(400, str(_("One or more events do not exist or belong to this organization.")))
 
         org_questionnaire.events.set(events)
@@ -794,8 +802,6 @@ class QuestionnaireController(UserAwareController):
             pk__in=payload.event_series_ids, organization=org_questionnaire.organization
         )
         if series.count() != len(payload.event_series_ids):
-            from ninja.errors import HttpError
-
             raise HttpError(400, str(_("One or more event series do not exist or belong to this organization.")))
 
         org_questionnaire.event_series.set(series)

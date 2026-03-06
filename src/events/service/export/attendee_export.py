@@ -35,9 +35,10 @@ def _build_attendee_workbook(export: FileExport) -> bytes:
     event = Event.objects.select_related("venue", "organization").get(pk=event_id)
 
     tickets = list(
-        Ticket.objects.filter(event=event)
-        .exclude(status=Ticket.TicketStatus.CANCELLED)
-        .select_related("user", "tier", "seat", "seat__sector", "payment")
+        Ticket.objects.filter(
+            event=event,
+            status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],
+        ).select_related("user", "tier", "seat", "seat__sector", "payment")
     )
 
     rsvps = list(EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).select_related("user"))

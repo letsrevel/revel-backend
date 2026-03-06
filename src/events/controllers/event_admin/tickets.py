@@ -346,6 +346,7 @@ class EventAdminTicketsController(EventAdminBaseController):
             requested_by=self.user(),
             export_type=FileExport.ExportType.ATTENDEE_LIST,
             status__in=[FileExport.ExportStatus.PENDING, FileExport.ExportStatus.PROCESSING],
+            parameters__event_id=str(event_id),
         ).first()
         if existing:
             return 202, existing
