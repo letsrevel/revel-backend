@@ -9,7 +9,7 @@ from django.db import models
 from simple_history.models import HistoricalRecords
 from solo.models import SingletonModel
 
-from .fields import MarkdownField
+from .fields import MarkdownField, ProtectedFileField
 
 
 class TimeStampedModel(models.Model):
@@ -315,6 +315,31 @@ class TaggableMixin(models.Model):
     def get_tags(self) -> t.List[Tag]:
         """Get tags."""
         return self.tags_manager.all()
+
+
+class FileExport(TimeStampedModel):
+    """Tracks async file export jobs (e.g. Excel exports)."""
+
+    class ExportStatus(models.TextChoices):
+        PENDING = "PENDING"
+        PROCESSING = "PROCESSING"
+        READY = "READY"
+        FAILED = "FAILED"
+
+    class ExportType(models.TextChoices):
+        QUESTIONNAIRE_SUBMISSIONS = "questionnaire_submissions"
+        ATTENDEE_LIST = "attendee_list"
+
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="file_exports")
+    export_type = models.CharField(max_length=40, choices=ExportType.choices, db_index=True)
+    status = models.CharField(max_length=20, choices=ExportStatus.choices, default=ExportStatus.PENDING, db_index=True)
+    file = ProtectedFileField(upload_to="exports/", null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    parameters = models.JSONField(default=dict, blank=True)
+
+    def __str__(self) -> str:
+        return f"FileExport({self.export_type}, {self.status})"
 
 
 class FileUploadAudit(TimeStampedModel):

@@ -23,7 +23,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from common.models import EmailLog, FileUploadAudit, QuarantinedFile, SiteSettings
+from common.models import EmailLog, FileExport, FileUploadAudit, QuarantinedFile, SiteSettings
 from common.thumbnails.tasks import (  # noqa: F401
     delete_orphaned_thumbnails_task,
     generate_thumbnails_task,
@@ -352,3 +352,36 @@ def _notify_superusers_about_malware(
         body=txt_body,
         html_body=html_body,
     )
+
+
+@shared_task
+def cleanup_expired_file_exports() -> dict[str, int]:
+    """Delete expired file exports (both files and database records).
+
+    Export download links are valid for 7 days. After expiry, the records
+    serve no purpose, so we delete both the stored file and the DB row.
+
+    Also deletes FAILED exports older than the same window.
+
+    Returns:
+        Dict with count of records deleted.
+    """
+    from common.service.export_service import EXPORT_URL_EXPIRES_IN
+
+    expiry_cutoff = timezone.now() - timedelta(seconds=EXPORT_URL_EXPIRES_IN)
+
+    expired_exports = FileExport.objects.filter(
+        Q(status=FileExport.ExportStatus.READY, completed_at__lte=expiry_cutoff)
+        | Q(status=FileExport.ExportStatus.FAILED, updated_at__lte=expiry_cutoff)
+    )
+
+    count = 0
+    for export in expired_exports:
+        if export.file:
+            export.file.delete(save=False)
+        export.delete()
+        count += 1
+        logger.info("file_export_deleted", export_id=str(export.id))
+
+    logger.info("file_export_cleanup_completed", records_deleted=count)
+    return {"records_deleted": count}

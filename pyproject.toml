@@ -1,6 +1,6 @@
 [project]
 name = "revel"
-version = "1.40.0"
+version = "1.41.0"
 description = "The Revel Event Manager"
 readme = "README.md"
 license = "MIT"
@@ -50,6 +50,7 @@ dependencies = [
     "markdown>=3.10.1",
     "markdownify>=1.2.2",
     "nh3>=0.3.2",
+    "openpyxl>=3.1.5",
     "opentelemetry-api>=1.39.1",
     "opentelemetry-exporter-otlp>=1.39.1",
     "opentelemetry-instrumentation-celery>=0.59b0",
@@ -111,6 +112,7 @@ dev = [
     "types-tqdm>=4.67.0.20250809",
     "bandit>=1.9.4",
     "tqdm>=4.67.1",
+    "types-openpyxl>=3.1.5.20250919",
 ]
 sentinel = [
     "torch>=2.8.0",

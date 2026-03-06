@@ -86,16 +86,6 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
 
     inlines = [EventRSVPInline, TicketInline, EventInvitationInline, EventWaitListInline, TicketTierInline]
 
-    @admin.display(description="Attendees")
-    def attendee_count(self, obj: models.Event) -> str:
-        if obj.requires_ticket:
-            count = obj.tickets.count()
-        else:
-            count = obj.rsvps.filter(status=models.EventRSVP.RsvpStatus.YES).count()
-
-        limit = obj.max_attendees if obj.max_attendees > 0 else "∞"
-        return f"{count} / {limit}"
-
 
 @admin.register(models.EventSeries)
 class EventSeriesAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
