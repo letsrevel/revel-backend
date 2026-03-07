@@ -9,7 +9,7 @@ from datetime import datetime, time, timedelta
 
 import faker
 import pytest
-from django.utils import timezone
+from django.utils import timezone, translation
 from pytest import MonkeyPatch
 
 from accounts.models import RevelUser
@@ -82,6 +82,18 @@ def use_locmem_cache(settings: t.Any) -> None:
             "LOCATION": "test-cache",
         }
     }
+
+
+@pytest.fixture(autouse=True)
+def _reset_language() -> t.Generator[None]:
+    """Ensure each test starts with the default language.
+
+    I18nJWTAuth.authenticate() calls translation.activate() without cleanup,
+    which leaks the language to subsequent tests in the same pytest-xdist worker.
+    """
+    translation.activate("en")
+    yield
+    translation.activate("en")
 
 
 @pytest.fixture(autouse=True)

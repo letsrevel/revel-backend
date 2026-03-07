@@ -6,6 +6,7 @@ from django.db.models import Count, Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
+from ninja.errors import HttpError
 from ninja_extra import (
     api_controller,
     route,
@@ -28,6 +29,9 @@ from questionnaires import schema as questionnaire_schema
 from questionnaires.service import QuestionnaireService
 
 from .permissions import OrganizationPermission, QuestionnairePermission
+
+if t.TYPE_CHECKING:
+    from common.models import FileExport
 
 
 @api_controller("/questionnaires", auth=I18nJWTAuth(), tags=["Questionnaires"], throttle=WriteThrottle())
@@ -413,6 +417,65 @@ class QuestionnaireController(UserAwareController):
         )
         return service.update_fu_question(fu_question, payload)
 
+    @route.post(
+        "/{org_questionnaire_id}/submissions/export",
+        url_name="export_submissions",
+        response={202: event_schema.FileExportSchema},
+        permissions=[QuestionnairePermission("evaluate_questionnaire")],
+    )
+    def export_submissions(
+        self,
+        org_questionnaire_id: UUID,
+        event_id: UUID | None = None,
+        event_series_id: UUID | None = None,
+    ) -> tuple[int, "FileExport"]:
+        """Export questionnaire submissions as an Excel file (async).
+
+        Triggers an async Celery task to generate the export. Returns a 202 with a FileExport
+        resource that can be polled via GET /exports/{id} for status updates. An email with the
+        download link is sent when the export is ready.
+
+        Optionally filter by event_id or event_series_id (mutually exclusive).
+        Requires 'evaluate_questionnaire' permission.
+        """
+        from common.models import FileExport
+        from events.tasks import generate_questionnaire_export_task
+
+        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
+
+        if event_id and event_series_id:
+            raise HttpError(400, str(_("Cannot filter by both event_id and event_series_id.")))
+
+        existing_qs = FileExport.objects.filter(
+            requested_by=self.user(),
+            export_type=FileExport.ExportType.QUESTIONNAIRE_SUBMISSIONS,
+            status__in=[FileExport.ExportStatus.PENDING, FileExport.ExportStatus.PROCESSING],
+            parameters__questionnaire_id=str(org_questionnaire.questionnaire_id),
+        )
+        if event_id:
+            existing_qs = existing_qs.filter(parameters__event_id=str(event_id))
+        elif event_series_id:
+            existing_qs = existing_qs.filter(parameters__event_series_id=str(event_series_id))
+        existing = existing_qs.first()
+        if existing:
+            return 202, existing
+
+        parameters: dict[str, str] = {
+            "questionnaire_id": str(org_questionnaire.questionnaire_id),
+        }
+        if event_id:
+            parameters["event_id"] = str(event_id)
+        if event_series_id:
+            parameters["event_series_id"] = str(event_series_id)
+
+        export = FileExport.objects.create(
+            requested_by=self.user(),
+            export_type=FileExport.ExportType.QUESTIONNAIRE_SUBMISSIONS,
+            parameters=parameters,
+        )
+        generate_questionnaire_export_task.delay(str(export.id))
+        return 202, export
+
     @route.get(
         "/{org_questionnaire_id}/submissions",
         url_name="list_submissions",
@@ -679,8 +742,6 @@ class QuestionnaireController(UserAwareController):
             pk__in=payload.event_ids, organization=org_questionnaire.organization
         )
         if events.count() != len(payload.event_ids):
-            from ninja.errors import HttpError
-
             raise HttpError(400, str(_("One or more events do not exist or belong to this organization.")))
 
         org_questionnaire.events.set(events)
@@ -741,8 +802,6 @@ class QuestionnaireController(UserAwareController):
             pk__in=payload.event_series_ids, organization=org_questionnaire.organization
         )
         if series.count() != len(payload.event_series_ids):
-            from ninja.errors import HttpError
-
             raise HttpError(400, str(_("One or more event series do not exist or belong to this organization.")))
 
         org_questionnaire.event_series.set(series)

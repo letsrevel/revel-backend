@@ -16,6 +16,7 @@ from events.controllers.event_admin import EVENT_ADMIN_CONTROLLERS
 from events.controllers.event_public import EVENT_PUBLIC_CONTROLLERS
 from events.controllers.event_series import EventSeriesController
 from events.controllers.event_series_admin import EventSeriesAdminController
+from events.controllers.exports import ExportController
 from events.controllers.following import FollowingController
 from events.controllers.organization import OrganizationController
 from events.controllers.organization_admin import ORGANIZATION_ADMIN_CONTROLLERS
@@ -136,6 +137,7 @@ api.register_controllers(
     UserPreferencesController,
     FollowingController,
     StripeWebhookController,
+    ExportController,
     # Common controllers
     MediaValidationController,
     TagController,

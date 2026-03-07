@@ -1,3 +1,4 @@
+import typing as t
 from uuid import UUID
 
 from django.db import transaction
@@ -18,6 +19,9 @@ from events.controllers.permissions import EventPermission
 from events.service import ticket_service
 
 from .base import EventAdminBaseController
+
+if t.TYPE_CHECKING:
+    from common.models import FileExport
 
 
 @api_controller(
@@ -316,3 +320,41 @@ class EventAdminTicketsController(EventAdminBaseController):
         return ticket_service.check_in_ticket(
             event, ticket_id, self.user(), price_paid=payload.price_paid if payload else None
         )
+
+    # ---- Export ----
+
+    @route.post(
+        "/export-attendees",
+        url_name="export_attendees",
+        response={202: schema.FileExportSchema},
+        permissions=[EventPermission("manage_tickets")],
+    )
+    def export_attendees(self, event_id: UUID) -> tuple[int, "FileExport"]:
+        """Export attendee list as an Excel file (async).
+
+        Triggers an async Celery task. Returns 202 with a FileExport resource
+        that can be polled via GET /exports/{id}. An email with the download
+        link is sent when the export is ready.
+        Requires 'manage_tickets' permission.
+        """
+        from common.models import FileExport
+        from events.tasks import generate_attendee_export_task
+
+        self.get_one(event_id)  # permission check
+
+        existing = FileExport.objects.filter(
+            requested_by=self.user(),
+            export_type=FileExport.ExportType.ATTENDEE_LIST,
+            status__in=[FileExport.ExportStatus.PENDING, FileExport.ExportStatus.PROCESSING],
+            parameters__event_id=str(event_id),
+        ).first()
+        if existing:
+            return 202, existing
+
+        export = FileExport.objects.create(
+            requested_by=self.user(),
+            export_type=FileExport.ExportType.ATTENDEE_LIST,
+            parameters={"event_id": str(event_id)},
+        )
+        generate_attendee_export_task.delay(str(export.id))
+        return 202, export

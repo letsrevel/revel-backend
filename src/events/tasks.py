@@ -49,7 +49,10 @@ def build_attendee_visibility_flags(event_id: str) -> None:
     # this ensures the count is read and written while holding the lock.
     with transaction.atomic():
         event = Event.objects.with_organization().select_for_update().get(pk=event_id)
-        ticket_count = Ticket.objects.filter(event=event, status=Ticket.TicketStatus.ACTIVE).count()
+        ticket_count = Ticket.objects.filter(
+            event=event,
+            status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],
+        ).count()
         rsvp_count = EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).count()
         event.attendee_count = ticket_count + rsvp_count
         event.save(update_fields=["attendee_count"])
@@ -66,9 +69,10 @@ def build_attendee_visibility_flags(event_id: str) -> None:
 
     # Users attending the event (for visibility purposes)
     # Prefetch general_preferences to avoid N+1 when accessing target.general_preferences
-    attendees_q = Q(tickets__event=event, tickets__status=Ticket.TicketStatus.ACTIVE) | Q(
-        rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES
-    )
+    attendees_q = Q(
+        tickets__event=event,
+        tickets__status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN],
+    ) | Q(rsvps__event=event, rsvps__status=EventRSVP.RsvpStatus.YES)
 
     attendees = list(RevelUser.objects.filter(attendees_q).select_related("general_preferences").distinct())
 
@@ -239,6 +243,22 @@ def cleanup_ticket_file_cache() -> dict[str, int]:
         logger.info("cleanup_ticket_file_cache_done", cleaned=len(cleaned_pks))
 
     return {"cleaned": len(cleaned_pks)}
+
+
+@shared_task
+def generate_questionnaire_export_task(export_id: str) -> None:
+    """Generate an Excel export of questionnaire submissions."""
+    from events.service.export.questionnaire_export import generate_questionnaire_export
+
+    generate_questionnaire_export(UUID(export_id))
+
+
+@shared_task
+def generate_attendee_export_task(export_id: str) -> None:
+    """Generate an Excel export of event attendees."""
+    from events.service.export.attendee_export import generate_attendee_export
+
+    generate_attendee_export(UUID(export_id))
 
 
 @shared_task

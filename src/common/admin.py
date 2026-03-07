@@ -97,6 +97,22 @@ class TagAssignmentAdmin(ModelAdmin):  # type: ignore[misc]
     ordering = ["-created_at"]
 
 
+@admin.register(models.FileExport)
+class FileExportAdmin(ModelAdmin):  # type: ignore[misc]
+    list_display = ["id", "requested_by", "export_type", "status", "completed_at", "created_at"]
+    list_filter = ["export_type", "status", "created_at"]
+    search_fields = ["requested_by__email"]
+    readonly_fields = ["id", "created_at", "updated_at", "completed_at", "parameters"]
+    date_hierarchy = "created_at"
+    ordering = ["-created_at"]
+
+    def has_add_permission(self, request: t.Any) -> bool:
+        return False
+
+    def has_change_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        return False
+
+
 @admin.register(models.FileUploadAudit)
 class FileUploadAuditAdmin(ModelAdmin, UploaderLinkMixin):  # type: ignore[misc]
     list_display = [
