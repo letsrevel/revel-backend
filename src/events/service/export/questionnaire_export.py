@@ -168,7 +168,9 @@ def _write_summary_sheet(
     )
 
     scores = [
-        float(s.evaluation.score) for s in submissions if s.evaluation is not None and s.evaluation.score is not None
+        float(eval_obj.score)
+        for s in submissions
+        if (eval_obj := getattr(s, "evaluation", None)) is not None and eval_obj.score is not None
     ]
     avg_score = sum(scores) / len(scores) if scores else None
     min_score = min(scores) if scores else None
