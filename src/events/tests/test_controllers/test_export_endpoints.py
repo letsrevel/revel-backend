@@ -128,7 +128,7 @@ def staff_without_evaluate(
         organization=export_org,
         user=user,
         permissions=PermissionsSchema(
-            default=PermissionMap(evaluate_questionnaire=False, manage_tickets=False)
+            default=PermissionMap(evaluate_questionnaire=False, manage_event=False)
         ).model_dump(mode="json"),
     )
     return user
@@ -353,12 +353,12 @@ class TestExportAttendeesEndpoint:
 
         mock_task.delay.assert_called_once()
 
-    def test_staff_without_manage_tickets_denied(
+    def test_staff_without_manage_event_denied(
         self,
         staff_without_evaluate_client: Client,
         export_event: Event,
     ) -> None:
-        """Staff without manage_tickets permission should be denied."""
+        """Staff without manage_event permission should be denied."""
         url = reverse("api:export_attendees", kwargs={"event_id": export_event.id})
         response = staff_without_evaluate_client.post(url, content_type="application/json")
 

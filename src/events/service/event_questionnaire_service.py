@@ -20,6 +20,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from common.utils import get_or_create_with_race_protection
 from events.models import Event, EventQuestionnaireSubmission, OrganizationQuestionnaire
+from events.schema.pronouns import EventPronounDistributionSchema, PronounCountSchema
 from events.schema.questionnaire import (
     McOptionStatSchema,
     McQuestionStatSchema,
@@ -293,6 +294,22 @@ def get_questionnaire_summary(
             )
         )
 
+    # Step 5: Pronoun distribution (ID materialization, same pattern as event pronouns)
+    user_ids = base_qs.values_list("user_id", flat=True).distinct()
+    pronoun_rows = (
+        RevelUser.objects.filter(id__in=user_ids).values("pronouns").annotate(count=Count("id")).order_by("-count")
+    )
+
+    pronoun_dist: list[PronounCountSchema] = []
+    total_with_pronouns = 0
+    total_without_pronouns = 0
+    for row in pronoun_rows:
+        if row["pronouns"]:
+            pronoun_dist.append(PronounCountSchema(pronouns=row["pronouns"], count=row["count"]))
+            total_with_pronouns += row["count"]
+        else:
+            total_without_pronouns = row["count"]
+
     return QuestionnaireSummarySchema(
         total_submissions=stats["total"],
         unique_users=stats["unique_users"],
@@ -314,4 +331,10 @@ def get_questionnaire_summary(
             max=stats["max_score"],
         ),
         mc_question_stats=list(questions_map.values()),
+        pronoun_distribution=EventPronounDistributionSchema(
+            distribution=pronoun_dist,
+            total_with_pronouns=total_with_pronouns,
+            total_without_pronouns=total_without_pronouns,
+            total_attendees=total_with_pronouns + total_without_pronouns,
+        ),
     )

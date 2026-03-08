@@ -327,7 +327,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/export-attendees",
         url_name="export_attendees",
         response={202: schema.FileExportSchema},
-        permissions=[EventPermission("manage_tickets")],
+        permissions=[EventPermission("manage_event")],
     )
     def export_attendees(self, event_id: UUID) -> tuple[int, "FileExport"]:
         """Export attendee list as an Excel file (async).
@@ -335,7 +335,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         Triggers an async Celery task. Returns 202 with a FileExport resource
         that can be polled via GET /exports/{id}. An email with the download
         link is sent when the export is ready.
-        Requires 'manage_tickets' permission.
+        Requires 'manage_event' permission.
         """
         from common.models import FileExport
         from events.tasks import generate_attendee_export_task

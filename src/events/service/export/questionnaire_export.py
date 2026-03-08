@@ -10,7 +10,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from common.models import FileExport
-from common.service.export_service import complete_export, fail_export, notify_export_ready, start_export
+from common.service.export_service import complete_export, fail_export, start_export
 from events.models import Event, EventQuestionnaireSubmission
 from questionnaires.models import (
     FileUploadQuestion,
@@ -20,6 +20,8 @@ from questionnaires.models import (
     QuestionnaireEvaluation,
     QuestionnaireSubmission,
 )
+
+from .formatting import auto_fit_columns, compute_pronoun_distribution, style_header_row, style_summary_sheet
 
 logger = structlog.get_logger(__name__)
 
@@ -67,8 +69,6 @@ def generate_questionnaire_export(export_id: UUID) -> None:
         buf.close()
         wb.close()
         complete_export(export, file_bytes, f"questionnaire_export_{export_id}.xlsx")
-
-        notify_export_ready(export)
         logger.info("questionnaire_export_completed", export_id=str(export_id))
 
     except Exception as e:
@@ -148,6 +148,13 @@ def _load_question_columns(questionnaire_id: UUID) -> tuple[list[QuestionColumn]
     return all_questions, mc_options
 
 
+_EVAL_STATUS_DISPLAY: dict[str, str] = {
+    QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED: "Approved",
+    QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED: "Rejected",
+    QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW: "Pending Review",
+}
+
+
 def _write_summary_sheet(
     wb: Workbook,
     base_qs: QuerySet[QuestionnaireSubmission],
@@ -176,6 +183,12 @@ def _write_summary_sheet(
     min_score = min(scores) if scores else None
     max_score = max(scores) if scores else None
 
+    # Pronoun distribution (computed in-memory from prefetched users)
+    pronoun_stats = compute_pronoun_distribution((sub.user_id, sub.user) for sub in submissions if sub.user)
+    sorted_pronouns = pronoun_stats.sorted_pronouns
+    total_with_pronouns = pronoun_stats.total_with
+    total_without_pronouns = pronoun_stats.total_without
+
     for label, value in [
         ("Total submissions", stats["total"]),
         ("Unique users", stats["unique_users"]),
@@ -186,8 +199,17 @@ def _write_summary_sheet(
         ("Average score", round(avg_score, 2) if avg_score is not None else "N/A"),
         ("Min score", round(min_score, 2) if min_score is not None else "N/A"),
         ("Max score", round(max_score, 2) if max_score is not None else "N/A"),
+        ("", ""),
+        ("Pronoun Distribution", ""),
+        ("Total with pronouns", total_with_pronouns),
+        ("Total without pronouns", total_without_pronouns),
     ]:
         ws.append((label, value))
+
+    for pronouns, count in sorted_pronouns:
+        ws.append((f"  {pronouns}", count))
+
+    style_summary_sheet(ws)
 
 
 def _write_submissions_sheet(
@@ -199,10 +221,10 @@ def _write_submissions_sheet(
     """Populate the Submissions sheet."""
     ws = wb.create_sheet("Submissions")
     headers = [
-        "User Email",
-        "User Name",
+        "Email",
+        "Name",
         "Submitted At",
-        "Eval Status",
+        "Status",
         "Score",
         "Evaluator Comments",
         "Source Event",
@@ -211,6 +233,7 @@ def _write_submissions_sheet(
 
     for sub in submissions:
         eval_obj = getattr(sub, "evaluation", None)
+        eval_status = _EVAL_STATUS_DISPLAY.get(eval_obj.status, eval_obj.status) if eval_obj else "Not Evaluated"
 
         mc_answers: dict[UUID, list[str]] = {}
         for mc_ans in sub.multiplechoiceanswer_answers.all():
@@ -231,7 +254,7 @@ def _write_submissions_sheet(
             sub.user.email if sub.user else "",
             sub.user.get_full_name() if sub.user else "",
             sub.submitted_at.isoformat() if sub.submitted_at else "",
-            eval_obj.status if eval_obj else "not evaluated",
+            eval_status,
             float(eval_obj.score) if eval_obj and eval_obj.score is not None else "",
             eval_obj.comments if eval_obj and eval_obj.comments else "",
             source_event["event_name"] if source_event else "",
@@ -246,6 +269,9 @@ def _write_submissions_sheet(
                 row.append("; ".join(fu_answers.get(q.question_id, [])))
 
         ws.append(row)
+
+    style_header_row(ws)
+    auto_fit_columns(ws)
 
 
 def _optional_uuid(value: t.Any) -> UUID | None:

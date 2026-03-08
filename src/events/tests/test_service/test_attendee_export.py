@@ -6,12 +6,10 @@ Tests cover:
 - Attendees sheet rows for tickets and RSVPs
 - Empty attendees case
 - Error handling (fail_export on exception)
-- Email notification on completion
 """
 
 import typing as t
 from io import BytesIO
-from unittest.mock import patch
 
 import pytest
 from django.utils import timezone
@@ -91,6 +89,7 @@ def ticket_user(revel_user_factory: RevelUserFactory) -> RevelUser:
         email="ticket@example.com",
         first_name="Alice",
         last_name="Ticker",
+        pronouns="she/her",
     )
 
 
@@ -102,6 +101,7 @@ def rsvp_user(revel_user_factory: RevelUserFactory) -> RevelUser:
         email="rsvp@example.com",
         first_name="Bob",
         last_name="Rsvper",
+        pronouns="he/him",
     )
 
 
@@ -172,10 +172,8 @@ def _load_workbook_from_export(export: FileExport) -> t.Any:
 class TestAttendeeExportSummary:
     """Tests for the Summary sheet content."""
 
-    @patch("common.tasks.send_email")
     def test_summary_sheet_event_info(
         self,
-        mock_send_email: t.Any,
         export_user: RevelUser,
         att_event: Event,
         active_ticket: Ticket,
@@ -194,10 +192,8 @@ class TestAttendeeExportSummary:
         assert summary["Venue"] == "Test Venue"
         assert summary["Organization"] == "Attendee Org"
 
-    @patch("common.tasks.send_email")
     def test_summary_sheet_counts(
         self,
-        mock_send_email: t.Any,
         export_user: RevelUser,
         att_event: Event,
         active_ticket: Ticket,
@@ -218,6 +214,10 @@ class TestAttendeeExportSummary:
         assert summary["Total attendees"] == 3
         assert summary["Checked in"] == 1
 
+        # Pronoun distribution
+        assert summary["Total with pronouns"] == 3
+        assert summary["Total without pronouns"] == 0
+
 
 # --- Attendees Sheet Tests ---
 
@@ -225,10 +225,8 @@ class TestAttendeeExportSummary:
 class TestAttendeeExportAttendees:
     """Tests for the Attendees sheet content."""
 
-    @patch("common.tasks.send_email")
     def test_attendees_sheet_headers(
         self,
-        mock_send_email: t.Any,
         export_user: RevelUser,
         att_event: Event,
         active_ticket: Ticket,
@@ -245,21 +243,21 @@ class TestAttendeeExportAttendees:
         expected_headers = [
             "Name",
             "Email",
-            "Attendance Type",
+            "Pronouns",
+            "Type",
+            "RSVP Status",
             "Ticket Tier",
             "Ticket Status",
-            "Check-in Status",
+            "Checked In",
             "Checked In At",
             "Guest Name",
             "Seat",
-            "Payment Status",
+            "Payment",
         ]
         assert headers == expected_headers
 
-    @patch("common.tasks.send_email")
     def test_ticket_row_content(
         self,
-        mock_send_email: t.Any,
         export_user: RevelUser,
         att_event: Event,
         active_ticket: Ticket,
@@ -277,19 +275,18 @@ class TestAttendeeExportAttendees:
         assert len(rows) == 1
         row = rows[0]
 
-        # Name and email
+        # Name, email, pronouns
         assert "Alice" in str(row[0])  # Name
         assert row[1] == "ticket@example.com"  # Email
-        assert row[2] == "ticket"  # Attendance Type
-        assert row[3] == "Free Tier"  # Ticket Tier
-        assert row[4] == "active"  # Ticket Status
-        assert row[5] == "not_checked_in"  # Check-in Status
-        assert row[7] == "Alice Ticker"  # Guest Name
+        assert row[2] == "she/her"  # Pronouns
+        assert row[3] == "Ticket"  # Type
+        assert row[5] == "Free Tier"  # Ticket Tier
+        assert row[6] == "Active"  # Ticket Status
+        assert row[7] == "No"  # Checked In
+        assert row[9] == "Alice Ticker"  # Guest Name
 
-    @patch("common.tasks.send_email")
     def test_checked_in_ticket_row(
         self,
-        mock_send_email: t.Any,
         export_user: RevelUser,
         att_event: Event,
         checked_in_ticket: Ticket,
@@ -305,14 +302,12 @@ class TestAttendeeExportAttendees:
 
         assert len(rows) == 1
         row = rows[0]
-        assert row[4] == "checked_in"  # Ticket Status
-        assert row[5] == "checked_in"  # Check-in Status
-        assert row[6] != ""  # Checked In At should have a value
+        assert row[6] == "Checked In"  # Ticket Status
+        assert row[7] == "Yes"  # Checked In
+        assert row[8] != ""  # Checked In At should have a value
 
-    @patch("common.tasks.send_email")
     def test_rsvp_row_content(
         self,
-        mock_send_email: t.Any,
         export_user: RevelUser,
         att_event: Event,
         rsvp_yes: EventRSVP,
@@ -331,15 +326,15 @@ class TestAttendeeExportAttendees:
         row = rows[0]
         assert "Bob" in str(row[0])  # Name
         assert row[1] == "rsvp@example.com"  # Email
-        assert row[2] == "rsvp"  # Attendance Type
+        assert row[2] == "he/him"  # Pronouns
+        assert row[3] == "RSVP"  # Type
+        assert row[4] == "Yes"  # RSVP Status
         # The remaining fields should be empty/None for RSVPs
-        assert not row[3]  # Ticket Tier
-        assert not row[4]  # Ticket Status
+        assert not row[5]  # Ticket Tier
+        assert not row[6]  # Ticket Status
 
-    @patch("common.tasks.send_email")
     def test_cancelled_tickets_excluded(
         self,
-        mock_send_email: t.Any,
         export_user: RevelUser,
         att_event: Event,
         free_tier: TicketTier,
@@ -365,10 +360,8 @@ class TestAttendeeExportAttendees:
 
         assert len(rows) == 0
 
-    @patch("common.tasks.send_email")
     def test_mixed_tickets_and_rsvps(
         self,
-        mock_send_email: t.Any,
         export_user: RevelUser,
         att_event: Event,
         active_ticket: Ticket,
@@ -384,9 +377,9 @@ class TestAttendeeExportAttendees:
         rows = list(ws_att.iter_rows(min_row=2, values_only=True))
 
         assert len(rows) == 2
-        attendance_types = [row[2] for row in rows]
-        assert "ticket" in attendance_types
-        assert "rsvp" in attendance_types
+        attendance_types = [row[3] for row in rows]
+        assert "Ticket" in attendance_types
+        assert "RSVP" in attendance_types
 
 
 # --- Empty Attendees Tests ---
@@ -395,10 +388,8 @@ class TestAttendeeExportAttendees:
 class TestAttendeeExportEmpty:
     """Tests for export with no attendees."""
 
-    @patch("common.tasks.send_email")
     def test_empty_event_produces_valid_excel(
         self,
-        mock_send_email: t.Any,
         export_user: RevelUser,
         att_event: Event,
     ) -> None:
@@ -417,11 +408,11 @@ class TestAttendeeExportEmpty:
         assert summary["Tickets"] == 0
         assert summary["RSVPs"] == 0
         assert summary["Checked in"] == 0
+        assert summary["Total with pronouns"] == 0
+        assert summary["Total without pronouns"] == 0
 
-    @patch("common.tasks.send_email")
     def test_empty_event_has_attendees_sheet(
         self,
-        mock_send_email: t.Any,
         export_user: RevelUser,
         att_event: Event,
     ) -> None:
@@ -460,40 +451,14 @@ class TestAttendeeExportErrorHandling:
         assert export.error_message.startswith("Export failed:")
 
 
-# --- Email Notification Tests ---
-
-
-class TestAttendeeExportNotification:
-    """Tests for email notification on export completion."""
-
-    @patch("common.tasks.send_email")
-    def test_sends_email_on_completion(
-        self,
-        mock_send_email: t.Any,
-        export_user: RevelUser,
-        att_event: Event,
-    ) -> None:
-        """A notification email should be sent when the export is ready."""
-        export = _create_attendee_export(export_user, att_event)
-
-        generate_attendee_export(export.id)
-
-        mock_send_email.delay.assert_called_once()
-        call_kwargs = mock_send_email.delay.call_args.kwargs
-        assert call_kwargs["to"] == export_user.email
-        assert "Export" in call_kwargs["subject"]
-
-
 # --- Event Without Venue Tests ---
 
 
 class TestAttendeeExportNoVenue:
     """Tests for export when event has no venue."""
 
-    @patch("common.tasks.send_email")
     def test_no_venue_shows_na(
         self,
-        mock_send_email: t.Any,
         export_user: RevelUser,
         org: Organization,
     ) -> None:
