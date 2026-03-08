@@ -173,6 +173,8 @@ class Event(
 ):
     # Slug uniqueness is scoped to organization
     slug_scope_field = "organization"
+    # Use event start date as human-readable slug suffix on collision
+    slug_date_field = "start"
 
     class EventType(models.TextChoices):
         PUBLIC = "public"

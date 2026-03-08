@@ -54,14 +54,22 @@ def generate_slug_suffix() -> str:
 class SlugFromNameMixin(models.Model):
     """Mixin that auto-generates a slug from the name field.
 
-    Handles slug collisions by appending a random suffix when needed.
+    Handles slug collisions by appending a date-based suffix first, then a
+    random suffix if needed.
     Subclasses can define `slug_scope_field` to specify a field that
     defines the uniqueness scope (e.g., 'organization' for Event).
+    Subclasses can define `slug_date_field` to specify a DateTimeField used
+    as a human-readable suffix before falling back to random strings
+    (e.g., 'start' for Event).
     """
 
     # Override in subclass to specify the field that scopes slug uniqueness
     # e.g., slug_scope_field = "organization" means slug must be unique per organization
     slug_scope_field: str | None = None
+
+    # Override in subclass to specify a date field for human-readable slug suffixes
+    # e.g., slug_date_field = "start" means the event's start date is appended on collision
+    slug_date_field: str | None = None
 
     class Meta:
         abstract = True
@@ -87,15 +95,39 @@ class SlugFromNameMixin(models.Model):
 
         return qs  # type: ignore[no-any-return]
 
+    def _get_date_suffix(self) -> str | None:
+        """Get a date suffix from the configured slug_date_field, if available."""
+        if not self.slug_date_field:
+            return None
+        date_value = getattr(self, self.slug_date_field, None)
+        if date_value is None:
+            return None
+        return t.cast(str, date_value.strftime("%Y-%m-%d"))
+
     def _generate_unique_slug(self, base_slug: str) -> str:
-        """Generate a unique slug, appending a suffix if necessary."""
+        """Generate a unique slug, appending a suffix if necessary.
+
+        Collision resolution order:
+        1. Try the base slug as-is.
+        2. If slug_date_field is set, try base_slug-YYYY-MM-DD.
+        3. Fall back to base_slug(-YYYY-MM-DD)-{random} with retries.
+        """
         qs = self._get_slug_queryset()
 
         # Try the base slug first
         if not qs.filter(slug=base_slug).exists():
             return base_slug
 
-        # Collision detected - append random suffix
+        # Try date-based suffix if available
+        date_suffix = self._get_date_suffix()
+        if date_suffix:
+            date_candidate = f"{base_slug}-{date_suffix}"
+            if not qs.filter(slug=date_candidate).exists():
+                return date_candidate
+            # Date also collided — use date + random as the base for retries
+            base_slug = date_candidate
+
+        # Fall back to random suffix
         for _ in range(MAX_SLUG_COLLISION_RETRIES):
             candidate = f"{base_slug}-{generate_slug_suffix()}"
             if not qs.filter(slug=candidate).exists():
