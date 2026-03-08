@@ -106,7 +106,7 @@ class SlugFromNameMixin(models.Model):
 
     def _truncate_base(self, base: str, suffix_len: int) -> str:
         """Truncate base slug so that base + '-' + suffix fits within max_length."""
-        max_length: int = self._meta.get_field("slug").max_length  # type: ignore[union-attr]
+        max_length = t.cast(int, self._meta.get_field("slug").max_length)  # type: ignore[union-attr]
         max_base = max_length - suffix_len - 1  # 1 for the hyphen
         return base[:max_base]
 

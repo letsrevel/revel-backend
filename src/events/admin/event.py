@@ -70,14 +70,16 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
                     ("event_type", "visibility", "status"),
                     ("start", "end"),
                     "event_series",
-                    ("max_attendees",),
+                    ("max_attendees", "max_tickets_per_user"),
                     (
                         "waitlist_open",
                         "potluck_open",
                         "accept_invitation_requests",
                         "can_attend_without_login",
+                        "requires_full_profile",
                     ),
-                    "requires_ticket",
+                    ("requires_ticket", "address_visibility"),
+                    ("rsvp_before", "apply_before"),
                     ("check_in_starts_at", "check_in_ends_at"),
                 )
             },
