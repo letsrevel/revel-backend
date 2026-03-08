@@ -94,6 +94,10 @@ def test_summary_empty(
     assert data["score_stats"]["min"] is None
     assert data["score_stats"]["max"] is None
     assert data["mc_question_stats"] == []
+    assert data["pronoun_distribution"]["distribution"] == []
+    assert data["pronoun_distribution"]["total_with_pronouns"] == 0
+    assert data["pronoun_distribution"]["total_without_pronouns"] == 0
+    assert data["pronoun_distribution"]["total_attendees"] == 0
 
 
 def test_summary_unfiltered(
@@ -105,7 +109,12 @@ def test_summary_unfiltered(
     questionnaire = Questionnaire.objects.create(name="Q1")
     org_q = OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire)
 
+    member_user.pronouns = "she/her"
+    member_user.save(update_fields=["pronouns"])
+
     user2 = RevelUser.objects.create_user(username="user2", email="user2@example.com", password="pass")
+    user2.pronouns = "they/them"
+    user2.save(update_fields=["pronouns"])
 
     sub1 = _create_ready_submission(member_user, questionnaire)
     sub2 = _create_ready_submission(user2, questionnaire)
@@ -143,6 +152,14 @@ def test_summary_unfiltered(
     assert Decimal(data["score_stats"]["avg"]) == Decimal("57.50")
     assert Decimal(data["score_stats"]["min"]) == Decimal("30.00")
     assert Decimal(data["score_stats"]["max"]) == Decimal("85.00")
+
+    # Pronoun distribution
+    pd = data["pronoun_distribution"]
+    assert pd["total_with_pronouns"] == 2
+    assert pd["total_without_pronouns"] == 0
+    assert pd["total_attendees"] == 2
+    pronouns_by_name = {item["pronouns"]: item["count"] for item in pd["distribution"]}
+    assert pronouns_by_name == {"she/her": 1, "they/them": 1}
 
 
 # --- Event filtering ---

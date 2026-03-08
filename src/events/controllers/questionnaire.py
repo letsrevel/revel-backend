@@ -18,7 +18,7 @@ from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ValidationErrorResponse
-from common.throttling import UserDefaultThrottle, WriteThrottle
+from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters
 from events import models as event_models
 from events import schema as event_schema
@@ -422,6 +422,7 @@ class QuestionnaireController(UserAwareController):
         url_name="export_submissions",
         response={202: event_schema.FileExportSchema},
         permissions=[QuestionnairePermission("evaluate_questionnaire")],
+        throttle=ExportThrottle(),
     )
     def export_submissions(
         self,
@@ -432,8 +433,7 @@ class QuestionnaireController(UserAwareController):
         """Export questionnaire submissions as an Excel file (async).
 
         Triggers an async Celery task to generate the export. Returns a 202 with a FileExport
-        resource that can be polled via GET /exports/{id} for status updates. An email with the
-        download link is sent when the export is ready.
+        resource that can be polled via GET /exports/{id} until the file is ready for download.
 
         Optionally filter by event_id or event_series_id (mutually exclusive).
         Requires 'evaluate_questionnaire' permission.
@@ -445,20 +445,6 @@ class QuestionnaireController(UserAwareController):
 
         if event_id and event_series_id:
             raise HttpError(400, str(_("Cannot filter by both event_id and event_series_id.")))
-
-        existing_qs = FileExport.objects.filter(
-            requested_by=self.user(),
-            export_type=FileExport.ExportType.QUESTIONNAIRE_SUBMISSIONS,
-            status__in=[FileExport.ExportStatus.PENDING, FileExport.ExportStatus.PROCESSING],
-            parameters__questionnaire_id=str(org_questionnaire.questionnaire_id),
-        )
-        if event_id:
-            existing_qs = existing_qs.filter(parameters__event_id=str(event_id))
-        elif event_series_id:
-            existing_qs = existing_qs.filter(parameters__event_series_id=str(event_series_id))
-        existing = existing_qs.first()
-        if existing:
-            return 202, existing
 
         parameters: dict[str, str] = {
             "questionnaire_id": str(org_questionnaire.questionnaire_id),

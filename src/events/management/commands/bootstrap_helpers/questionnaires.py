@@ -1,11 +1,14 @@
 # src/events/management/commands/bootstrap_helpers/questionnaires.py
 """Questionnaire creation for bootstrap process."""
 
+import random
 from datetime import timedelta
 from decimal import Decimal
 
 import structlog
+from django.utils import timezone
 
+from accounts.models import RevelUser
 from events import models as events_models
 from questionnaires import models as questionnaires_models
 
@@ -22,8 +25,9 @@ def create_questionnaires(state: BootstrapState) -> None:
     _create_wine_tasting_questionnaire(state)
     _create_membership_questionnaire(state)
     _create_feedback_questionnaire(state)
+    _create_wine_tasting_submissions(state)
 
-    logger.info("Created 4 questionnaires with different evaluation modes")
+    logger.info("Created 4 questionnaires and submissions for the wine tasting questionnaire")
 
 
 def _create_code_of_conduct_questionnaire(state: BootstrapState) -> None:
@@ -470,3 +474,184 @@ def _create_feedback_questionnaire(state: BootstrapState) -> None:
         questionnaire_type=events_models.OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
     )
     org_quest_feedback.events.add(state.events["past_event"])
+
+
+def _create_wine_tasting_submissions(state: BootstrapState) -> None:
+    """Create sample submissions for the Wine Tasting questionnaire with diverse pronouns."""
+    logger.info("Creating wine tasting questionnaire submissions...")
+
+    rng = random.Random(99)
+
+    # Find the wine tasting questionnaire by name
+    questionnaire = questionnaires_models.Questionnaire.objects.get(name="Wine Tasting Dinner Application")
+    event = state.events["wine_tasting"]
+
+    # Fetch questions & options
+    coc_q = questionnaires_models.MultipleChoiceQuestion.objects.get(
+        questionnaire=questionnaire, question="Do you agree to our Code of Conduct?"
+    )
+    coc_yes = questionnaires_models.MultipleChoiceOption.objects.get(question=coc_q, option="Yes")
+
+    experience_q = questionnaires_models.MultipleChoiceQuestion.objects.get(
+        questionnaire=questionnaire, question="How would you describe your wine knowledge?"
+    )
+    experience_opts = list(
+        questionnaires_models.MultipleChoiceOption.objects.filter(question=experience_q).order_by("order")
+    )
+
+    interest_q = questionnaires_models.FreeTextQuestion.objects.get(
+        questionnaire=questionnaire,
+        question__startswith="What draws you to this wine tasting",
+    )
+
+    # Submitter profiles: (email, name, pronouns, interest_answer, experience_idx, eval_status, score)
+    EvalStatus = questionnaires_models.QuestionnaireEvaluation.QuestionnaireEvaluationStatus
+    submitters = [
+        (
+            "sophie.wine@example.com",
+            "Sophie Laurent",
+            "she/her",
+            "I grew up in Burgundy surrounded by vineyards. Wine is in my blood!",
+            2,
+            EvalStatus.APPROVED,
+            "88.00",
+        ),
+        (
+            "marco.wine@example.com",
+            "Marco Bianchi",
+            "he/him",
+            "I'm a sommelier in training and would love to expand my palate.",
+            1,
+            EvalStatus.APPROVED,
+            "92.00",
+        ),
+        (
+            "alex.wine@example.com",
+            "Alex Rivera",
+            "they/them",
+            "I've been collecting natural wines for years and love exploring new regions.",
+            2,
+            EvalStatus.APPROVED,
+            "75.00",
+        ),
+        (
+            "priya.wine@example.com",
+            "Priya Sharma",
+            "she/her",
+            "I'm curious about wine pairing — I'm a chef and want to improve my recommendations.",
+            1,
+            EvalStatus.APPROVED,
+            "80.00",
+        ),
+        (
+            "jordan.wine@example.com",
+            "Jordan Kim",
+            "he/they",
+            "Just starting to get into wine, excited to learn from experts!",
+            0,
+            EvalStatus.PENDING_REVIEW,
+            None,
+        ),
+        (
+            "sam.wine@example.com",
+            "Sam Okafor",
+            "",
+            "Wine nights with friends are my thing, want to take it to the next level.",
+            0,
+            EvalStatus.PENDING_REVIEW,
+            None,
+        ),
+        (
+            "elena.wine@example.com",
+            "Elena Volkov",
+            "she/her",
+            "I run a food blog and would love to cover this event.",
+            1,
+            EvalStatus.REJECTED,
+            "45.00",
+        ),
+        (
+            "chris.wine@example.com",
+            "Chris Park",
+            "he/him",
+            "Free wine? Count me in lol",
+            0,
+            EvalStatus.REJECTED,
+            "20.00",
+        ),
+        (
+            "taylor.wine@example.com",
+            "Taylor Brooks",
+            "any pronouns",
+            "I recently completed WSET Level 2 and am passionate about Austrian wines specifically.",
+            2,
+            None,
+            None,
+        ),
+        (
+            "nina.wine@example.com",
+            "Nina Andersson",
+            "she/they",
+            "I host wine tasting events in Stockholm and would love to experience the Viennese scene.",
+            1,
+            None,
+            None,
+        ),
+    ]
+
+    now = timezone.now()
+    for email, full_name, pronouns, interest, exp_idx, eval_status, score in submitters:
+        name_parts = full_name.split()
+        user = RevelUser.objects.create_user(
+            username=email,
+            email=email,
+            password="password123",
+            email_verified=True,
+            first_name=name_parts[0],
+            last_name=" ".join(name_parts[1:]),
+            pronouns=pronouns,
+        )
+
+        submission = questionnaires_models.QuestionnaireSubmission.objects.create(
+            user=user,
+            questionnaire=questionnaire,
+            status=questionnaires_models.QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            submitted_at=now - timedelta(days=rng.randint(1, 14), hours=rng.randint(0, 23)),
+        )
+
+        # Answers
+        questionnaires_models.MultipleChoiceAnswer.objects.create(
+            submission=submission,
+            question=coc_q,
+            option=coc_yes,
+        )
+        questionnaires_models.MultipleChoiceAnswer.objects.create(
+            submission=submission,
+            question=experience_q,
+            option=experience_opts[exp_idx],
+        )
+        questionnaires_models.FreeTextAnswer.objects.create(
+            submission=submission,
+            question=interest_q,
+            answer=interest,
+        )
+
+        # Evaluation (if applicable)
+        if eval_status is not None:
+            questionnaires_models.QuestionnaireEvaluation.objects.create(
+                submission=submission,
+                status=eval_status,
+                score=Decimal(score) if score else None,
+                comments="" if score is None else None,
+            )
+
+        # Link to event
+        events_models.EventQuestionnaireSubmission.objects.create(
+            user=user,
+            event=event,
+            questionnaire=questionnaire,
+            submission=submission,
+            questionnaire_type=events_models.OrganizationQuestionnaire.QuestionnaireType.ADMISSION,
+        )
+
+    logger.info("Created wine tasting submissions", count=len(submitters))
