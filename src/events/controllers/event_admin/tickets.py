@@ -343,15 +343,6 @@ class EventAdminTicketsController(EventAdminBaseController):
 
         self.get_one(event_id)  # permission check
 
-        existing = FileExport.objects.filter(
-            requested_by=self.user(),
-            export_type=FileExport.ExportType.ATTENDEE_LIST,
-            status__in=[FileExport.ExportStatus.PENDING, FileExport.ExportStatus.PROCESSING],
-            parameters__event_id=str(event_id),
-        ).first()
-        if existing:
-            return 202, existing
-
         export = FileExport.objects.create(
             requested_by=self.user(),
             export_type=FileExport.ExportType.ATTENDEE_LIST,
