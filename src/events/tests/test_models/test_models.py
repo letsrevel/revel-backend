@@ -1,5 +1,5 @@
+import datetime
 import typing as t
-from datetime import datetime
 
 import pytest
 from django.core.exceptions import ValidationError
@@ -145,8 +145,8 @@ def test_organization_staff_has_permission(
 def test_event_save_preserves_explicit_end_date(organization: Organization) -> None:
     """Test that Event.save() preserves explicitly set end date."""
 
-    start_time = timezone.make_aware(datetime(2024, 3, 15, 14, 30))  # 2:30 PM
-    end_time = timezone.make_aware(datetime(2024, 3, 15, 18, 0))  # 6:00 PM same day
+    start_time = timezone.make_aware(datetime.datetime(2024, 3, 15, 14, 30))  # 2:30 PM
+    end_time = timezone.make_aware(datetime.datetime(2024, 3, 15, 18, 0))  # 6:00 PM same day
 
     event = Event.objects.create(organization=organization, name="Test Event", start=start_time, end=end_time)
 
@@ -352,8 +352,8 @@ def test_event_slug_auto_generated(organization: Organization) -> None:
 
 
 @pytest.mark.django_db
-def test_event_slug_collision_appends_suffix(organization: Organization) -> None:
-    """Test that slug collision appends a random suffix."""
+def test_event_slug_collision_appends_date(organization: Organization) -> None:
+    """Test that slug collision appends the event start date."""
     event1 = Event.objects.create(
         organization=organization,
         name="Weekly Reading Circle",
@@ -361,14 +361,15 @@ def test_event_slug_collision_appends_suffix(organization: Organization) -> None
     )
     assert event1.slug == "weekly-reading-circle"
 
-    # Create second event with same name - should get a suffix
+    # Create second event with same name but different date - should get date suffix
+    next_week = timezone.now() + datetime.timedelta(days=7)
     event2 = Event.objects.create(
         organization=organization,
         name="Weekly Reading Circle",
-        start=timezone.now(),
+        start=next_week,
     )
-    assert event2.slug.startswith("weekly-reading-circle-")
-    assert len(event2.slug) == len("weekly-reading-circle-") + 5  # 5 char suffix
+    expected_date = next_week.strftime("%Y-%m-%d")
+    assert event2.slug == f"weekly-reading-circle-{expected_date}"
 
 
 @pytest.mark.django_db
@@ -430,14 +431,46 @@ def test_event_explicit_slug_preserved(organization: Organization) -> None:
 
 
 @pytest.mark.django_db
+def test_event_slug_collision_date_then_random(organization: Organization) -> None:
+    """Test that same name + same date falls back to date + random suffix."""
+    start = timezone.now()
+    date_str = start.strftime("%Y-%m-%d")
+
+    event1 = Event.objects.create(
+        organization=organization,
+        name="Weekly Reading Circle",
+        start=start,
+    )
+    assert event1.slug == "weekly-reading-circle"
+
+    # Same name, same date → date suffix
+    event2 = Event.objects.create(
+        organization=organization,
+        name="Weekly Reading Circle",
+        start=start,
+    )
+    assert event2.slug == f"weekly-reading-circle-{date_str}"
+
+    # Third event, same name, same date → date + random suffix
+    event3 = Event.objects.create(
+        organization=organization,
+        name="Weekly Reading Circle",
+        start=start,
+    )
+    assert event3.slug.startswith(f"weekly-reading-circle-{date_str}-")
+    assert len(event3.slug) == len(f"weekly-reading-circle-{date_str}-") + 5
+
+
+@pytest.mark.django_db
 def test_event_multiple_collisions(organization: Organization) -> None:
     """Test that multiple events with same name all get unique slugs."""
+    start = timezone.now()
     events = []
     for i in range(5):
         event = Event.objects.create(
             organization=organization,
             name="Recurring Event",
-            start=timezone.now(),
+            start=start,
         )
         events.append(event)
 

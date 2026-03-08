@@ -527,8 +527,8 @@ class TestDuplicateEvent:
 
         assert new_event.event_series == event.event_series
 
-    def test_duplicate_event_slug_collision_handled(self, organization: Organization) -> None:
-        """Test that duplicating with same name generates unique slug via collision handling."""
+    def test_duplicate_event_slug_collision_uses_date(self, organization: Organization) -> None:
+        """Test that duplicating with same name generates slug with date suffix."""
         from django.utils import timezone
 
         # Create an event - slug will be auto-generated as "weekly-reading-circle"
@@ -541,28 +541,28 @@ class TestDuplicateEvent:
         base_slug = template_event.slug
         assert base_slug == "weekly-reading-circle"
 
-        # Duplicate with the same name - should trigger slug collision handling
+        # Duplicate with the same name - should get date-based slug
+        new_start = template_event.start + timedelta(days=7)
         new_event = event_service.duplicate_event(
             template_event=template_event,
             new_name=template_event.name,
-            new_start=template_event.start + timedelta(days=7),
+            new_start=new_start,
         )
 
-        # New event should have a different slug (with random suffix appended)
-        assert new_event.slug != base_slug
-        assert new_event.slug.startswith(base_slug + "-")
-        assert len(new_event.slug) == len(base_slug) + 1 + 5  # base + hyphen + 5 char suffix
+        expected_date = new_start.strftime("%Y-%m-%d")
+        assert new_event.slug == f"{base_slug}-{expected_date}"
 
-        # Duplicate again - should also get a unique slug
+        # Duplicate again with a different date - should also get a date-based slug
+        third_start = template_event.start + timedelta(days=14)
         third_event = event_service.duplicate_event(
             template_event=template_event,
             new_name=template_event.name,
-            new_start=template_event.start + timedelta(days=14),
+            new_start=third_start,
         )
 
-        assert third_event.slug != base_slug
+        third_date = third_start.strftime("%Y-%m-%d")
+        assert third_event.slug == f"{base_slug}-{third_date}"
         assert third_event.slug != new_event.slug
-        assert third_event.slug.startswith(base_slug + "-")
 
     def test_duplicate_event_shifts_apply_before(self, organization: Organization) -> None:
         """Test that apply_before deadline is shifted correctly when duplicating."""
