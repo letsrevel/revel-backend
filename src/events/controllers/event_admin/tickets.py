@@ -13,7 +13,7 @@ from ninja_extra.searching import Searching, searching
 
 from common.authentication import I18nJWTAuth
 from common.schema import ValidationErrorResponse
-from common.throttling import UserDefaultThrottle, WriteThrottle
+from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.service import ticket_service
@@ -328,13 +328,14 @@ class EventAdminTicketsController(EventAdminBaseController):
         url_name="export_attendees",
         response={202: schema.FileExportSchema},
         permissions=[EventPermission("manage_event")],
+        throttle=ExportThrottle(),
     )
     def export_attendees(self, event_id: UUID) -> tuple[int, "FileExport"]:
         """Export attendee list as an Excel file (async).
 
         Triggers an async Celery task. Returns 202 with a FileExport resource
-        that can be polled via GET /exports/{id}. An email with the download
-        link is sent when the export is ready.
+        that can be polled via GET /exports/{id} until the file is ready for
+        download.
         Requires 'manage_event' permission.
         """
         from common.models import FileExport

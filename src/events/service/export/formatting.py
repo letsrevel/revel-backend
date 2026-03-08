@@ -3,7 +3,7 @@
 import typing as t
 from uuid import UUID
 
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -12,7 +12,13 @@ if t.TYPE_CHECKING:
 
 
 class PronounStats(t.NamedTuple):
-    """Result of computing pronoun distribution."""
+    """Result of computing pronoun distribution.
+
+    Attributes:
+        sorted_pronouns: List of (pronoun, count) tuples sorted by count descending.
+        total_with: Total users who have specified pronouns.
+        total_without: Total users without pronouns specified.
+    """
 
     sorted_pronouns: list[tuple[str, int]]
     total_with: int
@@ -44,10 +50,6 @@ HEADER_ALIGNMENT = Alignment(horizontal="left", vertical="center", wrap_text=Tru
 
 LABEL_FONT = Font(bold=True, size=11)
 
-THIN_BORDER = Border(
-    bottom=Side(style="thin", color="D9D9D9"),
-)
-
 MIN_WIDTH = 10
 MAX_WIDTH = 60
 
@@ -77,7 +79,7 @@ def auto_fit_columns(ws: Worksheet) -> None:
 
 
 def style_summary_sheet(ws: Worksheet) -> None:
-    """Style a summary sheet: bold labels in column A, auto-fit widths."""
+    """Style a summary sheet: bold labels in column A, fixed widths for label/value columns."""
     for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=1, max_col=1):
         cell = row[0]
         if cell.value:

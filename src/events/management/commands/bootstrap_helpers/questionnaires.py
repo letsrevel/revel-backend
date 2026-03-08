@@ -27,7 +27,7 @@ def create_questionnaires(state: BootstrapState) -> None:
     _create_feedback_questionnaire(state)
     _create_wine_tasting_submissions(state)
 
-    logger.info("Created 4 questionnaires with submissions")
+    logger.info("Created 4 questionnaires and submissions for the wine tasting questionnaire")
 
 
 def _create_code_of_conduct_questionnaire(state: BootstrapState) -> None:
@@ -495,7 +495,9 @@ def _create_wine_tasting_submissions(state: BootstrapState) -> None:
     experience_q = questionnaires_models.MultipleChoiceQuestion.objects.get(
         questionnaire=questionnaire, question="How would you describe your wine knowledge?"
     )
-    experience_opts = list(questionnaires_models.MultipleChoiceOption.objects.filter(question=experience_q))
+    experience_opts = list(
+        questionnaires_models.MultipleChoiceOption.objects.filter(question=experience_q).order_by("order")
+    )
 
     interest_q = questionnaires_models.FreeTextQuestion.objects.get(
         questionnaire=questionnaire,

@@ -18,7 +18,7 @@ from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ValidationErrorResponse
-from common.throttling import UserDefaultThrottle, WriteThrottle
+from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters
 from events import models as event_models
 from events import schema as event_schema
@@ -422,6 +422,7 @@ class QuestionnaireController(UserAwareController):
         url_name="export_submissions",
         response={202: event_schema.FileExportSchema},
         permissions=[QuestionnairePermission("evaluate_questionnaire")],
+        throttle=ExportThrottle(),
     )
     def export_submissions(
         self,
@@ -432,8 +433,7 @@ class QuestionnaireController(UserAwareController):
         """Export questionnaire submissions as an Excel file (async).
 
         Triggers an async Celery task to generate the export. Returns a 202 with a FileExport
-        resource that can be polled via GET /exports/{id} for status updates. An email with the
-        download link is sent when the export is ready.
+        resource that can be polled via GET /exports/{id} until the file is ready for download.
 
         Optionally filter by event_id or event_series_id (mutually exclusive).
         Requires 'evaluate_questionnaire' permission.

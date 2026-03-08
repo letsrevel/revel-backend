@@ -92,6 +92,16 @@ class UserDataExportThrottle(DisableableThrottleMixin, UserRateThrottle):
     rate = "30/day"
 
 
+class ExportThrottle(DisableableThrottleMixin, UserRateThrottle):
+    """Export generation throttle (1 request/min).
+
+    Exports trigger expensive Celery tasks that generate XLSX files,
+    so we limit to 1 per minute per user.
+    """
+
+    rate = "1/min"
+
+
 class SendAnnouncementThrottle(DisableableThrottleMixin, UserRateThrottle):
     """Send announcement throttle (25 requests/day).
 
