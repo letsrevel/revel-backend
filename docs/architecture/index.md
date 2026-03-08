@@ -33,3 +33,4 @@ graph LR
 | [Notifications](notifications.md) | Multi-channel delivery: in-app, email, Telegram |
 | [File Security](security.md) | EXIF stripping, ClamAV malware scanning, quarantine |
 | [Questionnaires](questionnaires.md) | LLM-powered evaluation, prompt injection protection |
+| [XLSX Exports](exports.md) | Async Excel exports with FileExport lifecycle and email delivery |

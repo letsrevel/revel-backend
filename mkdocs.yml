@@ -69,6 +69,7 @@ nav:
       - File Security: architecture/security.md
       - Notifications: architecture/notifications.md
       - Questionnaires: architecture/questionnaires.md
+      - XLSX Exports: architecture/exports.md
   - Guides:
       - guides/index.md
       - User Journey: guides/user-journey.md
@@ -92,6 +93,7 @@ nav:
       - adr/0005-django-lts-policy.md
       - adr/0006-mo-files-in-git.md
       - adr/0007-celery-exception-propagation.md
+      - adr/0008-environment-feature-flags.md
   - Post-Mortems:
       - postmortems/index.md
       - postmortems/0001-guest-user-verification-bypass.md
