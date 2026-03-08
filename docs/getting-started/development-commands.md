@@ -112,6 +112,13 @@ To test with real async processing, set `CELERY_TASK_ALWAYS_EAGER=False` in your
 | `make test` | Run the full test suite in parallel (`pytest -n auto`) with coverage reporting |
 | `make test-linear` | Run the full test suite sequentially (single process, useful for debugging) |
 | `make test-failed` | Re-run only tests that failed in the previous run |
+| `make test-integration` | Run only tests marked with `@pytest.mark.integration` |
+
+## Security Scanning
+
+| Command | Description |
+|---------|-------------|
+| `make bandit` | Run [Bandit](https://bandit.readthedocs.io/) static security analysis on `src/` |
 
 ## Authentication
 

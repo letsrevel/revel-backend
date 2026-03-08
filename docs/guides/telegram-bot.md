@@ -68,7 +68,7 @@ Superusers can broadcast messages to all bot users via a dedicated FSM flow.
 | **Location** | `src/telegram/` |
 | **Framework** | [aiogram](https://docs.aiogram.dev/) |
 | **Update mode** | Long-polling (not webhooks) |
-| **State management** | Minimal FSM via aiogram (preferences and broadcast flows) |
+| **State management** | Minimal FSM via aiogram (broadcast flow) |
 | **Authentication** | Telegram user ID mapped to Revel accounts via `TelegramUser` model |
 | **Notifications** | Delivered via Celery tasks for async processing |
 | **Commands** | `/start`, `/connect`, `/preferences`, `/cancel`, `/unsubscribe` (plus hidden handlers: `/toc`, `/privacy`) |
@@ -80,7 +80,7 @@ Superusers can broadcast messages to all bot users via a dedicated FSM flow.
 |---|---|
 | `/start` | Welcome message, shows linked status |
 | `/connect` | Link Telegram account to Revel via OTP |
-| `/preferences` | Manage notification preferences *(not yet implemented)* |
+| `/preferences` | Manage notification preferences *(stub — not yet implemented)* |
 | `/cancel` | Cancel current FSM conversation |
 | `/toc` | Terms and conditions |
 | `/privacy` | Privacy policy |

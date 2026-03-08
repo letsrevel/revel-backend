@@ -30,7 +30,7 @@ revel-backend/
 
 The Django project package containing settings, root URL configuration, WSGI/ASGI entry points, and Celery app initialization.
 
-Settings are modular, split across multiple files under `revel/settings/` by **feature domain**: `base.py`, `celery.py`, `email.py`, `stripe.py`, `telegram.py`, `wallet.py`, `sso.py`, `observability.py`, `ninja.py`, `unfold.py`.
+Settings are modular, split across multiple files under `revel/settings/` by **feature domain**: `base.py`, `celery.py`, `email.py`, `features.py`, `llm.py`, `ninja.py`, `observability.py`, `sso.py`, `stripe.py`, `telegram.py`, `unfold.py`, `wallet.py`.
 
 ---
 
@@ -44,6 +44,7 @@ Key responsibilities:
 - JWT authentication flow
 - User registration and profile management
 - GDPR data export and account deletion
+- Platform-wide banning (`GlobalBan`) by email, domain, or Telegram username
 
 ---
 
@@ -60,7 +61,9 @@ Key responsibilities:
 - **Venues**: location management
 - **Invitations**: invite-based access control
 - **Blacklists**: organization-level email blocking
+- **Discount codes**: organization-scoped percentage/fixed-amount discounts for ticket purchases
 - **Followers**: user-to-organization following
+- **Exports**: async XLSX exports for attendee lists and questionnaire submissions
 
 ---
 

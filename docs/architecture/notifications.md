@@ -104,11 +104,18 @@ The following notification types are supported across all channels:
 | `whitelist_request_approved` | Whitelist request was approved |
 | `whitelist_request_rejected` | Whitelist request was rejected |
 
+### Account
+
+| Type | Description |
+|---|---|
+| `account_banned` | User's account has been banned from the platform |
+
 ### Announcements
 
 | Type | Description |
 |---|---|
 | `org_announcement` | Organization-wide announcement |
+| `system_announcement` | Platform-wide announcement (e.g., privacy policy or ToC updates) |
 
 ### Following
 

@@ -100,6 +100,7 @@ The root `conftest.py` defines several `autouse=True` fixtures that apply to **a
 | `use_fast_password_hasher` | Uses MD5 hasher for faster user creation in tests |
 | `mock_telegram_send_message` | Prevents real Telegram messages from being sent |
 | `mock_clamav` | Mocks ClamAV scanning so tests don't need a running daemon |
+| `_reset_language` | Resets Django's active language between tests (cleans up after `I18nJWTAuth`) |
 
 These fixtures ensure tests are fast, isolated, and don't depend on external services.
 
