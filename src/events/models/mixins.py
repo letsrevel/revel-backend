@@ -104,6 +104,12 @@ class SlugFromNameMixin(models.Model):
             return None
         return t.cast(str, date_value.strftime("%Y-%m-%d"))
 
+    def _truncate_base(self, base: str, suffix_len: int) -> str:
+        """Truncate base slug so that base + '-' + suffix fits within max_length."""
+        max_length: int = self._meta.get_field("slug").max_length  # type: ignore[union-attr]
+        max_base = max_length - suffix_len - 1  # 1 for the hyphen
+        return base[:max_base]
+
     def _generate_unique_slug(self, base_slug: str) -> str:
         """Generate a unique slug, appending a suffix if necessary.
 
@@ -121,7 +127,7 @@ class SlugFromNameMixin(models.Model):
         # Try date-based suffix if available
         date_suffix = self._get_date_suffix()
         if date_suffix:
-            date_candidate = f"{base_slug}-{date_suffix}"
+            date_candidate = f"{self._truncate_base(base_slug, len(date_suffix))}-{date_suffix}"
             if not qs.filter(slug=date_candidate).exists():
                 return date_candidate
             # Date also collided — use date + random as the base for retries
@@ -129,7 +135,7 @@ class SlugFromNameMixin(models.Model):
 
         # Fall back to random suffix
         for _ in range(MAX_SLUG_COLLISION_RETRIES):
-            candidate = f"{base_slug}-{generate_slug_suffix()}"
+            candidate = f"{self._truncate_base(base_slug, SLUG_SUFFIX_LENGTH)}-{generate_slug_suffix()}"
             if not qs.filter(slug=candidate).exists():
                 return candidate
 
