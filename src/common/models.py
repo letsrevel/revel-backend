@@ -106,6 +106,44 @@ class SiteSettings(SingletonModel):
         default=settings.INTERNAL_CATCHALL_EMAIL,
     )
 
+    # Platform business details for VAT invoicing
+    platform_business_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Legal business name for invoices (e.g., 'Revel S.r.l.').",
+    )
+    platform_business_address = models.TextField(
+        blank=True,
+        default="",
+        help_text="Full business address for invoices.",
+    )
+    platform_vat_country = models.CharField(
+        max_length=2,
+        blank=True,
+        default="",
+        help_text="ISO 3166-1 alpha-2 country code for platform's VAT registration.",
+    )
+    platform_vat_id = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        help_text="Platform's VAT ID including country prefix (e.g., IT12345678901).",
+    )
+    platform_vat_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="Platform's domestic VAT rate (e.g., 22.00 for 22%).",
+    )
+
+    # Invoice settings
+    platform_invoice_bcc_email = models.EmailField(
+        blank=True,
+        default="",
+        help_text="BCC email for all platform fee invoices (internal accounting copy).",
+    )
+
     # Maintenance banner
     maintenance_message = models.CharField(
         max_length=500,

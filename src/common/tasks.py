@@ -99,20 +99,34 @@ def send_email(
     subject: str,
     body: str,
     html_body: str | None = None,
+    bcc: list[str] | None = None,
     callback_data: dict[str, t.Any] | None = None,
+    attachment_storage_path: str | None = None,
+    attachment_filename: str | None = None,
+    attachment_mime_type: str = "application/pdf",
 ) -> None:
-    """Send an email with optional callback for delivery tracking.
+    """Send an email with optional callback and optional file attachment.
 
     Args:
-        to: Email address(es)
-        subject: Email subject
-        body: Plain text body
-        html_body: HTML body (optional)
+        to: Email address(es).
+        subject: Email subject.
+        body: Plain text body.
+        html_body: HTML body (optional).
+        bcc: Explicit BCC addresses (optional). When not set, multiple "to"
+            recipients are auto-BCC'd for privacy.
         callback_data: Optional callback configuration with:
             - module: Python module path (e.g., "accounts.tasks")
             - function: Function name to call (e.g., "mark_reminder_sent")
             - kwargs: Dict of keyword arguments to pass to the function
+        attachment_storage_path: Path of the file in Django's default storage.
+            The file is read inside the task worker to avoid passing large
+            byte payloads through the Celery broker.
+        attachment_filename: Display filename for the attachment (defaults to
+            the storage path basename).
+        attachment_mime_type: MIME type for the attachment.
     """
+    from django.core.files.storage import default_storage
+
     success = False
     error_message = None
 
@@ -120,15 +134,18 @@ def send_email(
         site_settings = SiteSettings.get_solo()
         recipients = [to] if isinstance(to, str) else to
         recipients = [to_safe_email_address(email, site_settings=site_settings) for email in recipients]
+        safe_bcc = [to_safe_email_address(email, site_settings=site_settings) for email in (bcc or [])]
 
-        # RFC 5322 requires a valid "To" header. For single recipients, use "to" directly.
-        # For multiple recipients, use BCC to protect privacy and set "to" to the sender.
-        if len(recipients) == 1:
+        # Build the To/BCC headers:
+        # - If explicit BCC is provided, use "to" as-is + BCC separately.
+        # - Otherwise, for multiple recipients, auto-BCC for privacy (RFC 5322).
+        if safe_bcc or len(recipients) == 1:
             email_msg = EmailMultiAlternatives(
                 subject=subject,
                 body=body,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 to=recipients,
+                bcc=safe_bcc,
             )
         else:
             email_msg = EmailMultiAlternatives(
@@ -138,8 +155,17 @@ def send_email(
                 to=[settings.DEFAULT_FROM_EMAIL],
                 bcc=recipients,
             )
+
         if html_body:  # pragma: no branch
             email_msg.attach_alternative(html_body, "text/html")
+
+        # Attach file from storage if requested
+        if attachment_storage_path:
+            with default_storage.open(attachment_storage_path, "rb") as f:
+                attachment_bytes = f.read()
+            filename = attachment_filename or Path(attachment_storage_path).name
+            email_msg.attach(filename, attachment_bytes, attachment_mime_type)
+
         email_msg.send(fail_silently=False)
 
         # Create email logs

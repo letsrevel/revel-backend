@@ -35,6 +35,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         "members_count",
         "events_count",
         "stripe_connected",
+        "vat_status",
         "visibility",
         "created_at",
     ]
@@ -44,8 +45,44 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
 
     tabs = [
         ("Settings", ["Settings"]),
+        ("Billing", ["Billing"]),
         ("People", ["Staff", "Members", "Tiers"]),
         ("Content", ["Series", "Questionnaires", "Venues"]),
+    ]
+
+    fieldsets = [
+        (
+            "Settings",
+            {
+                "fields": [
+                    "name",
+                    "slug",
+                    "owner",
+                    "description",
+                    "city",
+                    "visibility",
+                    "accept_membership_requests",
+                    "contact_email",
+                    "contact_email_verified",
+                ],
+            },
+        ),
+        (
+            "Billing",
+            {
+                "fields": [
+                    "vat_id",
+                    "vat_country_code",
+                    "vat_rate",
+                    "vat_id_validated",
+                    "vat_id_validated_at",
+                    "billing_address",
+                    "billing_email",
+                    "platform_fee_percent",
+                    "platform_fee_fixed",
+                ],
+            },
+        ),
     ]
 
     inlines = [
@@ -93,6 +130,16 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     @admin.display(description="Stripe", boolean=True)
     def stripe_connected(self, obj: models.Organization) -> bool:
         return obj.is_stripe_connected
+
+    @admin.display(description="VAT")
+    def vat_status(self, obj: models.Organization) -> str:
+        if not obj.vat_id:
+            return "—"
+        if obj.vat_id_validated:
+            icon = mark_safe('<span style="color: green;">&#10004;</span>')  # green checkmark
+        else:
+            icon = mark_safe('<span style="color: red;">&#10008;</span>')  # red cross
+        return format_html("{} {}", icon, obj.vat_id)
 
 
 @admin.register(models.OrganizationQuestionnaire)

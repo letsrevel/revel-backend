@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db.models import Prefetch, Q
 from django.utils import timezone
 from django.utils.functional import cached_property
@@ -279,6 +279,15 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         null=True,
         blank=True,
         help_text="Override event's max_tickets_per_user for this tier. Null = inherit from event.",
+    )
+
+    vat_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="VAT rate override for this tier. If null, uses organization's default vat_rate.",
     )
 
     display_order = models.PositiveIntegerField(default=0, db_index=True)
@@ -648,6 +657,32 @@ class Payment(TimeStampedModel):
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     platform_fee = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=3, default=settings.DEFAULT_CURRENCY)
+
+    # Ticket sale VAT breakdown (calculated in-house, all nullable for historical payments)
+    net_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, help_text="Ticket price excluding VAT."
+    )
+    vat_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, help_text="VAT portion of the ticket price."
+    )
+    vat_rate = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True, help_text="VAT rate snapshot at purchase time."
+    )
+
+    # Platform fee VAT breakdown (for Revel's accounting, all nullable for historical payments)
+    platform_fee_net = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, help_text="Platform fee excluding VAT."
+    )
+    platform_fee_vat = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True, help_text="VAT portion of the platform fee."
+    )
+    platform_fee_vat_rate = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True, help_text="Platform fee VAT rate snapshot."
+    )
+    platform_fee_reverse_charge = models.BooleanField(
+        default=False, help_text="Whether reverse charge applies to the platform fee (EU B2B cross-border)."
+    )
+
     raw_response = models.JSONField(blank=True, default=dict)  # To store the full webhook event for auditing
     expires_at = models.DateTimeField(default=_get_payment_default_expiry, db_index=True, editable=False)
 

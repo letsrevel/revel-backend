@@ -16,6 +16,12 @@ from stripe.checkout import Session
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from events.models import Event, Organization, Payment, Ticket, TicketTier
+from events.service.vat_service import (
+    calculate_platform_fee_vat,
+    calculate_vat_inclusive,
+    distribute_amount_across_items,
+    get_effective_vat_rate,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -51,13 +57,41 @@ def get_account_details(account_id: str) -> stripe.Account:
 
 
 def stripe_verify_account(organization: Organization) -> Organization:
-    """Verify a Stripe Connect account."""
+    """Verify a Stripe Connect account.
+
+    Also auto-fills billing_address and vat_country_code from Stripe account
+    details if they are currently empty (fallback for orgs without a VAT ID).
+    """
     if organization.stripe_account_id is None:
         raise HttpError(400, str(_("You must connect your Stripe account first.")))
     account = get_account_details(organization.stripe_account_id)
     organization.stripe_charges_enabled = account.charges_enabled
     organization.stripe_details_submitted = account.details_submitted
-    organization.save()
+
+    update_fields = ["stripe_charges_enabled", "stripe_details_submitted", "updated_at"]
+
+    # Auto-fill billing details from Stripe if empty
+    if not organization.billing_address and account.get("company"):
+        company = account["company"]
+        address = company.get("address", {})
+        parts = [
+            address.get("line1", ""),
+            address.get("line2", ""),
+            address.get("postal_code", ""),
+            address.get("city", ""),
+            address.get("state", ""),
+            address.get("country", ""),
+        ]
+        full_address = ", ".join(p for p in parts if p)
+        if full_address:
+            organization.billing_address = full_address
+            update_fields.append("billing_address")
+
+    if not organization.vat_country_code and account.get("country"):
+        organization.vat_country_code = account["country"]
+        update_fields.append("vat_country_code")
+
+    organization.save(update_fields=update_fields)
     return organization
 
 
@@ -182,8 +216,9 @@ def create_checkout_session(
         guest_name=user.get_display_name(),
     )
 
-    platform_fee = round(effective_price * (event.organization.platform_fee_percent / Decimal(100)), 2)
-    fixed_fee = event.organization.platform_fee_fixed
+    org = event.organization
+    platform_fee = round(effective_price * (org.platform_fee_percent / Decimal(100)), 2)
+    fixed_fee = org.platform_fee_fixed
     application_fee_amount = int((platform_fee + fixed_fee) * 100)
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
@@ -199,6 +234,14 @@ def create_checkout_session(
 
     # application_fee_amount is in cents.
     db_platform_fee = (Decimal(application_fee_amount) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    # VAT breakdowns (for accounting records, does NOT affect Stripe fee)
+    effective_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
+    ticket_vat = calculate_vat_inclusive(effective_price, effective_vat_rate)
+
+    site = SiteSettings.get_solo()
+    fee_vat = calculate_platform_fee_vat(db_platform_fee, org, site.platform_vat_country, site.platform_vat_rate)
+
     payment = Payment.objects.create(
         ticket=ticket,
         user=user,
@@ -209,6 +252,15 @@ def create_checkout_session(
         status=Payment.PaymentStatus.PENDING,
         raw_response={},
         expires_at=expires_at,
+        # Ticket sale VAT breakdown
+        net_amount=ticket_vat.net_amount,
+        vat_amount=ticket_vat.vat_amount,
+        vat_rate=ticket_vat.vat_rate,
+        # Platform fee VAT breakdown
+        platform_fee_net=fee_vat.fee_net,
+        platform_fee_vat=fee_vat.fee_vat,
+        platform_fee_vat_rate=fee_vat.fee_vat_rate,
+        platform_fee_reverse_charge=fee_vat.reverse_charge,
     )
     TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + 1)
 
@@ -248,9 +300,10 @@ def create_batch_checkout_session(
         raise HttpError(400, str(_("This ticket tier cannot be purchased online.")))
 
     # Calculate fees
+    org = event.organization
     total_amount = effective_price * len(tickets)
-    platform_fee = round(total_amount * (event.organization.platform_fee_percent / Decimal(100)), 2)
-    fixed_fee = event.organization.platform_fee_fixed
+    platform_fee = round(total_amount * (org.platform_fee_percent / Decimal(100)), 2)
+    fixed_fee = org.platform_fee_fixed
     application_fee_amount = int((platform_fee + fixed_fee) * 100)
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
@@ -273,7 +326,8 @@ def create_batch_checkout_session(
     # Build metadata with all ticket IDs
     ticket_ids = ",".join(str(_t.id) for _t in tickets)
 
-    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    site = SiteSettings.get_solo()
+    frontend_base_url = site.frontend_base_url
     session_data = dict(  # noqa: C408
         customer_email=user.email,
         line_items=line_items,
@@ -306,9 +360,21 @@ def create_batch_checkout_session(
         raise HttpError(500, str(_("Payment processing failed. Please try again later."))) from e
 
     # Create Payment records for each ticket
-    db_platform_fee_per_ticket = (Decimal(application_fee_amount) / Decimal(100) / len(tickets)).quantize(
+    ticket_count = len(tickets)
+    db_total_platform_fee = (Decimal(application_fee_amount) / Decimal(100)).quantize(
         Decimal("0.01"), rounding=ROUND_HALF_UP
     )
+    per_ticket_fees = distribute_amount_across_items(db_total_platform_fee, ticket_count)
+
+    # VAT breakdowns (for accounting records, does NOT affect Stripe fee)
+    effective_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
+    ticket_vat = calculate_vat_inclusive(effective_price, effective_vat_rate)
+
+    # Distribute platform fee VAT across tickets
+    fee_vat_per_ticket = [
+        calculate_platform_fee_vat(fee, org, site.platform_vat_country, site.platform_vat_rate)
+        for fee in per_ticket_fees
+    ]
 
     payments = [
         Payment(
@@ -316,13 +382,22 @@ def create_batch_checkout_session(
             user=user,
             stripe_session_id=session.id,
             amount=effective_price,
-            platform_fee=db_platform_fee_per_ticket,
+            platform_fee=per_ticket_fees[i],
             currency=tier.currency,
             status=Payment.PaymentStatus.PENDING,
             raw_response={},
             expires_at=expires_at,
+            # Ticket sale VAT breakdown (same for each ticket in batch)
+            net_amount=ticket_vat.net_amount,
+            vat_amount=ticket_vat.vat_amount,
+            vat_rate=ticket_vat.vat_rate,
+            # Platform fee VAT breakdown (distributed to avoid penny errors)
+            platform_fee_net=fee_vat_per_ticket[i].fee_net,
+            platform_fee_vat=fee_vat_per_ticket[i].fee_vat,
+            platform_fee_vat_rate=fee_vat_per_ticket[i].fee_vat_rate,
+            platform_fee_reverse_charge=fee_vat_per_ticket[i].reverse_charge,
         )
-        for ticket in tickets
+        for i, ticket in enumerate(tickets)
     ]
     Payment.objects.bulk_create(payments)
 

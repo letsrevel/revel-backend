@@ -255,6 +255,7 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     price_type: TicketTier.PriceType = TicketTier.PriceType.FIXED
     pwyc_min: Decimal = Field(default=Decimal("1"), ge=1)
     pwyc_max: Decimal | None = Field(None, ge=1)
+    vat_rate: Decimal | None = Field(None, ge=0, le=100, description="VAT rate override. Null = use org default.")
 
     currency: Currencies = Field(default="EUR", max_length=3)
     sales_start_at: AwareDatetime | None = None
@@ -295,6 +296,7 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     price_type: TicketTier.PriceType | None = None
     pwyc_min: Decimal | None = Field(None, ge=1)
     pwyc_max: Decimal | None = Field(None, ge=1)
+    vat_rate: Decimal | None = Field(None, ge=0, le=100, description="VAT rate override. Null = use org default.")
     currency: str | None = Field(None, max_length=3)
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
@@ -339,6 +341,7 @@ class TicketTierDetailSchema(ModelSchema):
     max_tickets_per_user: int | None = None
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
+    vat_rate: Decimal | None = None
 
     class Meta:
         model = TicketTier
@@ -365,6 +368,7 @@ class TicketTierDetailSchema(ModelSchema):
             "seat_assignment_mode",
             "max_tickets_per_user",
             "display_order",
+            "vat_rate",
         ]
 
 

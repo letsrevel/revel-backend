@@ -8,6 +8,7 @@ from .event import (
 )
 from .event_series import EventSeries
 from .follow import EventSeriesFollow, OrganizationFollow
+from .invoice import PlatformFeeCreditNote, PlatformFeeInvoice
 from .invitation import (
     EventInvitation,
     EventInvitationRequest,
@@ -93,4 +94,7 @@ __all__ = [
     "Announcement",
     # Discount codes
     "DiscountCode",
+    # Invoices
+    "PlatformFeeCreditNote",
+    "PlatformFeeInvoice",
 ]

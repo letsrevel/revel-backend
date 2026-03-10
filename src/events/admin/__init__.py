@@ -8,6 +8,10 @@ of all admin classes via the @admin.register decorators in submodules.
 # Import all admin modules to trigger @admin.register decorators
 from events.admin.announcement import AnnouncementAdmin
 from events.admin.blacklist import BlacklistAdmin, WhitelistRequestAdmin
+from events.admin.invoice import (
+    PlatformFeeCreditNoteAdmin,
+    PlatformFeeInvoiceAdmin,
+)
 from events.admin.event import (
     EventAdmin,
     EventInvitationAdmin,
@@ -77,6 +81,9 @@ __all__ = [
     # Preferences
     "GeneralUserPreferencesAdmin",
     "AttendeeVisibilityFlagAdmin",
+    # Invoice
+    "PlatformFeeInvoiceAdmin",
+    "PlatformFeeCreditNoteAdmin",
     # Blacklist
     "BlacklistAdmin",
     "WhitelistRequestAdmin",
