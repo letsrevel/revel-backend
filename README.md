@@ -75,6 +75,12 @@ Revel combines the ticketing power of platforms like Eventbrite with the communi
 *   **Full Data Ownership:** When self-hosting, you control your data. No third-party trackers, no selling of event data. Keep your community's information safe.
 *   **Tailored Invitations:** Send direct invitations that can waive specific requirements (like questionnaires, membership or purchase) for trusted guests.
 
+#### Billing & VAT
+*   **In-House VAT Calculations:** Ticket prices include VAT; net/gross breakdowns are computed at purchase time and persisted on each payment record.
+*   **EU B2B Reverse Charge:** Platform fees automatically apply reverse charge for cross-border B2B transactions with VIES-validated VAT IDs.
+*   **VIES Integration:** Organization VAT IDs are validated in real-time against the EU's VIES system, with monthly re-validation via Celery Beat.
+*   **Automated Invoicing:** Monthly platform fee invoices are generated automatically, rendered as PDFs (WeasyPrint), and emailed to organization owners — with race-safe sequential numbering and idempotent generation.
+
 #### Core Event & Ticketing Features
 *   **Event & Series Management:** Easily create single events or recurring event series under your organization.
 *   **Ticketing & RSVPs:** Support for both paid/free ticketed events (powered by Stripe) and simpler RSVP-based gatherings.

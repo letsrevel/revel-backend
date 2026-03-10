@@ -69,6 +69,7 @@ nav:
       - File Security: architecture/security.md
       - Notifications: architecture/notifications.md
       - Questionnaires: architecture/questionnaires.md
+      - Billing & VAT: architecture/billing-and-vat.md
       - XLSX Exports: architecture/exports.md
   - Guides:
       - guides/index.md

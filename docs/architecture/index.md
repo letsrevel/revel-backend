@@ -33,4 +33,5 @@ graph LR
 | [Notifications](notifications.md) | Multi-channel delivery: in-app, email, Telegram |
 | [File Security](security.md) | EXIF stripping, ClamAV malware scanning, quarantine |
 | [Questionnaires](questionnaires.md) | LLM-powered evaluation, prompt injection protection |
+| [Billing & VAT](billing-and-vat.md) | VAT calculations, VIES validation, invoice generation, PDF rendering |
 | [XLSX Exports](exports.md) | Async Excel exports with FileExport lifecycle and email delivery |

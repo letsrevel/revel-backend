@@ -305,6 +305,60 @@ These events are all in the **Eligibility Test Organization** and are designed t
 | Reserved Seat | 75.00 EUR | 100 (0 sold) | Online | Venue-linked, user chooses seat |
 | Standing Room | 35.00 EUR | 50 (8 sold) | Offline | Bank transfer, manual payment instructions |
 
+### Platform Billing (SiteSettings)
+
+The bootstrap configures platform-level billing on the `SiteSettings` singleton:
+
+| Field | Value |
+|---|---|
+| **Business name** | Revel Technologies S.r.l. |
+| **Business address** | Via della Conciliazione 44, 00193 Roma RM, Italy |
+| **VAT ID** | IT12345678903 |
+| **VAT country** | IT |
+| **VAT rate** | 22.00% |
+| **Invoice BCC** | accounting@letsrevel.io |
+
+### Organization Billing Info
+
+Both main organizations are configured with VAT/billing data for testing EU cross-border invoicing:
+
+#### Revel Events Collective (Alpha)
+
+| Field | Value |
+|---|---|
+| **VAT ID** | ATU12345678 |
+| **Country** | AT (Austria) |
+| **VAT rate** | 20.00% |
+| **VAT ID validated** | Yes (VIES) |
+| **Billing address** | Musterstraße 42, AT-1010 Wien |
+| **Billing email** | billing@revelcollective.example.com |
+
+Since the platform is in Italy (IT) and this org is in Austria (AT) with a validated VAT ID, platform fee invoices use **reverse charge** (B2B EU cross-border).
+
+#### Tech Innovators Network (Beta)
+
+| Field | Value |
+|---|---|
+| **VAT ID** | DE123456789 |
+| **Country** | DE (Germany) |
+| **VAT rate** | 19.00% |
+| **VAT ID validated** | Yes (VIES) |
+| **Billing address** | Friedrichstraße 123, 10117 Berlin, Germany |
+| **Billing email** | billing@techinnovators.example.com |
+
+Also reverse charge (DE → IT cross-border with valid VAT ID).
+
+### Payments & Invoice
+
+The bootstrap creates **4 succeeded payments** for the Revel Events Collective from the previous month, then generates a platform fee invoice with PDF:
+
+- Payments are spread across the previous month (one per bootstrap user)
+- Each payment includes full VAT breakdowns (ticket sale VAT + platform fee VAT)
+- An invoice (`RVL-{YEAR}-000001`) is generated via `generate_invoices_for_period()`
+- A PDF is rendered via WeasyPrint and attached to the invoice record
+
+This verifies the full billing pipeline end-to-end: VAT calculation → payment recording → invoice aggregation → PDF rendering.
+
 ### Questionnaires (4 main + 1 test)
 
 #### Main Bootstrap Questionnaires
@@ -457,3 +511,6 @@ Every bootstrap user has dietary preferences and/or food restrictions configured
 | Reserved seating | Purchase a Reserved Seat ticket for **Classical Music Evening** (seat selection) |
 | Eligibility gates | Log in as `test.random@example.com` and visit each event in the Eligibility Test Organization |
 | Event series | Browse **Monthly Tech Talks** or **Seasonal Community Gatherings** series |
+| Billing info | Log in as `alice.owner@example.com`, open Revel Events Collective admin, view billing settings |
+| VAT ID validation | Set a new VAT ID on an organization (triggers live VIES check) |
+| Invoice list & PDF | View invoices for Revel Events Collective — the bootstrap generates one with a PDF |
