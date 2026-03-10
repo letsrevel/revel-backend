@@ -217,12 +217,17 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
     # Get all user's tickets for this event using the optimized full() queryset
     tickets = list(Ticket.objects.full().filter(event=event, user_id=user.id).order_by("-created_at"))
 
-    if not tickets or not event.requires_ticket:
+    has_active_tickets = any(t.status != Ticket.TicketStatus.CANCELLED for t in tickets)
+
+    if not has_active_tickets or not event.requires_ticket:
         # Check for RSVP (non-ticketed events)
         if rsvp := EventRSVP.objects.filter(event=event, user_id=user.id).first():
             return UserEventStatus(tickets=[], rsvp=rsvp)
-        # No tickets or RSVP - return eligibility check
-        return EventManager(user, event).check_eligibility()
+        # No active tickets or RSVP - run eligibility check
+        eligibility = EventManager(user, event).check_eligibility()
+        if not eligibility.allowed or not tickets:
+            return eligibility
+        # User has only cancelled tickets but is eligible - fall through to show purchase capacity
 
     # Calculate event-level capacity remaining (once, to avoid N+1)
     # Uses effective_capacity (min of max_attendees and venue.capacity)
