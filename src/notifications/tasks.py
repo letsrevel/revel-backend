@@ -436,8 +436,8 @@ def send_event_reminders() -> dict[str, t.Any]:
     return service.send_all_reminders()
 
 
-@shared_task
-def send_pending_invitation_email(pending_invitation_id: str) -> None:
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> None:
     """Send an invitation email to a non-registered user.
 
     Since the recipient has no account, this bypasses the notification system
@@ -487,6 +487,5 @@ def send_pending_invitation_email(pending_invitation_id: str) -> None:
     logger.info(
         "pending_invitation_email_sent",
         pending_invitation_id=pending_invitation_id,
-        email=pending.email,
         event_id=str(event.id),
     )

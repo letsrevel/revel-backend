@@ -86,8 +86,8 @@ def handle_user_creation(sender: type[RevelUser], instance: RevelUser, created: 
 
         with transaction.atomic():
             for pending in pending_invitations:
-                # Re-render the invitation message with the actual user display name
-                # if the pending invitation had one (replacing the email-based version)
+                # Preserve any existing custom message from the pending invitation,
+                # or generate a default one using the user's display name if none was set.
                 custom_message = pending.custom_message
                 if not custom_message:
                     custom_message = get_invitation_message(instance.get_display_name(), pending.event)
