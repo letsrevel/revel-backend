@@ -5,6 +5,7 @@ import uuid
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from simple_history.models import HistoricalRecords
 from solo.models import SingletonModel
@@ -134,6 +135,7 @@ class SiteSettings(SingletonModel):
         max_digits=5,
         decimal_places=2,
         default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="Platform's domestic VAT rate (e.g., 22.00 for 22%).",
     )
 

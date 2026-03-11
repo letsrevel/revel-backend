@@ -153,8 +153,7 @@ def generate_invoices_for_period(
     Creates one invoice per organization x currency combination.
     Skips organizations with zero successful payments in the period.
 
-    Uses COUNT(DISTINCT stripe_session_id) to correctly count batch purchases
-    where multiple Payment records share the same Stripe session.
+    Counts individual Payment records (one per ticket) for the total_tickets stat.
 
     Args:
         period_start: First day of the period (inclusive).

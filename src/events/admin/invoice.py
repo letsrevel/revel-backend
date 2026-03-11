@@ -18,6 +18,7 @@ from events.admin.base import OrganizationLinkMixin
 class PlatformFeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for PlatformFeeInvoice with filtering and PDF download."""
 
+    list_select_related = ["organization"]
     list_display = [
         "invoice_number",
         "organization_link",

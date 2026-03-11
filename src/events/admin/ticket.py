@@ -147,6 +147,8 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
 
     @admin.display(description="P. Fee")
     def platform_fee_display(self, obj: models.Payment) -> str:
+        if obj.platform_fee_reverse_charge:
+            return f"{obj.platform_fee} (RC)"
         if obj.platform_fee_net is not None:
             parts = [f"{obj.platform_fee}"]
             if obj.platform_fee_vat:

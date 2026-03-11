@@ -137,9 +137,10 @@ def send_email(
         safe_bcc = [to_safe_email_address(email, site_settings=site_settings) for email in (bcc or [])]
 
         # Build the To/BCC headers:
-        # - If explicit BCC is provided, use "to" as-is + BCC separately.
-        # - Otherwise, for multiple recipients, auto-BCC for privacy (RFC 5322).
-        if safe_bcc or len(recipients) == 1:
+        # - Single recipient: use as To, add explicit BCC if provided.
+        # - Multiple recipients: auto-BCC all for privacy (RFC 5322),
+        #   merge with any explicit BCC addresses.
+        if len(recipients) == 1:
             email_msg = EmailMultiAlternatives(
                 subject=subject,
                 body=body,
@@ -153,7 +154,7 @@ def send_email(
                 body=body,
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 to=[settings.DEFAULT_FROM_EMAIL],
-                bcc=recipients,
+                bcc=recipients + safe_bcc,
             )
 
         if html_body:  # pragma: no branch

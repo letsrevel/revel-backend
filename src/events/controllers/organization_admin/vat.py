@@ -111,12 +111,15 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
                 raise HttpError(400, str(_("The VAT ID is not valid according to VIES.")))
         except VIESUnavailableError:
             logger.warning("vies_unavailable", org_id=str(organization.id))
+            from events.tasks import revalidate_single_vat_id_task
+
+            revalidate_single_vat_id_task.delay(str(organization.id))
             raise HttpError(
                 503,
                 str(
                     _(
                         "VIES validation service is temporarily unavailable."
-                        " The VAT ID has been saved but is pending validation."
+                        " The VAT ID has been saved and will be validated automatically."
                     )
                 ),
             )

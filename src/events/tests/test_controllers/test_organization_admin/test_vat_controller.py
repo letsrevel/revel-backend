@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import orjson
 import pytest
-from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.urls import reverse
 from django.utils import timezone
 
 from events.models import Organization
@@ -405,17 +405,19 @@ class TestSetVatId:
 
         assert response.status_code == 400
 
+    @patch("events.tasks.revalidate_single_vat_id_task.delay")
     @patch("events.controllers.organization_admin.vat.validate_and_update_organization")
     def test_vies_unavailable_returns_503(
         self,
         mock_validate: t.Any,
+        mock_revalidate_task: t.Any,
         organization_owner_client: Client,
         organization: Organization,
     ) -> None:
         """Test that VIES unavailability returns 503 and VAT ID is saved but pending.
 
         The VAT ID should be persisted in the database with vat_id_validated=False
-        so it can be retried later.
+        so it can be retried later. A background revalidation task is queued.
         """
         mock_validate.side_effect = VIESUnavailableError("VIES is down")
 
@@ -431,6 +433,8 @@ class TestSetVatId:
         assert organization.vat_country_code == "DE"
         assert organization.vat_id_validated is False
         assert organization.vat_id_validated_at is None
+        # Verify revalidation task was queued
+        mock_revalidate_task.assert_called_once_with(str(organization.id))
 
     @patch("events.controllers.organization_admin.vat.validate_and_update_organization")
     def test_vat_country_code_auto_set_from_prefix(
