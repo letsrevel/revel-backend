@@ -78,16 +78,42 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
         "user_link",
         "ticket_link",
         "amount_display",
+        "vat_display",
+        "platform_fee_display",
         "status_display",
         "stripe_session_id_short",
-        "expires_at",
         "created_at",
     ]
     list_filter = ["status", "currency", "created_at", "expires_at"]
     search_fields = ["user__username", "user__email", "ticket__event__name", "stripe_session_id"]
-    readonly_fields = ["id", "user", "ticket", "stripe_session_id", "raw_response", "created_at", "updated_at"]
+    readonly_fields = [
+        "id",
+        "user",
+        "ticket",
+        "stripe_session_id",
+        "raw_response",
+        "net_amount",
+        "vat_amount",
+        "vat_rate",
+        "platform_fee_net",
+        "platform_fee_vat",
+        "platform_fee_vat_rate",
+        "created_at",
+        "updated_at",
+    ]
     date_hierarchy = "created_at"
     ordering = ["-created_at"]
+
+    fieldsets = [
+        (None, {"fields": ["id", "user", "ticket", "status", "stripe_session_id"]}),
+        ("Amounts", {"fields": ["amount", "currency", "net_amount", "vat_amount", "vat_rate"]}),
+        (
+            "Platform Fee",
+            {"fields": ["platform_fee", "platform_fee_net", "platform_fee_vat", "platform_fee_vat_rate"]},
+        ),
+        ("Stripe", {"fields": ["raw_response"]}),
+        ("Dates", {"fields": ["expires_at", "created_at", "updated_at"]}),
+    ]
 
     @admin.display(description="ID")
     def id_short(self, obj: models.Payment) -> str:
@@ -112,6 +138,25 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
         }
         color = colors.get(obj.status, "gray")
         return mark_safe(f'<span style="color: {color};">{obj.get_status_display()}</span>')
+
+    @admin.display(description="VAT")
+    def vat_display(self, obj: models.Payment) -> str:
+        if obj.vat_amount is not None:
+            return f"{obj.vat_amount} ({obj.vat_rate}%)"
+        return "—"
+
+    @admin.display(description="P. Fee")
+    def platform_fee_display(self, obj: models.Payment) -> str:
+        if obj.platform_fee_reverse_charge:
+            return f"{obj.platform_fee} (RC)"
+        if obj.platform_fee_net is not None:
+            parts = [f"{obj.platform_fee}"]
+            if obj.platform_fee_vat:
+                parts.append(f"VAT {obj.platform_fee_vat}")
+            return " / ".join(parts)
+        if obj.platform_fee:
+            return str(obj.platform_fee)
+        return "—"
 
     @admin.display(description="Stripe Session")
     def stripe_session_id_short(self, obj: models.Payment) -> str:

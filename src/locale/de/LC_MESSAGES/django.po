@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-02-28 00:24+0100\n"
+"POT-Creation-Date: 2026-03-11 09:29+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -122,6 +122,11 @@ msgstr "Anmeldung über SSO."
 
 msgid "Invalid OTP."
 msgstr "Ungültiges OTP."
+
+#, fuzzy
+#| msgid "Registration is not available."
+msgid "Google SSO is not available."
+msgstr "Die Registrierung ist nicht verfügbar."
 
 #, fuzzy
 #| msgid "You already have a ticket."
@@ -715,6 +720,15 @@ msgstr "Einladung nicht gefunden."
 msgid "You must connect to Stripe first."
 msgstr "Du musst dich zuerst mit Stripe verbinden."
 
+msgid ""
+"Billing information is required for online ticket sales with platform fees. "
+"Please set your country and billing address in your organization's billing "
+"settings."
+msgstr ""
+"Rechnungsinformationen sind für den Online-Ticketverkauf mit Plattformgebühren "
+"erforderlich. Bitte lege dein Land und deine Rechnungsadresse in den "
+"Rechnungseinstellungen deiner Organisation fest."
+
 msgid "Ticket already cancelled"
 msgstr "Ticket bereits storniert"
 
@@ -789,6 +803,30 @@ msgid "Only the organization owner can manage staff-granting tokens."
 msgstr ""
 "Nur der/die Organisationsinhaber:in kann Token verwalten, die "
 "Mitarbeiterstatus gewähren."
+
+msgid "At least one of grants_membership or grants_staff_status must be True."
+msgstr ""
+"Mindestens eines von grants_membership oder grants_staff_status muss True sein."
+
+#, python-format
+msgid "Country code must match the VAT ID prefix (%(prefix)s)."
+msgstr "Der Ländercode muss mit dem USt-IdNr.-Präfix übereinstimmen (%(prefix)s)."
+
+msgid "The VAT ID is not valid according to VIES."
+msgstr "Die USt-IdNr. ist laut VIES nicht gültig."
+
+msgid ""
+"VIES validation service is temporarily unavailable. The VAT ID has been "
+"saved and will be validated automatically."
+msgstr ""
+"Der VIES-Validierungsdienst ist vorübergehend nicht verfügbar. "
+"Die USt-IdNr. wurde gespeichert und wird automatisch validiert."
+
+msgid "Invoice PDF not yet generated."
+msgstr "Das Rechnungs-PDF wurde noch nicht erstellt."
+
+msgid "Cannot filter by both event_id and event_series_id."
+msgstr "Es kann nicht gleichzeitig nach event_id und event_series_id gefiltert werden."
 
 msgid "One or more events do not exist or belong to this organization."
 msgstr ""
@@ -912,6 +950,54 @@ msgstr "Ein:e Nutzer:in mit dieser E-Mail existiert bereits."
 msgid "User not found."
 msgstr "Zahlungsinformationen"
 
+#, fuzzy
+#| msgid "One or more events do not exist or belong to this organization."
+msgid ""
+"One or more referenced objects are invalid or do not belong to this "
+"organization."
+msgstr ""
+"Ein oder mehrere Events existieren nicht oder gehören nicht zu dieser "
+"Organisation."
+
+msgid "This discount code is not valid for this ticket tier."
+msgstr ""
+
+#, fuzzy
+#| msgid "Invalid token type."
+msgid "Invalid discount code."
+msgstr "Ungültiger Token-Typ."
+
+msgid "This discount code is not yet active."
+msgstr ""
+
+#, fuzzy
+#| msgid "Token has expired."
+msgid "This discount code has expired."
+msgstr "Der Token ist abgelaufen."
+
+msgid "This discount code has reached its usage limit."
+msgstr ""
+
+msgid "Discount codes cannot be applied to free tickets."
+msgstr ""
+
+#, fuzzy
+#| msgid "This endpoint is only for pay-what-you-can tickets"
+msgid "Discount codes cannot be applied to pay-what-you-can tickets."
+msgstr "Dieser Endpunkt ist nur für \"Zahl-was-du-kannst\"-Tickets"
+
+msgid "This discount code is not valid for this currency."
+msgstr ""
+
+#, python-brace-format
+msgid "Minimum purchase amount of {amount} required to use this discount code."
+msgstr ""
+
+#, fuzzy
+#| msgid "You have created too many items."
+msgid "You have already used this discount code the maximum number of times."
+msgstr "Du hast zu viele Elemente erstellt."
+
 msgid "Only members are allowed."
 msgstr "Nur Mitglieder dürfen teilnehmen."
 
@@ -1014,9 +1100,6 @@ msgstr ""
 msgid "You can retry after %(retry_on)s."
 msgstr ""
 
-msgid "Cannot filter by both event_id and event_series_id."
-msgstr ""
-
 msgid "Feedback questionnaire is only available after the event ends."
 msgstr ""
 
@@ -1087,6 +1170,11 @@ msgstr ""
 
 msgid "The organization does not accept new members."
 msgstr "Die Organisation akzeptiert keine neuen Mitglieder."
+
+#, fuzzy
+#| msgid "You are already a member of this organization."
+msgid "You are not allowed to request membership for this organization."
+msgstr "Du bist bereits Mitglied dieser Organisation."
 
 msgid "User is already a member of this organization."
 msgstr "Nutzer:in ist bereits Mitglied dieser Organisation."
@@ -1252,6 +1340,18 @@ msgstr ""
 #| msgid "Ticket Update: %(event_name)s"
 msgid "Confirm your ticket for %(event_name)s"
 msgstr "Ticket-Update: %(event_name)s"
+
+#, python-format
+msgid "Platform fee invoice %(invoice_number)s"
+msgstr "Plattformgebühren-Rechnung %(invoice_number)s"
+
+#, python-format
+msgid ""
+"Please find attached the platform fee invoice %(invoice_number)s for the "
+"period %(period_start)s to %(period_end)s."
+msgstr ""
+"Anbei die Plattformgebühren-Rechnung %(invoice_number)s für den Zeitraum "
+"%(period_start)s bis %(period_end)s."
 
 #, python-format
 msgid "Verify contact email for %(organization_name)s"

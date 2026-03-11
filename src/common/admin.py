@@ -46,6 +46,19 @@ class SiteSettingsAdmin(ModelAdmin):  # type: ignore[misc]
         ("Data Management", {"fields": ("data_retention_days",)}),
         ("URLs & Emails", {"fields": ("frontend_base_url", "internal_catchall_email")}),
         (
+            "Platform Billing",
+            {
+                "fields": (
+                    "platform_business_name",
+                    "platform_business_address",
+                    "platform_vat_id",
+                    "platform_vat_country",
+                    "platform_vat_rate",
+                    "platform_invoice_bcc_email",
+                ),
+            },
+        ),
+        (
             "Maintenance Banner",
             {
                 "fields": (

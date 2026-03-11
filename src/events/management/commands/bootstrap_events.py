@@ -13,11 +13,14 @@ from django.core.management.base import BaseCommand
 
 from .bootstrap_helpers import (
     BootstrapState,
+    configure_organization_billing,
+    configure_platform_billing,
     create_dietary_data,
     create_event_series,
     create_events,
     create_follows,
     create_organizations,
+    create_payments_and_invoice,
     create_potluck_items,
     create_questionnaires,
     create_tags,
@@ -84,5 +87,14 @@ class Command(BaseCommand):
 
         # Create questionnaires
         create_questionnaires(state)
+
+        # Configure platform billing (SiteSettings)
+        configure_platform_billing()
+
+        # Configure organization billing (VAT IDs, billing addresses)
+        configure_organization_billing(state)
+
+        # Create payments and generate a sample invoice with PDF
+        create_payments_and_invoice(state)
 
         logger.info("Bootstrap complete! See README.md in this directory for details.")

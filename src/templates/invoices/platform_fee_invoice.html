@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+{% load invoice_filters %}
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Invoice {{ invoice_number }}</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 0;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 10pt;
+      color: #1a1a2e;
+      line-height: 1.5;
+      padding: 50px 60px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 50px;
+    }
+
+    .supplier-info {
+      flex: 1;
+    }
+
+    .supplier-name {
+      font-size: 14pt;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-bottom: 6px;
+    }
+
+    .supplier-details {
+      font-size: 9pt;
+      color: #555;
+      line-height: 1.6;
+    }
+
+    .invoice-badge {
+      text-align: right;
+    }
+
+    .invoice-title {
+      font-size: 28pt;
+      font-weight: 800;
+      color: #1a1a2e;
+      letter-spacing: 2px;
+      margin-bottom: 12px;
+    }
+
+    .invoice-meta {
+      font-size: 9pt;
+      color: #555;
+      line-height: 1.8;
+    }
+
+    .invoice-meta strong {
+      color: #1a1a2e;
+      display: inline-block;
+      width: 100px;
+      text-align: right;
+      margin-right: 10px;
+    }
+
+    .divider {
+      border: none;
+      border-top: 2px solid #1a1a2e;
+      margin: 0 0 40px 0;
+    }
+
+    .bill-to-section {
+      margin-bottom: 40px;
+    }
+
+    .bill-to-label {
+      font-size: 8pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #888;
+      margin-bottom: 8px;
+    }
+
+    .bill-to-name {
+      font-size: 12pt;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-bottom: 4px;
+    }
+
+    .bill-to-details {
+      font-size: 9pt;
+      color: #555;
+      line-height: 1.6;
+    }
+
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 30px;
+    }
+
+    .items-table thead th {
+      font-size: 8pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #888;
+      padding: 10px 0;
+      border-bottom: 2px solid #1a1a2e;
+      text-align: left;
+    }
+
+    .items-table thead th:nth-child(2),
+    .items-table thead th:nth-child(3) {
+      text-align: right;
+    }
+
+    .items-table tbody td {
+      padding: 14px 0;
+      border-bottom: 1px solid #eee;
+      font-size: 10pt;
+    }
+
+    .items-table tbody td:nth-child(2),
+    .items-table tbody td:nth-child(3) {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .totals {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 50px;
+    }
+
+    .totals-box {
+      width: 280px;
+    }
+
+    .totals-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 10pt;
+    }
+
+    .totals-row.subtotal {
+      color: #555;
+    }
+
+    .totals-row.vat {
+      color: #555;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .totals-row.total {
+      padding-top: 10px;
+      font-size: 14pt;
+      font-weight: 800;
+      color: #1a1a2e;
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding-top: 30px;
+      border-top: 2px solid #1a1a2e;
+    }
+
+    .notes {
+      flex: 1;
+    }
+
+    .footer-label {
+      font-size: 8pt;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #888;
+      margin-bottom: 8px;
+    }
+
+    .notes-text {
+      font-size: 8.5pt;
+      color: #777;
+      line-height: 1.6;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="supplier-info">
+      <div class="supplier-name">{{ platform_business_name }}</div>
+      <div class="supplier-details">
+        {{ platform_business_address }}<br>
+        VAT: {{ platform_vat_id }}
+      </div>
+    </div>
+    <div class="invoice-badge">
+      <div class="invoice-title">INVOICE</div>
+      <div class="invoice-meta">
+        <strong>Number</strong> {{ invoice_number }}<br>
+        <strong>Date</strong> {{ issued_date }}<br>
+        <strong>Period</strong> {{ period_start }} &mdash; {{ period_end }}<br>
+        <strong>Currency</strong> {{ currency }}
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="bill-to-section">
+    <div class="bill-to-label">Bill To</div>
+    <div class="bill-to-name">{{ org_name }}</div>
+    <div class="bill-to-details">
+      {% if org_address %}{{ org_address }}<br>{% endif %}
+      {% if org_vat_id %}VAT: {{ org_vat_id }}{% endif %}
+    </div>
+  </div>
+
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th>Description</th>
+        <th>Tickets</th>
+        <th>Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Platform fees for ticket sales &mdash; {{ period_label }}</td>
+        <td>{{ total_tickets }}</td>
+        <td>{{ fee_net|format_currency:currency }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <div class="totals-box">
+      <div class="totals-row subtotal">
+        <span>Subtotal</span>
+        <span>{{ fee_net|format_currency:currency }}</span>
+      </div>
+      {% if reverse_charge %}
+      <div class="totals-row vat">
+        <span>VAT</span>
+        <span>Reverse Charge</span>
+      </div>
+      {% else %}
+      <div class="totals-row vat">
+        <span>VAT ({{ fee_vat_rate }}%)</span>
+        <span>{{ fee_vat|format_currency:currency }}</span>
+      </div>
+      {% endif %}
+      <div class="totals-row total">
+        <span>Total</span>
+        <span>{{ fee_gross|format_currency:currency }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="notes">
+      {% if reverse_charge %}
+      <div class="footer-label">Tax Notice</div>
+      <div class="notes-text">
+        Reverse charge: VAT to be accounted for<br>
+        by the recipient of the service.<br>
+        Tax liability transfers to the recipient.
+      </div>
+      {% endif %}
+      <div class="footer-label" {% if reverse_charge %}style="margin-top: 12px;"{% endif %}>Period Summary</div>
+      <div class="notes-text">
+        Total ticket revenue: {{ total_ticket_revenue|format_currency:currency }}<br>
+        Tickets sold: {{ total_tickets }}
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

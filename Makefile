@@ -22,7 +22,12 @@ mypy:
 
 .PHONY: test
 test:
-	uv run pytest -n auto --cov=src --cov-report=term --cov-report=html --cov-branch -v src/ && uv run coverage html --skip-covered
+	@uv run pytest -n auto --cov=src --cov-report=term --cov-report=html --cov-branch -v src/ 2>&1 | tee .tests.output.full; \
+	exit_code=$${PIPESTATUS[0]}; \
+	if [ $$exit_code -eq 0 ]; then uv run coverage html --skip-covered; rm -f .tests.output.full .tests.output; \
+	else sed -n '/^=* FAILURES =*$$/,$$p' .tests.output.full > .tests.output; rm -f .tests.output.full; \
+	echo "\nTest failures saved to .tests.output"; fi; \
+	exit $$exit_code
 
 .PHONY: test-linear
 test-linear:

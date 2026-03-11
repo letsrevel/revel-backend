@@ -183,6 +183,53 @@ class Organization(
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="The fixed platform fee for this organization.",
     )
+    # VAT / billing information
+    vat_id = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="EU VAT identification number including country prefix (e.g., IT12345678901).",
+    )
+    vat_country_code = models.CharField(
+        max_length=2,
+        blank=True,
+        default="",
+        help_text="ISO 3166-1 alpha-2 country code for VAT purposes.",
+    )
+    vat_rate = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Default VAT rate for ticket sales (e.g., 22.00 for 22%).",
+    )
+    vat_id_validated = models.BooleanField(
+        default=False,
+        help_text="Whether the VAT ID has been validated via VIES.",
+    )
+    vat_id_validated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the VAT ID was last validated via VIES.",
+    )
+    vies_request_identifier = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="VIES request identifier from the last validation (compliance audit trail).",
+    )
+    billing_address = models.TextField(
+        blank=True,
+        default="",
+        help_text="Organization billing address for invoicing.",
+    )
+    billing_email = models.EmailField(
+        blank=True,
+        default="",
+        help_text="Email address for invoice delivery. Falls back to contact_email if empty.",
+    )
+
     stripe_account_email = models.EmailField(null=True, blank=True, db_index=True)
     stripe_account_id = models.CharField(
         max_length=255,
