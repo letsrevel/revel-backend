@@ -17,28 +17,32 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1 style="margin:0;font-size:28px;">🎉 {% blocktranslate with event=context.event_name %}You're invited to {{ event }}{% endblocktranslate %}</h1>
+            <h1 style="margin:0;font-size:28px;">🎉 {% blocktranslate with event=event_name %}You're invited to {{ event }}{% endblocktranslate %}</h1>
         </div>
         <div class="content">
-            <p>{%trans "Hello"%} {{user.display_name}},</p>
-            {% if context.invitation_message %}
+            <p>{%trans "Hello"%},</p>
+            {% if invitation_message %}
             <div class="card">
-                <p style="white-space:pre-line;">{{ context.invitation_message }}</p>
+                <p style="white-space:pre-line;">{{ invitation_message }}</p>
             </div>
             {% endif %}
-            {% if context.event_start_formatted or context.event_location %}
+            {% if event_start_formatted or event_location %}
             <div class="card">
                 <h3 style="margin-top:0;color:#2196F3;">{%trans "Event Details"%}</h3>
-                {% if context.event_start_formatted %}<div class="info-row">📅 {{ context.event_start_formatted }}</div>{% endif %}
-                {% if context.event_end_formatted %}<div class="info-row">{%trans "Until:"%} {{ context.event_end_formatted }}</div>{% endif %}
-                {% if context.event_location %}<div class="info-row">📍 {{ context.event_location }}</div>{% endif %}
+                {% if event_start_formatted %}<div class="info-row">📅 {{ event_start_formatted }}</div>{% endif %}
+                {% if event_end_formatted %}<div class="info-row">{%trans "Until:"%} {{ event_end_formatted }}</div>{% endif %}
+                {% if event_location %}<div class="info-row">📍 {{ event_location }}</div>{% endif %}
             </div>
             {% endif %}
+            <p>{%trans "Sign up to accept this invitation and join the event:"%}</p>
             <center>
-                <a href="{{context.event_url}}" class="button">{%trans "View Details"%}</a>
+                <a href="{{ signup_url }}" class="button">{%trans "Sign Up & Accept"%}</a>
             </center>
         </div>
-        {%include "notifications/email/_footer.html"%}
+        <div class="footer">
+            <hr style="border:none;border-top:1px solid #ddd;margin:10px 0;">
+            <p style="font-size:12px;color:#999;">{%trans "You received this email because you were invited to an event on Revel."%}</p>
+        </div>
     </div>
 </body>
 </html>

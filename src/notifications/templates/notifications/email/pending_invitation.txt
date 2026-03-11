@@ -1,0 +1,11 @@
+{%load i18n %}{%trans "Hello"%},
+
+🎉 {% blocktranslate with event=event_name %}You're invited to {{ event }}{% endblocktranslate %}
+
+{% if invitation_message %}{{ invitation_message }}
+
+{% endif %}{% if event_start_formatted %}📅 {{ event_start_formatted }}
+{% endif %}{% if event_end_formatted %}{%trans "Until:"%} {{ event_end_formatted }}
+{% endif %}{% if event_location %}📍 {{ event_location }}
+{% endif %}
+{%trans "Sign up to accept this invitation:" %} {{ signup_url }}

@@ -29,6 +29,7 @@ from events.service.follow_service import get_followers_for_new_event_notificati
 from events.service.potluck_service import unclaim_user_potluck_items
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
 from events.tasks import build_attendee_visibility_flags
+from events.utils import get_invitation_message
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
@@ -85,6 +86,12 @@ def handle_user_creation(sender: type[RevelUser], instance: RevelUser, created: 
 
         with transaction.atomic():
             for pending in pending_invitations:
+                # Re-render the invitation message with the actual user display name
+                # if the pending invitation had one (replacing the email-based version)
+                custom_message = pending.custom_message
+                if not custom_message:
+                    custom_message = get_invitation_message(instance.get_display_name(), pending.event)
+
                 # Create EventInvitation from PendingEventInvitation
                 EventInvitation.objects.create(
                     event=pending.event,
@@ -95,7 +102,7 @@ def handle_user_creation(sender: type[RevelUser], instance: RevelUser, created: 
                     waives_membership_required=pending.waives_membership_required,
                     waives_rsvp_deadline=pending.waives_rsvp_deadline,
                     waives_apply_deadline=pending.waives_apply_deadline,
-                    custom_message=pending.custom_message,
+                    custom_message=custom_message,
                     tier=pending.tier,
                 )
             pending_invitations.delete()

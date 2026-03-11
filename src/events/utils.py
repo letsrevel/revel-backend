@@ -9,7 +9,6 @@ import structlog
 from django.template.loader import render_to_string
 from weasyprint import HTML
 
-from accounts.models import RevelUser
 from events import models
 
 from .models import Ticket
@@ -32,7 +31,7 @@ class _SafeAccessStr(str):
         return _SafeAccessStr()
 
 
-def get_invitation_message(user: RevelUser, event: models.Event) -> str:
+def get_invitation_message(display_name: str, event: models.Event) -> str:
     """Get invitation message.
 
     If the event has a custom invitation message, render it using safe string
@@ -44,10 +43,14 @@ def get_invitation_message(user: RevelUser, event: models.Event) -> str:
     empty string and never leak sensitive data.
 
     Otherwise, use the default template.
+
+    Args:
+        display_name: The recipient's display name (user display name or email for pending invitations).
+        event: The event the invitation is for.
     """
     if event.invitation_message:
         safe_context: dict[str, _SafeAccessStr] = {
-            "user_name": _SafeAccessStr(user.get_display_name()),
+            "user_name": _SafeAccessStr(display_name),
             "event_name": _SafeAccessStr(event.name),
             "organization_name": _SafeAccessStr(event.organization.name),
             "event_date": _SafeAccessStr(event.start.strftime("%B %d, %Y") if event.start else ""),
@@ -58,7 +61,7 @@ def get_invitation_message(user: RevelUser, event: models.Event) -> str:
             logger.warning("invitation_message_format_error", event_id=str(event.id))
             return event.invitation_message
 
-    context = {"user": user, "event": event}
+    context = {"display_name": display_name, "event": event}
     return render_to_string("events/default_invitation_message.txt", context=context)
 
 

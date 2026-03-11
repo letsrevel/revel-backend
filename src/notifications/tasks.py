@@ -434,3 +434,59 @@ def send_event_reminders() -> dict[str, t.Any]:
 
     service = EventReminderService()
     return service.send_all_reminders()
+
+
+@shared_task
+def send_pending_invitation_email(pending_invitation_id: str) -> None:
+    """Send an invitation email to a non-registered user.
+
+    Since the recipient has no account, this bypasses the notification system
+    and sends a direct email with event details and a signup link.
+    """
+    from django.template.loader import render_to_string
+    from django.utils.translation import gettext as _
+
+    from common.models import SiteSettings
+    from common.tasks import send_email
+    from events.models import PendingEventInvitation
+    from notifications.service.notification_helpers import format_event_datetime
+
+    try:
+        pending = PendingEventInvitation.objects.select_related("event", "event__organization", "event__city").get(
+            pk=pending_invitation_id
+        )
+    except PendingEventInvitation.DoesNotExist:
+        logger.warning("pending_invitation_not_found", pending_invitation_id=pending_invitation_id)
+        return
+
+    event = pending.event
+    site_settings = SiteSettings.get_solo()
+    frontend_base_url = site_settings.frontend_base_url
+
+    context = {
+        "event_name": event.name,
+        "invitation_message": pending.custom_message or "",
+        "event_start_formatted": format_event_datetime(event.start, event),
+        "event_end_formatted": format_event_datetime(event.end, event),
+        "event_location": event.full_address(),
+        "organization_name": event.organization.name,
+        "signup_url": f"{frontend_base_url}/auth/register",
+    }
+
+    subject = _("You're invited: %(event_name)s") % {"event_name": event.name}
+    txt_body = render_to_string("notifications/email/pending_invitation.txt", context)
+    html_body = render_to_string("notifications/email/pending_invitation.html", context)
+
+    send_email(
+        to=pending.email,
+        subject=subject,
+        body=txt_body,
+        html_body=html_body,
+    )
+
+    logger.info(
+        "pending_invitation_email_sent",
+        pending_invitation_id=pending_invitation_id,
+        email=pending.email,
+        event_id=str(event.id),
+    )

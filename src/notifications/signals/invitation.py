@@ -8,7 +8,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from common.models import SiteSettings
-from events.models import EventInvitation, EventInvitationRequest
+from events.models import EventInvitation, EventInvitationRequest, PendingEventInvitation
 from events.tasks import build_attendee_visibility_flags
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
@@ -45,13 +45,12 @@ def handle_invitation_save(
                 "invitation_id": str(instance.id),
                 "event_id": str(event.id),
                 "event_name": event.name,
-                "event_description": event.description or "",
+                "invitation_message": instance.custom_message or "",
                 "event_start": event.start.isoformat() if event.start else "",
                 "event_end": event.end.isoformat() if event.end else "",
                 "event_location": event_location,
                 "organization_id": str(event.organization.id),
                 "organization_name": event.organization.name,
-                "personal_message": instance.custom_message or "",
                 "rsvp_required": not event.requires_ticket,
                 "tickets_required": event.requires_ticket,
                 "frontend_url": frontend_url,
@@ -59,6 +58,22 @@ def handle_invitation_save(
         )
 
     transaction.on_commit(send_invitation_notification)
+
+
+@receiver(post_save, sender=PendingEventInvitation)
+def handle_pending_invitation_save(
+    sender: type[PendingEventInvitation], instance: PendingEventInvitation, created: bool, **kwargs: t.Any
+) -> None:
+    """Send invitation email to non-registered users when a pending invitation is created."""
+    if not created:
+        return
+
+    def send_pending_email() -> None:
+        from notifications.tasks import send_pending_invitation_email
+
+        send_pending_invitation_email.delay(str(instance.id))
+
+    transaction.on_commit(send_pending_email)
 
 
 @receiver(post_save, sender=EventInvitationRequest)
