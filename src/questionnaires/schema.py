@@ -210,7 +210,7 @@ class MultipleChoiceSubmissionSchema(Schema):
 
 class FreeTextSubmissionSchema(Schema):
     question_id: UUID
-    answer: str = Field(..., min_length=1, max_length=500)
+    answer: str = Field(..., min_length=1, max_length=1000)
 
 
 class FileUploadSubmissionSchema(Schema):

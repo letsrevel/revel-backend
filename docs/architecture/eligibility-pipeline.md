@@ -203,8 +203,8 @@ If any fields are missing, returns `allowed=False` with `next_step=COMPLETE_PROF
 Checks whether the user has submitted and passed all required admission questionnaires linked to the event's organization. This gate performs three sub-checks in order:
 
 1. **Missing questionnaires**: User has not submitted a required questionnaire, or their approved submission has expired (`max_submission_age`). Returns `next_step=COMPLETE_QUESTIONNAIRE` with `questionnaires_missing` list.
-2. **Pending review**: Submission exists but evaluation is `PENDING_REVIEW` or not yet created. Returns `next_step=WAIT_FOR_QUESTIONNAIRE_EVALUATION` with `questionnaires_pending_review` list.
-3. **Failed questionnaires**: Evaluation was `REJECTED`:
+2. **Pending review**: Submission exists but evaluation is `PENDING_REVIEW` or not yet created. Returns `next_step=WAIT_FOR_QUESTIONNAIRE_EVALUATION` with `questionnaires_pending_review` list. **Skipped for questionnaires with `requires_evaluation=False`.**
+3. **Failed questionnaires**: Evaluation was `REJECTED`. **Skipped for questionnaires with `requires_evaluation=False`.**
     - If max attempts exceeded, returns `questionnaires_failed` list with no `next_step`.
     - If retake is allowed and cooldown has passed, adds to `questionnaires_missing` for resubmission.
     - If retake is allowed but cooldown has not passed, returns `next_step=WAIT_TO_RETAKE_QUESTIONNAIRE` with `retry_on` datetime.
@@ -214,6 +214,7 @@ Checks whether the user has submitted and passed all required admission question
 - **Global questionnaires**: Submission is shared across all events.
 - **Per-event questionnaires** (`per_event=True`): Submission is scoped to the specific event.
 - **Member exemptions** (`members_exempt=True`): Active members skip the questionnaire.
+- **No evaluation required** (`requires_evaluation=False`): Only submission existence is checked — pending review and failed checks are skipped entirely. See [Questionnaires: Information-Gathering Mode](questionnaires.md#information-gathering-mode-requires_evaluation).
 
 !!! info "Invitation waiver: `waives_questionnaire`"
     This gate **can be waived** by an `EventInvitation` with `waives_questionnaire=True`. All questionnaire requirements are bypassed.

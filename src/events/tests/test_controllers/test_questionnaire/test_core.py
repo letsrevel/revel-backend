@@ -58,6 +58,7 @@ def test_create_org_questionnaire_with_custom_fields(
         evaluation_mode=Questionnaire.QuestionnaireEvaluationMode.MANUAL,
         questionnaire_type=OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
         max_submission_age=timedelta(hours=2, minutes=30),  # 2.5 hours
+        requires_evaluation=False,
     )
     response = organization_owner_client.post(
         reverse("api:create_questionnaire", kwargs={"organization_id": organization.id}),
@@ -404,6 +405,7 @@ def test_update_org_questionnaire_success(organization: Organization, organizati
     payload = {
         "max_submission_age": 3600,
         "questionnaire_type": OrganizationQuestionnaire.QuestionnaireType.FEEDBACK,
+        "requires_evaluation": False,
     }  # 1 hour
 
     url = reverse("api:update_org_questionnaire", kwargs={"org_questionnaire_id": org_questionnaire.id})

@@ -85,6 +85,11 @@ class OrganizationQuestionnaire(TimeStampedModel):
         default=False,
         help_text="When True, users must complete the questionnaire separately for each event.",
     )
+    requires_evaluation = models.BooleanField(
+        default=True,
+        help_text="When False, submissions are not evaluated (no LLM, no manual review). "
+        "Used for information-gathering questionnaires that gate access without judgment.",
+    )
 
     objects = OrganizationQuestionnaireManager()
 

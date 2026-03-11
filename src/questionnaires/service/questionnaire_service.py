@@ -464,6 +464,7 @@ class QuestionnaireService:
                 "questionnaire_type",
                 "members_exempt",
                 "per_event",
+                "requires_evaluation",
                 "can_retake_after",  # Exclude because serializer converts timedelta to int
             }
         )
