@@ -1,4 +1,4 @@
-Hello {{ user.get_short_name|default:user.username }}!
+Hello {{ display_name }}!
 
 You have been invited to {{ event.name }}!
 

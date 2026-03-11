@@ -281,13 +281,12 @@ class InvitationReceivedContext(BaseNotificationContext):
     invitation_id: str
     event_id: str
     event_name: str
-    event_description: str
+    invitation_message: str
     event_start: str
     event_end: str
     event_location: str
     organization_id: str
     organization_name: str
-    personal_message: t.NotRequired[str]
     rsvp_required: bool
     tickets_required: bool
 

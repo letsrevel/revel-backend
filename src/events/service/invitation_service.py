@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, PendingEventInvitation, TicketTier
 from events.schema import DirectInvitationCreateSchema
+from events.utils import get_invitation_message
 
 
 @transaction.atomic
@@ -35,10 +36,13 @@ def create_direct_invitations(
 
         if user := RevelUser.objects.filter(email=email).first():
             # User exists - create EventInvitation
-            if _create_or_update_event_invitation(event, user, invitation_fields):
+            fields = _with_default_message(invitation_fields, user.get_display_name(), event)
+            if _create_or_update_event_invitation(event, user, fields):
                 created_invitations += 1
-        elif _create_or_update_pending_invitation(event, email, invitation_fields):
-            pending_invitations += 1
+        else:
+            fields = _with_default_message(invitation_fields, email, event)
+            if _create_or_update_pending_invitation(event, email, fields):
+                pending_invitations += 1
 
     # Note: Notifications are sent automatically via Django signals
     # (see notifications/signals/invitation.py)
@@ -48,6 +52,13 @@ def create_direct_invitations(
         "pending_invitations": pending_invitations,
         "total_invited": created_invitations + pending_invitations,
     }
+
+
+def _with_default_message(invitation_fields: dict[str, t.Any], display_name: str, event: Event) -> dict[str, t.Any]:
+    """Return a copy of invitation_fields with custom_message filled from the event default if empty."""
+    if invitation_fields.get("custom_message"):
+        return invitation_fields
+    return {**invitation_fields, "custom_message": get_invitation_message(display_name, event)}
 
 
 def _get_invitation_fields(invitation_data: DirectInvitationCreateSchema, tier: TicketTier | None) -> dict[str, t.Any]:

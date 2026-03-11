@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, EventToken
+from events.utils import get_invitation_message
 
 
 def create_event_token(
@@ -94,13 +95,16 @@ def claim_invitation(user: RevelUser, token: str) -> EventInvitation | None:
         return None
     # Warning: do not save the event_token object directly here.
     # Use update() after get_or_create to avoid race conditions.
+    defaults = {
+        "tier_id": event_token.ticket_tier_id,
+        **(event_token.invitation_payload or {}),
+    }
+    if not defaults.get("custom_message"):
+        defaults["custom_message"] = get_invitation_message(user.get_display_name(), event_token.event)
     invitation, created = EventInvitation.objects.get_or_create(
         event=event_token.event,
         user=user,
-        defaults={
-            "tier_id": event_token.ticket_tier_id,
-            **(event_token.invitation_payload or {}),
-        },
+        defaults=defaults,
     )
     if created:
         EventToken.objects.filter(pk=event_token.pk).update(uses=F("uses") + 1)
