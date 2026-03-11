@@ -153,10 +153,10 @@ def test_get_organization_token_returns_404_for_invalid_token(client: Client) ->
 # --- Tests for ticket_tier_id validation ---
 
 
-def test_create_event_token_requires_ticket_tier_for_ticketed_events(
+def test_create_event_token_succeeds_without_ticket_tier_for_ticketed_events(
     organization_owner_client: Client, event: Event, vip_tier: TicketTier
 ) -> None:
-    """Test that ticket_tier_id is required when event.requires_ticket is True."""
+    """Test that ticket_tier_id is optional even when event.requires_ticket is True."""
     # Arrange - event fixture has requires_ticket=True by default
     url = reverse("api:create_event_token", kwargs={"event_id": event.pk})
     payload = {"name": "Test Token", "max_uses": 10, "duration": 60}
@@ -165,8 +165,10 @@ def test_create_event_token_requires_ticket_tier_for_ticketed_events(
     response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
     # Assert
-    assert response.status_code == 400
-    assert b"ticket_tier_id is required" in response.content
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "Test Token"
+    assert data["ticket_tier"] is None
 
 
 def test_create_event_token_succeeds_with_ticket_tier_for_ticketed_events(

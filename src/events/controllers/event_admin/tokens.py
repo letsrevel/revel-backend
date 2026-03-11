@@ -2,9 +2,7 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
-from django.utils.translation import gettext_lazy as _
 from ninja import Query
-from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
@@ -52,7 +50,7 @@ class EventAdminTokensController(EventAdminBaseController):
         - `name`: Optional display name to help you identify this token (e.g., "Alumni Link", "Early Bird")
         - `max_uses`: Maximum number of times this token can be claimed (0 = unlimited)
         - `expires_at`: When the token becomes invalid (users can't claim after this time)
-        - `ticket_tier_id`: Which ticket tier to assign when users claim (required for ticketed events)
+        - `ticket_tier_id`: Optional ticket tier to assign when users claim
         - `invitation`: Custom invitation metadata like welcome messages, special flags, etc.
 
         **Business Logic:**
@@ -210,7 +208,7 @@ class EventAdminTokensController(EventAdminBaseController):
         - `name`: Display name for organization (e.g., "Instagram Followers", "Alumni Network")
         - `duration`: Minutes until expiration (default: 24*60 = 1 day)
         - `max_uses`: Maximum claims allowed (default: 1, use 0 for unlimited)
-        - `ticket_tier_id`: Ticket tier to auto-assign (required for ticketed events, optional otherwise)
+        - `ticket_tier_id`: Optional ticket tier to auto-assign when users claim this token
         - `invitation`: Optional custom metadata:
           - `custom_message`: Personalized welcome text
           - Additional fields that your EventInvitation model supports
@@ -222,7 +220,6 @@ class EventAdminTokensController(EventAdminBaseController):
         - Token issuer is automatically set to the current authenticated user
         - Expiration is calculated from current time + duration
         - If ticket_tier_id provided, validates it belongs to this event
-        - For ticketed events, ticket_tier_id is REQUIRED
         - Token ID is a secure random 8-character alphanumeric code
         - Created tokens start with 0 uses
 
@@ -249,14 +246,10 @@ class EventAdminTokensController(EventAdminBaseController):
         5. After 100 claims or 7 days, token becomes inactive
 
         **Error Cases:**
-        - 400: ticket_tier_id missing for ticketed event, or tier doesn't belong to this event
+        - 404: event_id not found, user lacks access, or tier doesn't belong to this event
         - 403: User lacks "invite_to_event" permission
-        - 404: event_id not found or user lacks access
         """
         event = self.get_one(event_id)
-        # Validate ticket_tier_id is required for ticketed events
-        if event.requires_ticket and not payload.ticket_tier_id:
-            raise HttpError(400, str(_("ticket_tier_id is required for events that require tickets.")))
         if payload.ticket_tier_id:
             get_object_or_404(models.TicketTier, pk=payload.ticket_tier_id, event=event)
         return event_service.create_event_token(event=event, issuer=self.user(), **payload.model_dump())
