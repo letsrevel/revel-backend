@@ -175,7 +175,7 @@ class TestUpdateTierBillingRequired:
         _make_stripe_connected(organization)
 
         url = reverse("api:update_ticket_tier", kwargs={"event_id": event.pk, "tier_id": event_ticket_tier.pk})
-        payload = {"payment_method": "online"}
+        payload = {"payment_method": "online", "price": "25.00"}
 
         response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
@@ -194,7 +194,7 @@ class TestUpdateTierBillingRequired:
         _set_billing_info(organization)
 
         url = reverse("api:update_ticket_tier", kwargs={"event_id": event.pk, "tier_id": event_ticket_tier.pk})
-        payload = {"payment_method": "online"}
+        payload = {"payment_method": "online", "price": "25.00"}
 
         response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
@@ -245,7 +245,7 @@ class TestUpdateTierBillingRequired:
         organization.save(update_fields=["platform_fee_percent", "platform_fee_fixed"])
 
         url = reverse("api:update_ticket_tier", kwargs={"event_id": event.pk, "tier_id": event_ticket_tier.pk})
-        payload = {"payment_method": "online"}
+        payload = {"payment_method": "online", "price": "25.00"}
 
         response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
