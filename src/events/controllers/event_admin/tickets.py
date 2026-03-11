@@ -22,6 +22,34 @@ from .base import EventAdminBaseController
 
 if t.TYPE_CHECKING:
     from common.models import FileExport
+    from events.models import Organization
+
+
+def _check_online_tier_prerequisites(org: "Organization", payment_method: str) -> None:
+    """Validate prerequisites for creating/updating an online-payment ticket tier.
+
+    Raises HttpError 400 if:
+    - Stripe is not connected
+    - Platform fees are non-zero but billing info is incomplete
+    """
+    if payment_method != models.TicketTier.PaymentMethod.ONLINE:
+        return
+
+    if not org.is_stripe_connected:
+        raise HttpError(400, str(_("You must connect to Stripe first.")))
+
+    has_platform_fees = org.platform_fee_percent > 0 or org.platform_fee_fixed > 0
+    missing_billing = not org.vat_country_code or not org.billing_address
+    if has_platform_fees and missing_billing:
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "Billing information is required for online ticket sales with platform fees."
+                    " Please set your country and billing address in your organization's billing settings."
+                )
+            ),
+        )
 
 
 @api_controller(
@@ -57,11 +85,7 @@ class EventAdminTicketsController(EventAdminBaseController):
     def create_ticket_tier(self, event_id: UUID, payload: schema.TicketTierCreateSchema) -> models.TicketTier:
         """Create a new ticket tier for an event."""
         event = self.get_one(event_id)
-        if (
-            payload.payment_method == models.TicketTier.PaymentMethod.ONLINE
-            and not event.organization.is_stripe_connected
-        ):
-            raise HttpError(400, str(_("You must connect to Stripe first.")))
+        _check_online_tier_prerequisites(event.organization, payload.payment_method)
 
         # Extract restricted_to_membership_tiers_ids from payload
         payload_dict = payload.model_dump(exclude_unset=True)
@@ -85,11 +109,8 @@ class EventAdminTicketsController(EventAdminBaseController):
     ) -> models.TicketTier:
         """Update a ticket tier."""
         event = self.get_one(event_id)
-        if (
-            payload.payment_method == models.TicketTier.PaymentMethod.ONLINE
-            and not event.organization.is_stripe_connected
-        ):
-            raise HttpError(400, str(_("You must connect to Stripe first.")))
+        if payload.payment_method is not None:
+            _check_online_tier_prerequisites(event.organization, payload.payment_method)
 
         tier = get_object_or_404(models.TicketTier, pk=tier_id, event=event)
 
