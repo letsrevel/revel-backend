@@ -267,6 +267,10 @@ class ApplyDeadlineGate(BaseEligibilityGate):
             if not submission:
                 return True
 
+            # When evaluation is not required, submission existence is sufficient
+            if not org_questionnaire.requires_evaluation:
+                continue
+
             # Check if submission is approved
             evaluation = getattr(submission, "evaluation", None)
             if not evaluation:
@@ -475,8 +479,8 @@ class QuestionnaireGate(BaseEligibilityGate):
                 questionnaires_missing.append(org_questionnaire.questionnaire_id)
                 continue
 
-            # Check if the submission's approval has expired
-            if self._is_submission_expired(org_questionnaire, submissions[0]):
+            # Check if the submission's approval has expired (only relevant when evaluation is required)
+            if org_questionnaire.requires_evaluation and self._is_submission_expired(org_questionnaire, submissions[0]):
                 questionnaires_missing.append(org_questionnaire.questionnaire_id)
 
         if questionnaires_missing:
@@ -492,6 +496,8 @@ class QuestionnaireGate(BaseEligibilityGate):
     def _check_pending_review(self) -> EventUserEligibility | None:
         questionnaires_pending_review = []
         for org_questionnaire in self._get_applicable_questionnaires():
+            if not org_questionnaire.requires_evaluation:
+                continue
             # Look up the submission in our O(1) map. No database query.
             if submissions := self._get_submissions(org_questionnaire):
                 evaluation = getattr(submissions[0], "evaluation", None)
@@ -514,6 +520,8 @@ class QuestionnaireGate(BaseEligibilityGate):
         failed_questionnaires: list[uuid.UUID] = []
         questionnaires_missing: list[uuid.UUID] = []
         for org_questionnaire in self._get_applicable_questionnaires():
+            if not org_questionnaire.requires_evaluation:
+                continue
             # Look up the submission in our O(1) map. No database query.
             questionnaire = org_questionnaire.questionnaire
             submissions = self._get_submissions(org_questionnaire)

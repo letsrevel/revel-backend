@@ -62,6 +62,7 @@ class BaseOrganizationQuestionnaireSchema(Schema):
     questionnaire_type: OrganizationQuestionnaire.QuestionnaireType
     members_exempt: bool
     per_event: bool
+    requires_evaluation: bool
 
     @field_serializer("max_submission_age")
     def serialize_max_submission_age(self, value: timedelta | int | None) -> int | None:
@@ -91,6 +92,7 @@ class OrganizationQuestionnaireFieldsMixin(Schema):
     )
     members_exempt: bool = False
     per_event: bool = False
+    requires_evaluation: bool = True
 
 
 class OrganizationQuestionnaireCreateSchema(
@@ -127,6 +129,7 @@ class OrganizationQuestionnaireUpdateSchema(Schema):
     questionnaire_type: OrganizationQuestionnaire.QuestionnaireType | None = None
     members_exempt: bool | None = None
     per_event: bool | None = None
+    requires_evaluation: bool | None = None
 
 
 class EventAssignmentSchema(Schema):

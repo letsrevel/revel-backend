@@ -456,6 +456,23 @@ The `QuestionnaireService` class provides CRUD operations for questionnaires and
 - **`create_section()` / `create_mc_question()` / `create_ft_question()` / `create_fu_question()`**: Individual creation methods supporting nested conditional content
 - **`evaluate_submission()`**: Creates or updates a manual evaluation for a submission
 
+## Information-Gathering Mode (`requires_evaluation`)
+
+The `OrganizationQuestionnaire` wrapper has a `requires_evaluation` boolean field (default `True`). When set to `False`, the questionnaire gates access based on submission existence alone — no LLM evaluation, no manual review, no scoring.
+
+This is useful for **admission questionnaires that collect information without judgment** (e.g., dietary preferences, accessibility needs, emergency contacts).
+
+| `requires_evaluation` | Behavior |
+|---|---|
+| `True` (default) | Normal flow: submission triggers evaluation (automatic, manual, or hybrid). Gate checks evaluation status. |
+| `False` | Submission is sufficient. No evaluation task is dispatched. Gate only checks that a READY submission exists. |
+
+!!! note "Feedback questionnaires"
+    Feedback questionnaires (`questionnaire_type=FEEDBACK`) must always have `requires_evaluation=False`. Creating or updating a feedback questionnaire with `requires_evaluation=True` returns a 400 error. Existing feedback questionnaires were backpopulated with `requires_evaluation=False` via data migration.
+
+!!! warning "Interaction with evaluation_mode"
+    The `requires_evaluation` flag takes precedence over the underlying `Questionnaire.evaluation_mode`. Even if the questionnaire is configured with `AUTOMATIC` evaluation mode, setting `requires_evaluation=False` on the `OrganizationQuestionnaire` wrapper will skip evaluation entirely.
+
 ## Integration with Eligibility
 
 Questionnaires integrate with the [Eligibility Pipeline](eligibility-pipeline.md) through the **Questionnaire Gate**:
@@ -463,13 +480,15 @@ Questionnaires integrate with the [Eligibility Pipeline](eligibility-pipeline.md
 1. Event is configured to require one or more questionnaires
 2. When a user attempts to RSVP/purchase a ticket, the eligibility pipeline checks questionnaire status
 3. If questionnaires are incomplete, the user receives `next_step: COMPLETE_QUESTIONNAIRE`
-4. If questionnaires are submitted but failed, the user is rejected with the failure reason
+4. If `requires_evaluation=False`, submission existence is sufficient — no evaluation checks are performed
+5. If questionnaires are submitted but failed, the user is rejected with the failure reason
 
 ```mermaid
 flowchart LR
     User["User"] -->|"RSVP"| Eligibility["Eligibility Pipeline"]
     Eligibility -->|"Questionnaire Gate"| Check{"Questionnaires<br/>complete?"}
     Check -->|"Not submitted"| Redirect["next_step:<br/>COMPLETE_QUESTIONNAIRE"]
+    Check -->|"Submitted &<br/>requires_evaluation=False"| Continue
     Check -->|"Submitted & passed"| Continue["Continue pipeline"]
     Check -->|"Submitted & failed"| Reject["Rejected"]
 

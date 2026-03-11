@@ -78,6 +78,10 @@ def _validate_admission_resubmission(
     if not existing_submissions:
         return  # No previous submissions, allow
 
+    # When evaluation is not required, only block if user already has a READY submission
+    if not org_questionnaire.requires_evaluation:
+        raise HttpError(400, str(_("You have already submitted this questionnaire.")))
+
     # Check the latest submission's evaluation status
     latest = existing_submissions[0]
     evaluation = getattr(latest.submission, "evaluation", None)

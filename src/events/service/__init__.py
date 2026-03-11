@@ -2,9 +2,11 @@ import typing as t
 
 from django.conf import settings
 from django.db import models, transaction
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from pydantic import BaseModel
 
+from events.models import OrganizationQuestionnaire
 from events.schema import OrganizationQuestionnaireUpdateSchema
 from questionnaires.models import Questionnaire
 from events.service import announcement_service as announcement_service
@@ -13,6 +15,15 @@ from events.service import ticket_file_service as ticket_file_service
 from events.service import venue_service as venue_service
 
 T = t.TypeVar("T", bound=models.Model)
+
+
+def validate_feedback_requires_evaluation(
+    questionnaire_type: OrganizationQuestionnaire.QuestionnaireType,
+    requires_evaluation: bool,
+) -> None:
+    """Raise 400 if a feedback questionnaire is configured to require evaluation."""
+    if questionnaire_type == OrganizationQuestionnaire.QuestionnaireType.FEEDBACK and requires_evaluation:
+        raise HttpError(400, str(_("Feedback questionnaires cannot require evaluation.")))
 
 
 @transaction.atomic
@@ -98,10 +109,15 @@ def update_organization_questionnaire(
 
     # Extract OrganizationQuestionnaire-specific fields
     org_kwargs = {}
-    org_field_names = {"max_submission_age", "questionnaire_type", "members_exempt", "per_event"}
+    org_field_names = {"max_submission_age", "questionnaire_type", "members_exempt", "per_event", "requires_evaluation"}
     for field_name in org_field_names:
         if field_name in payload_dict:
             org_kwargs[field_name] = payload_dict[field_name]
+
+    # Validate: feedback questionnaires cannot require evaluation
+    effective_type = org_kwargs.get("questionnaire_type", org_questionnaire.questionnaire_type)  # type: ignore[attr-defined]
+    effective_requires_eval = org_kwargs.get("requires_evaluation", org_questionnaire.requires_evaluation)  # type: ignore[attr-defined]
+    validate_feedback_requires_evaluation(effective_type, effective_requires_eval)
 
     # Update OrganizationQuestionnaire if there are changes
     if org_kwargs:

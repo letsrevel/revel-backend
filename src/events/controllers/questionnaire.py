@@ -22,6 +22,7 @@ from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters
 from events import models as event_models
 from events import schema as event_schema
+from events import service as event_service
 from events.service import feedback_service, update_organization_questionnaire
 from events.service.event_questionnaire_service import get_questionnaire_summary
 from questionnaires import models as questionnaires_models
@@ -111,6 +112,7 @@ class QuestionnaireController(UserAwareController):
             event_models.Organization,
             self.get_object_or_exception(self.get_organization_queryset(), pk=organization_id),
         )
+        event_service.validate_feedback_requires_evaluation(payload.questionnaire_type, payload.requires_evaluation)
         with transaction.atomic():
             questionnaire = QuestionnaireService.create_questionnaire(payload)
             return event_models.OrganizationQuestionnaire.objects.create(
@@ -120,6 +122,7 @@ class QuestionnaireController(UserAwareController):
                 questionnaire_type=payload.questionnaire_type,
                 members_exempt=payload.members_exempt,
                 per_event=payload.per_event,
+                requires_evaluation=payload.requires_evaluation,
             )
 
     @route.get(

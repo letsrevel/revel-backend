@@ -248,8 +248,8 @@ class EventPublicAttendanceController(EventPublicBaseController):
             submission_schema=submission,
         )
 
-        # Trigger automatic evaluation only for non-feedback questionnaires
-        if not is_feedback:
+        # Trigger automatic evaluation only for questionnaires that require it
+        if not is_feedback and org_questionnaire.requires_evaluation:
             evaluation_mode = questionnaire_service.questionnaire.evaluation_mode
             if submission.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY and evaluation_mode in (
                 Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
