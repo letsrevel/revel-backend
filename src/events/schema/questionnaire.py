@@ -1,5 +1,6 @@
 """Organization questionnaire schemas."""
 
+import typing as t
 from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -122,7 +123,7 @@ class OrganizationQuestionnaireUpdateSchema(Schema):
     evaluation_mode: Questionnaire.QuestionnaireEvaluationMode | None = None
     llm_guidelines: str | None = None
     can_retake_after: timedelta | None = None
-    max_attempts: int = Field(0, ge=0)
+    max_attempts: t.Annotated[int, Field(ge=0)] | None = None
 
     # OrganizationQuestionnaire wrapper fields
     max_submission_age: timedelta | None = None
