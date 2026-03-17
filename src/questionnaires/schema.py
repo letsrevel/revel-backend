@@ -747,6 +747,7 @@ class QuestionnaireCreateSchema(QuestionnaireBaseSchema):
     fileuploadquestion_questions: list[FileUploadQuestionCreateSchema] = Field(default_factory=list)
     llm_guidelines: str | None = None
     can_retake_after: timedelta | int | None = None
+    max_attempts: t.Annotated[int, Field(ge=0)] = 1
 
     _validate_can_retake_after = field_validator("can_retake_after", mode="before")(seconds_to_timedelta)
     _serialize_can_retake_after = field_serializer("can_retake_after")(timedelta_to_seconds)
