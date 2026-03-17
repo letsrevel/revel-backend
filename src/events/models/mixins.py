@@ -157,6 +157,7 @@ class LocationMixin(models.Model):
     location_maps_url = models.URLField(
         blank=True,
         null=True,
+        max_length=2048,
         help_text="Shareable link to Google Maps (e.g., https://goo.gl/maps/...)",
     )
     location_maps_embed = models.URLField(
