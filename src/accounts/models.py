@@ -423,7 +423,8 @@ class Referral(TimeStampedModel):
         RevelUser,
         on_delete=models.PROTECT,
         related_name="referrals_made",
-        help_text="Denormalized from referral_code.user for fast lookups",
+        editable=False,
+        help_text="Denormalized from referral_code.user; set automatically on save",
     )
     referred_user = models.OneToOneField(RevelUser, on_delete=models.PROTECT, related_name="referral")
     revenue_share_percent = models.DecimalField(
@@ -442,6 +443,11 @@ class Referral(TimeStampedModel):
                 name="referral_no_self_referral",
             )
         ]
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Derive referrer from referral_code.user before persisting."""
+        self.referrer = self.referral_code.user
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"{self.referrer.username} → {self.referred_user.username} ({self.revenue_share_percent}%)"
