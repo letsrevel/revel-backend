@@ -429,6 +429,7 @@ class Referral(TimeStampedModel):
     revenue_share_percent = models.DecimalField(
         max_digits=5,
         decimal_places=2,
+        default=settings.DEFAULT_REFERRAL_SHARE_PERCENT,
         validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="Snapshotted from settings.DEFAULT_REFERRAL_SHARE_PERCENT at creation time",
     )
