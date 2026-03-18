@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import pyotp
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser, UserManager
-from django.core.validators import FileExtensionValidator, MaxLengthValidator
+from django.core.validators import FileExtensionValidator, MaxLengthValidator, MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models.functions import Lower
 from django.utils import timezone
@@ -386,6 +386,71 @@ class ImpersonationLog(models.Model):
     def is_redeemed(self) -> bool:
         """Check if the impersonation token has been redeemed."""
         return self.redeemed_at is not None
+
+
+class ReferralCode(TimeStampedModel):
+    """Tracks a unique referral code assigned 1:1 to a user.
+
+    Codes are uppercase and immutable after creation. Management is admin-only.
+    """
+
+    user = models.OneToOneField(RevelUser, on_delete=models.PROTECT, related_name="referral_code")
+    code = models.CharField(max_length=20, unique=True, help_text="Uppercase referral code (immutable)")
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.user.username} — {self.code}"
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Enforce uppercase on code before saving."""
+        self.code = self.code.upper()
+        super().save(*args, **kwargs)
+
+
+class Referral(TimeStampedModel):
+    """Records that a referred user signed up via a referral code.
+
+    ``referrer`` is denormalized from ``referral_code.user`` for query performance.
+    ``revenue_share_percent`` is snapshotted from ``settings.DEFAULT_REFERRAL_SHARE_PERCENT``
+    at creation time so future settings changes don't affect existing referrals.
+    """
+
+    referral_code = models.ForeignKey(ReferralCode, on_delete=models.PROTECT, related_name="referrals")
+    referrer = models.ForeignKey(
+        RevelUser,
+        on_delete=models.PROTECT,
+        related_name="referrals_made",
+        editable=False,
+        help_text="Denormalized from referral_code.user; set automatically on save",
+    )
+    referred_user = models.OneToOneField(RevelUser, on_delete=models.PROTECT, related_name="referral")
+    revenue_share_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=settings.DEFAULT_REFERRAL_SHARE_PERCENT,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text="Snapshotted from settings.DEFAULT_REFERRAL_SHARE_PERCENT at creation time",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                check=~models.Q(referrer=models.F("referred_user")),
+                name="referral_no_self_referral",
+            )
+        ]
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Derive referrer from referral_code.user before persisting."""
+        self.referrer = self.referral_code.user
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.referrer.username} → {self.referred_user.username} ({self.revenue_share_percent}%)"
 
 
 class GlobalBan(TimeStampedModel):
