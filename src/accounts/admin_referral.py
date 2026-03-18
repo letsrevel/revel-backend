@@ -15,6 +15,7 @@ class ReferralCodeAdmin(ModelAdmin):  # type: ignore[misc]
     list_display = ["user", "code", "is_active", "created_at"]
     list_filter = ["is_active", "created_at"]
     search_fields = ["user__username", "user__email", "code"]
+    autocomplete_fields = ["user"]
     ordering = ["-created_at"]
 
     fieldsets = [
