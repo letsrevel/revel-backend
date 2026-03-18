@@ -71,6 +71,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
             "Billing",
             {
                 "fields": [
+                    "billing_name",
                     "vat_id",
                     "vat_country_code",
                     "vat_rate",

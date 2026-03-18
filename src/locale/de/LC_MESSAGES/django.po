@@ -722,11 +722,11 @@ msgstr "Du musst dich zuerst mit Stripe verbinden."
 
 msgid ""
 "Billing information is required for online ticket sales with platform fees. "
-"Please set your country and billing address in your organization's billing "
+"Please set your billing name, country and billing address in your organization's billing "
 "settings."
 msgstr ""
 "Rechnungsinformationen sind für den Online-Ticketverkauf mit Plattformgebühren "
-"erforderlich. Bitte lege dein Land und deine Rechnungsadresse in den "
+"erforderlich. Bitte lege deinen Rechnungsnamen, dein Land und deine Rechnungsadresse in den "
 "Rechnungseinstellungen deiner Organisation fest."
 
 msgid "Ticket already cancelled"
@@ -1342,16 +1342,16 @@ msgid "Confirm your ticket for %(event_name)s"
 msgstr "Ticket-Update: %(event_name)s"
 
 #, python-format
-msgid "Platform fee invoice %(invoice_number)s"
-msgstr "Plattformgebühren-Rechnung %(invoice_number)s"
+msgid "Platform fee invoice %(invoice_number)s (%(currency)s)"
+msgstr "Plattformgebühren-Rechnung %(invoice_number)s (%(currency)s)"
 
 #, python-format
 msgid ""
-"Please find attached the platform fee invoice %(invoice_number)s for the "
-"period %(period_start)s to %(period_end)s."
+"Please find attached the platform fee invoice %(invoice_number)s "
+"for %(currency)s transactions in the period %(period_start)s to %(period_end)s."
 msgstr ""
-"Anbei die Plattformgebühren-Rechnung %(invoice_number)s für den Zeitraum "
-"%(period_start)s bis %(period_end)s."
+"Anbei die Plattformgebühren-Rechnung %(invoice_number)s für %(currency)s-Transaktionen "
+"im Zeitraum %(period_start)s bis %(period_end)s."
 
 #, python-format
 msgid "Verify contact email for %(organization_name)s"

@@ -133,6 +133,13 @@ def validate_and_update_organization(org: "Organization") -> VIESValidationResul
             org.vat_country_code = country_from_vat
             update_fields.append("vat_country_code")
 
+        # Auto-fill billing name from VIES response if empty
+        if not org.billing_name and result.name:
+            name = result.name.strip()
+            if name and name != "---":
+                org.billing_name = name
+                update_fields.append("billing_name")
+
         # Auto-fill billing address from VIES response if empty
         if not org.billing_address and result.address:
             # VIES sometimes returns "---" for unavailable addresses

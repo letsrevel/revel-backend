@@ -39,14 +39,15 @@ def _check_online_tier_prerequisites(org: "Organization", payment_method: str) -
         raise HttpError(400, str(_("You must connect to Stripe first.")))
 
     has_platform_fees = org.platform_fee_percent > 0 or org.platform_fee_fixed > 0
-    missing_billing = not org.vat_country_code or not org.billing_address
+    missing_billing = not org.vat_country_code or not org.billing_address or not org.billing_name
     if has_platform_fees and missing_billing:
         raise HttpError(
             400,
             str(
                 _(
                     "Billing information is required for online ticket sales with platform fees."
-                    " Please set your country and billing address in your organization's billing settings."
+                    " Please set your billing name, country and billing address"
+                    " in your organization's billing settings."
                 )
             ),
         )
