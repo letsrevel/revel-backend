@@ -295,12 +295,16 @@ def send_invoice_email_task(invoice_id: str) -> None:
     site = SiteSettings.get_solo()
     bcc = [site.platform_invoice_bcc_email] if site.platform_invoice_bcc_email else []
 
-    subject = _("Platform fee invoice %(invoice_number)s") % {"invoice_number": invoice.invoice_number}
+    subject = _("Platform fee invoice %(invoice_number)s (%(currency)s)") % {
+        "invoice_number": invoice.invoice_number,
+        "currency": invoice.currency,
+    }
     body = _(
         "Please find attached the platform fee invoice %(invoice_number)s "
-        "for the period %(period_start)s to %(period_end)s."
+        "for %(currency)s transactions in the period %(period_start)s to %(period_end)s."
     ) % {
         "invoice_number": invoice.invoice_number,
+        "currency": invoice.currency,
         "period_start": invoice.period_start.isoformat(),
         "period_end": invoice.period_end.isoformat(),
     }

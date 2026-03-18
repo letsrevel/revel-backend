@@ -522,6 +522,19 @@ class TestValidateAndUpdateOrganization:
         assert org_with_vat.billing_name == ""
 
     @patch("events.service.vies_service.httpx.post")
+    def test_valid_result_with_whitespace_only_name_does_not_fill(
+        self, mock_post: MagicMock, org_with_vat: Organization
+    ) -> None:
+        """VIES name that is only whitespace is treated as empty and not filled."""
+        assert org_with_vat.billing_name == ""
+        mock_post.return_value = _mock_vies_response(valid=True, name="   ")
+
+        validate_and_update_organization(org_with_vat)
+
+        org_with_vat.refresh_from_db()
+        assert org_with_vat.billing_name == ""
+
+    @patch("events.service.vies_service.httpx.post")
     def test_invalid_result_does_not_fill_billing_name(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
         """Invalid result does not auto-fill billing_name from VIES."""
         assert org_with_vat.billing_name == ""

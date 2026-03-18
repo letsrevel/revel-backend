@@ -46,7 +46,8 @@ def _check_online_tier_prerequisites(org: "Organization", payment_method: str) -
             str(
                 _(
                     "Billing information is required for online ticket sales with platform fees."
-                    " Please set your billing name, country and billing address in your organization's billing settings."
+                    " Please set your billing name, country and billing address"
+                    " in your organization's billing settings."
                 )
             ),
         )

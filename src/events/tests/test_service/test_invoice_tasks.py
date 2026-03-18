@@ -266,10 +266,12 @@ class TestSendInvoiceEmailTask:
         assert "invoice_owner@example.com" in call_kwargs["to"]
         assert "billing@invoicetest.com" in call_kwargs["to"]
 
-        # Subject includes invoice number
+        # Subject includes invoice number and currency
         assert "RVL-2026-000001" in call_kwargs["subject"]
+        assert "EUR" in call_kwargs["subject"]
 
-        # Body includes period dates
+        # Body includes currency and period dates
+        assert "EUR" in call_kwargs["body"]
         assert "2026-01-01" in call_kwargs["body"]
         assert "2026-01-31" in call_kwargs["body"]
 

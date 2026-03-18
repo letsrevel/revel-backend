@@ -1330,16 +1330,16 @@ msgid "Confirm your ticket for %(event_name)s"
 msgstr "Aggiornamento biglietto: %(event_name)s"
 
 #, python-format
-msgid "Platform fee invoice %(invoice_number)s"
-msgstr "Fattura commissioni di piattaforma %(invoice_number)s"
+msgid "Platform fee invoice %(invoice_number)s (%(currency)s)"
+msgstr "Fattura commissioni di piattaforma %(invoice_number)s (%(currency)s)"
 
 #, python-format
 msgid ""
-"Please find attached the platform fee invoice %(invoice_number)s for the "
-"period %(period_start)s to %(period_end)s."
+"Please find attached the platform fee invoice %(invoice_number)s "
+"for %(currency)s transactions in the period %(period_start)s to %(period_end)s."
 msgstr ""
 "In allegato la fattura delle commissioni di piattaforma %(invoice_number)s "
-"per il periodo dal %(period_start)s al %(period_end)s."
+"per le transazioni in %(currency)s nel periodo dal %(period_start)s al %(period_end)s."
 
 #, python-format
 msgid "Verify contact email for %(organization_name)s"

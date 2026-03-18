@@ -74,7 +74,7 @@ class OrganizationBillingInfoUpdateSchema(Schema):
     When vat_country_code is provided, it must be a valid EU member state.
     """
 
-    billing_name: str | None = None
+    billing_name: t.Annotated[str, StringConstraints(strip_whitespace=True)] = ""
     vat_country_code: (
         t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=2, max_length=2)] | None
     ) = None
