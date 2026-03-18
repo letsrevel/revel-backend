@@ -229,6 +229,15 @@ class Organization(
         default="",
         help_text="Email address for invoice delivery. Falls back to contact_email if empty.",
     )
+    billing_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text=(
+            "Legal entity name for invoicing (e.g., company or individual name as registered)."
+            " Falls back to the organization name if empty."
+        ),
+    )
 
     stripe_account_email = models.EmailField(null=True, blank=True, db_index=True)
     stripe_account_id = models.CharField(

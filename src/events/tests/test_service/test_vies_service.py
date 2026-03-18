@@ -474,6 +474,64 @@ class TestValidateAndUpdateOrganization:
         org_with_vat.refresh_from_db()
         assert org_with_vat.billing_address == ""
 
+    @patch("events.service.vies_service.httpx.post")
+    def test_valid_result_auto_fills_empty_billing_name(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
+        """When billing_name is empty, it is auto-filled from the VIES response."""
+        assert org_with_vat.billing_name == ""
+        mock_post.return_value = _mock_vies_response(valid=True, name="ACME SRL")
+
+        validate_and_update_organization(org_with_vat)
+
+        org_with_vat.refresh_from_db()
+        assert org_with_vat.billing_name == "ACME SRL"
+
+    @patch("events.service.vies_service.httpx.post")
+    def test_valid_result_does_not_overwrite_existing_billing_name(
+        self, mock_post: MagicMock, org_with_vat: Organization
+    ) -> None:
+        """When billing_name is already set, it is NOT overwritten by VIES."""
+        org_with_vat.billing_name = "My Legal Entity"
+        org_with_vat.save(update_fields=["billing_name"])
+        mock_post.return_value = _mock_vies_response(valid=True, name="ACME SRL")
+
+        validate_and_update_organization(org_with_vat)
+
+        org_with_vat.refresh_from_db()
+        assert org_with_vat.billing_name == "My Legal Entity"
+
+    @patch("events.service.vies_service.httpx.post")
+    def test_valid_result_with_dash_name_does_not_fill(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
+        """VIES name of '---' is treated as unavailable and not auto-filled."""
+        assert org_with_vat.billing_name == ""
+        mock_post.return_value = _mock_vies_response(valid=True, name="---")
+
+        validate_and_update_organization(org_with_vat)
+
+        org_with_vat.refresh_from_db()
+        assert org_with_vat.billing_name == ""
+
+    @patch("events.service.vies_service.httpx.post")
+    def test_valid_result_with_empty_name_does_not_fill(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
+        """Empty VIES name string does not change billing_name."""
+        assert org_with_vat.billing_name == ""
+        mock_post.return_value = _mock_vies_response(valid=True, name="")
+
+        validate_and_update_organization(org_with_vat)
+
+        org_with_vat.refresh_from_db()
+        assert org_with_vat.billing_name == ""
+
+    @patch("events.service.vies_service.httpx.post")
+    def test_invalid_result_does_not_fill_billing_name(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
+        """Invalid result does not auto-fill billing_name from VIES."""
+        assert org_with_vat.billing_name == ""
+        mock_post.return_value = _mock_vies_response(valid=False, name="ACME SRL")
+
+        validate_and_update_organization(org_with_vat)
+
+        org_with_vat.refresh_from_db()
+        assert org_with_vat.billing_name == ""
+
     def test_no_vat_id_raises_value_error(self, org_without_vat: Organization) -> None:
         """Organization with no VAT ID raises ValueError."""
         with pytest.raises(ValueError, match="Organization has no VAT ID to validate"):

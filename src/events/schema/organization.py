@@ -58,6 +58,7 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
 class OrganizationBillingInfoSchema(Schema):
     """Read-only schema for organization billing info and VAT settings."""
 
+    billing_name: str
     vat_id: str
     vat_country_code: str
     vat_rate: Decimal
@@ -73,6 +74,7 @@ class OrganizationBillingInfoUpdateSchema(Schema):
     When vat_country_code is provided, it must be a valid EU member state.
     """
 
+    billing_name: str | None = None
     vat_country_code: (
         t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=2, max_length=2)] | None
     ) = None
@@ -191,6 +193,7 @@ class OrganizationAdminDetailSchema(
     contact_email: str | None = None
     contact_email_verified: bool
     # VAT / billing
+    billing_name: str
     vat_id: str
     vat_country_code: str
     vat_rate: Decimal

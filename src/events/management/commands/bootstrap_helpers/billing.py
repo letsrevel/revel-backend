@@ -51,6 +51,7 @@ def configure_organization_billing(state: BootstrapState) -> None:
     org_alpha.vat_id_validated = True
     org_alpha.vat_id_validated_at = timezone.now() - timedelta(days=15)
     org_alpha.vies_request_identifier = "WAPIAAAAXxx0TEST"
+    org_alpha.billing_name = "Revel Events Collective GmbH"
     org_alpha.billing_address = "Musterstraße 42\nAT-1010 Wien"
     org_alpha.billing_email = "billing@revelcollective.example.com"
     org_alpha.save()
@@ -69,6 +70,7 @@ def configure_organization_billing(state: BootstrapState) -> None:
     org_beta.vat_id_validated = True
     org_beta.vat_id_validated_at = timezone.now() - timedelta(days=10)
     org_beta.vies_request_identifier = "WAPIAAAAYdd3O5ab"
+    org_beta.billing_name = "Tech Innovators Network e.V."
     org_beta.billing_address = "Friedrichstraße 123\n10117 Berlin, Germany"
     org_beta.billing_email = "billing@techinnovators.example.com"
     org_beta.save()

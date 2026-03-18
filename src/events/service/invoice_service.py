@@ -242,7 +242,7 @@ def generate_invoices_for_period(
                     currency=currency,
                     reverse_charge=reverse_charge,
                     # Organization snapshot
-                    org_name=org.name,
+                    org_name=org.billing_name or org.name,
                     org_vat_id=org.vat_id,
                     org_vat_country=org.vat_country_code,
                     org_address=org.billing_address,

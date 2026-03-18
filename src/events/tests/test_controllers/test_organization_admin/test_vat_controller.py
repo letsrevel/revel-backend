@@ -35,6 +35,7 @@ class TestGetBillingInfo:
 
         assert response.status_code == 200
         data = response.json()
+        assert data["billing_name"] == ""
         assert data["vat_id"] == ""
         assert data["vat_country_code"] == ""
         assert data["vat_id_validated"] is False
@@ -48,6 +49,7 @@ class TestGetBillingInfo:
         organization: Organization,
     ) -> None:
         """Test that populated billing info fields are returned correctly."""
+        organization.billing_name = "Test Legal Entity S.r.l."
         organization.vat_id = "IT12345678901"
         organization.vat_country_code = "IT"
         organization.vat_id_validated = True
@@ -62,6 +64,7 @@ class TestGetBillingInfo:
 
         assert response.status_code == 200
         data = response.json()
+        assert data["billing_name"] == "Test Legal Entity S.r.l."
         assert data["vat_id"] == "IT12345678901"
         assert data["vat_country_code"] == "IT"
         assert data["vat_id_validated"] is True
@@ -126,6 +129,23 @@ class TestGetBillingInfo:
 
 class TestUpdateBillingInfo:
     """Tests for updating organization billing info."""
+
+    def test_update_billing_name(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+    ) -> None:
+        """Test that the owner can update the billing name."""
+        url = reverse("api:update_billing_info", kwargs={"slug": organization.slug})
+        payload = {"billing_name": "My Legal Entity GmbH"}
+
+        response = organization_owner_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["billing_name"] == "My Legal Entity GmbH"
+        organization.refresh_from_db()
+        assert organization.billing_name == "My Legal Entity GmbH"
 
     def test_update_vat_country_code(
         self,
