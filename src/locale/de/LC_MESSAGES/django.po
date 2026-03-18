@@ -722,11 +722,11 @@ msgstr "Du musst dich zuerst mit Stripe verbinden."
 
 msgid ""
 "Billing information is required for online ticket sales with platform fees. "
-"Please set your country and billing address in your organization's billing "
+"Please set your billing name, country and billing address in your organization's billing "
 "settings."
 msgstr ""
 "Rechnungsinformationen sind für den Online-Ticketverkauf mit Plattformgebühren "
-"erforderlich. Bitte lege dein Land und deine Rechnungsadresse in den "
+"erforderlich. Bitte lege deinen Rechnungsnamen, dein Land und deine Rechnungsadresse in den "
 "Rechnungseinstellungen deiner Organisation fest."
 
 msgid "Ticket already cancelled"

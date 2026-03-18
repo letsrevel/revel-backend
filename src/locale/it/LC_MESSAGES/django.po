@@ -713,11 +713,11 @@ msgstr "Devi prima connetterti a Stripe."
 
 msgid ""
 "Billing information is required for online ticket sales with platform fees. "
-"Please set your country and billing address in your organization's billing "
+"Please set your billing name, country and billing address in your organization's billing "
 "settings."
 msgstr ""
 "Le informazioni di fatturazione sono necessarie per la vendita di biglietti "
-"online con commissioni di piattaforma. Imposta il tuo paese e l'indirizzo "
+"online con commissioni di piattaforma. Imposta il nome di fatturazione, il paese e l'indirizzo "
 "di fatturazione nelle impostazioni di fatturazione della tua organizzazione."
 
 msgid "Ticket already cancelled"

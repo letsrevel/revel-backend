@@ -20,11 +20,18 @@ def _make_stripe_connected(org: Organization) -> None:
     org.save(update_fields=["stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"])
 
 
-def _set_billing_info(org: Organization, *, country: str = "IT", address: str = "Via Roma 1, 00100 Roma") -> None:
+def _set_billing_info(
+    org: Organization,
+    *,
+    name: str = "Test Legal Entity S.r.l.",
+    country: str = "IT",
+    address: str = "Via Roma 1, 00100 Roma",
+) -> None:
     """Set billing info on an organization."""
+    org.billing_name = name
     org.vat_country_code = country
     org.billing_address = address
-    org.save(update_fields=["vat_country_code", "billing_address"])
+    org.save(update_fields=["billing_name", "vat_country_code", "billing_address"])
 
 
 # ===========================================================================
@@ -70,6 +77,26 @@ class TestCreateOnlineTierBillingRequired:
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
         assert response.status_code == 400
+
+    def test_create_online_tier_rejected_without_billing_name(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        organization: Organization,
+    ) -> None:
+        """Online tier should be rejected when billing_name is missing."""
+        _make_stripe_connected(organization)
+        organization.vat_country_code = "IT"
+        organization.billing_address = "Via Roma 1, 00100 Roma"
+        organization.save(update_fields=["vat_country_code", "billing_address"])
+
+        url = reverse("api:create_ticket_tier", kwargs={"event_id": event.pk})
+        payload = {"name": "Online Tier", "price": "25.00", "payment_method": "online"}
+
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 400
+        assert "billing" in response.json()["detail"].lower()
 
     def test_create_online_tier_rejected_without_address(
         self,
@@ -200,6 +227,27 @@ class TestUpdateTierBillingRequired:
 
         assert response.status_code == 200
         assert response.json()["payment_method"] == "online"
+
+    def test_update_to_online_rejected_without_billing_name(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        organization: Organization,
+        event_ticket_tier: TicketTier,
+    ) -> None:
+        """Changing to online should be rejected when billing_name is missing."""
+        _make_stripe_connected(organization)
+        organization.vat_country_code = "IT"
+        organization.billing_address = "Via Roma 1, 00100 Roma"
+        organization.save(update_fields=["vat_country_code", "billing_address"])
+
+        url = reverse("api:update_ticket_tier", kwargs={"event_id": event.pk, "tier_id": event_ticket_tier.pk})
+        payload = {"payment_method": "online", "price": "25.00"}
+
+        response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 400
+        assert "billing" in response.json()["detail"].lower()
 
     def test_update_non_payment_fields_allowed_without_billing_info(
         self,
