@@ -2,11 +2,14 @@ import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
+from django.utils.translation import gettext_lazy as _
 from ninja import Query
+from ninja.errors import HttpError
 from ninja_extra import (
     api_controller,
     route,
 )
+from ninja_extra.exceptions import NotFound
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
@@ -25,12 +28,20 @@ from events.service import (
     organization_service,
     whitelist_service,
 )
+from events.service.organization_service import OrgTokenRejection
 
 from ..service.event_service import order_by_distance
+
+_ORG_TOKEN_GONE_MESSAGES = {
+    "expired": _("This invitation link has expired."),
+    "used_up": _("This invitation link has reached its maximum number of uses."),
+}
 
 
 @api_controller("/organizations", auth=OptionalAuth(), tags=["Organization"])
 class OrganizationController(UserAwareController):
+    _token_rejection: OrgTokenRejection | None = None
+
     def get_queryset(self, full: bool = True) -> QuerySet[models.Organization]:
         """Get the queryset based on the user."""
         allowed_ids: list[UUID] = []
@@ -40,23 +51,51 @@ class OrganizationController(UserAwareController):
             return models.Organization.objects.for_user(self.maybe_user(), allowed_ids=allowed_ids)
         return models.Organization.objects.full().for_user(self.maybe_user(), allowed_ids=allowed_ids)
 
+    def _raise_if_token_gone(self, organization_id: UUID | None = None) -> None:
+        """Raise 410 if the request carried a token that was rejected.
+
+        Args:
+            organization_id: When provided, only raise 410 if the rejected token
+                belongs to this organization (prevents info-leakage).
+        """
+        if self._token_rejection is None:
+            return
+        if organization_id is not None and organization_id != self._token_rejection.organization_id:
+            return
+        raise HttpError(410, str(_ORG_TOKEN_GONE_MESSAGES[self._token_rejection.reason]))
+
     def get_organization_token(self) -> models.OrganizationToken | None:
         """Get an organization token from X-Organization-Token header or ot query param (legacy).
 
         Preferred: X-Organization-Token header
         Legacy: ?ot= query parameter (for backwards compatibility)
+
+        Side effect: if the token exists but is expired/used up, stores
+        the rejection reason in ``self._token_rejection`` so that downstream
+        helpers can raise 410 instead of 404.
         """
         token = (
             self.context.request.META.get("HTTP_X_ORG_TOKEN")  # type: ignore[union-attr]
             or self.context.request.GET.get("ot")  # type: ignore[union-attr]
         )
-        if token:
-            return organization_service.get_organization_token(token)
-        return None
+        if not token:
+            return None
+        org_token = organization_service.get_organization_token(token)
+        if org_token is None:
+            self._token_rejection = organization_service.get_org_token_rejection_reason(token)
+        return org_token
 
     def get_one(self, slug: str) -> models.Organization:
         """Get one organization."""
-        return self.get_object_or_exception(self.get_queryset(), slug=slug)  # type: ignore[no-any-return]
+        qs = self.get_queryset()
+        try:
+            return self.get_object_or_exception(qs, slug=slug)  # type: ignore[no-any-return]
+        except NotFound:
+            if self._token_rejection is not None:
+                org_id = models.Organization.objects.filter(slug=slug).values_list("id", flat=True).first()
+                if org_id is not None:
+                    self._raise_if_token_gone(organization_id=org_id)
+            raise
 
     @route.get("/", url_name="list_organizations", response=PaginatedResponseSchema[schema.OrganizationInListSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)

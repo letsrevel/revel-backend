@@ -1,4 +1,6 @@
+import typing as t
 from datetime import timedelta
+from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
@@ -276,13 +278,46 @@ def create_organization_token(
     )
 
 
+class OrgTokenRejection(t.NamedTuple):
+    """Why an organization token was rejected, plus the org it belongs to."""
+
+    reason: t.Literal["expired", "used_up"]
+    organization_id: UUID
+
+
 def get_organization_token(token: str) -> OrganizationToken | None:
-    """Retrieves an EventToken from a JWT."""
+    """Retrieve an OrganizationToken by its ID.
+
+    Returns the token only if it is still valid: not expired and not
+    exhausted (``uses < max_uses``, or ``max_uses == 0`` for unlimited).
+    """
     return (
         OrganizationToken.objects.select_related("organization")
-        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()), pk=token)
+        .filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
+            Q(max_uses=0) | Q(uses__lt=F("max_uses")),
+            pk=token,
+        )
         .first()
     )
+
+
+def get_org_token_rejection_reason(token: str) -> OrgTokenRejection | None:
+    """Diagnose why an organization token is no longer valid.
+
+    Called only after get_organization_token() returned None to distinguish
+    "token doesn't exist" from "token expired / used up".
+    """
+    org_token = (
+        OrganizationToken.objects.only("expires_at", "uses", "max_uses", "organization_id").filter(pk=token).first()
+    )
+    if org_token is None:
+        return None
+    if org_token.expires_at and org_token.expires_at <= timezone.now():
+        return OrgTokenRejection(reason="expired", organization_id=org_token.organization_id)
+    if org_token.max_uses and org_token.uses >= org_token.max_uses:
+        return OrgTokenRejection(reason="used_up", organization_id=org_token.organization_id)
+    return None
 
 
 @transaction.atomic
