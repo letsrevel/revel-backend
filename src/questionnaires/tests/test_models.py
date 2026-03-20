@@ -72,15 +72,19 @@ def test_section_can_belong_to_correct_questionnaire(
 
 
 @pytest.mark.django_db
-def test_single_answer_question_disallows_multiple_correct_options(
-    single_answer_mc_question: MultipleChoiceQuestion, correct_option: MultipleChoiceOption
+def test_single_answer_question_allows_multiple_correct_options(
+    single_answer_mc_question: MultipleChoiceQuestion,
 ) -> None:
-    """Test that a second correct option cannot be created for a single-answer question."""
-    with pytest.raises(exceptions.MultipleCorrectOptionsError):
-        another_correct_option = MultipleChoiceOption(
-            question=single_answer_mc_question, option="Green", is_correct=True
-        )
-        another_correct_option.clean()
+    """Test that a single-answer question CAN have multiple correct options.
+
+    allow_multiple_answers controls how many options a guest can *select*,
+    not how many options the organizer can mark as correct.
+    """
+    MultipleChoiceOption.objects.create(question=single_answer_mc_question, option="Green", is_correct=True)
+    second_correct_option = MultipleChoiceOption(question=single_answer_mc_question, option="Blue", is_correct=True)
+    second_correct_option.full_clean()
+    second_correct_option.save()
+    assert single_answer_mc_question.options.filter(is_correct=True).count() == 2
 
 
 @pytest.mark.django_db

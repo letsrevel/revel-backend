@@ -11,10 +11,6 @@ class CrossQuestionnaireSectionError(ValidationError):
     """Raised when a section is assigned to a question of a different questionnaire."""
 
 
-class MultipleCorrectOptionsError(ValidationError):
-    """Raised when multiple correct options are assigned to a single-answer question."""
-
-
 class DisallowedMultipleAnswersError(ValidationError):
     """Raised when multiple answers are submitted for a single-answer question."""
 

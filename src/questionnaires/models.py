@@ -549,21 +549,8 @@ class MultipleChoiceOption(TimeStampedModel):
         return self.option
 
     def clean(self) -> None:
-        """Ensure that for single-answer questions, only one option can be marked as correct."""
+        """Validate the option."""
         super().clean()
-
-        if self.is_correct and not self.question.allow_multiple_answers:
-            other_correct_options = MultipleChoiceOption.objects.filter(
-                question=self.question, is_correct=True
-            ).exclude(pk=self.pk)
-
-            if other_correct_options.exists():
-                raise exceptions.MultipleCorrectOptionsError(
-                    {
-                        "is_correct": "This question does not allow multiple correct answers. "
-                        "Another option is already marked as correct."
-                    }
-                )
 
 
 # ---- MultipleChoiceAnswer ----
