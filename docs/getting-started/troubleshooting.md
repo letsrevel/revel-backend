@@ -175,6 +175,9 @@ Most external services have safe defaults for local development. Here's what act
 !!! tip "Stripe test mode"
     The default Stripe keys are test keys (prefixed `sk_test_` / `pk_test_`). These are safe for development; no real charges are made.
 
+!!! danger "Stripe webhook: own events vs. connected accounts"
+    A Stripe webhook can listen to events on the platform's own account **or** on connected accounts, but not both. If the platform host also operates an organization that sells tickets, that organization must use a **different** Stripe account from the platform's `STRIPE_ACCOUNT`. Otherwise, webhook events (e.g., `checkout.session.completed`) won't be delivered. Configure this in the Stripe Dashboard under **Developers > Webhooks**. See [Billing & VAT](../architecture/billing-and-vat.md) for details.
+
 ---
 
 ## Feature Flags

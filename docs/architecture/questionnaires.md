@@ -239,7 +239,9 @@ Questionnaires support configurable retry behavior:
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `max_attempts` | Integer | `0` | Maximum number of submissions allowed. `0` means unlimited |
-| `can_retake_after` | DurationField | `null` | Cooldown period before the user can resubmit |
+| `can_retake_after` | DurationField | `null` | Cooldown period before retake. `null` or zero means immediate retake (no cooldown) |
+
+`max_attempts` alone controls **whether** retakes are possible; `can_retake_after` only controls the **cooldown duration** between attempts. For example, `max_attempts=3` with `can_retake_after=null` allows up to 3 attempts with no waiting period between failures.
 
 ## Evaluation Modes
 

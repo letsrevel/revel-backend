@@ -206,7 +206,7 @@ Checks whether the user has submitted and passed all required admission question
 2. **Pending review**: Submission exists but evaluation is `PENDING_REVIEW` or not yet created. Returns `next_step=WAIT_FOR_QUESTIONNAIRE_EVALUATION` with `questionnaires_pending_review` list. **Skipped for questionnaires with `requires_evaluation=False`.**
 3. **Failed questionnaires**: Evaluation was `REJECTED`. **Skipped for questionnaires with `requires_evaluation=False`.**
     - If max attempts exceeded, returns `questionnaires_failed` list with no `next_step`.
-    - If retake is allowed and cooldown has passed, adds to `questionnaires_missing` for resubmission.
+    - If retake is allowed and cooldown has passed (or `can_retake_after` is `null`/zero for immediate retake), adds to `questionnaires_missing` for resubmission.
     - If retake is allowed but cooldown has not passed, returns `next_step=WAIT_TO_RETAKE_QUESTIONNAIRE` with `retry_on` datetime.
 
 **Questionnaire scoping:**

@@ -2,6 +2,9 @@
 
 This guide documents the primary user flows through the Revel platform, covering both attendee and organizer perspectives.
 
+!!! tip "Comprehensive user journeys"
+    For the full persona-based user journey map (used to drive E2E test cases), see [`USER_JOURNEYS.md`](../../USER_JOURNEYS.md) in the repository root.
+
 ---
 
 ## Account Flows
@@ -235,7 +238,9 @@ flowchart TD
 Organizers can invite users to events in two ways:
 
 - **Direct invitation**: User has an account; invitation is linked immediately
-- **Pending invitation**: User does not have an account; invitation is stored by email and linked upon registration
+- **Pending invitation**: User does not have an account; invitation is stored by email and linked upon registration. A notification email is sent to the pending invitee with event details.
+
+Organizers can set a custom `invitation_message` on the event. This message is rendered into every invitation (direct, token claim, and pending conversion) using safe string interpolation with placeholders: `{user_name}`, `{event_name}`, `{organization_name}`, `{event_date}`. The message is included in invitation emails (HTML and plain text) and Telegram notifications.
 
 ### Building Questionnaires
 

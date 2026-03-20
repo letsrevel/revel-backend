@@ -27,6 +27,9 @@ flowchart TD
     end
 ```
 
+!!! danger "Stripe webhook: own events vs. connected accounts"
+    A Stripe webhook endpoint can listen to **either** events on the platform's own account **or** events on connected accounts — not both simultaneously. This means the platform host's Stripe account (`STRIPE_ACCOUNT`) **must not** also be used as a connected organization account. If the host also runs an organization that sells tickets, that organization must connect a **separate** Stripe account. Otherwise, checkout webhooks (e.g., `checkout.session.completed`) will not be delivered correctly. This is a Stripe-level limitation configured in the Stripe Dashboard under **Developers > Webhooks**.
+
 ## VAT Calculation
 
 VAT is calculated at **purchase time** and persisted on each `Payment` record. This snapshot approach means invoices always reflect the VAT rules that were in effect when each payment was made, even if the organization's VAT status changes later.
@@ -105,7 +108,7 @@ sequenceDiagram
 
 **Key behaviors:**
 
-- `validate_and_update_organization()` auto-fills `vat_country_code` from the VAT ID prefix and `billing_address` from the VIES response (if currently empty)
+- `validate_and_update_organization()` auto-fills `vat_country_code` from the VAT ID prefix, and `billing_name` and `billing_address` from the VIES response (if currently empty)
 - On VIES unavailability, the VAT ID is saved as **pending** and will be validated on the next monthly revalidation cycle
 - VIES addresses containing only `"---"` are ignored
 
@@ -165,7 +168,7 @@ Invoices are rendered as PDFs using WeasyPrint from the template `templates/invo
 
 ### Email Delivery
 
-Each invoice email is dispatched as a separate Celery task (`send_invoice_email_task`) with auto-retry (exponential backoff, max 5 retries). Recipients are the org owner + billing email (or contact email fallback). A BCC goes to the platform's `platform_invoice_bcc_email` if configured.
+Each invoice email is dispatched as a separate Celery task (`send_invoice_email_task`) with auto-retry (exponential backoff, max 5 retries). Recipients are the org owner + billing email (or contact email fallback). A BCC goes to the platform's `platform_invoice_bcc_email` if configured. The email subject and body include the invoice currency for clarity in multi-currency organizations.
 
 ## Organization Billing Fields
 
@@ -179,8 +182,12 @@ The `Organization` model stores:
 | `vat_id_validated` | BooleanField | Whether VIES validation succeeded |
 | `vat_id_validated_at` | DateTimeField | Timestamp of last validation attempt |
 | `vies_request_identifier` | CharField | VIES response identifier for audit trail |
+| `billing_name` | CharField | Legal entity name for invoices (auto-filled from VIES if empty; falls back to org name) |
 | `billing_address` | TextField | Billing address (auto-filled from VIES if empty) |
 | `billing_email` | EmailField | Billing contact (falls back to contact_email for invoices) |
+
+!!! note "Online tier prerequisite"
+    Creating an online (Stripe) ticket tier requires `billing_name`, `vat_country_code`, and `billing_address` to be set on the organization (when platform fees are configured). This ensures invoices can be generated correctly from the first sale.
 
 ### Ticket Tier VAT Override
 
