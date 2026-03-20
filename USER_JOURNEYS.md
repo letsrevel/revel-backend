@@ -250,14 +250,10 @@ Multiple paths:
 - View event details page
 
 ### 5.2 Check Eligibility (Implicit)
-The 11-gate eligibility pipeline runs automatically:
-1. Privileged access (owner/staff always pass)
-2. Blacklist check (hard block or fuzzy → whitelist flow)
-3. Event status (must be OPEN and not ended)
-4. RSVP deadline check (before `rsvp_before` or `effective_apply_deadline`)
-5. Questionnaire gate (all required questionnaires submitted and approved)
-6. Visibility gate (PUBLIC / MEMBERS_ONLY / PRIVATE matching)
+The backend eligibility pipeline runs automatically to decide whether and how the user can respond to the event.
 
+For the authoritative list of gates and their evaluation order, see:
+`docs/architecture/eligibility-pipeline.md`
 User sees one of:
 - "RSVP" buttons (YES / MAYBE / NO)
 - "Complete questionnaire first" prompt
