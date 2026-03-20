@@ -100,16 +100,14 @@ def _validate_admission_resubmission(
         if 0 < questionnaire.max_attempts <= len(existing_submissions):
             raise HttpError(400, str(_("You have reached the maximum number of attempts.")))
 
-        # Check can_retake_after cooldown
-        if questionnaire.can_retake_after is None:
-            raise HttpError(400, str(_("Retakes are not allowed for this questionnaire.")))
+        # Check can_retake_after cooldown (None or zero means immediate retake)
+        if questionnaire.can_retake_after:
+            # submitted_at is guaranteed to be set for READY submissions (see QuestionnaireSubmission.save())
+            retry_on = t.cast("datetime", latest.submission.submitted_at) + questionnaire.can_retake_after
+            if retry_on > timezone.now():
+                raise HttpError(400, str(_("You can retry after %(retry_on)s.") % {"retry_on": retry_on}))
 
-        # submitted_at is guaranteed to be set for READY submissions (see QuestionnaireSubmission.save())
-        retry_on = t.cast("datetime", latest.submission.submitted_at) + questionnaire.can_retake_after
-        if retry_on > timezone.now():
-            raise HttpError(400, str(_("You can retry after %(retry_on)s.") % {"retry_on": retry_on}))
-
-        # Cooldown elapsed and attempts remaining - allow submission
+        # Cooldown elapsed (or no cooldown) and attempts remaining - allow submission
 
 
 @transaction.atomic
