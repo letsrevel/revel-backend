@@ -3,7 +3,7 @@
 This guide documents the primary user flows through the Revel platform, covering both attendee and organizer perspectives.
 
 !!! tip "Comprehensive user journeys"
-    For the full persona-based user journey map (used to drive E2E test cases), see [`USER_JOURNEYS.md`](../../USER_JOURNEYS.md) in the repository root.
+    For the full persona-based user journey map (used to drive E2E test cases), see [`USER_JOURNEYS.md`](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md) in the repository root.
 
 ---
 
