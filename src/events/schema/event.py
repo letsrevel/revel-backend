@@ -109,6 +109,8 @@ class EventDetailSchema(EventBaseSchema):
     address: str | None = None
     location_maps_url: str | None = None
     location_maps_embed: str | None = None
+    check_in_starts_at: AwareDatetime | None = None
+    check_in_ends_at: AwareDatetime | None = None
 
     @staticmethod
     def resolve_address(obj: Event, context: t.Any) -> str | None:
