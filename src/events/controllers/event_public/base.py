@@ -4,6 +4,7 @@ from uuid import UUID
 from django.http import Http404
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
+from ninja_extra.exceptions import NotFound
 
 from common.controllers import UserAwareController
 from events import models
@@ -51,27 +52,30 @@ class EventPublicBaseController(UserAwareController):
     def get_one(self, event_id: UUID) -> models.Event:
         """Wrapper helper."""
         qs = self.get_queryset(include_past=True).with_organization()
-        self._raise_if_token_gone(event_id=event_id)
-        return t.cast(models.Event, self.get_object_or_exception(qs, pk=event_id))
+        try:
+            return t.cast(models.Event, self.get_object_or_exception(qs, pk=event_id))
+        except NotFound:
+            self._raise_if_token_gone(event_id=event_id)
+            raise
 
     def get_one_by_slugs(self, org_slug: str, event_slug: str) -> models.Event:
         """Wrapper helper."""
         qs = self.get_queryset(include_past=True).with_organization()
-        # Resolve slug → event_id so _raise_if_token_gone can scope the 410
-        # to the correct event (same info-leakage guard as the UUID path).
-        # When the slug doesn't match any event, skip the check entirely to
-        # avoid leaking token status for non-existent resources.
-        event_id = (
-            models.Event.objects.filter(slug=event_slug, organization__slug=org_slug)
-            .values_list("id", flat=True)
-            .first()
-        )
-        if event_id is not None:
-            self._raise_if_token_gone(event_id=event_id)
-        return t.cast(
-            models.Event,
-            self.get_object_or_exception(qs, slug=event_slug, organization__slug=org_slug),
-        )
+        try:
+            return t.cast(
+                models.Event,
+                self.get_object_or_exception(qs, slug=event_slug, organization__slug=org_slug),
+            )
+        except NotFound:
+            if self._token_rejection is not None:
+                event_id = (
+                    models.Event.objects.filter(slug=event_slug, organization__slug=org_slug)
+                    .values_list("id", flat=True)
+                    .first()
+                )
+                if event_id is not None:
+                    self._raise_if_token_gone(event_id=event_id)
+            raise
 
     def get_event_token(self) -> models.EventToken | None:
         """Get an event token from X-Event-Token header or et query param (legacy).

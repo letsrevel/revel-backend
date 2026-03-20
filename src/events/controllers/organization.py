@@ -9,6 +9,7 @@ from ninja_extra import (
     api_controller,
     route,
 )
+from ninja_extra.exceptions import NotFound
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
@@ -87,13 +88,14 @@ class OrganizationController(UserAwareController):
     def get_one(self, slug: str) -> models.Organization:
         """Get one organization."""
         qs = self.get_queryset()
-        # Resolve slug → org_id so _raise_if_token_gone can scope the 410.
-        # When the slug doesn't match any org, skip the check entirely to
-        # avoid leaking token status for non-existent resources.
-        org_id = models.Organization.objects.filter(slug=slug).values_list("id", flat=True).first()
-        if org_id is not None:
-            self._raise_if_token_gone(organization_id=org_id)
-        return self.get_object_or_exception(qs, slug=slug)  # type: ignore[no-any-return]
+        try:
+            return self.get_object_or_exception(qs, slug=slug)  # type: ignore[no-any-return]
+        except NotFound:
+            if self._token_rejection is not None:
+                org_id = models.Organization.objects.filter(slug=slug).values_list("id", flat=True).first()
+                if org_id is not None:
+                    self._raise_if_token_gone(organization_id=org_id)
+            raise
 
     @route.get("/", url_name="list_organizations", response=PaginatedResponseSchema[schema.OrganizationInListSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
