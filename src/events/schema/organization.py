@@ -79,8 +79,8 @@ class OrganizationBillingInfoUpdateSchema(Schema):
         t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=2, max_length=2)] | None
     ) = None
     vat_rate: Decimal | None = Field(None, ge=0, le=100)
-    billing_address: str | None = None
-    billing_email: EmailStr | None = None
+    billing_address: str = ""
+    billing_email: str = ""
 
     @model_validator(mode="after")
     def validate_country_code(self) -> "OrganizationBillingInfoUpdateSchema":

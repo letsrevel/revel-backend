@@ -238,6 +238,30 @@ class TestUpdateBillingInfo:
         assert data["billing_address"] == "123 Rue de Rivoli, Paris"
         assert data["billing_email"] == "france@example.com"
 
+    def test_null_billing_address_and_email_returns_422_not_500(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+    ) -> None:
+        """Regression: explicit null for billing_address/billing_email must return 422, not 500.
+
+        The DB columns are NOT NULL (default=''). Previously the schema allowed
+        None which passed through to the ORM and caused a psycopg NotNullViolation.
+        Pydantic now rejects null for these str fields before touching the DB.
+        """
+        url = reverse("api:update_billing_info", kwargs={"slug": organization.slug})
+        payload = {
+            "vat_country_code": "DE",
+            "vat_rate": 0.19,
+            "billing_name": "Oskar Bechtold",
+            "billing_address": None,
+            "billing_email": None,
+        }
+
+        response = organization_owner_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 422
+
     def test_empty_body_returns_unchanged_org(
         self,
         organization_owner_client: Client,
