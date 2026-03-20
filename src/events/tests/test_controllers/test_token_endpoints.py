@@ -1,12 +1,15 @@
 """Tests for token GET endpoints and validation."""
 
+from datetime import timedelta
+
 import orjson
 import pytest
 from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, TicketTier
+from events.models import Event, EventToken, Organization, TicketTier
 from events.service import event_service, organization_service
 
 pytestmark = pytest.mark.django_db
@@ -332,3 +335,112 @@ def test_organization_token_backwards_compatible_with_query_param(
     assert response.status_code == 200
     data = response.json()
     assert data["slug"] == private_org.slug
+
+
+# --- Tests for 410 Gone on expired / used-up tokens ---
+
+
+def test_expired_event_token_returns_410_for_private_event(client: Client, private_event: Event) -> None:
+    """GET /events/{id} with an expired token for that event returns 410 Gone.
+
+    Previously this returned 404 (indistinguishable from 'event does not exist').
+    The 410 lets the frontend show a meaningful message to the user.
+    """
+    # Arrange
+    token = EventToken.objects.create(
+        event=private_event,
+        issuer=private_event.organization.owner,
+        expires_at=timezone.now() - timedelta(hours=1),
+    )
+    url = reverse("api:get_event", kwargs={"event_id": private_event.pk})
+
+    # Act
+    response = client.get(url, HTTP_X_EVENT_TOKEN=token.pk)
+
+    # Assert
+    assert response.status_code == 410
+    assert "expired" in response.json()["detail"].lower()
+
+
+def test_used_up_event_token_returns_410_for_private_event(client: Client, private_event: Event) -> None:
+    """GET /events/{id} with a fully-used token for that event returns 410 Gone.
+
+    The response message should mention that the link has reached its maximum
+    number of uses.
+    """
+    # Arrange
+    token = EventToken.objects.create(
+        event=private_event,
+        issuer=private_event.organization.owner,
+        expires_at=timezone.now() + timedelta(hours=1),
+        max_uses=3,
+        uses=3,
+    )
+    url = reverse("api:get_event", kwargs={"event_id": private_event.pk})
+
+    # Act
+    response = client.get(url, HTTP_X_EVENT_TOKEN=token.pk)
+
+    # Assert
+    assert response.status_code == 410
+    assert "maximum number of uses" in response.json()["detail"].lower()
+
+
+def test_expired_token_for_different_event_returns_404(
+    client: Client, private_event: Event, organization: Organization
+) -> None:
+    """GET /events/{id} with an expired token for a *different* event returns 404.
+
+    This is the info-leakage guard: the controller must not reveal the
+    existence of event B just because the user holds a dead token for event A.
+    """
+    # Arrange -- token belongs to a *different* private event
+    other_event = Event.objects.create(
+        organization=organization,
+        name="Other Private Event",
+        slug="other-private-event",
+        visibility=Event.Visibility.PRIVATE,
+        event_type=Event.EventType.PRIVATE,
+        status="open",
+        start=timezone.now() + timedelta(days=7),
+    )
+    token = EventToken.objects.create(
+        event=other_event,
+        issuer=organization.owner,
+        expires_at=timezone.now() - timedelta(hours=1),
+    )
+    url = reverse("api:get_event", kwargs={"event_id": private_event.pk})
+
+    # Act
+    response = client.get(url, HTTP_X_EVENT_TOKEN=token.pk)
+
+    # Assert -- must be 404, not 410
+    assert response.status_code == 404
+
+
+def test_expired_event_token_returns_410_via_slug_endpoint(client: Client, private_event: Event) -> None:
+    """GET /events/{org_slug}/event/{event_slug} with an expired token returns 410.
+
+    Ensures the slug-based lookup path has the same 410 behaviour as the
+    UUID-based path.
+    """
+    # Arrange
+    token = EventToken.objects.create(
+        event=private_event,
+        issuer=private_event.organization.owner,
+        expires_at=timezone.now() - timedelta(hours=1),
+    )
+    url = reverse(
+        "api:get_event_by_slug",
+        kwargs={
+            "org_slug": private_event.organization.slug,
+            "event_slug": private_event.slug,
+        },
+    )
+
+    # Act
+    response = client.get(url, HTTP_X_EVENT_TOKEN=token.pk)
+
+    # Assert
+    assert response.status_code == 410
+    assert "expired" in response.json()["detail"].lower()

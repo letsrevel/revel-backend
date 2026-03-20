@@ -52,20 +52,54 @@ def create_event_token(
     )
 
 
+class TokenRejection(t.NamedTuple):
+    """Why a token was rejected, plus the event it belongs to."""
+
+    reason: t.Literal["expired", "used_up"]
+    event_id: UUID
+
+
 def get_event_token(token: str) -> EventToken | None:
     """Retrieve an EventToken by its ID.
 
+    Returns the token only if it is still valid: not expired and not
+    exhausted (``uses < max_uses``, or ``max_uses == 0`` for unlimited).
+
     Args:
-        token: The token ID (UUID as string).
+        token: The token ID string.
 
     Returns:
-        The EventToken if found and not expired, None otherwise.
+        The EventToken if found and still valid, None otherwise.
     """
     return (
         EventToken.objects.select_related("event")
-        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()), pk=token)
+        .filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
+            Q(max_uses=0) | Q(uses__lt=F("max_uses")),
+            pk=token,
+        )
         .first()
     )
+
+
+def get_token_rejection_reason(token: str) -> TokenRejection | None:
+    """Diagnose why a token is no longer valid.
+
+    Called only after get_event_token() returned None to distinguish
+    "token doesn't exist" from "token expired / used up".
+
+    Returns:
+        TokenRejection with the reason and event_id, or None if the token
+        simply doesn't exist (genuine 404).
+    """
+    event_token = EventToken.objects.only("expires_at", "uses", "max_uses", "event_id").filter(pk=token).first()
+    if event_token is None:
+        return None
+    if event_token.expires_at and event_token.expires_at <= timezone.now():
+        return TokenRejection(reason="expired", event_id=event_token.event_id)
+    if event_token.max_uses and event_token.uses >= event_token.max_uses:
+        return TokenRejection(reason="used_up", event_id=event_token.event_id)
+    return None
 
 
 @transaction.atomic

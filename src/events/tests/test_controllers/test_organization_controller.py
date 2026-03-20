@@ -1,6 +1,9 @@
+from datetime import timedelta
+
 import pytest
 from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import Organization, OrganizationMember, OrganizationMembershipRequest, OrganizationToken
@@ -330,3 +333,94 @@ class TestCreateOrganization:
 
         # Assert
         assert response.status_code == 422  # Validation error
+
+
+# --- Tests for 410 Gone on expired / used-up organization tokens ---
+
+
+def test_expired_org_token_returns_410_for_private_org(
+    client: Client, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """GET /organizations/{slug} with an expired org token returns 410 Gone.
+
+    Previously this returned 404 (indistinguishable from 'org does not exist').
+    The 410 lets the frontend show a meaningful message to the user.
+    """
+    # Arrange
+    organization.visibility = Organization.Visibility.PRIVATE
+    organization.save()
+    token = OrganizationToken.objects.create(
+        organization=organization,
+        issuer=organization_owner_user,
+        grants_membership=False,
+        expires_at=timezone.now() - timedelta(hours=1),
+    )
+    url = reverse("api:get_organization", kwargs={"slug": organization.slug})
+
+    # Act
+    response = client.get(url, HTTP_X_ORG_TOKEN=token.pk)
+
+    # Assert
+    assert response.status_code == 410
+    assert "expired" in response.json()["detail"].lower()
+
+
+def test_used_up_org_token_returns_410_for_private_org(
+    client: Client, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """GET /organizations/{slug} with a fully-used org token returns 410 Gone.
+
+    The response message should mention that the link has reached its maximum
+    number of uses.
+    """
+    # Arrange
+    organization.visibility = Organization.Visibility.PRIVATE
+    organization.save()
+    token = OrganizationToken.objects.create(
+        organization=organization,
+        issuer=organization_owner_user,
+        grants_membership=False,
+        expires_at=timezone.now() + timedelta(hours=1),
+        max_uses=3,
+        uses=3,
+    )
+    url = reverse("api:get_organization", kwargs={"slug": organization.slug})
+
+    # Act
+    response = client.get(url, HTTP_X_ORG_TOKEN=token.pk)
+
+    # Assert
+    assert response.status_code == 410
+    assert "maximum number of uses" in response.json()["detail"].lower()
+
+
+def test_expired_org_token_for_different_org_returns_404(
+    client: Client, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """GET /organizations/{slug} with an expired token for a *different* org returns 404.
+
+    This is the info-leakage guard: the controller must not reveal the
+    existence of org B just because the user holds a dead token for org A.
+    """
+    # Arrange -- token belongs to a *different* private organization
+    other_org = Organization.objects.create(
+        name="Other Private Org",
+        slug="other-private-org",
+        owner=organization_owner_user,
+        visibility=Organization.Visibility.PRIVATE,
+    )
+    token = OrganizationToken.objects.create(
+        organization=other_org,
+        issuer=organization_owner_user,
+        grants_membership=False,
+        expires_at=timezone.now() - timedelta(hours=1),
+    )
+    organization.visibility = Organization.Visibility.PRIVATE
+    organization.save()
+    url = reverse("api:get_organization", kwargs={"slug": organization.slug})
+
+    # Act
+    response = client.get(url, HTTP_X_ORG_TOKEN=token.pk)
+
+    # Assert -- must be 404, not 410
+    assert response.status_code == 404
