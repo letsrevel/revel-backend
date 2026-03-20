@@ -548,10 +548,6 @@ class MultipleChoiceOption(TimeStampedModel):
     def __str__(self) -> str:
         return self.option
 
-    def clean(self) -> None:
-        """Validate the option."""
-        super().clean()
-
 
 # ---- MultipleChoiceAnswer ----
 

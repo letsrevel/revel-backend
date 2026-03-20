@@ -81,9 +81,7 @@ def test_single_answer_question_allows_multiple_correct_options(
     not how many options the organizer can mark as correct.
     """
     MultipleChoiceOption.objects.create(question=single_answer_mc_question, option="Green", is_correct=True)
-    second_correct_option = MultipleChoiceOption(question=single_answer_mc_question, option="Blue", is_correct=True)
-    second_correct_option.full_clean()
-    second_correct_option.save()
+    MultipleChoiceOption.objects.create(question=single_answer_mc_question, option="Blue", is_correct=True)
     assert single_answer_mc_question.options.filter(is_correct=True).count() == 2
 
 
@@ -93,9 +91,7 @@ def test_multi_answer_question_allows_multiple_correct_options(
 ) -> None:
     """Test that a multi-answer question CAN have multiple correct options."""
     MultipleChoiceOption.objects.create(question=multi_answer_mc_question, option="Green", is_correct=True)
-    second_correct_option = MultipleChoiceOption(question=multi_answer_mc_question, option="Blue", is_correct=True)
-    second_correct_option.full_clean()
-    second_correct_option.save()
+    MultipleChoiceOption.objects.create(question=multi_answer_mc_question, option="Blue", is_correct=True)
     assert multi_answer_mc_question.options.filter(is_correct=True).count() == 2
 
 
