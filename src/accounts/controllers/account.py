@@ -51,6 +51,8 @@ class AccountController(UserAwareController):
         Returns complete user profile including email, name, location preferences, and 2FA status.
         Use this to display user info in the UI or verify authentication status.
         """
+        # referral_code is a OneToOneField; a single lazy load is fine here.
+        # select_related would require re-querying the user we already have from auth.
         return self.user()
 
     @route.put(

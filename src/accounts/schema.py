@@ -12,7 +12,13 @@ from pydantic import UUID4, EmailStr, Field, field_serializer, field_validator, 
 from accounts.password_validation import validate_password
 from common.schema import ProfilePictureSchemaMixin, StrippedString
 
-from .models import DietaryPreference, DietaryRestriction, FoodItem, RevelUser, UserDietaryPreference
+from .models import DietaryPreference, DietaryRestriction, FoodItem, ReferralCode, RevelUser, UserDietaryPreference
+
+
+class ReferralCodeSchema(ModelSchema):
+    class Meta:
+        model = ReferralCode
+        fields = ["code", "is_active"]
 
 
 class RevelUserSchema(ProfilePictureSchemaMixin, ModelSchema):
@@ -28,6 +34,7 @@ class RevelUserSchema(ProfilePictureSchemaMixin, ModelSchema):
     language: str
     display_name: str
     bio: str
+    referral_code: ReferralCodeSchema | None = None
 
     class Meta:
         model = RevelUser
