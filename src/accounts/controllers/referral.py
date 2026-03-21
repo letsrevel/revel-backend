@@ -1,5 +1,6 @@
 """Controller for referral code validation."""
 
+from django.utils.translation import gettext_lazy as _
 from ninja import Query, Schema
 from ninja.errors import HttpError
 from ninja_extra import ControllerBase, api_controller, route
@@ -25,5 +26,5 @@ class ReferralController(ControllerBase):
         No referrer identity is leaked.
         """
         if not ReferralCode.objects.filter(code=code.upper(), is_active=True).exists():
-            raise HttpError(404, "Invalid or inactive referral code.")
+            raise HttpError(404, str(_("Invalid or inactive referral code.")))
         return ReferralValidationResponse()

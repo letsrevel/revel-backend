@@ -62,18 +62,6 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
     logger.info("user_registration_started", email=payload.email)
     if is_email_globally_banned(payload.email):
         raise HttpError(403, str(BAN_ERROR_MESSAGE))
-
-    # Validate referral code early, before creating the user
-    referral_code_obj: ReferralCode | None = None
-    if payload.referral_code:
-        referral_code_obj = (
-            ReferralCode.objects.filter(code=payload.referral_code.upper(), is_active=True)
-            .select_related("user")
-            .first()
-        )
-        if not referral_code_obj:
-            raise HttpError(422, str(_("Invalid or inactive referral code.")))
-
     if existing_user := RevelUser.objects.select_for_update().filter(username=payload.email).first():
         if existing_user.guest:
             _send_activation_email_for_guest(existing_user)
@@ -82,6 +70,16 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
             send_verification_email_for_user(existing_user)
         logger.warning("user_registration_duplicate", email=payload.email)
         raise HttpError(400, str(_("A user with this email already exists.")))
+
+    # Validate referral code after existing-user check but before creating the user
+    referral_code_obj: ReferralCode | None = None
+    if payload.referral_code:
+        referral_code_obj = ReferralCode.objects.filter(
+            code=payload.referral_code.upper(), is_active=True
+        ).first()
+        if not referral_code_obj:
+            raise HttpError(422, str(_("Invalid or inactive referral code.")))
+
     new_user = RevelUser.objects.create_user(
         username=payload.email,
         email=payload.email,
@@ -94,9 +92,7 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
     if referral_code_obj:
         Referral.objects.create(
             referral_code=referral_code_obj,
-            referrer=referral_code_obj.user,
             referred_user=new_user,
-            revenue_share_percent=settings.DEFAULT_REFERRAL_SHARE_PERCENT,
         )
         logger.info(
             "referral_created",
