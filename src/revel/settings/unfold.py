@@ -73,6 +73,11 @@ UNFOLD = {
                         "icon": "share",
                         "link": reverse_lazy("admin:accounts_referral_changelist"),
                     },
+                    {
+                        "title": _("Referral Payouts"),
+                        "icon": "payments",
+                        "link": reverse_lazy("admin:accounts_referralpayout_changelist"),
+                    },
                 ],
             },
             {

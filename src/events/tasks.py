@@ -415,3 +415,31 @@ def send_organization_contact_email_verification(
     )
     send_email(to=email, subject=subject, body=body, html_body=html_body)
     logger.info("organization_contact_email_verification_sent", email=email)
+
+
+@shared_task(name="events.calculate_referral_payouts")
+def calculate_referral_payouts() -> dict[str, int]:
+    """Calculate referral earnings for the previous calendar month.
+
+    Runs on the 1st of each month via Celery beat. For each active Referral,
+    aggregates platform fees from the referred user's organizations and creates
+    a ReferralPayout record. Idempotent — safe to re-run.
+    """
+    import calendar
+    import datetime
+
+    today = datetime.date.today()
+    # Previous month
+    if today.month == 1:
+        year, month = today.year - 1, 12
+    else:
+        year, month = today.year, today.month - 1
+
+    period_start = datetime.date(year, month, 1)
+    period_end = datetime.date(year, month, calendar.monthrange(year, month)[1])
+
+    from events.service.referral_payout_service import calculate_payouts_for_period
+
+    result = calculate_payouts_for_period(period_start, period_end)
+    logger.info("referral_payouts_calculated", period=str(period_start), **result)
+    return result

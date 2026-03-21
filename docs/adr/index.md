@@ -48,6 +48,7 @@ What becomes easier or harder because of this change?
 | [ADR-0006](0006-mo-files-in-git.md) | Compiled Translation Files (.mo) in Git | Accepted |
 | [ADR-0007](0007-celery-exception-propagation.md) | Let Celery Exceptions Propagate | Accepted |
 | [ADR-0008](0008-environment-feature-flags.md) | Environment-Based Feature Flags | Accepted |
+| [ADR-0009](0009-referral-payout-bounded-contexts.md) | Referral Payout Bounded Contexts | Accepted |
 
 ---
 
