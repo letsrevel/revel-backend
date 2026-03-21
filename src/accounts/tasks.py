@@ -20,7 +20,6 @@ from accounts.service import gdpr
 from common.models import SiteSettings
 from common.signing import generate_signed_url
 from common.tasks import send_email
-from events.models import EventToken
 
 # 7 days in seconds for data export download links
 DATA_EXPORT_URL_EXPIRES_IN = 7 * 24 * 60 * 60
@@ -100,8 +99,7 @@ def flush_expired_tokens() -> None:
 
     # Delete expired tokens
     jwt_deleted, _ = OutstandingToken.objects.filter(expires_at__lte=current_time).delete()
-    event_deleted, _ = EventToken.objects.filter(expires_at__lte=current_time).delete()
-    logger.info("token_cleanup_completed", jwt_tokens_deleted=jwt_deleted, event_tokens_deleted=event_deleted)
+    logger.info("token_cleanup_completed", jwt_tokens_deleted=jwt_deleted)
 
 
 @shared_task
