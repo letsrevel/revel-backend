@@ -421,9 +421,7 @@ class TestRegisterWithReferralCode:
         return ReferralCode.objects.create(user=referrer, code="TESTCODE")
 
     @patch("accounts.tasks.send_verification_email.delay")
-    def test_register_with_valid_referral_code(
-        self, mock_send_email: MagicMock, active_code: ReferralCode
-    ) -> None:
+    def test_register_with_valid_referral_code(self, mock_send_email: MagicMock, active_code: ReferralCode) -> None:
         """Test that a valid referral code creates a Referral record."""
         payload = schema.RegisterUserSchema(
             email="referred@example.com",
