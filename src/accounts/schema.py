@@ -137,6 +137,7 @@ class RegisterUserSchema(PasswordMixin):
     email: EmailStr
     first_name: StrippedString = ""
     last_name: StrippedString = ""
+    referral_code: str | None = None
     accept_toc_and_privacy: bool = Field(..., description="Must accept terms of service and privacy policy")
 
     @field_validator("email")

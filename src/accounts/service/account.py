@@ -16,7 +16,7 @@ from ninja.errors import HttpError
 from accounts import schema, tasks
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import check_blacklist, create_token
-from accounts.models import RevelUser
+from accounts.models import Referral, ReferralCode, RevelUser
 from accounts.password_validation import validate_password
 from common.testing import (
     TOKEN_TYPE_DELETION,
@@ -62,6 +62,18 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
     logger.info("user_registration_started", email=payload.email)
     if is_email_globally_banned(payload.email):
         raise HttpError(403, str(BAN_ERROR_MESSAGE))
+
+    # Validate referral code early, before creating the user
+    referral_code_obj: ReferralCode | None = None
+    if payload.referral_code:
+        referral_code_obj = (
+            ReferralCode.objects.filter(code=payload.referral_code.upper(), is_active=True)
+            .select_related("user")
+            .first()
+        )
+        if not referral_code_obj:
+            raise HttpError(422, str(_("Invalid or inactive referral code.")))
+
     if existing_user := RevelUser.objects.select_for_update().filter(username=payload.email).first():
         if existing_user.guest:
             _send_activation_email_for_guest(existing_user)
@@ -78,6 +90,21 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
         last_name=payload.last_name,
         is_active=True,  # we use email verification
     )
+
+    if referral_code_obj:
+        Referral.objects.create(
+            referral_code=referral_code_obj,
+            referrer=referral_code_obj.user,
+            referred_user=new_user,
+            revenue_share_percent=settings.DEFAULT_REFERRAL_SHARE_PERCENT,
+        )
+        logger.info(
+            "referral_created",
+            user_id=str(new_user.id),
+            referrer_id=str(referral_code_obj.user_id),
+            code=referral_code_obj.code,
+        )
+
     logger.info("user_registration_completed", user_id=str(new_user.id), email=new_user.email)
     return send_verification_email_for_user(new_user)
 

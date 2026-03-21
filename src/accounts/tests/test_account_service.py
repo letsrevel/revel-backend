@@ -1,5 +1,6 @@
 # src/accounts/tests/test_account_service.py
 
+import typing as t
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -9,7 +10,7 @@ from ninja.errors import HttpError
 
 from accounts import schema
 from accounts.jwt import create_token
-from accounts.models import RevelUser
+from accounts.models import Referral, ReferralCode, RevelUser
 from accounts.service import account as account_service
 
 pytestmark = pytest.mark.django_db
@@ -402,3 +403,103 @@ def test_full_guest_to_full_user_lifecycle(mock_activation: MagicMock, guest_use
     assert converted_user.email_verified is True
     assert converted_user.check_password("a-Strong-password-123!")
     assert RevelUser.objects.count() == 1
+
+
+class TestRegisterWithReferralCode:
+    """Tests for referral code handling during registration."""
+
+    @pytest.fixture
+    def referrer(self, django_user_model: t.Type[RevelUser]) -> RevelUser:
+        return django_user_model.objects.create_user(
+            username="referrer@example.com",
+            email="referrer@example.com",
+            password="strong-password-123!",
+        )
+
+    @pytest.fixture
+    def active_code(self, referrer: RevelUser) -> ReferralCode:
+        return ReferralCode.objects.create(user=referrer, code="TESTCODE")
+
+    @patch("accounts.tasks.send_verification_email.delay")
+    def test_register_with_valid_referral_code(
+        self, mock_send_email: MagicMock, active_code: ReferralCode
+    ) -> None:
+        """Test that a valid referral code creates a Referral record."""
+        payload = schema.RegisterUserSchema(
+            email="referred@example.com",
+            password1="a-Strong-password-123!",
+            password2="a-Strong-password-123!",
+            referral_code="TESTCODE",
+            accept_toc_and_privacy=True,
+        )
+
+        user, _ = account_service.register_user(payload)
+
+        referral = Referral.objects.get(referred_user=user)
+        assert referral.referral_code == active_code
+        assert referral.referrer == active_code.user
+        assert referral.revenue_share_percent == settings.DEFAULT_REFERRAL_SHARE_PERCENT
+
+    @patch("accounts.tasks.send_verification_email.delay")
+    def test_register_with_case_insensitive_referral_code(
+        self, mock_send_email: MagicMock, active_code: ReferralCode
+    ) -> None:
+        """Test that referral code lookup is case-insensitive."""
+        payload = schema.RegisterUserSchema(
+            email="referred@example.com",
+            password1="a-Strong-password-123!",
+            password2="a-Strong-password-123!",
+            referral_code="testcode",
+            accept_toc_and_privacy=True,
+        )
+
+        user, _ = account_service.register_user(payload)
+
+        assert Referral.objects.filter(referred_user=user, referral_code=active_code).exists()
+
+    def test_register_with_invalid_referral_code_fails(self) -> None:
+        """Test that an invalid referral code raises 422."""
+        payload = schema.RegisterUserSchema(
+            email="referred@example.com",
+            password1="a-Strong-password-123!",
+            password2="a-Strong-password-123!",
+            referral_code="NOSUCHCODE",
+            accept_toc_and_privacy=True,
+        )
+
+        with pytest.raises(HttpError, match="Invalid or inactive referral code."):
+            account_service.register_user(payload)
+
+        assert RevelUser.objects.filter(email="referred@example.com").count() == 0
+        assert Referral.objects.count() == 0
+
+    def test_register_with_inactive_referral_code_fails(self, referrer: RevelUser) -> None:
+        """Test that an inactive referral code raises 422."""
+        ReferralCode.objects.create(user=referrer, code="DISABLED", is_active=False)
+
+        payload = schema.RegisterUserSchema(
+            email="referred@example.com",
+            password1="a-Strong-password-123!",
+            password2="a-Strong-password-123!",
+            referral_code="DISABLED",
+            accept_toc_and_privacy=True,
+        )
+
+        with pytest.raises(HttpError, match="Invalid or inactive referral code."):
+            account_service.register_user(payload)
+
+        assert RevelUser.objects.filter(email="referred@example.com").count() == 0
+
+    @patch("accounts.tasks.send_verification_email.delay")
+    def test_register_without_referral_code(self, mock_send_email: MagicMock) -> None:
+        """Test that registration without a referral code creates no Referral."""
+        payload = schema.RegisterUserSchema(
+            email="noreferral@example.com",
+            password1="a-Strong-password-123!",
+            password2="a-Strong-password-123!",
+            accept_toc_and_privacy=True,
+        )
+
+        user, _ = account_service.register_user(payload)
+
+        assert not Referral.objects.filter(referred_user=user).exists()
