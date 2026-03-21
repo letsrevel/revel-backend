@@ -10,7 +10,7 @@ from django.test.client import Client
 from ninja_jwt.schema import TokenObtainPairOutputSchema
 
 from accounts import schema
-from accounts.models import RevelUser
+from accounts.models import ReferralCode, RevelUser
 
 pytestmark = pytest.mark.django_db
 
@@ -232,3 +232,36 @@ def test_update_language_unauthenticated(client: Client) -> None:
     response = client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 401
+
+
+def test_me_without_referral_code(auth_client: Client) -> None:
+    """Test /me returns null referral_code when user has none."""
+    url = reverse("api:me")
+    response = auth_client.get(url)
+
+    assert response.status_code == 200
+    assert response.json()["referral_code"] is None
+
+
+def test_me_with_active_referral_code(auth_client: Client, user: RevelUser) -> None:
+    """Test /me returns referral_code object when user has an active code."""
+    ReferralCode.objects.create(user=user, code="TESTCODE")
+
+    url = reverse("api:me")
+    response = auth_client.get(url)
+
+    assert response.status_code == 200
+    rc = response.json()["referral_code"]
+    assert rc == {"code": "TESTCODE", "is_active": True}
+
+
+def test_me_with_inactive_referral_code(auth_client: Client, user: RevelUser) -> None:
+    """Test /me returns referral_code with is_active=false when code is deactivated."""
+    ReferralCode.objects.create(user=user, code="DISABLED", is_active=False)
+
+    url = reverse("api:me")
+    response = auth_client.get(url)
+
+    assert response.status_code == 200
+    rc = response.json()["referral_code"]
+    assert rc == {"code": "DISABLED", "is_active": False}
