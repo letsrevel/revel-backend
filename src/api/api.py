@@ -7,6 +7,7 @@ from accounts.controllers.account import AccountController
 from accounts.controllers.auth import AuthController
 from accounts.controllers.dietary import DietaryController
 from accounts.controllers.otp import OtpController
+from accounts.controllers.referral import ReferralController
 from common.controllers import MediaValidationController, TagController
 from common.models import Legal, SiteSettings
 from common.schema import BannerSchema, LegalSchema, ResponseOk, VersionResponse
@@ -122,6 +123,7 @@ api.register_controllers(
     OtpController,
     AccountController,
     DietaryController,
+    ReferralController,
     # Event controllers
     DashboardController,
     OrganizationController,

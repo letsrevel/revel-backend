@@ -16,7 +16,7 @@ from ninja.errors import HttpError
 from accounts import schema, tasks
 from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import check_blacklist, create_token
-from accounts.models import RevelUser
+from accounts.models import Referral, ReferralCode, RevelUser
 from accounts.password_validation import validate_password
 from common.testing import (
     TOKEN_TYPE_DELETION,
@@ -70,6 +70,14 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
             send_verification_email_for_user(existing_user)
         logger.warning("user_registration_duplicate", email=payload.email)
         raise HttpError(400, str(_("A user with this email already exists.")))
+
+    # Validate referral code after existing-user check but before creating the user
+    referral_code_obj: ReferralCode | None = None
+    if payload.referral_code is not None:
+        referral_code_obj = ReferralCode.objects.filter(code=payload.referral_code.upper(), is_active=True).first()
+        if not referral_code_obj:
+            raise HttpError(422, str(_("Invalid or inactive referral code.")))
+
     new_user = RevelUser.objects.create_user(
         username=payload.email,
         email=payload.email,
@@ -78,6 +86,19 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
         last_name=payload.last_name,
         is_active=True,  # we use email verification
     )
+
+    if referral_code_obj:
+        Referral.objects.create(
+            referral_code=referral_code_obj,
+            referred_user=new_user,
+        )
+        logger.info(
+            "referral_created",
+            user_id=str(new_user.id),
+            referrer_id=str(referral_code_obj.user_id),
+            code=referral_code_obj.code,
+        )
+
     logger.info("user_registration_completed", user_id=str(new_user.id), email=new_user.email)
     return send_verification_email_for_user(new_user)
 
