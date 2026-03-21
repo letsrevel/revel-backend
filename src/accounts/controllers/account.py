@@ -51,7 +51,7 @@ class AccountController(UserAwareController):
         Returns complete user profile including email, name, location preferences, and 2FA status.
         Use this to display user info in the UI or verify authentication status.
         """
-        return self.user()
+        return RevelUser.objects.select_related("referral_code").get(pk=self.user().pk)
 
     @route.put(
         "/me",

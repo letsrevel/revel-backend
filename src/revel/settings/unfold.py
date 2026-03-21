@@ -63,6 +63,16 @@ UNFOLD = {
                         "icon": "gavel",
                         "link": reverse_lazy("admin:accounts_globalban_changelist"),
                     },
+                    {
+                        "title": _("Referral Codes"),
+                        "icon": "loyalty",
+                        "link": reverse_lazy("admin:accounts_referralcode_changelist"),
+                    },
+                    {
+                        "title": _("Referrals"),
+                        "icon": "share",
+                        "link": reverse_lazy("admin:accounts_referral_changelist"),
+                    },
                 ],
             },
             {
