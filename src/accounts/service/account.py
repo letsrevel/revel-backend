@@ -73,10 +73,8 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
 
     # Validate referral code after existing-user check but before creating the user
     referral_code_obj: ReferralCode | None = None
-    if payload.referral_code:
-        referral_code_obj = ReferralCode.objects.filter(
-            code=payload.referral_code.upper(), is_active=True
-        ).first()
+    if payload.referral_code is not None:
+        referral_code_obj = ReferralCode.objects.filter(code=payload.referral_code.upper(), is_active=True).first()
         if not referral_code_obj:
             raise HttpError(422, str(_("Invalid or inactive referral code.")))
 

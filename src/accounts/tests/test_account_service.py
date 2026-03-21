@@ -501,3 +501,18 @@ class TestRegisterWithReferralCode:
         user, _ = account_service.register_user(payload)
 
         assert not Referral.objects.filter(referred_user=user).exists()
+
+    def test_register_with_empty_referral_code_fails(self) -> None:
+        """Test that an explicitly provided empty referral code raises 422."""
+        payload = schema.RegisterUserSchema(
+            email="referred@example.com",
+            password1="a-Strong-password-123!",
+            password2="a-Strong-password-123!",
+            referral_code="",
+            accept_toc_and_privacy=True,
+        )
+
+        with pytest.raises(HttpError, match="Invalid or inactive referral code."):
+            account_service.register_user(payload)
+
+        assert RevelUser.objects.filter(email="referred@example.com").count() == 0
