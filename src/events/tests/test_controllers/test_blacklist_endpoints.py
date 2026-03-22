@@ -13,8 +13,8 @@ from unittest.mock import patch
 
 import orjson
 import pytest
-from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.urls import reverse
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser

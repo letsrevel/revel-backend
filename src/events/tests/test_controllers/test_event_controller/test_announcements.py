@@ -7,8 +7,8 @@ which allows authenticated users to view announcements for events they attend.
 from datetime import timedelta
 
 import pytest
-from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.urls import reverse
 from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 

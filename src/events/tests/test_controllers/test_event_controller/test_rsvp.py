@@ -1,8 +1,8 @@
 """Tests for POST /events/{event_id}/rsvp/{answer} endpoint."""
 
 import pytest
-from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.urls import reverse
 
 from events.models import (
     Event,

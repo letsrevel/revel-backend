@@ -41,6 +41,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     autocomplete_fields = ["organization", "event_series", "city", "venue"]
     prepopulated_fields = {"slug": ("name",)}
     date_hierarchy = "start"
+    ordering = ["-start"]
 
     tabs = [
         ("Details", ["Details"]),

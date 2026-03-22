@@ -8,8 +8,8 @@ import jwt
 import orjson
 import pytest
 from django.conf import settings
-from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.urls import reverse
 
 from accounts.models import RevelUser
 from accounts.service.impersonation import create_impersonation_request
