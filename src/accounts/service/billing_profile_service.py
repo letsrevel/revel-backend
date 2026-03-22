@@ -27,8 +27,6 @@ def create_billing_profile(user: "RevelUser", data: dict[str, t.Any]) -> "UserBi
     """Create a billing profile for a user. Raises HttpError 409 if one already exists."""
     from accounts.models import UserBillingProfile
 
-    if data.get("billing_email") is None:
-        data["billing_email"] = ""
     profile, created = get_or_create_with_race_protection(
         UserBillingProfile,
         Q(user=user),

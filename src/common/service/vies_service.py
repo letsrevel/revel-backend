@@ -62,6 +62,7 @@ class HasBillingFields(t.Protocol):
     vies_request_identifier: str
     billing_name: str
     billing_address: str
+    billing_email: str
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
         """Persist the entity."""
