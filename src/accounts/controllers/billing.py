@@ -120,10 +120,22 @@ class UserBillingController(UserAwareController):
         try:
             result = validate_and_update_billing_profile(profile)
             if not result.valid:
-                # Rollback: clear the invalid VAT ID
+                # Rollback: clear the invalid VAT ID and stale validation metadata
                 profile.vat_id = ""
                 profile.vat_country_code = ""
-                profile.save(update_fields=["vat_id", "vat_country_code", "updated_at"])
+                profile.vat_id_validated = False
+                profile.vat_id_validated_at = None
+                profile.vies_request_identifier = ""
+                profile.save(
+                    update_fields=[
+                        "vat_id",
+                        "vat_country_code",
+                        "vat_id_validated",
+                        "vat_id_validated_at",
+                        "vies_request_identifier",
+                        "updated_at",
+                    ]
+                )
                 raise HttpError(400, str(_("The VAT ID is not valid according to VIES.")))
         except VIESUnavailableError:
             logger.warning("vies_unavailable_user", user_id=str(profile.user_id))

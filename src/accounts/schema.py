@@ -426,7 +426,7 @@ class UserVATIdUpdateSchema(Schema):
     vat_id: t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True)]
 
     @model_validator(mode="after")
-    def validate_vat_id_format(self) -> "UserVATIdUpdateSchema":
+    def validate_vat_id_format(self) -> t.Self:
         """Validate VAT ID format and country prefix."""
         import re
 

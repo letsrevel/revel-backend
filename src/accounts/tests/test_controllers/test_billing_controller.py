@@ -259,6 +259,9 @@ class TestSetVATId:
         billing_profile.refresh_from_db()
         assert billing_profile.vat_id == ""
         assert billing_profile.vat_country_code == ""
+        assert billing_profile.vat_id_validated is False
+        assert billing_profile.vat_id_validated_at is None
+        assert billing_profile.vies_request_identifier == ""
 
     @patch("accounts.controllers.billing.validate_and_update_billing_profile")
     def test_invalid_vat_id_returns_400(
