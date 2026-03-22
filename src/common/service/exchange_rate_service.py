@@ -129,3 +129,39 @@ def convert(
 
     rate = get_rate(from_currency, to_currency, date)
     return (amount * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def convert_using_rates(
+    amount: Decimal,
+    from_currency: str,
+    to_currency: str,
+    rates: dict[str, float],
+    base: str | None = None,
+) -> Decimal:
+    """Convert an amount using a pre-fetched rates dict (no DB query).
+
+    Useful in loops where the same exchange rates are reused for many conversions.
+
+    Args:
+        amount: The amount to convert.
+        from_currency: Source currency code.
+        to_currency: Target currency code.
+        rates: Mapping of currency code → rate relative to base.
+        base: The base currency of the rates dict (defaults to DEFAULT_CURRENCY).
+
+    Returns:
+        The converted amount, rounded to 2 decimal places.
+    """
+    if from_currency == to_currency:
+        return amount
+
+    base = base or settings.DEFAULT_CURRENCY
+
+    if from_currency == base:
+        rate = Decimal(str(rates[to_currency]))
+    elif to_currency == base:
+        rate = Decimal("1") / Decimal(str(rates[from_currency]))
+    else:
+        rate = Decimal(str(rates[to_currency])) / Decimal(str(rates[from_currency]))
+
+    return (amount * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

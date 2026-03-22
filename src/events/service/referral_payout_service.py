@@ -16,7 +16,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from accounts.models import Referral, ReferralPayout
-from common.service.exchange_rate_service import convert as convert_currency
+from common.service.exchange_rate_service import convert_using_rates, get_latest_rates
 from events.models import Payment
 
 logger = structlog.get_logger(__name__)
@@ -59,6 +59,10 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
         datetime.datetime.combine(period_end + datetime.timedelta(days=1), datetime.time.min)
     )
 
+    # Pre-fetch exchange rates once for the entire run (avoids N*M DB queries in the loop)
+    exchange_rate = get_latest_rates()
+    rates = exchange_rate.rates
+
     # We iterate all Referral records, not just those with an active ReferralCode.
     # Code deactivation prevents new sign-ups but existing referrals still earn payouts.
     for referral in Referral.objects.select_related("referred_user").iterator():
@@ -81,7 +85,7 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
         for entry in fee_by_currency:
             amount = entry["total"] or Decimal("0")
             if amount:
-                net_fees += convert_currency(amount, entry["currency"], platform_currency, date=period_end)
+                net_fees += convert_using_rates(amount, entry["currency"], platform_currency, rates)
 
         if not net_fees:
             logger.debug(
