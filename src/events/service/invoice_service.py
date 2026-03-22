@@ -5,7 +5,7 @@ and handles invoice numbering and delivery.
 """
 
 import typing as t
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from io import BytesIO
 
@@ -168,8 +168,6 @@ def generate_invoices_for_period(
 
     # Use timezone-aware datetime boundaries so the created_at index is used
     # (created_at__date__gte forces a DATE() cast in SQL, bypassing the index)
-    from datetime import datetime, time
-
     period_start_dt = timezone.make_aware(datetime.combine(period_start, time.min))
     period_end_dt = timezone.make_aware(datetime.combine(period_end + timedelta(days=1), time.min))
 

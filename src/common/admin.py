@@ -228,3 +228,6 @@ class ExchangeRateAdmin(ModelAdmin):  # type: ignore[misc]
 
     def has_change_permission(self, request: t.Any, obj: t.Any = None) -> bool:
         return False
+
+    def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        return False

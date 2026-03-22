@@ -43,9 +43,9 @@ def fetch_and_store_rates(base: str | None = None, date: datetime.date | None = 
         defaults={"rates": data["rates"]},
     )
 
-    action = "fetched" if created else "updated"
     logger.info(
-        f"exchange_rates_{action}",
+        "exchange_rates_stored",
+        action="fetched" if created else "updated",
         base=base,
         date=str(rate_date),
         currencies=len(data["rates"]),

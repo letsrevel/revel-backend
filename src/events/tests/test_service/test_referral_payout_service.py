@@ -86,6 +86,7 @@ def _create_payment(
     platform_fee_net: Decimal | None = None,
     status: str = Payment.PaymentStatus.SUCCEEDED,
     created_at: datetime.datetime | None = None,
+    currency: str | None = None,
 ) -> Payment:
     ticket = Ticket.objects.create(
         event=tier.event,
@@ -102,6 +103,7 @@ def _create_payment(
         amount=tier.price,
         platform_fee=platform_fee,
         platform_fee_net=platform_fee_net,
+        currency=currency or tier.currency,
     )
     if created_at:
         Payment.objects.filter(pk=payment.pk).update(created_at=created_at)
