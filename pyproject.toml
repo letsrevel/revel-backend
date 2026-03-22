@@ -64,6 +64,7 @@ dependencies = [
     "prometheus-client>=0.24.0",
     "psycopg[binary]>=3.3.2",
     "pyclamd>=0.4.0",
+    "pycountry>=26.2.16",
     "pydantic[email]>=2.12.5",
     "pyotp>=2.9.0",
     "python-decouple>=3.8",

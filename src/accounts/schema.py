@@ -10,6 +10,7 @@ from ninja_jwt.schema import TokenObtainPairOutputSchema
 from pydantic import UUID4, EmailStr, Field, StringConstraints, field_serializer, field_validator, model_validator
 
 from accounts.password_validation import validate_password
+from common.constants import is_valid_country_code
 from common.schema import ProfilePictureSchemaMixin, StrippedString
 
 from .models import (
@@ -410,6 +411,14 @@ class UserBillingProfileCreateSchema(Schema):
         default=None, description="Billing email; leave blank to use the account email for billing"
     )
 
+    @field_validator("billing_country")
+    @classmethod
+    def validate_billing_country(cls, v: str) -> str:
+        """Validate billing_country is a valid ISO 3166-1 alpha-2 code (or empty)."""
+        if v and not is_valid_country_code(v):
+            raise ValueError(f"Invalid ISO 3166-1 alpha-2 country code: {v}")
+        return v.upper() if v else v
+
 
 class UserBillingProfileUpdateSchema(Schema):
     """Schema for updating a user billing profile."""
@@ -418,6 +427,14 @@ class UserBillingProfileUpdateSchema(Schema):
     billing_address: str | None = Field(None, description="Billing address")
     billing_country: str | None = Field(None, max_length=2, description="ISO 3166-1 alpha-2 country code")
     billing_email: EmailStr | None = Field(None, description="Billing email")
+
+    @field_validator("billing_country")
+    @classmethod
+    def validate_billing_country(cls, v: str | None) -> str | None:
+        """Validate billing_country is a valid ISO 3166-1 alpha-2 code if provided."""
+        if v is not None and v and not is_valid_country_code(v):
+            raise ValueError(f"Invalid ISO 3166-1 alpha-2 country code: {v}")
+        return v.upper() if v else v
 
 
 class UserVATIdUpdateSchema(Schema):

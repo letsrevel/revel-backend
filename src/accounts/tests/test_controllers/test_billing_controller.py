@@ -122,6 +122,41 @@ class TestCreateBillingProfile:
 
         assert response.status_code == 422
 
+    def test_rejects_invalid_country_code(self, auth_client: Client) -> None:
+        """Invalid ISO 3166-1 alpha-2 country code is rejected."""
+        url = reverse("api:create_billing_profile")
+        response = auth_client.post(
+            url,
+            data=orjson.dumps({"billing_name": "Test", "billing_country": "XX"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 422
+
+    def test_accepts_non_eu_country_code(self, auth_client: Client) -> None:
+        """Non-EU country codes like US are accepted."""
+        url = reverse("api:create_billing_profile")
+        response = auth_client.post(
+            url,
+            data=orjson.dumps({"billing_name": "Test", "billing_country": "US"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201
+        assert response.json()["billing_country"] == "US"
+
+    def test_normalizes_country_code_to_uppercase(self, auth_client: Client) -> None:
+        """Lowercase country codes are normalized to uppercase."""
+        url = reverse("api:create_billing_profile")
+        response = auth_client.post(
+            url,
+            data=orjson.dumps({"billing_name": "Test", "billing_country": "us"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 201
+        assert response.json()["billing_country"] == "US"
+
     def test_unauthenticated_returns_401(self, client: Client) -> None:
         """Unauthenticated request returns 401."""
         url = reverse("api:create_billing_profile")
@@ -200,6 +235,17 @@ class TestUpdateBillingProfile:
         data = response.json()
         assert data["billing_name"] == "Test User"  # unchanged, null ignored
         assert data["billing_address"] == "New Address"
+
+    def test_rejects_invalid_country_code(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
+        """Invalid ISO 3166-1 alpha-2 country code is rejected."""
+        url = reverse("api:update_billing_profile")
+        response = auth_client.patch(
+            url,
+            data=orjson.dumps({"billing_country": "ZZ"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 422
 
     def test_returns_404_when_no_profile(self, auth_client: Client) -> None:
         """Returns 404 when user has no billing profile."""
