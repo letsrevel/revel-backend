@@ -536,9 +536,6 @@ class ReferralPayoutStatement(TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["payout", "document_type"], name="idx_stmt_payout_type"),
-        ]
 
     def __str__(self) -> str:
         return f"{self.document_number} ({self.get_document_type_display()})"

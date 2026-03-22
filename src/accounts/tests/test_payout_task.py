@@ -146,7 +146,7 @@ class TestPayoutPreflightChecks:
         referrer: RevelUser,
         site_settings: SiteSettings,
     ) -> None:
-        """Payout is skipped when referrer's Stripe charges are not enabled."""
+        """Payout is skipped (reverted to CALCULATED) when referrer's Stripe charges are not enabled."""
         # Arrange
         referrer.stripe_charges_enabled = False
         referrer.save(update_fields=["stripe_charges_enabled"])
@@ -274,6 +274,7 @@ class TestPayoutHappyPath:
             currency="eur",
             destination="acct_payout_001",
             transfer_group=f"referral-payout-{calculated_payout.id}",
+            idempotency_key=f"referral-payout-{calculated_payout.id}",
         )
 
     @patch("accounts.tasks._send_payout_statement_email")
@@ -324,7 +325,7 @@ class TestPayoutHappyPath:
     @patch("accounts.tasks._send_payout_statement_email")
     @patch("accounts.tasks.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
-    def test_generates_statement_before_transfer(
+    def test_generates_statement_after_successful_transfer(
         self,
         mock_gen_statement: MagicMock,
         mock_transfer_create: MagicMock,
@@ -333,13 +334,16 @@ class TestPayoutHappyPath:
         billing_profile: UserBillingProfile,
         site_settings: SiteSettings,
     ) -> None:
-        """The payout statement is generated before the Stripe transfer."""
+        """The payout statement is generated after a successful Stripe transfer."""
         mock_gen_statement.return_value = MagicMock(spec=ReferralPayoutStatement)
         mock_transfer_create.return_value = _mock_stripe_transfer()
 
         process_referral_payouts()
 
-        mock_gen_statement.assert_called_once_with(calculated_payout)
+        mock_gen_statement.assert_called_once()
+        # The payout should be in PAID status when the statement is generated
+        calculated_payout.refresh_from_db()
+        assert calculated_payout.status == ReferralPayout.Status.PAID
 
     @patch("accounts.tasks._send_payout_statement_email")
     @patch("accounts.tasks.stripe.Transfer.create")

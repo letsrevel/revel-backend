@@ -10,6 +10,7 @@ import structlog
 from celery import shared_task
 from django.conf import settings
 from django.contrib.sites.models import Site
+from django.db import transaction
 from django.db.models import Q
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -675,52 +676,82 @@ def process_referral_payouts() -> dict[str, int]:
     """Process all CALCULATED referral payouts via Stripe Transfer.
 
     For each payout:
-    1. Verify referrer has Stripe charges enabled and a billing profile with
-       self-billing agreement.
-    2. Generate a payout statement (Gutschrift for B2B, payout statement for B2C).
-    3. Create a Stripe Transfer to the referrer's connected account.
-    4. On success → status=PAID; on Stripe error → status=FAILED (propagate for retry).
-    5. Email the statement PDF to the referrer.
+    1. Claim the row (``CALCULATED → PENDING`` under ``select_for_update``).
+    2. Verify referrer has a connected Stripe account, a billing profile,
+       and has agreed to self-billing.
+    3. Create a Stripe Transfer (with idempotency key ``payout.id``).
+    4. On success → ``PAID``; on Stripe error → ``FAILED`` (logged, loop continues).
+    5. Generate the payout statement PDF and email it to the referrer.
+
+    Errors are handled per-payout so one failure does not block the rest.
 
     Returns:
         Dict with ``paid``, ``failed``, and ``skipped`` counts.
     """
     from accounts.service.payout_statement_service import generate_payout_statement
 
-    payouts = (
+    payout_ids = list(
         ReferralPayout.objects.filter(status=ReferralPayout.Status.CALCULATED)
-        .select_related("referral__referrer__billing_profile", "referral__referrer")
         .order_by("period_start")
+        .values_list("id", flat=True)
     )
 
     stats: dict[str, int] = {"paid": 0, "failed": 0, "skipped": 0}
 
-    for payout in payouts:
+    for payout_id in payout_ids:
+        # Claim the payout under a row lock to prevent duplicate processing.
+        # select_for_update and select_related with nullable FKs are incompatible
+        # (PostgreSQL: "FOR UPDATE cannot be applied to the nullable side of an
+        # outer join"), so we lock the payout row alone, then fetch relations.
+        with transaction.atomic():
+            payout = (
+                ReferralPayout.objects.select_for_update(skip_locked=True)
+                .filter(id=payout_id, status=ReferralPayout.Status.CALCULATED)
+                .first()
+            )
+            if payout is None:
+                # Already claimed by another worker or status changed
+                continue
+            payout.status = ReferralPayout.Status.PENDING
+            payout.save(update_fields=["status", "updated_at"])
+
+        # Reload with relations outside the lock
+        payout = (
+            ReferralPayout.objects.select_related("referral__referrer__billing_profile", "referral__referrer")
+            .get(id=payout_id)
+        )
         referrer = payout.referral.referrer
 
         # --- Pre-flight checks ---
-        if not referrer.stripe_charges_enabled:
+        if not referrer.stripe_account_id or not referrer.stripe_charges_enabled:
             logger.info("payout_skipped_no_stripe", referrer_id=str(referrer.id), payout_id=str(payout.id))
+            payout.status = ReferralPayout.Status.CALCULATED
+            payout.save(update_fields=["status", "updated_at"])
             stats["skipped"] += 1
             continue
 
         if not hasattr(referrer, "billing_profile"):
             logger.info("payout_skipped_no_billing", referrer_id=str(referrer.id), payout_id=str(payout.id))
+            payout.status = ReferralPayout.Status.CALCULATED
+            payout.save(update_fields=["status", "updated_at"])
             stats["skipped"] += 1
             continue
 
         if not referrer.billing_profile.self_billing_agreed:
             logger.info("payout_skipped_no_agreement", referrer_id=str(referrer.id), payout_id=str(payout.id))
+            payout.status = ReferralPayout.Status.CALCULATED
+            payout.save(update_fields=["status", "updated_at"])
             stats["skipped"] += 1
             continue
 
-        # --- Stripe Transfer (before statement to avoid orphans) ---
+        # --- Stripe Transfer (idempotent via payout ID key) ---
         try:
             transfer = stripe.Transfer.create(
                 amount=int(payout.payout_amount * 100),
                 currency=payout.currency.lower(),
                 destination=referrer.stripe_account_id,
                 transfer_group=f"referral-payout-{payout.id}",
+                idempotency_key=f"referral-payout-{payout.id}",
             )
         except stripe.error.StripeError as exc:
             payout.status = ReferralPayout.Status.FAILED
@@ -733,7 +764,7 @@ def process_referral_payouts() -> dict[str, int]:
                 referrer_id=str(referrer.id),
                 error=str(exc),
             )
-            continue  # Process remaining payouts instead of aborting
+            continue  # Process remaining payouts
 
         payout.status = ReferralPayout.Status.PAID
         payout.stripe_transfer_id = transfer.id
@@ -792,4 +823,8 @@ def _send_payout_statement_email(
         attachment_filename=f"{statement.document_number}.pdf",
     )
 
-    logger.info("payout_statement_email_sent", document_number=statement.document_number, to=recipient)
+    logger.info(
+        "payout_statement_email_sent",
+        document_number=statement.document_number,
+        referrer_id=str(referrer.id),
+    )
