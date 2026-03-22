@@ -414,7 +414,13 @@ def cleanup_expired_file_exports() -> dict[str, int]:
     return {"records_deleted": count}
 
 
-@shared_task(name="common.fetch_exchange_rates")
+@shared_task(
+    name="common.fetch_exchange_rates",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=5,
+)
 def fetch_exchange_rates() -> dict[str, t.Any]:
     """Fetch daily exchange rates from frankfurter.app and store them.
 
