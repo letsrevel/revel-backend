@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from common.models import ExchangeRate
-from common.service.exchange_rate_service import convert, fetch_and_store_rates, get_latest_rates, get_rate
+from common.service.exchange_rate_service import convert, convert_using_rates, fetch_and_store_rates, get_latest_rates, get_rate
 
 pytestmark = pytest.mark.django_db
 
@@ -18,6 +18,12 @@ SAMPLE_RATES = {
     "JPY": 162.5,
     "CHF": 0.97,
 }
+
+
+@pytest.fixture(autouse=True)
+def _clear_seed_rates() -> None:
+    """Remove seed exchange rates so tests control their own data."""
+    ExchangeRate.objects.all().delete()
 
 
 @pytest.fixture
@@ -143,3 +149,31 @@ def test_get_rate_no_rates_raises() -> None:
     """Test that get_rate raises when no rates exist."""
     with pytest.raises(ExchangeRate.DoesNotExist):
         get_rate("EUR", "USD")
+
+
+# --- convert_using_rates (pure function, no DB) ---
+
+
+def test_convert_using_rates_same_currency() -> None:
+    """Test that same-currency conversion is a no-op."""
+    result = convert_using_rates(Decimal("100.00"), "EUR", "EUR", {"USD": 1.08})
+    assert result == Decimal("100.00")
+
+
+def test_convert_using_rates_from_base() -> None:
+    """Test converting from base currency to target."""
+    result = convert_using_rates(Decimal("100.00"), "EUR", "USD", {"USD": 1.08})
+    assert result == Decimal("108.00")
+
+
+def test_convert_using_rates_to_base() -> None:
+    """Test converting from target currency to base."""
+    result = convert_using_rates(Decimal("108.00"), "USD", "EUR", {"USD": 1.08})
+    assert result == Decimal("100.00")
+
+
+def test_convert_using_rates_cross() -> None:
+    """Test cross-rate conversion between two non-base currencies."""
+    result = convert_using_rates(Decimal("100.00"), "USD", "GBP", {"USD": 1.08, "GBP": 0.86})
+    expected = (Decimal("100") * Decimal("0.86") / Decimal("1.08")).quantize(Decimal("0.01"))
+    assert result == expected

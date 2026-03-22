@@ -352,7 +352,8 @@ def test_multi_currency_converted_to_platform_currency(
     buyer: RevelUser,
 ) -> None:
     """Test that payments in different currencies are converted to DEFAULT_CURRENCY."""
-    # Create exchange rates
+    # Clear seed data from migration so we control the exact rates
+    ExchangeRate.objects.all().delete()
     ExchangeRate.objects.create(
         base="EUR",
         date=PERIOD_END,
