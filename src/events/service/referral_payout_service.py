@@ -11,6 +11,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
 from django.db.models import Sum
+from django.utils import timezone
 
 from accounts.models import Referral, ReferralPayout
 from events.models import Payment
@@ -42,12 +43,17 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
     created = 0
     skipped = 0
 
+    # Use timezone-aware datetime boundaries so the created_at index is used
+    # (created_at__date__gte forces a DATE() cast in SQL, bypassing the index)
+    period_start_dt = timezone.make_aware(datetime.datetime.combine(period_start, datetime.time.min))
+    period_end_dt = timezone.make_aware(datetime.datetime.combine(period_end + datetime.timedelta(days=1), datetime.time.min))
+
     for referral in Referral.objects.select_related("referred_user").iterator():
         gross = Payment.objects.filter(
             ticket__event__organization__owner=referral.referred_user,
             status=Payment.PaymentStatus.SUCCEEDED,
-            created_at__date__gte=period_start,
-            created_at__date__lte=period_end,
+            created_at__gte=period_start_dt,
+            created_at__lt=period_end_dt,
         ).aggregate(total=Sum("platform_fee"))["total"] or Decimal("0")
 
         if not gross:
