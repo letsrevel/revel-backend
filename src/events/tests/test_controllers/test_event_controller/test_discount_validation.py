@@ -14,8 +14,8 @@ from decimal import Decimal
 
 import orjson
 import pytest
-from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.urls import reverse
 from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 

@@ -5,8 +5,8 @@ from datetime import timedelta
 import jwt
 import pytest
 from django.conf import settings
-from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.urls import reverse
 from django.utils import timezone
 from ninja_jwt.token_blacklist.models import BlacklistedToken
 

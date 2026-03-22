@@ -5,8 +5,8 @@ from decimal import Decimal
 from unittest.mock import Mock, patch
 
 import pytest
-from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.urls import reverse
 from django.utils import timezone
 from ninja.errors import HttpError
 from ninja_jwt.tokens import RefreshToken

@@ -8,8 +8,8 @@ from decimal import Decimal
 from unittest.mock import Mock, patch
 
 import pytest
-from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.urls import reverse
 
 from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier

@@ -4,8 +4,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
-from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.urls import reverse
 from freezegun import freeze_time
 
 from accounts.models import RevelUser

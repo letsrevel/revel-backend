@@ -19,8 +19,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
 from django.http import HttpRequest, HttpResponseRedirect
-from django.shortcuts import redirect, reverse  # type: ignore[attr-defined]
-from django.urls import include, path
+from django.shortcuts import redirect
+from django.urls import include, path, reverse
 
 from api.api import api
 

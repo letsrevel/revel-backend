@@ -6,8 +6,8 @@ from unittest.mock import Mock, patch
 import jwt
 import pytest
 from django.conf import settings
-from django.shortcuts import reverse  # type: ignore[attr-defined]
 from django.test.client import Client
+from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
