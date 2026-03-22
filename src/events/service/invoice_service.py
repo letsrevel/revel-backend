@@ -4,76 +4,28 @@ Aggregates payment data, generates PDF invoices via WeasyPrint,
 and handles invoice numbering and delivery.
 """
 
-import typing as t
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
-from io import BytesIO
 
 import structlog
 from django.core.files.base import ContentFile
 from django.db import IntegrityError, transaction
 from django.db.models import Count, QuerySet, Sum
-from django.template.loader import render_to_string
 from django.utils import timezone
-from weasyprint import HTML
 
 from common.models import SiteSettings
+from common.service.invoice_utils import (
+    format_currency as format_currency,
+)
+from common.service.invoice_utils import (
+    get_next_sequential_number,
+    render_pdf,
+)
 from events.models.invoice import PlatformFeeCreditNote, PlatformFeeInvoice
 from events.models.organization import Organization
 from events.models.ticket import Payment
 
 logger = structlog.get_logger(__name__)
-
-CURRENCY_SYMBOLS: dict[str, str] = {
-    "EUR": "\u20ac",
-    "USD": "$",
-    "GBP": "\u00a3",
-    "CHF": "CHF ",
-    "DKK": "DKK ",
-    "SEK": "SEK ",
-    "NOK": "NOK ",
-    "PLN": "PLN ",
-    "CZK": "CZK ",
-    "HUF": "HUF ",
-    "RON": "RON ",
-    "BGN": "BGN ",
-}
-
-
-def format_currency(value: Decimal | float, currency: str = "EUR") -> str:
-    """Format a value with a currency symbol."""
-    symbol = CURRENCY_SYMBOLS.get(currency, currency + " ")
-    return f"{symbol}{value:,.2f}"
-
-
-def _get_next_sequential_number(model: t.Any, prefix: str, year: int, number_field: str) -> str:
-    """Generate the next sequential document number for a given year.
-
-    Format: {prefix}{YEAR}-{SEQUENCE:06d}
-
-    Must be called inside ``transaction.atomic()`` — uses SELECT FOR UPDATE
-    on the last record to serialize concurrent access.
-
-    Args:
-        model: The Django model class (PlatformFeeInvoice or PlatformFeeCreditNote).
-        prefix: Number prefix including trailing dash (e.g., "RVL-" or "RVL-CN-").
-        year: The fiscal year.
-        number_field: Name of the CharField holding the number (e.g., "invoice_number").
-
-    Returns:
-        The next sequential number string.
-    """
-    full_prefix = f"{prefix}{year}-"
-    last = (
-        model.objects.select_for_update()
-        .filter(**{f"{number_field}__startswith": full_prefix})
-        .order_by(f"-{number_field}")
-        .first()
-    )
-    if last:
-        last_seq = int(getattr(last, number_field).split("-")[-1])
-        return f"{full_prefix}{last_seq + 1:06d}"
-    return f"{full_prefix}{1:06d}"
 
 
 def _get_next_invoice_number(year: int) -> str:
@@ -81,7 +33,7 @@ def _get_next_invoice_number(year: int) -> str:
 
     Must be called inside ``transaction.atomic()``.
     """
-    return _get_next_sequential_number(PlatformFeeInvoice, "RVL-", year, "invoice_number")
+    return get_next_sequential_number(PlatformFeeInvoice, "RVL-", year, "invoice_number")
 
 
 def _get_next_credit_note_number(year: int) -> str:
@@ -89,12 +41,12 @@ def _get_next_credit_note_number(year: int) -> str:
 
     Must be called inside ``transaction.atomic()``.
     """
-    return _get_next_sequential_number(PlatformFeeCreditNote, "RVL-CN-", year, "credit_note_number")
+    return get_next_sequential_number(PlatformFeeCreditNote, "RVL-CN-", year, "credit_note_number")
 
 
 def _render_invoice_pdf(invoice: PlatformFeeInvoice) -> bytes:
     """Render an invoice as a PDF using WeasyPrint."""
-    html_content = render_to_string(
+    return render_pdf(
         "invoices/platform_fee_invoice.html",
         {
             "platform_business_name": invoice.platform_business_name,
@@ -118,9 +70,6 @@ def _render_invoice_pdf(invoice: PlatformFeeInvoice) -> bytes:
             "total_ticket_revenue": invoice.total_ticket_revenue,
         },
     )
-    pdf_buffer = BytesIO()
-    HTML(string=html_content).write_pdf(pdf_buffer)
-    return pdf_buffer.getvalue()
 
 
 def get_invoice_recipients(org: Organization) -> list[str]:

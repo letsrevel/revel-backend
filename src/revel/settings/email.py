@@ -10,6 +10,13 @@ EMAIL_USE_SSL = config("EMAIL_USE_SSL", default=False, cast=bool)
 EMAIL_USE_TLS = config("EMAIL_USE_TLS", default=False, cast=bool)
 DEFAULT_FROM_EMAIL = config("DEFAULT_FROM_EMAIL", default="Revel <revel@letsrevel.io>")  # Project domain default
 
+# Billing-specific email addresses.
+# DEFAULT_BILLING_EMAIL is used as the "From" address for all invoice / payout emails.
+# DEFAULT_REPLY_TO_EMAIL is added as the "Reply-To" header on those same emails.
+# Both fall back to DEFAULT_FROM_EMAIL when not explicitly configured.
+DEFAULT_BILLING_EMAIL = config("DEFAULT_BILLING_EMAIL", default=DEFAULT_FROM_EMAIL)
+DEFAULT_REPLY_TO_EMAIL = config("DEFAULT_REPLY_TO_EMAIL", default=DEFAULT_FROM_EMAIL)
+
 EMAIL_DRY_RUN = config("EMAIL_DRY_RUN", default=False, cast=bool)
 
 if EMAIL_DRY_RUN:

@@ -5,7 +5,7 @@ import typing as t
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
-from accounts.models import Referral, ReferralCode, ReferralPayout
+from accounts.models import Referral, ReferralCode, ReferralPayout, ReferralPayoutStatement
 
 
 @admin.register(ReferralCode)
@@ -182,4 +182,61 @@ class ReferralPayoutAdmin(ModelAdmin):  # type: ignore[misc]
 
     def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
         """Payouts must not be deleted to preserve the audit trail."""
+        return False
+
+
+@admin.register(ReferralPayoutStatement)
+class ReferralPayoutStatementAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for ReferralPayoutStatement (system-created, readonly)."""
+
+    list_display = [
+        "document_number",
+        "document_type",
+        "referrer_name",
+        "amount_gross",
+        "currency",
+        "reverse_charge",
+        "issued_at",
+    ]
+    list_filter = ["document_type", "currency", "reverse_charge"]
+    search_fields = [
+        "document_number",
+        "referrer_name",
+        "referrer_vat_id",
+        "payout__referral__referrer__email",
+    ]
+    readonly_fields = [
+        "payout",
+        "document_type",
+        "document_number",
+        "amount_gross",
+        "amount_net",
+        "amount_vat",
+        "vat_rate",
+        "currency",
+        "reverse_charge",
+        "referrer_name",
+        "referrer_address",
+        "referrer_vat_id",
+        "referrer_country",
+        "platform_business_name",
+        "platform_business_address",
+        "platform_vat_id",
+        "issued_at",
+        "pdf_file",
+        "created_at",
+        "updated_at",
+    ]
+    ordering = ["-created_at"]
+
+    def has_add_permission(self, request: t.Any) -> bool:
+        """Statements are created by the system."""
+        return False
+
+    def has_change_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        """Statements are immutable."""
+        return False
+
+    def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        """Statements must not be deleted to preserve the audit trail."""
         return False

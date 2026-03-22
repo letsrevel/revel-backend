@@ -5,6 +5,7 @@ import typing as t
 from datetime import datetime, timedelta
 
 import httpx
+import stripe
 import structlog
 from celery import shared_task
 from django.conf import settings
@@ -12,10 +13,18 @@ from django.contrib.sites.models import Site
 from django.db.models import Q
 from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.translation import gettext as _
 from ninja_jwt.token_blacklist.models import OutstandingToken
 from ninja_jwt.utils import aware_utcnow
 
-from accounts.models import EmailVerificationReminderTracking, GlobalBan, RevelUser, UserDataExport
+from accounts.models import (
+    EmailVerificationReminderTracking,
+    GlobalBan,
+    ReferralPayout,
+    ReferralPayoutStatement,
+    RevelUser,
+    UserDataExport,
+)
 from accounts.service import gdpr
 from common.models import SiteSettings
 from common.signing import generate_signed_url
@@ -652,3 +661,136 @@ def delete_old_inactive_accounts() -> dict[str, t.Any]:
 
     logger.info("old_inactive_accounts_deleted", count=len(deleted_users))
     return {"count": len(deleted_users), "deleted_users": deleted_users}
+
+
+# ---------------------------------------------------------------------------
+# Referral payout processing
+# ---------------------------------------------------------------------------
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
+
+
+@shared_task(name="accounts.process_referral_payouts")
+def process_referral_payouts() -> dict[str, int]:
+    """Process all CALCULATED referral payouts via Stripe Transfer.
+
+    For each payout:
+    1. Verify referrer has Stripe charges enabled and a billing profile with
+       self-billing agreement.
+    2. Generate a payout statement (Gutschrift for B2B, payout statement for B2C).
+    3. Create a Stripe Transfer to the referrer's connected account.
+    4. On success → status=PAID; on Stripe error → status=FAILED (propagate for retry).
+    5. Email the statement PDF to the referrer.
+
+    Returns:
+        Dict with ``paid``, ``failed``, and ``skipped`` counts.
+    """
+    from accounts.service.payout_statement_service import generate_payout_statement
+
+    payouts = (
+        ReferralPayout.objects.filter(status=ReferralPayout.Status.CALCULATED)
+        .select_related("referral__referrer__billing_profile", "referral__referrer")
+        .order_by("period_start")
+    )
+
+    stats: dict[str, int] = {"paid": 0, "failed": 0, "skipped": 0}
+
+    for payout in payouts:
+        referrer = payout.referral.referrer
+
+        # --- Pre-flight checks ---
+        if not referrer.stripe_charges_enabled:
+            logger.info("payout_skipped_no_stripe", referrer_id=str(referrer.id), payout_id=str(payout.id))
+            stats["skipped"] += 1
+            continue
+
+        if not hasattr(referrer, "billing_profile"):
+            logger.info("payout_skipped_no_billing", referrer_id=str(referrer.id), payout_id=str(payout.id))
+            stats["skipped"] += 1
+            continue
+
+        if not referrer.billing_profile.self_billing_agreed:
+            logger.info("payout_skipped_no_agreement", referrer_id=str(referrer.id), payout_id=str(payout.id))
+            stats["skipped"] += 1
+            continue
+
+        # --- Generate statement ---
+        statement = generate_payout_statement(payout)
+
+        # --- Stripe Transfer ---
+        try:
+            transfer = stripe.Transfer.create(
+                amount=int(payout.payout_amount * 100),
+                currency=payout.currency.lower(),
+                destination=referrer.stripe_account_id,
+                transfer_group=f"referral-payout-{payout.id}",
+            )
+            payout.status = ReferralPayout.Status.PAID
+            payout.stripe_transfer_id = transfer.id
+            payout.save(update_fields=["status", "stripe_transfer_id", "updated_at"])
+            stats["paid"] += 1
+
+            logger.info(
+                "payout_transferred",
+                payout_id=str(payout.id),
+                transfer_id=transfer.id,
+                amount=str(payout.payout_amount),
+                currency=payout.currency,
+            )
+
+        except stripe.error.StripeError as exc:
+            payout.status = ReferralPayout.Status.FAILED
+            payout.save(update_fields=["status", "updated_at"])
+            stats["failed"] += 1
+
+            logger.error(
+                "payout_transfer_failed",
+                payout_id=str(payout.id),
+                referrer_id=str(referrer.id),
+                error=str(exc),
+            )
+            # Let exception propagate so Celery can retry the entire task
+            raise
+
+        # --- Email statement to referrer ---
+        _send_payout_statement_email(payout, statement, referrer)
+
+    logger.info("process_referral_payouts_completed", **stats)
+    return stats
+
+
+def _send_payout_statement_email(
+    payout: ReferralPayout,
+    statement: ReferralPayoutStatement,
+    referrer: RevelUser,
+) -> None:
+    """Dispatch the payout statement PDF to the referrer via email."""
+    billing_email = getattr(referrer, "billing_profile", None)
+    recipient = billing_email.billing_email if billing_email and billing_email.billing_email else referrer.email
+
+    subject = _("Referral payout statement %(document_number)s (%(currency)s)") % {
+        "document_number": statement.document_number,
+        "currency": payout.currency,
+    }
+    body = _(
+        "Please find attached your referral payout statement %(document_number)s "
+        "for the period %(period_start)s to %(period_end)s."
+    ) % {
+        "document_number": statement.document_number,
+        "period_start": payout.period_start.isoformat(),
+        "period_end": payout.period_end.isoformat(),
+    }
+
+    site = SiteSettings.get_solo()
+    bcc = [site.platform_invoice_bcc_email] if site.platform_invoice_bcc_email else []
+
+    send_email(
+        to=recipient,
+        subject=subject,
+        body=body,
+        bcc=bcc,
+        from_email=settings.DEFAULT_BILLING_EMAIL,
+        reply_to=[settings.DEFAULT_REPLY_TO_EMAIL],
+        attachment_storage_path=statement.pdf_file.name,
+        attachment_filename=f"{statement.document_number}.pdf",
+    )

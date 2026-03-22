@@ -112,6 +112,7 @@ class UserBillingProfileInline(TabularInline):  # type: ignore[misc]
         "vies_request_identifier",
         "billing_address",
         "billing_email",
+        "self_billing_agreed",
     ]
     fields = readonly_fields
 

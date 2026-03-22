@@ -1,18 +1,14 @@
-"""Template filters for invoice rendering."""
+"""Template filters for invoice rendering.
 
-from decimal import Decimal
+Delegates to ``common.templatetags.invoice_filters`` — the canonical location.
+This shim exists so existing templates using ``{% load invoice_filters %}``
+from the events app continue to work.
 
-from django import template
+Note: Django's template loader resolves ``invoice_filters`` from common first
+(alphabetical order), so this module is only loaded when explicitly referenced
+via ``events.templatetags.invoice_filters``.
+"""
 
-from events.service.invoice_service import format_currency as _format_currency
-
-register = template.Library()
-
-
-@register.filter
-def format_currency(value: Decimal | float, currency: str = "EUR") -> str:
-    """Format a value with a currency symbol.
-
-    Usage: {{ fee_net|format_currency:currency }}
-    """
-    return _format_currency(value, currency)
+# Re-export so ``from events.templatetags.invoice_filters import register``
+# still works for any code that imports it directly.
+from common.templatetags.invoice_filters import register as register  # noqa: F401

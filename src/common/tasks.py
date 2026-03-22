@@ -100,6 +100,8 @@ def send_email(
     body: str,
     html_body: str | None = None,
     bcc: list[str] | None = None,
+    from_email: str | None = None,
+    reply_to: list[str] | None = None,
     callback_data: dict[str, t.Any] | None = None,
     attachment_storage_path: str | None = None,
     attachment_filename: str | None = None,
@@ -114,6 +116,8 @@ def send_email(
         html_body: HTML body (optional).
         bcc: Explicit BCC addresses (optional). When not set, multiple "to"
             recipients are auto-BCC'd for privacy.
+        from_email: Sender address. Defaults to ``settings.DEFAULT_FROM_EMAIL``.
+        reply_to: Reply-To addresses (optional).
         callback_data: Optional callback configuration with:
             - module: Python module path (e.g., "accounts.tasks")
             - function: Function name to call (e.g., "mark_reminder_sent")
@@ -135,6 +139,7 @@ def send_email(
         recipients = [to] if isinstance(to, str) else to
         recipients = [to_safe_email_address(email, site_settings=site_settings) for email in recipients]
         safe_bcc = [to_safe_email_address(email, site_settings=site_settings) for email in (bcc or [])]
+        sender = from_email or settings.DEFAULT_FROM_EMAIL
 
         # Build the To/BCC headers:
         # - Single recipient: use as To, add explicit BCC if provided.
@@ -144,17 +149,19 @@ def send_email(
             email_msg = EmailMultiAlternatives(
                 subject=subject,
                 body=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
+                from_email=sender,
                 to=recipients,
                 bcc=safe_bcc,
+                reply_to=reply_to or [],
             )
         else:
             email_msg = EmailMultiAlternatives(
                 subject=subject,
                 body=body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                to=[settings.DEFAULT_FROM_EMAIL],
+                from_email=sender,
+                to=[sender],
                 bcc=recipients + safe_bcc,
+                reply_to=reply_to or [],
             )
 
         if html_body:  # pragma: no branch

@@ -493,6 +493,57 @@ class ReferralPayout(TimeStampedModel):
         return f"{self.referral} | {self.period_start} | {self.payout_amount} {self.currency} ({self.status})"
 
 
+class ReferralPayoutStatement(TimeStampedModel):
+    """PDF document for a referral payout (Gutschrift or payout statement).
+
+    Either a self-billing invoice (Gutschrift, B2B with validated VAT ID)
+    or a payout statement (B2C/individual).
+    Snapshots referrer and platform business details at generation time.
+    """
+
+    class DocumentType(models.TextChoices):
+        SELF_BILLING_INVOICE = "self_billing_invoice", "Self-Billing Invoice (Gutschrift)"
+        PAYOUT_STATEMENT = "payout_statement", "Payout Statement"
+
+    payout = models.OneToOneField(ReferralPayout, on_delete=models.PROTECT, related_name="statement")
+    document_type = models.CharField(max_length=30, choices=DocumentType.choices)
+    document_number = models.CharField(
+        max_length=30, unique=True, help_text="Sequential number (e.g., RVL-RP-2026-000001)."
+    )
+
+    # Fee breakdown
+    amount_gross = models.DecimalField(max_digits=10, decimal_places=2, help_text="Payout amount (VAT-inclusive).")
+    amount_net = models.DecimalField(max_digits=10, decimal_places=2, help_text="Payout excluding VAT.")
+    amount_vat = models.DecimalField(max_digits=10, decimal_places=2, help_text="VAT portion.")
+    vat_rate = models.DecimalField(max_digits=5, decimal_places=2, help_text="VAT rate applied.")
+    currency = models.CharField(max_length=3, default=settings.DEFAULT_CURRENCY)
+    reverse_charge = models.BooleanField(default=False, help_text="EU cross-border B2B reverse charge.")
+
+    # Referrer snapshot
+    referrer_name = models.CharField(max_length=255)
+    referrer_address = models.TextField(blank=True, default="")
+    referrer_vat_id = models.CharField(max_length=20, blank=True, default="")
+    referrer_country = models.CharField(max_length=2, blank=True, default="")
+
+    # Platform snapshot
+    platform_business_name = models.CharField(max_length=255)
+    platform_business_address = models.TextField()
+    platform_vat_id = models.CharField(max_length=20)
+
+    # Delivery
+    issued_at = models.DateTimeField(null=True, blank=True)
+    pdf_file = ProtectedFileField(upload_to="invoices/referral_payouts/", null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["payout", "document_type"], name="idx_stmt_payout_type"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.document_number} ({self.get_document_type_display()})"
+
+
 class UserBillingProfile(TimeStampedModel):
     """Billing information for a user (e.g., referrers receiving payouts).
 
@@ -524,6 +575,12 @@ class UserBillingProfile(TimeStampedModel):
 
     # Contact
     billing_email = models.EmailField(blank=True, help_text="Billing email (falls back to user.email in service logic)")
+
+    # Self-billing agreement (required before we issue Gutschrift / payout statements)
+    self_billing_agreed = models.BooleanField(
+        default=False,
+        help_text="User has agreed to self-billing (Gutschrift). Required before payouts are processed.",
+    )
 
     class Meta:
         verbose_name = "User Billing Profile"

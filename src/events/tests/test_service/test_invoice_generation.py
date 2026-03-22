@@ -191,7 +191,7 @@ def _create_payment(
 class TestGenerateInvoicesForPeriod:
     """Tests for the main invoice generation function."""
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_creates_invoice_for_org_with_payments(
         self,
         mock_html_cls: MagicMock,
@@ -236,7 +236,7 @@ class TestGenerateInvoicesForPeriod:
         assert inv.issued_at is not None
         assert inv.invoice_number.startswith("RVL-2026-")
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_snapshots_org_data(
         self,
         mock_html_cls: MagicMock,
@@ -269,7 +269,7 @@ class TestGenerateInvoicesForPeriod:
         assert inv.org_vat_country == "DE"
         assert inv.org_address == "Musterstr. 1, 10115 Berlin"
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_snapshots_platform_data(
         self,
         mock_html_cls: MagicMock,
@@ -301,7 +301,7 @@ class TestGenerateInvoicesForPeriod:
         assert inv.platform_business_address == "Via Roma 1, 00100 Roma, Italy"
         assert inv.platform_vat_id == "IT12345678901"
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_skips_orgs_with_zero_fees(
         self,
         mock_html_cls: MagicMock,
@@ -329,7 +329,7 @@ class TestGenerateInvoicesForPeriod:
 
         assert invoices == []
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_skips_failed_payments(
         self,
         mock_html_cls: MagicMock,
@@ -361,7 +361,7 @@ class TestGenerateInvoicesForPeriod:
         invoices = generate_invoices_for_period(period_start, period_end)
         assert invoices == []
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_idempotency_second_call_no_duplicate(
         self,
         mock_html_cls: MagicMock,
@@ -394,7 +394,7 @@ class TestGenerateInvoicesForPeriod:
             PlatformFeeInvoice.objects.filter(organization=org, period_start=period_start, currency="EUR").count() == 1
         )
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_multiple_currencies_separate_invoices(
         self,
         mock_html_cls: MagicMock,
@@ -438,7 +438,7 @@ class TestGenerateInvoicesForPeriod:
         currencies = {inv.currency for inv in invoices}
         assert currencies == {"EUR", "USD"}
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_aggregates_multiple_payments(
         self,
         mock_html_cls: MagicMock,
@@ -477,7 +477,7 @@ class TestGenerateInvoicesForPeriod:
         assert inv.total_tickets == 3
         assert inv.total_ticket_revenue == Decimal("75.00")
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_pdf_generated_and_attached(
         self,
         mock_html_cls: MagicMock,
@@ -508,7 +508,7 @@ class TestGenerateInvoicesForPeriod:
         assert inv.pdf_file
         mock_html_cls.assert_called_once()
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_payments_outside_period_excluded(
         self,
         mock_html_cls: MagicMock,
@@ -547,7 +547,7 @@ class TestGenerateInvoicesForPeriod:
         invoices = generate_invoices_for_period(period_start, period_end)
         assert invoices == []
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_reverse_charge_invoice(
         self,
         mock_html_cls: MagicMock,
@@ -580,7 +580,7 @@ class TestGenerateInvoicesForPeriod:
         assert inv.reverse_charge is True
         assert inv.fee_vat_rate == Decimal("0.00")
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_invoice_number_format(
         self,
         mock_html_cls: MagicMock,
@@ -613,7 +613,7 @@ class TestGenerateInvoicesForPeriod:
         assert len(seq_part) == 6
         assert seq_part.isdigit()
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_fee_net_fallback_for_pre_vat_payments(
         self,
         mock_html_cls: MagicMock,
@@ -651,7 +651,7 @@ class TestGenerateInvoicesForPeriod:
         assert inv.fee_net == Decimal("2.50")
         assert inv.fee_vat == Decimal("0.00")
 
-    @patch("events.service.invoice_service.HTML")
+    @patch("common.service.invoice_utils.HTML")
     def test_period_boundary_inclusive(
         self,
         mock_html_cls: MagicMock,
