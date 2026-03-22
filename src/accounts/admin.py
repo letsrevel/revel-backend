@@ -28,6 +28,7 @@ from accounts.models import (
     GlobalBan,
     ImpersonationLog,
     RevelUser,
+    UserBillingProfile,
     UserDataExport,
     UserDietaryPreference,
 )
@@ -94,6 +95,26 @@ class EmailVerificationReminderTrackingInline(TabularInline):  # type: ignore[mi
     can_delete = False
     readonly_fields = ["last_reminder_sent_at", "final_warning_sent_at", "deactivation_email_sent_at"]
     fields = ["last_reminder_sent_at", "final_warning_sent_at", "deactivation_email_sent_at"]
+
+
+class UserBillingProfileInline(TabularInline):  # type: ignore[misc]
+    """Inline for user billing profile."""
+
+    model = UserBillingProfile
+    extra = 0
+    can_delete = False
+    readonly_fields = [
+        "billing_name",
+        "vat_id",
+        "vat_country_code",
+        "vat_id_validated",
+        "vat_id_validated_at",
+        "vies_request_identifier",
+        "billing_address",
+        "billing_country",
+        "billing_email",
+    ]
+    fields = readonly_fields
 
 
 @admin.register(RevelUser)
@@ -206,6 +227,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     # Inlines
     inlines = [
         GeneralUserPreferencesInline,
+        UserBillingProfileInline,
         DietaryRestrictionInline,
         UserDietaryPreferenceInline,
         UserDataExportInline,

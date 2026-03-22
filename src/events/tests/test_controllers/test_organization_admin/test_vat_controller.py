@@ -9,8 +9,8 @@ from django.test.client import Client
 from django.urls import reverse
 from django.utils import timezone
 
+from common.service.vies_service import VIESUnavailableError, VIESValidationResult
 from events.models import Organization
-from events.service.vies_service import VIESUnavailableError, VIESValidationResult
 
 pytestmark = pytest.mark.django_db
 

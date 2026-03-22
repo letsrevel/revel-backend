@@ -7,12 +7,20 @@ from uuid import uuid4
 from django.conf import settings
 from ninja import ModelSchema, Schema
 from ninja_jwt.schema import TokenObtainPairOutputSchema
-from pydantic import UUID4, EmailStr, Field, field_serializer, field_validator, model_validator
+from pydantic import UUID4, EmailStr, Field, StringConstraints, field_serializer, field_validator, model_validator
 
 from accounts.password_validation import validate_password
 from common.schema import ProfilePictureSchemaMixin, StrippedString
 
-from .models import DietaryPreference, DietaryRestriction, FoodItem, ReferralCode, RevelUser, UserDietaryPreference
+from .models import (
+    DietaryPreference,
+    DietaryRestriction,
+    FoodItem,
+    ReferralCode,
+    RevelUser,
+    UserBillingProfile,
+    UserDietaryPreference,
+)
 
 
 class ReferralCodeSchema(ModelSchema):
@@ -369,3 +377,65 @@ class ImpersonationTokenResponseSchema(Schema):
     expires_in: int = Field(..., description="Token lifetime in seconds")
     user: ImpersonatedUserSchema = Field(..., description="Info about the impersonated user")
     impersonated_by: str = Field(..., description="Email of the admin performing impersonation")
+
+
+# Billing Profile Schemas
+
+
+class UserBillingProfileSchema(ModelSchema):
+    """Read-only schema for user billing profile."""
+
+    class Meta:
+        model = UserBillingProfile
+        fields = [
+            "id",
+            "billing_name",
+            "vat_id",
+            "vat_country_code",
+            "vat_id_validated",
+            "vat_id_validated_at",
+            "billing_address",
+            "billing_country",
+            "billing_email",
+        ]
+
+
+class UserBillingProfileCreateSchema(Schema):
+    """Schema for creating a user billing profile."""
+
+    billing_name: StrippedString = Field(..., min_length=1, max_length=255, description="Legal name for invoicing")
+    billing_address: str = Field(default="", description="Billing address")
+    billing_country: str = Field(default="", max_length=2, description="ISO 3166-1 alpha-2 country code")
+    billing_email: EmailStr | None = Field(default=None, description="Billing email (defaults to account email)")
+
+
+class UserBillingProfileUpdateSchema(Schema):
+    """Schema for updating a user billing profile."""
+
+    billing_name: StrippedString | None = Field(None, min_length=1, max_length=255, description="Legal name")
+    billing_address: str | None = Field(None, description="Billing address")
+    billing_country: str | None = Field(None, max_length=2, description="ISO 3166-1 alpha-2 country code")
+    billing_email: EmailStr | None = Field(None, description="Billing email")
+
+
+class UserVATIdUpdateSchema(Schema):
+    """Schema for setting/updating a user's VAT ID."""
+
+    vat_id: t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True)]
+
+    @model_validator(mode="after")
+    def validate_vat_id_format(self) -> "UserVATIdUpdateSchema":
+        """Validate VAT ID format and country prefix."""
+        import re
+
+        from common.constants import EU_MEMBER_STATES, VAT_ID_PATTERN
+
+        if not re.match(VAT_ID_PATTERN, self.vat_id):
+            raise ValueError(
+                "VAT ID must start with a 2-letter country code followed by 2-13 alphanumeric characters "
+                "(e.g., IT12345678901, DE123456789)."
+            )
+        country_prefix = self.vat_id[:2]
+        if country_prefix not in EU_MEMBER_STATES:
+            raise ValueError(f"VAT ID country prefix must be a valid EU member state. Got: {country_prefix}")
+        return self

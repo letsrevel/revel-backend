@@ -13,8 +13,8 @@ from unittest.mock import Mock
 
 import pytest
 
+from common.constants import EU_MEMBER_STATES
 from events.service.vat_service import (
-    EU_MEMBER_STATES,
     PlatformFeeVATBreakdown,
     VATBreakdown,
     calculate_platform_fee_vat,

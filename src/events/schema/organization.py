@@ -85,15 +85,11 @@ class OrganizationBillingInfoUpdateSchema(Schema):
     @model_validator(mode="after")
     def validate_country_code(self) -> "OrganizationBillingInfoUpdateSchema":
         """Validate country code is an EU member state."""
-        from events.service.vat_service import EU_MEMBER_STATES
+        from common.constants import EU_MEMBER_STATES
 
         if self.vat_country_code is not None and self.vat_country_code not in EU_MEMBER_STATES:
             raise ValueError(f"Country code must be a valid EU member state. Got: {self.vat_country_code}")
         return self
-
-
-# Basic format: 2-letter country prefix + 2-13 alphanumeric characters
-VAT_ID_PATTERN = r"^[A-Z]{2}[0-9A-Z]{2,13}$"
 
 
 class VATIdUpdateSchema(Schema):
@@ -104,7 +100,7 @@ class VATIdUpdateSchema(Schema):
     @model_validator(mode="after")
     def validate_vat_id_format(self) -> "VATIdUpdateSchema":
         """Validate VAT ID format and country prefix."""
-        from events.service.vat_service import EU_MEMBER_STATES
+        from common.constants import EU_MEMBER_STATES, VAT_ID_PATTERN
 
         if not re.match(VAT_ID_PATTERN, self.vat_id):
             raise ValueError(

@@ -11,11 +11,12 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
 from common.authentication import I18nJWTAuth
+from common.service.vies_service import VIESUnavailableError
 from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import IsOrganizationOwner
-from events.service.vies_service import VIESUnavailableError, validate_and_update_organization
+from events.service.vies_service import validate_and_update_organization
 
 from .base import OrganizationAdminBaseController
 
