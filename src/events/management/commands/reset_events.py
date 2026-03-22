@@ -8,7 +8,13 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
 from django.db.models import Q
 
-from accounts.models import RevelUser
+from accounts.models import (
+    Referral,
+    ReferralCode,
+    ReferralPayout,
+    ReferralPayoutStatement,
+    RevelUser,
+)
 from events.models import Organization
 from questionnaires.models import Questionnaire
 
@@ -75,6 +81,13 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.WARNING(f"Deleting {org_count} organizations and {user_count} @example.com users...")
             )
+
+            # Delete referral data first (PROTECT FKs prevent user deletion otherwise)
+            ReferralPayoutStatement.objects.all().delete()
+            ReferralPayout.objects.all().delete()
+            Referral.objects.all().delete()
+            ReferralCode.objects.all().delete()
+            self.stdout.write(self.style.SUCCESS("✓ Deleted referral data"))
 
             # Delete all organizations (cascade will handle related objects)
             Organization.objects.all().delete()
