@@ -17,6 +17,7 @@ from datetime import datetime
 import httpx
 import structlog
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 logger = structlog.get_logger(__name__)
@@ -238,14 +239,19 @@ def set_vat_id(
         if not result.valid:
             if rollback_on_invalid:
                 clear_vat_fields(entity)
-            raise HttpError(400, "The VAT ID is not valid according to VIES.")
+            raise HttpError(400, str(_("The VAT ID is not valid according to VIES.")))
     except VIESUnavailableError:
         logger.warning("vies_unavailable", **{f"{entity_type}_id": entity_id})
         if on_vies_unavailable:
             on_vies_unavailable()
         raise HttpError(
             503,
-            "VIES validation service is temporarily unavailable. The VAT ID has been saved. Please try again later.",
+            str(
+                _(
+                    "VIES validation service is temporarily unavailable."
+                    " The VAT ID has been saved. Please try again later."
+                )
+            ),
         )
 
     entity.refresh_from_db()
@@ -273,7 +279,10 @@ def update_billing_info(entity: HasBillingFields, data: dict[str, t.Any]) -> Non
     if new_country and entity.vat_id:
         vat_prefix = entity.vat_id[:2].upper()
         if new_country != vat_prefix:
-            raise HttpError(422, f"Country code must match the VAT ID prefix ({vat_prefix}).")
+            raise HttpError(
+                422,
+                str(_("Country code must match the VAT ID prefix (%(prefix)s).") % {"prefix": vat_prefix}),
+            )
 
     for field, value in data.items():
         setattr(entity, field, value)

@@ -399,17 +399,17 @@ class TestSetVATIdGreece:
 
         assert response.status_code == 200
 
-    def test_rejects_gr_prefix(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
-        """GR is the ISO code for Greece but not a valid VIES prefix — rejected by EU_MEMBER_STATES check.
+    def test_gr_prefix_accepted_by_schema(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
+        """GR is ISO 3166-1 for Greece and is in EU_MEMBER_STATES, so the schema accepts it.
 
-        Note: GR IS in EU_MEMBER_STATES for billing_country purposes, but VAT IDs
-        must use EL. The VAT ID regex check passes (GR + digits), but the EU check
-        also passes since GR is in the set. This means GR-prefixed VAT IDs are
-        accepted by the schema but will fail VIES validation (which uses EL).
-        This is correct behavior — VIES will reject it, not our schema.
+        VIES itself uses EL, not GR. A GR-prefixed VAT ID would pass schema
+        validation but fail VIES validation (returning 400). This is correct —
+        VIES is the authority, not our schema.
         """
-        # GR is in EU_MEMBER_STATES, so the schema accepts it.
-        # VIES validation would reject it, but that's tested elsewhere.
+        from common.constants import EU_MEMBER_STATES
+
+        assert "GR" in EU_MEMBER_STATES
+        assert "EL" in EU_MEMBER_STATES
 
 
 # ===========================================================================

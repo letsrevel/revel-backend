@@ -21,7 +21,10 @@ StrippedString = t.Annotated[str, StringConstraints(strip_whitespace=True)]
 OneToSixtyFourString = t.Annotated[str, StringConstraints(min_length=1, max_length=64, strip_whitespace=True)]
 OneToOneFiftyString = t.Annotated[str, StringConstraints(min_length=1, max_length=150, strip_whitespace=True)]
 
-# Reusable annotated type for vat_country_code fields (ISO 3166-1 alpha-2, uppercased, stripped)
+# Reusable annotated type for vat_country_code fields (ISO 3166-1 alpha-2, uppercased, stripped).
+# Has min_length=2 — use for create schemas where the field is required.
+# For update schemas (BillingInfoSchemaMixin), the field allows empty string to clear the value,
+# so the mixin uses its own annotation without min_length.
 VATCountryCode = t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=2, max_length=2)]
 
 
@@ -55,6 +58,17 @@ class BillingInfoSchemaMixin(Schema):
     def validate_vat_country_code(cls, v: str) -> str:
         """Validate vat_country_code is a valid ISO 3166-1 alpha-2 code or empty."""
         return validate_country_code(v) or ""
+
+    @field_validator("billing_email")
+    @classmethod
+    def validate_billing_email(cls, v: str) -> str:
+        """Allow empty string (clear email) but reject invalid emails."""
+        if v:
+            # Delegate to pydantic's email validation
+            from pydantic import TypeAdapter
+
+            TypeAdapter(EmailStr).validate_python(v)
+        return v
 
 
 class VATIdUpdateBaseSchema(Schema):

@@ -506,7 +506,9 @@ class UserBillingProfile(TimeStampedModel):
     billing_name = models.CharField(max_length=255, blank=True, default="", help_text="Legal name for invoicing")
 
     # VAT / country
-    vat_id = models.CharField(max_length=20, blank=True, db_index=True, help_text="EU VAT ID with country prefix")
+    vat_id = models.CharField(
+        max_length=20, blank=True, default="", db_index=True, help_text="EU VAT ID with country prefix"
+    )
     vat_country_code = models.CharField(
         max_length=2,
         blank=True,
@@ -515,7 +517,7 @@ class UserBillingProfile(TimeStampedModel):
     )
     vat_id_validated = models.BooleanField(default=False)
     vat_id_validated_at = models.DateTimeField(null=True, blank=True)
-    vies_request_identifier = models.CharField(max_length=50, blank=True)
+    vies_request_identifier = models.CharField(max_length=50, blank=True, default="")
 
     # Address
     billing_address = models.TextField(blank=True)
