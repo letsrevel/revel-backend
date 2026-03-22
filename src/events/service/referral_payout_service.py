@@ -42,15 +42,12 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
             skipped += 1
             continue
 
-        gross = (
-            Payment.objects.filter(
-                ticket__event__organization__in=referred_orgs,
-                status=Payment.PaymentStatus.SUCCEEDED,
-                created_at__date__gte=period_start,
-                created_at__date__lte=period_end,
-            ).aggregate(total=Sum("platform_fee"))["total"]
-            or Decimal("0")
-        )
+        gross = Payment.objects.filter(
+            ticket__event__organization__in=referred_orgs,
+            status=Payment.PaymentStatus.SUCCEEDED,
+            created_at__date__gte=period_start,
+            created_at__date__lte=period_end,
+        ).aggregate(total=Sum("platform_fee"))["total"] or Decimal("0")
 
         if gross == 0:
             skipped += 1

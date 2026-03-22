@@ -113,7 +113,15 @@ class ReferralAdmin(ModelAdmin):  # type: ignore[misc]
 class ReferralPayoutAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for ReferralPayout model (system-created only, fully readonly)."""
 
-    list_display = ["referral", "period_start", "payout_amount", "currency", "status", "stripe_transfer_id", "created_at"]
+    list_display = [
+        "referral",
+        "period_start",
+        "payout_amount",
+        "currency",
+        "status",
+        "stripe_transfer_id",
+        "created_at",
+    ]
     list_filter = ["status", "currency", "period_start"]
     search_fields = [
         "referral__referrer__username",

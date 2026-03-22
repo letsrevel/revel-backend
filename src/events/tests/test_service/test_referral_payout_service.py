@@ -119,16 +119,18 @@ def test_referral_no_payments(referral: Referral, organization: Organization) ->
     assert result == {"created": 0, "skipped": 1}
 
 
-def test_payout_created(
-    referral: Referral, tier: TicketTier, buyer: RevelUser
-) -> None:
+def test_payout_created(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
     """Test that a payout is correctly calculated from platform fees."""
     _create_payment(
-        tier, buyer, platform_fee=Decimal("10.00"),
+        tier,
+        buyer,
+        platform_fee=Decimal("10.00"),
         created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
     )
     _create_payment(
-        tier, buyer, platform_fee=Decimal("20.00"),
+        tier,
+        buyer,
+        platform_fee=Decimal("20.00"),
         created_at=timezone.make_aware(datetime.datetime(2026, 2, 20, 12, 0)),
     )
 
@@ -144,18 +146,20 @@ def test_payout_created(
     assert payout.period_end == PERIOD_END
 
 
-def test_payments_outside_period_excluded(
-    referral: Referral, tier: TicketTier, buyer: RevelUser
-) -> None:
+def test_payments_outside_period_excluded(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
     """Test that payments outside the period are not counted."""
     # Inside period
     _create_payment(
-        tier, buyer, platform_fee=Decimal("10.00"),
+        tier,
+        buyer,
+        platform_fee=Decimal("10.00"),
         created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
     )
     # Outside period (March)
     _create_payment(
-        tier, buyer, platform_fee=Decimal("50.00"),
+        tier,
+        buyer,
+        platform_fee=Decimal("50.00"),
         created_at=timezone.make_aware(datetime.datetime(2026, 3, 5, 12, 0)),
     )
 
@@ -166,12 +170,12 @@ def test_payments_outside_period_excluded(
     assert payout.gross_platform_fees == Decimal("10.00")
 
 
-def test_failed_payments_excluded(
-    referral: Referral, tier: TicketTier, buyer: RevelUser
-) -> None:
+def test_failed_payments_excluded(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
     """Test that non-succeeded payments are not counted."""
     _create_payment(
-        tier, buyer, platform_fee=Decimal("10.00"),
+        tier,
+        buyer,
+        platform_fee=Decimal("10.00"),
         status=Payment.PaymentStatus.FAILED,
         created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
     )
@@ -182,12 +186,12 @@ def test_failed_payments_excluded(
     assert not ReferralPayout.objects.exists()
 
 
-def test_idempotent(
-    referral: Referral, tier: TicketTier, buyer: RevelUser
-) -> None:
+def test_idempotent(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
     """Test that re-running for the same period does not create duplicates."""
     _create_payment(
-        tier, buyer, platform_fee=Decimal("10.00"),
+        tier,
+        buyer,
+        platform_fee=Decimal("10.00"),
         created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
     )
 
