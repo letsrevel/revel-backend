@@ -412,23 +412,13 @@ class UserBillingProfileCreateSchema(Schema):
     billing_name: StrippedString = Field(..., min_length=1, max_length=255, description="Legal name for invoicing")
     vat_country_code: VATCountryCode = Field(default="", description="ISO 3166-1 alpha-2 country code")
     billing_address: str = Field(default="", description="Billing address")
-    billing_email: str = Field(default="", description="Billing email; leave blank to use the account email")
+    billing_email: EmailStr | None = Field(default=None, description="Billing email; omit to use the account email")
 
     @field_validator("vat_country_code")
     @classmethod
     def validate_vat_country_code(cls, v: str) -> str:
         """Validate vat_country_code is a valid ISO 3166-1 alpha-2 code (or empty)."""
         return validate_country_code(v) or ""
-
-    @field_validator("billing_email")
-    @classmethod
-    def validate_billing_email(cls, v: str) -> str:
-        """Allow empty string but reject invalid emails."""
-        if v:
-            from pydantic import TypeAdapter
-
-            TypeAdapter(EmailStr).validate_python(v)
-        return v
 
 
 class UserBillingProfileUpdateSchema(BillingInfoSchemaMixin):
