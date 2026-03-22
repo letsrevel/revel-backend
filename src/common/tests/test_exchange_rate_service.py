@@ -8,7 +8,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from common.models import ExchangeRate
-from common.service.exchange_rate_service import convert, convert_using_rates, fetch_and_store_rates, get_latest_rates, get_rate
+from common.service.exchange_rate_service import (
+    convert,
+    convert_using_rates,
+    fetch_and_store_rates,
+    get_latest_rates,
+    get_rate,
+)
 
 pytestmark = pytest.mark.django_db
 
