@@ -11,6 +11,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
 from django.db.models import Sum
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from accounts.models import Referral, ReferralPayout
@@ -27,9 +28,12 @@ class PayoutResult(t.TypedDict):
 def calculate_payouts_for_period(period_start: datetime.date, period_end: datetime.date) -> PayoutResult:
     """Calculate referral payouts for a given period.
 
-    For each active Referral, aggregates platform fees from succeeded payments
-    on events owned by the referred user's organizations, then creates a
-    ReferralPayout record with the referrer's revenue share applied.
+    For each active Referral, aggregates net platform fees (excluding VAT) from
+    succeeded payments on events owned by the referred user's organizations,
+    then creates a ReferralPayout record with the referrer's revenue share applied.
+
+    Falls back to gross platform_fee for historical payments where
+    platform_fee_net is null.
 
     Uses get_or_create to ensure idempotency (safe to re-run).
 
@@ -46,21 +50,27 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
     # Use timezone-aware datetime boundaries so the created_at index is used
     # (created_at__date__gte forces a DATE() cast in SQL, bypassing the index)
     period_start_dt = timezone.make_aware(datetime.datetime.combine(period_start, datetime.time.min))
-    period_end_dt = timezone.make_aware(datetime.datetime.combine(period_end + datetime.timedelta(days=1), datetime.time.min))
+    period_end_dt = timezone.make_aware(
+        datetime.datetime.combine(period_end + datetime.timedelta(days=1), datetime.time.min)
+    )
 
     for referral in Referral.objects.select_related("referred_user").iterator():
-        gross = Payment.objects.filter(
+        # Use net platform fee (excluding VAT); fall back to gross for historical
+        # payments where platform_fee_net is null.
+        net_fees = Payment.objects.filter(
             ticket__event__organization__owner=referral.referred_user,
             status=Payment.PaymentStatus.SUCCEEDED,
             created_at__gte=period_start_dt,
             created_at__lt=period_end_dt,
-        ).aggregate(total=Sum("platform_fee"))["total"] or Decimal("0")
+        ).aggregate(
+            total=Sum(Coalesce("platform_fee_net", "platform_fee"))
+        )["total"] or Decimal("0")
 
-        if not gross:
+        if not net_fees:
             skipped += 1
             continue
 
-        payout_amount = (gross * referral.revenue_share_percent / Decimal("100")).quantize(
+        payout_amount = (net_fees * referral.revenue_share_percent / Decimal("100")).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
 
@@ -69,7 +79,7 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
             period_start=period_start,
             defaults={
                 "period_end": period_end,
-                "gross_platform_fees": gross,
+                "net_platform_fees": net_fees,
                 "payout_amount": payout_amount,
                 "status": ReferralPayout.Status.CALCULATED,
             },
@@ -82,7 +92,7 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
                 referral_id=str(referral.id),
                 referrer_id=str(referral.referrer_id),
                 period=str(period_start),
-                gross=str(gross),
+                net_fees=str(net_fees),
                 payout=str(payout_amount),
             )
         else:

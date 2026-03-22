@@ -457,8 +457,8 @@ class ReferralPayout(TimeStampedModel):
     """Monthly calculated earnings for a referrer from a specific referral.
 
     Created by the payout calculation task in the events app, which aggregates
-    platform fees from the referred user's organizations. The disbursement
-    (Stripe transfer) is handled separately by the accounts app.
+    net platform fees (excluding VAT) from the referred user's organizations.
+    The disbursement (Stripe transfer) is handled separately by the accounts app.
     """
 
     class Status(models.TextChoices):
@@ -470,7 +470,9 @@ class ReferralPayout(TimeStampedModel):
     referral = models.ForeignKey(Referral, on_delete=models.PROTECT, related_name="payouts")
     period_start = models.DateField(db_index=True)
     period_end = models.DateField(db_index=True)
-    gross_platform_fees = models.DecimalField(max_digits=10, decimal_places=2)
+    net_platform_fees = models.DecimalField(
+        max_digits=10, decimal_places=2, help_text="Sum of platform_fee_net for the period (excludes VAT)"
+    )
     payout_amount = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=3, default=settings.DEFAULT_CURRENCY)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.CALCULATED, db_index=True)

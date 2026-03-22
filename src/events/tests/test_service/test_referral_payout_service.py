@@ -82,6 +82,7 @@ def _create_payment(
     tier: TicketTier,
     buyer: RevelUser,
     platform_fee: Decimal,
+    platform_fee_net: Decimal | None = None,
     status: str = Payment.PaymentStatus.SUCCEEDED,
     created_at: datetime.datetime | None = None,
 ) -> Payment:
@@ -99,6 +100,7 @@ def _create_payment(
         status=status,
         amount=tier.price,
         platform_fee=platform_fee,
+        platform_fee_net=platform_fee_net,
     )
     if created_at:
         Payment.objects.filter(pk=payment.pk).update(created_at=created_at)
@@ -124,17 +126,19 @@ def test_referral_no_payments(referral: Referral, organization: Organization) ->
 
 
 def test_payout_created(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
-    """Test that a payout is correctly calculated from platform fees."""
+    """Test that a payout is correctly calculated from net platform fees."""
     _create_payment(
         tier,
         buyer,
-        platform_fee=Decimal("10.00"),
+        platform_fee=Decimal("12.00"),
+        platform_fee_net=Decimal("10.00"),
         created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
     )
     _create_payment(
         tier,
         buyer,
-        platform_fee=Decimal("20.00"),
+        platform_fee=Decimal("24.00"),
+        platform_fee_net=Decimal("20.00"),
         created_at=timezone.make_aware(datetime.datetime(2026, 2, 20, 12, 0)),
     )
 
@@ -142,7 +146,8 @@ def test_payout_created(referral: Referral, tier: TicketTier, buyer: RevelUser) 
 
     assert result == {"created": 1, "skipped": 0}
     payout = ReferralPayout.objects.get(referral=referral)
-    assert payout.gross_platform_fees == Decimal("30.00")
+    # Uses net fees (10 + 20 = 30), not gross (12 + 24 = 36)
+    assert payout.net_platform_fees == Decimal("30.00")
     # 30.00 * 15% = 4.50
     assert payout.payout_amount == Decimal("4.50")
     assert payout.status == ReferralPayout.Status.CALCULATED
@@ -172,7 +177,7 @@ def test_payments_outside_period_excluded(referral: Referral, tier: TicketTier, 
 
     assert result == {"created": 1, "skipped": 0}
     payout = ReferralPayout.objects.get(referral=referral)
-    assert payout.gross_platform_fees == Decimal("10.00")
+    assert payout.net_platform_fees == Decimal("10.00")
 
 
 def test_failed_payments_excluded(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
@@ -189,6 +194,25 @@ def test_failed_payments_excluded(referral: Referral, tier: TicketTier, buyer: R
 
     assert result == {"created": 0, "skipped": 1}
     assert not ReferralPayout.objects.exists()
+
+
+def test_falls_back_to_gross_when_net_is_null(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
+    """Test that historical payments without platform_fee_net fall back to platform_fee."""
+    _create_payment(
+        tier,
+        buyer,
+        platform_fee=Decimal("10.00"),
+        platform_fee_net=None,
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
+    )
+
+    result = calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    assert result == {"created": 1, "skipped": 0}
+    payout = ReferralPayout.objects.get(referral=referral)
+    assert payout.net_platform_fees == Decimal("10.00")
+    # 10.00 * 15% = 1.50
+    assert payout.payout_amount == Decimal("1.50")
 
 
 def test_idempotent(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
