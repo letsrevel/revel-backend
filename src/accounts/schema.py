@@ -10,8 +10,13 @@ from ninja_jwt.schema import TokenObtainPairOutputSchema
 from pydantic import UUID4, EmailStr, Field, StringConstraints, field_serializer, field_validator, model_validator
 
 from accounts.password_validation import validate_password
-from common.constants import is_valid_country_code
-from common.schema import ProfilePictureSchemaMixin, StrippedString
+from common.schema import (
+    BillingInfoSchemaMixin,
+    ProfilePictureSchemaMixin,
+    StrippedString,
+    VATCountryCode,
+    validate_country_code,
+)
 
 from .models import (
     DietaryPreference,
@@ -396,7 +401,6 @@ class UserBillingProfileSchema(ModelSchema):
             "vat_id_validated",
             "vat_id_validated_at",
             "billing_address",
-            "billing_country",
             "billing_email",
         ]
 
@@ -405,36 +409,25 @@ class UserBillingProfileCreateSchema(Schema):
     """Schema for creating a user billing profile."""
 
     billing_name: StrippedString = Field(..., min_length=1, max_length=255, description="Legal name for invoicing")
+    vat_country_code: VATCountryCode = Field(default="", description="ISO 3166-1 alpha-2 country code")
     billing_address: str = Field(default="", description="Billing address")
-    billing_country: str = Field(default="", max_length=2, description="ISO 3166-1 alpha-2 country code")
     billing_email: EmailStr | None = Field(
         default=None, description="Billing email; leave blank to use the account email for billing"
     )
 
-    @field_validator("billing_country")
+    @field_validator("vat_country_code")
     @classmethod
-    def validate_billing_country(cls, v: str) -> str:
-        """Validate billing_country is a valid ISO 3166-1 alpha-2 code (or empty)."""
-        if v and not is_valid_country_code(v):
-            raise ValueError(f"Invalid ISO 3166-1 alpha-2 country code: {v}")
-        return v.upper() if v else v
+    def validate_vat_country_code(cls, v: str) -> str:
+        """Validate vat_country_code is a valid ISO 3166-1 alpha-2 code (or empty)."""
+        return validate_country_code(v) or ""
 
 
-class UserBillingProfileUpdateSchema(Schema):
-    """Schema for updating a user billing profile."""
+class UserBillingProfileUpdateSchema(BillingInfoSchemaMixin):
+    """Schema for updating a user billing profile.
 
-    billing_name: StrippedString | None = Field(None, min_length=1, max_length=255, description="Legal name")
-    billing_address: str | None = Field(None, description="Billing address")
-    billing_country: str | None = Field(None, max_length=2, description="ISO 3166-1 alpha-2 country code")
-    billing_email: EmailStr | None = Field(None, description="Billing email")
-
-    @field_validator("billing_country")
-    @classmethod
-    def validate_billing_country(cls, v: str | None) -> str | None:
-        """Validate billing_country is a valid ISO 3166-1 alpha-2 code if provided."""
-        if v is not None and v and not is_valid_country_code(v):
-            raise ValueError(f"Invalid ISO 3166-1 alpha-2 country code: {v}")
-        return v.upper() if v else v
+    Conflict check between vat_country_code and vat_id prefix
+    is done at the controller level.
+    """
 
 
 class UserVATIdUpdateSchema(Schema):

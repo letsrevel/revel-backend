@@ -287,7 +287,7 @@ class TestUpdateBillingInfo:
         """Test that changing country code to a value conflicting with the VAT ID prefix is rejected.
 
         When a VAT ID exists (e.g., IT12345678901), the country code must match
-        its prefix (IT). Attempting to set a different country code returns 400.
+        its prefix (IT). Attempting to set a different country code returns 422.
         """
         organization.vat_id = "IT12345678901"
         organization.vat_country_code = "IT"
@@ -298,7 +298,7 @@ class TestUpdateBillingInfo:
 
         response = organization_owner_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
 
-        assert response.status_code == 400
+        assert response.status_code == 422
 
     def test_country_code_matching_vat_id_prefix_accepted(
         self,
@@ -334,14 +334,28 @@ class TestUpdateBillingInfo:
         assert response.status_code == 200
         assert response.json()["vat_country_code"] == "AT"
 
+    def test_non_eu_country_code_accepted(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+    ) -> None:
+        """Non-EU country codes (e.g. US) are accepted for billing purposes."""
+        url = reverse("api:update_billing_info", kwargs={"slug": organization.slug})
+        payload = {"vat_country_code": "US"}
+
+        response = organization_owner_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 200
+        assert response.json()["vat_country_code"] == "US"
+
     def test_invalid_country_code_rejected_by_schema_validation(
         self,
         organization_owner_client: Client,
         organization: Organization,
     ) -> None:
-        """Test that a non-EU country code is rejected by schema validation."""
+        """Invalid ISO 3166-1 alpha-2 country code is rejected."""
         url = reverse("api:update_billing_info", kwargs={"slug": organization.slug})
-        payload = {"vat_country_code": "US"}
+        payload = {"vat_country_code": "ZZ"}
 
         response = organization_owner_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
 

@@ -111,7 +111,6 @@ class UserBillingProfileInline(TabularInline):  # type: ignore[misc]
         "vat_id_validated_at",
         "vies_request_identifier",
         "billing_address",
-        "billing_country",
         "billing_email",
     ]
     fields = readonly_fields

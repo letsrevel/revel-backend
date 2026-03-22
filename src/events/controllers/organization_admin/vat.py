@@ -70,7 +70,7 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
             vat_prefix = organization.vat_id[:2].upper()
             if new_country != vat_prefix:
                 raise HttpError(
-                    400,
+                    422,
                     str(_("Country code must match the VAT ID prefix (%(prefix)s).") % {"prefix": vat_prefix}),
                 )
 

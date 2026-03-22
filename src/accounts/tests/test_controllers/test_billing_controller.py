@@ -19,7 +19,7 @@ def billing_profile(user: RevelUser) -> UserBillingProfile:
         user=user,
         billing_name="Test User",
         billing_address="Via Roma 1",
-        billing_country="IT",
+        vat_country_code="IT",
         billing_email="billing@example.com",
     )
 
@@ -39,7 +39,7 @@ class TestGetBillingProfile:
         data = response.json()
         assert data["billing_name"] == "Test User"
         assert data["billing_address"] == "Via Roma 1"
-        assert data["billing_country"] == "IT"
+        assert data["vat_country_code"] == "IT"
         assert data["billing_email"] == "billing@example.com"
 
     def test_returns_404_when_no_profile(self, auth_client: Client) -> None:
@@ -72,7 +72,7 @@ class TestCreateBillingProfile:
                 {
                     "billing_name": "John Doe",
                     "billing_address": "123 Main St",
-                    "billing_country": "DE",
+                    "vat_country_code": "DE",
                     "billing_email": "john@example.com",
                 }
             ),
@@ -82,7 +82,7 @@ class TestCreateBillingProfile:
         assert response.status_code == 201
         data = response.json()
         assert data["billing_name"] == "John Doe"
-        assert data["billing_country"] == "DE"
+        assert data["vat_country_code"] == "DE"
 
     def test_creates_profile_minimal(self, auth_client: Client) -> None:
         """Only billing_name is required."""
@@ -97,7 +97,7 @@ class TestCreateBillingProfile:
         data = response.json()
         assert data["billing_name"] == "Jane Doe"
         assert data["billing_address"] == ""
-        assert data["billing_country"] == ""
+        assert data["vat_country_code"] == ""
         assert data["billing_email"] == ""
 
     def test_rejects_duplicate_profile(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
@@ -127,7 +127,7 @@ class TestCreateBillingProfile:
         url = reverse("api:create_billing_profile")
         response = auth_client.post(
             url,
-            data=orjson.dumps({"billing_name": "Test", "billing_country": "XX"}),
+            data=orjson.dumps({"billing_name": "Test", "vat_country_code": "XX"}),
             content_type="application/json",
         )
 
@@ -138,24 +138,24 @@ class TestCreateBillingProfile:
         url = reverse("api:create_billing_profile")
         response = auth_client.post(
             url,
-            data=orjson.dumps({"billing_name": "Test", "billing_country": "US"}),
+            data=orjson.dumps({"billing_name": "Test", "vat_country_code": "US"}),
             content_type="application/json",
         )
 
         assert response.status_code == 201
-        assert response.json()["billing_country"] == "US"
+        assert response.json()["vat_country_code"] == "US"
 
     def test_normalizes_country_code_to_uppercase(self, auth_client: Client) -> None:
         """Lowercase country codes are normalized to uppercase."""
         url = reverse("api:create_billing_profile")
         response = auth_client.post(
             url,
-            data=orjson.dumps({"billing_name": "Test", "billing_country": "us"}),
+            data=orjson.dumps({"billing_name": "Test", "vat_country_code": "us"}),
             content_type="application/json",
         )
 
         assert response.status_code == 201
-        assert response.json()["billing_country"] == "US"
+        assert response.json()["vat_country_code"] == "US"
 
     def test_unauthenticated_returns_401(self, client: Client) -> None:
         """Unauthenticated request returns 401."""
@@ -197,7 +197,7 @@ class TestUpdateBillingProfile:
             data=orjson.dumps(
                 {
                     "billing_name": "New Name",
-                    "billing_country": "DE",
+                    "vat_country_code": "DE",
                     "billing_email": "new@example.com",
                 }
             ),
@@ -207,7 +207,7 @@ class TestUpdateBillingProfile:
         assert response.status_code == 200
         data = response.json()
         assert data["billing_name"] == "New Name"
-        assert data["billing_country"] == "DE"
+        assert data["vat_country_code"] == "DE"
         assert data["billing_email"] == "new@example.com"
 
     def test_empty_body_returns_unchanged(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
@@ -222,30 +222,61 @@ class TestUpdateBillingProfile:
         assert response.status_code == 200
         assert response.json()["billing_name"] == "Test User"
 
-    def test_null_values_are_ignored(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
-        """Sending null for a field does not clear it."""
+    def test_null_string_fields_rejected(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
+        """Sending null for string fields is rejected (422)."""
         url = reverse("api:update_billing_profile")
         response = auth_client.patch(
             url,
-            data=orjson.dumps({"billing_name": None, "billing_address": "New Address"}),
+            data=orjson.dumps({"billing_name": None}),
             content_type="application/json",
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert data["billing_name"] == "Test User"  # unchanged, null ignored
-        assert data["billing_address"] == "New Address"
+        assert response.status_code == 422
 
     def test_rejects_invalid_country_code(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
         """Invalid ISO 3166-1 alpha-2 country code is rejected."""
         url = reverse("api:update_billing_profile")
         response = auth_client.patch(
             url,
-            data=orjson.dumps({"billing_country": "ZZ"}),
+            data=orjson.dumps({"vat_country_code": "ZZ"}),
             content_type="application/json",
         )
 
         assert response.status_code == 422
+
+    def test_rejects_country_code_conflicting_with_vat_id(
+        self, auth_client: Client, billing_profile: UserBillingProfile
+    ) -> None:
+        """Cannot set vat_country_code that conflicts with existing VAT ID prefix."""
+        billing_profile.vat_id = "IT12345678901"
+        billing_profile.vat_country_code = "IT"
+        billing_profile.save(update_fields=["vat_id", "vat_country_code"])
+
+        url = reverse("api:update_billing_profile")
+        response = auth_client.patch(
+            url,
+            data=orjson.dumps({"vat_country_code": "DE"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 422
+
+    def test_allows_matching_country_code_with_vat_id(
+        self, auth_client: Client, billing_profile: UserBillingProfile
+    ) -> None:
+        """Can set vat_country_code that matches the VAT ID prefix."""
+        billing_profile.vat_id = "IT12345678901"
+        billing_profile.vat_country_code = "IT"
+        billing_profile.save(update_fields=["vat_id", "vat_country_code"])
+
+        url = reverse("api:update_billing_profile")
+        response = auth_client.patch(
+            url,
+            data=orjson.dumps({"vat_country_code": "IT"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
 
     def test_returns_404_when_no_profile(self, auth_client: Client) -> None:
         """Returns 404 when user has no billing profile."""

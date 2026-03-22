@@ -76,6 +76,16 @@ class UserBillingController(UserAwareController):
         if not update_data:
             return profile
 
+        # Reject country code changes that conflict with the VAT ID prefix
+        new_country = update_data.get("vat_country_code")
+        if new_country and profile.vat_id:
+            vat_prefix = profile.vat_id[:2].upper()
+            if new_country != vat_prefix:
+                raise HttpError(
+                    422,
+                    str(_("Country code must match the VAT ID prefix (%(prefix)s).") % {"prefix": vat_prefix}),
+                )
+
         updated_fields: list[str] = []
         for field, value in update_data.items():
             if value is not None:
