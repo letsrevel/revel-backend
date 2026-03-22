@@ -110,10 +110,9 @@ class StripeEventHandler:
 
         connectable.stripe_charges_enabled = account_data.get("charges_enabled", False)
         connectable.stripe_details_submitted = account_data.get("details_submitted", False)
-        update_fields = ["stripe_charges_enabled", "stripe_details_submitted"]
-        if hasattr(connectable, "updated_at"):
-            update_fields.append("updated_at")
-        connectable.save(update_fields=update_fields)
+        connectable.save(
+            update_fields=connectable._stripe_update_fields("stripe_charges_enabled", "stripe_details_submitted"),
+        )
 
         if isinstance(connectable, Organization):
             logger.info(

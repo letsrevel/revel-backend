@@ -360,8 +360,8 @@ class ReorderSchema(Schema):
 
 # StripeOnboardingLinkSchema and StripeAccountStatusSchema live in common.schema
 # (shared with accounts/referral). Re-exported here for backwards compatibility.
-from common.schema import StripeAccountStatusSchema as StripeAccountStatusSchema  # noqa: E402
-from common.schema import StripeOnboardingLinkSchema as StripeOnboardingLinkSchema  # noqa: E402
+from common.schema import StripeAccountStatusSchema as StripeAccountStatusSchema  # noqa: F401, E402
+from common.schema import StripeOnboardingLinkSchema as StripeOnboardingLinkSchema  # noqa: F401, E402
 
 
 class StripeCheckoutSessionSchema(Schema):

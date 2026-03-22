@@ -52,6 +52,18 @@ class StripeConnectMixin(models.Model):
         """Check if the Stripe account is fully connected."""
         return self.stripe_account_id is not None and self.stripe_charges_enabled and self.stripe_details_submitted
 
+    def _stripe_update_fields(self, *fields: str) -> list[str]:
+        """Build an ``update_fields`` list, appending ``updated_at`` when the model has it.
+
+        Models inheriting from ``TimeStampedModel`` have ``auto_now=True`` on
+        ``updated_at``, which is only honoured when it appears in ``update_fields``.
+        ``RevelUser`` (via ``AbstractUser``) does not have this field.
+        """
+        result = list(fields)
+        if hasattr(self, "updated_at"):
+            result.append("updated_at")
+        return result
+
 
 class ExifStripMixin(models.Model):
     """Mixin that strips EXIF metadata from image fields on save.

@@ -8,15 +8,12 @@ autofill, URL construction) stays in each app's own service module.
 import typing as t
 
 import stripe
-import structlog
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from pydantic import EmailStr
 
 from common.models import StripeConnectMixin
-
-logger = structlog.get_logger(__name__)
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
@@ -29,7 +26,7 @@ def get_account_details(account_id: str) -> stripe.Account:
 def create_connect_account(
     connectable: StripeConnectMixin,
     stripe_account_email: EmailStr,
-    account_type: str = "standard",
+    account_type: t.Literal["standard", "express"] = "standard",
 ) -> str:
     """Create a Stripe Connect account and persist the ID/email on *connectable*.
 
@@ -44,7 +41,9 @@ def create_connect_account(
     account = stripe.Account.create(type=account_type, email=stripe_account_email)
     connectable.stripe_account_id = account.id
     connectable.stripe_account_email = stripe_account_email
-    connectable.save(update_fields=["stripe_account_id", "stripe_account_email"])
+    connectable.save(
+        update_fields=connectable._stripe_update_fields("stripe_account_id", "stripe_account_email"),
+    )
     return t.cast(str, account.id)
 
 
@@ -68,11 +67,12 @@ def create_account_link(account_id: str, refresh_url: str, return_url: str) -> s
     return t.cast(str, account_link.url)
 
 
-def sync_account_status(connectable: StripeConnectMixin) -> None:
+def sync_account_status(connectable: StripeConnectMixin) -> stripe.Account:
     """Fetch the latest status from Stripe and update *connectable* in place.
 
-    Only updates ``stripe_charges_enabled`` and ``stripe_details_submitted``.
-    Callers may perform additional domain-specific updates afterwards.
+    Updates ``stripe_charges_enabled`` and ``stripe_details_submitted``, then
+    returns the raw ``stripe.Account`` so callers can inspect additional fields
+    (e.g. billing details) without a second API call.
 
     Raises:
         HttpError 400: If the connectable has no ``stripe_account_id``.
@@ -82,7 +82,7 @@ def sync_account_status(connectable: StripeConnectMixin) -> None:
     account = get_account_details(connectable.stripe_account_id)
     connectable.stripe_charges_enabled = account.charges_enabled
     connectable.stripe_details_submitted = account.details_submitted
-    update_fields = ["stripe_charges_enabled", "stripe_details_submitted"]
-    if hasattr(connectable, "updated_at"):
-        update_fields.append("updated_at")
-    connectable.save(update_fields=update_fields)
+    connectable.save(
+        update_fields=connectable._stripe_update_fields("stripe_charges_enabled", "stripe_details_submitted"),
+    )
+    return account

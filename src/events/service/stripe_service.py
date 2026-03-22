@@ -60,10 +60,9 @@ def stripe_verify_account(organization: Organization) -> Organization:
     Also auto-fills billing_address and vat_country_code from Stripe account
     details if they are currently empty (fallback for orgs without a VAT ID).
     """
-    sync_account_status(organization)
+    account = sync_account_status(organization)
 
     # Organization-specific: auto-fill billing details from Stripe
-    account = get_account_details(organization.stripe_account_id)  # type: ignore[arg-type]
     update_fields: list[str] = []
 
     if not organization.billing_address and account.get("company"):
