@@ -1,6 +1,5 @@
 """Organization-related schemas."""
 
-import re
 import typing as t
 from decimal import Decimal
 from uuid import UUID
@@ -9,7 +8,7 @@ from ninja import ModelSchema, Schema
 from pydantic import UUID4, AwareDatetime, EmailStr, Field, StringConstraints, model_validator
 
 from accounts.schema import MemberUserSchema, MinimalRevelUserSchema, _BaseEmailJWTPayloadSchema
-from common.schema import OneToOneFiftyString, StrippedString
+from common.schema import BillingInfoSchemaMixin, OneToOneFiftyString, StrippedString, VATIdUpdateBaseSchema
 from events import models
 from events.models import (
     Organization,
@@ -68,53 +67,18 @@ class OrganizationBillingInfoSchema(Schema):
     billing_email: str
 
 
-class OrganizationBillingInfoUpdateSchema(Schema):
+class OrganizationBillingInfoUpdateSchema(BillingInfoSchemaMixin):
     """Schema for updating organization billing info (excludes vat_id, use PUT /vat-id).
 
-    When vat_country_code is provided, it must be a valid EU member state.
+    vat_country_code must be a valid ISO 3166-1 alpha-2 code.
+    Conflict check with existing VAT ID prefix is done at the controller level.
     """
 
-    billing_name: t.Annotated[str, StringConstraints(strip_whitespace=True)] = ""
-    vat_country_code: (
-        t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, min_length=2, max_length=2)] | None
-    ) = None
     vat_rate: Decimal | None = Field(None, ge=0, le=100)
-    billing_address: str = ""
-    billing_email: str = ""
-
-    @model_validator(mode="after")
-    def validate_country_code(self) -> "OrganizationBillingInfoUpdateSchema":
-        """Validate country code is an EU member state."""
-        from events.service.vat_service import EU_MEMBER_STATES
-
-        if self.vat_country_code is not None and self.vat_country_code not in EU_MEMBER_STATES:
-            raise ValueError(f"Country code must be a valid EU member state. Got: {self.vat_country_code}")
-        return self
 
 
-# Basic format: 2-letter country prefix + 2-13 alphanumeric characters
-VAT_ID_PATTERN = r"^[A-Z]{2}[0-9A-Z]{2,13}$"
-
-
-class VATIdUpdateSchema(Schema):
+class VATIdUpdateSchema(VATIdUpdateBaseSchema):
     """Schema for setting/updating the organization's VAT ID."""
-
-    vat_id: t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True)]
-
-    @model_validator(mode="after")
-    def validate_vat_id_format(self) -> "VATIdUpdateSchema":
-        """Validate VAT ID format and country prefix."""
-        from events.service.vat_service import EU_MEMBER_STATES
-
-        if not re.match(VAT_ID_PATTERN, self.vat_id):
-            raise ValueError(
-                "VAT ID must start with a 2-letter country code followed by 2-13 alphanumeric characters "
-                "(e.g., IT12345678901, DE123456789)."
-            )
-        country_prefix = self.vat_id[:2]
-        if country_prefix not in EU_MEMBER_STATES:
-            raise ValueError(f"VAT ID country prefix must be a valid EU member state. Got: {country_prefix}")
-        return self
 
 
 class MinimalOrganizationSchema(LogoCoverArtThumbnailMixin):

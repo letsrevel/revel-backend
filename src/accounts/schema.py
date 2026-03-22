@@ -10,9 +10,24 @@ from ninja_jwt.schema import TokenObtainPairOutputSchema
 from pydantic import UUID4, EmailStr, Field, field_serializer, field_validator, model_validator
 
 from accounts.password_validation import validate_password
-from common.schema import ProfilePictureSchemaMixin, StrippedString
+from common.schema import (
+    BillingInfoSchemaMixin,
+    ProfilePictureSchemaMixin,
+    StrippedString,
+    VATCountryCode,
+    VATIdUpdateBaseSchema,
+    validate_country_code,
+)
 
-from .models import DietaryPreference, DietaryRestriction, FoodItem, ReferralCode, RevelUser, UserDietaryPreference
+from .models import (
+    DietaryPreference,
+    DietaryRestriction,
+    FoodItem,
+    ReferralCode,
+    RevelUser,
+    UserBillingProfile,
+    UserDietaryPreference,
+)
 
 
 class ReferralCodeSchema(ModelSchema):
@@ -369,3 +384,50 @@ class ImpersonationTokenResponseSchema(Schema):
     expires_in: int = Field(..., description="Token lifetime in seconds")
     user: ImpersonatedUserSchema = Field(..., description="Info about the impersonated user")
     impersonated_by: str = Field(..., description="Email of the admin performing impersonation")
+
+
+# Billing Profile Schemas
+
+
+class UserBillingProfileSchema(ModelSchema):
+    """Read-only schema for user billing profile."""
+
+    class Meta:
+        model = UserBillingProfile
+        fields = [
+            "id",
+            "billing_name",
+            "vat_id",
+            "vat_country_code",
+            "vat_id_validated",
+            "vat_id_validated_at",
+            "billing_address",
+            "billing_email",
+        ]
+
+
+class UserBillingProfileCreateSchema(Schema):
+    """Schema for creating a user billing profile."""
+
+    billing_name: StrippedString = Field(..., min_length=1, max_length=255, description="Legal name for invoicing")
+    vat_country_code: VATCountryCode = Field(default="", description="ISO 3166-1 alpha-2 country code")
+    billing_address: str = Field(default="", description="Billing address")
+    billing_email: EmailStr | None = Field(default=None, description="Billing email; omit to use the account email")
+
+    @field_validator("vat_country_code")
+    @classmethod
+    def validate_vat_country_code(cls, v: str) -> str:
+        """Validate vat_country_code is a valid ISO 3166-1 alpha-2 code (or empty)."""
+        return validate_country_code(v) or ""
+
+
+class UserBillingProfileUpdateSchema(BillingInfoSchemaMixin):
+    """Schema for updating user billing info.
+
+    Conflict check between vat_country_code and vat_id prefix
+    is done at the service level.
+    """
+
+
+class UserVATIdUpdateSchema(VATIdUpdateBaseSchema):
+    """Schema for setting/updating a user's VAT ID."""

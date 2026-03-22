@@ -9,40 +9,10 @@ import typing as t
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
+from common.constants import EU_MEMBER_STATES
+
 if t.TYPE_CHECKING:
     from events.models.organization import Organization
-
-EU_MEMBER_STATES: frozenset[str] = frozenset(
-    {
-        "AT",  # Austria
-        "BE",  # Belgium
-        "BG",  # Bulgaria
-        "CY",  # Cyprus
-        "CZ",  # Czech Republic
-        "DE",  # Germany
-        "DK",  # Denmark
-        "EE",  # Estonia
-        "ES",  # Spain
-        "FI",  # Finland
-        "FR",  # France
-        "GR",  # Greece
-        "HR",  # Croatia
-        "HU",  # Hungary
-        "IE",  # Ireland
-        "IT",  # Italy
-        "LT",  # Lithuania
-        "LU",  # Luxembourg
-        "LV",  # Latvia
-        "MT",  # Malta
-        "NL",  # Netherlands
-        "PL",  # Poland
-        "PT",  # Portugal
-        "RO",  # Romania
-        "SE",  # Sweden
-        "SI",  # Slovenia
-        "SK",  # Slovakia
-    }
-)
 
 TWO_PLACES = Decimal("0.01")
 

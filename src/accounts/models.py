@@ -493,6 +493,46 @@ class ReferralPayout(TimeStampedModel):
         return f"{self.referral} | {self.period_start} | {self.payout_amount} {self.currency} ({self.status})"
 
 
+class UserBillingProfile(TimeStampedModel):
+    """Billing information for a user (e.g., referrers receiving payouts).
+
+    Created on-demand — not every user needs billing info.
+    Mirrors the organization billing info pattern but lives in the accounts app.
+    """
+
+    user = models.OneToOneField(RevelUser, on_delete=models.CASCADE, related_name="billing_profile")
+
+    # Identity
+    billing_name = models.CharField(max_length=255, blank=True, default="", help_text="Legal name for invoicing")
+
+    # VAT / country
+    vat_id = models.CharField(
+        max_length=20, blank=True, default="", db_index=True, help_text="EU VAT ID with country prefix"
+    )
+    vat_country_code = models.CharField(
+        max_length=2,
+        blank=True,
+        default="",
+        help_text="ISO 3166-1 alpha-2 country code. Synced from VAT ID prefix when set, otherwise user-provided.",
+    )
+    vat_id_validated = models.BooleanField(default=False)
+    vat_id_validated_at = models.DateTimeField(null=True, blank=True)
+    vies_request_identifier = models.CharField(max_length=50, blank=True, default="")
+
+    # Address
+    billing_address = models.TextField(blank=True)
+
+    # Contact
+    billing_email = models.EmailField(blank=True, help_text="Billing email (falls back to user.email in service logic)")
+
+    class Meta:
+        verbose_name = "User Billing Profile"
+        verbose_name_plural = "User Billing Profiles"
+
+    def __str__(self) -> str:
+        return f"Billing profile for {self.user.username}"
+
+
 class GlobalBan(TimeStampedModel):
     """Platform-wide ban by email, domain, or Telegram username.
 

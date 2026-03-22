@@ -553,7 +553,7 @@ class TestRevalidateVatIdsTask:
 class TestRevalidateSingleVatIdTask:
     """Tests for the revalidate_single_vat_id_task Celery task."""
 
-    @patch("events.service.vies_service.httpx.post")
+    @patch("common.service.vies_service.httpx.post")
     def test_validates_and_updates_organization(
         self,
         mock_post: MagicMock,
@@ -576,7 +576,7 @@ class TestRevalidateSingleVatIdTask:
         assert invoice_org.vat_id_validated is True
         assert invoice_org.vies_request_identifier == "REVAL-001"
 
-    @patch("events.service.vies_service.httpx.post")
+    @patch("common.service.vies_service.httpx.post")
     def test_skips_org_without_vat_id(
         self,
         mock_post: MagicMock,
@@ -602,7 +602,7 @@ class TestRevalidateSingleVatIdTask:
         with pytest.raises(Organization.DoesNotExist):
             revalidate_single_vat_id_task(fake_id)
 
-    @patch("events.service.vies_service.httpx.post")
+    @patch("common.service.vies_service.httpx.post")
     def test_vies_unavailable_propagates_for_retry(
         self,
         mock_post: MagicMock,
@@ -617,12 +617,12 @@ class TestRevalidateSingleVatIdTask:
 
         mock_post.side_effect = httpx.ConnectError("Connection refused")
 
-        from events.service.vies_service import VIESUnavailableError
+        from common.service.vies_service import VIESUnavailableError
 
         with pytest.raises(VIESUnavailableError):
             revalidate_single_vat_id_task(str(invoice_org.id))
 
-    @patch("events.service.vies_service.httpx.post")
+    @patch("common.service.vies_service.httpx.post")
     def test_invalid_vat_id_sets_validated_false(
         self,
         mock_post: MagicMock,
