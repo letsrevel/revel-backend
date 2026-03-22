@@ -216,6 +216,38 @@ class TestB2BReferrerSelfBillingInvoice:
         assert statement.vat_rate == Decimal("20.00")
         assert statement.reverse_charge is False
 
+    @patch("common.service.invoice_utils.HTML")
+    def test_b2b_non_eu_no_vat(
+        self,
+        mock_html_cls: MagicMock,
+        payout: ReferralPayout,
+        referrer: RevelUser,
+        site_settings: SiteSettings,
+    ) -> None:
+        """Non-EU B2B referrer (e.g. US): no VAT (export of services).
+
+        15.00 gross = 15.00 net, no VAT, no reverse charge.
+        """
+        mock_html_cls.return_value.write_pdf.return_value = None
+        UserBillingProfile.objects.create(
+            user=referrer,
+            billing_name="US Corp Inc.",
+            vat_id="US123456",
+            vat_country_code="US",
+            vat_id_validated=True,
+            billing_address="123 Main St, New York, NY",
+            self_billing_agreed=True,
+        )
+
+        statement = generate_payout_statement(payout)
+
+        assert statement.document_type == ReferralPayoutStatement.DocumentType.SELF_BILLING_INVOICE
+        assert statement.amount_gross == Decimal("15.00")
+        assert statement.amount_net == Decimal("15.00")
+        assert statement.amount_vat == Decimal("0.00")
+        assert statement.vat_rate == Decimal("0.00")
+        assert statement.reverse_charge is False
+
 
 # ---------------------------------------------------------------------------
 # B2C referrer: payout statement

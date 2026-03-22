@@ -1,5 +1,7 @@
 """Standalone admin for UserBillingProfile."""
 
+import typing as t
+
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
@@ -8,7 +10,7 @@ from accounts.models import UserBillingProfile
 
 @admin.register(UserBillingProfile)
 class UserBillingProfileAdmin(ModelAdmin):  # type: ignore[misc]
-    """Standalone admin for browsing all user billing profiles."""
+    """Standalone read-only admin for browsing all user billing profiles."""
 
     list_display = [
         "user",
@@ -35,3 +37,11 @@ class UserBillingProfileAdmin(ModelAdmin):  # type: ignore[misc]
         "updated_at",
     ]
     ordering = ["-created_at"]
+
+    def has_add_permission(self, request: t.Any) -> bool:
+        """Billing profiles are created via the API."""
+        return False
+
+    def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        """Billing profiles must not be deleted from admin."""
+        return False

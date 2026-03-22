@@ -265,7 +265,7 @@ class ReferralPayoutStatementAdmin(ModelAdmin):  # type: ignore[misc]
     def pdf_link(self, obj: ReferralPayoutStatement) -> str:
         """Display signed download link for the PDF file."""
         if url := get_file_url(obj.pdf_file):
-            return format_html('<a href="{}" target="_blank">Download PDF</a>', url)
+            return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">Download PDF</a>', url)
         return "—"
 
     def has_add_permission(self, request: t.Any) -> bool:

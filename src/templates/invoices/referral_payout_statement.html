@@ -30,11 +30,11 @@
   <hr class="divider">
 
   <div class="bill-to-section">
-    <div class="bill-to-label">Recipient</div>
+    <div class="bill-to-label">{% if is_b2b %}Supplier{% else %}Recipient{% endif %}</div>
     <div class="bill-to-name">{{ referrer_name }}</div>
     <div class="bill-to-details">
       {% if referrer_address %}{{ referrer_address }}<br>{% endif %}
-      {% if referrer_vat_id %}VAT: {{ referrer_vat_id }}{% endif %}
+      {% if is_b2b and referrer_vat_id %}VAT: {{ referrer_vat_id }}{% endif %}
     </div>
   </div>
 

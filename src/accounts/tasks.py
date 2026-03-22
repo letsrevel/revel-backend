@@ -690,6 +690,16 @@ def process_referral_payouts() -> dict[str, int]:
     """
     from accounts.service.payout_statement_service import generate_payout_statement
 
+    # Reclaim stale PENDING payouts (worker crashed after claim but before completion).
+    # If a payout has been PENDING for over 1 hour, it was likely abandoned.
+    stale_cutoff = timezone.now() - timedelta(hours=1)
+    stale_count = ReferralPayout.objects.filter(
+        status=ReferralPayout.Status.PENDING,
+        updated_at__lt=stale_cutoff,
+    ).update(status=ReferralPayout.Status.CALCULATED)
+    if stale_count:
+        logger.warning("stale_pending_payouts_reclaimed", count=stale_count)
+
     payout_ids = list(
         ReferralPayout.objects.filter(status=ReferralPayout.Status.CALCULATED)
         .order_by("period_start")
