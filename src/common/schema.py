@@ -44,16 +44,16 @@ class BillingInfoSchemaMixin(Schema):
     must be done at the controller level (needs DB state).
     """
 
-    vat_country_code: VATCountryCode | None = None
+    vat_country_code: t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, max_length=2)] = ""
     billing_name: t.Annotated[str, StringConstraints(strip_whitespace=True)] = ""
     billing_address: str = ""
     billing_email: str = ""
 
     @field_validator("vat_country_code")
     @classmethod
-    def validate_vat_country_code(cls, v: str | None) -> str | None:
-        """Validate vat_country_code is a valid ISO 3166-1 alpha-2 code."""
-        return validate_country_code(v)
+    def validate_vat_country_code(cls, v: str) -> str:
+        """Validate vat_country_code is a valid ISO 3166-1 alpha-2 code or empty."""
+        return validate_country_code(v) or ""
 
 
 class EmailSchema(Schema):

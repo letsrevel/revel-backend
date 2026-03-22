@@ -86,15 +86,9 @@ class UserBillingController(UserAwareController):
                     str(_("Country code must match the VAT ID prefix (%(prefix)s).") % {"prefix": vat_prefix}),
                 )
 
-        updated_fields: list[str] = []
         for field, value in update_data.items():
-            if value is not None:
-                setattr(profile, field, value)
-                updated_fields.append(field)
-
-        if not updated_fields:
-            return profile
-        profile.save(update_fields=[*updated_fields, "updated_at"])
+            setattr(profile, field, value)
+        profile.save(update_fields=[*update_data.keys(), "updated_at"])
         return profile
 
     @route.put(
