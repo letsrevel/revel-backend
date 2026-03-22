@@ -3,7 +3,6 @@
 Tests cover the pure, model-agnostic validation functions extracted from events.
 """
 
-import typing as t
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,27 +15,7 @@ from common.service.vies_service import (
     parse_vat_id,
     validate_vat_id,
 )
-
-
-def _mock_vies_response(
-    *,
-    valid: bool = True,
-    name: str = "ACME SRL",
-    address: str = "VIA ROMA 1",
-    request_identifier: str = "REQ123",
-    status_code: int = 200,
-) -> MagicMock:
-    data: dict[str, t.Any] = {
-        "valid": valid,
-        "name": name,
-        "address": address,
-        "requestIdentifier": request_identifier,
-    }
-    response = MagicMock()
-    response.status_code = status_code
-    response.json.return_value = data
-    response.text = str(data)
-    return response
+from common.tests.vies_test_utils import mock_vies_response
 
 
 class TestParseVatId:
@@ -64,17 +43,17 @@ class TestParseVatId:
 class TestValidateVatId:
     @patch("common.service.vies_service.httpx.post")
     def test_valid_vat_id(self, mock_post: MagicMock) -> None:
-        mock_post.return_value = _mock_vies_response(valid=True, request_identifier="REQ123")
+        mock_post.return_value = mock_vies_response(valid=True, request_identifier="REQ123")
 
         result = validate_vat_id("IT12345678901")
 
         assert result == VIESValidationResult(
-            valid=True, name="ACME SRL", address="VIA ROMA 1", request_identifier="REQ123"
+            valid=True, name="ACME SRL", address="VIA ROMA 1, 00100 ROMA RM", request_identifier="REQ123"
         )
 
     @patch("common.service.vies_service.httpx.post")
     def test_invalid_vat_id(self, mock_post: MagicMock) -> None:
-        mock_post.return_value = _mock_vies_response(valid=False, name="", address="", request_identifier="REQ456")
+        mock_post.return_value = mock_vies_response(valid=False, name="", address="", request_identifier="REQ456")
 
         result = validate_vat_id("IT00000000000")
 
@@ -82,7 +61,7 @@ class TestValidateVatId:
 
     @patch("common.service.vies_service.httpx.post")
     def test_correct_api_payload(self, mock_post: MagicMock) -> None:
-        mock_post.return_value = _mock_vies_response()
+        mock_post.return_value = mock_vies_response()
 
         validate_vat_id("DE123456789")
 
@@ -115,7 +94,7 @@ class TestValidateVatId:
 
     @patch("common.service.vies_service.httpx.post")
     def test_http_500_raises_vies_unavailable(self, mock_post: MagicMock) -> None:
-        mock_post.return_value = _mock_vies_response(status_code=500)
+        mock_post.return_value = mock_vies_response(status_code=500)
 
         with pytest.raises(VIESUnavailableError, match="VIES returned HTTP 500"):
             validate_vat_id("IT12345678901")

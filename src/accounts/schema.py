@@ -7,7 +7,7 @@ from uuid import uuid4
 from django.conf import settings
 from ninja import ModelSchema, Schema
 from ninja_jwt.schema import TokenObtainPairOutputSchema
-from pydantic import UUID4, EmailStr, Field, StringConstraints, field_serializer, field_validator, model_validator
+from pydantic import UUID4, EmailStr, Field, field_serializer, field_validator, model_validator
 
 from accounts.password_validation import validate_password
 from common.schema import (
@@ -15,6 +15,7 @@ from common.schema import (
     ProfilePictureSchemaMixin,
     StrippedString,
     VATCountryCode,
+    VATIdUpdateBaseSchema,
     validate_country_code,
 )
 
@@ -430,24 +431,5 @@ class UserBillingProfileUpdateSchema(BillingInfoSchemaMixin):
     """
 
 
-class UserVATIdUpdateSchema(Schema):
+class UserVATIdUpdateSchema(VATIdUpdateBaseSchema):
     """Schema for setting/updating a user's VAT ID."""
-
-    vat_id: t.Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True)]
-
-    @model_validator(mode="after")
-    def validate_vat_id_format(self) -> t.Self:
-        """Validate VAT ID format and country prefix."""
-        import re
-
-        from common.constants import EU_MEMBER_STATES, VAT_ID_PATTERN
-
-        if not re.match(VAT_ID_PATTERN, self.vat_id):
-            raise ValueError(
-                "VAT ID must start with a 2-letter country code followed by 2-13 alphanumeric characters "
-                "(e.g., IT12345678901, DE123456789)."
-            )
-        country_prefix = self.vat_id[:2]
-        if country_prefix not in EU_MEMBER_STATES:
-            raise ValueError(f"VAT ID country prefix must be a valid EU member state. Got: {country_prefix}")
-        return self

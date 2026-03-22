@@ -3,15 +3,18 @@
 Validates EU VAT identification numbers via the European Commission's
 VIES (VAT Information Exchange System) REST API.
 
-This module contains the pure, model-agnostic validation logic.
-App-specific update functions (e.g., for Organization or UserBillingProfile)
-live in their respective apps.
+This module contains the pure, model-agnostic validation logic and a
+generic ``validate_and_update_vat_entity`` function that works with any
+model exposing the standard billing fields via ``HasBillingFields``.
 """
 
+import typing as t
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 import structlog
+from django.utils import timezone
 
 logger = structlog.get_logger(__name__)
 
@@ -31,6 +34,25 @@ class VIESValidationResult:
 
 class VIESUnavailableError(Exception):
     """Raised when the VIES service is unavailable."""
+
+
+class HasBillingFields(t.Protocol):
+    """Protocol for models that have standard VAT/billing fields.
+
+    Both Organization and UserBillingProfile satisfy this interface.
+    """
+
+    vat_id: str
+    vat_country_code: str
+    vat_id_validated: bool
+    vat_id_validated_at: datetime | None
+    vies_request_identifier: str
+    billing_name: str
+    billing_address: str
+
+    def save(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Persist the entity."""
+        ...
 
 
 def parse_vat_id(vat_id: str) -> tuple[str, str]:
@@ -91,3 +113,69 @@ def validate_vat_id(vat_id: str) -> VIESValidationResult:
         address=data.get("address", ""),
         request_identifier=data.get("requestIdentifier", ""),
     )
+
+
+def validate_and_update_vat_entity(
+    entity: HasBillingFields,
+    *,
+    entity_id: str,
+    entity_type: str = "entity",
+) -> VIESValidationResult:
+    """Validate a VAT ID and update the model fields.
+
+    Generic implementation that works with any model satisfying ``HasBillingFields``.
+    On successful validation, auto-fills billing_name, billing_address, and
+    vat_country_code from the VIES response if they are currently empty.
+
+    Args:
+        entity: Model instance with billing fields (Organization or UserBillingProfile).
+        entity_id: ID string for structured logging.
+        entity_type: Label for structured logging (e.g., "org", "user").
+
+    Returns:
+        The VIESValidationResult.
+
+    Raises:
+        VIESUnavailableError: If VIES is unavailable.
+        ValueError: If the entity has no VAT ID set.
+    """
+    if not entity.vat_id:
+        raise ValueError(f"{entity_type} has no VAT ID to validate.")
+
+    result = validate_vat_id(entity.vat_id)
+
+    update_fields = ["vat_id_validated", "vat_id_validated_at", "vies_request_identifier", "updated_at"]
+
+    entity.vat_id_validated = result.valid
+    entity.vat_id_validated_at = timezone.now()
+    entity.vies_request_identifier = result.request_identifier
+
+    if result.valid:
+        # Always sync country code from VAT ID prefix
+        country_from_vat = entity.vat_id[:2].upper()
+        if entity.vat_country_code != country_from_vat:
+            entity.vat_country_code = country_from_vat
+            update_fields.append("vat_country_code")
+
+        # Auto-fill billing name from VIES response if empty
+        if not entity.billing_name and result.name:
+            name = result.name.strip()
+            if name and name != "---":
+                entity.billing_name = name
+                update_fields.append("billing_name")
+
+        # Auto-fill billing address from VIES response if empty
+        if not entity.billing_address and result.address:
+            # VIES sometimes returns "---" for unavailable addresses
+            address = result.address.strip()
+            if address and address != "---":
+                entity.billing_address = address
+                update_fields.append("billing_address")
+
+        logger.info("vat_id_validated", vat_id=entity.vat_id, **{f"{entity_type}_id": entity_id})
+    else:
+        logger.warning("vat_id_invalid", vat_id=entity.vat_id, **{f"{entity_type}_id": entity_id})
+
+    entity.save(update_fields=update_fields)
+
+    return result

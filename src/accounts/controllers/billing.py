@@ -181,3 +181,15 @@ class UserBillingController(UserAwareController):
             ]
         )
         return 204, None
+
+    @route.delete(
+        "",
+        url_name="delete_billing_profile",
+        response={204: None},
+        throttle=WriteThrottle(),
+    )
+    def delete_billing_profile(self) -> tuple[int, None]:
+        """Delete the user's entire billing profile."""
+        profile = get_object_or_404(UserBillingProfile, user=self.user())
+        profile.delete()
+        return 204, None

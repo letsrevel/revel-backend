@@ -7,7 +7,6 @@ Tests cover:
 - Error handling (missing VAT ID, network errors, non-200 responses)
 """
 
-import typing as t
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,6 +21,7 @@ from common.service.vies_service import (
     parse_vat_id,
     validate_vat_id,
 )
+from common.tests.vies_test_utils import mock_vies_response
 from events.models import Organization
 from events.service.vies_service import validate_and_update_organization
 
@@ -65,32 +65,6 @@ def org_without_vat(org_owner: RevelUser) -> Organization:
         owner=org_owner,
         vat_id="",
     )
-
-
-def _mock_vies_response(
-    *,
-    valid: bool = True,
-    name: str = "ACME SRL",
-    address: str = "VIA ROMA 1, 00100 ROMA RM",
-    request_identifier: str = "WAPIAAAAYeBtPMia",
-    status_code: int = 200,
-    extra_keys: dict[str, t.Any] | None = None,
-) -> MagicMock:
-    """Build a mock httpx.Response for VIES REST API calls."""
-    data: dict[str, t.Any] = {
-        "valid": valid,
-        "name": name,
-        "address": address,
-        "requestIdentifier": request_identifier,
-    }
-    if extra_keys:
-        data.update(extra_keys)
-
-    response = MagicMock()
-    response.status_code = status_code
-    response.json.return_value = data
-    response.text = str(data)
-    return response
 
 
 # ===========================================================================
@@ -148,7 +122,7 @@ class TestValidateVatId:
     @patch("common.service.vies_service.httpx.post")
     def test_valid_vat_id_returns_valid_result(self, mock_post: MagicMock) -> None:
         """A valid VAT ID returns a VIESValidationResult with valid=True and details."""
-        mock_post.return_value = _mock_vies_response(
+        mock_post.return_value = mock_vies_response(
             valid=True,
             name="ACME SRL",
             address="VIA ROMA 1",
@@ -167,7 +141,7 @@ class TestValidateVatId:
     @patch("common.service.vies_service.httpx.post")
     def test_invalid_vat_id_returns_invalid_result(self, mock_post: MagicMock) -> None:
         """An invalid VAT ID returns a VIESValidationResult with valid=False."""
-        mock_post.return_value = _mock_vies_response(
+        mock_post.return_value = mock_vies_response(
             valid=False,
             name="",
             address="",
@@ -184,7 +158,7 @@ class TestValidateVatId:
     @patch("common.service.vies_service.httpx.post")
     def test_correct_api_payload_is_sent(self, mock_post: MagicMock) -> None:
         """The VIES API receives the correct countryCode and vatNumber split."""
-        mock_post.return_value = _mock_vies_response()
+        mock_post.return_value = mock_vies_response()
 
         validate_vat_id("DE123456789")
 
@@ -200,7 +174,7 @@ class TestValidateVatId:
     @patch("common.service.vies_service.httpx.post")
     def test_lowercase_vat_id_sends_uppercased_payload(self, mock_post: MagicMock) -> None:
         """Lowercase VAT IDs are uppercased before sending to VIES."""
-        mock_post.return_value = _mock_vies_response()
+        mock_post.return_value = mock_vies_response()
 
         validate_vat_id("fr12345678901")
 
@@ -266,7 +240,7 @@ class TestValidateVatId:
     @patch("common.service.vies_service.httpx.post")
     def test_http_500_raises_vies_unavailable(self, mock_post: MagicMock) -> None:
         """Non-200 HTTP responses raise VIESUnavailableError with status code."""
-        mock_post.return_value = _mock_vies_response(status_code=500)
+        mock_post.return_value = mock_vies_response(status_code=500)
 
         with pytest.raises(VIESUnavailableError, match="VIES returned HTTP 500"):
             validate_vat_id("IT12345678901")
@@ -316,7 +290,7 @@ class TestValidateAndUpdateOrganization:
     @patch("common.service.vies_service.httpx.post")
     def test_valid_result_updates_org_fields(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
         """Valid VIES response sets vat_id_validated=True and stores metadata."""
-        mock_post.return_value = _mock_vies_response(
+        mock_post.return_value = mock_vies_response(
             valid=True,
             request_identifier="REQ789",
         )
@@ -336,7 +310,7 @@ class TestValidateAndUpdateOrganization:
     ) -> None:
         """On valid result, vat_country_code is set from the VAT ID prefix."""
         assert org_with_vat.vat_country_code == ""  # starts empty
-        mock_post.return_value = _mock_vies_response(valid=True)
+        mock_post.return_value = mock_vies_response(valid=True)
 
         validate_and_update_organization(org_with_vat)
 
@@ -350,7 +324,7 @@ class TestValidateAndUpdateOrganization:
         """When the country code already matches, it stays the same (no-op)."""
         org_with_vat.vat_country_code = "IT"
         org_with_vat.save(update_fields=["vat_country_code"])
-        mock_post.return_value = _mock_vies_response(valid=True)
+        mock_post.return_value = mock_vies_response(valid=True)
 
         validate_and_update_organization(org_with_vat)
 
@@ -363,7 +337,7 @@ class TestValidateAndUpdateOrganization:
     ) -> None:
         """When billing_address is empty, it is auto-filled from the VIES response."""
         assert org_with_vat.billing_address == ""  # starts empty
-        mock_post.return_value = _mock_vies_response(
+        mock_post.return_value = mock_vies_response(
             valid=True,
             address="VIA ROMA 1, 00100 ROMA RM",
         )
@@ -380,7 +354,7 @@ class TestValidateAndUpdateOrganization:
         """When billing_address is already set, it is NOT overwritten by VIES."""
         org_with_vat.billing_address = "My Custom Address"
         org_with_vat.save(update_fields=["billing_address"])
-        mock_post.return_value = _mock_vies_response(
+        mock_post.return_value = mock_vies_response(
             valid=True,
             address="VIA ROMA 1, 00100 ROMA RM",
         )
@@ -396,7 +370,7 @@ class TestValidateAndUpdateOrganization:
     ) -> None:
         """VIES address of '---' is treated as unavailable and not auto-filled."""
         assert org_with_vat.billing_address == ""
-        mock_post.return_value = _mock_vies_response(
+        mock_post.return_value = mock_vies_response(
             valid=True,
             address="---",
         )
@@ -412,7 +386,7 @@ class TestValidateAndUpdateOrganization:
     ) -> None:
         """VIES address that is only whitespace is treated as empty and not filled."""
         assert org_with_vat.billing_address == ""
-        mock_post.return_value = _mock_vies_response(
+        mock_post.return_value = mock_vies_response(
             valid=True,
             address="   ",
         )
@@ -428,7 +402,7 @@ class TestValidateAndUpdateOrganization:
     ) -> None:
         """Empty VIES address string does not change billing_address."""
         assert org_with_vat.billing_address == ""
-        mock_post.return_value = _mock_vies_response(valid=True, address="")
+        mock_post.return_value = mock_vies_response(valid=True, address="")
 
         validate_and_update_organization(org_with_vat)
 
@@ -438,7 +412,7 @@ class TestValidateAndUpdateOrganization:
     @patch("common.service.vies_service.httpx.post")
     def test_invalid_result_sets_validated_false(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
         """Invalid VIES response sets vat_id_validated=False."""
-        mock_post.return_value = _mock_vies_response(valid=False)
+        mock_post.return_value = mock_vies_response(valid=False)
 
         result = validate_and_update_organization(org_with_vat)
 
@@ -454,7 +428,7 @@ class TestValidateAndUpdateOrganization:
     ) -> None:
         """Invalid result does not sync the country code from the VAT prefix."""
         assert org_with_vat.vat_country_code == ""
-        mock_post.return_value = _mock_vies_response(valid=False)
+        mock_post.return_value = mock_vies_response(valid=False)
 
         validate_and_update_organization(org_with_vat)
 
@@ -467,7 +441,7 @@ class TestValidateAndUpdateOrganization:
     ) -> None:
         """Invalid result does not auto-fill billing_address from VIES."""
         assert org_with_vat.billing_address == ""
-        mock_post.return_value = _mock_vies_response(valid=False, address="Some Address")
+        mock_post.return_value = mock_vies_response(valid=False, address="Some Address")
 
         validate_and_update_organization(org_with_vat)
 
@@ -478,7 +452,7 @@ class TestValidateAndUpdateOrganization:
     def test_valid_result_auto_fills_empty_billing_name(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
         """When billing_name is empty, it is auto-filled from the VIES response."""
         assert org_with_vat.billing_name == ""
-        mock_post.return_value = _mock_vies_response(valid=True, name="ACME SRL")
+        mock_post.return_value = mock_vies_response(valid=True, name="ACME SRL")
 
         validate_and_update_organization(org_with_vat)
 
@@ -492,7 +466,7 @@ class TestValidateAndUpdateOrganization:
         """When billing_name is already set, it is NOT overwritten by VIES."""
         org_with_vat.billing_name = "My Legal Entity"
         org_with_vat.save(update_fields=["billing_name"])
-        mock_post.return_value = _mock_vies_response(valid=True, name="ACME SRL")
+        mock_post.return_value = mock_vies_response(valid=True, name="ACME SRL")
 
         validate_and_update_organization(org_with_vat)
 
@@ -503,7 +477,7 @@ class TestValidateAndUpdateOrganization:
     def test_valid_result_with_dash_name_does_not_fill(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
         """VIES name of '---' is treated as unavailable and not auto-filled."""
         assert org_with_vat.billing_name == ""
-        mock_post.return_value = _mock_vies_response(valid=True, name="---")
+        mock_post.return_value = mock_vies_response(valid=True, name="---")
 
         validate_and_update_organization(org_with_vat)
 
@@ -514,7 +488,7 @@ class TestValidateAndUpdateOrganization:
     def test_valid_result_with_empty_name_does_not_fill(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
         """Empty VIES name string does not change billing_name."""
         assert org_with_vat.billing_name == ""
-        mock_post.return_value = _mock_vies_response(valid=True, name="")
+        mock_post.return_value = mock_vies_response(valid=True, name="")
 
         validate_and_update_organization(org_with_vat)
 
@@ -527,7 +501,7 @@ class TestValidateAndUpdateOrganization:
     ) -> None:
         """VIES name that is only whitespace is treated as empty and not filled."""
         assert org_with_vat.billing_name == ""
-        mock_post.return_value = _mock_vies_response(valid=True, name="   ")
+        mock_post.return_value = mock_vies_response(valid=True, name="   ")
 
         validate_and_update_organization(org_with_vat)
 
@@ -538,7 +512,7 @@ class TestValidateAndUpdateOrganization:
     def test_invalid_result_does_not_fill_billing_name(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
         """Invalid result does not auto-fill billing_name from VIES."""
         assert org_with_vat.billing_name == ""
-        mock_post.return_value = _mock_vies_response(valid=False, name="ACME SRL")
+        mock_post.return_value = mock_vies_response(valid=False, name="ACME SRL")
 
         validate_and_update_organization(org_with_vat)
 
@@ -547,7 +521,7 @@ class TestValidateAndUpdateOrganization:
 
     def test_no_vat_id_raises_value_error(self, org_without_vat: Organization) -> None:
         """Organization with no VAT ID raises ValueError."""
-        with pytest.raises(ValueError, match="Organization has no VAT ID to validate"):
+        with pytest.raises(ValueError, match="has no VAT ID to validate"):
             validate_and_update_organization(org_without_vat)
 
     @patch("common.service.vies_service.httpx.post")
@@ -579,7 +553,7 @@ class TestValidateAndUpdateOrganization:
     @patch("common.service.vies_service.httpx.post")
     def test_validated_at_is_set_to_current_time(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
         """vat_id_validated_at is set to approximately the current time."""
-        mock_post.return_value = _mock_vies_response(valid=True)
+        mock_post.return_value = mock_vies_response(valid=True)
         before = timezone.now()
 
         validate_and_update_organization(org_with_vat)
@@ -591,7 +565,7 @@ class TestValidateAndUpdateOrganization:
     @patch("common.service.vies_service.httpx.post")
     def test_returns_vies_validation_result(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
         """The function returns the VIESValidationResult from the API call."""
-        mock_post.return_value = _mock_vies_response(
+        mock_post.return_value = mock_vies_response(
             valid=True,
             name="ACME SRL",
             address="VIA ROMA 1",
@@ -611,7 +585,7 @@ class TestValidateAndUpdateOrganization:
         """If org has wrong vat_country_code, it is corrected from VAT ID prefix."""
         org_with_vat.vat_country_code = "DE"  # Wrong; VAT ID starts with IT
         org_with_vat.save(update_fields=["vat_country_code"])
-        mock_post.return_value = _mock_vies_response(valid=True)
+        mock_post.return_value = mock_vies_response(valid=True)
 
         validate_and_update_organization(org_with_vat)
 
@@ -621,7 +595,7 @@ class TestValidateAndUpdateOrganization:
     @patch("common.service.vies_service.httpx.post")
     def test_request_identifier_stored_on_org(self, mock_post: MagicMock, org_with_vat: Organization) -> None:
         """The VIES request identifier is persisted on the organization for audit trails."""
-        mock_post.return_value = _mock_vies_response(
+        mock_post.return_value = mock_vies_response(
             valid=True,
             request_identifier="AUDIT-TRAIL-123",
         )
@@ -637,13 +611,13 @@ class TestValidateAndUpdateOrganization:
     ) -> None:
         """An org that was previously validated can be re-validated (e.g., monthly re-check)."""
         # First validation
-        mock_post.return_value = _mock_vies_response(valid=True, request_identifier="FIRST")
+        mock_post.return_value = mock_vies_response(valid=True, request_identifier="FIRST")
         validate_and_update_organization(org_with_vat)
         org_with_vat.refresh_from_db()
         first_validated_at = org_with_vat.vat_id_validated_at
 
         # Second validation
-        mock_post.return_value = _mock_vies_response(valid=True, request_identifier="SECOND")
+        mock_post.return_value = mock_vies_response(valid=True, request_identifier="SECOND")
         validate_and_update_organization(org_with_vat)
         org_with_vat.refresh_from_db()
 
@@ -657,7 +631,7 @@ class TestValidateAndUpdateOrganization:
         org_with_vat.vat_id_validated = True
         org_with_vat.save(update_fields=["vat_id_validated"])
 
-        mock_post.return_value = _mock_vies_response(valid=False)
+        mock_post.return_value = mock_vies_response(valid=False)
 
         validate_and_update_organization(org_with_vat)
 
