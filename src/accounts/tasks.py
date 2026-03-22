@@ -714,10 +714,7 @@ def process_referral_payouts() -> dict[str, int]:
             stats["skipped"] += 1
             continue
 
-        # --- Generate statement ---
-        statement = generate_payout_statement(payout)
-
-        # --- Stripe Transfer ---
+        # --- Stripe Transfer (before statement to avoid orphans) ---
         try:
             transfer = stripe.Transfer.create(
                 amount=int(payout.payout_amount * 100),
@@ -725,19 +722,6 @@ def process_referral_payouts() -> dict[str, int]:
                 destination=referrer.stripe_account_id,
                 transfer_group=f"referral-payout-{payout.id}",
             )
-            payout.status = ReferralPayout.Status.PAID
-            payout.stripe_transfer_id = transfer.id
-            payout.save(update_fields=["status", "stripe_transfer_id", "updated_at"])
-            stats["paid"] += 1
-
-            logger.info(
-                "payout_transferred",
-                payout_id=str(payout.id),
-                transfer_id=transfer.id,
-                amount=str(payout.payout_amount),
-                currency=payout.currency,
-            )
-
         except stripe.error.StripeError as exc:
             payout.status = ReferralPayout.Status.FAILED
             payout.save(update_fields=["status", "updated_at"])
@@ -749,10 +733,23 @@ def process_referral_payouts() -> dict[str, int]:
                 referrer_id=str(referrer.id),
                 error=str(exc),
             )
-            # Let exception propagate so Celery can retry the entire task
-            raise
+            continue  # Process remaining payouts instead of aborting
 
-        # --- Email statement to referrer ---
+        payout.status = ReferralPayout.Status.PAID
+        payout.stripe_transfer_id = transfer.id
+        payout.save(update_fields=["status", "stripe_transfer_id", "updated_at"])
+        stats["paid"] += 1
+
+        logger.info(
+            "payout_transferred",
+            payout_id=str(payout.id),
+            transfer_id=transfer.id,
+            amount=str(payout.payout_amount),
+            currency=payout.currency,
+        )
+
+        # --- Generate statement + email (only after successful transfer) ---
+        statement = generate_payout_statement(payout)
         _send_payout_statement_email(payout, statement, referrer)
 
     logger.info("process_referral_payouts_completed", **stats)
@@ -794,3 +791,5 @@ def _send_payout_statement_email(
         attachment_storage_path=statement.pdf_file.name,
         attachment_filename=f"{statement.document_number}.pdf",
     )
+
+    logger.info("payout_statement_email_sent", document_number=statement.document_number, to=recipient)

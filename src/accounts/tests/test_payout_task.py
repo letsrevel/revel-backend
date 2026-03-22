@@ -385,19 +385,18 @@ class TestPayoutStripeError:
         site_settings: SiteSettings,
     ) -> None:
         """When Stripe returns an error, the payout status is set to FAILED."""
-        mock_gen_statement.return_value = MagicMock(spec=ReferralPayoutStatement)
         mock_transfer_create.side_effect = stripe.error.StripeError("Insufficient funds")
 
-        with pytest.raises(stripe.error.StripeError):
-            process_referral_payouts()
+        stats = process_referral_payouts()
 
+        assert stats["failed"] == 1
         calculated_payout.refresh_from_db()
         assert calculated_payout.status == ReferralPayout.Status.FAILED
 
     @patch("accounts.tasks._send_payout_statement_email")
     @patch("accounts.tasks.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
-    def test_propagates_stripe_exception_for_celery_retry(
+    def test_stripe_error_continues_loop_and_records_failure(
         self,
         mock_gen_statement: MagicMock,
         mock_transfer_create: MagicMock,
@@ -406,17 +405,20 @@ class TestPayoutStripeError:
         billing_profile: UserBillingProfile,
         site_settings: SiteSettings,
     ) -> None:
-        """The StripeError is re-raised so Celery can retry the entire task."""
-        mock_gen_statement.return_value = MagicMock(spec=ReferralPayoutStatement)
+        """Stripe errors are caught per-payout; the loop continues and the failure is recorded."""
         mock_transfer_create.side_effect = stripe.error.StripeError("Connection error")
 
-        with pytest.raises(stripe.error.StripeError, match="Connection error"):
-            process_referral_payouts()
+        stats = process_referral_payouts()
+
+        assert stats["failed"] == 1
+        assert stats["paid"] == 0
+        calculated_payout.refresh_from_db()
+        assert calculated_payout.status == ReferralPayout.Status.FAILED
 
     @patch("accounts.tasks._send_payout_statement_email")
     @patch("accounts.tasks.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
-    def test_no_email_sent_on_stripe_failure(
+    def test_no_statement_or_email_on_stripe_failure(
         self,
         mock_gen_statement: MagicMock,
         mock_transfer_create: MagicMock,
@@ -425,13 +427,12 @@ class TestPayoutStripeError:
         billing_profile: UserBillingProfile,
         site_settings: SiteSettings,
     ) -> None:
-        """Email is NOT sent when the Stripe transfer fails."""
-        mock_gen_statement.return_value = MagicMock(spec=ReferralPayoutStatement)
+        """Neither statement generation nor email is triggered when Stripe transfer fails."""
         mock_transfer_create.side_effect = stripe.error.StripeError("Error")
 
-        with pytest.raises(stripe.error.StripeError):
-            process_referral_payouts()
+        process_referral_payouts()
 
+        mock_gen_statement.assert_not_called()
         mock_send_email.assert_not_called()
 
     @patch("accounts.tasks._send_payout_statement_email")
@@ -447,11 +448,9 @@ class TestPayoutStripeError:
         site_settings: SiteSettings,
     ) -> None:
         """When Stripe fails, the transfer ID is not set on the payout."""
-        mock_gen_statement.return_value = MagicMock(spec=ReferralPayoutStatement)
         mock_transfer_create.side_effect = stripe.error.StripeError("Error")
 
-        with pytest.raises(stripe.error.StripeError):
-            process_referral_payouts()
+        process_referral_payouts()
 
         calculated_payout.refresh_from_db()
         assert calculated_payout.stripe_transfer_id == ""

@@ -32,13 +32,13 @@ def _get_next_statement_number(year: int) -> str:
 def _determine_vat_treatment(
     payout: ReferralPayout,
     billing_profile: UserBillingProfile,
+    site: SiteSettings,
 ) -> tuple[ReferralPayoutStatement.DocumentType, B2BFeeVATBreakdown]:
     """Determine document type and VAT breakdown for a payout.
 
     B2B (validated VAT ID) → self-billing invoice with VAT math.
     B2C (no validated VAT ID) → payout statement, no VAT.
     """
-    site = SiteSettings.get_solo()
     is_b2b = bool(billing_profile.vat_id and billing_profile.vat_id_validated)
 
     if is_b2b:
@@ -63,6 +63,7 @@ def _determine_vat_treatment(
 def generate_payout_statement(payout: ReferralPayout) -> ReferralPayoutStatement:
     """Generate a payout statement (or self-billing invoice) for a single payout.
 
+    Idempotent: returns the existing statement if one already exists for this payout.
     Determines B2B vs B2C from the referrer's billing profile, calculates VAT,
     renders a PDF, and persists the statement.
 
@@ -70,18 +71,23 @@ def generate_payout_statement(payout: ReferralPayout) -> ReferralPayoutStatement
         payout: The ``ReferralPayout`` to create a statement for.
 
     Returns:
-        The created ``ReferralPayoutStatement``.
+        The created (or existing) ``ReferralPayoutStatement``.
 
     Raises:
         UserBillingProfile.DoesNotExist: If the referrer has no billing profile.
     """
+    # Idempotency: return existing statement if already generated
+    existing = ReferralPayoutStatement.objects.filter(payout=payout).first()
+    if existing:
+        return existing
+
     referrer = payout.referral.referrer
     billing_profile = referrer.billing_profile
     site = SiteSettings.get_solo()
     now = timezone.now()
     year = payout.period_start.year
 
-    doc_type, vat = _determine_vat_treatment(payout, billing_profile)
+    doc_type, vat = _determine_vat_treatment(payout, billing_profile, site)
     is_b2b = doc_type == ReferralPayoutStatement.DocumentType.SELF_BILLING_INVOICE
 
     with transaction.atomic():
