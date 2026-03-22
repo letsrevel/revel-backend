@@ -8,10 +8,14 @@ This module contains asynchronous tasks for:
 """
 
 import datetime
+import typing as t
 from collections import Counter
 from uuid import UUID
 
 import structlog
+
+if t.TYPE_CHECKING:
+    from events.service.referral_payout_service import PayoutResult
 from celery import shared_task
 from django.core.management import call_command
 from django.db import transaction
@@ -419,7 +423,7 @@ def send_organization_contact_email_verification(
 
 
 @shared_task(name="events.calculate_referral_payouts")
-def calculate_referral_payouts() -> dict[str, int]:
+def calculate_referral_payouts() -> "PayoutResult":
     """Calculate referral earnings for the previous calendar month.
 
     Runs on the 1st of each month via Celery beat. For each active Referral,
