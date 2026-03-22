@@ -705,15 +705,14 @@ class TestGenerateMonthlyInvoices:
     """Tests for the monthly invoice convenience wrapper."""
 
     @patch("events.service.invoice_service.generate_invoices_for_period")
-    @patch("events.service.invoice_service.date")
+    @patch("events.service.invoice_service.timezone")
     def test_calculates_previous_month_range_mid_year(
         self,
-        mock_date: MagicMock,
+        mock_tz: MagicMock,
         mock_generate: MagicMock,
     ) -> None:
         """When called on March 1, it generates invoices for Feb 1-28."""
-        mock_date.today.return_value = date(2026, 3, 1)
-        mock_date.side_effect = lambda *a, **kw: date(*a, **kw)
+        mock_tz.now.return_value.date.return_value = date(2026, 3, 1)
         mock_generate.return_value = []
 
         generate_monthly_invoices()
@@ -721,15 +720,14 @@ class TestGenerateMonthlyInvoices:
         mock_generate.assert_called_once_with(date(2026, 2, 1), date(2026, 2, 28))
 
     @patch("events.service.invoice_service.generate_invoices_for_period")
-    @patch("events.service.invoice_service.date")
+    @patch("events.service.invoice_service.timezone")
     def test_calculates_previous_month_range_january(
         self,
-        mock_date: MagicMock,
+        mock_tz: MagicMock,
         mock_generate: MagicMock,
     ) -> None:
         """When called on Jan 1, it generates invoices for Dec 1-31 of the previous year."""
-        mock_date.today.return_value = date(2026, 1, 1)
-        mock_date.side_effect = lambda *a, **kw: date(*a, **kw)
+        mock_tz.now.return_value.date.return_value = date(2026, 1, 1)
         mock_generate.return_value = []
 
         generate_monthly_invoices()
@@ -737,15 +735,14 @@ class TestGenerateMonthlyInvoices:
         mock_generate.assert_called_once_with(date(2025, 12, 1), date(2025, 12, 31))
 
     @patch("events.service.invoice_service.generate_invoices_for_period")
-    @patch("events.service.invoice_service.date")
+    @patch("events.service.invoice_service.timezone")
     def test_calculates_previous_month_range_leap_year(
         self,
-        mock_date: MagicMock,
+        mock_tz: MagicMock,
         mock_generate: MagicMock,
     ) -> None:
         """When called on March 1 of a leap year, Feb has 29 days."""
-        mock_date.today.return_value = date(2028, 3, 1)
-        mock_date.side_effect = lambda *a, **kw: date(*a, **kw)
+        mock_tz.now.return_value.date.return_value = date(2028, 3, 1)
         mock_generate.return_value = []
 
         generate_monthly_invoices()
@@ -753,15 +750,14 @@ class TestGenerateMonthlyInvoices:
         mock_generate.assert_called_once_with(date(2028, 2, 1), date(2028, 2, 29))
 
     @patch("events.service.invoice_service.generate_invoices_for_period")
-    @patch("events.service.invoice_service.date")
+    @patch("events.service.invoice_service.timezone")
     def test_returns_generated_invoices(
         self,
-        mock_date: MagicMock,
+        mock_tz: MagicMock,
         mock_generate: MagicMock,
     ) -> None:
         """The return value from generate_invoices_for_period is passed through."""
-        mock_date.today.return_value = date(2026, 4, 1)
-        mock_date.side_effect = lambda *a, **kw: date(*a, **kw)
+        mock_tz.now.return_value.date.return_value = date(2026, 4, 1)
         sentinel = [MagicMock(spec=PlatformFeeInvoice)]
         mock_generate.return_value = sentinel
 

@@ -8,6 +8,7 @@ import stripe
 from django.conf import settings
 
 from accounts.models import RevelUser
+from common.models import ExchangeRate
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.service import stripe_service
 
@@ -300,3 +301,48 @@ class TestCreateCheckoutSession:
         # Verify no ticket or payment was left behind
         assert Ticket.objects.filter(user=organization_owner_user, event=event).count() == 0
         assert Payment.objects.filter(user=organization_owner_user).count() == 0
+
+    @patch("stripe.checkout.Session.create")
+    def test_fixed_fee_converted_for_non_eur_tier(
+        self,
+        mock_stripe_create: Mock,
+        event: Event,
+        stripe_connected_organization: Organization,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """Test that the fixed fee is converted from EUR to the tier's currency."""
+        # Arrange
+        import datetime
+
+        ExchangeRate.objects.update_or_create(
+            base="EUR",
+            date=datetime.date(2026, 3, 20),
+            defaults={"rates": {"USD": 1.08, "GBP": 0.86}},
+        )
+
+        event.organization = stripe_connected_organization
+        event.save()
+
+        usd_tier = TicketTier.objects.create(
+            event=event,
+            name="USD Tier",
+            price=Decimal("25.00"),
+            currency="USD",
+            total_quantity=10,
+        )
+
+        mock_session = Mock()
+        mock_session.id = "cs_usd_test"
+        mock_session.url = "https://checkout.stripe.com/pay/cs_usd_test"
+        mock_stripe_create.return_value = mock_session
+
+        # Act
+        stripe_service.create_checkout_session(event, usd_tier, organization_owner_user)
+
+        # Assert
+        # platform_fee_percent = 3%, so 25.00 * 0.03 = 0.75 (already in USD since % of USD price)
+        # platform_fee_fixed = 0.50 EUR → 0.50 * 1.08 = 0.54 USD
+        # total application fee = 0.75 + 0.54 = 1.29 → 129 cents
+        call_args = mock_stripe_create.call_args
+        assert call_args[1]["line_items"][0]["price_data"]["currency"] == "usd"
+        assert call_args[1]["payment_intent_data"]["application_fee_amount"] == 129

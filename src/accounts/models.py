@@ -453,6 +453,46 @@ class Referral(TimeStampedModel):
         return f"{self.referrer.username} → {self.referred_user.username} ({self.revenue_share_percent}%)"
 
 
+class ReferralPayout(TimeStampedModel):
+    """Monthly calculated earnings for a referrer from a specific referral.
+
+    Created by the payout calculation task in the events app, which aggregates
+    net platform fees (excluding VAT) from the referred user's organizations.
+    The disbursement (Stripe transfer) is handled separately by the accounts app.
+    """
+
+    class Status(models.TextChoices):
+        CALCULATED = "calculated", "Calculated"
+        PENDING = "pending", "Pending"
+        PAID = "paid", "Paid"
+        FAILED = "failed", "Failed"
+
+    referral = models.ForeignKey(Referral, on_delete=models.PROTECT, related_name="payouts")
+    period_start = models.DateField(db_index=True)
+    period_end = models.DateField(db_index=True)
+    net_platform_fees = models.DecimalField(
+        max_digits=10, decimal_places=2, help_text="Sum of platform_fee_net for the period (excludes VAT)"
+    )
+    payout_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, help_text="net_platform_fees * revenue_share_percent / 100"
+    )
+    currency = models.CharField(max_length=3, default=settings.DEFAULT_CURRENCY)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.CALCULATED, db_index=True)
+    stripe_transfer_id = models.CharField(max_length=255, blank=True, db_index=True)
+
+    class Meta:
+        ordering = ["-period_start"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["referral", "period_start"],
+                name="unique_referral_payout_per_period",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.referral} | {self.period_start} | {self.payout_amount} {self.currency} ({self.status})"
+
+
 class GlobalBan(TimeStampedModel):
     """Platform-wide ban by email, domain, or Telegram username.
 

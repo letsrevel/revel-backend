@@ -5,7 +5,7 @@ import typing as t
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
-from accounts.models import Referral, ReferralCode
+from accounts.models import Referral, ReferralCode, ReferralPayout
 
 
 @admin.register(ReferralCode)
@@ -106,4 +106,80 @@ class ReferralAdmin(ModelAdmin):  # type: ignore[misc]
 
     def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
         """Referrals must not be deleted to preserve the audit trail."""
+        return False
+
+
+@admin.register(ReferralPayout)
+class ReferralPayoutAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for ReferralPayout model (system-created only, fully readonly)."""
+
+    list_display = [
+        "referral",
+        "period_start",
+        "payout_amount",
+        "currency",
+        "status",
+        "stripe_transfer_id",
+        "created_at",
+    ]
+    list_filter = ["status", "currency", "period_start"]
+    search_fields = [
+        "referral__referrer__username",
+        "referral__referrer__email",
+        "referral__referred_user__username",
+        "referral__referred_user__email",
+        "stripe_transfer_id",
+    ]
+    readonly_fields = [
+        "referral",
+        "period_start",
+        "period_end",
+        "net_platform_fees",
+        "payout_amount",
+        "currency",
+        "status",
+        "stripe_transfer_id",
+        "created_at",
+        "updated_at",
+    ]
+    ordering = ["-period_start"]
+
+    fieldsets = [
+        (
+            "Payout",
+            {
+                "fields": (
+                    "referral",
+                    "period_start",
+                    "period_end",
+                    "net_platform_fees",
+                    "payout_amount",
+                    "currency",
+                    "status",
+                    "stripe_transfer_id",
+                )
+            },
+        ),
+        (
+            "Metadata",
+            {
+                "fields": (
+                    "created_at",
+                    "updated_at",
+                ),
+                "classes": ["collapse"],
+            },
+        ),
+    ]
+
+    def has_add_permission(self, request: t.Any) -> bool:
+        """Payouts are created by the system."""
+        return False
+
+    def has_change_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        """Payouts are immutable."""
+        return False
+
+    def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        """Payouts must not be deleted to preserve the audit trail."""
         return False

@@ -73,6 +73,11 @@ UNFOLD = {
                         "icon": "share",
                         "link": reverse_lazy("admin:accounts_referral_changelist"),
                     },
+                    {
+                        "title": _("Referral Payouts"),
+                        "icon": "payments",
+                        "link": reverse_lazy("admin:accounts_referralpayout_changelist"),
+                    },
                 ],
             },
             {
@@ -414,6 +419,11 @@ UNFOLD = {
                         "title": _("Quarantined Files"),
                         "icon": "warning",
                         "link": reverse_lazy("admin:common_quarantinedfile_changelist"),
+                    },
+                    {
+                        "title": _("Exchange Rates"),
+                        "icon": "currency_exchange",
+                        "link": reverse_lazy("admin:common_exchangerate_changelist"),
                     },
                 ],
             },

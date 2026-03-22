@@ -5,7 +5,7 @@ and handles invoice numbering and delivery.
 """
 
 import typing as t
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from io import BytesIO
 
@@ -166,10 +166,15 @@ def generate_invoices_for_period(
     now = timezone.now()
     year = period_start.year
 
+    # Use timezone-aware datetime boundaries so the created_at index is used
+    # (created_at__date__gte forces a DATE() cast in SQL, bypassing the index)
+    period_start_dt = timezone.make_aware(datetime.combine(period_start, time.min))
+    period_end_dt = timezone.make_aware(datetime.combine(period_end + timedelta(days=1), time.min))
+
     period_payments = Payment.objects.filter(
         status=Payment.PaymentStatus.SUCCEEDED,
-        created_at__date__gte=period_start,
-        created_at__date__lte=period_end,
+        created_at__gte=period_start_dt,
+        created_at__lt=period_end_dt,
     )
 
     # Aggregate payments by org + currency
@@ -327,7 +332,7 @@ def generate_monthly_invoices() -> list[PlatformFeeInvoice]:
 
     Intended to be called on the 1st of each month.
     """
-    today = date.today()
+    today = timezone.now().date()
     # Previous month
     first_of_current = today.replace(day=1)
     last_of_previous = first_of_current - timedelta(days=1)
