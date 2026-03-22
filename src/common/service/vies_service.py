@@ -1,25 +1,37 @@
-"""VIES VAT ID validation service.
+"""VIES VAT ID validation and billing field management service.
 
-Validates EU VAT identification numbers via the European Commission's
-VIES (VAT Information Exchange System) REST API.
+Provides model-agnostic operations for any entity with standard billing fields
+(Organization, UserBillingProfile, etc.) via the ``HasBillingFields`` protocol.
 
-This module contains the pure, model-agnostic validation logic and a
-generic ``validate_and_update_vat_entity`` function that works with any
-model exposing the standard billing fields via ``HasBillingFields``.
+Contains:
+- Pure VIES REST API validation (``validate_vat_id``)
+- Generic billing field operations (``set_vat_id``, ``clear_vat_fields``,
+  ``update_billing_info``, ``validate_and_update_vat_entity``)
 """
 
 import typing as t
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
 import httpx
 import structlog
 from django.utils import timezone
+from ninja.errors import HttpError
 
 logger = structlog.get_logger(__name__)
 
 VIES_REST_URL = "https://ec.europa.eu/taxation_customs/vies/rest-api/check-vat-number"
 VIES_TIMEOUT_SECONDS = 10
+
+VAT_RESET_FIELDS = [
+    "vat_id",
+    "vat_country_code",
+    "vat_id_validated",
+    "vat_id_validated_at",
+    "vies_request_identifier",
+    "updated_at",
+]
 
 
 @dataclass(frozen=True)
@@ -53,6 +65,15 @@ class HasBillingFields(t.Protocol):
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
         """Persist the entity."""
         ...
+
+    def refresh_from_db(self, *args: t.Any, **kwargs: t.Any) -> None:
+        """Reload from database."""
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Pure VIES API
+# ---------------------------------------------------------------------------
 
 
 def parse_vat_id(vat_id: str) -> tuple[str, str]:
@@ -115,6 +136,11 @@ def validate_vat_id(vat_id: str) -> VIESValidationResult:
     )
 
 
+# ---------------------------------------------------------------------------
+# Generic billing field operations
+# ---------------------------------------------------------------------------
+
+
 def validate_and_update_vat_entity(
     entity: HasBillingFields,
     *,
@@ -123,12 +149,11 @@ def validate_and_update_vat_entity(
 ) -> VIESValidationResult:
     """Validate a VAT ID and update the model fields.
 
-    Generic implementation that works with any model satisfying ``HasBillingFields``.
     On successful validation, auto-fills billing_name, billing_address, and
     vat_country_code from the VIES response if they are currently empty.
 
     Args:
-        entity: Model instance with billing fields (Organization or UserBillingProfile).
+        entity: Model instance with billing fields.
         entity_id: ID string for structured logging.
         entity_type: Label for structured logging (e.g., "org", "user").
 
@@ -151,22 +176,18 @@ def validate_and_update_vat_entity(
     entity.vies_request_identifier = result.request_identifier
 
     if result.valid:
-        # Always sync country code from VAT ID prefix
         country_from_vat = entity.vat_id[:2].upper()
         if entity.vat_country_code != country_from_vat:
             entity.vat_country_code = country_from_vat
             update_fields.append("vat_country_code")
 
-        # Auto-fill billing name from VIES response if empty
         if not entity.billing_name and result.name:
             name = result.name.strip()
             if name and name != "---":
                 entity.billing_name = name
                 update_fields.append("billing_name")
 
-        # Auto-fill billing address from VIES response if empty
         if not entity.billing_address and result.address:
-            # VIES sometimes returns "---" for unavailable addresses
             address = result.address.strip()
             if address and address != "---":
                 entity.billing_address = address
@@ -179,3 +200,81 @@ def validate_and_update_vat_entity(
     entity.save(update_fields=update_fields)
 
     return result
+
+
+def set_vat_id(
+    entity: HasBillingFields,
+    vat_id: str,
+    *,
+    entity_id: str,
+    entity_type: str,
+    on_vies_unavailable: Callable[[], None] | None = None,
+    rollback_on_invalid: bool = True,
+) -> None:
+    """Set a VAT ID on an entity, validate via VIES, and handle results.
+
+    Args:
+        entity: Model instance with billing fields.
+        vat_id: The new VAT ID to set.
+        entity_id: ID string for structured logging.
+        entity_type: Label for structured logging.
+        on_vies_unavailable: Optional callback invoked when VIES is down
+            (e.g., to queue a background retry task). Called before raising HttpError.
+        rollback_on_invalid: If True, clears the VAT ID when VIES returns invalid.
+
+    Raises:
+        HttpError 400: If VIES says the VAT ID is invalid.
+        HttpError 503: If VIES is unavailable.
+    """
+    entity.vat_id = vat_id
+    entity.vat_country_code = vat_id[:2].upper()
+    entity.vat_id_validated = False
+    entity.vat_id_validated_at = None
+    entity.vies_request_identifier = ""
+    entity.save(update_fields=VAT_RESET_FIELDS)
+
+    try:
+        result = validate_and_update_vat_entity(entity, entity_id=entity_id, entity_type=entity_type)
+        if not result.valid:
+            if rollback_on_invalid:
+                clear_vat_fields(entity)
+            raise HttpError(400, "The VAT ID is not valid according to VIES.")
+    except VIESUnavailableError:
+        logger.warning("vies_unavailable", **{f"{entity_type}_id": entity_id})
+        if on_vies_unavailable:
+            on_vies_unavailable()
+        raise HttpError(
+            503,
+            "VIES validation service is temporarily unavailable. The VAT ID has been saved. Please try again later.",
+        )
+
+    entity.refresh_from_db()
+
+
+def clear_vat_fields(entity: HasBillingFields) -> None:
+    """Clear all VAT-related fields on an entity."""
+    entity.vat_id = ""
+    entity.vat_country_code = ""
+    entity.vat_id_validated = False
+    entity.vat_id_validated_at = None
+    entity.vies_request_identifier = ""
+    entity.save(update_fields=VAT_RESET_FIELDS)
+
+
+def update_billing_info(entity: HasBillingFields, data: dict[str, t.Any]) -> None:
+    """Update billing info fields on an entity.
+
+    Validates that vat_country_code doesn't conflict with an existing VAT ID prefix.
+
+    Raises:
+        HttpError 422: If vat_country_code conflicts with existing VAT ID prefix.
+    """
+    new_country = data.get("vat_country_code")
+    if new_country and entity.vat_id:
+        vat_prefix = entity.vat_id[:2].upper()
+        if new_country != vat_prefix:
+            raise HttpError(422, f"Country code must match the VAT ID prefix ({vat_prefix}).")
+
+    for field, value in data.items():
+        setattr(entity, field, value)
+    entity.save(update_fields=[*data.keys(), "updated_at"])

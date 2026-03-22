@@ -2,7 +2,6 @@
 
 from uuid import UUID
 
-import structlog
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
@@ -11,16 +10,13 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
 from common.authentication import I18nJWTAuth
-from common.service.vies_service import VIESUnavailableError
 from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import IsOrganizationOwner
-from events.service.vies_service import validate_and_update_organization
+from events.service import vies_service
 
 from .base import OrganizationAdminBaseController
-
-logger = structlog.get_logger(__name__)
 
 
 @api_controller(
@@ -54,29 +50,12 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
     def update_billing_info(
         self, slug: str, payload: schema.OrganizationBillingInfoUpdateSchema
     ) -> models.Organization:
-        """Update organization billing info (country code, VAT rate, billing address).
-
-        VAT ID is managed separately via PUT/DELETE /vat-id.
-        If a VAT ID exists, vat_country_code must match its prefix.
-        """
+        """Update organization billing info."""
         organization = self.get_one(slug)
         update_data = payload.model_dump(exclude_unset=True)
         if not update_data:
             return organization
-
-        # Reject country code changes that conflict with the VAT ID prefix
-        new_country = update_data.get("vat_country_code")
-        if new_country and organization.vat_id:
-            vat_prefix = organization.vat_id[:2].upper()
-            if new_country != vat_prefix:
-                raise HttpError(
-                    422,
-                    str(_("Country code must match the VAT ID prefix (%(prefix)s).") % {"prefix": vat_prefix}),
-                )
-
-        for field, value in update_data.items():
-            setattr(organization, field, value)
-        organization.save(update_fields=[*update_data.keys(), "updated_at"])
+        vies_service.update_org_billing_info(organization, update_data)
         return organization
 
     @route.put(
@@ -87,45 +66,9 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         throttle=WriteThrottle(),
     )
     def set_vat_id(self, slug: str, payload: schema.VATIdUpdateSchema) -> models.Organization:
-        """Set or update the organization's VAT ID.
-
-        Validates format via regex, saves the VAT ID, then triggers VIES validation
-        synchronously. On successful VIES validation, auto-fills billing_address and
-        vat_country_code from the VIES response if they are currently empty.
-        """
+        """Set or update the organization's VAT ID with VIES validation."""
         organization = self.get_one(slug)
-
-        # Save the new VAT ID with reset validation status.
-        # Always set vat_country_code from the VAT ID prefix to keep them in sync.
-        organization.vat_id = payload.vat_id
-        organization.vat_country_code = payload.vat_id[:2].upper()
-        organization.vat_id_validated = False
-        organization.vat_id_validated_at = None
-        organization.save(
-            update_fields=["vat_id", "vat_country_code", "vat_id_validated", "vat_id_validated_at", "updated_at"]
-        )
-
-        # Trigger VIES validation
-        try:
-            result = validate_and_update_organization(organization)
-            if not result.valid:
-                raise HttpError(400, str(_("The VAT ID is not valid according to VIES.")))
-        except VIESUnavailableError:
-            logger.warning("vies_unavailable", org_id=str(organization.id))
-            from events.tasks import revalidate_single_vat_id_task
-
-            revalidate_single_vat_id_task.delay(str(organization.id))
-            raise HttpError(
-                503,
-                str(
-                    _(
-                        "VIES validation service is temporarily unavailable."
-                        " The VAT ID has been saved and will be validated automatically."
-                    )
-                ),
-            )
-
-        organization.refresh_from_db()
+        vies_service.set_org_vat_id(organization, payload.vat_id)
         return organization
 
     @route.delete(
@@ -137,22 +80,7 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
     )
     def delete_vat_id(self, slug: str) -> tuple[int, None]:
         """Clear the organization's VAT ID, country code, and validation status."""
-        organization = self.get_one(slug)
-        organization.vat_id = ""
-        organization.vat_country_code = ""
-        organization.vat_id_validated = False
-        organization.vat_id_validated_at = None
-        organization.vies_request_identifier = ""
-        organization.save(
-            update_fields=[
-                "vat_id",
-                "vat_country_code",
-                "vat_id_validated",
-                "vat_id_validated_at",
-                "vies_request_identifier",
-                "updated_at",
-            ]
-        )
+        vies_service.clear_org_vat_fields(self.get_one(slug))
         return 204, None
 
     # ---- Platform Fee Invoices ----

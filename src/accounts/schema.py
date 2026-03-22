@@ -424,10 +424,10 @@ class UserBillingProfileCreateSchema(Schema):
 
 
 class UserBillingProfileUpdateSchema(BillingInfoSchemaMixin):
-    """Schema for updating a user billing profile.
+    """Schema for updating user billing info.
 
     Conflict check between vat_country_code and vat_id prefix
-    is done at the controller level.
+    is done at the service level.
     """
 
 

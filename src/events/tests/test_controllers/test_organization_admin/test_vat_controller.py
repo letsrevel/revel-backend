@@ -409,7 +409,7 @@ class TestUpdateBillingInfo:
 class TestSetVatId:
     """Tests for setting/updating the organization VAT ID via VIES validation."""
 
-    @patch("events.controllers.organization_admin.vat.validate_and_update_organization")
+    @patch("common.service.vies_service.validate_and_update_vat_entity")
     def test_valid_vat_id_accepted(
         self,
         mock_validate: t.Any,
@@ -441,7 +441,7 @@ class TestSetVatId:
         assert called_org.vat_id == "IT12345678901"
         assert called_org.vat_country_code == "IT"
 
-    @patch("events.controllers.organization_admin.vat.validate_and_update_organization")
+    @patch("common.service.vies_service.validate_and_update_vat_entity")
     def test_invalid_vat_id_returns_400(
         self,
         mock_validate: t.Any,
@@ -464,7 +464,7 @@ class TestSetVatId:
         assert response.status_code == 400
 
     @patch("events.tasks.revalidate_single_vat_id_task.delay")
-    @patch("events.controllers.organization_admin.vat.validate_and_update_organization")
+    @patch("common.service.vies_service.validate_and_update_vat_entity")
     def test_vies_unavailable_returns_503(
         self,
         mock_validate: t.Any,
@@ -494,7 +494,7 @@ class TestSetVatId:
         # Verify revalidation task was queued
         mock_revalidate_task.assert_called_once_with(str(organization.id))
 
-    @patch("events.controllers.organization_admin.vat.validate_and_update_organization")
+    @patch("common.service.vies_service.validate_and_update_vat_entity")
     def test_vat_country_code_auto_set_from_prefix(
         self,
         mock_validate: t.Any,
@@ -522,7 +522,7 @@ class TestSetVatId:
         organization.refresh_from_db()
         assert organization.vat_country_code == "AT"
 
-    @patch("events.controllers.organization_admin.vat.validate_and_update_organization")
+    @patch("common.service.vies_service.validate_and_update_vat_entity")
     def test_validation_status_reset_before_vies_call(
         self,
         mock_validate: t.Any,
@@ -591,7 +591,7 @@ class TestSetVatId:
 
         The VATIdUpdateSchema has strip_whitespace=True, to_upper=True.
         """
-        with patch("events.controllers.organization_admin.vat.validate_and_update_organization") as mock_validate:
+        with patch("common.service.vies_service.validate_and_update_vat_entity") as mock_validate:
             mock_validate.return_value = VIESValidationResult(
                 valid=True, name="Company", address="", request_identifier="REQ-X"
             )

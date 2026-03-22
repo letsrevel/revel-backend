@@ -170,34 +170,21 @@ class TestCreateBillingProfile:
 
 
 # ===========================================================================
-# PATCH /me/billing
+# PUT /me/billing
 # ===========================================================================
 
 
 class TestUpdateBillingProfile:
-    def test_updates_single_field(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
-        """Can update a single field without affecting others."""
+    def test_replaces_billing_info(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
+        """PUT replaces all billing fields."""
         url = reverse("api:update_billing_profile")
-        response = auth_client.patch(
-            url,
-            data=orjson.dumps({"billing_name": "Updated Name"}),
-            content_type="application/json",
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["billing_name"] == "Updated Name"
-        assert data["billing_address"] == "Via Roma 1"  # unchanged
-
-    def test_updates_multiple_fields(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
-        """Can update multiple fields at once."""
-        url = reverse("api:update_billing_profile")
-        response = auth_client.patch(
+        response = auth_client.put(
             url,
             data=orjson.dumps(
                 {
                     "billing_name": "New Name",
                     "vat_country_code": "DE",
+                    "billing_address": "New Address",
                     "billing_email": "new@example.com",
                 }
             ),
@@ -208,37 +195,15 @@ class TestUpdateBillingProfile:
         data = response.json()
         assert data["billing_name"] == "New Name"
         assert data["vat_country_code"] == "DE"
+        assert data["billing_address"] == "New Address"
         assert data["billing_email"] == "new@example.com"
-
-    def test_empty_body_returns_unchanged(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
-        """Empty update body returns the profile unchanged."""
-        url = reverse("api:update_billing_profile")
-        response = auth_client.patch(
-            url,
-            data=orjson.dumps({}),
-            content_type="application/json",
-        )
-
-        assert response.status_code == 200
-        assert response.json()["billing_name"] == "Test User"
-
-    def test_null_string_fields_rejected(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
-        """Sending null for string fields is rejected (422)."""
-        url = reverse("api:update_billing_profile")
-        response = auth_client.patch(
-            url,
-            data=orjson.dumps({"billing_name": None}),
-            content_type="application/json",
-        )
-
-        assert response.status_code == 422
 
     def test_rejects_invalid_country_code(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
         """Invalid ISO 3166-1 alpha-2 country code is rejected."""
         url = reverse("api:update_billing_profile")
-        response = auth_client.patch(
+        response = auth_client.put(
             url,
-            data=orjson.dumps({"vat_country_code": "ZZ"}),
+            data=orjson.dumps({"billing_name": "Test", "vat_country_code": "ZZ"}),
             content_type="application/json",
         )
 
@@ -253,9 +218,9 @@ class TestUpdateBillingProfile:
         billing_profile.save(update_fields=["vat_id", "vat_country_code"])
 
         url = reverse("api:update_billing_profile")
-        response = auth_client.patch(
+        response = auth_client.put(
             url,
-            data=orjson.dumps({"vat_country_code": "DE"}),
+            data=orjson.dumps({"billing_name": "Test", "vat_country_code": "DE"}),
             content_type="application/json",
         )
 
@@ -270,9 +235,9 @@ class TestUpdateBillingProfile:
         billing_profile.save(update_fields=["vat_id", "vat_country_code"])
 
         url = reverse("api:update_billing_profile")
-        response = auth_client.patch(
+        response = auth_client.put(
             url,
-            data=orjson.dumps({"vat_country_code": "IT"}),
+            data=orjson.dumps({"billing_name": "Test", "vat_country_code": "IT"}),
             content_type="application/json",
         )
 
@@ -281,7 +246,7 @@ class TestUpdateBillingProfile:
     def test_returns_404_when_no_profile(self, auth_client: Client) -> None:
         """Returns 404 when user has no billing profile."""
         url = reverse("api:update_billing_profile")
-        response = auth_client.patch(
+        response = auth_client.put(
             url,
             data=orjson.dumps({"billing_name": "No Profile"}),
             content_type="application/json",
@@ -296,7 +261,7 @@ class TestUpdateBillingProfile:
 
 
 class TestSetVATId:
-    @patch("accounts.controllers.billing.validate_and_update_billing_profile")
+    @patch("common.service.vies_service.validate_and_update_vat_entity")
     def test_sets_vat_id_with_valid_vies_result(
         self, mock_validate: MagicMock, auth_client: Client, billing_profile: UserBillingProfile
     ) -> None:
@@ -318,7 +283,7 @@ class TestSetVATId:
         assert data["vat_country_code"] == "IT"
         mock_validate.assert_called_once()
 
-    @patch("accounts.controllers.billing.validate_and_update_billing_profile")
+    @patch("common.service.vies_service.validate_and_update_vat_entity")
     def test_invalid_vat_id_clears_saved_data(
         self, mock_validate: MagicMock, auth_client: Client, billing_profile: UserBillingProfile
     ) -> None:
@@ -340,7 +305,7 @@ class TestSetVATId:
         assert billing_profile.vat_id_validated_at is None
         assert billing_profile.vies_request_identifier == ""
 
-    @patch("accounts.controllers.billing.validate_and_update_billing_profile")
+    @patch("common.service.vies_service.validate_and_update_vat_entity")
     def test_invalid_vat_id_returns_400(
         self, mock_validate: MagicMock, auth_client: Client, billing_profile: UserBillingProfile
     ) -> None:
@@ -356,7 +321,7 @@ class TestSetVATId:
 
         assert response.status_code == 400
 
-    @patch("accounts.controllers.billing.validate_and_update_billing_profile")
+    @patch("common.service.vies_service.validate_and_update_vat_entity")
     def test_vies_unavailable_returns_503(
         self, mock_validate: MagicMock, auth_client: Client, billing_profile: UserBillingProfile
     ) -> None:
@@ -416,7 +381,7 @@ class TestSetVATId:
 class TestSetVATIdGreece:
     """Greece uses EL for VIES/VAT prefix, not GR (ISO 3166-1)."""
 
-    @patch("accounts.controllers.billing.validate_and_update_billing_profile")
+    @patch("common.service.vies_service.validate_and_update_vat_entity")
     def test_accepts_el_prefix(
         self, mock_validate: MagicMock, auth_client: Client, billing_profile: UserBillingProfile
     ) -> None:
