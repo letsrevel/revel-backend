@@ -14,7 +14,7 @@ from pydantic import EmailStr
 from stripe.checkout import Session
 
 from accounts.models import RevelUser
-from common.models import ExchangeRate, SiteSettings
+from common.models import SiteSettings
 from common.service.exchange_rate_service import convert as convert_currency
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.service.vat_service import (
@@ -220,16 +220,9 @@ def create_checkout_session(
     org = event.organization
     platform_fee = round(effective_price * (org.platform_fee_percent / Decimal(100)), 2)
     # Fixed fee is stored in DEFAULT_CURRENCY; convert to payment currency if different.
-    # Fall back to unconverted fee if exchange rates are unavailable.
-    try:
-        fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, tier.currency)
-    except (ExchangeRate.DoesNotExist, KeyError):
-        logger.warning(
-            "exchange_rate_missing_fallback",
-            from_currency=settings.DEFAULT_CURRENCY,
-            to_currency=tier.currency,
-        )
-        fixed_fee = org.platform_fee_fixed
+    # Exchange rates are always available (seeded by migration, refreshed daily).
+    # Unsupported currencies are rejected at tier creation (schema validation).
+    fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, tier.currency)
     application_fee_amount = int((platform_fee + fixed_fee) * 100)
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
@@ -315,16 +308,9 @@ def create_batch_checkout_session(
     total_amount = effective_price * len(tickets)
     platform_fee = round(total_amount * (org.platform_fee_percent / Decimal(100)), 2)
     # Fixed fee is stored in DEFAULT_CURRENCY; convert to payment currency if different.
-    # Fall back to unconverted fee if exchange rates are unavailable.
-    try:
-        fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, tier.currency)
-    except (ExchangeRate.DoesNotExist, KeyError):
-        logger.warning(
-            "exchange_rate_missing_fallback",
-            from_currency=settings.DEFAULT_CURRENCY,
-            to_currency=tier.currency,
-        )
-        fixed_fee = org.platform_fee_fixed
+    # Exchange rates are always available (seeded by migration, refreshed daily).
+    # Unsupported currencies are rejected at tier creation (schema validation).
+    fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, tier.currency)
     application_fee_amount = int((platform_fee + fixed_fee) * 100)
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
