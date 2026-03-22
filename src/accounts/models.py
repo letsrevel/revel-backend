@@ -462,12 +462,12 @@ class ReferralPayout(TimeStampedModel):
     """
 
     class Status(models.TextChoices):
-        CALCULATED = "calculated"
-        PENDING = "pending"
-        PAID = "paid"
-        FAILED = "failed"
+        CALCULATED = "calculated", "Calculated"
+        PENDING = "pending", "Pending"
+        PAID = "paid", "Paid"
+        FAILED = "failed", "Failed"
 
-    referral = models.ForeignKey(Referral, on_delete=models.CASCADE, related_name="payouts")
+    referral = models.ForeignKey(Referral, on_delete=models.PROTECT, related_name="payouts")
     period_start = models.DateField(db_index=True)
     period_end = models.DateField(db_index=True)
     gross_platform_fees = models.DecimalField(max_digits=10, decimal_places=2)

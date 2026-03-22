@@ -7,6 +7,7 @@ This module contains asynchronous tasks for:
 - Guest user confirmation emails
 """
 
+import datetime
 from collections import Counter
 from uuid import UUID
 
@@ -426,9 +427,8 @@ def calculate_referral_payouts() -> dict[str, int]:
     a ReferralPayout record. Idempotent — safe to re-run.
     """
     import calendar
-    import datetime
 
-    today = datetime.date.today()
+    today = timezone.now().date()
     # Previous month
     if today.month == 1:
         year, month = today.year - 1, 12

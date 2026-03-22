@@ -2,22 +2,28 @@
 
 This service lives in the events app because it queries Payment and Organization
 models to compute payout amounts. The ReferralPayout model itself lives in
-accounts (the referral domain owner). See ADR in docs/ for the rationale.
+accounts (the referral domain owner). See ADR-0009 for the rationale.
 """
 
 import datetime
+import typing as t
 from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
 from django.db.models import Sum
 
 from accounts.models import Referral, ReferralPayout
-from events.models import Organization, Payment
+from events.models import Payment
 
 logger = structlog.get_logger(__name__)
 
 
-def calculate_payouts_for_period(period_start: datetime.date, period_end: datetime.date) -> dict[str, int]:
+class PayoutResult(t.TypedDict):
+    created: int
+    skipped: int
+
+
+def calculate_payouts_for_period(period_start: datetime.date, period_end: datetime.date) -> PayoutResult:
     """Calculate referral payouts for a given period.
 
     For each active Referral, aggregates platform fees from succeeded payments
@@ -37,19 +43,14 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
     skipped = 0
 
     for referral in Referral.objects.select_related("referred_user").iterator():
-        referred_orgs = Organization.objects.filter(owner=referral.referred_user)
-        if not referred_orgs.exists():
-            skipped += 1
-            continue
-
         gross = Payment.objects.filter(
-            ticket__event__organization__in=referred_orgs,
+            ticket__event__organization__owner=referral.referred_user,
             status=Payment.PaymentStatus.SUCCEEDED,
             created_at__date__gte=period_start,
             created_at__date__lte=period_end,
         ).aggregate(total=Sum("platform_fee"))["total"] or Decimal("0")
 
-        if gross == 0:
+        if not gross:
             skipped += 1
             continue
 
@@ -81,4 +82,4 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
         else:
             skipped += 1
 
-    return {"created": created, "skipped": skipped}
+    return PayoutResult(created=created, skipped=skipped)

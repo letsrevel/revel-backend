@@ -25,7 +25,7 @@ class Migration(migrations.Migration):
                 ('currency', models.CharField(default='EUR', max_length=3)),
                 ('status', models.CharField(choices=[('calculated', 'Calculated'), ('pending', 'Pending'), ('paid', 'Paid'), ('failed', 'Failed')], db_index=True, default='calculated', max_length=20)),
                 ('stripe_transfer_id', models.CharField(blank=True, db_index=True, max_length=255)),
-                ('referral', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='payouts', to='accounts.referral')),
+                ('referral', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='payouts', to='accounts.referral')),
             ],
             options={
                 'ordering': ['-period_start'],
