@@ -1,7 +1,7 @@
 """User billing profile management endpoints."""
 
 import structlog
-from django.db import IntegrityError
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -19,6 +19,7 @@ from common.authentication import I18nJWTAuth
 from common.controllers.base import UserAwareController
 from common.service.vies_service import VIESUnavailableError
 from common.throttling import UserDefaultThrottle, WriteThrottle
+from common.utils import get_or_create_with_race_protection
 
 logger = structlog.get_logger(__name__)
 
@@ -50,15 +51,15 @@ class UserBillingController(UserAwareController):
     def create_billing_profile(self, payload: UserBillingProfileCreateSchema) -> tuple[int, UserBillingProfile]:
         """Create a billing profile for the authenticated user."""
         user = self.user()
-        if UserBillingProfile.objects.filter(user=user).exists():
-            raise HttpError(409, str(_("Billing profile already exists.")))
-
         data = payload.model_dump()
         if data.get("billing_email") is None:
             data["billing_email"] = ""
-        try:
-            profile = UserBillingProfile.objects.create(user=user, **data)
-        except IntegrityError:
+        profile, created = get_or_create_with_race_protection(
+            UserBillingProfile,
+            Q(user=user),
+            defaults={"user": user, **data},
+        )
+        if not created:
             raise HttpError(409, str(_("Billing profile already exists.")))
         return 201, profile
 
@@ -75,9 +76,15 @@ class UserBillingController(UserAwareController):
         if not update_data:
             return profile
 
+        updated_fields: list[str] = []
         for field, value in update_data.items():
-            setattr(profile, field, value if value is not None else "")
-        profile.save(update_fields=[*update_data.keys(), "updated_at"])
+            if value is not None:
+                setattr(profile, field, value)
+                updated_fields.append(field)
+
+        if not updated_fields:
+            return profile
+        profile.save(update_fields=[*updated_fields, "updated_at"])
         return profile
 
     @route.put(
@@ -87,20 +94,36 @@ class UserBillingController(UserAwareController):
         throttle=WriteThrottle(),
     )
     def set_vat_id(self, payload: UserVATIdUpdateSchema) -> UserBillingProfile:
-        """Set or update the user's VAT ID with VIES validation."""
+        """Set or update the user's VAT ID with VIES validation.
+
+        On invalid VIES result the save is rolled back. On VIES unavailability
+        the VAT ID is kept so the user can retry later.
+        """
         profile = get_object_or_404(UserBillingProfile, user=self.user())
 
         profile.vat_id = payload.vat_id
         profile.vat_country_code = payload.vat_id[:2].upper()
         profile.vat_id_validated = False
         profile.vat_id_validated_at = None
+        profile.vies_request_identifier = ""
         profile.save(
-            update_fields=["vat_id", "vat_country_code", "vat_id_validated", "vat_id_validated_at", "updated_at"]
+            update_fields=[
+                "vat_id",
+                "vat_country_code",
+                "vat_id_validated",
+                "vat_id_validated_at",
+                "vies_request_identifier",
+                "updated_at",
+            ]
         )
 
         try:
             result = validate_and_update_billing_profile(profile)
             if not result.valid:
+                # Rollback: clear the invalid VAT ID
+                profile.vat_id = ""
+                profile.vat_country_code = ""
+                profile.save(update_fields=["vat_id", "vat_country_code", "updated_at"])
                 raise HttpError(400, str(_("The VAT ID is not valid according to VIES.")))
         except VIESUnavailableError:
             logger.warning("vies_unavailable_user", user_id=str(profile.user_id))

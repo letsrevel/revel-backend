@@ -34,9 +34,9 @@ pytestmark = pytest.mark.django_db
 class TestEUMemberStates:
     """Verify the EU member states constant is accurate."""
 
-    def test_contains_exactly_27_members(self) -> None:
-        """EU has 27 member states after Brexit."""
-        assert len(EU_MEMBER_STATES) == 27
+    def test_contains_28_entries(self) -> None:
+        """27 EU members + EL (Greece VIES prefix alongside ISO GR)."""
+        assert len(EU_MEMBER_STATES) == 28
 
     @pytest.mark.parametrize(
         "country_code",
@@ -49,6 +49,7 @@ class TestEUMemberStates:
             "DE",
             "DK",
             "EE",
+            "EL",
             "ES",
             "FI",
             "FR",
@@ -71,7 +72,7 @@ class TestEUMemberStates:
         ],
     )
     def test_contains_expected_country(self, country_code: str) -> None:
-        """All 27 EU member states should be present."""
+        """All 27 EU member states (plus EL for Greece) should be present."""
         assert country_code in EU_MEMBER_STATES
 
     def test_does_not_contain_gb_post_brexit(self) -> None:

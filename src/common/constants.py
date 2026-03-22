@@ -16,7 +16,8 @@ EU_MEMBER_STATES: frozenset[str] = frozenset(
         "ES",  # Spain
         "FI",  # Finland
         "FR",  # France
-        "GR",  # Greece
+        "EL",  # Greece (VIES/VAT prefix)
+        "GR",  # Greece (ISO 3166-1)
         "HR",  # Croatia
         "HU",  # Hungary
         "IE",  # Ireland

@@ -100,6 +100,10 @@ class TestValidateVatId:
         with pytest.raises(ValueError, match="Invalid VAT ID format"):
             validate_vat_id("")
 
+    def test_whitespace_only_vat_id_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="Invalid VAT ID format"):
+            validate_vat_id("   ")
+
     @patch("common.service.vies_service.httpx.post")
     def test_network_error_raises_vies_unavailable(self, mock_post: MagicMock) -> None:
         import httpx
@@ -128,16 +132,24 @@ class TestValidateVatId:
 
 
 class TestEUMemberStatesConstant:
-    def test_eu_member_states_has_27_members(self) -> None:
+    def test_eu_member_states_has_28_entries(self) -> None:
+        """27 EU members + EL (Greece VIES prefix alongside ISO GR)."""
         from common.constants import EU_MEMBER_STATES
 
-        assert len(EU_MEMBER_STATES) == 27
+        assert len(EU_MEMBER_STATES) == 28
 
     def test_eu_member_states_contains_known_members(self) -> None:
         from common.constants import EU_MEMBER_STATES
 
         for code in ["IT", "DE", "FR", "ES", "NL", "PL"]:
             assert code in EU_MEMBER_STATES
+
+    def test_greece_has_both_codes(self) -> None:
+        """Greece uses EL for VIES/VAT and GR for ISO 3166-1."""
+        from common.constants import EU_MEMBER_STATES
+
+        assert "EL" in EU_MEMBER_STATES
+        assert "GR" in EU_MEMBER_STATES
 
     def test_eu_member_states_excludes_non_members(self) -> None:
         from common.constants import EU_MEMBER_STATES

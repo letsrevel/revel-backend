@@ -59,10 +59,11 @@ def validate_vat_id(vat_id: str) -> VIESValidationResult:
         VIESUnavailableError: If the VIES service is unreachable or returns an error.
         ValueError: If the VAT ID format is invalid.
     """
-    if len(vat_id) < 3:
+    normalized = vat_id.strip().upper()
+    if len(normalized) < 3:
         raise ValueError(f"Invalid VAT ID format: {vat_id}")
 
-    country_code, vat_number = parse_vat_id(vat_id)
+    country_code, vat_number = parse_vat_id(normalized)
 
     try:
         response = httpx.post(

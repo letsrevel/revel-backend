@@ -406,7 +406,9 @@ class UserBillingProfileCreateSchema(Schema):
     billing_name: StrippedString = Field(..., min_length=1, max_length=255, description="Legal name for invoicing")
     billing_address: str = Field(default="", description="Billing address")
     billing_country: str = Field(default="", max_length=2, description="ISO 3166-1 alpha-2 country code")
-    billing_email: EmailStr | None = Field(default=None, description="Billing email (defaults to account email)")
+    billing_email: EmailStr | None = Field(
+        default=None, description="Billing email; leave blank to use the account email for billing"
+    )
 
 
 class UserBillingProfileUpdateSchema(Schema):

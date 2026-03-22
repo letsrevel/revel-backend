@@ -187,6 +187,20 @@ class TestUpdateBillingProfile:
         assert response.status_code == 200
         assert response.json()["billing_name"] == "Test User"
 
+    def test_null_values_are_ignored(self, auth_client: Client, billing_profile: UserBillingProfile) -> None:
+        """Sending null for a field does not clear it."""
+        url = reverse("api:update_billing_profile")
+        response = auth_client.patch(
+            url,
+            data=orjson.dumps({"billing_name": None, "billing_address": "New Address"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["billing_name"] == "Test User"  # unchanged, null ignored
+        assert data["billing_address"] == "New Address"
+
     def test_returns_404_when_no_profile(self, auth_client: Client) -> None:
         """Returns 404 when user has no billing profile."""
         url = reverse("api:update_billing_profile")
@@ -222,7 +236,29 @@ class TestSetVATId:
         )
 
         assert response.status_code == 200
+        data = response.json()
+        assert data["vat_id"] == "IT12345678901"
+        assert data["vat_country_code"] == "IT"
         mock_validate.assert_called_once()
+
+    @patch("accounts.controllers.billing.validate_and_update_billing_profile")
+    def test_invalid_vat_id_clears_saved_data(
+        self, mock_validate: MagicMock, auth_client: Client, billing_profile: UserBillingProfile
+    ) -> None:
+        """Invalid VIES result rolls back the saved VAT ID."""
+        mock_validate.return_value = VIESValidationResult(valid=False, name="", address="", request_identifier="REQ456")
+
+        url = reverse("api:set_billing_vat_id")
+        response = auth_client.put(
+            url,
+            data=orjson.dumps({"vat_id": "IT00000000000"}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 400
+        billing_profile.refresh_from_db()
+        assert billing_profile.vat_id == ""
+        assert billing_profile.vat_country_code == ""
 
     @patch("accounts.controllers.billing.validate_and_update_billing_profile")
     def test_invalid_vat_id_returns_400(

@@ -2,7 +2,6 @@
 
 Wraps the common VIES validation service with organization model updates:
 - Auto-fill billing details from VIES response
-- Async retry via Celery for failed validations
 """
 
 import typing as t
