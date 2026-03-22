@@ -142,6 +142,19 @@ class TagAssignmentSchema(ModelSchema):
         fields = ("tag",)
 
 
+# --- Stripe Connect Schemas (shared across bounded contexts) ---
+
+
+class StripeOnboardingLinkSchema(Schema):
+    onboarding_url: str
+
+
+class StripeAccountStatusSchema(Schema):
+    is_connected: bool
+    charges_enabled: bool = False
+    details_submitted: bool = False
+
+
 class LegalSchema(Schema):
     terms_and_conditions: str
     privacy_policy: str

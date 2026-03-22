@@ -16,6 +16,18 @@ from stripe.checkout import Session
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from common.service.exchange_rate_service import convert as convert_currency
+from common.service.stripe_connect_service import (
+    create_account_link as _create_account_link,
+)
+from common.service.stripe_connect_service import (
+    create_connect_account as _create_connect_account,
+)
+from common.service.stripe_connect_service import (
+    get_account_details as get_account_details,
+)
+from common.service.stripe_connect_service import (
+    sync_account_status,
+)
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.service.vat_service import (
     calculate_platform_fee_vat,
@@ -31,30 +43,15 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 
 def create_connect_account(organization: Organization, stripe_account_email: EmailStr) -> str:
     """Create a Stripe Connect Standard account for an organization."""
-    account = stripe.Account.create(type="standard", email=stripe_account_email)
-    organization.stripe_account_id = account.id
-    organization.stripe_account_email = stripe_account_email
-    organization.save(update_fields=["stripe_account_id", "stripe_account_email"])
-    return t.cast(str, account.id)
+    return _create_connect_account(organization, stripe_account_email, account_type="standard")
 
 
 def create_account_link(account_id: str, organization: Organization) -> str:
-    """Create a one-time onboarding link for a Stripe Connect account."""
+    """Create a one-time onboarding link for an organization's Stripe Connect account."""
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
     refresh_url = f"{frontend_base_url}/org/{organization.slug}/admin/settings?stripe_refresh=true"
     return_url = f"{frontend_base_url}/org/{organization.slug}/admin/settings?stripe_success=true"
-    account_link = stripe.AccountLink.create(
-        account=account_id,
-        refresh_url=refresh_url,
-        return_url=return_url,
-        type="account_onboarding",
-    )
-    return t.cast(str, account_link.url)
-
-
-def get_account_details(account_id: str) -> stripe.Account:
-    """Retrieve details for a connected Stripe account."""
-    return t.cast(stripe.Account, stripe.Account.retrieve(account_id))
+    return _create_account_link(account_id, refresh_url, return_url)
 
 
 def stripe_verify_account(organization: Organization) -> Organization:
@@ -63,15 +60,11 @@ def stripe_verify_account(organization: Organization) -> Organization:
     Also auto-fills billing_address and vat_country_code from Stripe account
     details if they are currently empty (fallback for orgs without a VAT ID).
     """
-    if organization.stripe_account_id is None:
-        raise HttpError(400, str(_("You must connect your Stripe account first.")))
-    account = get_account_details(organization.stripe_account_id)
-    organization.stripe_charges_enabled = account.charges_enabled
-    organization.stripe_details_submitted = account.details_submitted
+    account = sync_account_status(organization)
 
-    update_fields = ["stripe_charges_enabled", "stripe_details_submitted", "updated_at"]
+    # Organization-specific: auto-fill billing details from Stripe
+    update_fields: list[str] = []
 
-    # Auto-fill billing details from Stripe if empty
     if not organization.billing_address and account.get("company"):
         company = account["company"]
         address = company.get("address", {})
@@ -92,7 +85,9 @@ def stripe_verify_account(organization: Organization) -> Organization:
         organization.vat_country_code = account["country"]
         update_fields.append("vat_country_code")
 
-    organization.save(update_fields=update_fields)
+    if update_fields:
+        organization.save(update_fields=update_fields)
+
     return organization
 
 

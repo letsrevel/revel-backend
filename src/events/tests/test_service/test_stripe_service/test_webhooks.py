@@ -8,7 +8,7 @@ import pytest
 import stripe
 
 from accounts.models import RevelUser
-from events.models import Event, Payment, Ticket, TicketTier
+from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.service.stripe_webhooks import StripeEventHandler
 
 pytestmark = pytest.mark.django_db
@@ -426,3 +426,63 @@ class TestStripeEventHandler:
 
         # Assert - No error raised, just logged at debug level
         # Note: caplog won't capture debug logs by default, but we're just checking it doesn't crash
+
+    # ---- account.updated webhook ------------------------------------------------
+
+    def test_handle_account_updated_syncs_organization(
+        self,
+        handler: StripeEventHandler,
+        organization: Organization,
+    ) -> None:
+        """Test that account.updated syncs status to the matching Organization."""
+        organization.stripe_account_id = "acct_org_test"
+        organization.save(update_fields=["stripe_account_id"])
+
+        handler.event.data.object = {
+            "id": "acct_org_test",
+            "charges_enabled": True,
+            "details_submitted": True,
+        }
+
+        handler.handle_account_updated(handler.event)
+
+        organization.refresh_from_db()
+        assert organization.stripe_charges_enabled is True
+        assert organization.stripe_details_submitted is True
+
+    def test_handle_account_updated_syncs_revel_user(
+        self,
+        handler: StripeEventHandler,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """Test that account.updated falls back to RevelUser when no Organization matches."""
+        organization_owner_user.stripe_account_id = "acct_user_test"
+        organization_owner_user.save(update_fields=["stripe_account_id"])
+
+        handler.event.data.object = {
+            "id": "acct_user_test",
+            "charges_enabled": True,
+            "details_submitted": True,
+        }
+
+        handler.handle_account_updated(handler.event)
+
+        organization_owner_user.refresh_from_db()
+        assert organization_owner_user.stripe_charges_enabled is True
+        assert organization_owner_user.stripe_details_submitted is True
+
+    def test_handle_account_updated_unknown_account_logs_warning(
+        self,
+        handler: StripeEventHandler,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test that an unknown account ID is logged and does not raise."""
+        handler.event.data.object = {
+            "id": "acct_unknown_999",
+            "charges_enabled": True,
+            "details_submitted": True,
+        }
+
+        handler.handle_account_updated(handler.event)
+
+        assert "stripe_account_updated_unknown" in caplog.text

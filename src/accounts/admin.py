@@ -163,6 +163,10 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "profile_image_preview_display",
         "event_participation_display",
         "organization_participation_display",
+        "stripe_account_id",
+        "stripe_account_email",
+        "stripe_charges_enabled",
+        "stripe_details_submitted",
     ]
 
     fieldsets = (
@@ -207,6 +211,17 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
                     ("is_active", "is_staff", "is_superuser"),
                     "groups",
                     "user_permissions",
+                ),
+                "classes": ["collapse"],
+            },
+        ),
+        (
+            "Stripe Connect",
+            {
+                "fields": (
+                    "stripe_account_id",
+                    "stripe_account_email",
+                    ("stripe_charges_enabled", "stripe_details_submitted"),
                 ),
                 "classes": ["collapse"],
             },
