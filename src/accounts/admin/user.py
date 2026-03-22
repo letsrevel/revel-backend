@@ -989,7 +989,3 @@ class GlobalBanAdmin(ModelAdmin):  # type: ignore[misc]
         if not change:
             obj.created_by = t.cast(RevelUser, request.user)
         super().save_model(request, obj, form, change)
-
-
-# Referral admin is in admin_referral.py (split to keep this file under 1000 lines)
-import accounts.admin_referral  # noqa: E402, F401

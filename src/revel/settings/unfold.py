@@ -78,6 +78,16 @@ UNFOLD = {
                         "icon": "payments",
                         "link": reverse_lazy("admin:accounts_referralpayout_changelist"),
                     },
+                    {
+                        "title": _("Payout Statements"),
+                        "icon": "receipt_long",
+                        "link": reverse_lazy("admin:accounts_referralpayoutstatement_changelist"),
+                    },
+                    {
+                        "title": _("User Billing Profiles"),
+                        "icon": "account_balance",
+                        "link": reverse_lazy("admin:accounts_userbillingprofile_changelist"),
+                    },
                 ],
             },
             {
