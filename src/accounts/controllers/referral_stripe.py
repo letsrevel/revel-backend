@@ -53,7 +53,6 @@ class ReferralStripeController(UserAwareController):
         user = self.user()
 
         stripe_connect_service.sync_account_status(user)
-        user.refresh_from_db(fields=["stripe_charges_enabled", "stripe_details_submitted"])
 
         return StripeAccountStatusSchema(
             is_connected=user.is_stripe_connected,

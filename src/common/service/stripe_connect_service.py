@@ -82,4 +82,7 @@ def sync_account_status(connectable: StripeConnectMixin) -> None:
     account = get_account_details(connectable.stripe_account_id)
     connectable.stripe_charges_enabled = account.charges_enabled
     connectable.stripe_details_submitted = account.details_submitted
-    connectable.save(update_fields=["stripe_charges_enabled", "stripe_details_submitted", "updated_at"])
+    update_fields = ["stripe_charges_enabled", "stripe_details_submitted"]
+    if hasattr(connectable, "updated_at"):
+        update_fields.append("updated_at")
+    connectable.save(update_fields=update_fields)
