@@ -258,9 +258,7 @@ def test_task_date_arithmetic_january_rollover(mock_now: t.Any) -> None:
     """Test that the task correctly rolls back to December when run in January."""
     mock_now.return_value = timezone.make_aware(datetime.datetime(2026, 1, 1, 6, 0))
 
-    with patch(
-        "events.tasks.calculate_payouts_for_period", wraps=calculate_payouts_for_period
-    ) as mock_calc:
+    with patch("events.tasks.calculate_payouts_for_period", wraps=calculate_payouts_for_period) as mock_calc:
         calculate_referral_payouts()
         mock_calc.assert_called_once_with(
             datetime.date(2025, 12, 1),
