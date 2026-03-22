@@ -716,9 +716,8 @@ def process_referral_payouts() -> dict[str, int]:
             payout.save(update_fields=["status", "updated_at"])
 
         # Reload with relations outside the lock
-        payout = (
-            ReferralPayout.objects.select_related("referral__referrer__billing_profile", "referral__referrer")
-            .get(id=payout_id)
+        payout = ReferralPayout.objects.select_related("referral__referrer__billing_profile", "referral__referrer").get(
+            id=payout_id
         )
         referrer = payout.referral.referrer
 
@@ -793,8 +792,8 @@ def _send_payout_statement_email(
     referrer: RevelUser,
 ) -> None:
     """Dispatch the payout statement PDF to the referrer via email."""
-    billing_email = getattr(referrer, "billing_profile", None)
-    recipient = billing_email.billing_email if billing_email and billing_email.billing_email else referrer.email
+    billing_profile = getattr(referrer, "billing_profile", None)
+    recipient = billing_profile.billing_email if billing_profile and billing_profile.billing_email else referrer.email
 
     subject = _("Referral payout statement %(document_number)s (%(currency)s)") % {
         "document_number": statement.document_number,

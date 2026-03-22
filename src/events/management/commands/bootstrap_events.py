@@ -23,6 +23,7 @@ from .bootstrap_helpers import (
     create_payments_and_invoice,
     create_potluck_items,
     create_questionnaires,
+    create_referral_payouts,
     create_tags,
     create_ticket_tiers,
     create_user_relationships,
@@ -96,5 +97,8 @@ class Command(BaseCommand):
 
         # Create payments and generate a sample invoice with PDF
         create_payments_and_invoice(state)
+
+        # Create referral payouts with real PDF statements (B2B Gutschrift + B2C payout statement)
+        create_referral_payouts(state)
 
         logger.info("Bootstrap complete! See README.md in this directory for details.")

@@ -1,20 +1,23 @@
 # src/events/management/commands/bootstrap_helpers/billing.py
-"""VAT/billing setup and invoice generation for bootstrap process."""
+"""VAT/billing setup, invoice generation, and referral payout bootstrap."""
 
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import structlog
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.utils import timezone
 
-from accounts.models import RevelUser
+from accounts.models import Referral, ReferralCode, ReferralPayout, RevelUser, UserBillingProfile
+from accounts.service.payout_statement_service import generate_payout_statement
 from common.models import SiteSettings
 from events import models as events_models
 from events.service.invoice_service import (
     _render_invoice_pdf,
     generate_invoices_for_period,
 )
+from events.service.referral_payout_service import calculate_payouts_for_period
 from events.service.vat_service import calculate_platform_fee_vat, calculate_vat_inclusive, get_effective_vat_rate
 
 from .base import BootstrapState
@@ -230,3 +233,161 @@ def create_payments_and_invoice(state: BootstrapState) -> None:
             logger.info("invoice_already_has_pdf", invoice_number=invoice.invoice_number)
 
     logger.info("invoices_generated", count=len(invoices))
+
+
+def create_referral_payouts(state: BootstrapState) -> None:
+    """Create two referrers (B2B + B2C), referrals, and generate real payout statement PDFs.
+
+    - B2B referrer: has a validated VAT ID → generates a Gutschrift (self-billing invoice)
+    - B2C referrer: individual, no VAT ID → generates a payout statement
+
+    Both referrers have referred users who own organizations with online ticket
+    sales in the previous month, so the payout calculation produces non-zero amounts.
+    """
+    logger.info("Creating referral payouts...")
+
+    today = date.today()
+    first_of_current = today.replace(day=1)
+    last_of_previous = first_of_current - timedelta(days=1)
+    first_of_previous = last_of_previous.replace(day=1)
+
+    # --- Create B2B referrer (German company with validated VAT ID) ---
+    b2b_referrer = RevelUser.objects.create_user(
+        username="referrer.b2b@example.com",
+        email="referrer.b2b@example.com",
+        password="password",
+        first_name="Klaus",
+        last_name="Müller",
+        preferred_name="Klaus Müller",
+        stripe_account_id="acct_bootstrap_b2b",
+        stripe_charges_enabled=True,
+        stripe_details_submitted=True,
+    )
+    state.users["referrer_b2b"] = b2b_referrer
+
+    UserBillingProfile.objects.create(
+        user=b2b_referrer,
+        billing_name="Müller Consulting GmbH",
+        vat_id="DE987654321",
+        vat_country_code="DE",
+        vat_id_validated=True,
+        vat_id_validated_at=timezone.now() - timedelta(days=10),
+        vies_request_identifier="WAPIAAAAZzz1TEST",
+        billing_address="Leopoldstraße 27\n80802 München, Germany",
+        billing_email="invoice@mueller-consulting.example.com",
+        self_billing_agreed=True,
+    )
+
+    b2b_code = ReferralCode.objects.create(user=b2b_referrer, code="B2BREF01")
+
+    # B2B referrer referred the org_alpha owner (who has payments from previous month)
+    org_alpha_owner = state.users["org_alpha_owner"]
+    Referral.objects.create(
+        referral_code=b2b_code,
+        referred_user=org_alpha_owner,
+        revenue_share_percent=settings.DEFAULT_REFERRAL_SHARE_PERCENT,
+    )
+
+    logger.info("b2b_referrer_created", referrer=b2b_referrer.email, referred=org_alpha_owner.email)
+
+    # --- Create B2C referrer (individual, no VAT ID) ---
+    b2c_referrer = RevelUser.objects.create_user(
+        username="referrer.b2c@example.com",
+        email="referrer.b2c@example.com",
+        password="password",
+        first_name="Sophie",
+        last_name="Berger",
+        preferred_name="Sophie Berger",
+        stripe_account_id="acct_bootstrap_b2c",
+        stripe_charges_enabled=True,
+        stripe_details_submitted=True,
+    )
+    state.users["referrer_b2c"] = b2c_referrer
+
+    UserBillingProfile.objects.create(
+        user=b2c_referrer,
+        billing_name="Sophie Berger",
+        vat_id="",
+        vat_country_code="AT",
+        billing_address="Mariahilfer Str. 88\n1070 Wien, Austria",
+        billing_email="sophie.berger@example.com",
+        self_billing_agreed=True,
+    )
+
+    b2c_code = ReferralCode.objects.create(user=b2c_referrer, code="B2CREF01")
+
+    # B2C referrer referred the org_beta owner (who also needs payments)
+    org_beta_owner = state.users["org_beta_owner"]
+    Referral.objects.create(
+        referral_code=b2c_code,
+        referred_user=org_beta_owner,
+        revenue_share_percent=settings.DEFAULT_REFERRAL_SHARE_PERCENT,
+    )
+
+    logger.info("b2c_referrer_created", referrer=b2c_referrer.email, referred=org_beta_owner.email)
+
+    # --- Create payments for org_beta in the previous month ---
+    # (org_alpha already has payments from create_payments_and_invoice)
+    site = SiteSettings.get_solo()
+    org_beta = state.orgs["beta"]
+
+    # Find a suitable tier for org_beta
+    beta_tier = (
+        events_models.TicketTier.objects.filter(
+            event__organization=org_beta,
+            payment_method=events_models.TicketTier.PaymentMethod.ONLINE,
+            price__gt=0,
+            currency="EUR",
+        )
+        .exclude(price_type=events_models.TicketTier.PriceType.PWYC)
+        .select_related("event")
+        .first()
+    )
+
+    if beta_tier:
+        effective_vat_rate = get_effective_vat_rate(beta_tier.vat_rate, org_beta.vat_rate)
+        beta_users = [state.users[k] for k in ("org_beta_member", "attendee_3", "attendee_4") if k in state.users]
+
+        if beta_users:
+            payments_created = _create_bootstrap_payments(
+                users=beta_users,
+                event=beta_tier.event,
+                tier=beta_tier,
+                org=org_beta,
+                site=site,
+                effective_vat_rate=effective_vat_rate,
+                first_of_previous=first_of_previous,
+                last_of_previous=last_of_previous,
+            )
+            logger.info("beta_payments_created", count=payments_created, org=org_beta.slug)
+
+    # --- Calculate referral payouts for the previous month ---
+    payout_result = calculate_payouts_for_period(first_of_previous, last_of_previous)
+    logger.info(
+        "referral_payouts_calculated",
+        created=payout_result["created"],
+        skipped=payout_result["skipped"],
+    )
+
+    # --- Generate payout statements (PDF) for each calculated payout ---
+    calculated_payouts = ReferralPayout.objects.filter(status=ReferralPayout.Status.CALCULATED).select_related(
+        "referral__referrer__billing_profile", "referral__referrer"
+    )
+
+    for payout in calculated_payouts:
+        try:
+            statement = generate_payout_statement(payout)
+            # Mark as paid (no real Stripe transfer in bootstrap)
+            payout.status = ReferralPayout.Status.PAID
+            payout.stripe_transfer_id = f"tr_bootstrap_{payout.id}"
+            payout.save(update_fields=["status", "stripe_transfer_id", "updated_at"])
+
+            logger.info(
+                "payout_statement_generated",
+                document_number=statement.document_number,
+                document_type=statement.document_type,
+                referrer=payout.referral.referrer.email,
+                amount=str(payout.payout_amount),
+            )
+        except Exception:
+            logger.warning("payout_statement_failed", payout_id=str(payout.id), exc_info=True)

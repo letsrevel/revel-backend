@@ -160,6 +160,8 @@ class TestPayoutPreflightChecks:
         assert stats["failed"] == 0
         mock_transfer.assert_not_called()
         mock_gen_statement.assert_not_called()
+        calculated_payout.refresh_from_db()
+        assert calculated_payout.status == ReferralPayout.Status.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     @patch("accounts.tasks.stripe.Transfer.create")
@@ -171,7 +173,7 @@ class TestPayoutPreflightChecks:
         referrer: RevelUser,
         site_settings: SiteSettings,
     ) -> None:
-        """Payout is skipped when referrer has no billing profile at all."""
+        """Payout is skipped (reverted to CALCULATED) when referrer has no billing profile."""
         # No billing_profile fixture injected -> no billing profile exists
 
         # Act
@@ -182,6 +184,8 @@ class TestPayoutPreflightChecks:
         assert stats["paid"] == 0
         mock_transfer.assert_not_called()
         mock_gen_statement.assert_not_called()
+        calculated_payout.refresh_from_db()
+        assert calculated_payout.status == ReferralPayout.Status.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     @patch("accounts.tasks.stripe.Transfer.create")
@@ -193,7 +197,7 @@ class TestPayoutPreflightChecks:
         billing_profile: UserBillingProfile,
         site_settings: SiteSettings,
     ) -> None:
-        """Payout is skipped when referrer has not agreed to self-billing."""
+        """Payout is skipped (reverted to CALCULATED) when referrer has not agreed to self-billing."""
         # Arrange
         billing_profile.self_billing_agreed = False
         billing_profile.save(update_fields=["self_billing_agreed"])
@@ -206,6 +210,8 @@ class TestPayoutPreflightChecks:
         assert stats["paid"] == 0
         mock_transfer.assert_not_called()
         mock_gen_statement.assert_not_called()
+        calculated_payout.refresh_from_db()
+        assert calculated_payout.status == ReferralPayout.Status.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     @patch("accounts.tasks.stripe.Transfer.create")

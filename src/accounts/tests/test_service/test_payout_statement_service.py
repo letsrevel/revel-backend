@@ -471,3 +471,24 @@ class TestSnapshotsAndPDF:
         statement = generate_payout_statement(payout)
 
         assert statement.currency == "EUR"
+
+
+class TestIdempotency:
+    """Test that generate_payout_statement is idempotent."""
+
+    @patch("common.service.invoice_utils.HTML")
+    def test_second_call_returns_existing_statement(
+        self,
+        mock_html_cls: MagicMock,
+        payout: ReferralPayout,
+        b2b_billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """Calling generate_payout_statement twice returns the same statement without creating a duplicate."""
+        mock_html_cls.return_value.write_pdf.return_value = None
+
+        first = generate_payout_statement(payout)
+        second = generate_payout_statement(payout)
+
+        assert first.id == second.id
+        assert ReferralPayoutStatement.objects.filter(payout=payout).count() == 1
