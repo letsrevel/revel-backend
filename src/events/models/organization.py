@@ -14,7 +14,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from accounts.models import RevelUser
 from common.fields import MarkdownField
-from common.models import TagAssignment, TaggableMixin, TimeStampedModel
+from common.models import StripeConnectMixin, TagAssignment, TaggableMixin, TimeStampedModel
 
 from .mixins import (
     LocationMixin,
@@ -148,6 +148,7 @@ class Organization(
     LocationMixin,
     LogoCoverValidationMixin,
     SocialMediaMixin,
+    StripeConnectMixin,
 ):
     name = models.CharField(max_length=255, unique=True)
     slug = models.SlugField(max_length=255, unique=True)
@@ -239,18 +240,6 @@ class Organization(
         ),
     )
 
-    stripe_account_email = models.EmailField(null=True, blank=True, db_index=True)
-    stripe_account_id = models.CharField(
-        max_length=255,
-        blank=True,
-        null=True,
-        unique=True,
-        help_text="The Stripe Connect Account ID for this organization.",
-    )
-    stripe_charges_enabled = models.BooleanField(
-        default=False,
-    )
-    stripe_details_submitted = models.BooleanField(default=False)
     accept_membership_requests = models.BooleanField(default=False)
     contact_email = models.EmailField(blank=True, null=True)
     contact_email_verified = models.BooleanField(default=False)
@@ -262,11 +251,6 @@ class Organization(
 
     def __str__(self) -> str:
         return self.name
-
-    @property
-    def is_stripe_connected(self) -> bool:
-        """Check if the organization has a Stripe account connected."""
-        return self.stripe_account_id is not None and self.stripe_charges_enabled and self.stripe_details_submitted
 
 
 class PermissionMap(BaseModel):

@@ -358,15 +358,10 @@ class ReorderSchema(Schema):
 
 # --- Stripe Schemas ---
 
-
-class StripeOnboardingLinkSchema(Schema):
-    onboarding_url: str
-
-
-class StripeAccountStatusSchema(Schema):
-    is_connected: bool
-    charges_enabled: bool = False
-    details_submitted: bool = False
+# StripeOnboardingLinkSchema and StripeAccountStatusSchema live in common.schema
+# (shared with accounts/referral). Re-exported here for backwards compatibility.
+from common.schema import StripeAccountStatusSchema as StripeAccountStatusSchema  # noqa: E402
+from common.schema import StripeOnboardingLinkSchema as StripeOnboardingLinkSchema  # noqa: E402
 
 
 class StripeCheckoutSessionSchema(Schema):

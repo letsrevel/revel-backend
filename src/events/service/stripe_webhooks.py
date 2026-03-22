@@ -5,6 +5,8 @@ import structlog
 from django.db import transaction
 from django.db.models import F
 
+from accounts.models import RevelUser
+from common.models import StripeConnectMixin
 from events.models import Organization, Payment, Ticket, TicketTier
 
 logger = structlog.get_logger(__name__)
@@ -96,30 +98,48 @@ class StripeEventHandler:
 
         This webhook fires when account details change, including when
         charges_enabled and details_submitted status change during onboarding.
-        Automatically syncs the organization's Stripe connection status.
+        Syncs the status on whichever model owns the account (Organization or RevelUser).
         """
         account_data = event.data.object
         account_id = account_data["id"]
 
-        # Find the organization with this Stripe account
-        try:
-            organization = Organization.objects.get(stripe_account_id=account_id)
-        except Organization.DoesNotExist:
+        connectable = self._find_connectable(account_id)
+        if connectable is None:
             logger.warning("stripe_account_updated_unknown", account_id=account_id)
             return
 
-        # Update the organization's Stripe status
-        organization.stripe_charges_enabled = account_data.get("charges_enabled", False)
-        organization.stripe_details_submitted = account_data.get("details_submitted", False)
-        organization.save(update_fields=["stripe_charges_enabled", "stripe_details_submitted"])
+        connectable.stripe_charges_enabled = account_data.get("charges_enabled", False)
+        connectable.stripe_details_submitted = account_data.get("details_submitted", False)
+        connectable.save(update_fields=["stripe_charges_enabled", "stripe_details_submitted"])
 
-        logger.info(
-            "stripe_account_updated",
-            organization_slug=organization.slug,
-            account_id=account_id,
-            charges_enabled=organization.stripe_charges_enabled,
-            details_submitted=organization.stripe_details_submitted,
-        )
+        if isinstance(connectable, Organization):
+            logger.info(
+                "stripe_account_updated",
+                organization_slug=connectable.slug,
+                account_id=account_id,
+                charges_enabled=connectable.stripe_charges_enabled,
+                details_submitted=connectable.stripe_details_submitted,
+            )
+        else:
+            logger.info(
+                "stripe_account_updated",
+                user_id=str(connectable.pk),
+                account_id=account_id,
+                charges_enabled=connectable.stripe_charges_enabled,
+                details_submitted=connectable.stripe_details_submitted,
+            )
+
+    @staticmethod
+    def _find_connectable(account_id: str) -> StripeConnectMixin | None:
+        """Look up the model that owns *account_id* (Organization first, then RevelUser)."""
+        try:
+            return Organization.objects.get(stripe_account_id=account_id)
+        except Organization.DoesNotExist:
+            pass
+        try:
+            return RevelUser.objects.get(stripe_account_id=account_id)
+        except RevelUser.DoesNotExist:
+            return None
 
     @transaction.atomic
     def handle_charge_refunded(self, event: stripe.Event) -> None:

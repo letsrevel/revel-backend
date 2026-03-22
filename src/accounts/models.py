@@ -27,7 +27,7 @@ from common.fields import (
     ProtectedImageField,
     validate_image_file,
 )
-from common.models import ExifStripMixin, TimeStampedModel
+from common.models import ExifStripMixin, StripeConnectMixin, TimeStampedModel
 
 
 def profile_picture_upload_path(instance: "RevelUser", filename: str) -> str:
@@ -45,7 +45,7 @@ class RevelUserManager(UserManager["RevelUser"]):
         return RevelUserQueryset(self.model)
 
 
-class RevelUser(ExifStripMixin, AbstractUser):
+class RevelUser(ExifStripMixin, StripeConnectMixin, AbstractUser):
     IMAGE_FIELDS = ("profile_picture",)
 
     image_validators = [
