@@ -370,9 +370,7 @@ def test_multi_currency_converted_to_platform_currency(
     event_usd = Event.objects.create(
         organization=org, name="USD Event", start=now, end=now + datetime.timedelta(hours=2)
     )
-    tier_usd = TicketTier.objects.create(
-        event=event_usd, name="USD", price=Decimal("50.00"), currency="USD"
-    )
+    tier_usd = TicketTier.objects.create(event=event_usd, name="USD", price=Decimal("50.00"), currency="USD")
 
     # EUR payment: €10 net
     _create_payment(

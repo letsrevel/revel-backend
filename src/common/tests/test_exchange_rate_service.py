@@ -45,9 +45,7 @@ def test_get_latest_rates(exchange_rate: ExchangeRate) -> None:
     assert result.date == datetime.date(2026, 3, 20)
 
 
-def test_get_latest_rates_returns_most_recent(
-    exchange_rate: ExchangeRate, older_exchange_rate: ExchangeRate
-) -> None:
+def test_get_latest_rates_returns_most_recent(exchange_rate: ExchangeRate, older_exchange_rate: ExchangeRate) -> None:
     """Test that latest() returns the most recent date."""
     result = get_latest_rates("EUR")
     assert result.date == datetime.date(2026, 3, 20)
@@ -77,9 +75,7 @@ def test_get_rate_cross(exchange_rate: ExchangeRate) -> None:
     assert rate == expected
 
 
-def test_get_rate_for_specific_date(
-    exchange_rate: ExchangeRate, older_exchange_rate: ExchangeRate
-) -> None:
+def test_get_rate_for_specific_date(exchange_rate: ExchangeRate, older_exchange_rate: ExchangeRate) -> None:
     """Test that a specific date uses the nearest available rate on or before."""
     rate = get_rate("EUR", "USD", date=datetime.date(2026, 3, 19))
     assert rate == Decimal("1.07")

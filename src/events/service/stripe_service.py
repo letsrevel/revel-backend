@@ -15,8 +15,8 @@ from stripe.checkout import Session
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
-from events.models import Event, Organization, Payment, Ticket, TicketTier
 from common.service.exchange_rate_service import convert as convert_currency
+from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.service.vat_service import (
     calculate_platform_fee_vat,
     calculate_vat_inclusive,

@@ -424,9 +424,7 @@ class ExchangeRate(TimeStampedModel):
     rates = models.JSONField(help_text="Mapping of currency code → rate relative to base")
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=["base", "date"], name="unique_exchange_rate_per_day")
-        ]
+        constraints = [models.UniqueConstraint(fields=["base", "date"], name="unique_exchange_rate_per_day")]
         ordering = ["-date"]
 
     def __str__(self) -> str:
