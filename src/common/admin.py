@@ -212,3 +212,19 @@ class QuarantinedFileAdmin(ModelAdmin, UploaderLinkMixin):  # type: ignore[misc]
 
     def has_change_permission(self, request: t.Any, obj: t.Any = None) -> bool:
         return False
+
+
+@admin.register(models.ExchangeRate)
+class ExchangeRateAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for ExchangeRate model (system-managed, readonly)."""
+
+    list_display = ["base", "date", "created_at"]
+    list_filter = ["base"]
+    readonly_fields = ["base", "date", "rates", "created_at", "updated_at"]
+    ordering = ["-date"]
+
+    def has_add_permission(self, request: t.Any) -> bool:
+        return False
+
+    def has_change_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        return False

@@ -13,9 +13,6 @@ from collections import Counter
 from uuid import UUID
 
 import structlog
-
-if t.TYPE_CHECKING:
-    from events.service.referral_payout_service import PayoutResult
 from celery import shared_task
 from django.core.management import call_command
 from django.db import transaction
@@ -27,6 +24,9 @@ from django.utils.translation import gettext as _
 from accounts.models import RevelUser
 from common.models import SiteSettings
 from common.tasks import send_email
+
+if t.TYPE_CHECKING:
+    from events.service.referral_payout_service import PayoutResult
 
 from .models import (
     AttendeeVisibilityFlag,
@@ -426,7 +426,7 @@ def send_organization_contact_email_verification(
 def calculate_referral_payouts() -> "PayoutResult":
     """Calculate referral earnings for the previous calendar month.
 
-    Runs on the 1st of each month via Celery beat. For each active Referral,
+    Runs on the 1st of each month via Celery beat. For each Referral,
     aggregates platform fees from the referred user's organizations and creates
     a ReferralPayout record. Idempotent — safe to re-run.
     """

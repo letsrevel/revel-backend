@@ -412,3 +412,16 @@ def cleanup_expired_file_exports() -> dict[str, int]:
 
     logger.info("file_export_cleanup_completed", records_deleted=count)
     return {"records_deleted": count}
+
+
+@shared_task(name="common.fetch_exchange_rates")
+def fetch_exchange_rates() -> dict[str, t.Any]:
+    """Fetch daily exchange rates from frankfurter.app and store them.
+
+    Runs daily at 04:00 UTC via Celery beat. Rates are used for platform fee
+    currency conversion and referral payout calculations.
+    """
+    from common.service.exchange_rate_service import fetch_and_store_rates
+
+    exchange_rate = fetch_and_store_rates()
+    return {"base": exchange_rate.base, "date": str(exchange_rate.date), "currencies": len(exchange_rate.rates)}

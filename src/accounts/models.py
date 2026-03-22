@@ -473,7 +473,9 @@ class ReferralPayout(TimeStampedModel):
     net_platform_fees = models.DecimalField(
         max_digits=10, decimal_places=2, help_text="Sum of platform_fee_net for the period (excludes VAT)"
     )
-    payout_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    payout_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, help_text="net_platform_fees * revenue_share_percent / 100"
+    )
     currency = models.CharField(max_length=3, default=settings.DEFAULT_CURRENCY)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.CALCULATED, db_index=True)
     stripe_transfer_id = models.CharField(max_length=255, blank=True, db_index=True)

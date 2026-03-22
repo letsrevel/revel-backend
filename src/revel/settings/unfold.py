@@ -420,6 +420,11 @@ UNFOLD = {
                         "icon": "warning",
                         "link": reverse_lazy("admin:common_quarantinedfile_changelist"),
                     },
+                    {
+                        "title": _("Exchange Rates"),
+                        "icon": "currency_exchange",
+                        "link": reverse_lazy("admin:common_exchangerate_changelist"),
+                    },
                 ],
             },
             {

@@ -17,6 +17,7 @@ from .event import MinimalEventSchema
 from .organization import MembershipTierSchema, MinimalOrganizationMemberSchema
 from .venue import MinimalSeatSchema, VenueSchema, VenueSectorSchema
 
+# Supported currencies — must match frankfurter.app for exchange rate availability
 Currencies = t.Literal[
     "EUR",  # Euro
     "USD",  # US Dollar
@@ -34,11 +35,9 @@ Currencies = t.Literal[
     "NOK",  # Norwegian Krone
     "MXN",  # Mexican Peso
     "INR",  # Indian Rupee
-    "RUB",  # Russian Ruble
     "ZAR",  # South African Rand
     "TRY",  # Turkish Lira
     "BRL",  # Brazilian Real
-    "TWD",  # New Taiwan Dollar
     "DKK",  # Danish Krone
     "PLN",  # Polish Zloty
     "THB",  # Thai Baht
@@ -46,28 +45,9 @@ Currencies = t.Literal[
     "HUF",  # Hungarian Forint
     "CZK",  # Czech Koruna
     "ILS",  # Israeli Shekel
-    "AED",  # UAE Dirham
-    "SAR",  # Saudi Riyal
     "MYR",  # Malaysian Ringgit
     "PHP",  # Philippine Peso
-    "CLP",  # Chilean Peso
-    "COP",  # Colombian Peso
-    "PKR",  # Pakistani Rupee
-    "EGP",  # Egyptian Pound
-    "NGN",  # Nigerian Naira
-    "VND",  # Vietnamese Dong
-    "BDT",  # Bangladeshi Taka
-    "ARS",  # Argentine Peso
-    "QAR",  # Qatari Riyal
-    "KWD",  # Kuwaiti Dinar
-    "BHD",  # Bahraini Dinar
-    "OMR",  # Omani Rial
-    "MAD",  # Moroccan Dirham
-    "KES",  # Kenyan Shilling
-    "UAH",  # Ukrainian Hryvnia
     "RON",  # Romanian Leu
-    "BGN",  # Bulgarian Lev
-    "HRK",  # Croatian Kuna (still valid for legacy data)
     "ISK",  # Icelandic Krona
 ]
 

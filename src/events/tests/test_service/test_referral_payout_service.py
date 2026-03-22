@@ -11,6 +11,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from accounts.models import Referral, ReferralCode, ReferralPayout, RevelUser
+from common.models import ExchangeRate
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.service.referral_payout_service import calculate_payouts_for_period
 from events.tasks import calculate_referral_payouts
@@ -215,6 +216,59 @@ def test_falls_back_to_gross_when_net_is_null(referral: Referral, tier: TicketTi
     assert payout.payout_amount == Decimal("1.50")
 
 
+def test_zero_net_fees_skipped(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
+    """Test that a payment with explicitly zero platform_fee_net is skipped."""
+    _create_payment(
+        tier,
+        buyer,
+        platform_fee=Decimal("0.00"),
+        platform_fee_net=Decimal("0.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
+    )
+
+    result = calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    assert result == {"created": 0, "skipped": 1}
+    assert not ReferralPayout.objects.exists()
+
+
+def test_multiple_organizations_aggregated(referral: Referral, referred_user: RevelUser, buyer: RevelUser) -> None:
+    """Test that fees from multiple orgs owned by the referred user are aggregated."""
+    org1 = Organization.objects.create(name="Org One", owner=referred_user)
+    org2 = Organization.objects.create(name="Org Two", owner=referred_user)
+
+    now = timezone.now()
+    event1 = Event.objects.create(organization=org1, name="Event 1", start=now, end=now + datetime.timedelta(hours=2))
+    event2 = Event.objects.create(organization=org2, name="Event 2", start=now, end=now + datetime.timedelta(hours=2))
+
+    tier1 = TicketTier.objects.create(event=event1, name="T1", price=Decimal("50.00"), total_quantity=100)
+    tier2 = TicketTier.objects.create(event=event2, name="T2", price=Decimal("50.00"), total_quantity=100)
+
+    _create_payment(
+        tier1,
+        buyer,
+        platform_fee=Decimal("12.00"),
+        platform_fee_net=Decimal("10.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 10, 12, 0)),
+    )
+    _create_payment(
+        tier2,
+        buyer,
+        platform_fee=Decimal("24.00"),
+        platform_fee_net=Decimal("20.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 20, 12, 0)),
+    )
+
+    result = calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    assert result == {"created": 1, "skipped": 0}
+    payout = ReferralPayout.objects.get(referral=referral)
+    # 10 + 20 = 30 net fees across two orgs
+    assert payout.net_platform_fees == Decimal("30.00")
+    # 30.00 * 15% = 4.50
+    assert payout.payout_amount == Decimal("4.50")
+
+
 def test_idempotent(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
     """Test that re-running for the same period does not create duplicates."""
     _create_payment(
@@ -288,3 +342,61 @@ def test_task_date_arithmetic_january_rollover(mock_now: t.Any) -> None:
             datetime.date(2025, 12, 1),
             datetime.date(2025, 12, 31),
         )
+
+
+def test_multi_currency_converted_to_platform_currency(
+    referral: Referral,
+    referred_user: RevelUser,
+    buyer: RevelUser,
+) -> None:
+    """Test that payments in different currencies are converted to DEFAULT_CURRENCY."""
+    # Create exchange rates
+    ExchangeRate.objects.create(
+        base="EUR",
+        date=PERIOD_END,
+        rates={"USD": 1.08, "GBP": 0.86},
+    )
+
+    org = Organization.objects.create(name="Multi-Currency Org", owner=referred_user)
+    now = timezone.now()
+
+    # EUR event
+    event_eur = Event.objects.create(
+        organization=org, name="EUR Event", start=now, end=now + datetime.timedelta(hours=2)
+    )
+    tier_eur = TicketTier.objects.create(event=event_eur, name="EUR", price=Decimal("50.00"))
+
+    # USD event
+    event_usd = Event.objects.create(
+        organization=org, name="USD Event", start=now, end=now + datetime.timedelta(hours=2)
+    )
+    tier_usd = TicketTier.objects.create(
+        event=event_usd, name="USD", price=Decimal("50.00"), currency="USD"
+    )
+
+    # EUR payment: €10 net
+    _create_payment(
+        tier_eur,
+        buyer,
+        platform_fee=Decimal("12.00"),
+        platform_fee_net=Decimal("10.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
+    )
+    # USD payment: $10.80 net → should convert to €10.00
+    _create_payment(
+        tier_usd,
+        buyer,
+        platform_fee=Decimal("12.96"),
+        platform_fee_net=Decimal("10.80"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 20, 12, 0)),
+    )
+
+    result = calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    assert result == {"created": 1, "skipped": 0}
+    payout = ReferralPayout.objects.get(referral=referral)
+    # €10.00 (EUR) + $10.80 / 1.08 = €10.00 → total €20.00
+    assert payout.net_platform_fees == Decimal("20.00")
+    assert payout.currency == "EUR"
+    # 20.00 * 15% = 3.00
+    assert payout.payout_amount == Decimal("3.00")

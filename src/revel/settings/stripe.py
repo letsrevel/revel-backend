@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from decouple import config
 
+# Platform settlement currency — used as the default for ticket tiers, payments,
+# exchange rate base, and referral payouts.
 DEFAULT_CURRENCY = config("DEFAULT_CURRENCY", "EUR")
 DEFAULT_PLATFORM_FEE_PERCENT = config("DEFAULT_PLATFORM_FEE_PERCENT", cast=Decimal, default="1.50")
 DEFAULT_PLATFORM_FEE_FIXED = config("DEFAULT_PLATFORM_FEE_FIXED", cast=Decimal, default="0.25")
