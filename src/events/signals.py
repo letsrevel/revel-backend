@@ -319,14 +319,10 @@ def capture_event_old_status(sender: type[Event], instance: Event, **kwargs: t.A
 def _should_notify_followers_for_event(event: Event, created: bool) -> bool:
     """Check if followers should be notified for this event status change.
 
-    Returns True only when a PUBLIC event transitions to OPEN status (either on
-    creation or via update). Non-public events are only visible to members, staff,
-    or explicitly invited users — not general followers.
+    Returns True only when an event transitions to OPEN status (either on creation
+    or via update). Prevents duplicate notifications.
     """
     if event.status != Event.EventStatus.OPEN:
-        return False
-
-    if event.visibility != Event.Visibility.PUBLIC:
         return False
 
     if created:
