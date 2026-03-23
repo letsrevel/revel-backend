@@ -236,11 +236,83 @@ All endpoints require organization **owner** permissions.
 | `GET` | `/organization-admin/{slug}/invoices/{id}/download` | Get signed PDF download URL |
 | `GET` | `/organization-admin/{slug}/credit-notes` | List credit notes (paginated) |
 
+## Referral Payout Statements
+
+When referral payouts are disbursed, Revel generates a document for each payout. The document type depends on whether the referrer is a B2B entity (has a validated VAT ID) or a B2C individual.
+
+### B2B vs B2C Decision
+
+| Referrer profile | Document type | VAT treatment |
+|---|---|---|
+| Validated VAT ID (`vat_id_validated = True`) | **Self-billing invoice (Gutschrift)** | Full VAT math (reverse charge for EU cross-border) |
+| No VAT ID or unvalidated | **Payout statement** | No VAT line — referrer is not VAT-registered |
+
+### Self-Billing Invoice (Gutschrift)
+
+Per Austrian UStG §11, the platform issues a **Gutschrift** on behalf of the referrer. This is a full VAT invoice where the VAT treatment follows the same rules as platform fee invoices:
+
+| Scenario | VAT Treatment | `reverse_charge` |
+|---|---|---|
+| Referrer in **same country** as platform (AT) | Charge Austrian VAT (20%) | `false` |
+| Referrer in **different EU country** with valid VAT ID | Reverse charge | `true` |
+| Referrer **outside EU** | No VAT (export of services) | `false` |
+
+Requirements:
+- Referrer must have agreed to self-billing (`self_billing_agreed = True` on `UserBillingProfile`)
+- The document is labeled "GUTSCHRIFT" (not "Rechnung")
+
+### Payout Statement
+
+For B2C referrers (individuals without a VAT ID), the platform issues a **payout statement** — a non-VAT document that records the payment for bookkeeping purposes. No VAT is charged or shown.
+
+### Numbering
+
+Format: `RVL-RP-{YEAR}-{SEQUENCE:06d}` (e.g., `RVL-RP-2026-000001`)
+
+Uses the same race-condition-safe sequential numbering as platform fee invoices.
+
+### Model
+
+`ReferralPayoutStatement` (accounts app) stores:
+- `document_type`: `self_billing_invoice` or `payout_statement`
+- Snapshots of referrer and platform business details
+- Fee breakdown with VAT
+- PDF file (ProtectedFileField)
+
+### Processing Pipeline
+
+```mermaid
+flowchart TD
+    subgraph Monthly["Monthly Payout Processing (Celery Beat)"]
+        Beat[Celery Beat] -->|"1st of month, 06:30 UTC"| PayTask[process_referral_payouts]
+        PayTask -->|"per CALCULATED payout"| Check{Pre-flight checks}
+        Check -->|"Stripe enabled + billing profile + self-billing agreed"| GenStmt[Generate statement PDF]
+        Check -->|"Missing requirement"| Skip[Skip]
+        GenStmt --> Transfer[stripe.Transfer.create]
+        Transfer -->|"success"| Paid["status → PAID"]
+        Transfer -->|"Stripe error"| Failed["status → FAILED"]
+        Paid --> Email[Send statement email]
+    end
+```
+
+## Email Settings
+
+Billing emails (platform fee invoices and referral payout statements) use dedicated sender configuration:
+
+| Setting | Description | Default |
+|---|---|---|
+| `DEFAULT_BILLING_EMAIL` | "From" address for all billing/invoice emails | `DEFAULT_FROM_EMAIL` |
+| `DEFAULT_REPLY_TO_EMAIL` | "Reply-To" header on billing emails | `DEFAULT_FROM_EMAIL` |
+
+Both are configured via environment variables and fall back to `DEFAULT_FROM_EMAIL` when not set.
+
 ## Celery Beat Schedule
 
 | Task | Schedule | Purpose |
 |---|---|---|
 | `events.generate_monthly_invoices` | 1st of month, 06:00 UTC | Generate invoices + dispatch emails |
+| `events.calculate_referral_payouts` | 1st of month, 06:00 UTC | Calculate referral payout amounts |
+| `accounts.process_referral_payouts` | 1st of month, 06:30 UTC | Stripe transfers + statement PDFs + emails |
 | `events.revalidate_vat_ids` | 15th of month, 03:00 UTC | Re-validate all org VAT IDs via VIES |
 
-Both tasks are registered via a data migration (`0053_add_invoice_and_vat_periodic_tasks`).
+Tasks are registered via data migrations.

@@ -3,9 +3,11 @@
 import typing as t
 
 from django.contrib import admin
+from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 
-from accounts.models import Referral, ReferralCode, ReferralPayout
+from accounts.models import Referral, ReferralCode, ReferralPayout, ReferralPayoutStatement
+from common.signing import get_file_url
 
 
 @admin.register(ReferralCode)
@@ -182,4 +184,98 @@ class ReferralPayoutAdmin(ModelAdmin):  # type: ignore[misc]
 
     def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
         """Payouts must not be deleted to preserve the audit trail."""
+        return False
+
+
+@admin.register(ReferralPayoutStatement)
+class ReferralPayoutStatementAdmin(ModelAdmin):  # type: ignore[misc]
+    """Admin for ReferralPayoutStatement (system-created, readonly)."""
+
+    list_display = [
+        "document_number",
+        "document_type",
+        "referrer_name",
+        "amount_display",
+        "vat_display",
+        "reverse_charge_display",
+        "issued_at",
+        "pdf_link",
+    ]
+    list_filter = ["document_type", "currency", "reverse_charge"]
+    search_fields = [
+        "document_number",
+        "referrer_name",
+        "referrer_vat_id",
+        "payout__referral__referrer__email",
+    ]
+    readonly_fields = [
+        "payout",
+        "document_type",
+        "document_number",
+        "amount_gross",
+        "amount_net",
+        "amount_vat",
+        "vat_rate",
+        "currency",
+        "reverse_charge",
+        "referrer_name",
+        "referrer_address",
+        "referrer_vat_id",
+        "referrer_country",
+        "platform_business_name",
+        "platform_business_address",
+        "platform_vat_id",
+        "issued_at",
+        "pdf_link",
+        "created_at",
+        "updated_at",
+    ]
+    ordering = ["-created_at"]
+
+    fieldsets = [
+        (None, {"fields": ["payout", "document_type", "document_number", "issued_at", "pdf_link"]}),
+        ("Amount", {"fields": ["amount_net", "amount_vat", "vat_rate", "amount_gross", "currency", "reverse_charge"]}),
+        ("Referrer Snapshot", {"fields": ["referrer_name", "referrer_address", "referrer_vat_id", "referrer_country"]}),
+        (
+            "Platform Snapshot",
+            {"fields": ["platform_business_name", "platform_business_address", "platform_vat_id"]},
+        ),
+    ]
+
+    @admin.display(description="Amount (gross)")
+    def amount_display(self, obj: ReferralPayoutStatement) -> str:
+        """Display gross amount with currency."""
+        return f"{obj.amount_gross} {obj.currency}"
+
+    @admin.display(description="VAT")
+    def vat_display(self, obj: ReferralPayoutStatement) -> str:
+        """Display VAT amount or reverse charge indicator."""
+        if obj.reverse_charge:
+            return "RC"
+        if obj.amount_vat:
+            return f"{obj.amount_vat} ({obj.vat_rate}%)"
+        return "—"
+
+    @admin.display(description="RC", boolean=True)
+    def reverse_charge_display(self, obj: ReferralPayoutStatement) -> bool:
+        """Display reverse charge as boolean icon."""
+        return obj.reverse_charge
+
+    @admin.display(description="PDF")
+    def pdf_link(self, obj: ReferralPayoutStatement) -> str:
+        """Display signed download link for the PDF file."""
+        if url := get_file_url(obj.pdf_file):
+            return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">Download PDF</a>', url)
+        return "—"
+
+    def has_add_permission(self, request: t.Any) -> bool:
+        """Statements are created by the system."""
+        return False
+
+    def has_change_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        """Statements are immutable."""
+        return False
+
+    def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
+        """Statements must not be deleted to preserve the audit trail."""
         return False

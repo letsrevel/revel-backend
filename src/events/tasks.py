@@ -14,6 +14,7 @@ from uuid import UUID
 
 import structlog
 from celery import shared_task
+from django.conf import settings
 from django.core.management import call_command
 from django.db import transaction
 from django.db.models import F, Q
@@ -319,6 +320,8 @@ def send_invoice_email_task(invoice_id: str) -> None:
         subject=subject,
         body=body,
         bcc=bcc,
+        from_email=settings.DEFAULT_BILLING_EMAIL,
+        reply_to=[settings.DEFAULT_REPLY_TO_EMAIL],
         attachment_storage_path=invoice.pdf_file.name,
         attachment_filename=f"{invoice.invoice_number}.pdf",
     )

@@ -3,17 +3,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Invoice {{ invoice_number }}</title>
+  <title>{{ document_title }} {{ document_number }}</title>
   {% include "invoices/_base_styles.html" %}
-  <style>
-    .items-table thead th:nth-child(2) {
-      text-align: right;
-    }
-    .items-table tbody td:nth-child(2) {
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-    }
-  </style>
 </head>
 <body>
 
@@ -26,9 +17,9 @@
       </div>
     </div>
     <div class="invoice-badge">
-      <div class="invoice-title">INVOICE</div>
+      <div class="invoice-title">{{ document_title }}</div>
       <div class="invoice-meta">
-        <strong>Number</strong> {{ invoice_number }}<br>
+        <strong>Number</strong> {{ document_number }}<br>
         <strong>Date</strong> {{ issued_date }}<br>
         <strong>Period</strong> {{ period_start }} &mdash; {{ period_end }}<br>
         <strong>Currency</strong> {{ currency }}
@@ -39,11 +30,11 @@
   <hr class="divider">
 
   <div class="bill-to-section">
-    <div class="bill-to-label">Bill To</div>
-    <div class="bill-to-name">{{ org_name }}</div>
+    <div class="bill-to-label">{% if is_b2b %}Supplier{% else %}Recipient{% endif %}</div>
+    <div class="bill-to-name">{{ referrer_name }}</div>
     <div class="bill-to-details">
-      {% if org_address %}{{ org_address }}<br>{% endif %}
-      {% if org_vat_id %}VAT: {{ org_vat_id }}{% endif %}
+      {% if referrer_address %}{{ referrer_address }}<br>{% endif %}
+      {% if is_b2b and referrer_vat_id %}VAT: {{ referrer_vat_id }}{% endif %}
     </div>
   </div>
 
@@ -51,15 +42,13 @@
     <thead>
       <tr>
         <th>Description</th>
-        <th>Tickets</th>
         <th>Amount</th>
       </tr>
     </thead>
     <tbody>
       <tr>
-        <td>Platform fees for ticket sales &mdash; {{ period_label }}</td>
-        <td>{{ total_tickets }}</td>
-        <td>{{ fee_net|format_currency:currency }}</td>
+        <td>Referral commission &mdash; {{ period_label }}</td>
+        <td>{{ amount_net|format_currency:currency }}</td>
       </tr>
     </tbody>
   </table>
@@ -68,41 +57,56 @@
     <div class="totals-box">
       <div class="totals-row subtotal">
         <span>Subtotal</span>
-        <span>{{ fee_net|format_currency:currency }}</span>
+        <span>{{ amount_net|format_currency:currency }}</span>
       </div>
-      {% if reverse_charge %}
-      <div class="totals-row vat">
-        <span>VAT</span>
-        <span>Reverse Charge</span>
-      </div>
+      {% if is_b2b %}
+        {% if reverse_charge %}
+        <div class="totals-row vat">
+          <span>VAT</span>
+          <span>Reverse Charge</span>
+        </div>
+        {% else %}
+        <div class="totals-row vat">
+          <span>VAT ({{ vat_rate }}%)</span>
+          <span>{{ amount_vat|format_currency:currency }}</span>
+        </div>
+        {% endif %}
       {% else %}
       <div class="totals-row vat">
-        <span>VAT ({{ fee_vat_rate }}%)</span>
-        <span>{{ fee_vat|format_currency:currency }}</span>
+        <span>VAT</span>
+        <span>N/A</span>
       </div>
       {% endif %}
       <div class="totals-row total">
         <span>Total</span>
-        <span>{{ fee_gross|format_currency:currency }}</span>
+        <span>{{ amount_gross|format_currency:currency }}</span>
       </div>
     </div>
   </div>
 
   <div class="footer">
     <div class="notes">
-      {% if reverse_charge %}
+      {% if is_b2b and reverse_charge %}
       <div class="footer-label">Tax Notice</div>
       <div class="notes-text">
         Reverse charge: VAT to be accounted for<br>
         by the recipient of the service.<br>
         Tax liability transfers to the recipient.
       </div>
-      {% endif %}
-      <div class="footer-label" {% if reverse_charge %}style="margin-top: 12px;"{% endif %}>Period Summary</div>
+      {% elif not is_b2b %}
+      <div class="footer-label">Notice</div>
       <div class="notes-text">
-        Total ticket revenue: {{ total_ticket_revenue|format_currency:currency }}<br>
-        Tickets sold: {{ total_tickets }}
+        This is a payout statement, not a VAT invoice.<br>
+        No VAT ID on file for the recipient.
       </div>
+      {% endif %}
+      {% if is_b2b %}
+      <div class="footer-label" style="margin-top: 12px;">Self-Billing Notice</div>
+      <div class="notes-text">
+        This document was issued by the recipient of the service<br>
+        on behalf of the supplier under a self-billing agreement.
+      </div>
+      {% endif %}
     </div>
   </div>
 

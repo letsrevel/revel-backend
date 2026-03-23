@@ -110,7 +110,7 @@ class PlatformFeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignor
     @admin.display(description="PDF")
     def pdf_link(self, obj: models.PlatformFeeInvoice) -> str:
         if url := get_file_url(obj.pdf_file):
-            return format_html('<a href="{}" target="_blank">Download PDF</a>', url)
+            return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">Download PDF</a>', url)
         return "—"
 
 
