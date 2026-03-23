@@ -113,14 +113,15 @@ def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
         if tier.sales_end_at and now > tier.sales_end_at:
             continue
 
-        # 3. Check purchasable_by (who is allowed to purchase)
-        if not _check_purchasable_by(tier, is_member, is_invited, invitation_tier_ids):
-            continue
+        # 3. Check purchasable_by (staff/owners are exempt, consistent with _assert_purchasable_by)
+        if not is_staff_or_owner:
+            if not _check_purchasable_by(tier, is_member, is_invited, invitation_tier_ids):
+                continue
 
-        # 4. Check membership tier restriction
-        required_tier_ids = {mt.id for mt in tier.restricted_to_membership_tiers.all()}
-        if required_tier_ids and not (user_membership_tier_ids & required_tier_ids):
-            continue
+            # 4. Check membership tier restriction
+            required_tier_ids = {mt.id for mt in tier.restricted_to_membership_tiers.all()}
+            if required_tier_ids and not (user_membership_tier_ids & required_tier_ids):
+                continue
 
         eligible.append(tier)
 
@@ -173,11 +174,10 @@ def _check_purchasable_by(
     is_invited: bool,
     invitation_tier_ids: set[UUID],
 ) -> bool:
-    """Check if user is allowed to purchase from this tier based on purchasable_by setting.
+    """Check if a regular user is allowed to purchase from this tier based on purchasable_by setting.
 
-    Note: Staff/owners are NOT exempt from purchasable_by restrictions. This is intentional:
-    while they can SEE all tiers (visibility), they must still meet purchase requirements.
-    A tier restricted to members-only requires staff to also be members to purchase.
+    Note: Staff/owners are exempted by the caller (get_eligible_tiers and _assert_purchasable_by)
+    before this function is reached. This function only evaluates membership/invitation rules.
 
     Args:
         tier: The ticket tier to check.
