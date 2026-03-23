@@ -370,15 +370,15 @@ def create_referral_payouts(state: BootstrapState) -> None:
     )
 
     # --- Generate payout statements (PDF) for each calculated payout ---
-    calculated_payouts = ReferralPayout.objects.filter(status=ReferralPayout.Status.CALCULATED).select_related(
-        "referral__referrer__billing_profile", "referral__referrer"
-    )
+    calculated_payouts = ReferralPayout.objects.filter(
+        status=ReferralPayout.ReferralPayoutStatus.CALCULATED
+    ).select_related("referral__referrer__billing_profile", "referral__referrer")
 
     for payout in calculated_payouts:
         try:
             statement = generate_payout_statement(payout)
             # Mark as paid (no real Stripe transfer in bootstrap)
-            payout.status = ReferralPayout.Status.PAID
+            payout.status = ReferralPayout.ReferralPayoutStatus.PAID
             payout.stripe_transfer_id = f"tr_bootstrap_{payout.id}"
             payout.save(update_fields=["status", "stripe_transfer_id", "updated_at"])
 

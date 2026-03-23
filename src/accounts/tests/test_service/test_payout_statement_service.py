@@ -133,7 +133,7 @@ def payout(referral: Referral) -> ReferralPayout:
         net_platform_fees=Decimal("100.00"),
         payout_amount=Decimal("15.00"),
         currency="EUR",
-        status=ReferralPayout.Status.CALCULATED,
+        status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
     )
 
 
@@ -333,7 +333,7 @@ class TestSequentialNumbering:
             net_platform_fees=Decimal("100.00"),
             payout_amount=Decimal("15.00"),
             currency="EUR",
-            status=ReferralPayout.Status.CALCULATED,
+            status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
         )
         stmt1 = generate_payout_statement(payout_jan)
 
@@ -344,7 +344,7 @@ class TestSequentialNumbering:
             net_platform_fees=Decimal("80.00"),
             payout_amount=Decimal("12.00"),
             currency="EUR",
-            status=ReferralPayout.Status.CALCULATED,
+            status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
         )
         stmt2 = generate_payout_statement(payout_feb)
 

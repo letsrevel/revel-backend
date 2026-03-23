@@ -153,7 +153,7 @@ def test_payout_created(referral: Referral, tier: TicketTier, buyer: RevelUser) 
     assert payout.net_platform_fees == Decimal("30.00")
     # 30.00 * 15% = 4.50
     assert payout.payout_amount == Decimal("4.50")
-    assert payout.status == ReferralPayout.Status.CALCULATED
+    assert payout.status == ReferralPayout.ReferralPayoutStatus.CALCULATED
     assert payout.period_start == PERIOD_START
     assert payout.period_end == PERIOD_END
     assert payout.currency == settings.DEFAULT_CURRENCY
@@ -347,6 +347,133 @@ def test_task_date_arithmetic_january_rollover(mock_now: t.Any) -> None:
             datetime.date(2025, 12, 1),
             datetime.date(2025, 12, 31),
         )
+
+
+# ---------------------------------------------------------------------------
+# Rollover tests
+# ---------------------------------------------------------------------------
+
+
+def test_rollover_accumulates_prior_calculated_payouts(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
+    """Prior CALCULATED payouts are rolled into the new period's payout_amount."""
+    # Create a small payout for January (below €5 threshold)
+    ReferralPayout.objects.create(
+        referral=referral,
+        period_start=datetime.date(2026, 1, 1),
+        period_end=datetime.date(2026, 1, 31),
+        net_platform_fees=Decimal("10.00"),
+        payout_amount=Decimal("1.50"),
+        currency=settings.DEFAULT_CURRENCY,
+        status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
+    )
+
+    # February has revenue
+    _create_payment(
+        tier,
+        buyer,
+        platform_fee=Decimal("24.00"),
+        platform_fee_net=Decimal("20.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
+    )
+
+    result = calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    assert result == {"created": 1, "skipped": 0}
+    feb_payout = ReferralPayout.objects.get(referral=referral, period_start=PERIOD_START)
+    # 20.00 * 15% = 3.00 current + 1.50 rolled over = 4.50
+    assert feb_payout.payout_amount == Decimal("4.50")
+    assert feb_payout.rolled_over_amount == Decimal("1.50")
+    assert feb_payout.net_platform_fees == Decimal("20.00")  # only current period fees
+
+    # Prior payout is now ROLLED_OVER
+    jan_payout = ReferralPayout.objects.get(referral=referral, period_start=datetime.date(2026, 1, 1))
+    assert jan_payout.status == ReferralPayout.ReferralPayoutStatus.ROLLED_OVER
+
+
+def test_rollover_multiple_prior_periods(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
+    """Multiple prior CALCULATED payouts are all rolled into the new one."""
+    for month in (1, 2):
+        start = datetime.date(2025, month, 1)
+        ReferralPayout.objects.create(
+            referral=referral,
+            period_start=start,
+            period_end=datetime.date(2025, month, 28),
+            net_platform_fees=Decimal("10.00"),
+            payout_amount=Decimal("1.50"),
+            currency=settings.DEFAULT_CURRENCY,
+            status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
+        )
+
+    # March 2025 has revenue
+    march_start = datetime.date(2025, 3, 1)
+    march_end = datetime.date(2025, 3, 31)
+    _create_payment(
+        tier,
+        buyer,
+        platform_fee=Decimal("12.00"),
+        platform_fee_net=Decimal("10.00"),
+        created_at=timezone.make_aware(datetime.datetime(2025, 3, 15, 12, 0)),
+    )
+
+    result = calculate_payouts_for_period(march_start, march_end)
+
+    assert result == {"created": 1, "skipped": 0}
+    payout = ReferralPayout.objects.get(referral=referral, period_start=march_start)
+    # 10.00 * 15% = 1.50 current + 1.50 + 1.50 rolled = 4.50
+    assert payout.payout_amount == Decimal("4.50")
+    assert payout.rolled_over_amount == Decimal("3.00")
+
+    # Both prior payouts are ROLLED_OVER
+    assert ReferralPayout.objects.filter(status=ReferralPayout.ReferralPayoutStatus.ROLLED_OVER).count() == 2
+
+
+def test_no_rollover_when_no_prior_calculated(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
+    """When there are no prior CALCULATED payouts, rolled_over_amount is 0."""
+    _create_payment(
+        tier,
+        buyer,
+        platform_fee=Decimal("12.00"),
+        platform_fee_net=Decimal("10.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
+    )
+
+    calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    payout = ReferralPayout.objects.get(referral=referral)
+    assert payout.rolled_over_amount == Decimal("0.00")
+    assert payout.payout_amount == Decimal("1.50")
+
+
+def test_paid_payouts_not_rolled_over(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
+    """Already-paid payouts are not included in rollover."""
+    ReferralPayout.objects.create(
+        referral=referral,
+        period_start=datetime.date(2026, 1, 1),
+        period_end=datetime.date(2026, 1, 31),
+        net_platform_fees=Decimal("100.00"),
+        payout_amount=Decimal("15.00"),
+        currency=settings.DEFAULT_CURRENCY,
+        status=ReferralPayout.ReferralPayoutStatus.PAID,
+        stripe_transfer_id="tr_already_paid",
+    )
+
+    _create_payment(
+        tier,
+        buyer,
+        platform_fee=Decimal("12.00"),
+        platform_fee_net=Decimal("10.00"),
+        created_at=timezone.make_aware(datetime.datetime(2026, 2, 15, 12, 0)),
+    )
+
+    calculate_payouts_for_period(PERIOD_START, PERIOD_END)
+
+    payout = ReferralPayout.objects.get(referral=referral, period_start=PERIOD_START)
+    assert payout.rolled_over_amount == Decimal("0.00")
+    assert payout.payout_amount == Decimal("1.50")
+
+    # Paid payout unchanged
+    jan = ReferralPayout.objects.get(period_start=datetime.date(2026, 1, 1))
+    assert jan.status == ReferralPayout.ReferralPayoutStatus.PAID
 
 
 def test_multi_currency_converted_to_platform_currency(

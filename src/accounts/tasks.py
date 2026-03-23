@@ -694,14 +694,14 @@ def process_referral_payouts() -> dict[str, int]:
     # If a payout has been PENDING for over 1 hour, it was likely abandoned.
     stale_cutoff = timezone.now() - timedelta(hours=1)
     stale_count = ReferralPayout.objects.filter(
-        status=ReferralPayout.Status.PENDING,
+        status=ReferralPayout.ReferralPayoutStatus.PENDING,
         updated_at__lt=stale_cutoff,
-    ).update(status=ReferralPayout.Status.CALCULATED)
+    ).update(status=ReferralPayout.ReferralPayoutStatus.CALCULATED)
     if stale_count:
         logger.warning("stale_pending_payouts_reclaimed", count=stale_count)
 
     payout_ids = list(
-        ReferralPayout.objects.filter(status=ReferralPayout.Status.CALCULATED)
+        ReferralPayout.objects.filter(status=ReferralPayout.ReferralPayoutStatus.CALCULATED)
         .order_by("period_start")
         .values_list("id", flat=True)
     )
@@ -716,13 +716,13 @@ def process_referral_payouts() -> dict[str, int]:
         with transaction.atomic():
             payout = (
                 ReferralPayout.objects.select_for_update(skip_locked=True)
-                .filter(id=payout_id, status=ReferralPayout.Status.CALCULATED)
+                .filter(id=payout_id, status=ReferralPayout.ReferralPayoutStatus.CALCULATED)
                 .first()
             )
             if payout is None:
                 # Already claimed by another worker or status changed
                 continue
-            payout.status = ReferralPayout.Status.PENDING
+            payout.status = ReferralPayout.ReferralPayoutStatus.PENDING
             payout.save(update_fields=["status", "updated_at"])
 
         # Reload with relations outside the lock
@@ -734,14 +734,14 @@ def process_referral_payouts() -> dict[str, int]:
         # --- Pre-flight checks ---
         if not referrer.stripe_account_id or not referrer.stripe_charges_enabled:
             logger.info("payout_skipped_no_stripe", referrer_id=str(referrer.id), payout_id=str(payout.id))
-            payout.status = ReferralPayout.Status.CALCULATED
+            payout.status = ReferralPayout.ReferralPayoutStatus.CALCULATED
             payout.save(update_fields=["status", "updated_at"])
             stats["skipped"] += 1
             continue
 
         if not hasattr(referrer, "billing_profile"):
             logger.info("payout_skipped_no_billing", referrer_id=str(referrer.id), payout_id=str(payout.id))
-            payout.status = ReferralPayout.Status.CALCULATED
+            payout.status = ReferralPayout.ReferralPayoutStatus.CALCULATED
             payout.save(update_fields=["status", "updated_at"])
             stats["skipped"] += 1
             continue
@@ -749,7 +749,7 @@ def process_referral_payouts() -> dict[str, int]:
         profile = referrer.billing_profile
         if not profile.self_billing_agreed:
             logger.info("payout_skipped_no_agreement", referrer_id=str(referrer.id), payout_id=str(payout.id))
-            payout.status = ReferralPayout.Status.CALCULATED
+            payout.status = ReferralPayout.ReferralPayoutStatus.CALCULATED
             payout.save(update_fields=["status", "updated_at"])
             stats["skipped"] += 1
             continue
@@ -762,7 +762,20 @@ def process_referral_payouts() -> dict[str, int]:
                 payout_id=str(payout.id),
                 missing=missing_fields,
             )
-            payout.status = ReferralPayout.Status.CALCULATED
+            payout.status = ReferralPayout.ReferralPayoutStatus.CALCULATED
+            payout.save(update_fields=["status", "updated_at"])
+            stats["skipped"] += 1
+            continue
+
+        if payout.payout_amount < settings.MINIMUM_PAYOUT_AMOUNT:
+            logger.info(
+                "payout_skipped_below_threshold",
+                referrer_id=str(referrer.id),
+                payout_id=str(payout.id),
+                amount=str(payout.payout_amount),
+                threshold=str(settings.MINIMUM_PAYOUT_AMOUNT),
+            )
+            payout.status = ReferralPayout.ReferralPayoutStatus.CALCULATED
             payout.save(update_fields=["status", "updated_at"])
             stats["skipped"] += 1
             continue
@@ -777,7 +790,7 @@ def process_referral_payouts() -> dict[str, int]:
                 idempotency_key=f"referral-payout-{payout.id}",
             )
         except stripe.error.StripeError as exc:
-            payout.status = ReferralPayout.Status.FAILED
+            payout.status = ReferralPayout.ReferralPayoutStatus.FAILED
             payout.save(update_fields=["status", "updated_at"])
             stats["failed"] += 1
 
@@ -789,7 +802,7 @@ def process_referral_payouts() -> dict[str, int]:
             )
             continue  # Process remaining payouts
 
-        payout.status = ReferralPayout.Status.PAID
+        payout.status = ReferralPayout.ReferralPayoutStatus.PAID
         payout.stripe_transfer_id = transfer.id
         payout.save(update_fields=["status", "stripe_transfer_id", "updated_at"])
         stats["paid"] += 1
