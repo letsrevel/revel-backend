@@ -150,13 +150,9 @@ class DiscountCode(TimeStampedModel):
 
         super().clean()
 
-        # Uppercase the code and validate characters (letters and digits only, no spaces/special chars)
+        # Uppercase the code
         if self.code:
             self.code = self.code.upper()
-            if not self.code.isalnum():
-                raise ValidationError(
-                    {"code": "Code must contain only letters and digits (no spaces or special characters)."}
-                )
 
         # Validate date range
         if self.valid_from and self.valid_until and self.valid_from >= self.valid_until:
