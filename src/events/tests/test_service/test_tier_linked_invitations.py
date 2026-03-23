@@ -13,6 +13,7 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth.models import AnonymousUser
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -278,19 +279,18 @@ class TestVisibilityRestriction:
         )
         assert TicketTier.objects.for_visible_event(private_event, AnonymousUser()).count() == 0
 
-    def test_restriction_flag_ignored_for_public_visibility(
+    def test_restriction_flag_rejected_for_public_visibility(
         self,
         public_event: Event,
-        regular_user: RevelUser,
     ) -> None:
-        """The flag is ignored when visibility is PUBLIC -- tier visible regardless."""
-        public_tier = TicketTier.objects.create(
-            event=public_event,
-            name="Public",
-            visibility=VisibilityMixin.Visibility.PUBLIC,
-            restrict_visibility_to_linked_invitations=True,
-        )
-        assert public_tier in TicketTier.objects.for_visible_event(public_event, regular_user)
+        """Validation rejects restrict_visibility_to_linked_invitations on non-PRIVATE tiers."""
+        with pytest.raises(DjangoValidationError):
+            TicketTier.objects.create(
+                event=public_event,
+                name="Public",
+                visibility=VisibilityMixin.Visibility.PUBLIC,
+                restrict_visibility_to_linked_invitations=True,
+            )
 
     def test_for_user_respects_restricted_visibility(
         self,
@@ -427,38 +427,33 @@ class TestPurchaseRestriction:
         assert tier not in get_eligible_tiers(private_event, invited_user)
         assert tier in get_eligible_tiers(private_event, member_user)
 
-    def test_restriction_ignored_for_public_purchasable_by(
+    def test_restriction_rejected_for_public_purchasable_by(
         self,
         public_event: Event,
-        regular_user: RevelUser,
     ) -> None:
-        """The flag is ignored when purchasable_by is PUBLIC."""
-        tier = TicketTier.objects.create(
-            event=public_event,
-            name="Public Purch",
-            visibility=VisibilityMixin.Visibility.PUBLIC,
-            purchasable_by=TicketTier.PurchasableBy.PUBLIC,
-            restrict_purchase_to_linked_invitations=True,
-        )
-        assert tier in get_eligible_tiers(public_event, regular_user)
+        """Validation rejects restrict_purchase_to_linked_invitations on non-INVITED tiers."""
+        with pytest.raises(DjangoValidationError):
+            TicketTier.objects.create(
+                event=public_event,
+                name="Public Purch",
+                visibility=VisibilityMixin.Visibility.PUBLIC,
+                purchasable_by=TicketTier.PurchasableBy.PUBLIC,
+                restrict_purchase_to_linked_invitations=True,
+            )
 
-    def test_restriction_ignored_for_members_purchasable_by(
+    def test_restriction_rejected_for_members_purchasable_by(
         self,
         private_event: Event,
-        member_user: RevelUser,
     ) -> None:
-        """The flag is ignored when purchasable_by is MEMBERS."""
-        tier = TicketTier.objects.create(
-            event=private_event,
-            name="Mem Purch",
-            visibility=VisibilityMixin.Visibility.PRIVATE,
-            purchasable_by=TicketTier.PurchasableBy.MEMBERS,
-            restrict_purchase_to_linked_invitations=True,
-            restrict_visibility_to_linked_invitations=False,
-        )
-        EventInvitation.objects.create(event=private_event, user=member_user)
-
-        assert tier in get_eligible_tiers(private_event, member_user)
+        """Validation rejects restrict_purchase_to_linked_invitations on MEMBERS-only tiers."""
+        with pytest.raises(DjangoValidationError):
+            TicketTier.objects.create(
+                event=private_event,
+                name="Mem Purch",
+                visibility=VisibilityMixin.Visibility.PRIVATE,
+                purchasable_by=TicketTier.PurchasableBy.MEMBERS,
+                restrict_purchase_to_linked_invitations=True,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -551,25 +546,23 @@ class TestTokenClaimTierLinks:
         )
         assert tier.id in set(token.ticket_tiers.values_list("id", flat=True))
 
-    def test_create_event_token_ignores_other_event_tiers(
+    def test_create_event_token_rejects_other_event_tiers(
         self,
         private_event: Event,
         public_event: Event,
         owner: RevelUser,
     ) -> None:
-        """create_event_token only links tiers belonging to the same event."""
+        """create_event_token raises DoesNotExist for tiers not belonging to the event."""
         own = TicketTier.objects.create(event=private_event, name="Own")
         other = TicketTier.objects.create(event=public_event, name="Other")
-        token = create_event_token(
-            event=private_event,
-            issuer=owner,
-            duration=60,
-            grants_invitation=True,
-            ticket_tier_ids=[own.id, other.id],
-        )
-        linked = set(token.ticket_tiers.values_list("id", flat=True))
-        assert own.id in linked
-        assert other.id not in linked
+        with pytest.raises(TicketTier.DoesNotExist):
+            create_event_token(
+                event=private_event,
+                issuer=owner,
+                duration=60,
+                grants_invitation=True,
+                ticket_tier_ids=[own.id, other.id],
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -786,12 +779,11 @@ class TestCheckTierVisibilityHelper:
         assert _check_tier_visibility(tier, True, False, False, set())
 
     def test_public_tier_always_visible(self, public_event: Event) -> None:
-        """PUBLIC visibility is always visible."""
+        """PUBLIC visibility is always visible (restriction flag not set)."""
         tier = TicketTier.objects.create(
             event=public_event,
             name="T",
             visibility=VisibilityMixin.Visibility.PUBLIC,
-            restrict_visibility_to_linked_invitations=True,
         )
         assert _check_tier_visibility(tier, False, False, False, set())
 
@@ -886,13 +878,12 @@ class TestCheckPurchasableByHelper:
         assert not _check_purchasable_by(tier, False, True, set())
         assert _check_purchasable_by(tier, False, True, {tier.id})
 
-    def test_members_ignores_restriction_flag(self, private_event: Event) -> None:
-        """MEMBERS purchasable_by ignores restrict_purchase flag."""
+    def test_members_without_restriction_flag(self, private_event: Event) -> None:
+        """MEMBERS purchasable_by: member passes, non-member fails."""
         tier = TicketTier.objects.create(
             event=private_event,
             name="T",
             purchasable_by=TicketTier.PurchasableBy.MEMBERS,
-            restrict_purchase_to_linked_invitations=True,
         )
         assert _check_purchasable_by(tier, True, False, set())
         assert not _check_purchasable_by(tier, False, True, {tier.id})
