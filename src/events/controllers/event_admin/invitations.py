@@ -68,7 +68,7 @@ class EventAdminInvitationsController(EventAdminBaseController):
     ) -> QuerySet[models.PendingEventInvitation]:
         """List all pending invitations for unregistered users."""
         event = self.get_one(event_id)
-        return models.PendingEventInvitation.objects.filter(event=event).distinct()
+        return models.PendingEventInvitation.objects.prefetch_related("tiers").filter(event=event).distinct()
 
     @route.delete(
         "/invitations/{invitation_type}/{invitation_id}",

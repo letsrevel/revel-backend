@@ -2,7 +2,6 @@ import typing as t
 from uuid import UUID
 
 from django.db import transaction
-from django.shortcuts import get_object_or_404
 
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, PendingEventInvitation, TicketTier
@@ -22,12 +21,16 @@ def create_direct_invitations(
 
     Returns a summary of created invitations.
     """
-    # Validate tier if provided
-    tier = None
-    if invitation_data.tier_id:
-        tier = get_object_or_404(TicketTier, pk=invitation_data.tier_id, event=event)
+    # Validate tiers if provided
+    tiers: list[TicketTier] = []
+    if invitation_data.tier_ids:
+        tiers = list(TicketTier.objects.filter(pk__in=invitation_data.tier_ids, event=event))
+        if len(tiers) != len(invitation_data.tier_ids):
+            found_ids = {t.pk for t in tiers}
+            missing = [str(tid) for tid in invitation_data.tier_ids if tid not in found_ids]
+            raise TicketTier.DoesNotExist(f"Ticket tiers not found: {', '.join(missing)}")
 
-    invitation_fields = _get_invitation_fields(invitation_data, tier)
+    invitation_fields = _get_invitation_fields(invitation_data)
     created_invitations = 0
     pending_invitations = 0
 
@@ -37,11 +40,11 @@ def create_direct_invitations(
         if user := RevelUser.objects.filter(email=email).first():
             # User exists - create EventInvitation
             fields = _with_default_message(invitation_fields, user.get_display_name(), event)
-            if _create_or_update_event_invitation(event, user, fields):
+            if _create_or_update_event_invitation(event, user, fields, tiers):
                 created_invitations += 1
         else:
             fields = _with_default_message(invitation_fields, email, event)
-            if _create_or_update_pending_invitation(event, email, fields):
+            if _create_or_update_pending_invitation(event, email, fields, tiers):
                 pending_invitations += 1
 
     # Note: Notifications are sent automatically via Django signals
@@ -61,7 +64,7 @@ def _with_default_message(invitation_fields: dict[str, t.Any], display_name: str
     return {**invitation_fields, "custom_message": get_invitation_message(display_name, event)}
 
 
-def _get_invitation_fields(invitation_data: DirectInvitationCreateSchema, tier: TicketTier | None) -> dict[str, t.Any]:
+def _get_invitation_fields(invitation_data: DirectInvitationCreateSchema) -> dict[str, t.Any]:
     """Extract invitation fields from schema."""
     return {
         "waives_questionnaire": invitation_data.waives_questionnaire,
@@ -71,27 +74,34 @@ def _get_invitation_fields(invitation_data: DirectInvitationCreateSchema, tier: 
         "waives_rsvp_deadline": invitation_data.waives_rsvp_deadline,
         "waives_apply_deadline": invitation_data.waives_apply_deadline,
         "custom_message": invitation_data.custom_message,
-        "tier": tier,
     }
 
 
-def _create_or_update_event_invitation(event: Event, user: RevelUser, invitation_fields: dict[str, t.Any]) -> bool:
+def _create_or_update_event_invitation(
+    event: Event, user: RevelUser, invitation_fields: dict[str, t.Any], tiers: list[TicketTier]
+) -> bool:
     """Create or update an EventInvitation for an existing user. Returns True if created/updated."""
-    EventInvitation.objects.update_or_create(
+    invitation, _ = EventInvitation.objects.update_or_create(
         event=event,
         user=user,
         defaults=invitation_fields,
     )
+    if tiers:
+        invitation.tiers.set(tiers)
     return True
 
 
-def _create_or_update_pending_invitation(event: Event, email: str, invitation_fields: dict[str, t.Any]) -> bool:
+def _create_or_update_pending_invitation(
+    event: Event, email: str, invitation_fields: dict[str, t.Any], tiers: list[TicketTier]
+) -> bool:
     """Create or update a PendingEventInvitation for a non-existing user. Returns True if created/updated."""
-    PendingEventInvitation.objects.update_or_create(
+    invitation, _ = PendingEventInvitation.objects.update_or_create(
         event=event,
         email=email,
         defaults=invitation_fields,
     )
+    if tiers:
+        invitation.tiers.set(tiers)
     return True
 
 

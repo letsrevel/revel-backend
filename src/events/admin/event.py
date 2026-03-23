@@ -100,14 +100,16 @@ class EventSeriesAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
 
 @admin.register(models.EventInvitation)
 class EventInvitationAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
-    list_display = ["__str__", "user_link", "event_link", "tier_name", "waives_questionnaire", "waives_purchase"]
-    list_filter = ["event__name", "tier__name"]
+    list_display = ["__str__", "user_link", "event_link", "tier_names", "waives_questionnaire", "waives_purchase"]
+    list_filter = ["event__name"]
     search_fields = ["user__username", "event__name"]
-    autocomplete_fields = ["user", "event", "tier"]
+    autocomplete_fields = ["user", "event"]
+    filter_horizontal = ["tiers"]
 
-    @admin.display(description="Tier")
-    def tier_name(self, obj: models.EventInvitation) -> str | None:
-        return obj.tier.name if obj.tier else "—"
+    @admin.display(description="Tiers")
+    def tier_names(self, obj: models.EventInvitation) -> str:
+        names = [t.name for t in obj.tiers.all()]
+        return ", ".join(names) if names else "—"
 
 
 @admin.register(models.EventRSVP)
@@ -122,16 +124,18 @@ class EventRSVPAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore
 class PendingEventInvitationAdmin(ModelAdmin, EventLinkMixin):  # type: ignore[misc]
     """Admin for PendingEventInvitation model."""
 
-    list_display = ["email", "event_link", "tier_name", "waives_questionnaire", "waives_purchase", "created_at"]
-    list_filter = ["event__organization", "tier__name", "waives_questionnaire", "waives_purchase", "created_at"]
-    search_fields = ["email", "event__name", "tier__name"]
-    autocomplete_fields = ["event", "tier"]
+    list_display = ["email", "event_link", "tier_names", "waives_questionnaire", "waives_purchase", "created_at"]
+    list_filter = ["event__organization", "waives_questionnaire", "waives_purchase", "created_at"]
+    search_fields = ["email", "event__name"]
+    autocomplete_fields = ["event"]
+    filter_horizontal = ["tiers"]
     readonly_fields = ["created_at", "updated_at"]
     date_hierarchy = "created_at"
 
-    @admin.display(description="Tier")
-    def tier_name(self, obj: models.PendingEventInvitation) -> str | None:
-        return obj.tier.name if obj.tier else "—"
+    @admin.display(description="Tiers")
+    def tier_names(self, obj: models.PendingEventInvitation) -> str:
+        names = [t.name for t in obj.tiers.all()]
+        return ", ".join(names) if names else "—"
 
 
 @admin.register(models.EventToken)
@@ -141,7 +145,8 @@ class EventTokenAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignor
     list_display = ["__str__", "name", "event_link", "issuer_link", "uses_display", "expires_at", "created_at"]
     list_filter = ["event__organization", "expires_at", "created_at"]
     search_fields = ["name", "event__name", "issuer__username"]
-    autocomplete_fields = ["event", "issuer", "ticket_tier"]
+    autocomplete_fields = ["event", "issuer"]
+    filter_horizontal = ["ticket_tiers"]
     readonly_fields = ["id", "created_at", "updated_at"]
     date_hierarchy = "created_at"
 

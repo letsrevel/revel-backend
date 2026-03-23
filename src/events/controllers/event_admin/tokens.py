@@ -11,7 +11,7 @@ from common.authentication import I18nJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
-from events.service import event_service, update_db_instance
+from events.service import event_service
 
 from .base import EventAdminBaseController
 
@@ -67,10 +67,21 @@ class EventAdminTokensController(EventAdminBaseController):
         4. Warn when reducing max_uses below current usage
         """
         event = self.get_one(event_id)
-        if payload.ticket_tier_id:
-            get_object_or_404(models.TicketTier, pk=payload.ticket_tier_id, event=event)
+        for tier_id in payload.ticket_tier_ids:
+            get_object_or_404(models.TicketTier, pk=tier_id, event=event)
         token = get_object_or_404(models.EventToken, pk=token_id, event=event)
-        return update_db_instance(token, payload)
+        payload_dict = payload.model_dump(exclude_unset=True)
+        tier_ids = payload_dict.pop("ticket_tier_ids", None)
+        # Update scalar fields
+        for key, value in payload_dict.items():
+            setattr(token, key, value)
+        token.save()
+        # Update M2M tiers if provided
+        if tier_ids is not None:
+            tiers = models.TicketTier.objects.filter(pk__in=tier_ids, event=event)
+            token.ticket_tiers.set(tiers)
+        # Refetch with prefetch for serialization
+        return models.EventToken.objects.prefetch_related("ticket_tiers").get(pk=token.pk)
 
     @route.delete(
         "/tokens/{token_id}",
@@ -178,7 +189,8 @@ class EventAdminTokensController(EventAdminBaseController):
         - Audit who created which tokens and when
         """
         self.get_one(event_id)
-        return params.filter(models.EventToken.objects.filter(event_id=event_id)).distinct()
+        qs = models.EventToken.objects.filter(event_id=event_id).prefetch_related("ticket_tiers")
+        return params.filter(qs).distinct()
 
     @route.post(
         "/tokens",
@@ -250,6 +262,6 @@ class EventAdminTokensController(EventAdminBaseController):
         - 403: User lacks "invite_to_event" permission
         """
         event = self.get_one(event_id)
-        if payload.ticket_tier_id:
-            get_object_or_404(models.TicketTier, pk=payload.ticket_tier_id, event=event)
+        for tier_id in payload.ticket_tier_ids:
+            get_object_or_404(models.TicketTier, pk=tier_id, event=event)
         return event_service.create_event_token(event=event, issuer=self.user(), **payload.model_dump())

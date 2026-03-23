@@ -75,7 +75,7 @@ def handle_user_creation(sender: type[RevelUser], instance: RevelUser, created: 
         logger.info("blacklist_entries_linked", user_id=str(instance.id), count=linked_count)
 
     # Convert any pending invitations for this email to real invitations
-    pending_invitations = PendingEventInvitation.objects.filter(email__iexact=instance.email)
+    pending_invitations = PendingEventInvitation.objects.prefetch_related("tiers").filter(email__iexact=instance.email)
 
     if pending_invitations.exists():
         logger.info(
@@ -93,7 +93,7 @@ def handle_user_creation(sender: type[RevelUser], instance: RevelUser, created: 
                     custom_message = get_invitation_message(instance.get_display_name(), pending.event)
 
                 # Create EventInvitation from PendingEventInvitation
-                EventInvitation.objects.create(
+                invitation = EventInvitation.objects.create(
                     event=pending.event,
                     user=instance,
                     waives_questionnaire=pending.waives_questionnaire,
@@ -103,8 +103,11 @@ def handle_user_creation(sender: type[RevelUser], instance: RevelUser, created: 
                     waives_rsvp_deadline=pending.waives_rsvp_deadline,
                     waives_apply_deadline=pending.waives_apply_deadline,
                     custom_message=custom_message,
-                    tier=pending.tier,
                 )
+                # Copy tier links from pending invitation
+                pending_tiers = pending.tiers.all()
+                if pending_tiers:
+                    invitation.tiers.set(pending_tiers)
             pending_invitations.delete()
 
 

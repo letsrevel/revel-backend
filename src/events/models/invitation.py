@@ -14,7 +14,7 @@ from .mixins import TokenMixin, UserRequestMixin
 class EventInvitationQueryset(models.QuerySet["EventInvitation"]):
     def with_related(self) -> t.Self:
         """Prefetch related objects for invitations."""
-        return self.select_related("event", "user", "tier")
+        return self.select_related("event", "user").prefetch_related("tiers")
 
     def with_event_details(self) -> t.Self:
         """Prefetch event with its nested relations for list views."""
@@ -24,13 +24,13 @@ class EventInvitationQueryset(models.QuerySet["EventInvitation"]):
             "event__event_series",
             "event__city",
             "user",
-            "tier",
         ).prefetch_related(
+            "tiers",
             Prefetch(
                 "event__tags",
                 queryset=TagAssignment.objects.select_related("tag"),
                 to_attr="prefetched_tagassignments",
-            )
+            ),
         )
 
     def for_user(self, user: RevelUser) -> t.Self:
@@ -70,7 +70,6 @@ class AbstractEventInvitation(TimeStampedModel):
         default=False, help_text="Waives application deadline check for this user"
     )
     custom_message = models.TextField(null=True, blank=True)
-    tier = models.ForeignKey("events.TicketTier", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
         abstract = True
@@ -81,6 +80,12 @@ class EventInvitation(AbstractEventInvitation):
 
     event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="invitations")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="invitations")
+    tiers = models.ManyToManyField(
+        "events.TicketTier",
+        blank=True,
+        related_name="event_invitations",
+        help_text="Ticket tiers this invitation grants access to (for tier-linked restrictions).",
+    )
 
     objects = EventInvitationManager()
 
@@ -102,6 +107,12 @@ class PendingEventInvitation(AbstractEventInvitation):
 
     event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="pending_invitations")
     email = models.EmailField(db_index=True, help_text="Email of the user to be invited")
+    tiers = models.ManyToManyField(
+        "events.TicketTier",
+        blank=True,
+        related_name="pending_event_invitations",
+        help_text="Ticket tiers this invitation grants access to (for tier-linked restrictions).",
+    )
 
     class Meta:
         constraints = [
@@ -119,7 +130,12 @@ class PendingEventInvitation(AbstractEventInvitation):
 class EventToken(TokenMixin):
     event = models.ForeignKey("events.Event", on_delete=models.CASCADE, related_name="tokens")
     grants_invitation = models.BooleanField(default=True)
-    ticket_tier = models.ForeignKey("events.TicketTier", on_delete=models.CASCADE, null=True, blank=True)
+    ticket_tiers = models.ManyToManyField(
+        "events.TicketTier",
+        blank=True,
+        related_name="event_tokens",
+        help_text="Ticket tiers to assign when users claim this token.",
+    )
     invitation_payload = models.JSONField(
         null=True, blank=True, help_text="If provided, the token will we viable to claim invitations."
     )

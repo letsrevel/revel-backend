@@ -189,13 +189,14 @@ def ticket(event: Event, member_user: RevelUser, event_ticket_tier: TicketTier) 
 @pytest.fixture
 def invitation(public_user: RevelUser, private_event: Event, vip_tier: TicketTier) -> EventInvitation:
     """An invitation for the public_user to the private_event for the VIP tier."""
-    return EventInvitation.objects.create(
+    invitation = EventInvitation.objects.create(
         user=public_user,
         event=private_event,
-        tier=vip_tier,
         overrides_max_attendees=False,
         waives_questionnaire=False,
     )
+    invitation.tiers.add(vip_tier)
+    return invitation
 
 
 # --- Request Fixtures ---

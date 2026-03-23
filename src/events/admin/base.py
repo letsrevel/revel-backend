@@ -168,7 +168,7 @@ class TicketTierInline(TabularInline):  # type: ignore[misc]
 class EventInvitationInline(TabularInline):  # type: ignore[misc]
     model = models.EventInvitation
     extra = 1
-    autocomplete_fields = ["user", "tier"]
+    autocomplete_fields = ["user"]
 
 
 class EventRSVPInline(TabularInline):  # type: ignore[misc]

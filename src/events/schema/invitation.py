@@ -25,7 +25,7 @@ class InvitationBaseSchema(Schema):
 
 class InvitationSchema(InvitationBaseSchema):
     event: EventInListSchema
-    tier: TicketTierSchema | None = None
+    tiers: list[TicketTierSchema] = Field(default_factory=list)
     user_id: UUID
 
 
@@ -36,7 +36,7 @@ class DirectInvitationCreateSchema(InvitationBaseSchema):
     """
 
     emails: list[EmailStr] = Field(..., min_length=1, description="List of email addresses to invite")
-    tier_id: UUID | None = Field(None, description="Ticket tier to assign to invitations")
+    tier_ids: list[UUID] = Field(default_factory=list, description="Ticket tiers to assign to invitations")
 
 
 class DirectInvitationResponseSchema(Schema):
@@ -52,7 +52,7 @@ class EventInvitationListSchema(Schema):
 
     id: UUID
     user: MinimalRevelUserSchema
-    tier: TicketTierSchema | None = None
+    tiers: list[TicketTierSchema] = Field(default_factory=list)
     waives_questionnaire: bool
     waives_purchase: bool
     overrides_max_attendees: bool
@@ -68,7 +68,7 @@ class MyEventInvitationSchema(Schema):
 
     id: UUID
     event: EventInListSchema
-    tier: TicketTierSchema | None = None
+    tiers: list[TicketTierSchema] = Field(default_factory=list)
     waives_questionnaire: bool
     waives_purchase: bool
     overrides_max_attendees: bool
@@ -84,7 +84,7 @@ class PendingEventInvitationListSchema(Schema):
 
     id: UUID
     email: str
-    tier: TicketTierSchema | None = None
+    tiers: list[TicketTierSchema] = Field(default_factory=list)
     waives_questionnaire: bool
     waives_purchase: bool
     overrides_max_attendees: bool
@@ -102,7 +102,7 @@ class CombinedInvitationListSchema(Schema):
     type: str = Field(..., description="'registered' for EventInvitation, 'pending' for PendingEventInvitation")
     user: MinimalRevelUserSchema | None = Field(None, description="User for registered invitations")
     email: str | None = Field(None, description="Email for pending invitations")
-    tier: TicketTierSchema | None = None
+    tiers: list[TicketTierSchema] = Field(default_factory=list)
     waives_questionnaire: bool
     waives_purchase: bool
     overrides_max_attendees: bool
@@ -136,6 +136,8 @@ class EventInvitationRequestInternalSchema(EventInvitationRequestSchema):
 
 
 class EventTokenSchema(ModelSchema):
+    ticket_tiers: list[TicketTierSchema] = Field(default_factory=list)
+
     class Meta:
         model = models.EventToken
         fields = [
@@ -147,7 +149,6 @@ class EventTokenSchema(ModelSchema):
             "uses",
             "max_uses",
             "grants_invitation",
-            "ticket_tier",
             "invitation_payload",
             "created_at",
         ]
@@ -158,7 +159,7 @@ class EventTokenBaseSchema(Schema):
     max_uses: int = 1
     grants_invitation: bool = False
     invitation_payload: InvitationBaseSchema | None = None
-    ticket_tier_id: UUID | None = None
+    ticket_tier_ids: list[UUID] = Field(default_factory=list, description="Ticket tiers to assign when claiming")
 
 
 class EventTokenCreateSchema(EventTokenBaseSchema):

@@ -9,7 +9,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, EventInvitation, EventToken
+from events.models import Event, EventInvitation, EventToken, TicketTier
 from events.utils import get_invitation_message
 
 
@@ -19,7 +19,7 @@ def create_event_token(
     issuer: RevelUser,
     duration: timedelta | int = 60,
     invitation_payload: dict[str, t.Any] | None = None,
-    ticket_tier_id: UUID | None = None,
+    ticket_tier_ids: list[UUID] | None = None,
     name: str | None = None,
     grants_invitation: bool = False,
     max_uses: int = 0,
@@ -31,7 +31,7 @@ def create_event_token(
         issuer: The user creating the token.
         duration: Token validity duration (timedelta or minutes as int).
         invitation_payload: Additional data to include in invitations claimed with this token.
-        ticket_tier_id: Optional ticket tier to associate with invitations.
+        ticket_tier_ids: Optional ticket tier IDs to associate with invitations.
         name: Optional name/label for the token.
         grants_invitation: Whether claiming this token grants an invitation.
         max_uses: Maximum number of times this token can be used (0 = unlimited).
@@ -40,16 +40,20 @@ def create_event_token(
         The created EventToken.
     """
     duration = timedelta(minutes=duration) if isinstance(duration, int) else duration
-    return EventToken.objects.create(
+    token = EventToken.objects.create(
         name=name,
         issuer=issuer,
         event=event,
         expires_at=timezone.now() + duration,
         max_uses=max_uses,
-        ticket_tier_id=ticket_tier_id,
         grants_invitation=grants_invitation,
         invitation_payload=invitation_payload,
     )
+    if ticket_tier_ids:
+        tiers = TicketTier.objects.filter(pk__in=ticket_tier_ids, event=event)
+        token.ticket_tiers.set(tiers)
+    # Refetch with prefetch to ensure M2M is loaded for serialization
+    return EventToken.objects.select_related("event").prefetch_related("ticket_tiers").get(pk=token.pk)
 
 
 class TokenRejection(t.NamedTuple):
@@ -73,6 +77,7 @@ def get_event_token(token: str) -> EventToken | None:
     """
     return (
         EventToken.objects.select_related("event")
+        .prefetch_related("ticket_tiers")
         .filter(
             Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
             Q(max_uses=0) | Q(uses__lt=F("max_uses")),
@@ -118,6 +123,7 @@ def claim_invitation(user: RevelUser, token: str) -> EventInvitation | None:
     event_token = (
         EventToken.objects.select_for_update()
         .select_related("event")
+        .prefetch_related("ticket_tiers")
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()), pk=token)
         .first()
     )
@@ -130,7 +136,6 @@ def claim_invitation(user: RevelUser, token: str) -> EventInvitation | None:
     # Warning: do not save the event_token object directly here.
     # Use update() after get_or_create to avoid race conditions.
     defaults = {
-        "tier_id": event_token.ticket_tier_id,
         **(event_token.invitation_payload or {}),
     }
     if not defaults.get("custom_message"):
@@ -142,4 +147,8 @@ def claim_invitation(user: RevelUser, token: str) -> EventInvitation | None:
     )
     if created:
         EventToken.objects.filter(pk=event_token.pk).update(uses=F("uses") + 1)
+        # Copy tier links from token to invitation
+        token_tiers = event_token.ticket_tiers.all()
+        if token_tiers:
+            invitation.tiers.set(token_tiers)
     return invitation

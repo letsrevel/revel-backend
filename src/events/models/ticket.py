@@ -80,12 +80,24 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         )
 
         invited_event_ids = EventInvitation.objects.filter(user=user).values_list("event_id", flat=True)
-        is_private_tier = Q(visibility=TicketTier.Visibility.PRIVATE, event_id__in=invited_event_ids)
+        # Unrestricted private tiers: any invitation to the event grants visibility
+        unrestricted_private = Q(
+            visibility=TicketTier.Visibility.PRIVATE,
+            restrict_visibility_to_linked_invitations=False,
+            event_id__in=invited_event_ids,
+        )
+        # Restricted private tiers: user's invitation must link to THIS tier
+        restricted_private = Q(
+            visibility=TicketTier.Visibility.PRIVATE,
+            restrict_visibility_to_linked_invitations=True,
+            event_invitations__user=user,
+        )
+        is_private_tier = unrestricted_private | restricted_private
 
         # A regular user can see a tier if it's on a visible event AND...
         # ...it's a public tier, OR
         # ...it's a member tier and they are a valid member, OR
-        # ...it's a private tier and they are invited.
+        # ...it's a private tier and they are invited (with tier-link check if restricted).
         tier_visibility_q = is_public_tier | is_member_tier | is_private_tier
 
         # Staff/owners of other orgs might also see some of these events if public,
@@ -133,9 +145,28 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         is_member = OrganizationMember.objects.for_visibility().filter(user=user, organization=org).exists()
         is_member_tier = Q(visibility=TicketTier.Visibility.MEMBERS_ONLY) if is_member else Q(pk__isnull=True)
 
-        # Private tiers: check if user is invited to this event
-        is_invited = EventInvitation.objects.filter(user=user, event=event).exists()
-        is_private_tier = Q(visibility=TicketTier.Visibility.PRIVATE) if is_invited else Q(pk__isnull=True)
+        # Private tiers: check invitation and tier-link restriction
+        invitation = EventInvitation.objects.filter(user=user, event=event).first()
+        if invitation:
+            linked_tier_ids = set(invitation.tiers.values_list("id", flat=True))
+            # Unrestricted private tiers: any invitation grants visibility
+            unrestricted_private = Q(
+                visibility=TicketTier.Visibility.PRIVATE,
+                restrict_visibility_to_linked_invitations=False,
+            )
+            # Restricted private tiers: invitation must link to this tier
+            restricted_private = (
+                Q(
+                    visibility=TicketTier.Visibility.PRIVATE,
+                    restrict_visibility_to_linked_invitations=True,
+                    pk__in=linked_tier_ids,
+                )
+                if linked_tier_ids
+                else Q(pk__isnull=True)
+            )
+            is_private_tier = unrestricted_private | restricted_private
+        else:
+            is_private_tier = Q(pk__isnull=True)  # No invitation = no private tiers
 
         return qs.filter(is_public_tier | is_member_tier | is_private_tier)
 
@@ -291,6 +322,18 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     )
 
     display_order = models.PositiveIntegerField(default=0, db_index=True)
+
+    restrict_visibility_to_linked_invitations = models.BooleanField(
+        default=False,
+        help_text="When True and visibility=PRIVATE, only users whose invitation links to this tier can see it.",
+    )
+    restrict_purchase_to_linked_invitations = models.BooleanField(
+        default=False,
+        help_text=(
+            "When True and purchasable_by includes INVITED, "
+            "only users whose invitation links to this tier can purchase."
+        ),
+    )
 
     objects = TicketTierManager()
 

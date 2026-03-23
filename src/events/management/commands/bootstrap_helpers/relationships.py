@@ -34,33 +34,33 @@ def _create_invitations(state: BootstrapState, now: "datetime.datetime") -> None
     """Create event invitations."""
     wine_tier = events_models.TicketTier.objects.get(event=state.events["wine_tasting"], name="Exclusive Seating")
 
-    events_models.EventInvitation.objects.create(
+    inv1 = events_models.EventInvitation.objects.create(
         event=state.events["wine_tasting"],
         user=state.users["multi_org_user"],
         waives_questionnaire=True,
         waives_purchase=False,
-        tier=wine_tier,
         custom_message="You're invited to our exclusive wine tasting dinner!",
     )
+    inv1.tiers.add(wine_tier)
 
-    events_models.EventInvitation.objects.create(
+    inv2 = events_models.EventInvitation.objects.create(
         event=state.events["wine_tasting"],
         user=state.users["attendee_1"],
         waives_questionnaire=True,
         waives_purchase=True,  # Complimentary
-        tier=wine_tier,
         custom_message="As a valued member, please join us as our guest!",
     )
+    inv2.tiers.add(wine_tier)
 
     # Pending invitation (email not yet registered)
-    events_models.PendingEventInvitation.objects.create(
+    pending_inv = events_models.PendingEventInvitation.objects.create(
         event=state.events["wine_tasting"],
         email="vip.guest@example.com",
         waives_questionnaire=True,
         waives_purchase=False,
-        tier=wine_tier,
         custom_message="We'd love for you to join our exclusive wine tasting event!",
     )
+    pending_inv.tiers.add(wine_tier)
 
 
 def _create_tickets(state: BootstrapState, now: "datetime.datetime") -> None:

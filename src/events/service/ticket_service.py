@@ -93,16 +93,17 @@ def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
     is_member = user_membership is not None
     user_membership_tier_ids = {user_membership.tier_id} if user_membership and user_membership.tier_id else set()
 
-    # Check if user is invited to this event
-    invitation = EventInvitation.objects.filter(event=event, user=user).first()
+    # Check if user is invited to this event and get linked tier IDs
+    invitation = EventInvitation.objects.prefetch_related("tiers").filter(event=event, user=user).first()
     is_invited = invitation is not None
+    invitation_tier_ids = set(invitation.tiers.values_list("id", flat=True)) if invitation else set()
 
     eligible: list[TicketTier] = []
 
     # Prefetch restricted_to_membership_tiers to avoid N+1 queries
     for tier in event.ticket_tiers.prefetch_related("restricted_to_membership_tiers").all():
         # 1. Check visibility
-        if not _check_tier_visibility(tier, is_staff_or_owner, is_member, is_invited):
+        if not _check_tier_visibility(tier, is_staff_or_owner, is_member, is_invited, invitation_tier_ids):
             continue
 
         # 2. Check sales window
@@ -112,7 +113,7 @@ def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
             continue
 
         # 3. Check purchasable_by (who is allowed to purchase)
-        if not _check_purchasable_by(tier, is_member, is_invited):
+        if not _check_purchasable_by(tier, is_member, is_invited, invitation_tier_ids):
             continue
 
         # 4. Check membership tier restriction
@@ -130,6 +131,7 @@ def _check_tier_visibility(
     is_staff_or_owner: bool,
     is_member: bool,
     is_invited: bool,
+    invitation_tier_ids: set[UUID],
 ) -> bool:
     """Check if user can see the tier based on visibility settings.
 
@@ -138,6 +140,7 @@ def _check_tier_visibility(
         is_staff_or_owner: Whether user is org staff or owner.
         is_member: Whether user is an active org member.
         is_invited: Whether user has an invitation to the event.
+        invitation_tier_ids: Set of tier IDs linked to user's invitation.
 
     Returns:
         True if user can see the tier.
@@ -155,6 +158,8 @@ def _check_tier_visibility(
         return is_member
 
     if visibility == VisibilityMixin.Visibility.PRIVATE:
+        if tier.restrict_visibility_to_linked_invitations:
+            return tier.id in invitation_tier_ids
         return is_invited
 
     # STAFF_ONLY - only staff/owner (already checked above)
@@ -165,6 +170,7 @@ def _check_purchasable_by(
     tier: TicketTier,
     is_member: bool,
     is_invited: bool,
+    invitation_tier_ids: set[UUID],
 ) -> bool:
     """Check if user is allowed to purchase from this tier based on purchasable_by setting.
 
@@ -176,6 +182,7 @@ def _check_purchasable_by(
         tier: The ticket tier to check.
         is_member: Whether user is an active org member.
         is_invited: Whether user has an invitation to the event.
+        invitation_tier_ids: Set of tier IDs linked to user's invitation.
 
     Returns:
         True if user can purchase from this tier.
@@ -189,10 +196,15 @@ def _check_purchasable_by(
         return is_member
 
     if purchasable_by == TicketTier.PurchasableBy.INVITED:
+        if tier.restrict_purchase_to_linked_invitations:
+            return tier.id in invitation_tier_ids
         return is_invited
 
     if purchasable_by == TicketTier.PurchasableBy.INVITED_AND_MEMBERS:
-        return is_member or is_invited
+        invited_ok = is_invited
+        if tier.restrict_purchase_to_linked_invitations:
+            invited_ok = tier.id in invitation_tier_ids
+        return is_member or invited_ok
 
     return False
 
