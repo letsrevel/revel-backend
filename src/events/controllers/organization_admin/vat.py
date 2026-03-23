@@ -114,14 +114,14 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         response=schema.InvoiceDownloadURLSchema,
         permissions=[IsOrganizationOwner()],
     )
-    def download_invoice(self, slug: str, invoice_id: UUID) -> dict[str, str]:
+    def download_invoice(self, slug: str, invoice_id: UUID) -> schema.InvoiceDownloadURLSchema:
         """Get a signed download URL for an invoice PDF."""
         organization = self.get_one(slug)
         invoice = get_object_or_404(models.PlatformFeeInvoice, id=invoice_id, organization=organization)
         url = get_file_url(invoice.pdf_file)
         if not url:
             raise HttpError(404, str(_("Invoice PDF not yet generated.")))
-        return {"download_url": url}
+        return schema.InvoiceDownloadURLSchema(download_url=url)
 
     # ---- Credit Notes ----
 
