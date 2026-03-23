@@ -61,7 +61,7 @@ def approve_invitation_request(
     invitation_request.decided_by = decided_by
     invitation_request.save(update_fields=["status", "decided_by"])
     invitation, _ = EventInvitation.objects.get_or_create(event=invitation_request.event, user=invitation_request.user)
-    if tiers:
+    if tiers is not None:
         invitation.tiers.set(tiers)
     return invitation_request
 

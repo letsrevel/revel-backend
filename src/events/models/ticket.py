@@ -7,7 +7,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db.models import Prefetch, Q
+from django.db.models import F, Prefetch, Q
 from django.utils import timezone
 from django.utils.functional import cached_property
 
@@ -86,11 +86,12 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
             restrict_visibility_to_linked_invitations=False,
             event_id__in=invited_event_ids,
         )
-        # Restricted private tiers: user's invitation must link to THIS tier
+        # Restricted private tiers: user's invitation must link to THIS tier AND be for the same event
         restricted_private = Q(
             visibility=TicketTier.Visibility.PRIVATE,
             restrict_visibility_to_linked_invitations=True,
             event_invitations__user=user,
+            event_invitations__event_id=F("event_id"),
         )
         is_private_tier = unrestricted_private | restricted_private
 
@@ -405,13 +406,37 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         if self.seat_assignment_mode != self.SeatAssignmentMode.NONE and not self.sector_id:
             raise DjangoValidationError({"sector": "A sector is required when seat assignment mode is not 'none'."})
 
+    def _validate_invitation_restrictions(self) -> None:
+        """Validate that invitation restriction flags match visibility/purchasable_by settings."""
+        if self.restrict_visibility_to_linked_invitations and self.visibility != self.Visibility.PRIVATE:
+            raise DjangoValidationError(
+                {
+                    "restrict_visibility_to_linked_invitations": (
+                        "This option is only valid when visibility is set to 'Private'."
+                    )
+                }
+            )
+        if self.restrict_purchase_to_linked_invitations and self.purchasable_by not in [
+            self.PurchasableBy.INVITED,
+            self.PurchasableBy.INVITED_AND_MEMBERS,
+        ]:
+            raise DjangoValidationError(
+                {
+                    "restrict_purchase_to_linked_invitations": (
+                        "This option is only valid when purchasable by is set to "
+                        "'Invitees only' or 'Invited and Members only'."
+                    )
+                }
+            )
+
     def clean(self) -> None:
-        """Validate sales window, PWYC, membership tier, and venue/sector constraints."""
+        """Validate sales window, PWYC, membership tier, venue/sector, and invitation restriction constraints."""
         super().clean()
         self._validate_sales_window()
         self._validate_pwyc()
         self._validate_membership_tiers()
         self._validate_venue_sector()
+        self._validate_invitation_restrictions()
 
     def can_purchase(self) -> bool:
         """Check if the ticket can be purchased."""

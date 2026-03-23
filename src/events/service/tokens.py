@@ -50,7 +50,12 @@ def create_event_token(
         invitation_payload=invitation_payload,
     )
     if ticket_tier_ids:
-        tiers = TicketTier.objects.filter(pk__in=ticket_tier_ids, event=event)
+        unique_ids = list(dict.fromkeys(ticket_tier_ids))
+        tiers = list(TicketTier.objects.filter(pk__in=unique_ids, event=event))
+        if len(tiers) != len(unique_ids):
+            found_ids = {tier.pk for tier in tiers}
+            missing = [str(tid) for tid in unique_ids if tid not in found_ids]
+            raise TicketTier.DoesNotExist(f"Ticket tiers not found: {', '.join(missing)}")
         token.ticket_tiers.set(tiers)
     # Refetch with prefetch to ensure M2M is loaded for serialization
     return EventToken.objects.select_related("event").prefetch_related("ticket_tiers").get(pk=token.pk)

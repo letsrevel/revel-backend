@@ -86,8 +86,7 @@ def _create_or_update_event_invitation(
         user=user,
         defaults=invitation_fields,
     )
-    if tiers:
-        invitation.tiers.set(tiers)
+    invitation.tiers.set(tiers)
     return True
 
 
@@ -100,8 +99,7 @@ def _create_or_update_pending_invitation(
         email=email,
         defaults=invitation_fields,
     )
-    if tiers:
-        invitation.tiers.set(tiers)
+    invitation.tiers.set(tiers)
     return True
 
 

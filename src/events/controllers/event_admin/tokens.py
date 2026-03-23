@@ -72,10 +72,9 @@ class EventAdminTokensController(EventAdminBaseController):
         token = get_object_or_404(models.EventToken, pk=token_id, event=event)
         payload_dict = payload.model_dump(exclude_unset=True)
         tier_ids = payload_dict.pop("ticket_tier_ids", None)
-        # Update scalar fields
-        for key, value in payload_dict.items():
-            setattr(token, key, value)
-        token.save()
+        # Update scalar fields via targeted .update() to avoid overwriting concurrent `uses` changes
+        if payload_dict:
+            models.EventToken.objects.filter(pk=token.pk).update(**payload_dict)
         # Update M2M tiers if provided
         if tier_ids is not None:
             tiers = models.TicketTier.objects.filter(pk__in=tier_ids, event=event)

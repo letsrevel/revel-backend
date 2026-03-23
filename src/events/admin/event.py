@@ -106,9 +106,13 @@ class EventInvitationAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: 
     autocomplete_fields = ["user", "event"]
     filter_horizontal = ["tiers"]
 
+    def get_queryset(self, request: t.Any) -> t.Any:
+        """Prefetch tiers to avoid N+1 queries in list display."""
+        return super().get_queryset(request).prefetch_related("tiers")
+
     @admin.display(description="Tiers")
     def tier_names(self, obj: models.EventInvitation) -> str:
-        names = [t.name for t in obj.tiers.all()]
+        names = [tier.name for tier in obj.tiers.all()]
         return ", ".join(names) if names else "—"
 
 
@@ -132,9 +136,13 @@ class PendingEventInvitationAdmin(ModelAdmin, EventLinkMixin):  # type: ignore[m
     readonly_fields = ["created_at", "updated_at"]
     date_hierarchy = "created_at"
 
+    def get_queryset(self, request: t.Any) -> t.Any:
+        """Prefetch tiers to avoid N+1 queries in list display."""
+        return super().get_queryset(request).prefetch_related("tiers")
+
     @admin.display(description="Tiers")
     def tier_names(self, obj: models.PendingEventInvitation) -> str:
-        names = [t.name for t in obj.tiers.all()]
+        names = [tier.name for tier in obj.tiers.all()]
         return ", ".join(names) if names else "—"
 
 
