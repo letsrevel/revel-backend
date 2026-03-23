@@ -11,7 +11,7 @@ from common.authentication import I18nJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
-from events.service import event_service, update_db_instance
+from events.service import event_service
 
 from .base import EventAdminBaseController
 
@@ -50,27 +50,37 @@ class EventAdminTokensController(EventAdminBaseController):
         - `name`: Optional display name to help you identify this token (e.g., "Alumni Link", "Early Bird")
         - `max_uses`: Maximum number of times this token can be claimed (0 = unlimited)
         - `expires_at`: When the token becomes invalid (users can't claim after this time)
-        - `ticket_tier_id`: Optional ticket tier to assign when users claim
-        - `invitation`: Custom invitation metadata like welcome messages, special flags, etc.
+        - `ticket_tier_ids`: Optional ticket tiers to assign when users claim
+        - `invitation_payload`: Custom invitation metadata like welcome messages, special flags, etc.
 
         **Business Logic:**
         - The token's usage count (how many times it's been claimed) is NOT reset when updating
         - If you set max_uses lower than current uses, the token becomes inactive
-        - Changing the tier only affects future claims, not existing invitations
+        - Changing tiers only affects future claims, not existing invitations
         - The token ID itself never changes
 
         **Frontend Implementation:**
         Display a token management UI where organizers can:
         1. View token stats (uses, expiration, link)
         2. Edit token settings with a form
-        3. Show validation errors if tier_id doesn't match event
+        3. Show validation errors if tier IDs don't match event
         4. Warn when reducing max_uses below current usage
         """
         event = self.get_one(event_id)
-        if payload.ticket_tier_id:
-            get_object_or_404(models.TicketTier, pk=payload.ticket_tier_id, event=event)
+        for tier_id in payload.ticket_tier_ids:
+            get_object_or_404(models.TicketTier, pk=tier_id, event=event)
         token = get_object_or_404(models.EventToken, pk=token_id, event=event)
-        return update_db_instance(token, payload)
+        payload_dict = payload.model_dump(exclude_unset=True)
+        tier_ids = payload_dict.pop("ticket_tier_ids", None)
+        # Update scalar fields via targeted .update() to avoid overwriting concurrent `uses` changes
+        if payload_dict:
+            models.EventToken.objects.filter(pk=token.pk).update(**payload_dict)
+        # Update M2M tiers if provided
+        if tier_ids is not None:
+            tiers = models.TicketTier.objects.filter(pk__in=tier_ids, event=event)
+            token.ticket_tiers.set(tiers)
+        # Refetch with prefetch for serialization
+        return models.EventToken.objects.prefetch_related("ticket_tiers").get(pk=token.pk)
 
     @route.delete(
         "/tokens/{token_id}",
@@ -132,7 +142,7 @@ class EventAdminTokensController(EventAdminBaseController):
         - `expires_at`: When the token stops working (null = never expires)
         - `uses`: How many times it's been claimed so far
         - `max_uses`: Maximum allowed claims (0 = unlimited)
-        - `ticket_tier`: Which ticket tier users get when claiming
+        - `ticket_tiers`: Which ticket tiers users get when claiming
         - `invitation_payload`: Custom metadata (welcome message, flags, etc.)
         - `created_at`: When the token was created
 
@@ -178,7 +188,8 @@ class EventAdminTokensController(EventAdminBaseController):
         - Audit who created which tokens and when
         """
         self.get_one(event_id)
-        return params.filter(models.EventToken.objects.filter(event_id=event_id)).distinct()
+        qs = models.EventToken.objects.filter(event_id=event_id).prefetch_related("ticket_tiers")
+        return params.filter(qs).distinct()
 
     @route.post(
         "/tokens",
@@ -208,8 +219,8 @@ class EventAdminTokensController(EventAdminBaseController):
         - `name`: Display name for organization (e.g., "Instagram Followers", "Alumni Network")
         - `duration`: Minutes until expiration (default: 24*60 = 1 day)
         - `max_uses`: Maximum claims allowed (default: 1, use 0 for unlimited)
-        - `ticket_tier_id`: Optional ticket tier to auto-assign when users claim this token
-        - `invitation`: Optional custom metadata:
+        - `ticket_tier_ids`: Optional ticket tiers to auto-assign when users claim this token
+        - `invitation_payload`: Optional custom metadata:
           - `custom_message`: Personalized welcome text
           - Additional fields that your EventInvitation model supports
 
@@ -219,7 +230,7 @@ class EventAdminTokensController(EventAdminBaseController):
         **Business Logic:**
         - Token issuer is automatically set to the current authenticated user
         - Expiration is calculated from current time + duration
-        - If ticket_tier_id provided, validates it belongs to this event
+        - If ticket_tier_ids provided, validates they belong to this event
         - Token ID is a secure random 8-character alphanumeric code
         - Created tokens start with 0 uses
 
@@ -250,6 +261,6 @@ class EventAdminTokensController(EventAdminBaseController):
         - 403: User lacks "invite_to_event" permission
         """
         event = self.get_one(event_id)
-        if payload.ticket_tier_id:
-            get_object_or_404(models.TicketTier, pk=payload.ticket_tier_id, event=event)
+        for tier_id in payload.ticket_tier_ids:
+            get_object_or_404(models.TicketTier, pk=tier_id, event=event)
         return event_service.create_event_token(event=event, issuer=self.user(), **payload.model_dump())

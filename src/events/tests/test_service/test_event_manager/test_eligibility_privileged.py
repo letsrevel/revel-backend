@@ -31,9 +31,10 @@ def test_staff_tier_overrides_invitation_tier(
     organization_staff_user: RevelUser, private_event: Event, vip_tier: TicketTier, staff_member: OrganizationStaff
 ) -> None:
     """Tests logical hierarchy: staff access is checked before invitations."""
-    # Invite a staff member to a VIP tier
-    TicketTier.objects.create(event=private_event, name="VIP")  # ensure tier exists for private event
-    EventInvitation.objects.create(user=organization_staff_user, event=private_event, tier=vip_tier)
+    # Invite a staff member to a VIP tier (must belong to the same event)
+    private_vip_tier = TicketTier.objects.create(event=private_event, name="VIP")
+    invitation = EventInvitation.objects.create(user=organization_staff_user, event=private_event)
+    invitation.tiers.add(private_vip_tier)
 
     handler = EligibilityService(user=organization_staff_user, event=private_event)
     eligibility = handler.check_eligibility()

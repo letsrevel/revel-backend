@@ -59,7 +59,7 @@ class EligibilityService:
                 Prefetch("tickets", queryset=models.Ticket.objects.only("id", "event_id", "user_id", "status")),
                 Prefetch(
                     "invitations",
-                    queryset=models.EventInvitation.objects.filter(user=user).select_related("tier"),
+                    queryset=models.EventInvitation.objects.filter(user=user).prefetch_related("tiers"),
                 ),
                 Prefetch(
                     "invitation_requests",

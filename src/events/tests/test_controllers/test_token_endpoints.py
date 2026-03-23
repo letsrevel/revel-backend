@@ -41,12 +41,12 @@ def test_get_event_token_returns_token_details(
 
 
 def test_get_event_token_shows_ticket_tier_when_present(
-    client: Client, event: Event, organization_owner_user: RevelUser, vip_tier: TicketTier
+    client: Client, event: Event, organization_owner_user: RevelUser, event_ticket_tier: TicketTier
 ) -> None:
-    """Test that GET /events/tokens/{token_id} includes ticket_tier when set."""
+    """Test that GET /events/tokens/{token_id} includes ticket_tiers when set."""
     # Arrange
     token = event_service.create_event_token(
-        event=event, issuer=organization_owner_user, name="VIP Token", ticket_tier_id=vip_tier.id
+        event=event, issuer=organization_owner_user, name="VIP Token", ticket_tier_ids=[event_ticket_tier.id]
     )
     url = reverse("api:get_event_token", kwargs={"token_id": token.id})
 
@@ -56,8 +56,8 @@ def test_get_event_token_shows_ticket_tier_when_present(
     # Assert
     assert response.status_code == 200
     data = response.json()
-    assert data["ticket_tier"] is not None
-    assert str(data["ticket_tier"]) == str(vip_tier.id)
+    assert len(data["ticket_tiers"]) == 1
+    assert str(data["ticket_tiers"][0]["id"]) == str(event_ticket_tier.id)
 
 
 def test_get_event_token_returns_404_for_invalid_token(client: Client) -> None:
@@ -171,16 +171,21 @@ def test_create_event_token_succeeds_without_ticket_tier_for_ticketed_events(
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "Test Token"
-    assert data["ticket_tier"] is None
+    assert data["ticket_tiers"] == []
 
 
 def test_create_event_token_succeeds_with_ticket_tier_for_ticketed_events(
     organization_owner_client: Client, event: Event, event_ticket_tier: TicketTier
 ) -> None:
-    """Test that token creation succeeds when ticket_tier_id is provided for ticketed events."""
+    """Test that token creation succeeds when ticket_tier_ids is provided for ticketed events."""
     # Arrange - use event_ticket_tier which belongs to event
     url = reverse("api:create_event_token", kwargs={"event_id": event.pk})
-    payload = {"name": "Test Token", "max_uses": 10, "duration": 60, "ticket_tier_id": str(event_ticket_tier.id)}
+    payload = {
+        "name": "Test Token",
+        "max_uses": 10,
+        "duration": 60,
+        "ticket_tier_ids": [str(event_ticket_tier.id)],
+    }
 
     # Act
     response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
@@ -189,13 +194,14 @@ def test_create_event_token_succeeds_with_ticket_tier_for_ticketed_events(
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "Test Token"
-    assert str(data["ticket_tier"]) == str(event_ticket_tier.id)
+    assert len(data["ticket_tiers"]) == 1
+    assert str(data["ticket_tiers"][0]["id"]) == str(event_ticket_tier.id)
 
 
-def test_create_event_token_allows_null_ticket_tier_for_non_ticketed_events(
+def test_create_event_token_allows_empty_ticket_tiers_for_non_ticketed_events(
     organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
 ) -> None:
-    """Test that ticket_tier_id can be null when event.requires_ticket is False."""
+    """Test that ticket_tier_ids can be empty when event.requires_ticket is False."""
     # Arrange - create a non-ticketed event
     non_ticketed_event = Event.objects.create(
         organization=organization,
@@ -215,13 +221,13 @@ def test_create_event_token_allows_null_ticket_tier_for_non_ticketed_events(
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "Test Token"
-    assert data["ticket_tier"] is None
+    assert data["ticket_tiers"] == []
 
 
 def test_create_event_token_validates_ticket_tier_belongs_to_event(
     organization_owner_client: Client, event: Event, organization_owner_user: RevelUser, organization: Organization
 ) -> None:
-    """Test that ticket_tier_id must belong to the event."""
+    """Test that ticket_tier_ids must belong to the event."""
     # Arrange - create a different event with its own tier
     other_event = Event.objects.create(
         organization=organization,
@@ -235,7 +241,7 @@ def test_create_event_token_validates_ticket_tier_belongs_to_event(
     )
 
     url = reverse("api:create_event_token", kwargs={"event_id": event.pk})
-    payload = {"name": "Test Token", "ticket_tier_id": str(other_tier.id)}
+    payload = {"name": "Test Token", "ticket_tier_ids": [str(other_tier.id)]}
 
     # Act
     response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")

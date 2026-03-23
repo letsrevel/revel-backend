@@ -183,7 +183,8 @@ class VisibilityBenchmark(BaseBenchmarkCommand):
         remaining_viewers = viewers - len(viewer_users)
         for i in range(max(0, remaining_viewers)):
             user = self.create_test_user(f"vis_{name}_invitee_{i}")
-            EventInvitation.objects.create(event=event, user=user, tier=tier)
+            invitation = EventInvitation.objects.create(event=event, user=user)
+            invitation.tiers.add(tier)
 
             # Make some invitees members
             if i % 2 == 0:

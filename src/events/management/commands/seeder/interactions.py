@@ -10,6 +10,7 @@ from events.models import (
     EventWaitList,
     PendingEventInvitation,
     PotluckItem,
+    TicketTier,
     WhitelistRequest,
 )
 
@@ -33,7 +34,7 @@ class InteractionSeeder(BaseSeeder):
         """Create EventInvitations for private events."""
         self.log("Creating event invitations...")
 
-        invitations_to_create: list[EventInvitation] = []
+        invitations_to_create: list[tuple[EventInvitation, TicketTier | None]] = []
         user_event_pairs: set[tuple[str, str]] = set()
 
         for event in self.state.private_events:
@@ -51,22 +52,29 @@ class InteractionSeeder(BaseSeeder):
             for user in invited_users:
                 user_event_pairs.add((str(user.id), str(event.id)))
 
+                tier = self.random_choice(event_tiers) if event_tiers else None
                 invitations_to_create.append(
-                    EventInvitation(
-                        event=event,
-                        user=user,
-                        waives_questionnaire=self.random_bool(0.3),
-                        waives_purchase=self.random_bool(0.2),
-                        overrides_max_attendees=self.random_bool(0.1),
-                        waives_membership_required=self.random_bool(0.2),
-                        waives_rsvp_deadline=self.random_bool(0.1),
-                        waives_apply_deadline=self.random_bool(0.1),
-                        custom_message=self.faker.sentence() if self.random_bool(0.3) else None,
-                        tier=self.random_choice(event_tiers) if event_tiers else None,
+                    (
+                        EventInvitation(
+                            event=event,
+                            user=user,
+                            waives_questionnaire=self.random_bool(0.3),
+                            waives_purchase=self.random_bool(0.2),
+                            overrides_max_attendees=self.random_bool(0.1),
+                            waives_membership_required=self.random_bool(0.2),
+                            waives_rsvp_deadline=self.random_bool(0.1),
+                            waives_apply_deadline=self.random_bool(0.1),
+                            custom_message=self.faker.sentence() if self.random_bool(0.3) else None,
+                        ),
+                        tier,
                     )
                 )
 
-        self.batch_create(EventInvitation, invitations_to_create, desc="Creating invitations")
+        invitation_objects = [inv for inv, _ in invitations_to_create]
+        self.batch_create(EventInvitation, invitation_objects, desc="Creating invitations")
+        for inv, tier in invitations_to_create:
+            if tier is not None:
+                inv.tiers.add(tier)
         self.log(f"  Created {len(invitations_to_create)} invitations")
 
     def _create_pending_invitations(self) -> None:
@@ -258,7 +266,7 @@ class InteractionSeeder(BaseSeeder):
         """Create event tokens."""
         self.log("Creating event tokens...")
 
-        tokens_to_create: list[EventToken] = []
+        tokens_to_create: list[tuple[EventToken, TicketTier | None]] = []
 
         # ~30% of events get tokens
         events_with_tokens = self.random_sample(self.state.events, int(len(self.state.events) * 0.3))
@@ -269,16 +277,23 @@ class InteractionSeeder(BaseSeeder):
             event_tiers = self.state.ticket_tiers.get(event.id, [])
 
             for _ in range(num_tokens):
+                tier = self.random_choice(event_tiers) if event_tiers and self.random_bool(0.5) else None
                 tokens_to_create.append(
-                    EventToken(
-                        event=event,
-                        issuer=event.organization.owner,
-                        grants_invitation=self.random_bool(0.8),
-                        ticket_tier=self.random_choice(event_tiers) if event_tiers and self.random_bool(0.5) else None,
+                    (
+                        EventToken(
+                            event=event,
+                            issuer=event.organization.owner,
+                            grants_invitation=self.random_bool(0.8),
+                        ),
+                        tier,
                     )
                 )
 
-        self.batch_create(EventToken, tokens_to_create, desc="Creating event tokens")
+        token_objects = [token for token, _ in tokens_to_create]
+        self.batch_create(EventToken, token_objects, desc="Creating event tokens")
+        for token, tier in tokens_to_create:
+            if tier is not None:
+                token.ticket_tiers.add(tier)
         self.log(f"  Created {len(tokens_to_create)} event tokens")
 
     def _create_blacklist(self) -> None:

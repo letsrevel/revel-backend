@@ -72,7 +72,7 @@ def test_create_event_token_creates_token(event: Event, organization_owner_user:
 
 
 def test_create_event_token_with_invitation(
-    event: Event, organization_owner_user: RevelUser, vip_tier: TicketTier
+    event: Event, organization_owner_user: RevelUser, event_ticket_tier: TicketTier
 ) -> None:
     """Test that the function creates an EventToken with an invitation."""
     # Arrange
@@ -83,11 +83,11 @@ def test_create_event_token_with_invitation(
         event=event,
         issuer=organization_owner_user,
         invitation_payload=invitation.model_dump(mode="json"),
-        ticket_tier_id=vip_tier.id,
+        ticket_tier_ids=[event_ticket_tier.id],
     )
 
     assert token.invitation_payload is not None
-    assert token.ticket_tier == vip_tier
+    assert token.ticket_tiers.first() == event_ticket_tier
 
 
 def test_get_event_token_returns_token(event: Event, organization_owner_user: RevelUser) -> None:

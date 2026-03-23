@@ -43,14 +43,16 @@ def create_invitation_request(event: Event, user: RevelUser, message: str | None
 
 @transaction.atomic
 def approve_invitation_request(
-    invitation_request: EventInvitationRequest, decided_by: RevelUser, tier: TicketTier | None = None
+    invitation_request: EventInvitationRequest,
+    decided_by: RevelUser,
+    tiers: list[TicketTier] | None = None,
 ) -> EventInvitationRequest:
     """Approve an invitation request.
 
     Args:
         invitation_request: The request to approve.
         decided_by: The user approving the request.
-        tier: Optional ticket tier to assign to the invitation.
+        tiers: Optional ticket tiers to assign to the invitation.
 
     Returns:
         The updated EventInvitationRequest.
@@ -58,7 +60,9 @@ def approve_invitation_request(
     invitation_request.status = EventInvitationRequest.InvitationRequestStatus.APPROVED
     invitation_request.decided_by = decided_by
     invitation_request.save(update_fields=["status", "decided_by"])
-    EventInvitation.objects.get_or_create(event=invitation_request.event, user=invitation_request.user, tier=tier)
+    invitation, _ = EventInvitation.objects.get_or_create(event=invitation_request.event, user=invitation_request.user)
+    if tiers is not None:
+        invitation.tiers.set(tiers)
     return invitation_request
 
 

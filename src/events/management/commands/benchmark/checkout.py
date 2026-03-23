@@ -222,8 +222,8 @@ class CheckoutBenchmark(BaseBenchmarkCommand):
             invitation = EventInvitation.objects.create(
                 event=event,
                 user=member,
-                tier=tiers[0],
             )
+            invitation.tiers.add(tiers[0])
             invitations.append(invitation)
 
         # Create questionnaires
@@ -352,7 +352,8 @@ class CheckoutBenchmark(BaseBenchmarkCommand):
         tier = self.create_test_tier(event)
 
         user = self.create_test_user("priv_user")
-        EventInvitation.objects.create(event=event, user=user, tier=tier)
+        invitation = EventInvitation.objects.create(event=event, user=user)
+        invitation.tiers.add(tier)
 
         return BenchmarkScenario(
             name="PRIVATE_EVENT",

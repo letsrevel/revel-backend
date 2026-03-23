@@ -293,7 +293,8 @@ class TestVisibilityContext:
         invited_user = RevelUser.objects.create_user(
             username="invited_user", email="invited@example.com", password="pass"
         )
-        models.EventInvitation.objects.create(event=event, user=invited_user, tier=tier)
+        invitation = models.EventInvitation.objects.create(event=event, user=invited_user)
+        invitation.tiers.add(tier)
 
         # Create ticket
         ticket_user = RevelUser.objects.create_user(username="ticket_user", email="ticket@example.com", password="pass")
@@ -341,7 +342,8 @@ class TestVisibilityContext:
         """Test is_viewer_invited_or_attending returns True for invited users."""
         tier = event.ticket_tiers.first()
         assert tier is not None
-        models.EventInvitation.objects.create(event=event, user=member_user, tier=tier)
+        invitation = models.EventInvitation.objects.create(event=event, user=member_user)
+        invitation.tiers.add(tier)
         context = VisibilityContext.for_event(
             event=event,
             owner_id=event.organization.owner_id,

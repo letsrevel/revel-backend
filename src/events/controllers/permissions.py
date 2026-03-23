@@ -213,47 +213,47 @@ class CanPurchaseTicket(RootPermission):
         """Override init."""
         super().__init__(action="can_purchase")
 
+    def _is_org_staff_or_owner(self, org_id: t.Any, user_id: t.Any) -> bool:
+        """Check if user is org owner or staff."""
+        if models.Organization.objects.filter(id=org_id, owner_id=user_id).exists():
+            return True
+        return models.OrganizationStaff.objects.filter(organization_id=org_id, user_id=user_id).exists()
+
+    def _check_invited(self, tier: models.TicketTier, user_id: t.Any) -> bool:
+        """Check if user has a valid invitation for this tier."""
+        invitation = models.EventInvitation.objects.filter(event_id=tier.event_id, user_id=user_id).first()
+        if not invitation:
+            return False
+        if tier.restrict_purchase_to_linked_invitations:
+            return invitation.tiers.filter(pk=tier.pk).exists()
+        return True
+
     def has_object_permission(
         self,
         request: HttpRequest,
         controller: ControllerBase,
         obj: models.TicketTier,
     ) -> bool:
-        """Can edit organization."""
+        """Check if user can purchase from this tier."""
         user = t.cast(RevelUser, request.user)
         if not obj.can_purchase():
             raise PermissionDenied("You're outside of the sale window.")
         if obj.purchasable_by == models.TicketTier.PurchasableBy.PUBLIC:
             return True
-        if models.Organization.objects.filter(id=obj.event.organization_id, owner_id=user.id).exists():
+        if self._is_org_staff_or_owner(obj.event.organization_id, user.id):
             return True
-        if models.OrganizationStaff.objects.filter(
-            organization_id=obj.event.organization_id,
-            user_id=user.id,
-        ).exists():
+
+        PB = models.TicketTier.PurchasableBy
+        is_member = (
+            models.OrganizationMember.objects.active_only()
+            .filter(organization_id=obj.event.organization_id, user_id=user.id)
+            .exists()
+        )
+
+        if obj.purchasable_by in [PB.MEMBERS, PB.INVITED_AND_MEMBERS] and is_member:
             return True
-        if obj.purchasable_by in [
-            models.TicketTier.PurchasableBy.MEMBERS,
-            models.TicketTier.PurchasableBy.INVITED_AND_MEMBERS,
-        ]:
-            if (
-                models.OrganizationMember.objects.active_only()
-                .filter(
-                    organization_id=obj.event.organization_id,
-                    user_id=user.id,
-                )
-                .exists()
-            ):
-                return True
-        if obj.purchasable_by in [
-            models.TicketTier.PurchasableBy.INVITED,
-            models.TicketTier.PurchasableBy.INVITED_AND_MEMBERS,
-        ]:
-            if models.EventInvitation.objects.filter(
-                event_id=obj.event.id,
-                user_id=user.id,
-            ).exists():
-                return True
+        if obj.purchasable_by in [PB.INVITED, PB.INVITED_AND_MEMBERS] and self._check_invited(obj, user.id):
+            return True
 
         raise PermissionDenied(f"The ticket can be purchased by {obj.get_purchasable_by_display()}")
 

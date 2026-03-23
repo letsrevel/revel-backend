@@ -182,11 +182,11 @@ class DashboardBenchmark(BaseBenchmarkCommand):
                     total_tickets += 1
                 elif rel_type == 2:
                     # Invitation
-                    EventInvitation.objects.create(
+                    invitation = EventInvitation.objects.create(
                         event=event,
                         user=dashboard_user,
-                        tier=tier,
                     )
+                    invitation.tiers.add(tier)
                     total_invitations += 1
                 else:
                     # Invitation request

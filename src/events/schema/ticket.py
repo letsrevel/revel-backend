@@ -63,6 +63,7 @@ class TicketTierSchema(ModelSchema):
     max_tickets_per_user: int | None = None
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
+    can_purchase: bool = True
 
     class Meta:
         model = TicketTier
@@ -84,6 +85,11 @@ class TicketTierSchema(ModelSchema):
             "max_tickets_per_user",
             "display_order",
         ]
+
+    @staticmethod
+    def resolve_can_purchase(obj: TicketTier) -> bool:
+        """Resolve from annotated attribute, defaults to True if not set."""
+        return getattr(obj, "_can_purchase", True)
 
 
 class PaymentSchema(ModelSchema):
@@ -232,6 +238,8 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     description: StrippedString | None = None
     visibility: TicketTier.Visibility = TicketTier.Visibility.PUBLIC
     purchasable_by: TicketTier.PurchasableBy = TicketTier.PurchasableBy.PUBLIC
+    restrict_visibility_to_linked_invitations: bool = False
+    restrict_purchase_to_linked_invitations: bool = False
     price_type: TicketTier.PriceType = TicketTier.PriceType.FIXED
     pwyc_min: Decimal = Field(default=Decimal("1"), ge=1)
     pwyc_max: Decimal | None = Field(None, ge=1)
@@ -273,6 +281,8 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     description: StrippedString | None = None
     visibility: TicketTier.Visibility | None = None
     purchasable_by: TicketTier.PurchasableBy | None = None
+    restrict_visibility_to_linked_invitations: bool | None = None
+    restrict_purchase_to_linked_invitations: bool | None = None
     price_type: TicketTier.PriceType | None = None
     pwyc_min: Decimal | None = Field(None, ge=1)
     pwyc_max: Decimal | None = Field(None, ge=1)
@@ -332,6 +342,8 @@ class TicketTierDetailSchema(ModelSchema):
             "visibility",
             "payment_method",
             "purchasable_by",
+            "restrict_visibility_to_linked_invitations",
+            "restrict_purchase_to_linked_invitations",
             "price",
             "price_type",
             "pwyc_min",
