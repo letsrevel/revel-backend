@@ -462,7 +462,7 @@ class ReferralPayout(TimeStampedModel):
     The disbursement (Stripe transfer) is handled separately by the accounts app.
     """
 
-    class Status(models.TextChoices):
+    class ReferralPayoutStatus(models.TextChoices):
         CALCULATED = "calculated", "Calculated"
         PENDING = "pending", "Pending"
         PAID = "paid", "Paid"
@@ -487,7 +487,9 @@ class ReferralPayout(TimeStampedModel):
         help_text="Amount carried forward from prior below-threshold periods.",
     )
     currency = models.CharField(max_length=3, default=settings.DEFAULT_CURRENCY)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.CALCULATED, db_index=True)
+    status = models.CharField(
+        max_length=20, choices=ReferralPayoutStatus.choices, default=ReferralPayoutStatus.CALCULATED, db_index=True
+    )
     stripe_transfer_id = models.CharField(max_length=255, blank=True, db_index=True)
 
     class Meta:

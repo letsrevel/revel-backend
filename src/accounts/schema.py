@@ -450,7 +450,7 @@ class ReferralPayoutSchema(Schema):
     payout_amount: Decimal
     rolled_over_amount: Decimal
     currency: str
-    status: ReferralPayout.Status
+    status: ReferralPayout.ReferralPayoutStatus
     has_statement: bool
     created_at: AwareDatetime
 

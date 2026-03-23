@@ -116,7 +116,7 @@ def calculated_payout(referral: Referral) -> ReferralPayout:
         net_platform_fees=Decimal("100.00"),
         payout_amount=Decimal("15.00"),
         currency="EUR",
-        status=ReferralPayout.Status.CALCULATED,
+        status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
     )
 
 
@@ -161,7 +161,7 @@ class TestPayoutPreflightChecks:
         mock_transfer.assert_not_called()
         mock_gen_statement.assert_not_called()
         calculated_payout.refresh_from_db()
-        assert calculated_payout.status == ReferralPayout.Status.CALCULATED
+        assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     @patch("accounts.tasks.stripe.Transfer.create")
@@ -185,7 +185,7 @@ class TestPayoutPreflightChecks:
         mock_transfer.assert_not_called()
         mock_gen_statement.assert_not_called()
         calculated_payout.refresh_from_db()
-        assert calculated_payout.status == ReferralPayout.Status.CALCULATED
+        assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     @patch("accounts.tasks.stripe.Transfer.create")
@@ -211,7 +211,7 @@ class TestPayoutPreflightChecks:
         mock_transfer.assert_not_called()
         mock_gen_statement.assert_not_called()
         calculated_payout.refresh_from_db()
-        assert calculated_payout.status == ReferralPayout.Status.CALCULATED
+        assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     @patch("accounts.tasks.stripe.Transfer.create")
@@ -235,7 +235,7 @@ class TestPayoutPreflightChecks:
         mock_transfer.assert_not_called()
         mock_gen_statement.assert_not_called()
         calculated_payout.refresh_from_db()
-        assert calculated_payout.status == ReferralPayout.Status.CALCULATED
+        assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     @patch("accounts.tasks.stripe.Transfer.create")
@@ -255,7 +255,7 @@ class TestPayoutPreflightChecks:
             net_platform_fees=Decimal("20.00"),
             payout_amount=Decimal("3.00"),  # below €5 threshold
             currency="EUR",
-            status=ReferralPayout.Status.CALCULATED,
+            status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
         )
 
         stats = process_referral_payouts()
@@ -266,7 +266,7 @@ class TestPayoutPreflightChecks:
         mock_transfer.assert_not_called()
         mock_gen_statement.assert_not_called()
         payout.refresh_from_db()
-        assert payout.status == ReferralPayout.Status.CALCULATED
+        assert payout.status == ReferralPayout.ReferralPayoutStatus.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     @patch("accounts.tasks.stripe.Transfer.create")
@@ -281,7 +281,11 @@ class TestPayoutPreflightChecks:
         """Only payouts with status CALCULATED are processed; other statuses are ignored."""
         # Arrange: create payouts in non-CALCULATED states (different period_start to avoid unique constraint)
         for i, status in enumerate(
-            [ReferralPayout.Status.PAID, ReferralPayout.Status.FAILED, ReferralPayout.Status.PENDING]
+            [
+                ReferralPayout.ReferralPayoutStatus.PAID,
+                ReferralPayout.ReferralPayoutStatus.FAILED,
+                ReferralPayout.ReferralPayoutStatus.PENDING,
+            ]
         ):
             ReferralPayout.objects.create(
                 referral=referral,
@@ -357,7 +361,7 @@ class TestPayoutHappyPath:
         stats = process_referral_payouts()
 
         calculated_payout.refresh_from_db()
-        assert calculated_payout.status == ReferralPayout.Status.PAID
+        assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.PAID
         assert stats["paid"] == 1
         assert stats["failed"] == 0
         assert stats["skipped"] == 0
@@ -404,7 +408,7 @@ class TestPayoutHappyPath:
         mock_gen_statement.assert_called_once()
         # The payout should be in PAID status when the statement is generated
         calculated_payout.refresh_from_db()
-        assert calculated_payout.status == ReferralPayout.Status.PAID
+        assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.PAID
 
     @patch("accounts.tasks._send_payout_statement_email")
     @patch("accounts.tasks.stripe.Transfer.create")
@@ -456,7 +460,7 @@ class TestPayoutStripeError:
 
         assert stats["failed"] == 1
         calculated_payout.refresh_from_db()
-        assert calculated_payout.status == ReferralPayout.Status.FAILED
+        assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.FAILED
 
     @patch("accounts.tasks._send_payout_statement_email")
     @patch("accounts.tasks.stripe.Transfer.create")
@@ -478,7 +482,7 @@ class TestPayoutStripeError:
         assert stats["failed"] == 1
         assert stats["paid"] == 0
         calculated_payout.refresh_from_db()
-        assert calculated_payout.status == ReferralPayout.Status.FAILED
+        assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.FAILED
 
     @patch("accounts.tasks._send_payout_statement_email")
     @patch("accounts.tasks.stripe.Transfer.create")

@@ -103,7 +103,7 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
         # Roll over un-disbursed amounts from prior below-threshold periods
         prior_payouts = ReferralPayout.objects.filter(
             referral=referral,
-            status=ReferralPayout.Status.CALCULATED,
+            status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
             period_start__lt=period_start,
         )
         rolled_over = sum(p.payout_amount for p in prior_payouts)
@@ -119,14 +119,14 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
                 "payout_amount": payout_amount,
                 "rolled_over_amount": rolled_over,
                 "currency": platform_currency,
-                "status": ReferralPayout.Status.CALCULATED,
+                "status": ReferralPayout.ReferralPayoutStatus.CALCULATED,
             },
         )
 
         if was_created:
             # Mark prior payouts as rolled over (only if we actually created the new one)
             if rolled_over:
-                rolled_count = prior_payouts.update(status=ReferralPayout.Status.ROLLED_OVER)
+                rolled_count = prior_payouts.update(status=ReferralPayout.ReferralPayoutStatus.ROLLED_OVER)
                 logger.info(
                     "prior_payouts_rolled_over",
                     referral_id=str(referral.id),

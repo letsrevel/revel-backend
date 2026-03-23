@@ -91,7 +91,7 @@ def _create_payout(
     referral: Referral,
     *,
     period_start: date | None = None,
-    status: str = ReferralPayout.Status.PAID,
+    status: str = ReferralPayout.ReferralPayoutStatus.PAID,
 ) -> ReferralPayout:
     start = period_start or date(2026, 1, 1)
     return ReferralPayout.objects.create(

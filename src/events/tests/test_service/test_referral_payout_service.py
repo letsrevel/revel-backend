@@ -153,7 +153,7 @@ def test_payout_created(referral: Referral, tier: TicketTier, buyer: RevelUser) 
     assert payout.net_platform_fees == Decimal("30.00")
     # 30.00 * 15% = 4.50
     assert payout.payout_amount == Decimal("4.50")
-    assert payout.status == ReferralPayout.Status.CALCULATED
+    assert payout.status == ReferralPayout.ReferralPayoutStatus.CALCULATED
     assert payout.period_start == PERIOD_START
     assert payout.period_end == PERIOD_END
     assert payout.currency == settings.DEFAULT_CURRENCY
@@ -364,7 +364,7 @@ def test_rollover_accumulates_prior_calculated_payouts(referral: Referral, tier:
         net_platform_fees=Decimal("10.00"),
         payout_amount=Decimal("1.50"),
         currency=settings.DEFAULT_CURRENCY,
-        status=ReferralPayout.Status.CALCULATED,
+        status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
     )
 
     # February has revenue
@@ -387,7 +387,7 @@ def test_rollover_accumulates_prior_calculated_payouts(referral: Referral, tier:
 
     # Prior payout is now ROLLED_OVER
     jan_payout = ReferralPayout.objects.get(referral=referral, period_start=datetime.date(2026, 1, 1))
-    assert jan_payout.status == ReferralPayout.Status.ROLLED_OVER
+    assert jan_payout.status == ReferralPayout.ReferralPayoutStatus.ROLLED_OVER
 
 
 def test_rollover_multiple_prior_periods(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
@@ -401,7 +401,7 @@ def test_rollover_multiple_prior_periods(referral: Referral, tier: TicketTier, b
             net_platform_fees=Decimal("10.00"),
             payout_amount=Decimal("1.50"),
             currency=settings.DEFAULT_CURRENCY,
-            status=ReferralPayout.Status.CALCULATED,
+            status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
         )
 
     # March 2025 has revenue
@@ -424,7 +424,7 @@ def test_rollover_multiple_prior_periods(referral: Referral, tier: TicketTier, b
     assert payout.rolled_over_amount == Decimal("3.00")
 
     # Both prior payouts are ROLLED_OVER
-    assert ReferralPayout.objects.filter(status=ReferralPayout.Status.ROLLED_OVER).count() == 2
+    assert ReferralPayout.objects.filter(status=ReferralPayout.ReferralPayoutStatus.ROLLED_OVER).count() == 2
 
 
 def test_no_rollover_when_no_prior_calculated(referral: Referral, tier: TicketTier, buyer: RevelUser) -> None:
@@ -453,7 +453,7 @@ def test_paid_payouts_not_rolled_over(referral: Referral, tier: TicketTier, buye
         net_platform_fees=Decimal("100.00"),
         payout_amount=Decimal("15.00"),
         currency=settings.DEFAULT_CURRENCY,
-        status=ReferralPayout.Status.PAID,
+        status=ReferralPayout.ReferralPayoutStatus.PAID,
         stripe_transfer_id="tr_already_paid",
     )
 
@@ -473,7 +473,7 @@ def test_paid_payouts_not_rolled_over(referral: Referral, tier: TicketTier, buye
 
     # Paid payout unchanged
     jan = ReferralPayout.objects.get(period_start=datetime.date(2026, 1, 1))
-    assert jan.status == ReferralPayout.Status.PAID
+    assert jan.status == ReferralPayout.ReferralPayoutStatus.PAID
 
 
 def test_multi_currency_converted_to_platform_currency(
