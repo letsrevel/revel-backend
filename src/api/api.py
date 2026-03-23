@@ -9,6 +9,7 @@ from accounts.controllers.billing import UserBillingController
 from accounts.controllers.dietary import DietaryController
 from accounts.controllers.otp import OtpController
 from accounts.controllers.referral import ReferralController
+from accounts.controllers.referral_payouts import ReferralPayoutController
 from accounts.controllers.referral_stripe import ReferralStripeController
 from common.controllers import MediaValidationController, TagController
 from common.models import Legal, SiteSettings
@@ -126,6 +127,7 @@ api.register_controllers(
     AccountController,
     DietaryController,
     ReferralController,
+    ReferralPayoutController,
     ReferralStripeController,
     UserBillingController,
     # Event controllers
