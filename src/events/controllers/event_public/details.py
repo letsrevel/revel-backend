@@ -2,6 +2,7 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 from ninja import Query
+from ninja.errors import HttpError
 from ninja_extra import (
     api_controller,
     route,
@@ -109,6 +110,15 @@ class EventPublicDetailsController(EventPublicBaseController):
         Includes totals for attendees with and without pronouns specified.
         """
         event = self.get_one(event_id)
+        if not event.public_pronoun_distribution:
+            user = self.user()
+            is_owner = event.organization.owner_id == user.id
+            is_staff = models.OrganizationStaff.objects.filter(
+                organization=event.organization,
+                user=user,
+            ).exists()
+            if not is_owner and not is_staff:
+                raise HttpError(403, "Pronoun distribution is not public for this event.")
         return event_service.get_event_pronoun_distribution(event)
 
     @route.get(

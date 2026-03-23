@@ -223,6 +223,9 @@ class Event(
     )
     potluck_open = models.BooleanField(default=False)
     accept_invitation_requests = models.BooleanField(default=False)
+    public_pronoun_distribution = models.BooleanField(
+        default=False, help_text="Whether pronoun distribution is visible to non-staff users"
+    )
     apply_before = models.DateTimeField(
         null=True, blank=True, db_index=True, help_text="Deadline for submitting invitation requests or questionnaires"
     )
