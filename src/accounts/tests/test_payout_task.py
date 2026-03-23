@@ -231,7 +231,9 @@ class TestPayoutPreflightChecks:
 
         assert stats["skipped"] == 1
         assert stats["paid"] == 0
+        assert stats["failed"] == 0
         mock_transfer.assert_not_called()
+        mock_gen_statement.assert_not_called()
         calculated_payout.refresh_from_db()
         assert calculated_payout.status == ReferralPayout.Status.CALCULATED
 
