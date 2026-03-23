@@ -246,6 +246,34 @@ class TestListPayouts:
         assert response.status_code == 200
         assert response.json()["count"] == 1
 
+    def test_payouts_aggregated_across_multiple_referrals(
+        self,
+        referrer_client: Client,
+        referral_code: ReferralCode,
+        referral: Referral,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """A referrer who referred multiple users sees payouts from all referrals."""
+        _create_payout(referral, period_start=date(2026, 1, 1))
+
+        # Same referrer & code, second referred user
+        second_referred = django_user_model.objects.create_user(
+            username="second-referred@example.com",
+            email="second-referred@example.com",
+            password="strong-password-123!",
+        )
+        second_referral = Referral.objects.create(
+            referral_code=referral_code,
+            referred_user=second_referred,
+            revenue_share_percent=Decimal("15.00"),
+        )
+        _create_payout(second_referral, period_start=date(2026, 2, 1))
+
+        response = referrer_client.get(self.url)
+
+        assert response.status_code == 200
+        assert response.json()["count"] == 2
+
     def test_payouts_paginated(
         self,
         referrer_client: Client,

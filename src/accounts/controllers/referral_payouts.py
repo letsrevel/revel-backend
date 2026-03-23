@@ -25,6 +25,17 @@ from common.throttling import UserDefaultThrottle
 class ReferralPayoutController(UserAwareController):
     """Read-only endpoints for a user's referral payouts and statements."""
 
+    def _get_statement(self, payout_id: UUID) -> models.ReferralPayoutStatement:
+        """Fetch a payout's statement, scoped to the current user."""
+        payout = get_object_or_404(
+            models.ReferralPayout.objects.select_related("statement"),
+            id=payout_id,
+            referral__referrer=self.user(),
+        )
+        if not hasattr(payout, "statement"):
+            raise HttpError(404, str(_("Statement not yet generated for this payout.")))
+        return payout.statement
+
     @route.get(
         "/payouts",
         url_name="list_referral_payouts",
@@ -46,14 +57,7 @@ class ReferralPayoutController(UserAwareController):
     )
     def get_statement(self, payout_id: UUID) -> models.ReferralPayoutStatement:
         """Get the statement for a specific payout."""
-        payout = get_object_or_404(
-            models.ReferralPayout.objects.select_related("statement"),
-            id=payout_id,
-            referral__referrer=self.user(),
-        )
-        if not hasattr(payout, "statement"):
-            raise HttpError(404, str(_("Statement not yet generated for this payout.")))
-        return payout.statement
+        return self._get_statement(payout_id)
 
     @route.get(
         "/payouts/{payout_id}/statement/download",
@@ -62,14 +66,8 @@ class ReferralPayoutController(UserAwareController):
     )
     def download_statement(self, payout_id: UUID) -> dict[str, str]:
         """Get a signed download URL for a payout statement PDF."""
-        payout = get_object_or_404(
-            models.ReferralPayout.objects.select_related("statement"),
-            id=payout_id,
-            referral__referrer=self.user(),
-        )
-        if not hasattr(payout, "statement"):
-            raise HttpError(404, str(_("Statement not yet generated for this payout.")))
-        url = get_file_url(payout.statement.pdf_file)
+        statement = self._get_statement(payout_id)
+        url = get_file_url(statement.pdf_file)
         if not url:
             raise HttpError(404, str(_("Statement PDF not yet generated.")))
         return {"download_url": url}
