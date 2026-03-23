@@ -207,3 +207,7 @@ rendered_templates/
 .tests.output
 .tests.output.full
 .claude/agent-memory
+
+# Local drafting files (legal docs)
+toc.md
+privacy.md
