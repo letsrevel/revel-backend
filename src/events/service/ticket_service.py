@@ -37,6 +37,7 @@ class TierRemainingTickets:
     tier_id: UUID
     remaining: int | None  # None = unlimited
     sold_out: bool = False
+    can_purchase: bool = True
 
 
 @dataclass
@@ -260,22 +261,32 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
         .values_list("tier_id", "count")
     )
 
-    # Get all eligible tiers for this user and calculate remaining for each
+    # Get eligible tiers (can purchase) and all visible tiers for this user
     eligible_tiers = get_eligible_tiers(event, user)
+    eligible_tier_ids = {t.id for t in eligible_tiers}
+    visible_tiers = list(TicketTier.objects.for_visible_event(event, user))
+
     remaining_list: list[TierRemainingTickets] = []
 
-    for tier in eligible_tiers:
-        service = BatchTicketService(event, tier, user)
-        tier_count = user_ticket_counts.get(tier.id, 0)
-        remaining = service.get_remaining_tickets(event_capacity_remaining, user_ticket_count=tier_count)
+    for tier in visible_tiers:
+        is_eligible = tier.id in eligible_tier_ids
+        if is_eligible:
+            service = BatchTicketService(event, tier, user)
+            tier_count = user_ticket_counts.get(tier.id, 0)
+            remaining = service.get_remaining_tickets(event_capacity_remaining, user_ticket_count=tier_count)
+            tier_sold_out = tier.total_quantity is not None and (tier.total_quantity - tier.quantity_sold) <= 0
+            remaining_list.append(
+                TierRemainingTickets(tier_id=tier.id, remaining=remaining, sold_out=tier_sold_out, can_purchase=True)
+            )
+        else:
+            remaining_list.append(
+                TierRemainingTickets(tier_id=tier.id, remaining=None, sold_out=False, can_purchase=False)
+            )
 
-        # Check if tier is sold out (total_quantity - quantity_sold <= 0)
-        tier_sold_out = tier.total_quantity is not None and (tier.total_quantity - tier.quantity_sold) <= 0
-
-        remaining_list.append(TierRemainingTickets(tier_id=tier.id, remaining=remaining, sold_out=tier_sold_out))
-
-    # can_purchase_more is True if any tier has remaining quota AND is not sold out
-    can_purchase = any((r.remaining is None or r.remaining > 0) and not r.sold_out for r in remaining_list)
+    # can_purchase_more is True if any eligible tier has remaining quota AND is not sold out
+    can_purchase = any(
+        r.can_purchase and (r.remaining is None or r.remaining > 0) and not r.sold_out for r in remaining_list
+    )
 
     return UserEventStatus(
         tickets=tickets,

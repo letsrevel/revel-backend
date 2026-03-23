@@ -101,6 +101,7 @@ class TierRemainingTicketsSchema(Schema):
     tier_id: UUID
     remaining: int | None = None  # None = unlimited
     sold_out: bool = False
+    can_purchase: bool = True
 
 
 class EventUserStatusResponse(Schema):
