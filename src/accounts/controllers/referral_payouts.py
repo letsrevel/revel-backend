@@ -47,7 +47,7 @@ class ReferralPayoutController(UserAwareController):
         return (
             models.ReferralPayout.objects.filter(referral__referrer=self.user())
             .select_related("statement")
-            .order_by("-period_start")
+            .order_by("-period_start", "-created_at")
         )
 
     @route.get(
@@ -64,10 +64,10 @@ class ReferralPayoutController(UserAwareController):
         url_name="download_payout_statement",
         response=schema.StatementDownloadURLSchema,
     )
-    def download_statement(self, payout_id: UUID) -> dict[str, str]:
+    def download_statement(self, payout_id: UUID) -> schema.StatementDownloadURLSchema:
         """Get a signed download URL for a payout statement PDF."""
         statement = self._get_statement(payout_id)
         url = get_file_url(statement.pdf_file)
         if not url:
             raise HttpError(404, str(_("Statement PDF not yet generated.")))
-        return {"download_url": url}
+        return schema.StatementDownloadURLSchema(download_url=url)

@@ -388,6 +388,7 @@ class TestDownloadStatement:
         data = response.json()
         assert data["download_url"] == "https://cdn.example.com/signed/statement.pdf?sig=abc"
         mock_get_file_url.assert_called_once()
+        assert mock_get_file_url.call_args.args[0].name == "invoices/referral_payouts/test.pdf"
 
     @patch("accounts.controllers.referral_payouts.get_file_url")
     def test_statement_without_pdf_returns_404(
