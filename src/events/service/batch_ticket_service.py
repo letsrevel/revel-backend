@@ -9,7 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, Ticket, TicketTier, VenueSeat
+from events.models import Event, EventInvitation, OrganizationMember, Ticket, TicketTier, VenueSeat
 from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
 from events.tasks import build_attendee_visibility_flags
@@ -48,6 +48,39 @@ class BatchTicketService:
         self.tier = tier
         self.user = user
         self.discount_code = discount_code
+
+    def _assert_purchasable_by(self) -> None:
+        """Assert the user is allowed to purchase from this tier.
+
+        Checks the tier's purchasable_by setting and, when restrict_purchase_to_linked_invitations
+        is True, verifies the user's invitation links to this specific tier.
+
+        Note: Staff/owners are NOT exempt — they can see all tiers but must meet purchase rules.
+        """
+        PB = TicketTier.PurchasableBy
+        if self.tier.purchasable_by == PB.PUBLIC:
+            return
+
+        org = self.event.organization
+        is_member = OrganizationMember.objects.active_only().filter(organization=org, user=self.user).exists()
+        invitation = EventInvitation.objects.filter(event=self.event, user=self.user).first()
+        is_invited = invitation is not None
+
+        def _invited_passes() -> bool:
+            if not is_invited or invitation is None:
+                return False
+            if self.tier.restrict_purchase_to_linked_invitations:
+                return invitation.tiers.filter(pk=self.tier.pk).exists()
+            return True
+
+        if self.tier.purchasable_by == PB.MEMBERS and is_member:
+            return
+        if self.tier.purchasable_by == PB.INVITED and _invited_passes():
+            return
+        if self.tier.purchasable_by == PB.INVITED_AND_MEMBERS and (is_member or _invited_passes()):
+            return
+
+        raise HttpError(403, str(_("You are not allowed to purchase from this tier.")))
 
     def get_user_ticket_count(self) -> int:
         """Get count of user's existing non-cancelled tickets for this tier.
@@ -389,6 +422,9 @@ class BatchTicketService:
         Raises:
             HttpError: If validation fails or ticket creation fails.
         """
+        # Validate purchasability (invitation-linked restrictions, membership, etc.)
+        self._assert_purchasable_by()
+
         # Validate batch size
         self.validate_batch_size(len(items))
 
