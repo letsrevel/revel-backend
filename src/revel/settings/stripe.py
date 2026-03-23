@@ -16,3 +16,5 @@ PAYMENT_DEFAULT_EXPIRY_MINUTES = config("PAYMENT_DEFAULT_EXPIRY_MINUTES", cast=i
 # Test Stripe Connect account ID for bootstrap data
 CONNECTED_TEST_STRIPE_ID = config("CONNECTED_TEST_STRIPE_ID", default=None)
 DEFAULT_REFERRAL_SHARE_PERCENT = config("DEFAULT_REFERRAL_SHARE_PERCENT", cast=Decimal, default=Decimal("15.00"))
+# Minimum payout amount (in DEFAULT_CURRENCY). Payouts below this are deferred to the next period.
+MINIMUM_PAYOUT_AMOUNT = config("MINIMUM_PAYOUT_AMOUNT", cast=Decimal, default=Decimal("5.00"))

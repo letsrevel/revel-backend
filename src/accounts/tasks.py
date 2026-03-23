@@ -767,6 +767,19 @@ def process_referral_payouts() -> dict[str, int]:
             stats["skipped"] += 1
             continue
 
+        if payout.payout_amount < settings.MINIMUM_PAYOUT_AMOUNT:
+            logger.info(
+                "payout_skipped_below_threshold",
+                referrer_id=str(referrer.id),
+                payout_id=str(payout.id),
+                amount=str(payout.payout_amount),
+                threshold=str(settings.MINIMUM_PAYOUT_AMOUNT),
+            )
+            payout.status = ReferralPayout.Status.CALCULATED
+            payout.save(update_fields=["status", "updated_at"])
+            stats["skipped"] += 1
+            continue
+
         # --- Stripe Transfer (idempotent via payout ID key) ---
         try:
             transfer = stripe.Transfer.create(

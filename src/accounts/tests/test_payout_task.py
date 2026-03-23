@@ -239,6 +239,37 @@ class TestPayoutPreflightChecks:
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     @patch("accounts.tasks.stripe.Transfer.create")
+    def test_skips_when_below_minimum_threshold(
+        self,
+        mock_transfer: MagicMock,
+        mock_gen_statement: MagicMock,
+        referral: Referral,
+        billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """Payout is skipped (stays CALCULATED) when amount is below MINIMUM_PAYOUT_AMOUNT."""
+        payout = ReferralPayout.objects.create(
+            referral=referral,
+            period_start=date(2026, 3, 1),
+            period_end=date(2026, 3, 31),
+            net_platform_fees=Decimal("20.00"),
+            payout_amount=Decimal("3.00"),  # below €5 threshold
+            currency="EUR",
+            status=ReferralPayout.Status.CALCULATED,
+        )
+
+        stats = process_referral_payouts()
+
+        assert stats["skipped"] == 1
+        assert stats["paid"] == 0
+        assert stats["failed"] == 0
+        mock_transfer.assert_not_called()
+        mock_gen_statement.assert_not_called()
+        payout.refresh_from_db()
+        assert payout.status == ReferralPayout.Status.CALCULATED
+
+    @patch("accounts.service.payout_statement_service.generate_payout_statement")
+    @patch("accounts.tasks.stripe.Transfer.create")
     def test_only_processes_calculated_status(
         self,
         mock_transfer: MagicMock,
