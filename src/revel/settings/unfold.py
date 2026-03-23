@@ -212,6 +212,11 @@ UNFOLD = {
                         "link": reverse_lazy("admin:events_tickettier_changelist"),
                     },
                     {
+                        "title": _("Discount Codes"),
+                        "icon": "percent",
+                        "link": reverse_lazy("admin:events_discountcode_changelist"),
+                    },
+                    {
                         "title": _("RSVPs"),
                         "icon": "how_to_reg",
                         "link": reverse_lazy("admin:events_eventrsvp_changelist"),
