@@ -2,12 +2,13 @@
 
 import datetime
 import typing as t
+from decimal import Decimal
 from uuid import uuid4
 
 from django.conf import settings
 from ninja import ModelSchema, Schema
 from ninja_jwt.schema import TokenObtainPairOutputSchema
-from pydantic import UUID4, EmailStr, Field, field_serializer, field_validator, model_validator
+from pydantic import UUID4, AwareDatetime, EmailStr, Field, field_serializer, field_validator, model_validator
 
 from accounts.password_validation import validate_password
 from common.schema import (
@@ -24,6 +25,8 @@ from .models import (
     DietaryRestriction,
     FoodItem,
     ReferralCode,
+    ReferralPayout,
+    ReferralPayoutStatement,
     RevelUser,
     UserBillingProfile,
     UserDietaryPreference,
@@ -431,3 +434,47 @@ class UserBillingProfileUpdateSchema(BillingInfoSchemaMixin):
 
 class UserVATIdUpdateSchema(VATIdUpdateBaseSchema):
     """Schema for setting/updating a user's VAT ID."""
+
+
+# Referral Payout Schemas
+
+
+class ReferralPayoutSchema(Schema):
+    """Schema for referral payout list responses."""
+
+    id: UUID4
+    period_start: datetime.date
+    period_end: datetime.date
+    net_platform_fees: Decimal
+    payout_amount: Decimal
+    currency: str
+    status: ReferralPayout.Status
+    has_statement: bool
+    created_at: AwareDatetime
+
+    @staticmethod
+    def resolve_has_statement(obj: ReferralPayout) -> bool:
+        """Check whether this payout has a generated statement."""
+        return hasattr(obj, "statement")
+
+
+class ReferralPayoutStatementSchema(Schema):
+    """Schema for referral payout statement responses."""
+
+    id: UUID4
+    document_type: ReferralPayoutStatement.DocumentType
+    document_number: str
+    amount_gross: Decimal
+    amount_net: Decimal
+    amount_vat: Decimal
+    vat_rate: Decimal
+    currency: str
+    reverse_charge: bool
+    issued_at: AwareDatetime | None = None
+    created_at: AwareDatetime
+
+
+class StatementDownloadURLSchema(Schema):
+    """Schema for payout statement PDF download URL response."""
+
+    download_url: str
