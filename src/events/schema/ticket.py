@@ -63,6 +63,7 @@ class TicketTierSchema(ModelSchema):
     max_tickets_per_user: int | None = None
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
+    can_purchase: bool = True
 
     class Meta:
         model = TicketTier
@@ -84,6 +85,11 @@ class TicketTierSchema(ModelSchema):
             "max_tickets_per_user",
             "display_order",
         ]
+
+    @staticmethod
+    def resolve_can_purchase(obj: TicketTier) -> bool:
+        """Resolve from annotated attribute, defaults to True if not set."""
+        return getattr(obj, "_can_purchase", True)
 
 
 class PaymentSchema(ModelSchema):

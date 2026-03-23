@@ -564,6 +564,34 @@ class TestTokenClaimTierLinks:
                 ticket_tier_ids=[own.id, other.id],
             )
 
+    def test_claim_adds_tiers_to_existing_invitation(
+        self,
+        private_event: Event,
+        owner: RevelUser,
+        invited_user: RevelUser,
+    ) -> None:
+        """Claiming a token with tiers adds them to an already-existing invitation."""
+        tier_a = TicketTier.objects.create(event=private_event, name="A")
+        tier_b = TicketTier.objects.create(event=private_event, name="B")
+        # Pre-existing invitation with tier_a
+        invitation = EventInvitation.objects.create(event=private_event, user=invited_user)
+        invitation.tiers.add(tier_a)
+        # Token grants tier_b
+        token = create_event_token(
+            event=private_event,
+            issuer=owner,
+            duration=60,
+            grants_invitation=True,
+            ticket_tier_ids=[tier_b.id],
+        )
+
+        result = claim_invitation(invited_user, token.pk)
+
+        assert result is not None
+        linked = set(result.tiers.values_list("id", flat=True))
+        assert tier_a.id in linked  # existing tier kept
+        assert tier_b.id in linked  # new tier added
+
 
 # ---------------------------------------------------------------------------
 # 4. Direct invitation tests

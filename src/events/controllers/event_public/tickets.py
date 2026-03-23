@@ -13,7 +13,7 @@ from common.schema import ResponseMessage
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.controllers.permissions import CanPurchaseTicket
-from events.service import discount_code_service
+from events.service import discount_code_service, ticket_service
 from events.service.batch_ticket_service import BatchTicketService
 from events.service.event_manager import EventManager, EventUserEligibility
 
@@ -29,21 +29,29 @@ class EventPublicTicketsController(EventPublicBaseController):
         url_name="tier_list",
         response={200: list[schema.TicketTierSchema]},
     )
-    def list_tiers(self, event_id: UUID) -> models.ticket.TicketTierQuerySet:
-        """Get all ticket tiers available for purchase at this event.
+    def list_tiers(self, event_id: UUID) -> list[models.TicketTier]:
+        """Get all visible ticket tiers for this event.
 
-        Returns ticket types with pricing, availability, and sales windows. Filters tiers based
-        on user eligibility - you'll only see tiers you're allowed to purchase. Check visibility
-        settings and sales_start_at/sales_end_at to determine which are currently on sale.
+        Returns ticket types with pricing, availability, and sales windows. Each tier includes
+        a `can_purchase` boolean indicating whether the current user is eligible to buy from it.
+        Tiers the user cannot see at all (e.g. STAFF_ONLY) are excluded entirely.
         """
         event = self.get_one(event_id)
-        return (
-            models.TicketTier.objects.for_user(self.maybe_user())
-            .filter(event=event)
+        user = self.maybe_user()
+        visible_tiers = list(
+            models.TicketTier.objects.for_visible_event(event, user)
             .with_venue_and_sector()
             .distinct()
             .order_by("display_order", "name")
         )
+        if user and not user.is_anonymous:
+            eligible_ids = {t.id for t in ticket_service.get_eligible_tiers(event, user)}
+        else:
+            # Anonymous users can only purchase PUBLIC tiers
+            eligible_ids = {t.id for t in visible_tiers if t.purchasable_by == models.TicketTier.PurchasableBy.PUBLIC}
+        for tier in visible_tiers:
+            tier._can_purchase = tier.id in eligible_ids  # type: ignore[attr-defined]
+        return visible_tiers
 
     @route.get(
         "/{uuid:event_id}/tickets/{tier_id}/seats",

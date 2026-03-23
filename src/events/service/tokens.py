@@ -152,8 +152,8 @@ def claim_invitation(user: RevelUser, token: str) -> EventInvitation | None:
     )
     if created:
         EventToken.objects.filter(pk=event_token.pk).update(uses=F("uses") + 1)
-        # Copy tier links from token to invitation
-        token_tiers = event_token.ticket_tiers.all()
-        if token_tiers:
-            invitation.tiers.set(token_tiers)
+    # Add tier links from token to invitation (additive — works for both new and existing invitations)
+    token_tiers = event_token.ticket_tiers.all()
+    if token_tiers:
+        invitation.tiers.add(*token_tiers)
     return invitation
