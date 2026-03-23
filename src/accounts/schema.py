@@ -406,6 +406,7 @@ class UserBillingProfileSchema(ModelSchema):
             "vat_id_validated_at",
             "billing_address",
             "billing_email",
+            "self_billing_agreed",
         ]
 
 
