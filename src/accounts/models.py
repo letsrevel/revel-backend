@@ -3,6 +3,7 @@ import secrets
 import typing as t
 import uuid
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 import pyotp
 from django.conf import settings
@@ -466,6 +467,7 @@ class ReferralPayout(TimeStampedModel):
         PENDING = "pending", "Pending"
         PAID = "paid", "Paid"
         FAILED = "failed", "Failed"
+        ROLLED_OVER = "rolled_over", "Rolled Over"
 
     referral = models.ForeignKey(Referral, on_delete=models.PROTECT, related_name="payouts")
     period_start = models.DateField(db_index=True)
@@ -474,7 +476,15 @@ class ReferralPayout(TimeStampedModel):
         max_digits=10, decimal_places=2, help_text="Sum of platform_fee_net for the period (excludes VAT)"
     )
     payout_amount = models.DecimalField(
-        max_digits=10, decimal_places=2, help_text="net_platform_fees * revenue_share_percent / 100"
+        max_digits=10,
+        decimal_places=2,
+        help_text="net_platform_fees * revenue_share_percent / 100 + rolled_over_amount",
+    )
+    rolled_over_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Amount carried forward from prior below-threshold periods.",
     )
     currency = models.CharField(max_length=3, default=settings.DEFAULT_CURRENCY)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.CALCULATED, db_index=True)

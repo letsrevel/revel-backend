@@ -96,9 +96,19 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
             skipped += 1
             continue
 
-        payout_amount = (net_fees * referral.revenue_share_percent / Decimal("100")).quantize(
+        current_period_share = (net_fees * referral.revenue_share_percent / Decimal("100")).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
+
+        # Roll over un-disbursed amounts from prior below-threshold periods
+        prior_payouts = ReferralPayout.objects.filter(
+            referral=referral,
+            status=ReferralPayout.Status.CALCULATED,
+            period_start__lt=period_start,
+        )
+        rolled_over = sum(p.payout_amount for p in prior_payouts)
+
+        payout_amount = current_period_share + rolled_over
 
         _, was_created = ReferralPayout.objects.get_or_create(
             referral=referral,
@@ -107,12 +117,23 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
                 "period_end": period_end,
                 "net_platform_fees": net_fees,
                 "payout_amount": payout_amount,
+                "rolled_over_amount": rolled_over,
                 "currency": platform_currency,
                 "status": ReferralPayout.Status.CALCULATED,
             },
         )
 
         if was_created:
+            # Mark prior payouts as rolled over (only if we actually created the new one)
+            if rolled_over:
+                rolled_count = prior_payouts.update(status=ReferralPayout.Status.ROLLED_OVER)
+                logger.info(
+                    "prior_payouts_rolled_over",
+                    referral_id=str(referral.id),
+                    rolled_over_count=rolled_count,
+                    rolled_over_amount=str(rolled_over),
+                )
+
             created += 1
             logger.info(
                 "referral_payout_created",
@@ -121,6 +142,7 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
                 period=str(period_start),
                 net_fees=str(net_fees),
                 payout=str(payout_amount),
+                rolled_over=str(rolled_over),
                 currency=platform_currency,
             )
         else:
