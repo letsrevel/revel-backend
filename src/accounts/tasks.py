@@ -746,8 +746,22 @@ def process_referral_payouts() -> dict[str, int]:
             stats["skipped"] += 1
             continue
 
-        if not referrer.billing_profile.self_billing_agreed:
+        profile = referrer.billing_profile
+        if not profile.self_billing_agreed:
             logger.info("payout_skipped_no_agreement", referrer_id=str(referrer.id), payout_id=str(payout.id))
+            payout.status = ReferralPayout.Status.CALCULATED
+            payout.save(update_fields=["status", "updated_at"])
+            stats["skipped"] += 1
+            continue
+
+        missing_fields = [f for f in ("billing_name", "vat_country_code", "billing_address") if not getattr(profile, f)]
+        if missing_fields:
+            logger.info(
+                "payout_skipped_incomplete_billing",
+                referrer_id=str(referrer.id),
+                payout_id=str(payout.id),
+                missing=missing_fields,
+            )
             payout.status = ReferralPayout.Status.CALCULATED
             payout.save(update_fields=["status", "updated_at"])
             stats["skipped"] += 1

@@ -215,6 +215,30 @@ class TestPayoutPreflightChecks:
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     @patch("accounts.tasks.stripe.Transfer.create")
+    def test_skips_when_billing_info_incomplete(
+        self,
+        mock_transfer: MagicMock,
+        mock_gen_statement: MagicMock,
+        calculated_payout: ReferralPayout,
+        billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """Payout is skipped when billing profile exists but has empty required fields."""
+        billing_profile.vat_country_code = ""
+        billing_profile.save(update_fields=["vat_country_code"])
+
+        stats = process_referral_payouts()
+
+        assert stats["skipped"] == 1
+        assert stats["paid"] == 0
+        assert stats["failed"] == 0
+        mock_transfer.assert_not_called()
+        mock_gen_statement.assert_not_called()
+        calculated_payout.refresh_from_db()
+        assert calculated_payout.status == ReferralPayout.Status.CALCULATED
+
+    @patch("accounts.service.payout_statement_service.generate_payout_statement")
+    @patch("accounts.tasks.stripe.Transfer.create")
     def test_only_processes_calculated_status(
         self,
         mock_transfer: MagicMock,
