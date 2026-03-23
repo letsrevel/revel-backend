@@ -318,6 +318,155 @@ def test_dashboard_invitations_search(
     assert response.json()["results"][0]["id"] == str(invitation2.id)
 
 
+class TestDashboardInvitationsExcludeAccepted:
+    """Tests for the exclude_accepted filter on the invitations endpoint."""
+
+    @pytest.fixture
+    def _setup(self, dashboard_user: RevelUser, organization: Organization) -> dict[str, t.Any]:
+        """Create events with invitations plus overlapping tickets/RSVPs."""
+        now = timezone.now()
+
+        # Event where user has an active ticket
+        evt_active = Event.objects.create(
+            organization=organization,
+            name="Active Ticket Event",
+            status="open",
+            start=now + timedelta(days=1),
+            end=now + timedelta(days=2),
+        )
+        tier_active = evt_active.ticket_tiers.first()
+        assert tier_active is not None
+        Ticket.objects.create(
+            event=evt_active,
+            user=dashboard_user,
+            tier=tier_active,
+            guest_name="g",
+            status=Ticket.TicketStatus.ACTIVE,
+        )
+        EventInvitation.objects.create(event=evt_active, user=dashboard_user)
+
+        # Event where user has a pending ticket
+        evt_pending = Event.objects.create(
+            organization=organization,
+            name="Pending Ticket Event",
+            status="open",
+            start=now + timedelta(days=3),
+            end=now + timedelta(days=4),
+        )
+        tier_pending = evt_pending.ticket_tiers.first()
+        assert tier_pending is not None
+        Ticket.objects.create(
+            event=evt_pending,
+            user=dashboard_user,
+            tier=tier_pending,
+            guest_name="g",
+            status=Ticket.TicketStatus.PENDING,
+        )
+        EventInvitation.objects.create(event=evt_pending, user=dashboard_user)
+
+        # Event where user has a checked-in ticket
+        evt_checked = Event.objects.create(
+            organization=organization,
+            name="Checked In Event",
+            status="open",
+            start=now + timedelta(days=5),
+            end=now + timedelta(days=6),
+        )
+        tier_checked = evt_checked.ticket_tiers.first()
+        assert tier_checked is not None
+        Ticket.objects.create(
+            event=evt_checked,
+            user=dashboard_user,
+            tier=tier_checked,
+            guest_name="g",
+            status=Ticket.TicketStatus.CHECKED_IN,
+        )
+        EventInvitation.objects.create(event=evt_checked, user=dashboard_user)
+
+        # Event where user has a YES RSVP
+        evt_rsvp = Event.objects.create(
+            organization=organization,
+            name="RSVP Yes Event",
+            status="open",
+            start=now + timedelta(days=7),
+            end=now + timedelta(days=8),
+        )
+        EventRSVP.objects.create(event=evt_rsvp, user=dashboard_user, status=EventRSVP.RsvpStatus.YES)
+        EventInvitation.objects.create(event=evt_rsvp, user=dashboard_user)
+
+        # Event where user has a cancelled ticket — invite should still show
+        evt_cancelled = Event.objects.create(
+            organization=organization,
+            name="Cancelled Ticket Event",
+            status="open",
+            start=now + timedelta(days=9),
+            end=now + timedelta(days=10),
+        )
+        tier_cancelled = evt_cancelled.ticket_tiers.first()
+        assert tier_cancelled is not None
+        Ticket.objects.create(
+            event=evt_cancelled,
+            user=dashboard_user,
+            tier=tier_cancelled,
+            guest_name="g",
+            status=Ticket.TicketStatus.CANCELLED,
+        )
+        EventInvitation.objects.create(event=evt_cancelled, user=dashboard_user)
+
+        # Event where user has a MAYBE RSVP — invite should still show
+        evt_rsvp_maybe = Event.objects.create(
+            organization=organization,
+            name="RSVP Maybe Event",
+            status="open",
+            start=now + timedelta(days=11),
+            end=now + timedelta(days=12),
+        )
+        EventRSVP.objects.create(event=evt_rsvp_maybe, user=dashboard_user, status=EventRSVP.RsvpStatus.MAYBE)
+        EventInvitation.objects.create(event=evt_rsvp_maybe, user=dashboard_user)
+
+        # Plain invitation with no ticket/RSVP — should always show
+        evt_plain = Event.objects.create(
+            organization=organization,
+            name="Plain Invite Event",
+            status="open",
+            start=now + timedelta(days=13),
+            end=now + timedelta(days=14),
+        )
+        EventInvitation.objects.create(event=evt_plain, user=dashboard_user)
+
+        return {
+            "excluded": {evt_active, evt_pending, evt_checked, evt_rsvp},
+            "kept": {evt_cancelled, evt_rsvp_maybe, evt_plain},
+        }
+
+    def test_exclude_accepted_default(self, dashboard_client: Client, _setup: dict[str, t.Any]) -> None:
+        """By default, invitations for events with active tickets or YES RSVPs are hidden."""
+        url = reverse("api:dashboard_invitations")
+        response = dashboard_client.get(url)
+        assert response.status_code == 200
+        data = response.json()
+
+        returned_names = {r["event"]["name"] for r in data["results"]}
+        assert returned_names == {"Cancelled Ticket Event", "RSVP Maybe Event", "Plain Invite Event"}
+        assert data["count"] == 3
+
+    def test_exclude_accepted_false_shows_all(self, dashboard_client: Client, _setup: dict[str, t.Any]) -> None:
+        """Setting exclude_accepted=false returns all invitations."""
+        url = reverse("api:dashboard_invitations")
+        response = dashboard_client.get(url, {"exclude_accepted": "false"})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 7
+
+    def test_exclude_accepted_with_no_rsvp(self, dashboard_client: Client, _setup: dict[str, t.Any]) -> None:
+        """RSVP NO does not exclude the invitation."""
+        # The MAYBE RSVP event is already tested. Verify a NO RSVP also keeps the invite.
+        url = reverse("api:dashboard_invitations")
+        response = dashboard_client.get(url)
+        names = {r["event"]["name"] for r in response.json()["results"]}
+        assert "RSVP Maybe Event" in names
+
+
 # Tickets Tests
 
 

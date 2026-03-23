@@ -221,6 +221,7 @@ class DashboardController(UserAwareController):
         self,
         event_id: UUID | None = None,
         include_past: bool = False,
+        exclude_accepted: bool = True,
     ) -> QuerySet[models.EventInvitation]:
         """View your event invitations across all events.
 
@@ -228,15 +229,35 @@ class DashboardController(UserAwareController):
         (tier assignment, waived requirements, etc.). By default shows only invitations for upcoming
         events; set include_past=true to include past events. An event is considered past if its end
         time has passed. Filter by event_id to see invitations for a specific event.
+
+        By default, invitations are hidden for events where you already have a non-cancelled ticket
+        or a YES RSVP. Set exclude_accepted=false to include them.
         """
-        qs = models.EventInvitation.objects.with_event_details().filter(user=self.user())
+        user = self.user()
+        qs = models.EventInvitation.objects.with_event_details().filter(user=user)
 
         if event_id:
             qs = qs.filter(event_id=event_id)
 
         if not include_past:
-            # Filter for upcoming events: end > now
             qs = qs.filter(event__end__gt=timezone.now())
+
+        if exclude_accepted:
+            qs = qs.exclude(
+                event_id__in=models.Ticket.objects.filter(
+                    user=user,
+                    status__in=[
+                        models.Ticket.TicketStatus.PENDING,
+                        models.Ticket.TicketStatus.ACTIVE,
+                        models.Ticket.TicketStatus.CHECKED_IN,
+                    ],
+                ).values("event_id")
+            ).exclude(
+                event_id__in=models.EventRSVP.objects.filter(
+                    user=user,
+                    status=models.EventRSVP.RsvpStatus.YES,
+                ).values("event_id")
+            )
 
         return qs.distinct().order_by("-created_at")
 

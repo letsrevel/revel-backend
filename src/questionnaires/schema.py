@@ -59,6 +59,7 @@ AUDIO_MIME_TYPES: frozenset[str] = frozenset(
         "audio/webm",
         "video/webm",  # WebM container for browser audio recordings
         "audio/aac",
+        "audio/mp4",  # .m4a
         "audio/flac",
     }
 )
