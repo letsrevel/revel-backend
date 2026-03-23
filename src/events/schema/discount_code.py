@@ -88,7 +88,7 @@ class _DiscountCodeValidatorMixin:
 class DiscountCodeCreateSchema(_DiscountCodeValidatorMixin, Schema):
     """Schema for creating a discount code."""
 
-    code: str = Field(..., max_length=64, min_length=1)
+    code: str = Field(..., max_length=64, min_length=1, pattern=r"^[^\W_]+$")
     discount_type: DiscountCode.DiscountType
     discount_value: Decimal = Field(..., ge=0)
     currency: str | None = Field(None, max_length=3)
@@ -126,7 +126,7 @@ class DiscountCodeUpdateSchema(_DiscountCodeValidatorMixin, Schema):
 class DiscountCodeValidationSchema(Schema):
     """Request schema for validating a discount code at checkout."""
 
-    code: str = Field(..., min_length=1, max_length=64)
+    code: str = Field(..., min_length=1, max_length=64, pattern=r"^[^\W_]+$")
 
 
 class DiscountCodeValidationResponse(Schema):
