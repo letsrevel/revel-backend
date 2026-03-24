@@ -211,3 +211,4 @@ rendered_templates/
 # Local drafting files (legal docs)
 toc.md
 privacy.md
+.research/

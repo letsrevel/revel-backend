@@ -734,7 +734,7 @@ class QuestionnaireService:
             except QuestionnaireSection.DoesNotExist:
                 raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
 
-        for key, value in payload.model_dump().items():
+        for key, value in payload.model_dump(exclude={"section_id"}).items():
             setattr(ft_question, key, value)
         ft_question.save()
         return ft_question
