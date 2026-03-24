@@ -1,6 +1,6 @@
 import typing as t
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 import stripe
 import structlog
@@ -213,7 +213,9 @@ def create_checkout_session(
     )
 
     org = event.organization
-    net_fee = round(effective_price * (org.platform_fee_percent / Decimal(100)), 2)
+    net_fee = (effective_price * org.platform_fee_percent / Decimal(100)).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
     # Fixed fee is stored in DEFAULT_CURRENCY; convert to payment currency if different.
     # Exchange rates are always available (seeded by migration, refreshed daily).
     # Unsupported currencies are rejected at tier creation (schema validation).
@@ -301,7 +303,7 @@ def create_batch_checkout_session(
     # Calculate net fee and gross up with VAT
     org = event.organization
     total_amount = effective_price * len(tickets)
-    net_fee = round(total_amount * (org.platform_fee_percent / Decimal(100)), 2)
+    net_fee = (total_amount * org.platform_fee_percent / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     # Fixed fee is stored in DEFAULT_CURRENCY; convert to payment currency if different.
     # Exchange rates are always available (seeded by migration, refreshed daily).
     # Unsupported currencies are rejected at tier creation (schema validation).
