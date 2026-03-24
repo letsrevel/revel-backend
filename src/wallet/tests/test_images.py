@@ -257,6 +257,20 @@ class TestResolveCoverArt:
         result = resolve_cover_art(mock_event)
         assert result is None
 
+    def test_falls_back_to_original_when_social_unreadable(self, sample_logo_bytes: bytes) -> None:
+        """Should fall back to cover_art when cover_art_social exists but fails to read."""
+        mock_event = MagicMock()
+        mock_event.cover_art_social = MagicMock()
+        mock_event.cover_art_social.seek.side_effect = Exception("Read error")
+        mock_event.cover_art = io.BytesIO(sample_logo_bytes)
+        mock_event.event_series = None
+        mock_event.organization = MagicMock()
+        mock_event.organization.cover_art_social = None
+        mock_event.organization.cover_art = None
+
+        result = resolve_cover_art(mock_event)
+        assert result == sample_logo_bytes
+
 
 class TestGenerateFallbackLogo:
     """Tests for generate_fallback_logo function."""

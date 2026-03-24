@@ -140,8 +140,10 @@ def resolve_cover_art(event: t.Any) -> bytes | None:
     """Resolve cover art image with fallback chain.
 
     Order: event -> series -> organization.
-    Prefers cover_art_social (1200x630) over full-resolution originals to reduce
-    memory usage and processing time during pass generation.
+    At each level, prefers cover_art_social (1200x630) over full-resolution
+    originals to reduce memory usage and processing time. Sources are listed
+    individually so that a read failure on the social variant still falls back
+    to the original for the same entity.
 
     Args:
         event: The event model with potential cover art sources.
@@ -149,13 +151,15 @@ def resolve_cover_art(event: t.Any) -> bytes | None:
     Returns:
         Image bytes or None if no cover art found.
     """
-    sources = [
-        event.cover_art_social or event.cover_art,
-        (getattr(event.event_series, "cover_art_social", None) or getattr(event.event_series, "cover_art", None))
-        if event.event_series
-        else None,
-        event.organization.cover_art_social or event.organization.cover_art,
+    sources: list[t.Any] = [
+        event.cover_art_social,
+        event.cover_art,
     ]
+    if event.event_series:
+        sources.append(getattr(event.event_series, "cover_art_social", None))
+        sources.append(getattr(event.event_series, "cover_art", None))
+    sources.append(event.organization.cover_art_social)
+    sources.append(event.organization.cover_art)
 
     for source in sources:
         if source:
