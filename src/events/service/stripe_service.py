@@ -367,10 +367,12 @@ def create_batch_checkout_session(
         logger.error("stripe_batch_session_creation_failed", error=str(e), event_id=str(event.id))
         raise HttpError(500, str(_("Payment processing failed. Please try again later."))) from e
 
-    # Distribute gross and net independently for penny-perfect per-ticket records
+    # Distribute gross and vat independently; derive net = gross - vat.
+    # This guarantees non-negative per-ticket VAT (unlike distributing gross + net
+    # independently, where remainder pennies could land on different indices).
     ticket_count = len(tickets)
     per_ticket_gross = distribute_amount_across_items(total_fee_vat.fee_gross, ticket_count)
-    per_ticket_net = distribute_amount_across_items(total_fee_vat.fee_net, ticket_count)
+    per_ticket_vat = distribute_amount_across_items(total_fee_vat.fee_vat, ticket_count)
 
     # Ticket sale VAT breakdown
     effective_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
@@ -392,8 +394,8 @@ def create_batch_checkout_session(
             vat_amount=ticket_vat.vat_amount,
             vat_rate=ticket_vat.vat_rate,
             # Platform fee VAT breakdown (distributed to avoid penny errors)
-            platform_fee_net=per_ticket_net[i],
-            platform_fee_vat=per_ticket_gross[i] - per_ticket_net[i],
+            platform_fee_net=per_ticket_gross[i] - per_ticket_vat[i],
+            platform_fee_vat=per_ticket_vat[i],
             platform_fee_vat_rate=total_fee_vat.fee_vat_rate,
             platform_fee_reverse_charge=total_fee_vat.reverse_charge,
         )

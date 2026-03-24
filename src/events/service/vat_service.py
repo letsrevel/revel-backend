@@ -37,9 +37,19 @@ def calculate_platform_fee_vat(
     platform_vat_country: str,
     platform_vat_rate: Decimal,
 ) -> PlatformFeeVATBreakdown:
-    """Calculate VAT breakdown for a platform fee (VAT-exclusive / net amount).
+    """Calculate VAT breakdown for a VAT-exclusive platform fee.
 
     Thin wrapper around :func:`common.service.vat_utils.calculate_b2b_fee_vat`.
+
+    Args:
+        net_platform_fee: Platform fee before VAT.
+        org: Organization being billed.
+        platform_vat_country: Platform's VAT country code.
+        platform_vat_rate: Platform's domestic VAT rate.
+
+    Returns:
+        VAT breakdown where ``fee_net`` is the input amount and ``fee_gross``
+        includes VAT when applicable.
     """
     return calculate_b2b_fee_vat(net_platform_fee, org, platform_vat_country, platform_vat_rate)
 
