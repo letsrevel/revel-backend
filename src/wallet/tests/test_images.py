@@ -162,12 +162,28 @@ class TestResizeImage:
 class TestResolveCoverArt:
     """Tests for resolve_cover_art function."""
 
-    def test_returns_event_cover_art_first(self, sample_logo_bytes: bytes) -> None:
-        """Should prioritize event cover_art."""
+    def test_prefers_cover_art_social_over_original(self, sample_logo_bytes: bytes) -> None:
+        """Should prefer cover_art_social when available."""
+        social_bytes = b"social-image-data"
         mock_event = MagicMock()
+        mock_event.cover_art_social = io.BytesIO(social_bytes)
         mock_event.cover_art = io.BytesIO(sample_logo_bytes)
         mock_event.event_series = None
         mock_event.organization = MagicMock()
+        mock_event.organization.cover_art_social = None
+        mock_event.organization.cover_art = None
+
+        result = resolve_cover_art(mock_event)
+        assert result == social_bytes
+
+    def test_falls_back_to_original_when_no_social(self, sample_logo_bytes: bytes) -> None:
+        """Should fall back to cover_art when cover_art_social is absent."""
+        mock_event = MagicMock()
+        mock_event.cover_art_social = None
+        mock_event.cover_art = io.BytesIO(sample_logo_bytes)
+        mock_event.event_series = None
+        mock_event.organization = MagicMock()
+        mock_event.organization.cover_art_social = None
         mock_event.organization.cover_art = None
 
         result = resolve_cover_art(mock_event)
@@ -176,10 +192,13 @@ class TestResolveCoverArt:
     def test_falls_back_to_series_cover_art(self, sample_logo_bytes: bytes) -> None:
         """Should fall back to series cover_art when event has none."""
         mock_event = MagicMock()
+        mock_event.cover_art_social = None
         mock_event.cover_art = None
         mock_event.event_series = MagicMock()
+        mock_event.event_series.cover_art_social = None
         mock_event.event_series.cover_art = io.BytesIO(sample_logo_bytes)
         mock_event.organization = MagicMock()
+        mock_event.organization.cover_art_social = None
         mock_event.organization.cover_art = None
 
         result = resolve_cover_art(mock_event)
@@ -188,9 +207,11 @@ class TestResolveCoverArt:
     def test_falls_back_to_organization_cover_art(self, sample_logo_bytes: bytes) -> None:
         """Should fall back to organization cover_art when others are unavailable."""
         mock_event = MagicMock()
+        mock_event.cover_art_social = None
         mock_event.cover_art = None
         mock_event.event_series = None
         mock_event.organization = MagicMock()
+        mock_event.organization.cover_art_social = None
         mock_event.organization.cover_art = io.BytesIO(sample_logo_bytes)
 
         result = resolve_cover_art(mock_event)
@@ -199,9 +220,11 @@ class TestResolveCoverArt:
     def test_returns_none_when_no_cover_art(self) -> None:
         """Should return None when no cover art is available."""
         mock_event = MagicMock()
+        mock_event.cover_art_social = None
         mock_event.cover_art = None
         mock_event.event_series = None
         mock_event.organization = MagicMock()
+        mock_event.organization.cover_art_social = None
         mock_event.organization.cover_art = None
 
         result = resolve_cover_art(mock_event)
@@ -210,9 +233,11 @@ class TestResolveCoverArt:
     def test_handles_event_series_none(self) -> None:
         """Should handle event with no event_series."""
         mock_event = MagicMock()
+        mock_event.cover_art_social = None
         mock_event.cover_art = None
         mock_event.event_series = None
         mock_event.organization = MagicMock()
+        mock_event.organization.cover_art_social = None
         mock_event.organization.cover_art = None
 
         result = resolve_cover_art(mock_event)
@@ -221,14 +246,30 @@ class TestResolveCoverArt:
     def test_handles_read_error_gracefully(self) -> None:
         """Should handle read errors and try next source."""
         mock_event = MagicMock()
-        mock_event.cover_art = MagicMock()
-        mock_event.cover_art.seek.side_effect = Exception("Read error")
+        mock_event.cover_art_social = MagicMock()
+        mock_event.cover_art_social.seek.side_effect = Exception("Read error")
+        mock_event.cover_art = None
         mock_event.event_series = None
         mock_event.organization = MagicMock()
+        mock_event.organization.cover_art_social = None
         mock_event.organization.cover_art = None
 
         result = resolve_cover_art(mock_event)
         assert result is None
+
+    def test_falls_back_to_original_when_social_unreadable(self, sample_logo_bytes: bytes) -> None:
+        """Should fall back to cover_art when cover_art_social exists but fails to read."""
+        mock_event = MagicMock()
+        mock_event.cover_art_social = MagicMock()
+        mock_event.cover_art_social.seek.side_effect = Exception("Read error")
+        mock_event.cover_art = io.BytesIO(sample_logo_bytes)
+        mock_event.event_series = None
+        mock_event.organization = MagicMock()
+        mock_event.organization.cover_art_social = None
+        mock_event.organization.cover_art = None
+
+        result = resolve_cover_art(mock_event)
+        assert result == sample_logo_bytes
 
 
 class TestGenerateFallbackLogo:

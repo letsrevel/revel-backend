@@ -108,6 +108,10 @@ def _get_logo_initials(name: str) -> str:
 def _get_branding_assets(event: "models.Event") -> tuple[t.Any | None, t.Any | None, str]:
     """Get logo and cover_art with fallback priority: Event > EventSeries > Organization.
 
+    Prefers optimized variants (logo_thumbnail, cover_art_social) over full-resolution
+    originals to reduce PDF file size, falling back to originals if thumbnails
+    haven't been generated yet.
+
     Args:
         event: Event to get branding assets for
 
@@ -118,26 +122,26 @@ def _get_branding_assets(event: "models.Event") -> tuple[t.Any | None, t.Any | N
     cover_art_file = None
     branding_source_name = event.name
 
-    # Try Event first
-    if event.logo:
-        logo_file = event.logo
-    if event.cover_art:
-        cover_art_file = event.cover_art
+    # Try Event first (prefer optimized variants to reduce file size)
+    if event.logo_thumbnail or event.logo:
+        logo_file = event.logo_thumbnail or event.logo
+    if event.cover_art_social or event.cover_art:
+        cover_art_file = event.cover_art_social or event.cover_art
 
     # Try EventSeries if event doesn't have them
     if event.event_series:
-        if not logo_file and event.event_series.logo:
-            logo_file = event.event_series.logo
+        if not logo_file and (event.event_series.logo_thumbnail or event.event_series.logo):
+            logo_file = event.event_series.logo_thumbnail or event.event_series.logo
             branding_source_name = event.event_series.name
-        if not cover_art_file and event.event_series.cover_art:
-            cover_art_file = event.event_series.cover_art
+        if not cover_art_file and (event.event_series.cover_art_social or event.event_series.cover_art):
+            cover_art_file = event.event_series.cover_art_social or event.event_series.cover_art
 
     # Try Organization as final fallback
-    if not logo_file and event.organization.logo:
-        logo_file = event.organization.logo
+    if not logo_file and (event.organization.logo_thumbnail or event.organization.logo):
+        logo_file = event.organization.logo_thumbnail or event.organization.logo
         branding_source_name = event.organization.name
-    if not cover_art_file and event.organization.cover_art:
-        cover_art_file = event.organization.cover_art
+    if not cover_art_file and (event.organization.cover_art_social or event.organization.cover_art):
+        cover_art_file = event.organization.cover_art_social or event.organization.cover_art
 
     return logo_file, cover_art_file, branding_source_name
 
