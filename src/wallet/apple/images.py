@@ -139,7 +139,9 @@ def resize_image(image_data: bytes, size: tuple[int, int]) -> bytes:
 def resolve_cover_art(event: t.Any) -> bytes | None:
     """Resolve cover art image with fallback chain.
 
-    Order: event.cover_art -> series.cover_art -> organization.cover_art
+    Order: event -> series -> organization.
+    Prefers cover_art_social (1200x630) over full-resolution originals to reduce
+    memory usage and processing time during pass generation.
 
     Args:
         event: The event model with potential cover art sources.
@@ -148,9 +150,11 @@ def resolve_cover_art(event: t.Any) -> bytes | None:
         Image bytes or None if no cover art found.
     """
     sources = [
-        event.cover_art,
-        getattr(event.event_series, "cover_art", None) if event.event_series else None,
-        event.organization.cover_art,
+        event.cover_art_social or event.cover_art,
+        (getattr(event.event_series, "cover_art_social", None) or getattr(event.event_series, "cover_art", None))
+        if event.event_series
+        else None,
+        event.organization.cover_art_social or event.organization.cover_art,
     ]
 
     for source in sources:
