@@ -213,12 +213,20 @@ def create_checkout_session(
     )
 
     org = event.organization
-    platform_fee = round(effective_price * (org.platform_fee_percent / Decimal(100)), 2)
+    net_fee = (effective_price * org.platform_fee_percent / Decimal(100)).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
     # Fixed fee is stored in DEFAULT_CURRENCY; convert to payment currency if different.
     # Exchange rates are always available (seeded by migration, refreshed daily).
     # Unsupported currencies are rejected at tier creation (schema validation).
     fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, tier.currency)
-    application_fee_amount = int((platform_fee + fixed_fee) * 100)
+    net_fee_total = net_fee + fixed_fee
+
+    # Gross up the net fee with VAT when applicable
+    site = SiteSettings.get_solo()
+    fee_vat = calculate_platform_fee_vat(net_fee_total, org, site.platform_vat_country, site.platform_vat_rate)
+    application_fee_amount = int(fee_vat.fee_gross * 100)
+
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
     session = _create_stripe_checkout_session(
@@ -231,22 +239,16 @@ def create_checkout_session(
         expires_at=expires_at,
     )
 
-    # application_fee_amount is in cents.
-    db_platform_fee = (Decimal(application_fee_amount) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-    # VAT breakdowns (for accounting records, does NOT affect Stripe fee)
+    # Ticket sale VAT breakdown
     effective_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
     ticket_vat = calculate_vat_inclusive(effective_price, effective_vat_rate)
-
-    site = SiteSettings.get_solo()
-    fee_vat = calculate_platform_fee_vat(db_platform_fee, org, site.platform_vat_country, site.platform_vat_rate)
 
     payment = Payment.objects.create(
         ticket=ticket,
         user=user,
         stripe_session_id=session.id,
         amount=effective_price,
-        platform_fee=db_platform_fee,
+        platform_fee=fee_vat.fee_gross,
         currency=tier.currency,
         status=Payment.PaymentStatus.PENDING,
         raw_response={},
@@ -298,15 +300,20 @@ def create_batch_checkout_session(
     if effective_price <= 0:
         raise HttpError(400, str(_("This ticket tier cannot be purchased online.")))
 
-    # Calculate fees
+    # Calculate net fee and gross up with VAT
     org = event.organization
     total_amount = effective_price * len(tickets)
-    platform_fee = round(total_amount * (org.platform_fee_percent / Decimal(100)), 2)
+    net_fee = (total_amount * org.platform_fee_percent / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     # Fixed fee is stored in DEFAULT_CURRENCY; convert to payment currency if different.
     # Exchange rates are always available (seeded by migration, refreshed daily).
     # Unsupported currencies are rejected at tier creation (schema validation).
     fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, tier.currency)
-    application_fee_amount = int((platform_fee + fixed_fee) * 100)
+    net_fee_total = net_fee + fixed_fee
+
+    site = SiteSettings.get_solo()
+    total_fee_vat = calculate_platform_fee_vat(net_fee_total, org, site.platform_vat_country, site.platform_vat_rate)
+    application_fee_amount = int(total_fee_vat.fee_gross * 100)
+
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
     # Build line items - one per ticket with guest name
@@ -328,7 +335,6 @@ def create_batch_checkout_session(
     # Build metadata with all ticket IDs
     ticket_ids = ",".join(str(_t.id) for _t in tickets)
 
-    site = SiteSettings.get_solo()
     frontend_base_url = site.frontend_base_url
     session_data = dict(  # noqa: C408
         customer_email=user.email,
@@ -361,22 +367,16 @@ def create_batch_checkout_session(
         logger.error("stripe_batch_session_creation_failed", error=str(e), event_id=str(event.id))
         raise HttpError(500, str(_("Payment processing failed. Please try again later."))) from e
 
-    # Create Payment records for each ticket
+    # Distribute gross and vat independently; derive net = gross - vat.
+    # This guarantees non-negative per-ticket VAT (unlike distributing gross + net
+    # independently, where remainder pennies could land on different indices).
     ticket_count = len(tickets)
-    db_total_platform_fee = (Decimal(application_fee_amount) / Decimal(100)).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
-    per_ticket_fees = distribute_amount_across_items(db_total_platform_fee, ticket_count)
+    per_ticket_gross = distribute_amount_across_items(total_fee_vat.fee_gross, ticket_count)
+    per_ticket_vat = distribute_amount_across_items(total_fee_vat.fee_vat, ticket_count)
 
-    # VAT breakdowns (for accounting records, does NOT affect Stripe fee)
+    # Ticket sale VAT breakdown
     effective_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
     ticket_vat = calculate_vat_inclusive(effective_price, effective_vat_rate)
-
-    # Distribute platform fee VAT across tickets
-    fee_vat_per_ticket = [
-        calculate_platform_fee_vat(fee, org, site.platform_vat_country, site.platform_vat_rate)
-        for fee in per_ticket_fees
-    ]
 
     payments = [
         Payment(
@@ -384,7 +384,7 @@ def create_batch_checkout_session(
             user=user,
             stripe_session_id=session.id,
             amount=effective_price,
-            platform_fee=per_ticket_fees[i],
+            platform_fee=per_ticket_gross[i],
             currency=tier.currency,
             status=Payment.PaymentStatus.PENDING,
             raw_response={},
@@ -394,10 +394,10 @@ def create_batch_checkout_session(
             vat_amount=ticket_vat.vat_amount,
             vat_rate=ticket_vat.vat_rate,
             # Platform fee VAT breakdown (distributed to avoid penny errors)
-            platform_fee_net=fee_vat_per_ticket[i].fee_net,
-            platform_fee_vat=fee_vat_per_ticket[i].fee_vat,
-            platform_fee_vat_rate=fee_vat_per_ticket[i].fee_vat_rate,
-            platform_fee_reverse_charge=fee_vat_per_ticket[i].reverse_charge,
+            platform_fee_net=per_ticket_gross[i] - per_ticket_vat[i],
+            platform_fee_vat=per_ticket_vat[i],
+            platform_fee_vat_rate=total_fee_vat.fee_vat_rate,
+            platform_fee_reverse_charge=total_fee_vat.reverse_charge,
         )
         for i, ticket in enumerate(tickets)
     ]

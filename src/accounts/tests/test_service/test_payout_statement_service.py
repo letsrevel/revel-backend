@@ -191,9 +191,9 @@ class TestB2BReferrerSelfBillingInvoice:
         referrer: RevelUser,
         site_settings: SiteSettings,
     ) -> None:
-        """Austrian B2B referrer (same country): domestic VAT 20% extracted.
+        """Austrian B2B referrer (same country): domestic VAT 20% added on top.
 
-        15.00 / 1.20 = 12.50, VAT = 2.50.
+        15.00 * 0.20 = 3.00, gross = 18.00.
         """
         mock_html_cls.return_value.write_pdf.return_value = None
         # Create Austrian B2B profile
@@ -210,9 +210,9 @@ class TestB2BReferrerSelfBillingInvoice:
         statement = generate_payout_statement(payout)
 
         assert statement.document_type == ReferralPayoutStatement.DocumentType.SELF_BILLING_INVOICE
-        assert statement.amount_gross == Decimal("15.00")
-        assert statement.amount_net == Decimal("12.50")
-        assert statement.amount_vat == Decimal("2.50")
+        assert statement.amount_net == Decimal("15.00")
+        assert statement.amount_vat == Decimal("3.00")
+        assert statement.amount_gross == Decimal("18.00")
         assert statement.vat_rate == Decimal("20.00")
         assert statement.reverse_charge is False
 

@@ -102,10 +102,8 @@ def _create_bootstrap_payments(
         payment_date = first_of_previous.replace(day=payment_day)
 
         ticket_vat = calculate_vat_inclusive(tier.price, effective_vat_rate)
-        platform_fee_amount = (tier.price * Decimal("0.10")).quantize(Decimal("0.01"))
-        fee_vat = calculate_platform_fee_vat(
-            platform_fee_amount, org, site.platform_vat_country, site.platform_vat_rate
-        )
+        net_fee_amount = (tier.price * Decimal("0.10")).quantize(Decimal("0.01"))
+        fee_vat = calculate_platform_fee_vat(net_fee_amount, org, site.platform_vat_country, site.platform_vat_rate)
 
         ticket = events_models.Ticket.objects.create(
             event=event,
@@ -121,7 +119,7 @@ def _create_bootstrap_payments(
             stripe_session_id=f"cs_bootstrap_{i + 1}_{first_of_previous.isoformat()}",
             status=events_models.Payment.PaymentStatus.SUCCEEDED,
             amount=tier.price,
-            platform_fee=platform_fee_amount,
+            platform_fee=fee_vat.fee_gross,
             currency=tier.currency,
             net_amount=ticket_vat.net_amount,
             vat_amount=ticket_vat.vat_amount,

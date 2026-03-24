@@ -3,6 +3,7 @@
 Covers:
 - ``calculate_vat_inclusive``: VAT-inclusive breakdown with positive, zero,
   and negative rates.
+- ``calculate_vat_exclusive``: VAT-exclusive breakdown (net → gross).
 - ``calculate_b2b_fee_vat``: All four EU VAT scenarios (same country,
   EU cross-border with valid VAT, EU without valid VAT, outside EU).
 - ``VATEntity`` protocol compatibility with a plain dataclass.
@@ -18,6 +19,7 @@ from common.service.vat_utils import (
     B2BFeeVATBreakdown,
     VATBreakdown,
     calculate_b2b_fee_vat,
+    calculate_vat_exclusive,
     calculate_vat_inclusive,
 )
 
@@ -69,7 +71,7 @@ class TestVATEntityProtocol:
 
         # The entity should work as an argument to calculate_b2b_fee_vat
         result = calculate_b2b_fee_vat(
-            fee=Decimal("10.00"),
+            net_fee=Decimal("10.00"),
             entity=entity,
             platform_vat_country="AT",
             platform_vat_rate=Decimal("20.00"),
@@ -85,7 +87,7 @@ class TestVATEntityProtocol:
         mock_entity.vat_id_validated = False
 
         result = calculate_b2b_fee_vat(
-            fee=Decimal("5.00"),
+            net_fee=Decimal("5.00"),
             entity=mock_entity,
             platform_vat_country="AT",
             platform_vat_rate=Decimal("20.00"),
@@ -172,6 +174,91 @@ class TestCalculateVatInclusive:
 
 
 # ---------------------------------------------------------------------------
+# calculate_vat_exclusive
+# ---------------------------------------------------------------------------
+
+
+class TestCalculateVatExclusive:
+    """Test VAT-exclusive price breakdown calculation (net → gross)."""
+
+    def test_austrian_vat_20_percent(self) -> None:
+        """Standard Austrian VAT (20%) on net EUR 100.00.
+
+        100.00 * 0.20 = 20.00, gross = 120.00.
+        """
+        result = calculate_vat_exclusive(Decimal("100.00"), Decimal("20.00"))
+
+        assert result.net_amount == Decimal("100.00")
+        assert result.vat_amount == Decimal("20.00")
+        assert result.gross_amount == Decimal("120.00")
+        assert result.vat_rate == Decimal("20.00")
+
+    def test_italian_vat_22_percent(self) -> None:
+        """Italian standard VAT (22%) on net EUR 10.00.
+
+        10.00 * 0.22 = 2.20, gross = 12.20.
+        """
+        result = calculate_vat_exclusive(Decimal("10.00"), Decimal("22.00"))
+
+        assert result.net_amount == Decimal("10.00")
+        assert result.vat_amount == Decimal("2.20")
+        assert result.gross_amount == Decimal("12.20")
+
+    def test_zero_vat_rate_returns_no_vat(self) -> None:
+        """A zero VAT rate means gross equals net, no VAT added."""
+        result = calculate_vat_exclusive(Decimal("50.00"), Decimal("0"))
+
+        assert result.gross_amount == Decimal("50.00")
+        assert result.net_amount == Decimal("50.00")
+        assert result.vat_amount == Decimal("0.00")
+        assert result.vat_rate == Decimal("0.00")
+
+    def test_negative_vat_rate_treated_as_zero(self) -> None:
+        """Negative VAT rates are nonsensical and treated as zero."""
+        result = calculate_vat_exclusive(Decimal("75.00"), Decimal("-5.00"))
+
+        assert result.net_amount == Decimal("75.00")
+        assert result.vat_amount == Decimal("0.00")
+        assert result.vat_rate == Decimal("0.00")
+
+    def test_accounting_identity_gross_equals_net_plus_vat(self) -> None:
+        """Critical invariant: gross = net + vat must always hold."""
+        result = calculate_vat_exclusive(Decimal("99.99"), Decimal("20.00"))
+
+        assert result.gross_amount == result.net_amount + result.vat_amount
+
+    def test_returns_vat_breakdown_dataclass(self) -> None:
+        """Return type is the VATBreakdown frozen dataclass."""
+        result = calculate_vat_exclusive(Decimal("100.00"), Decimal("20.00"))
+
+        assert isinstance(result, VATBreakdown)
+
+    def test_small_amount_rounding(self) -> None:
+        """Small amounts round correctly with HALF_UP."""
+        result = calculate_vat_exclusive(Decimal("1.75"), Decimal("22.00"))
+
+        # 1.75 * 0.22 = 0.385 → 0.39 (HALF_UP)
+        assert result.vat_amount == Decimal("0.39")
+        assert result.gross_amount == Decimal("2.14")
+
+    @pytest.mark.parametrize(
+        ("net", "vat_rate"),
+        [
+            (Decimal("0.01"), Decimal("20.00")),
+            (Decimal("33.33"), Decimal("20.00")),
+            (Decimal("77.77"), Decimal("19.00")),
+            (Decimal("1234.56"), Decimal("5.00")),
+        ],
+        ids=["1-cent-20%", "33.33-20%", "77.77-19%", "1234.56-5%"],
+    )
+    def test_accounting_identity_parametrized(self, net: Decimal, vat_rate: Decimal) -> None:
+        """Accounting identity holds for various input combinations."""
+        result = calculate_vat_exclusive(net, vat_rate)
+
+        assert result.gross_amount == result.net_amount + result.vat_amount
+
+
+# ---------------------------------------------------------------------------
 # calculate_b2b_fee_vat
 # ---------------------------------------------------------------------------
 
@@ -192,14 +279,15 @@ class TestCalculateB2BFeeVat:
         """Austrian entity with valid VAT ID: same-country, domestic VAT applies.
 
         Reverse charge only applies cross-border, not domestically.
-        10.00 / 1.20 = 8.33, VAT = 1.67.
+        10.00 * 0.20 = 2.00, gross = 12.00.
         """
         entity = _make_entity(vat_country_code="AT", vat_id="ATU12345678", vat_id_validated=True)
 
         result = calculate_b2b_fee_vat(self.FEE, entity, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
 
-        assert result.fee_net == Decimal("8.33")
-        assert result.fee_vat == Decimal("1.67")
+        assert result.fee_net == Decimal("10.00")
+        assert result.fee_vat == Decimal("2.00")
+        assert result.fee_gross == Decimal("12.00")
         assert result.fee_vat_rate == self.PLATFORM_VAT_RATE
         assert result.reverse_charge is False
 
@@ -209,8 +297,8 @@ class TestCalculateB2BFeeVat:
 
         result = calculate_b2b_fee_vat(self.FEE, entity, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
 
-        assert result.fee_net == Decimal("8.33")
-        assert result.fee_vat == Decimal("1.67")
+        assert result.fee_net == Decimal("10.00")
+        assert result.fee_vat == Decimal("2.00")
         assert result.reverse_charge is False
 
     # --- Scenario 2: EU cross-border with valid VAT ID ---
@@ -235,14 +323,15 @@ class TestCalculateB2BFeeVat:
     def test_eu_cross_border_without_valid_vat_id_domestic_vat(self) -> None:
         """German entity WITHOUT validated VAT ID: platform's domestic VAT applies.
 
-        Cannot use reverse charge, so the platform extracts Austrian VAT.
+        Cannot use reverse charge, so Austrian VAT is added on top.
+        10.00 * 0.20 = 2.00, gross = 12.00.
         """
         entity = _make_entity(vat_country_code="DE", vat_id="DE123456789", vat_id_validated=False)
 
         result = calculate_b2b_fee_vat(self.FEE, entity, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
 
-        assert result.fee_net == Decimal("8.33")
-        assert result.fee_vat == Decimal("1.67")
+        assert result.fee_net == Decimal("10.00")
+        assert result.fee_vat == Decimal("2.00")
         assert result.fee_vat_rate == self.PLATFORM_VAT_RATE
         assert result.reverse_charge is False
 
@@ -252,8 +341,8 @@ class TestCalculateB2BFeeVat:
 
         result = calculate_b2b_fee_vat(self.FEE, entity, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
 
-        assert result.fee_net == Decimal("8.33")
-        assert result.fee_vat == Decimal("1.67")
+        assert result.fee_net == Decimal("10.00")
+        assert result.fee_vat == Decimal("2.00")
         assert result.reverse_charge is False
 
     # --- Scenario 4: Outside EU ---
@@ -323,7 +412,7 @@ class TestCalculateB2BFeeVat:
 
         # Same country -> domestic VAT, not reverse charge
         assert result.reverse_charge is False
-        assert result.fee_vat == Decimal("1.67")
+        assert result.fee_vat == Decimal("2.00")
 
     def test_vat_id_present_but_not_validated_no_reverse_charge(self) -> None:
         """A VAT ID that has not been validated via VIES does not qualify for reverse charge."""
