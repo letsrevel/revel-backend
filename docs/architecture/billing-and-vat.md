@@ -41,7 +41,7 @@ Three core functions handle all VAT math:
 | Function | Purpose |
 |---|---|
 | `calculate_vat_inclusive(gross, rate)` | Extract net + VAT from a VAT-inclusive price |
-| `calculate_platform_fee_vat(fee, org, platform_country, platform_rate)` | Determine VAT treatment of the platform fee |
+| `calculate_platform_fee_vat(net_platform_fee, org, platform_country, platform_rate)` | Determine VAT treatment of the platform fee (VAT-exclusive: adds VAT on top) |
 | `get_effective_vat_rate(tier_rate, org_rate)` | Resolve tier-level override vs. org default |
 
 ### Ticket Sale VAT
@@ -58,9 +58,9 @@ Platform fees follow EU B2B rules. The logic in `calculate_platform_fee_vat()`:
 
 | Scenario | VAT Treatment | `reverse_charge` |
 |---|---|---|
-| Org in **same country** as platform | Extract domestic VAT from fee | `false` |
+| Org in **same country** as platform | Add domestic VAT on top of fee | `false` |
 | Org in **different EU country** with validated VAT ID | Reverse charge — fee is net, no VAT | `true` |
-| Org in **EU without** valid VAT ID | Extract platform's domestic VAT from fee | `false` |
+| Org in **EU without** valid VAT ID | Add platform's domestic VAT on top of fee | `false` |
 | Org **outside EU** | No VAT (export of services) | `false` |
 
 ### Payment Record Fields

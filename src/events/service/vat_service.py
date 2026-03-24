@@ -21,9 +21,6 @@ from common.service.vat_utils import (
     VATBreakdown as VATBreakdown,
 )
 from common.service.vat_utils import (
-    calculate_vat_exclusive as calculate_vat_exclusive,
-)
-from common.service.vat_utils import (
     calculate_vat_inclusive as calculate_vat_inclusive,
 )
 

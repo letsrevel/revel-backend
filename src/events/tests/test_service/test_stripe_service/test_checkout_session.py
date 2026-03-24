@@ -8,7 +8,7 @@ import stripe
 from django.conf import settings
 
 from accounts.models import RevelUser
-from common.models import ExchangeRate
+from common.models import ExchangeRate, SiteSettings
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.service import stripe_service
 
@@ -346,3 +346,54 @@ class TestCreateCheckoutSession:
         call_args = mock_stripe_create.call_args
         assert call_args[1]["line_items"][0]["price_data"]["currency"] == "usd"
         assert call_args[1]["payment_intent_data"]["application_fee_amount"] == 129
+
+    @patch("stripe.checkout.Session.create")
+    def test_domestic_vat_grosses_up_application_fee(
+        self,
+        mock_stripe_create: Mock,
+        event: Event,
+        paid_ticket_tier: TicketTier,
+        stripe_connected_organization: Organization,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """When org is in same country as platform, VAT is added on top of the fee.
+
+        Net fee: 25.00 * 3% + 0.50 = 1.25 EUR.
+        Italian VAT (22%): 1.25 * 0.22 = 0.275 → 0.28 EUR.
+        Gross fee: 1.25 + 0.28 = 1.53 EUR → 153 cents.
+        """
+        # Configure platform as Italian with 22% VAT
+        site = SiteSettings.get_solo()
+        site.platform_vat_country = "IT"
+        site.platform_vat_rate = Decimal("22.00")
+        site.save()
+
+        # Configure org as Italian (same country → domestic VAT)
+        stripe_connected_organization.vat_country_code = "IT"
+        stripe_connected_organization.vat_id = "IT12345678901"
+        stripe_connected_organization.vat_id_validated = True
+        stripe_connected_organization.save()
+
+        event.organization = stripe_connected_organization
+        event.save()
+        paid_ticket_tier.event = event
+        paid_ticket_tier.save()
+
+        mock_session = Mock()
+        mock_session.id = "cs_vat_test"
+        mock_session.url = "https://checkout.stripe.com/pay/cs_vat_test"
+        mock_stripe_create.return_value = mock_session
+
+        # Act
+        checkout_url, payment = stripe_service.create_checkout_session(event, paid_ticket_tier, organization_owner_user)
+
+        # Assert — Stripe receives the gross fee (net + VAT)
+        call_args = mock_stripe_create.call_args
+        assert call_args[1]["payment_intent_data"]["application_fee_amount"] == 153
+
+        # Payment stores the full VAT breakdown
+        assert payment.platform_fee == Decimal("1.53")
+        assert payment.platform_fee_net == Decimal("1.25")
+        assert payment.platform_fee_vat == Decimal("0.28")
+        assert payment.platform_fee_vat_rate == Decimal("22.00")
+        assert payment.platform_fee_reverse_charge is False
