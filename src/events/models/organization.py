@@ -66,8 +66,7 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         if user.is_anonymous:
             # UNLISTED orgs are accessible like PUBLIC (e.g. via direct link);
             # discovery listings use discoverable_for_user() to hide them.
-            publicly_accessible = [Organization.Visibility.PUBLIC, Organization.Visibility.UNLISTED]
-            return self.filter(Q(visibility__in=publicly_accessible) | is_allowed_special)
+            return self.filter(Q(visibility__in=Organization.Visibility.publicly_accessible()) | is_allowed_special)
 
         # --- Check if user is banned or blacklisted from any organization ---
         # If a user is banned/blacklisted, they cannot see the organization at all, even if it's public
@@ -89,8 +88,11 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         # A) Publicly accessible organizations (PUBLIC + UNLISTED; exclude banned/blacklisted).
         #    UNLISTED orgs are accessible like PUBLIC ones (e.g. via direct link),
         #    but are filtered out from discovery listings by discoverable_for_user().
-        publicly_accessible = [Organization.Visibility.PUBLIC, Organization.Visibility.UNLISTED]
-        public_orgs_qs = self.filter(visibility__in=publicly_accessible).exclude(id__in=excluded_org_ids).values("id")
+        public_orgs_qs = (
+            self.filter(visibility__in=Organization.Visibility.publicly_accessible())
+            .exclude(id__in=excluded_org_ids)
+            .values("id")
+        )
 
         # B) Organizations the user owns
         owned_orgs_qs = self.filter(owner=user).values("id")

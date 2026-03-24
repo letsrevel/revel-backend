@@ -77,9 +77,11 @@ class EventQuerySet(models.QuerySet["Event"]):
         if user.is_anonymous:
             # UNLISTED events are accessible like PUBLIC (e.g. via direct link);
             # discovery listings use discoverable_for_user() to hide them.
-            publicly_accessible = [Event.Visibility.PUBLIC, Event.Visibility.UNLISTED]
             return base_qs.filter(
-                Q(visibility__in=publicly_accessible, status__in=[Event.EventStatus.OPEN, Event.EventStatus.CLOSED])
+                Q(
+                    visibility__in=Event.Visibility.publicly_accessible(),
+                    status__in=[Event.EventStatus.OPEN, Event.EventStatus.CLOSED],
+                )
                 | is_allowed_special
             )
 
@@ -127,8 +129,7 @@ class EventQuerySet(models.QuerySet["Event"]):
         is_owner_or_staff = Q(organization__owner=user) | Q(organization__staff_members=user)
         # UNLISTED events are accessible like PUBLIC (e.g. via direct link);
         # discovery listings use discoverable_for_user() to hide them.
-        publicly_accessible = [Event.Visibility.PUBLIC, Event.Visibility.UNLISTED]
-        is_public = Q(visibility__in=publicly_accessible) & ~Q(organization_id__in=excluded_org_ids)
+        is_public = Q(visibility__in=Event.Visibility.publicly_accessible()) & ~Q(organization_id__in=excluded_org_ids)
         is_allowed_non_public = Q(id__in=list(allowed_non_public_ids))
 
         # Users see events if they are public (and not banned), if they are staff/owner,
@@ -376,11 +377,11 @@ class Event(
         if user.is_superuser or user.is_staff:
             return True
 
-        # PUBLIC is visible to everyone
-        if self.address_visibility == ResourceVisibility.PUBLIC:
+        # PUBLIC / UNLISTED is visible to everyone
+        if self.address_visibility in ResourceVisibility.publicly_accessible():
             return True
 
-        # Anonymous users can only see PUBLIC addresses
+        # Anonymous users can only see PUBLIC / UNLISTED addresses
         if user.is_anonymous:
             return False
 

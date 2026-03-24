@@ -25,6 +25,10 @@ class EventSeriesController(UserAwareController):
             return models.EventSeries.objects.for_user(self.maybe_user())
         return models.EventSeries.objects.full().for_user(self.maybe_user())
 
+    def get_discovery_queryset(self) -> QuerySet[models.EventSeries]:
+        """Get the queryset for discovery listings (hides UNLISTED from non-staff)."""
+        return models.EventSeries.objects.full().discoverable_for_user(self.maybe_user())
+
     @route.get(
         "/",
         url_name="list_event_series",
@@ -41,7 +45,7 @@ class EventSeriesController(UserAwareController):
         Event series group related recurring events (e.g., "Monthly Tech Meetup"). Results are
         filtered by visibility and permissions. Supports filtering by organization and text search.
         """
-        qs = self.get_queryset()
+        qs = self.get_discovery_queryset()
         return params.filter(qs).distinct()
 
     @route.get("/{series_id}", url_name="get_event_series", response=schema.EventSeriesRetrieveSchema)

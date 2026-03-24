@@ -26,6 +26,11 @@ class ResourceVisibility(models.TextChoices):
     STAFF_ONLY = "staff-only"  # only staff members can see
     ATTENDEES_ONLY = "attendees-only"  # only users with tickets or RSVPs can see
 
+    @classmethod
+    def publicly_accessible(cls) -> list["ResourceVisibility"]:
+        """Visibilities that grant access to anyone (PUBLIC + UNLISTED)."""
+        return [cls.PUBLIC, cls.UNLISTED]
+
 
 class VisibilityMixin(models.Model):
     class Visibility(models.TextChoices):
@@ -36,6 +41,11 @@ class VisibilityMixin(models.Model):
         PRIVATE = "private"  # only invited people can see
         MEMBERS_ONLY = "members-only"  # only members can see
         STAFF_ONLY = "staff-only"  # only staff members can see
+
+        @classmethod
+        def publicly_accessible(cls) -> list["VisibilityMixin.Visibility"]:
+            """Visibilities that grant access to anyone (PUBLIC + UNLISTED)."""
+            return [cls.PUBLIC, cls.UNLISTED]
 
     visibility = models.CharField(choices=Visibility.choices, max_length=20, db_index=True, default=Visibility.PRIVATE)
 

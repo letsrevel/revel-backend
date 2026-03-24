@@ -183,8 +183,8 @@ class BatchParticipationChecker:
 
         address_visibility = self.event.address_visibility
 
-        # PUBLIC: Everyone can see
-        if address_visibility == ResourceVisibility.PUBLIC:
+        # PUBLIC / UNLISTED: Everyone can see
+        if address_visibility in ResourceVisibility.publicly_accessible():
             return True
 
         # STAFF_ONLY: Only staff/owners
@@ -450,8 +450,10 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
         )
         participants_q |= Q(invitations__event=event)
 
-    elif event.visibility == Event.Visibility.PRIVATE:
-        # Only explicitly invited/participating users (not all org members)
+    elif event.visibility in (Event.Visibility.PRIVATE, Event.Visibility.UNLISTED):
+        # Only explicitly invited/participating users (not all org members).
+        # UNLISTED events are not broadcast to followers or org members —
+        # the org decides explicitly who to share them with.
         participants_q |= Q(
             rsvps__event=event, rsvps__status__in=[EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.MAYBE]
         )

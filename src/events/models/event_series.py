@@ -2,7 +2,7 @@ import typing as t
 
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.gis.db import models
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 
 from accounts.models import RevelUser
 from common.fields import MarkdownField
@@ -36,8 +36,9 @@ class EventSeriesQuerySet(models.QuerySet["EventSeries"]):
         if user.is_superuser or user.is_staff:
             return self.all()
         if user.is_anonymous:
-            # Simple case: only show series from public organizations.
-            return self.filter(organization__visibility=Organization.Visibility.PUBLIC)
+            # UNLISTED orgs are accessible like PUBLIC (e.g. via direct link);
+            # discovery listings use discoverable_for_user() to hide them.
+            return self.filter(organization__visibility__in=Organization.Visibility.publicly_accessible())
 
         # --- "Gather-then-filter" strategy for standard users ---
 
@@ -49,6 +50,20 @@ class EventSeriesQuerySet(models.QuerySet["EventSeries"]):
         # This results in a simple and fast query.
         return self.filter(organization_id__in=visible_org_ids).distinct()
 
+    def discoverable_for_user(self, user: RevelUser | AnonymousUser) -> t.Self:
+        """Get queryset for discovery listings (browse/search).
+
+        Wraps for_user() and additionally hides event series from UNLISTED organizations
+        for users who are not the owner or staff of that organization.
+        """
+        qs = self.for_user(user)
+        if user.is_superuser or user.is_staff:
+            return qs
+        if user.is_anonymous:
+            return qs.exclude(organization__visibility=Organization.Visibility.UNLISTED)
+        is_owner_or_staff = Q(organization__owner=user) | Q(organization__staff_members=user)
+        return qs.exclude(Q(organization__visibility=Organization.Visibility.UNLISTED) & ~is_owner_or_staff)
+
 
 class EventSeriesManager(models.Manager["EventSeries"]):
     def get_queryset(self) -> EventSeriesQuerySet:
@@ -58,6 +73,10 @@ class EventSeriesManager(models.Manager["EventSeries"]):
     def for_user(self, user: RevelUser | AnonymousUser) -> EventSeriesQuerySet:
         """Get the queryset based on the user."""
         return self.get_queryset().for_user(user)
+
+    def discoverable_for_user(self, user: RevelUser | AnonymousUser) -> EventSeriesQuerySet:
+        """Get queryset for discovery listings."""
+        return self.get_queryset().discoverable_for_user(user)
 
     def with_tags(self) -> EventSeriesQuerySet:
         """Returns a queryset prefetching tags."""

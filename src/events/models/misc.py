@@ -44,9 +44,8 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
 
         # --- Anonymous User ---
         if user.is_anonymous:
-            # Anonymous users can only see PUBLIC resources in PUBLIC organizations.
-            # The visible_org_ids check already handles the org's public status.
-            return qs.filter(visibility=ResourceVisibility.PUBLIC)
+            # Anonymous users can see PUBLIC and UNLISTED resources.
+            return qs.filter(visibility__in=ResourceVisibility.publicly_accessible())
 
         # --- Authenticated User ---
         # A user's visibility is the sum of several permissions. We build a
@@ -62,8 +61,8 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
         role_based_q = is_owner | is_staff_member
         # Regular members see 'members-only' and 'public' resources.
         role_based_q |= is_org_member & Q(visibility=ResourceVisibility.MEMBERS_ONLY)
-        # Any authenticated user with access to the org can see public resources.
-        role_based_q |= Q(visibility=ResourceVisibility.PUBLIC)
+        # Any authenticated user with access to the org can see public and unlisted resources.
+        role_based_q |= Q(visibility__in=ResourceVisibility.publicly_accessible())
 
         # 2. Visibility for PRIVATE resources based on event relationship.
         # Gather all event IDs the user is directly connected to.

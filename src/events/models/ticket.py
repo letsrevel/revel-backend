@@ -46,7 +46,7 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         if user.is_anonymous:
             return qs.filter(
                 visibility=TicketTier.Visibility.PUBLIC,
-                event__visibility=Event.Visibility.PUBLIC,
+                event__visibility__in=Event.Visibility.publicly_accessible(),
                 event__status=Event.EventStatus.OPEN,
             )
 
