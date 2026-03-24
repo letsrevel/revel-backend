@@ -20,6 +20,7 @@ class ResourceVisibility(models.TextChoices):
     """
 
     PUBLIC = "public"  # everyone can see
+    UNLISTED = "unlisted"  # accessible via direct link, but hidden from discovery listings
     PRIVATE = "private"  # only invited people can see
     MEMBERS_ONLY = "members-only"  # only members can see
     STAFF_ONLY = "staff-only"  # only staff members can see
@@ -31,6 +32,7 @@ class VisibilityMixin(models.Model):
         """Base visibility enum for events and resources."""
 
         PUBLIC = "public"  # everyone can see
+        UNLISTED = "unlisted"  # accessible via direct link, but hidden from discovery listings
         PRIVATE = "private"  # only invited people can see
         MEMBERS_ONLY = "members-only"  # only members can see
         STAFF_ONLY = "staff-only"  # only staff members can see

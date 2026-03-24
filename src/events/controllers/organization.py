@@ -51,6 +51,10 @@ class OrganizationController(UserAwareController):
             return models.Organization.objects.for_user(self.maybe_user(), allowed_ids=allowed_ids)
         return models.Organization.objects.full().for_user(self.maybe_user(), allowed_ids=allowed_ids)
 
+    def get_discovery_queryset(self) -> QuerySet[models.Organization]:
+        """Get the queryset for discovery listings (hides UNLISTED from non-staff)."""
+        return models.Organization.objects.full().discoverable_for_user(self.maybe_user())
+
     def _raise_if_token_gone(self, organization_id: UUID | None = None) -> None:
         """Raise 410 if the request carried a token that was rejected.
 
@@ -111,7 +115,7 @@ class OrganizationController(UserAwareController):
         'distance' (nearest first based on user location). Can also sort alphabetically by 'name'
         or reverse with '-name'. Supports text search and filtering.
         """
-        qs = params.filter(self.get_queryset()).distinct()
+        qs = params.filter(self.get_discovery_queryset()).distinct()
         if order_by == "distance":
             return order_by_distance(self.user_location(), qs)
         return qs.order_by(order_by)

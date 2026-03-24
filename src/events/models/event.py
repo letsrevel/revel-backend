@@ -75,8 +75,11 @@ class EventQuerySet(models.QuerySet["Event"]):
             return base_qs
 
         if user.is_anonymous:
+            # UNLISTED events are accessible like PUBLIC (e.g. via direct link);
+            # discovery listings use discoverable_for_user() to hide them.
+            publicly_accessible = [Event.Visibility.PUBLIC, Event.Visibility.UNLISTED]
             return base_qs.filter(
-                Q(visibility=Event.Visibility.PUBLIC, status__in=[Event.EventStatus.OPEN, Event.EventStatus.CLOSED])
+                Q(visibility__in=publicly_accessible, status__in=[Event.EventStatus.OPEN, Event.EventStatus.CLOSED])
                 | is_allowed_special
             )
 
@@ -122,7 +125,10 @@ class EventQuerySet(models.QuerySet["Event"]):
 
         # 2. Build the final query
         is_owner_or_staff = Q(organization__owner=user) | Q(organization__staff_members=user)
-        is_public = Q(visibility=Event.Visibility.PUBLIC) & ~Q(organization_id__in=excluded_org_ids)
+        # UNLISTED events are accessible like PUBLIC (e.g. via direct link);
+        # discovery listings use discoverable_for_user() to hide them.
+        publicly_accessible = [Event.Visibility.PUBLIC, Event.Visibility.UNLISTED]
+        is_public = Q(visibility__in=publicly_accessible) & ~Q(organization_id__in=excluded_org_ids)
         is_allowed_non_public = Q(id__in=list(allowed_non_public_ids))
 
         # Users see events if they are public (and not banned), if they are staff/owner,
@@ -134,6 +140,22 @@ class EventQuerySet(models.QuerySet["Event"]):
             final_qs = final_qs.exclude(~is_owner_or_staff & Q(status=Event.EventStatus.DRAFT))
 
         return final_qs.distinct()
+
+    def discoverable_for_user(
+        self, user: RevelUser | AnonymousUser, include_past: bool = False, allowed_ids: list[UUID] | None = None
+    ) -> t.Self:
+        """Get queryset for discovery listings (browse/search).
+
+        Wraps for_user() and additionally hides UNLISTED events
+        from users who are not the owner or staff of the event's organization.
+        """
+        qs = self.for_user(user, include_past=include_past, allowed_ids=allowed_ids)
+        if user.is_superuser or user.is_staff:
+            return qs
+        if user.is_anonymous:
+            return qs.exclude(visibility=Event.Visibility.UNLISTED)
+        is_owner_or_staff = Q(organization__owner=user) | Q(organization__staff_members=user)
+        return qs.exclude(Q(visibility=Event.Visibility.UNLISTED) & ~is_owner_or_staff)
 
 
 class EventManager(models.Manager["Event"]):
@@ -166,6 +188,12 @@ class EventManager(models.Manager["Event"]):
     ) -> EventQuerySet:
         """Get the queryset based on the user."""
         return self.get_queryset().for_user(user, include_past=include_past, allowed_ids=allowed_ids)
+
+    def discoverable_for_user(
+        self, user: RevelUser | AnonymousUser, include_past: bool = False, allowed_ids: list[UUID] | None = None
+    ) -> EventQuerySet:
+        """Get queryset for discovery listings."""
+        return self.get_queryset().discoverable_for_user(user, include_past=include_past, allowed_ids=allowed_ids)
 
 
 class Event(

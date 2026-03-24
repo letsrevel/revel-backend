@@ -64,7 +64,10 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         if user.is_superuser or user.is_staff:
             return self.all()
         if user.is_anonymous:
-            return self.filter(Q(visibility=Organization.Visibility.PUBLIC) | is_allowed_special)
+            # UNLISTED orgs are accessible like PUBLIC (e.g. via direct link);
+            # discovery listings use discoverable_for_user() to hide them.
+            publicly_accessible = [Organization.Visibility.PUBLIC, Organization.Visibility.UNLISTED]
+            return self.filter(Q(visibility__in=publicly_accessible) | is_allowed_special)
 
         # --- Check if user is banned or blacklisted from any organization ---
         # If a user is banned/blacklisted, they cannot see the organization at all, even if it's public
@@ -83,10 +86,11 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
 
         # 1. Gather IDs from all distinct sources of visibility.
 
-        # A) Publicly visible organizations (exclude banned/blacklisted)
-        public_orgs_qs = (
-            self.filter(visibility=Organization.Visibility.PUBLIC).exclude(id__in=excluded_org_ids).values("id")
-        )
+        # A) Publicly accessible organizations (PUBLIC + UNLISTED; exclude banned/blacklisted).
+        #    UNLISTED orgs are accessible like PUBLIC ones (e.g. via direct link),
+        #    but are filtered out from discovery listings by discoverable_for_user().
+        publicly_accessible = [Organization.Visibility.PUBLIC, Organization.Visibility.UNLISTED]
+        public_orgs_qs = self.filter(visibility__in=publicly_accessible).exclude(id__in=excluded_org_ids).values("id")
 
         # B) Organizations the user owns
         owned_orgs_qs = self.filter(owner=user).values("id")
@@ -117,6 +121,20 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         # This final query is very fast as it filters on the primary key.
         return self.filter(Q(id__in=visible_org_ids_qs) | is_allowed_special).distinct()
 
+    def discoverable_for_user(self, user: RevelUser | AnonymousUser, allowed_ids: list[UUID] | None = None) -> t.Self:
+        """Get queryset for discovery listings (browse/search).
+
+        Wraps for_user() and additionally hides UNLISTED organizations
+        from users who are not the owner or staff of that organization.
+        """
+        qs = self.for_user(user, allowed_ids)
+        if user.is_superuser or user.is_staff:
+            return qs
+        if user.is_anonymous:
+            return qs.exclude(visibility=Organization.Visibility.UNLISTED)
+        is_owner_or_staff = Q(owner=user) | Q(staff_members=user)
+        return qs.exclude(Q(visibility=Organization.Visibility.UNLISTED) & ~is_owner_or_staff)
+
 
 class OrganizationManager(models.Manager["Organization"]):
     def get_queryset(self) -> OrganizationQuerySet:
@@ -126,6 +144,12 @@ class OrganizationManager(models.Manager["Organization"]):
     def for_user(self, user: RevelUser | AnonymousUser, allowed_ids: list[UUID] | None = None) -> OrganizationQuerySet:
         """Get queryset for user."""
         return self.get_queryset().for_user(user, allowed_ids)
+
+    def discoverable_for_user(
+        self, user: RevelUser | AnonymousUser, allowed_ids: list[UUID] | None = None
+    ) -> OrganizationQuerySet:
+        """Get queryset for discovery listings."""
+        return self.get_queryset().discoverable_for_user(user, allowed_ids)
 
     def with_tags(self) -> OrganizationQuerySet:
         """Returns a queryset prefetching tags."""
