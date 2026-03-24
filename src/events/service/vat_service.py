@@ -21,6 +21,9 @@ from common.service.vat_utils import (
     VATBreakdown as VATBreakdown,
 )
 from common.service.vat_utils import (
+    calculate_vat_exclusive as calculate_vat_exclusive,
+)
+from common.service.vat_utils import (
     calculate_vat_inclusive as calculate_vat_inclusive,
 )
 
@@ -32,16 +35,16 @@ PlatformFeeVATBreakdown = B2BFeeVATBreakdown
 
 
 def calculate_platform_fee_vat(
-    platform_fee: Decimal,
+    net_platform_fee: Decimal,
     org: "Organization",
     platform_vat_country: str,
     platform_vat_rate: Decimal,
 ) -> PlatformFeeVATBreakdown:
-    """Calculate VAT breakdown for a platform fee (already VAT-inclusive).
+    """Calculate VAT breakdown for a platform fee (VAT-exclusive / net amount).
 
     Thin wrapper around :func:`common.service.vat_utils.calculate_b2b_fee_vat`.
     """
-    return calculate_b2b_fee_vat(platform_fee, org, platform_vat_country, platform_vat_rate)
+    return calculate_b2b_fee_vat(net_platform_fee, org, platform_vat_country, platform_vat_rate)
 
 
 def get_effective_vat_rate(tier_vat_rate: Decimal | None, org_vat_rate: Decimal) -> Decimal:

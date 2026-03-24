@@ -43,7 +43,7 @@ def _determine_vat_treatment(
 
     if is_b2b:
         vat_breakdown = calculate_b2b_fee_vat(
-            fee=payout.payout_amount,
+            net_fee=payout.payout_amount,
             entity=billing_profile,
             platform_vat_country=site.platform_vat_country,
             platform_vat_rate=site.platform_vat_rate,

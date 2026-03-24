@@ -306,15 +306,15 @@ class TestCalculatePlatformFeeVat:
     def test_eu_cross_border_without_valid_vat_id_domestic_vat(self) -> None:
         """German org WITHOUT validated VAT ID: platform's domestic VAT applies.
 
-        Cannot use reverse charge, so the platform extracts Italian VAT.
+        Cannot use reverse charge, so Italian VAT is added on top.
+        10.00 * 0.22 = 2.20, gross = 12.20.
         """
         org = _make_org_mock(vat_country_code="DE", vat_id="DE123456789", vat_id_validated=False)
 
         result = calculate_platform_fee_vat(self.FEE, org, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
 
-        # 10.00 / 1.22 = 8.20 (rounded), VAT = 1.80
-        assert result.fee_net == Decimal("8.20")
-        assert result.fee_vat == Decimal("1.80")
+        assert result.fee_net == Decimal("10.00")
+        assert result.fee_vat == Decimal("2.20")
         assert result.fee_vat_rate == self.PLATFORM_VAT_RATE
         assert result.reverse_charge is False
 
@@ -324,21 +324,23 @@ class TestCalculatePlatformFeeVat:
 
         result = calculate_platform_fee_vat(self.FEE, org, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
 
-        assert result.fee_net == Decimal("8.20")
-        assert result.fee_vat == Decimal("1.80")
+        assert result.fee_net == Decimal("10.00")
+        assert result.fee_vat == Decimal("2.20")
         assert result.reverse_charge is False
 
     def test_same_country_with_valid_vat_id_domestic_vat(self) -> None:
         """Italian org with valid VAT ID: same-country, domestic VAT applies.
 
         Reverse charge only applies cross-border, not domestically.
+        10.00 * 0.22 = 2.20, gross = 12.20.
         """
         org = _make_org_mock(vat_country_code="IT", vat_id="IT12345678901", vat_id_validated=True)
 
         result = calculate_platform_fee_vat(self.FEE, org, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
 
-        assert result.fee_net == Decimal("8.20")
-        assert result.fee_vat == Decimal("1.80")
+        assert result.fee_net == Decimal("10.00")
+        assert result.fee_vat == Decimal("2.20")
+        assert result.fee_gross == Decimal("12.20")
         assert result.fee_vat_rate == self.PLATFORM_VAT_RATE
         assert result.reverse_charge is False
 
@@ -348,8 +350,8 @@ class TestCalculatePlatformFeeVat:
 
         result = calculate_platform_fee_vat(self.FEE, org, self.PLATFORM_COUNTRY, self.PLATFORM_VAT_RATE)
 
-        assert result.fee_net == Decimal("8.20")
-        assert result.fee_vat == Decimal("1.80")
+        assert result.fee_net == Decimal("10.00")
+        assert result.fee_vat == Decimal("2.20")
         assert result.reverse_charge is False
 
     def test_empty_vat_country_code_treated_as_non_eu(self) -> None:
@@ -380,7 +382,7 @@ class TestCalculatePlatformFeeVat:
 
         # Same country -> domestic VAT, not reverse charge
         assert result.reverse_charge is False
-        assert result.fee_vat == Decimal("1.80")
+        assert result.fee_vat == Decimal("2.20")
 
     def test_accounting_identity_fee_gross_equals_net_plus_vat(self) -> None:
         """For domestic VAT cases, fee_gross = fee_net + fee_vat must hold."""
