@@ -280,7 +280,7 @@ class Organization(
 
     def is_owner_or_staff(self, user: RevelUser) -> bool:
         """Check if user is the organization owner or a staff member."""
-        return self.owner_id == user.id or self.staff_members.filter(id=user.id).exists()
+        return self.owner_id == user.id or OrganizationStaff.objects.filter(organization=self, user_id=user.id).exists()
 
     def has_org_permission(self, user_id: t.Any, action: str) -> bool:
         """Check if user has a specific permission on this organization.

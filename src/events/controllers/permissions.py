@@ -104,7 +104,7 @@ class IsOrganizationStaff(RootPermission):
         """Can edit organization."""
         if obj.is_owner_or_staff(t.cast(RevelUser, request.user)):
             return True
-        raise PermissionDenied("You must be the owner of this organization.")
+        raise PermissionDenied("You must be the owner or a staff member of this organization.")
 
 
 class CanDuplicateEvent(RootPermission):
