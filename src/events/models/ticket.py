@@ -128,9 +128,9 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         if not user.is_anonymous and (user.is_superuser or user.is_staff):
             return qs
 
-        # Anonymous users: only public tiers on public events
+        # Anonymous users: only publicly accessible tiers (PUBLIC + UNLISTED)
         if user.is_anonymous:
-            return qs.filter(visibility=TicketTier.Visibility.PUBLIC)
+            return qs.filter(visibility__in=TicketTier.Visibility.publicly_accessible())
 
         # Check if user is org owner or staff - they see all tiers
         org = event.organization

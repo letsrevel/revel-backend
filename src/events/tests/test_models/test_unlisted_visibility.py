@@ -160,6 +160,13 @@ class TestOrganizationUnlistedVisibility:
         qs = Organization.objects.discoverable_for_user(outsider)
         assert unlisted_org not in qs
 
+    def test_member_cannot_discover_unlisted_org(
+        self, unlisted_org: Organization, member: RevelUser, org_member: OrganizationMember
+    ) -> None:
+        """Regular members (not staff/owner) cannot discover UNLISTED orgs in browse."""
+        qs = Organization.objects.discoverable_for_user(member)
+        assert unlisted_org not in qs
+
     def test_owner_can_discover_unlisted_org(self, unlisted_org: Organization, owner: RevelUser) -> None:
         qs = Organization.objects.discoverable_for_user(owner)
         assert unlisted_org in qs
@@ -202,6 +209,13 @@ class TestEventUnlistedVisibility:
 
     def test_outsider_cannot_discover_unlisted_event(self, unlisted_event: Event, outsider: RevelUser) -> None:
         qs = Event.objects.discoverable_for_user(outsider, include_past=True)
+        assert unlisted_event not in qs
+
+    def test_member_cannot_discover_unlisted_event(
+        self, unlisted_event: Event, member: RevelUser, org_member: OrganizationMember
+    ) -> None:
+        """Regular members (not staff/owner) cannot discover UNLISTED events in browse."""
+        qs = Event.objects.discoverable_for_user(member, include_past=True)
         assert unlisted_event not in qs
 
     def test_owner_can_discover_unlisted_event(self, unlisted_event: Event, owner: RevelUser) -> None:
@@ -338,6 +352,14 @@ class TestTicketTierUnlistedVisibility:
         self, unlisted_tier_on_public_event: TicketTier, outsider: RevelUser
     ) -> None:
         qs = TicketTier.objects.for_user(outsider)
+        assert unlisted_tier_on_public_event in qs
+
+    def test_anonymous_sees_unlisted_tier_via_for_visible_event(
+        self, unlisted_tier_on_public_event: TicketTier
+    ) -> None:
+        """for_visible_event also treats UNLISTED tiers like PUBLIC for anonymous users."""
+        event = unlisted_tier_on_public_event.event
+        qs = TicketTier.objects.for_visible_event(event, AnonymousUser())
         assert unlisted_tier_on_public_event in qs
 
 

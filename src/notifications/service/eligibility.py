@@ -163,7 +163,7 @@ class BatchParticipationChecker:
         """Check if user can see the event address based on address_visibility.
 
         Uses the same visibility rules as Event.can_user_see_address but with O(1) set lookups:
-        - PUBLIC: Everyone can see
+        - PUBLIC / UNLISTED: Everyone can see
         - PRIVATE: Invited users, ticket holders, or RSVPs
         - MEMBERS_ONLY: Organization members
         - STAFF_ONLY: Only staff/owners
@@ -404,7 +404,7 @@ def get_eligible_users_for_event_notification(event: Event, notification_type: N
     Eligibility is based on actual participation AND event visibility:
     - STAFF_ONLY: Only org staff and owners
     - MEMBERS_ONLY: Org staff, owners, members, and users with explicit participation
-    - PRIVATE: Org staff, owners, and users with explicit participation (invitations, tickets, RSVPs)
+    - PRIVATE / UNLISTED: Org staff, owners, and users with explicit participation (invitations, tickets, RSVPs)
     - PUBLIC: Anyone with any form of participation
 
     Args:
