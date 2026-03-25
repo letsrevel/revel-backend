@@ -503,14 +503,8 @@ class OrganizationController(UserAwareController):
             .order_by("-sent_at")
         )
 
-        # Owner and staff see all announcements (single query check)
-        is_owner = organization.owner_id == user.id
-        is_staff = models.OrganizationStaff.objects.filter(
-            organization=organization,
-            user=user,
-        ).exists()
-
-        if is_owner or is_staff:
+        # Owner and staff see all announcements
+        if organization.is_owner_or_staff(user):
             return announcements
 
         # Filter to only those the user can see

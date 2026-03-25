@@ -111,13 +111,7 @@ class EventPublicDetailsController(EventPublicBaseController):
         """
         event = self.get_one(event_id)
         if not event.public_pronoun_distribution:
-            user = self.user()
-            is_owner = event.organization.owner_id == user.id
-            is_staff = models.OrganizationStaff.objects.filter(
-                organization=event.organization,
-                user=user,
-            ).exists()
-            if not is_owner and not is_staff:
+            if not event.organization.is_owner_or_staff(self.user()):
                 raise HttpError(403, "Pronoun distribution is not public for this event.")
         return event_service.get_event_pronoun_distribution(event)
 
@@ -150,14 +144,8 @@ class EventPublicDetailsController(EventPublicBaseController):
             .order_by("-sent_at")
         )
 
-        # Owner and staff see all announcements (single query check)
-        is_owner = event.organization.owner_id == user.id
-        is_staff = models.OrganizationStaff.objects.filter(
-            organization=event.organization,
-            user=user,
-        ).exists()
-
-        if is_owner or is_staff:
+        # Owner and staff see all announcements
+        if event.organization.is_owner_or_staff(user):
             return announcements
 
         # Filter to only those the user can see

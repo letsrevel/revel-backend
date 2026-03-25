@@ -35,12 +35,7 @@ def get_event_dietary_summary(event: Event, user: RevelUser) -> EventDietarySumm
     ).distinct()
 
     # Determine if user is organizer/staff
-    is_organizer = (
-        user.is_superuser
-        or user.is_staff
-        or event.organization.owner_id == user.id
-        or event.organization.staff_members.filter(id=user.id).exists()
-    )
+    is_organizer = user.is_superuser or user.is_staff or event.organization.is_owner_or_staff(user)
 
     # Build filter for visibility
     visibility_filter = Q(is_public=True)

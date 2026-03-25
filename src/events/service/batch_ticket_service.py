@@ -58,16 +58,12 @@ class BatchTicketService:
         Staff and org owners are exempt from purchasable_by restrictions (consistent with
         CanPurchaseTicket permission). They can always purchase from any tier on their events.
         """
-        from events.models import OrganizationStaff
-
         PB = TicketTier.PurchasableBy
         if self.tier.purchasable_by == PB.PUBLIC:
             return
 
         org = self.event.organization
-        is_owner = org.owner_id == self.user.id
-        is_staff = OrganizationStaff.objects.filter(organization=org, user=self.user).exists()
-        if is_owner or is_staff:
+        if org.is_owner_or_staff(self.user):
             return
 
         is_member = OrganizationMember.objects.active_only().filter(organization=org, user=self.user).exists()

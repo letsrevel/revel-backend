@@ -81,9 +81,7 @@ def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
     org = event.organization
 
     # Pre-fetch user context (single queries, not in loop)
-    is_org_owner = org.owner_id == user.id
-    is_org_staff = org.staff_members.filter(id=user.id).exists()
-    is_staff_or_owner = is_org_owner or is_org_staff
+    is_staff_or_owner = org.is_owner_or_staff(user)
 
     # Get user's active membership for this organization
     user_membership = OrganizationMember.objects.filter(

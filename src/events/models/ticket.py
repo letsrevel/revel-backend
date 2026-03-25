@@ -133,17 +133,16 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
             return qs.filter(visibility__in=TicketTier.Visibility.publicly_accessible())
 
         # Check if user is org owner or staff - they see all tiers
-        org = event.organization
-        is_owner = org.owner_id == user.id
-        is_staff = org.staff_members.filter(id=user.id).exists()
-        if is_owner or is_staff:
+        if event.organization.is_owner_or_staff(user):
             return qs
 
         # Regular user: apply tier visibility rules
         is_public_tier = Q(visibility__in=TicketTier.Visibility.publicly_accessible())
 
         # Member-only tiers: check if user is valid member of this org
-        is_member = OrganizationMember.objects.for_visibility().filter(user=user, organization=org).exists()
+        is_member = (
+            OrganizationMember.objects.for_visibility().filter(user=user, organization=event.organization).exists()
+        )
         is_member_tier = Q(visibility=TicketTier.Visibility.MEMBERS_ONLY) if is_member else Q(pk__isnull=True)
 
         # Private tiers: check invitation and tier-link restriction
