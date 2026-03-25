@@ -538,14 +538,20 @@ class QuestionnaireService:
 
         return section, depends_on_option
 
-    def _validate_depends_on_option_id(self, option_id: UUID | None) -> None:
+    def _validate_depends_on_option_id(
+        self,
+        option_id: UUID | None,
+        exc_class: type[Exception] = QuestionIntegrityError,
+    ) -> None:
         """Validate that a depends_on_option_id belongs to this questionnaire.
 
         Args:
             option_id: The option ID to validate, or None (no-op).
+            exc_class: Exception class to raise on failure.
 
         Raises:
-            QuestionIntegrityError: If the option doesn't exist in this questionnaire.
+            QuestionIntegrityError or SectionIntegrityError: If the option doesn't exist
+                in this questionnaire.
         """
         if option_id is None:
             return
@@ -553,7 +559,7 @@ class QuestionnaireService:
             id=option_id,
             question__questionnaire=self.questionnaire,
         ).exists():
-            raise QuestionIntegrityError("Option does not exist or does not belong to this questionnaire.")
+            raise exc_class("Option does not exist or does not belong to this questionnaire.")
 
     @transaction.atomic
     def create_section(
@@ -609,7 +615,7 @@ class QuestionnaireService:
         Only updates section metadata (name, description, order, depends_on_option).
         Questions must be added/updated/deleted via dedicated endpoints.
         """
-        self._validate_depends_on_option_id(payload.depends_on_option_id)
+        self._validate_depends_on_option_id(payload.depends_on_option_id, exc_class=SectionIntegrityError)
         section.name = payload.name
         section.description = payload.description
         section.order = payload.order

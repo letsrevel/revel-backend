@@ -1,6 +1,7 @@
 """Tests for AdditionalResource.for_user() organization scoping."""
 
 import pytest
+from django.contrib.auth.models import AnonymousUser
 
 from accounts.models import RevelUser
 from events.models import Organization
@@ -85,3 +86,28 @@ def test_for_user_owner_sees_own_org_resources(owner: RevelUser, staff_only_org:
     qs = AdditionalResource.objects.for_user(owner)
 
     assert resource in qs
+
+
+def test_for_user_anonymous_excludes_resources_from_invisible_orgs(
+    staff_only_org: Organization, public_org: Organization
+) -> None:
+    """Anonymous users should not see PUBLIC resources from invisible orgs."""
+    hidden_resource = AdditionalResource.objects.create(
+        organization=staff_only_org,
+        name="Hidden Public Resource",
+        resource_type="text",
+        text="Content",
+        visibility=ResourceVisibility.PUBLIC,
+    )
+    visible_resource = AdditionalResource.objects.create(
+        organization=public_org,
+        name="Visible Public Resource",
+        resource_type="text",
+        text="Content",
+        visibility=ResourceVisibility.PUBLIC,
+    )
+
+    qs = AdditionalResource.objects.for_user(AnonymousUser())
+
+    assert visible_resource in qs
+    assert hidden_resource not in qs

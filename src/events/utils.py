@@ -6,12 +6,10 @@ from datetime import datetime
 from io import BytesIO
 from zoneinfo import ZoneInfo
 
-import qrcode
 import structlog
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
-from weasyprint import HTML
 
 from events import models
 
@@ -242,6 +240,9 @@ def create_ticket_pdf(ticket: Ticket) -> bytes:
     Returns:
         The PDF content as bytes.
     """
+    import qrcode
+    from weasyprint import HTML
+
     event = ticket.event
 
     # Generate QR Code from the ticket's UUID

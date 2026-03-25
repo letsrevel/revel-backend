@@ -130,8 +130,8 @@ def test_get_invitation_message_with_email_as_display_name(public_event: models.
 
 
 @pytest.mark.django_db
-@patch("events.utils.qrcode.QRCode")
-@patch("events.utils.HTML")
+@patch("qrcode.QRCode")
+@patch("weasyprint.HTML")
 @patch("events.utils.render_to_string")
 def test_create_ticket_pdf_basic_functionality(
     mock_render: Mock, mock_html: Mock, mock_qr: Mock, ticket: models.Ticket
@@ -180,8 +180,8 @@ def test_create_ticket_pdf_basic_functionality(
 
 
 @pytest.mark.django_db
-@patch("events.utils.qrcode.QRCode")
-@patch("events.utils.HTML")
+@patch("qrcode.QRCode")
+@patch("weasyprint.HTML")
 @patch("events.utils.render_to_string")
 def test_create_ticket_pdf_context_data(
     mock_render: Mock, mock_html: Mock, mock_qr: Mock, ticket: models.Ticket
@@ -216,8 +216,8 @@ def test_create_ticket_pdf_context_data(
 
 
 @pytest.mark.django_db
-@patch("events.utils.qrcode.QRCode")
-@patch("events.utils.HTML")
+@patch("qrcode.QRCode")
+@patch("weasyprint.HTML")
 @patch("events.utils.render_to_string")
 def test_create_ticket_pdf_handles_missing_address(
     mock_render: Mock, mock_html: Mock, mock_qr: Mock, ticket: models.Ticket
@@ -361,8 +361,8 @@ class TestFormatEventDatetime:
 
 
 @pytest.mark.django_db
-@patch("events.utils.qrcode.QRCode")
-@patch("events.utils.HTML")
+@patch("qrcode.QRCode")
+@patch("weasyprint.HTML")
 @patch("events.utils.render_to_string")
 def test_create_ticket_pdf_uses_event_timezone(
     mock_render: Mock, mock_html: Mock, mock_qr: Mock, ticket: models.Ticket, vienna_city: City

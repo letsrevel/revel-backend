@@ -325,7 +325,7 @@ def test_update_section_with_cross_questionnaire_option_raises_error(
         name="Updated Section",
         depends_on_option_id=other_option.id,
     )
-    with pytest.raises(QuestionIntegrityError):
+    with pytest.raises(SectionIntegrityError):
         service.update_section(section, payload)
 
 
