@@ -309,7 +309,7 @@ def is_org_staff(user: RevelUser, organization: Organization) -> bool:
     Returns:
         True if user is staff or owner
     """
-    return organization.owner_id == user.id or organization.staff_members.filter(id=user.id).exists()
+    return organization.is_owner_or_staff(user)
 
 
 def is_participating_in_event(user: RevelUser, event: Event) -> bool:

@@ -278,6 +278,22 @@ class Organization(
     def __str__(self) -> str:
         return self.name
 
+    def is_owner_or_staff(self, user: RevelUser) -> bool:
+        """Check if user is the organization owner or a staff member."""
+        return self.owner_id == user.id or self.staff_members.filter(id=user.id).exists()
+
+    def has_org_permission(self, user_id: t.Any, action: str) -> bool:
+        """Check if user has a specific permission on this organization.
+
+        Owners implicitly have all permissions. Staff members are checked
+        against their permission map for the given action.
+        """
+        if self.owner_id == user_id:
+            return True
+        if staff := OrganizationStaff.objects.filter(organization=self, user_id=user_id).first():
+            return staff.has_permission(action)
+        return False
+
 
 class PermissionMap(BaseModel):
     view_organization_details: bool = True

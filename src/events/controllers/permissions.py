@@ -37,15 +37,7 @@ class EventSeriesPermission(RootPermission):
         obj: models.EventSeries,
     ) -> bool:
         """Check if the user has permission to perform an action on a specific EventSeries."""
-        organization = obj.organization
-        if organization.owner_id == request.user.id:
-            return True
-        if staff_member := models.OrganizationStaff.objects.filter(
-            organization=organization,
-            user_id=request.user.id,
-        ).first():
-            return staff_member.has_permission(self.action)
-        return False
+        return obj.organization.has_org_permission(request.user.id, self.action)
 
 
 class EventPermission(RootPermission):
@@ -56,14 +48,7 @@ class EventPermission(RootPermission):
         obj: models.Event,
     ) -> bool:
         """Can edit event."""
-        if obj.organization.owner_id == request.user.id:
-            return True
-        if staff_member := models.OrganizationStaff.objects.filter(
-            organization=obj.organization,
-            user_id=request.user.id,
-        ).first():
-            return staff_member.has_permission(self.action)
-        return False
+        return obj.organization.has_org_permission(request.user.id, self.action)
 
 
 class OrganizationPermission(RootPermission):
@@ -74,14 +59,7 @@ class OrganizationPermission(RootPermission):
         obj: models.Organization,
     ) -> bool:
         """Can edit organization."""
-        if obj.owner_id == request.user.id:
-            return True
-        if staff_member := models.OrganizationStaff.objects.filter(
-            organization=obj,
-            user_id=request.user.id,
-        ).first():
-            return staff_member.has_permission(self.action)
-        return False
+        return obj.has_org_permission(request.user.id, self.action)
 
 
 class QuestionnairePermission(RootPermission):
@@ -124,12 +102,7 @@ class IsOrganizationStaff(RootPermission):
         obj: models.Organization,
     ) -> bool:
         """Can edit organization."""
-        if obj.owner_id == request.user.id:
-            return True
-        if models.OrganizationStaff.objects.filter(
-            organization=obj,
-            user_id=request.user.id,
-        ).exists():
+        if obj.is_owner_or_staff(t.cast(RevelUser, request.user)):
             return True
         raise PermissionDenied("You must be the owner of this organization.")
 
@@ -152,14 +125,7 @@ class CanDuplicateEvent(RootPermission):
         obj: models.Event,
     ) -> bool:
         """Check if user can duplicate this event (create new event in same org)."""
-        if obj.organization.owner_id == request.user.id:
-            return True
-        if staff_member := models.OrganizationStaff.objects.filter(
-            organization=obj.organization,
-            user_id=request.user.id,
-        ).first():
-            return staff_member.has_permission(self.action)
-        return False
+        return obj.organization.has_org_permission(request.user.id, self.action)
 
 
 class ManagePotluckPermission(RootPermission):
@@ -176,24 +142,14 @@ class ManagePotluckPermission(RootPermission):
         """Can edit organization."""
         if obj.created_by_id == request.user.id:
             return True
-        if models.Organization.objects.filter(id=obj.event.organization_id, owner_id=request.user.id).exists():
-            return True
-        if staff_member := models.OrganizationStaff.objects.filter(
-            organization_id=obj.event.organization_id,
-            user_id=request.user.id,
-        ).first():
-            return staff_member.has_permission(self.action)
-        return False
+        return obj.event.organization.has_org_permission(request.user.id, self.action)
 
 
 class PotluckItemPermission(RootPermission):
     def has_object_permission(self, request: HttpRequest, controller: ControllerBase, obj: models.Event) -> bool:
         """Can create a potluck item."""
         user = t.cast(RevelUser, request.user)
-        if obj.organization.owner_id == user.id:
-            return True
-
-        if models.OrganizationStaff.objects.filter(organization=obj.organization, user=user).exists():
+        if obj.organization.is_owner_or_staff(user):
             return True
 
         if not obj.potluck_open and self.action == "create_potluck_item":
@@ -212,12 +168,6 @@ class CanPurchaseTicket(RootPermission):
     def __init__(self) -> None:
         """Override init."""
         super().__init__(action="can_purchase")
-
-    def _is_org_staff_or_owner(self, org_id: t.Any, user_id: t.Any) -> bool:
-        """Check if user is org owner or staff."""
-        if models.Organization.objects.filter(id=org_id, owner_id=user_id).exists():
-            return True
-        return models.OrganizationStaff.objects.filter(organization_id=org_id, user_id=user_id).exists()
 
     def _check_invited(self, tier: models.TicketTier, user_id: t.Any) -> bool:
         """Check if user has a valid invitation for this tier."""
@@ -240,7 +190,7 @@ class CanPurchaseTicket(RootPermission):
             raise PermissionDenied("You're outside of the sale window.")
         if obj.purchasable_by == models.TicketTier.PurchasableBy.PUBLIC:
             return True
-        if self._is_org_staff_or_owner(obj.event.organization_id, user.id):
+        if obj.event.organization.is_owner_or_staff(user):
             return True
 
         PB = models.TicketTier.PurchasableBy
