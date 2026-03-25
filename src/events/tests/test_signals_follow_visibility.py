@@ -29,6 +29,7 @@ class TestFollowerNotificationVisibility:
     @pytest.mark.parametrize(
         "visibility",
         [
+            Event.Visibility.UNLISTED,
             Event.Visibility.PRIVATE,
             Event.Visibility.MEMBERS_ONLY,
             Event.Visibility.STAFF_ONLY,

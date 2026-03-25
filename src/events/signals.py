@@ -329,6 +329,8 @@ def _should_notify_followers_for_event(event: Event, created: bool) -> bool:
     if event.status != Event.EventStatus.OPEN:
         return False
 
+    # Only PUBLIC events notify followers. UNLISTED, PRIVATE, MEMBERS_ONLY,
+    # STAFF_ONLY do not — the org decides explicitly who to share with.
     if event.visibility != Event.Visibility.PUBLIC:
         return False
 
