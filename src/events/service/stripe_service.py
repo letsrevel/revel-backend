@@ -306,6 +306,7 @@ def _resolve_attendee_vat(
     tier: TicketTier,
     org: Organization,
     base_price: Decimal,
+    buyer_country: str,
 ) -> "tuple[AttendeeVATResult, bool]":
     """Resolve attendee VAT treatment and validate buyer VAT ID.
 
@@ -331,7 +332,7 @@ def _resolve_attendee_vat(
         gross_price=base_price,
         seller_vat_rate=seller_vat_rate,
         seller_country=org.vat_country_code,
-        buyer_country=billing_info.vat_country_code,
+        buyer_country=buyer_country,
         buyer_vat_id_valid=buyer_vat_validated,
     )
     return vat_result, buyer_vat_validated
@@ -376,8 +377,14 @@ def create_batch_checkout_session(
     # Determine VAT treatment based on buyer billing info
     buyer_vat_validated = False
     attendee_vat_result = None
-    if billing_info and billing_info.vat_country_code:
-        attendee_vat_result, buyer_vat_validated = _resolve_attendee_vat(billing_info, tier, org, base_price)
+    # Derive country from VAT ID prefix if not explicitly provided
+    buyer_country = billing_info.vat_country_code if billing_info else ""
+    if not buyer_country and billing_info and billing_info.vat_id and len(billing_info.vat_id) >= 2:
+        buyer_country = billing_info.vat_id[:2].upper()
+    if billing_info and buyer_country:
+        attendee_vat_result, buyer_vat_validated = _resolve_attendee_vat(
+            billing_info, tier, org, base_price, buyer_country
+        )
 
     # The price the buyer actually pays (may be reduced for reverse charge / export)
     effective_price = attendee_vat_result.effective_price if attendee_vat_result else base_price

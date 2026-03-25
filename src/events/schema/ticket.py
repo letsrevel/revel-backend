@@ -435,6 +435,8 @@ class VATPreviewRequestSchema(Schema):
 
     billing_info: BuyerBillingInfoSchema
     items: list[VATPreviewItemSchema] = Field(..., min_length=1)
+    discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
+    price_per_ticket: Decimal | None = Field(None, ge=0, description="PWYC price override")
 
 
 class VATPreviewLineItemSchema(Schema):

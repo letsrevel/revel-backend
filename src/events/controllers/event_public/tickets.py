@@ -250,7 +250,13 @@ class EventPublicTicketsController(EventPublicBaseController):
         from events.service.attendee_vat_service import calculate_vat_preview
 
         event = self.get_one(event_id)
-        result = calculate_vat_preview(event, payload.billing_info, payload.items)
+        result = calculate_vat_preview(
+            event,
+            payload.billing_info,
+            payload.items,
+            discount_code=payload.discount_code,
+            price_per_ticket=payload.price_per_ticket,
+        )
 
         return schema.VATPreviewResponseSchema(
             vat_id_valid=result.vat_id_valid,

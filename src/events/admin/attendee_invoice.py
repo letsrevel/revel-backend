@@ -6,7 +6,6 @@ import typing as t
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
-from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
 
 from common.signing import get_file_url
@@ -116,7 +115,7 @@ class AttendeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[m
             models.AttendeeInvoice.InvoiceStatus.CANCELLED: "red",
         }
         color = colors.get(obj.status, "gray")
-        return mark_safe(f'<span style="color: {color};">{obj.get_status_display()}</span>')
+        return format_html('<span style="color: {};">{}</span>', color, obj.get_status_display())
 
     @admin.display(description="RC", boolean=True)
     def reverse_charge_display(self, obj: models.AttendeeInvoice) -> bool:

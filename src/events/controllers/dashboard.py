@@ -21,6 +21,7 @@ from common.controllers import UserAwareController
 from common.signing import get_file_url
 from events import filters, models, schema
 from events.service import event_service
+from events.service.attendee_invoice_service import ensure_pdf_exists
 
 
 @api_controller("/dashboard", auth=I18nJWTAuth())
@@ -359,8 +360,6 @@ class DashboardController(UserAwareController):
 
         Generates the PDF on-demand if not yet generated.
         """
-        from events.service.attendee_invoice_service import ensure_pdf_exists
-
         invoice = get_object_or_404(
             models.AttendeeInvoice,
             id=invoice_id,

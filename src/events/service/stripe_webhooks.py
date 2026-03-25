@@ -187,6 +187,7 @@ class StripeEventHandler:
 
         raw_response = dict(event)
         refunded_tickets = []
+        newly_refunded_ids: list[str] = []
 
         for payment in payments:
             if payment.status == Payment.PaymentStatus.REFUNDED:
@@ -196,6 +197,7 @@ class StripeEventHandler:
             payment.status = Payment.PaymentStatus.REFUNDED
             payment.raw_response = raw_response
             payment.save(update_fields=["status", "raw_response"])
+            newly_refunded_ids.append(str(payment.id))
 
             # Cancel the ticket
             ticket = payment.ticket
@@ -208,15 +210,14 @@ class StripeEventHandler:
             TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
             refunded_tickets.append(ticket)
 
-        # Trigger attendee credit note generation (if an invoice exists for this session)
-        refunded_ids = [str(p.id) for p in payments if p.status == Payment.PaymentStatus.REFUNDED]
+        # Trigger attendee credit note generation (only for newly refunded payments)
         session_id = payments[0].stripe_session_id if payments else None
-        if session_id and refunded_ids:
+        if session_id and newly_refunded_ids:
 
             def _trigger_credit_note() -> None:
                 from events.tasks import generate_attendee_credit_note_task
 
-                generate_attendee_credit_note_task.delay(session_id, refunded_ids)
+                generate_attendee_credit_note_task.delay(session_id, newly_refunded_ids)
 
             transaction.on_commit(_trigger_credit_note)
 

@@ -25,6 +25,17 @@ class BuyerBillingSnapshot(t.TypedDict):
     billing_email: str
 
 
+class InvoiceLineItemDict(t.TypedDict):
+    """Typed structure for line items stored in AttendeeInvoice.line_items JSON."""
+
+    description: str
+    unit_price_gross: str
+    discount_amount: str
+    net_amount: str
+    vat_amount: str
+    vat_rate: str
+
+
 class AttendeeInvoice(TimeStampedModel):
     """Invoice issued to an attendee on behalf of an organizer.
 
@@ -96,14 +107,14 @@ class AttendeeInvoice(TimeStampedModel):
     seller_vat_id = models.CharField(max_length=20, blank=True, default="")
     seller_vat_country = models.CharField(max_length=2, blank=True, default="")
     seller_address = models.TextField(blank=True, default="")
-    seller_email = models.EmailField()
+    seller_email = models.EmailField(blank=True, default="")
 
     # Buyer snapshot (editable in DRAFT)
     buyer_name = models.CharField(max_length=255)
     buyer_vat_id = models.CharField(max_length=20, blank=True, default="")
     buyer_vat_country = models.CharField(max_length=2, blank=True, default="")
     buyer_address = models.TextField(blank=True, default="")
-    buyer_email = models.EmailField()
+    buyer_email = models.EmailField(blank=True, default="")
 
     issued_at = models.DateTimeField(null=True, blank=True)
     pdf_file = ProtectedFileField(upload_to="invoices/attendee/", null=True, blank=True)

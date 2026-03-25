@@ -10,8 +10,10 @@ register = template.Library()
 
 
 @register.filter
-def format_currency(value: Decimal | float, currency: str = "EUR") -> str:
+def format_currency(value: Decimal | float | str, currency: str = "EUR") -> str:
     """Format a value with a currency symbol.
+
+    Accepts Decimal, float, or string (from JSON line items).
 
     Usage: ``{{ fee_net|format_currency:currency }}``
     """

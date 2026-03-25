@@ -166,7 +166,7 @@ def validate_vat_id_cached(vat_id: str) -> VIESValidationResult:
     if cached is not None:
         return VIESValidationResult(**cached)
 
-    result = validate_vat_id(vat_id)  # may raise VIESUnavailableError
+    result = validate_vat_id(normalized)  # may raise VIESUnavailableError
     cache.set(cache_key, asdict(result), timeout=VIES_CACHE_TTL)
     return result
 

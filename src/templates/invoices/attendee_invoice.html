@@ -77,7 +77,7 @@
       <tr>
         <td>
           {{ item.description }}
-          {% if item.discount_amount %}<br><small style="color: #888;">Discount: -{{ item.discount_amount|format_currency:invoice.currency }}</small>{% endif %}
+          {% if item.discount_amount and item.discount_amount != "0.00" %}<br><small style="color: #888;">Discount: -{{ item.discount_amount|format_currency:invoice.currency }}</small>{% endif %}
         </td>
         <td>{{ item.net_amount|format_currency:invoice.currency }}</td>
         <td>{{ item.vat_amount|format_currency:invoice.currency }}</td>
@@ -105,7 +105,7 @@
       </div>
       {% else %}
       <div class="totals-row vat">
-        <span>VAT</span>
+        <span>VAT (0%)</span>
         <span>{{ invoice.total_vat|format_currency:invoice.currency }}</span>
       </div>
       {% endif %}

@@ -15,7 +15,12 @@ from ninja.errors import HttpError
 
 from common.constants import EU_MEMBER_STATES
 from common.service.invoice_utils import get_next_sequential_number, render_pdf
-from events.models.attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote, BuyerBillingSnapshot
+from events.models.attendee_invoice import (
+    AttendeeInvoice,
+    AttendeeInvoiceCreditNote,
+    BuyerBillingSnapshot,
+    InvoiceLineItemDict,
+)
 from events.models.organization import Organization
 from events.models.ticket import Payment
 
@@ -72,23 +77,23 @@ def set_invoicing_mode(org: Organization, mode: Organization.InvoicingMode) -> O
 # ---------------------------------------------------------------------------
 
 
-def _build_line_items(payments: list[Payment]) -> list[dict[str, str]]:
+def _build_line_items(payments: list[Payment]) -> list[InvoiceLineItemDict]:
     """Build line item dicts from Payment records."""
-    items = []
+    items: list[InvoiceLineItemDict] = []
     for payment in payments:
         ticket = payment.ticket
         event_name = ticket.event.name if ticket.event else "Unknown Event"
         tier_name = ticket.tier.name if ticket.tier else "Unknown Tier"
         description = f"{event_name} — {tier_name} — {ticket.guest_name}"
         items.append(
-            {
-                "description": description,
-                "unit_price_gross": str(payment.amount),
-                "discount_amount": str(ticket.discount_amount or Decimal("0.00")),
-                "net_amount": str(payment.net_amount or payment.amount),
-                "vat_amount": str(payment.vat_amount or Decimal("0.00")),
-                "vat_rate": str(payment.vat_rate or Decimal("0.00")),
-            }
+            InvoiceLineItemDict(
+                description=description,
+                unit_price_gross=str(payment.amount),
+                discount_amount=str(ticket.discount_amount or Decimal("0.00")),
+                net_amount=str(payment.net_amount or payment.amount),
+                vat_amount=str(payment.vat_amount or Decimal("0.00")),
+                vat_rate=str(payment.vat_rate or Decimal("0.00")),
+            )
         )
     return items
 
@@ -444,17 +449,11 @@ def generate_attendee_credit_note(
     if not refunded_payments:
         return None
 
-    # Idempotency: check if a credit note already exists for these specific payments
-    existing_cn = (
-        AttendeeInvoiceCreditNote.objects.filter(
-            invoice=invoice,
-            payments__in=refunded_payments,
-        )
-        .distinct()
-        .first()
-    )
-    if existing_cn:
-        return existing_cn
+    # Idempotency: check if a credit note already exists for the exact same set of payments
+    refunded_id_set = {p.id for p in refunded_payments}
+    for existing_cn in AttendeeInvoiceCreditNote.objects.filter(invoice=invoice).prefetch_related("payments"):
+        if {p.id for p in existing_cn.payments.all()} == refunded_id_set:
+            return existing_cn
 
     amount_gross = sum(p.amount for p in refunded_payments)
     amount_net = sum(p.net_amount or p.amount for p in refunded_payments)
