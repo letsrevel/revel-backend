@@ -15,11 +15,13 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import structlog
 from django.conf import settings
 
 from events.models import Ticket
+from events.utils import get_event_timezone
 from wallet.apple.formatting import (
     PassColors,
     format_date_compact,
@@ -61,6 +63,7 @@ class PassData:
     ticket_price: str
     colors: PassColors
     logo_image: bytes
+    event_tz: ZoneInfo = ZoneInfo("UTC")
     barcode_message: str = ""
     relevant_date: datetime | None = None
     expiration_date: datetime | None = None
@@ -170,6 +173,7 @@ class ApplePassGenerator:
             event_name=event.name,
             event_start=event.start,
             event_end=event.end,
+            event_tz=get_event_timezone(event),
             address=(venue.full_address() if venue else None) or event.address or None,
             ticket_tier=ticket.tier.name if ticket.tier else "General Admission",
             ticket_price=ticket_price,
@@ -333,7 +337,7 @@ class ApplePassGenerator:
                 "headerFields": [
                     {
                         "key": "date",
-                        "value": format_date_compact(data.event_start),
+                        "value": format_date_compact(data.event_start, tz=data.event_tz),
                     },
                 ],
                 "primaryFields": [
@@ -347,11 +351,11 @@ class ApplePassGenerator:
 
         # Add relevant date for lock screen
         if data.relevant_date:
-            pass_dict["relevantDate"] = format_iso_date(data.relevant_date)
+            pass_dict["relevantDate"] = format_iso_date(data.relevant_date, tz=data.event_tz)
 
         # Expire pass after event ends (+ grace period)
         if data.expiration_date:
-            pass_dict["expirationDate"] = format_iso_date(data.expiration_date)
+            pass_dict["expirationDate"] = format_iso_date(data.expiration_date, tz=data.event_tz)
 
         return json.dumps(pass_dict, indent=2).encode("utf-8")
 
@@ -371,8 +375,8 @@ class ApplePassGenerator:
                 "label": "Event Details",
                 "value": (
                     f"{data.event_name}\n\n"
-                    f"Start: {format_date_full(data.event_start)}\n"
-                    f"End: {format_date_full(data.event_end)}"
+                    f"Start: {format_date_full(data.event_start, tz=data.event_tz)}\n"
+                    f"End: {format_date_full(data.event_end, tz=data.event_tz)}"
                 ),
             }
         )

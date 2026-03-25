@@ -48,6 +48,10 @@ class AdditionalResourceQuerySet(models.QuerySet["AdditionalResource"]):
             return qs.filter(visibility__in=ResourceVisibility.publicly_accessible())
 
         # --- Authenticated User ---
+        # Scope to organizations the user can actually see (defense-in-depth).
+        visible_org_ids = Organization.objects.for_user(user).values("id")
+        qs = qs.filter(organization_id__in=visible_org_ids)
+
         # A user's visibility is the sum of several permissions. We build a
         # query that combines them using OR (`|`).
 

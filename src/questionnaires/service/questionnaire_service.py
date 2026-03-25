@@ -538,6 +538,23 @@ class QuestionnaireService:
 
         return section, depends_on_option
 
+    def _validate_depends_on_option_id(self, option_id: UUID | None) -> None:
+        """Validate that a depends_on_option_id belongs to this questionnaire.
+
+        Args:
+            option_id: The option ID to validate, or None (no-op).
+
+        Raises:
+            QuestionIntegrityError: If the option doesn't exist in this questionnaire.
+        """
+        if option_id is None:
+            return
+        if not MultipleChoiceOption.objects.filter(
+            id=option_id,
+            question__questionnaire=self.questionnaire,
+        ).exists():
+            raise QuestionIntegrityError("Option does not exist or does not belong to this questionnaire.")
+
     @transaction.atomic
     def create_section(
         self,
@@ -592,6 +609,7 @@ class QuestionnaireService:
         Only updates section metadata (name, description, order, depends_on_option).
         Questions must be added/updated/deleted via dedicated endpoints.
         """
+        self._validate_depends_on_option_id(payload.depends_on_option_id)
         section.name = payload.name
         section.description = payload.description
         section.order = payload.order
@@ -669,6 +687,7 @@ class QuestionnaireService:
             except QuestionnaireSection.DoesNotExist:
                 raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
 
+        self._validate_depends_on_option_id(payload.depends_on_option_id)
         for key, value in payload.model_dump(exclude={"section_id"}).items():
             setattr(mc_question, key, value)
         mc_question.save()
@@ -742,6 +761,7 @@ class QuestionnaireService:
             except QuestionnaireSection.DoesNotExist:
                 raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
 
+        self._validate_depends_on_option_id(payload.depends_on_option_id)
         for key, value in payload.model_dump(exclude={"section_id"}).items():
             setattr(ft_question, key, value)
         ft_question.save()
@@ -785,6 +805,7 @@ class QuestionnaireService:
             except QuestionnaireSection.DoesNotExist:
                 raise SectionIntegrityError("Section does not exist or does not belong to this questionnaire.")
 
+        self._validate_depends_on_option_id(payload.depends_on_option_id)
         for key, value in payload.model_dump(exclude={"section_id"}).items():
             setattr(fu_question, key, value)
         fu_question.save()

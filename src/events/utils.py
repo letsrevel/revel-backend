@@ -2,11 +2,15 @@ import base64
 import mimetypes
 import typing as t
 from collections import defaultdict
+from datetime import datetime
 from io import BytesIO
+from zoneinfo import ZoneInfo
 
 import qrcode
 import structlog
 from django.template.loader import render_to_string
+from django.utils import timezone
+from django.utils.dateformat import format as date_format
 from weasyprint import HTML
 
 from events import models
@@ -14,6 +18,58 @@ from events import models
 from .models import Ticket
 
 logger = structlog.get_logger(__name__)
+
+# Default date format for user-facing dates: "Friday, February 6, 2026 at 7:00 PM CET"
+DEFAULT_DATE_FORMAT = "l, F j, Y \\a\\t g:i A T"
+
+
+def get_event_timezone(event: models.Event) -> ZoneInfo:
+    """Get the timezone for an event based on its city.
+
+    Falls back to UTC if no city or timezone is set.
+
+    Args:
+        event: Event instance
+
+    Returns:
+        ZoneInfo for the event's timezone
+    """
+    if event.city and event.city.timezone:
+        try:
+            return ZoneInfo(event.city.timezone)
+        except KeyError:
+            logger.warning(
+                "invalid_timezone_for_city",
+                city_id=event.city.id,
+                timezone=event.city.timezone,
+            )
+    return ZoneInfo("UTC")
+
+
+def format_event_datetime(
+    dt: datetime | None,
+    event: models.Event,
+    fmt: str = DEFAULT_DATE_FORMAT,
+) -> str:
+    r"""Format a datetime in the event's timezone.
+
+    Args:
+        dt: Datetime to format (must be timezone-aware)
+        event: Event to get timezone from
+        fmt: Date format string (default: "l, F j, Y \a\t g:i A T")
+
+    Returns:
+        Formatted datetime string, or empty string if dt is None
+    """
+    if not dt:
+        return ""
+
+    event_tz = get_event_timezone(event)
+    # Convert the datetime to the event's timezone
+    dt_in_event_tz = dt.astimezone(event_tz)
+    # Use timezone.override to ensure Django's date_format uses the correct timezone
+    with timezone.override(event_tz):
+        return date_format(dt_in_event_tz, fmt)
 
 
 class _SafeAccessStr(str):
@@ -53,7 +109,9 @@ def get_invitation_message(display_name: str, event: models.Event) -> str:
             "user_name": _SafeAccessStr(display_name),
             "event_name": _SafeAccessStr(event.name),
             "organization_name": _SafeAccessStr(event.organization.name),
-            "event_date": _SafeAccessStr(event.start.strftime("%B %d, %Y") if event.start else ""),
+            "event_date": _SafeAccessStr(
+                format_event_datetime(event.start, event, fmt="F j, Y") if event.start else ""
+            ),
         }
         try:
             return event.invitation_message.format_map(defaultdict(_SafeAccessStr, safe_context))
@@ -225,7 +283,7 @@ def create_ticket_pdf(ticket: Ticket) -> bytes:
         "user_display_name": ticket.user.get_display_name(),
         "guest_name": ticket.guest_name,
         "tier_name": ticket.tier.name,
-        "start_datetime": event.start.strftime("%A, %B %d, %Y at %I:%M %p %Z"),
+        "start_datetime": format_event_datetime(event.start, event),
         "address": event.full_address(),
         "qr_code_base64": qr_code_base64,
         "ticket_id": str(ticket.id),

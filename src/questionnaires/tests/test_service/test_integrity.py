@@ -9,17 +9,22 @@ from questionnaires.exceptions import (
     SectionIntegrityError,
 )
 from questionnaires.models import (
+    FileUploadQuestion,
+    FreeTextQuestion,
     MultipleChoiceOption,
     MultipleChoiceQuestion,
     Questionnaire,
     QuestionnaireSection,
 )
 from questionnaires.schema import (
+    FileUploadQuestionUpdateSchema,
     FreeTextQuestionCreateSchema,
+    FreeTextQuestionUpdateSchema,
     MultipleChoiceOptionCreateSchema,
     MultipleChoiceQuestionCreateSchema,
     MultipleChoiceQuestionUpdateSchema,
     SectionCreateSchema,
+    SectionUpdateSchema,
 )
 from questionnaires.service import QuestionnaireService
 
@@ -251,3 +256,103 @@ def test_create_section_with_nonexistent_depends_on_option_id_raises_error(
     )
     with pytest.raises(SectionIntegrityError):
         service.create_section(payload)
+
+
+# Tests for depends_on_option_id validation in UPDATE methods
+
+
+def test_update_mc_question_with_cross_questionnaire_option_raises_error(
+    questionnaire: Questionnaire,
+    single_answer_mc_question: MultipleChoiceQuestion,
+    another_questionnaire: Questionnaire,
+) -> None:
+    """Test updating an MC question with depends_on_option_id from another questionnaire."""
+    other_question = MultipleChoiceQuestion.objects.create(questionnaire=another_questionnaire, question="Other")
+    other_option = MultipleChoiceOption.objects.create(question=other_question, option="Other Option", is_correct=True)
+    service = QuestionnaireService(questionnaire.id)
+    payload = MultipleChoiceQuestionUpdateSchema(
+        question="Updated",
+        depends_on_option_id=other_option.id,
+    )
+    with pytest.raises(QuestionIntegrityError):
+        service.update_mc_question(single_answer_mc_question, payload)
+
+
+def test_update_ft_question_with_cross_questionnaire_option_raises_error(
+    questionnaire: Questionnaire,
+    free_text_question: FreeTextQuestion,
+    another_questionnaire: Questionnaire,
+) -> None:
+    """Test updating an FT question with depends_on_option_id from another questionnaire."""
+    other_question = MultipleChoiceQuestion.objects.create(questionnaire=another_questionnaire, question="Other")
+    other_option = MultipleChoiceOption.objects.create(question=other_question, option="Other Option", is_correct=True)
+    service = QuestionnaireService(questionnaire.id)
+    payload = FreeTextQuestionUpdateSchema(
+        question="Updated",
+        depends_on_option_id=other_option.id,
+    )
+    with pytest.raises(QuestionIntegrityError):
+        service.update_ft_question(free_text_question, payload)
+
+
+def test_update_fu_question_with_cross_questionnaire_option_raises_error(
+    questionnaire: Questionnaire,
+    file_upload_question: FileUploadQuestion,
+    another_questionnaire: Questionnaire,
+) -> None:
+    """Test updating an FU question with depends_on_option_id from another questionnaire."""
+    other_question = MultipleChoiceQuestion.objects.create(questionnaire=another_questionnaire, question="Other")
+    other_option = MultipleChoiceOption.objects.create(question=other_question, option="Other Option", is_correct=True)
+    service = QuestionnaireService(questionnaire.id)
+    payload = FileUploadQuestionUpdateSchema(
+        question="Updated",
+        depends_on_option_id=other_option.id,
+    )
+    with pytest.raises(QuestionIntegrityError):
+        service.update_fu_question(file_upload_question, payload)
+
+
+def test_update_section_with_cross_questionnaire_option_raises_error(
+    questionnaire: Questionnaire,
+    section: QuestionnaireSection,
+    another_questionnaire: Questionnaire,
+) -> None:
+    """Test updating a section with depends_on_option_id from another questionnaire."""
+    other_question = MultipleChoiceQuestion.objects.create(questionnaire=another_questionnaire, question="Other")
+    other_option = MultipleChoiceOption.objects.create(question=other_question, option="Other Option", is_correct=True)
+    service = QuestionnaireService(questionnaire.id)
+    payload = SectionUpdateSchema(
+        name="Updated Section",
+        depends_on_option_id=other_option.id,
+    )
+    with pytest.raises(QuestionIntegrityError):
+        service.update_section(section, payload)
+
+
+def test_update_mc_question_with_valid_option_succeeds(
+    questionnaire: Questionnaire,
+    single_answer_mc_question: MultipleChoiceQuestion,
+    correct_option: MultipleChoiceOption,
+) -> None:
+    """Test updating an MC question with a valid depends_on_option_id from the same questionnaire."""
+    service = QuestionnaireService(questionnaire.id)
+    payload = MultipleChoiceQuestionUpdateSchema(
+        question="Updated",
+        depends_on_option_id=correct_option.id,
+    )
+    updated = service.update_mc_question(single_answer_mc_question, payload)
+    assert updated.depends_on_option_id == correct_option.id
+
+
+def test_update_question_with_none_option_succeeds(
+    questionnaire: Questionnaire,
+    single_answer_mc_question: MultipleChoiceQuestion,
+) -> None:
+    """Test updating a question with depends_on_option_id=None is a no-op."""
+    service = QuestionnaireService(questionnaire.id)
+    payload = MultipleChoiceQuestionUpdateSchema(
+        question="Updated",
+        depends_on_option_id=None,
+    )
+    updated = service.update_mc_question(single_answer_mc_question, payload)
+    assert updated.depends_on_option_id is None

@@ -8,6 +8,7 @@ import colorsys
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 
@@ -57,19 +58,23 @@ def get_theme_colors() -> PassColors:
     return REVEL_THEME
 
 
-def format_iso_date(dt: datetime) -> str:
+def format_iso_date(dt: datetime, tz: ZoneInfo | None = None) -> str:
     """Format a datetime for Apple's expected ISO 8601 format.
 
     Apple requires the colon in timezone offset (+00:00, not +0000).
 
     Args:
         dt: The datetime to format.
+        tz: Optional timezone to convert to before formatting.
 
     Returns:
         ISO 8601 formatted string with colon in timezone.
     """
     if timezone.is_naive(dt):
         dt = timezone.make_aware(dt)
+
+    if tz:
+        dt = dt.astimezone(tz)
 
     formatted = dt.strftime("%Y-%m-%dT%H:%M:%S%z")
 
@@ -80,7 +85,7 @@ def format_iso_date(dt: datetime) -> str:
     return formatted
 
 
-def format_date_compact(dt: datetime) -> str:
+def format_date_compact(dt: datetime, tz: ZoneInfo | None = None) -> str:
     """Format a datetime compactly for pass header display.
 
     Omits the year (implicit from context) but keeps the time,
@@ -88,22 +93,28 @@ def format_date_compact(dt: datetime) -> str:
 
     Args:
         dt: The datetime to format.
+        tz: Optional timezone to convert to before formatting.
 
     Returns:
         Formatted string like "Mar 1, 19:00".
     """
+    if tz:
+        dt = dt.astimezone(tz)
     return dt.strftime("%b %-d, %H:%M")
 
 
-def format_date_full(dt: datetime) -> str:
+def format_date_full(dt: datetime, tz: ZoneInfo | None = None) -> str:
     """Format a datetime for full display (back fields).
 
     Args:
         dt: The datetime to format.
+        tz: Optional timezone to convert to before formatting.
 
     Returns:
         Formatted string like "Jan 03, 2025 07:00 PM".
     """
+    if tz:
+        dt = dt.astimezone(tz)
     return dt.strftime("%b %d, %Y %I:%M %p")
 
 
