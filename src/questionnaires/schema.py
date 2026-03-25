@@ -60,6 +60,7 @@ AUDIO_MIME_TYPES: frozenset[str] = frozenset(
         "video/webm",  # WebM container for browser audio recordings
         "audio/aac",
         "audio/mp4",  # .m4a
+        "video/mp4",  # .m4a detected as video/mp4 by libmagic on some platforms
         "audio/flac",
     }
 )

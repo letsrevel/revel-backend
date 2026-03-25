@@ -45,8 +45,8 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         # --- Anonymous User ---
         if user.is_anonymous:
             return qs.filter(
-                visibility=TicketTier.Visibility.PUBLIC,
-                event__visibility=Event.Visibility.PUBLIC,
+                visibility__in=TicketTier.Visibility.publicly_accessible(),
+                event__visibility__in=Event.Visibility.publicly_accessible(),
                 event__status=Event.EventStatus.OPEN,
             )
 
@@ -68,7 +68,7 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
             return qs.filter(base_q).distinct()
 
         # For regular users, apply tier-specific visibility rules ON TOP of visible events.
-        is_public_tier = Q(visibility=TicketTier.Visibility.PUBLIC)
+        is_public_tier = Q(visibility__in=TicketTier.Visibility.publicly_accessible())
 
         # Only valid members (not cancelled, not banned) can see member-only tiers
         member_org_ids = (
@@ -128,9 +128,9 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
         if not user.is_anonymous and (user.is_superuser or user.is_staff):
             return qs
 
-        # Anonymous users: only public tiers on public events
+        # Anonymous users: only publicly accessible tiers (PUBLIC + UNLISTED)
         if user.is_anonymous:
-            return qs.filter(visibility=TicketTier.Visibility.PUBLIC)
+            return qs.filter(visibility__in=TicketTier.Visibility.publicly_accessible())
 
         # Check if user is org owner or staff - they see all tiers
         org = event.organization
@@ -140,7 +140,7 @@ class TicketTierQuerySet(models.QuerySet["TicketTier"]):
             return qs
 
         # Regular user: apply tier visibility rules
-        is_public_tier = Q(visibility=TicketTier.Visibility.PUBLIC)
+        is_public_tier = Q(visibility__in=TicketTier.Visibility.publicly_accessible())
 
         # Member-only tiers: check if user is valid member of this org
         is_member = OrganizationMember.objects.for_visibility().filter(user=user, organization=org).exists()

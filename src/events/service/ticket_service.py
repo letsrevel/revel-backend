@@ -153,7 +153,7 @@ def _check_tier_visibility(
 
     visibility = tier.visibility
 
-    if visibility == VisibilityMixin.Visibility.PUBLIC:
+    if visibility in VisibilityMixin.Visibility.publicly_accessible():
         return True
 
     if visibility == VisibilityMixin.Visibility.MEMBERS_ONLY:

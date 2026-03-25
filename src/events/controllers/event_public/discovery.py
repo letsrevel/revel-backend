@@ -61,7 +61,9 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         params.next_events = not include_past
 
         # Get complex visibility-filtered queryset and apply additional filters
-        filtered_qs = params.filter(self.get_queryset(include_past=include_past or params.past_events is True))
+        filtered_qs = params.filter(
+            self.get_discovery_queryset(include_past=include_past or params.past_events is True)
+        )
 
         # Materialize IDs to avoid expensive COUNT(*) on complex DISTINCT subquery
         # This is the same optimization used in dashboard endpoints
@@ -105,7 +107,7 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         Results are ordered by start time ascending.
         """
         start_datetime, end_datetime = event_service.calculate_calendar_date_range(**calendar_params.model_dump())
-        qs = self.get_queryset(include_past=True).filter(start__gte=start_datetime, start__lt=end_datetime)
+        qs = self.get_discovery_queryset(include_past=True).filter(start__gte=start_datetime, start__lt=end_datetime)
         # Disable next_events default filter for calendar views since date range is explicit.
         # Users can still filter using start_after/start_before if needed.
         params.next_events = None
