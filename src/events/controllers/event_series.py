@@ -26,7 +26,7 @@ class EventSeriesController(UserAwareController):
         return models.EventSeries.objects.full().for_user(self.maybe_user())
 
     def get_discovery_queryset(self) -> QuerySet[models.EventSeries]:
-        """Get the queryset for discovery listings (hides UNLISTED from non-staff)."""
+        """Get the queryset for discovery listings (hides UNLISTED from non-owner/non-staff users)."""
         return models.EventSeries.objects.full().discoverable_for_user(self.maybe_user())
 
     @route.get(

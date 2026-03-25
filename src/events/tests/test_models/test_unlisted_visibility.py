@@ -4,8 +4,7 @@ UNLISTED items are accessible via direct link (like PUBLIC) but hidden from
 discovery listings for non-owner/non-staff users.
 """
 
-import typing as t
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from django.contrib.auth.models import AnonymousUser
@@ -82,12 +81,12 @@ def org_member(unlisted_org: Organization, member: RevelUser) -> OrganizationMem
 
 
 @pytest.fixture
-def next_week() -> t.Any:
+def next_week() -> datetime:
     return timezone.now() + timedelta(days=7)
 
 
 @pytest.fixture
-def unlisted_event(unlisted_org: Organization, next_week: t.Any) -> Event:
+def unlisted_event(unlisted_org: Organization, next_week: datetime) -> Event:
     return Event.objects.create(
         organization=unlisted_org,
         name="Unlisted Event",
@@ -101,7 +100,7 @@ def unlisted_event(unlisted_org: Organization, next_week: t.Any) -> Event:
 
 
 @pytest.fixture
-def unlisted_event_on_public_org(public_org: Organization, next_week: t.Any) -> Event:
+def unlisted_event_on_public_org(public_org: Organization, next_week: datetime) -> Event:
     return Event.objects.create(
         organization=public_org,
         name="Unlisted Event Public Org",
@@ -115,7 +114,7 @@ def unlisted_event_on_public_org(public_org: Organization, next_week: t.Any) -> 
 
 
 @pytest.fixture
-def public_event_on_unlisted_org(unlisted_org: Organization, next_week: t.Any) -> Event:
+def public_event_on_unlisted_org(unlisted_org: Organization, next_week: datetime) -> Event:
     return Event.objects.create(
         organization=unlisted_org,
         name="Public Event Unlisted Org",
@@ -314,7 +313,7 @@ class TestTicketTierUnlistedVisibility:
         )
 
     @pytest.fixture
-    def unlisted_tier_on_public_event(self, public_org: Organization, next_week: t.Any) -> TicketTier:
+    def unlisted_tier_on_public_event(self, public_org: Organization, next_week: datetime) -> TicketTier:
         event = Event.objects.create(
             organization=public_org,
             name="Public Event for Tier Test",

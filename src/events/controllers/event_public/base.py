@@ -37,7 +37,7 @@ class EventPublicBaseController(UserAwareController):
         return base.for_user(self.maybe_user(), include_past=include_past, allowed_ids=allowed_ids)
 
     def get_discovery_queryset(self, include_past: bool = False) -> models.event.EventQuerySet:
-        """Get the queryset for discovery listings (hides UNLISTED from non-staff)."""
+        """Get the queryset for discovery listings (hides UNLISTED from non-owner/non-staff users)."""
         return models.Event.objects.full().discoverable_for_user(self.maybe_user(), include_past=include_past)
 
     def _raise_if_token_gone(self, event_id: UUID | None = None) -> None:
