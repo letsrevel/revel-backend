@@ -1,12 +1,21 @@
 # ruff: noqa: W293
 
-from unittest.mock import Mock, patch
+from datetime import datetime
+from unittest.mock import MagicMock, Mock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
+from django.contrib.gis.geos import Point
 
 from accounts.models import RevelUser
 from events import models
-from events.utils import create_ticket_pdf, get_invitation_message
+from events.utils import (
+    create_ticket_pdf,
+    format_event_datetime,
+    get_event_timezone,
+    get_invitation_message,
+)
+from geo.models import City
 
 
 @pytest.mark.django_db
@@ -121,8 +130,8 @@ def test_get_invitation_message_with_email_as_display_name(public_event: models.
 
 
 @pytest.mark.django_db
-@patch("events.utils.qrcode.QRCode")
-@patch("events.utils.HTML")
+@patch("qrcode.QRCode")
+@patch("weasyprint.HTML")
 @patch("events.utils.render_to_string")
 def test_create_ticket_pdf_basic_functionality(
     mock_render: Mock, mock_html: Mock, mock_qr: Mock, ticket: models.Ticket
@@ -171,8 +180,8 @@ def test_create_ticket_pdf_basic_functionality(
 
 
 @pytest.mark.django_db
-@patch("events.utils.qrcode.QRCode")
-@patch("events.utils.HTML")
+@patch("qrcode.QRCode")
+@patch("weasyprint.HTML")
 @patch("events.utils.render_to_string")
 def test_create_ticket_pdf_context_data(
     mock_render: Mock, mock_html: Mock, mock_qr: Mock, ticket: models.Ticket
@@ -207,8 +216,8 @@ def test_create_ticket_pdf_context_data(
 
 
 @pytest.mark.django_db
-@patch("events.utils.qrcode.QRCode")
-@patch("events.utils.HTML")
+@patch("qrcode.QRCode")
+@patch("weasyprint.HTML")
 @patch("events.utils.render_to_string")
 def test_create_ticket_pdf_handles_missing_address(
     mock_render: Mock, mock_html: Mock, mock_qr: Mock, ticket: models.Ticket
@@ -238,3 +247,145 @@ def test_create_ticket_pdf_handles_missing_address(
     _, kwargs = mock_render.call_args
     context = kwargs["context"]
     assert context["address"] == ""
+
+
+# --- Timezone formatting tests ---
+
+
+@pytest.fixture
+def vienna_city(db: None) -> City:
+    """Create a Vienna city with timezone."""
+    return City.objects.create(
+        name="Vienna",
+        ascii_name="Vienna",
+        country="Austria",
+        iso2="AT",
+        iso3="AUT",
+        city_id=99999,
+        location=Point(16.3738, 48.2082, srid=4326),
+        timezone="Europe/Vienna",
+    )
+
+
+@pytest.fixture
+def new_york_city(db: None) -> City:
+    """Create a New York city with timezone."""
+    return City.objects.create(
+        name="New York",
+        ascii_name="New York",
+        country="United States",
+        iso2="US",
+        iso3="USA",
+        city_id=99998,
+        location=Point(-74.0060, 40.7128, srid=4326),
+        timezone="America/New_York",
+    )
+
+
+def _mock_event(city: City | None) -> MagicMock:
+    """Create a mock event with the given city."""
+    event = MagicMock()
+    event.city = city
+    return event
+
+
+class TestGetEventTimezone:
+    """Tests for get_event_timezone function."""
+
+    def test_returns_city_timezone(self, vienna_city: City) -> None:
+        event = _mock_event(vienna_city)
+        assert get_event_timezone(event) == ZoneInfo("Europe/Vienna")
+
+    def test_returns_utc_when_no_city(self) -> None:
+        event = _mock_event(None)
+        assert get_event_timezone(event) == ZoneInfo("UTC")
+
+    def test_returns_utc_when_city_has_no_timezone(self) -> None:
+        city = MagicMock()
+        city.timezone = None
+        event = _mock_event(city)
+        assert get_event_timezone(event) == ZoneInfo("UTC")
+
+    def test_returns_utc_for_invalid_timezone(self) -> None:
+        city = MagicMock()
+        city.id = 1
+        city.timezone = "Invalid/Timezone"
+        event = _mock_event(city)
+        assert get_event_timezone(event) == ZoneInfo("UTC")
+
+
+class TestFormatEventDatetime:
+    """Tests for format_event_datetime function."""
+
+    def test_converts_to_event_timezone(self, vienna_city: City) -> None:
+        """18:00 UTC should become 19:00 CET in Vienna (winter)."""
+        event = _mock_event(vienna_city)
+        dt = datetime(2026, 2, 6, 18, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+        result = format_event_datetime(dt, event)
+
+        assert "7:00 PM" in result
+        assert "CET" in result
+
+    def test_returns_empty_for_none(self, vienna_city: City) -> None:
+        event = _mock_event(vienna_city)
+        assert format_event_datetime(None, event) == ""
+
+    def test_utc_fallback_when_no_city(self) -> None:
+        event = _mock_event(None)
+        dt = datetime(2026, 2, 6, 18, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+        result = format_event_datetime(dt, event)
+
+        assert "6:00 PM" in result
+        assert "UTC" in result
+
+    def test_different_timezones_differ(self, vienna_city: City, new_york_city: City) -> None:
+        dt = datetime(2026, 2, 6, 18, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+        result_vienna = format_event_datetime(dt, _mock_event(vienna_city))
+        result_ny = format_event_datetime(dt, _mock_event(new_york_city))
+
+        assert result_vienna != result_ny
+        # Vienna: 19:00 CET, New York: 13:00 EST
+        assert "7:00 PM" in result_vienna
+        assert "1:00 PM" in result_ny
+
+    def test_custom_format(self, vienna_city: City) -> None:
+        event = _mock_event(vienna_city)
+        dt = datetime(2026, 2, 6, 18, 0, 0, tzinfo=ZoneInfo("UTC"))
+
+        result = format_event_datetime(dt, event, fmt="Y-m-d H:i")
+
+        assert "2026-02-06 19:00" == result
+
+
+@pytest.mark.django_db
+@patch("qrcode.QRCode")
+@patch("weasyprint.HTML")
+@patch("events.utils.render_to_string")
+def test_create_ticket_pdf_uses_event_timezone(
+    mock_render: Mock, mock_html: Mock, mock_qr: Mock, ticket: models.Ticket, vienna_city: City
+) -> None:
+    """Test that PDF ticket start_datetime is formatted in the event's timezone."""
+    # Set up the event with Vienna timezone
+    ticket.event.city = vienna_city
+    ticket.event.start = datetime(2026, 2, 6, 18, 0, 0, tzinfo=ZoneInfo("UTC"))
+    ticket.event.save()
+
+    # Mock dependencies
+    mock_qr_instance = Mock()
+    mock_qr.return_value = mock_qr_instance
+    mock_qr_instance.make_image.return_value = Mock()
+    mock_html_instance = Mock()
+    mock_html.return_value = mock_html_instance
+    mock_html_instance.write_pdf.return_value = b"fake-pdf"
+    mock_render.return_value = "<html></html>"
+
+    create_ticket_pdf(ticket)
+
+    _, kwargs = mock_render.call_args
+    start_dt = kwargs["context"]["start_datetime"]
+    # 18:00 UTC = 19:00 CET
+    assert "7:00 PM" in start_dt
+    assert "CET" in start_dt

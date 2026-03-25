@@ -134,6 +134,13 @@ class TestFormatIsoDate:
         # New York is UTC-5 in winter
         assert "2025-01-15T10:00:00-05:00" == result
 
+    def test_converts_to_timezone(self) -> None:
+        """Should convert to target timezone before formatting."""
+        dt = datetime(2025, 1, 15, 18, 0, 0, tzinfo=ZoneInfo("UTC"))
+        result = format_iso_date(dt, tz=ZoneInfo("Europe/Vienna"))
+        # 18:00 UTC = 19:00 CET (+01:00)
+        assert result == "2025-01-15T19:00:00+01:00"
+
 
 class TestFormatDateCompact:
     """Tests for format_date_compact function."""
@@ -155,6 +162,19 @@ class TestFormatDateCompact:
         dt = datetime(2025, 7, 25, 20, 45, 0)
         result = format_date_compact(dt)
         assert result == "Jul 25, 20:45"
+
+    def test_converts_to_timezone(self) -> None:
+        """Should convert UTC datetime to event timezone."""
+        dt = datetime(2025, 1, 3, 18, 0, 0, tzinfo=ZoneInfo("UTC"))
+        result = format_date_compact(dt, tz=ZoneInfo("Europe/Vienna"))
+        # 18:00 UTC = 19:00 CET
+        assert result == "Jan 3, 19:00"
+
+    def test_no_conversion_without_tz(self) -> None:
+        """Should not convert when tz is None."""
+        dt = datetime(2025, 1, 3, 18, 0, 0, tzinfo=ZoneInfo("UTC"))
+        result = format_date_compact(dt)
+        assert result == "Jan 3, 18:00"
 
 
 class TestFormatDateFull:
@@ -183,6 +203,20 @@ class TestFormatDateFull:
         dt = datetime(2025, 6, 15, 0, 0, 0)
         result = format_date_full(dt)
         assert result == "Jun 15, 2025 12:00 AM"
+
+    def test_converts_to_timezone(self) -> None:
+        """Should convert UTC datetime to event timezone."""
+        dt = datetime(2025, 1, 3, 18, 0, 0, tzinfo=ZoneInfo("UTC"))
+        result = format_date_full(dt, tz=ZoneInfo("Europe/Vienna"))
+        # 18:00 UTC = 19:00 CET
+        assert result == "Jan 03, 2025 07:00 PM"
+
+    def test_negative_offset_timezone(self) -> None:
+        """Should handle negative offset timezones correctly."""
+        dt = datetime(2025, 1, 3, 18, 0, 0, tzinfo=ZoneInfo("UTC"))
+        result = format_date_full(dt, tz=ZoneInfo("America/New_York"))
+        # 18:00 UTC = 13:00 EST
+        assert result == "Jan 03, 2025 01:00 PM"
 
 
 class TestFormatPrice:
