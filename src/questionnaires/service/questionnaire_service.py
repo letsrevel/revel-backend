@@ -435,8 +435,16 @@ class QuestionnaireService:
             raise FileLimitExceededError(f"Too many files. Maximum allowed: {question.max_files}.")
         # Validate MIME types if restricted
         if question.allowed_mime_types:
+            # Build an expanded set that includes equivalent MIME types:
+            # - audio/mp4 <-> video/mp4 (.m4a files detected differently by libmagic)
+            # - audio/webm <-> video/webm (browser MediaRecorder containers)
+            expanded = set(question.allowed_mime_types)
+            if "audio/mp4" in expanded or "video/mp4" in expanded:
+                expanded.update({"audio/mp4", "video/mp4"})
+            if "audio/webm" in expanded or "video/webm" in expanded:
+                expanded.update({"audio/webm", "video/webm"})
             for f in files:
-                if f.mime_type not in question.allowed_mime_types:
+                if f.mime_type not in expanded:
                     raise InvalidFileMimeTypeError(
                         f"File '{f.original_filename}' has type '{f.mime_type}' which is not allowed. "
                         f"Allowed types: {', '.join(question.allowed_mime_types)}."
