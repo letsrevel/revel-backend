@@ -5,10 +5,10 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import UUID4, AwareDatetime, EmailStr, Field, model_validator
+from pydantic import UUID4, AwareDatetime, EmailStr, Field, field_validator, model_validator
 
 from accounts.schema import MemberUserSchema, MinimalRevelUserSchema, _BaseEmailJWTPayloadSchema
-from common.schema import OneToOneFiftyString, StrippedString
+from common.schema import OneToOneFiftyString, StrippedString, validate_country_code
 from common.signing import get_file_url
 from events import models
 from events.models import Payment, Ticket, TicketTier
@@ -396,11 +396,80 @@ class TicketPurchaseItem(Schema):
     seat_id: UUID | None = Field(default=None, description="Seat ID for USER_CHOICE seat assignment mode")
 
 
+class BuyerBillingInfoSchema(Schema):
+    """Buyer billing info for attendee invoicing at checkout."""
+
+    billing_name: str = Field(..., min_length=1, max_length=255)
+    vat_id: str = Field("", max_length=20)
+    vat_country_code: str = Field("", max_length=2)
+    billing_address: str = ""
+    billing_email: str = ""
+    save_to_profile: bool = False
+
+    @field_validator("vat_country_code")
+    @classmethod
+    def validate_vat_country_code(cls, v: str) -> str:
+        """Validate ISO 3166-1 alpha-2 country code or allow empty."""
+        return validate_country_code(v) or ""
+
+    @field_validator("billing_email")
+    @classmethod
+    def validate_billing_email(cls, v: str) -> str:
+        """Allow empty string but reject invalid emails."""
+        if v:
+            from pydantic import TypeAdapter
+
+            TypeAdapter(EmailStr).validate_python(v)
+        return v
+
+
+class VATPreviewItemSchema(Schema):
+    """Single item in a VAT preview request."""
+
+    tier_id: UUID
+    count: int = Field(..., ge=1)
+
+
+class VATPreviewRequestSchema(Schema):
+    """Request payload for the VAT preview endpoint."""
+
+    billing_info: BuyerBillingInfoSchema
+    items: list[VATPreviewItemSchema] = Field(..., min_length=1)
+
+
+class VATPreviewLineItemSchema(Schema):
+    """Line item in a VAT preview response."""
+
+    tier_name: str
+    ticket_count: int
+    unit_price_gross: Decimal
+    unit_price_net: Decimal
+    unit_vat: Decimal
+    vat_rate: Decimal
+    line_net: Decimal
+    line_vat: Decimal
+    line_gross: Decimal
+
+
+class VATPreviewResponseSchema(Schema):
+    """Response from the VAT preview endpoint."""
+
+    vat_id_valid: bool | None = None
+    vat_id_validation_error: str | None = None
+    reverse_charge: bool
+    line_items: list[VATPreviewLineItemSchema]
+    total_net: Decimal
+    total_vat: Decimal
+    total_gross: Decimal
+    currency: str
+
+
 class BatchCheckoutPayload(Schema):
     """Payload for batch ticket checkout (authenticated users)."""
 
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
     discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
+    billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
 
 
 class BatchCheckoutPWYCPayload(BatchCheckoutPayload):

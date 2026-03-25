@@ -1,5 +1,6 @@
 """Service for batch ticket purchases with seat selection support."""
 
+import typing as t
 from decimal import Decimal
 
 import structlog
@@ -15,6 +16,9 @@ from events.schema import TicketPurchaseItem
 from events.tasks import build_attendee_visibility_flags
 from notifications.signals.ticket import send_batch_ticket_created_notifications
 from notifications.signals.waitlist import _remove_user_from_waitlist
+
+if t.TYPE_CHECKING:
+    from events.schema.ticket import BuyerBillingInfoSchema
 
 logger = structlog.get_logger(__name__)
 
@@ -409,6 +413,7 @@ class BatchTicketService:
         self,
         items: list[TicketPurchaseItem],
         price_override: Decimal | None = None,
+        billing_info: "BuyerBillingInfoSchema | None" = None,
     ) -> list[Ticket] | str:
         """Create a batch of tickets.
 
@@ -418,6 +423,7 @@ class BatchTicketService:
         Args:
             items: List of ticket purchase items with guest_name and optional seat_id.
             price_override: Price override for PWYC or discounted tiers.
+            billing_info: Optional buyer billing info for attendee invoicing.
 
         Returns:
             Either a Stripe checkout URL (str) or list of created Tickets.
@@ -469,7 +475,7 @@ class BatchTicketService:
         # Delegate to payment-specific method
         match locked_tier.payment_method:
             case TicketTier.PaymentMethod.ONLINE:
-                return self._online_checkout(items, seats, locked_tier, price_override)
+                return self._online_checkout(items, seats, locked_tier, price_override, billing_info)
             case TicketTier.PaymentMethod.OFFLINE:
                 return self._offline_checkout(items, seats, locked_tier, price_override)
             case TicketTier.PaymentMethod.AT_THE_DOOR:
@@ -548,6 +554,7 @@ class BatchTicketService:
         seats: list[VenueSeat | None],
         locked_tier: TicketTier,
         price_override: Decimal | None,
+        billing_info: "BuyerBillingInfoSchema | None" = None,
     ) -> str:
         """Handle online (Stripe) checkout for batch tickets.
 
@@ -556,6 +563,7 @@ class BatchTicketService:
             seats: List of seats corresponding to items.
             locked_tier: The locked tier.
             price_override: Price override for PWYC.
+            billing_info: Optional buyer billing info for attendee invoicing.
 
         Returns:
             Stripe checkout URL.
@@ -575,6 +583,7 @@ class BatchTicketService:
             user=self.user,
             tickets=tickets,
             price_override=price_override,
+            billing_info=billing_info,
         )
 
         return checkout_url

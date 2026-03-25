@@ -29,12 +29,17 @@ from common.service.stripe_connect_service import (
     sync_account_status,
 )
 from events.models import Event, Organization, Payment, Ticket, TicketTier
+from events.models.attendee_invoice import BuyerBillingSnapshot
 from events.service.vat_service import (
     calculate_platform_fee_vat,
     calculate_vat_inclusive,
     distribute_amount_across_items,
     get_effective_vat_rate,
 )
+
+if t.TYPE_CHECKING:
+    from events.schema.ticket import BuyerBillingInfoSchema
+    from events.service.attendee_vat_service import AttendeeVATResult
 
 logger = structlog.get_logger(__name__)
 
@@ -268,6 +273,70 @@ def create_checkout_session(
     return t.cast(str, session.url), payment
 
 
+def _build_billing_snapshot(billing_info: "BuyerBillingInfoSchema", vat_id_validated: bool) -> BuyerBillingSnapshot:
+    """Build a buyer billing snapshot dict from checkout billing info."""
+    return BuyerBillingSnapshot(
+        billing_name=billing_info.billing_name,
+        vat_id=billing_info.vat_id,
+        vat_country_code=billing_info.vat_country_code,
+        vat_id_validated=vat_id_validated,
+        billing_address=billing_info.billing_address,
+        billing_email=billing_info.billing_email,
+    )
+
+
+def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSchema") -> None:
+    """Save buyer billing info to the user's billing profile."""
+    from accounts.models import UserBillingProfile
+
+    profile, _ = UserBillingProfile.objects.get_or_create(user=user)
+    fields_to_update = ["billing_name", "billing_address", "billing_email", "updated_at"]
+    profile.billing_name = billing_info.billing_name
+    profile.billing_address = billing_info.billing_address
+    profile.billing_email = billing_info.billing_email
+    if billing_info.vat_id:
+        profile.vat_id = billing_info.vat_id
+        profile.vat_country_code = billing_info.vat_country_code
+        fields_to_update.extend(["vat_id", "vat_country_code"])
+    profile.save(update_fields=fields_to_update)
+
+
+def _resolve_attendee_vat(
+    billing_info: "BuyerBillingInfoSchema",
+    tier: TicketTier,
+    org: Organization,
+    base_price: Decimal,
+) -> "tuple[AttendeeVATResult, bool]":
+    """Resolve attendee VAT treatment and validate buyer VAT ID.
+
+    Returns:
+        Tuple of (AttendeeVATResult, buyer_vat_validated).
+    """
+    from events.service.attendee_vat_service import determine_attendee_vat
+    from events.service.attendee_vat_service import get_effective_vat_rate as get_vat_rate
+
+    buyer_vat_validated = False
+    seller_vat_rate = get_vat_rate(tier, org)
+
+    if billing_info.vat_id:
+        try:
+            from common.service.vies_service import VIESUnavailableError, validate_vat_id_cached
+
+            result = validate_vat_id_cached(billing_info.vat_id)
+            buyer_vat_validated = result.valid
+        except (VIESUnavailableError, ValueError):
+            buyer_vat_validated = False
+
+    vat_result = determine_attendee_vat(
+        gross_price=base_price,
+        seller_vat_rate=seller_vat_rate,
+        seller_country=org.vat_country_code,
+        buyer_country=billing_info.vat_country_code,
+        buyer_vat_id_valid=buyer_vat_validated,
+    )
+    return vat_result, buyer_vat_validated
+
+
 @transaction.atomic
 def create_batch_checkout_session(
     event: Event,
@@ -275,6 +344,7 @@ def create_batch_checkout_session(
     user: RevelUser,
     tickets: list[Ticket],
     price_override: Decimal | None = None,
+    billing_info: "BuyerBillingInfoSchema | None" = None,
 ) -> str:
     """Create a Stripe Checkout Session for a batch ticket purchase.
 
@@ -284,6 +354,7 @@ def create_batch_checkout_session(
         user: The user purchasing the tickets.
         tickets: List of PENDING tickets already created.
         price_override: Price override for PWYC tiers.
+        billing_info: Optional buyer billing info for attendee invoicing.
 
     Returns:
         The Stripe checkout URL.
@@ -295,13 +366,23 @@ def create_batch_checkout_session(
         raise HttpError(400, str(_("This organization is not configured to accept payments.")))
 
     # Use price_override for PWYC, otherwise use tier.price
-    effective_price = price_override if price_override is not None else tier.price
+    base_price = price_override if price_override is not None else tier.price
 
-    if effective_price <= 0:
+    if base_price <= 0:
         raise HttpError(400, str(_("This ticket tier cannot be purchased online.")))
 
-    # Calculate net fee and gross up with VAT
     org = event.organization
+
+    # Determine VAT treatment based on buyer billing info
+    buyer_vat_validated = False
+    attendee_vat_result = None
+    if billing_info and billing_info.vat_country_code:
+        attendee_vat_result, buyer_vat_validated = _resolve_attendee_vat(billing_info, tier, org, base_price)
+
+    # The price the buyer actually pays (may be reduced for reverse charge / export)
+    effective_price = attendee_vat_result.effective_price if attendee_vat_result else base_price
+
+    # Calculate net fee and gross up with VAT
     total_amount = effective_price * len(tickets)
     net_fee = (total_amount * org.platform_fee_percent / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     # Fixed fee is stored in DEFAULT_CURRENCY; convert to payment currency if different.
@@ -375,8 +456,21 @@ def create_batch_checkout_session(
     per_ticket_vat = distribute_amount_across_items(total_fee_vat.fee_vat, ticket_count)
 
     # Ticket sale VAT breakdown
-    effective_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
-    ticket_vat = calculate_vat_inclusive(effective_price, effective_vat_rate)
+    if attendee_vat_result:
+        ticket_net = attendee_vat_result.net_amount
+        ticket_vat_amount = attendee_vat_result.vat_amount
+        ticket_vat_rate = attendee_vat_result.vat_rate
+    else:
+        effective_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
+        ticket_vat = calculate_vat_inclusive(effective_price, effective_vat_rate)
+        ticket_net = ticket_vat.net_amount
+        ticket_vat_amount = ticket_vat.vat_amount
+        ticket_vat_rate = ticket_vat.vat_rate
+
+    # Build buyer billing snapshot if billing info was provided
+    billing_snapshot: BuyerBillingSnapshot | None = None
+    if billing_info:
+        billing_snapshot = _build_billing_snapshot(billing_info, buyer_vat_validated)
 
     payments = [
         Payment(
@@ -389,19 +483,25 @@ def create_batch_checkout_session(
             status=Payment.PaymentStatus.PENDING,
             raw_response={},
             expires_at=expires_at,
-            # Ticket sale VAT breakdown (same for each ticket in batch)
-            net_amount=ticket_vat.net_amount,
-            vat_amount=ticket_vat.vat_amount,
-            vat_rate=ticket_vat.vat_rate,
+            # Ticket sale VAT breakdown
+            net_amount=ticket_net,
+            vat_amount=ticket_vat_amount,
+            vat_rate=ticket_vat_rate,
             # Platform fee VAT breakdown (distributed to avoid penny errors)
             platform_fee_net=per_ticket_gross[i] - per_ticket_vat[i],
             platform_fee_vat=per_ticket_vat[i],
             platform_fee_vat_rate=total_fee_vat.fee_vat_rate,
             platform_fee_reverse_charge=total_fee_vat.reverse_charge,
+            # Buyer billing snapshot for attendee invoicing
+            buyer_billing_snapshot=billing_snapshot,
         )
         for i, ticket in enumerate(tickets)
     ]
     Payment.objects.bulk_create(payments)
+
+    # Save billing info to user profile if requested
+    if billing_info and billing_info.save_to_profile:
+        _save_billing_to_profile(user, billing_info)
 
     return t.cast(str, session.url)
 

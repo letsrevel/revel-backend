@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+{% load invoice_filters %}
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Credit Note {{ credit_note.credit_note_number }}</title>
+  {% include "invoices/_base_styles.html" %}
+  <style>
+    .items-table thead th:nth-child(n+2) {
+      text-align: right;
+    }
+    .items-table tbody td:nth-child(n+2) {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="supplier-info">
+      <div class="supplier-name">{{ invoice.seller_name }}</div>
+      <div class="supplier-details">
+        {{ invoice.seller_address }}<br>
+        {% if invoice.seller_vat_id %}VAT: {{ invoice.seller_vat_id }}{% endif %}
+      </div>
+    </div>
+    <div class="invoice-badge">
+      <div class="invoice-title">CREDIT NOTE</div>
+      <div class="invoice-meta">
+        <strong>Number</strong> {{ credit_note.credit_note_number }}<br>
+        <strong>Date</strong> {{ credit_note.issued_at|date:"Y-m-d" }}<br>
+        <strong>Invoice</strong> {{ invoice.invoice_number }}<br>
+        <strong>Currency</strong> {{ invoice.currency }}
+      </div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="bill-to-section">
+    <div class="bill-to-label">Issued To</div>
+    <div class="bill-to-name">{{ invoice.buyer_name }}</div>
+    <div class="bill-to-details">
+      {% if invoice.buyer_address %}{{ invoice.buyer_address }}<br>{% endif %}
+      {% if invoice.buyer_vat_id %}VAT: {{ invoice.buyer_vat_id }}{% endif %}
+    </div>
+  </div>
+
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th>Description</th>
+        <th>Net</th>
+        <th>VAT</th>
+        <th>Gross</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in credit_note.line_items %}
+      <tr>
+        <td>{{ item.description }}</td>
+        <td>{{ item.net_amount|format_currency:invoice.currency }}</td>
+        <td>{{ item.vat_amount|format_currency:invoice.currency }}</td>
+        <td>{{ item.unit_price_gross|format_currency:invoice.currency }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <div class="totals-box">
+      <div class="totals-row subtotal">
+        <span>Subtotal</span>
+        <span>{{ credit_note.amount_net|format_currency:invoice.currency }}</span>
+      </div>
+      {% if invoice.reverse_charge %}
+      <div class="totals-row vat">
+        <span>VAT</span>
+        <span>Reverse Charge</span>
+      </div>
+      {% else %}
+      <div class="totals-row vat">
+        <span>VAT</span>
+        <span>{{ credit_note.amount_vat|format_currency:invoice.currency }}</span>
+      </div>
+      {% endif %}
+      <div class="totals-row total">
+        <span>Total Credited</span>
+        <span>{{ credit_note.amount_gross|format_currency:invoice.currency }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="notes">
+      <div class="footer-label">Reference</div>
+      <div class="notes-text">
+        This credit note refers to invoice {{ invoice.invoice_number }}.
+      </div>
+      {% if invoice.reverse_charge %}
+      <div class="footer-label" style="margin-top: 12px;">Tax Notice</div>
+      <div class="notes-text">
+        Reverse charge: VAT to be accounted for<br>
+        by the recipient of the service.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</body>
+</html>

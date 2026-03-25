@@ -3,8 +3,11 @@ import typing as t
 from uuid import UUID
 
 from django.db.models import Q, QuerySet
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from ninja import Query
+from ninja.errors import HttpError
 from ninja_extra import (
     api_controller,
     route,
@@ -15,6 +18,7 @@ from ninja_extra.searching import Searching, searching
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
+from common.signing import get_file_url
 from events import filters, models, schema
 from events.service import event_service
 
@@ -328,3 +332,43 @@ class DashboardController(UserAwareController):
         """
         qs = models.EventRSVP.objects.with_event_details().filter(user=self.user()).order_by("-created_at")
         return params.filter(qs).distinct()
+
+    @route.get(
+        "/invoices",
+        url_name="dashboard_invoices",
+        response=PaginatedResponseSchema[schema.AttendeeInvoiceSchema],
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    def dashboard_invoices(self) -> QuerySet[models.AttendeeInvoice]:
+        """View your attendee invoices.
+
+        Returns only ISSUED invoices (drafts are not visible to the buyer).
+        """
+        return models.AttendeeInvoice.objects.filter(
+            user=self.user(),
+            status=models.AttendeeInvoice.InvoiceStatus.ISSUED,
+        ).order_by("-created_at")
+
+    @route.get(
+        "/invoices/{invoice_id}/download",
+        url_name="dashboard_invoice_download",
+        response=schema.InvoiceDownloadURLSchema,
+    )
+    def dashboard_invoice_download(self, invoice_id: UUID) -> schema.InvoiceDownloadURLSchema:
+        """Get a signed download URL for an attendee invoice PDF.
+
+        Generates the PDF on-demand if not yet generated.
+        """
+        from events.service.attendee_invoice_service import ensure_pdf_exists
+
+        invoice = get_object_or_404(
+            models.AttendeeInvoice,
+            id=invoice_id,
+            user=self.user(),
+            status=models.AttendeeInvoice.InvoiceStatus.ISSUED,
+        )
+        ensure_pdf_exists(invoice)
+        url = get_file_url(invoice.pdf_file)
+        if not url:
+            raise HttpError(404, str(_("Invoice PDF not available.")))
+        return schema.InvoiceDownloadURLSchema(download_url=url)

@@ -1,4 +1,5 @@
 from .announcement import Announcement
+from .attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote
 from .blacklist import Blacklist, WhitelistRequest
 from .discount_code import DiscountCode
 from .event import (
@@ -95,6 +96,8 @@ __all__ = [
     # Discount codes
     "DiscountCode",
     # Invoices
+    "AttendeeInvoice",
+    "AttendeeInvoiceCreditNote",
     "PlatformFeeCreditNote",
     "PlatformFeeInvoice",
 ]

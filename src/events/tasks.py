@@ -252,6 +252,41 @@ def cleanup_ticket_file_cache() -> dict[str, int]:
     return {"cleaned": len(cleaned_pks)}
 
 
+@shared_task(
+    name="events.generate_attendee_invoice",
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+def generate_attendee_invoice_task(stripe_session_id: str) -> None:
+    """Generate an attendee invoice for a completed checkout session.
+
+    Runs asynchronously after payment success. Generates the invoice and,
+    for AUTO mode, delivers it via email.
+    """
+    from events.models.attendee_invoice import AttendeeInvoice
+    from events.service.attendee_invoice_service import deliver_attendee_invoice, generate_attendee_invoice
+
+    invoice = generate_attendee_invoice(stripe_session_id)
+    if invoice and invoice.status == AttendeeInvoice.InvoiceStatus.ISSUED:
+        deliver_attendee_invoice(invoice)
+
+
+@shared_task(
+    name="events.generate_attendee_credit_note",
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+def generate_attendee_credit_note_task(stripe_session_id: str, refunded_payment_ids: list[str]) -> None:
+    """Generate a credit note for refunded payments on an invoiced session."""
+    from events.service.attendee_invoice_service import generate_attendee_credit_note
+
+    generate_attendee_credit_note(stripe_session_id, [UUID(pid) for pid in refunded_payment_ids])
+
+
 @shared_task(name="events.generate_monthly_invoices")
 def generate_monthly_invoices_task() -> dict[str, int]:
     """Generate platform fee invoices for the previous month, then dispatch emails.

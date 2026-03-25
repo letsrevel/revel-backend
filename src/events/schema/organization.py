@@ -16,6 +16,7 @@ from events.models import (
     OrganizationMembershipRequest,
     PermissionsSchema,
 )
+from events.models.organization import Organization as OrganizationModel
 
 from .mixins import (
     CityEditMixin,
@@ -65,6 +66,7 @@ class OrganizationBillingInfoSchema(Schema):
     vat_id_validated_at: AwareDatetime | None = None
     billing_address: str
     billing_email: str
+    invoicing_mode: OrganizationModel.InvoicingMode
 
 
 class OrganizationBillingInfoUpdateSchema(BillingInfoSchemaMixin):
@@ -165,6 +167,7 @@ class OrganizationAdminDetailSchema(
     vat_id_validated_at: AwareDatetime | None = None
     billing_address: str
     billing_email: str
+    invoicing_mode: OrganizationModel.InvoicingMode
 
 
 class OrganizationPermissionsSchema(Schema):

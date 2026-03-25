@@ -82,6 +82,14 @@ class StripeEventHandler:
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.save(update_fields=["status"])
 
+        # Trigger attendee invoice generation (if billing info was captured)
+        def _trigger_invoice() -> None:
+            from events.tasks import generate_attendee_invoice_task
+
+            generate_attendee_invoice_task.delay(session_id)
+
+        transaction.on_commit(_trigger_invoice)
+
         # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
         logger.info(
             "stripe_payment_success",
@@ -199,6 +207,18 @@ class StripeEventHandler:
             # Restore ticket quantity
             TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
             refunded_tickets.append(ticket)
+
+        # Trigger attendee credit note generation (if an invoice exists for this session)
+        refunded_ids = [str(p.id) for p in payments if p.status == Payment.PaymentStatus.REFUNDED]
+        session_id = payments[0].stripe_session_id if payments else None
+        if session_id and refunded_ids:
+
+            def _trigger_credit_note() -> None:
+                from events.tasks import generate_attendee_credit_note_task
+
+                generate_attendee_credit_note_task.delay(session_id, refunded_ids)
+
+            transaction.on_commit(_trigger_credit_note)
 
         # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
         logger.info(

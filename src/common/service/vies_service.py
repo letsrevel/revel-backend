@@ -11,11 +11,12 @@ Contains:
 
 import typing as t
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 
 import httpx
 import structlog
+from django.core.cache import cache
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -136,6 +137,38 @@ def validate_vat_id(vat_id: str) -> VIESValidationResult:
         address=data.get("address", ""),
         request_identifier=data.get("requestIdentifier", ""),
     )
+
+
+VIES_CACHE_TTL = 1800  # 30 minutes
+
+
+def validate_vat_id_cached(vat_id: str) -> VIESValidationResult:
+    """Validate a VAT ID with Redis caching.
+
+    Returns cached result if available. On cache miss, validates via VIES
+    and caches the result. VIES unavailability is NOT cached — the error
+    is re-raised so callers can handle fallback.
+
+    Args:
+        vat_id: Full VAT ID with country prefix.
+
+    Returns:
+        VIESValidationResult.
+
+    Raises:
+        VIESUnavailableError: If VIES is unavailable (not cached).
+        ValueError: If the VAT ID format is invalid.
+    """
+    normalized = vat_id.strip().upper().replace(" ", "")
+    cache_key = f"vies:validation:{normalized}"
+
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return VIESValidationResult(**cached)
+
+    result = validate_vat_id(vat_id)  # may raise VIESUnavailableError
+    cache.set(cache_key, asdict(result), timeout=VIES_CACHE_TTL)
+    return result
 
 
 # ---------------------------------------------------------------------------
