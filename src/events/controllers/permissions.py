@@ -1,4 +1,5 @@
 import typing as t
+from uuid import UUID
 
 from django.http import HttpRequest
 from ninja_extra import (
@@ -37,7 +38,7 @@ class EventSeriesPermission(RootPermission):
         obj: models.EventSeries,
     ) -> bool:
         """Check if the user has permission to perform an action on a specific EventSeries."""
-        return obj.organization.has_org_permission(request.user.id, self.action)
+        return obj.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
 class EventPermission(RootPermission):
@@ -48,7 +49,7 @@ class EventPermission(RootPermission):
         obj: models.Event,
     ) -> bool:
         """Can edit event."""
-        return obj.organization.has_org_permission(request.user.id, self.action)
+        return obj.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
 class OrganizationPermission(RootPermission):
@@ -59,7 +60,7 @@ class OrganizationPermission(RootPermission):
         obj: models.Organization,
     ) -> bool:
         """Can edit organization."""
-        return obj.has_org_permission(request.user.id, self.action)
+        return obj.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
 class QuestionnairePermission(RootPermission):
@@ -125,7 +126,7 @@ class CanDuplicateEvent(RootPermission):
         obj: models.Event,
     ) -> bool:
         """Check if user can duplicate this event (create new event in same org)."""
-        return obj.organization.has_org_permission(request.user.id, self.action)
+        return obj.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
 class ManagePotluckPermission(RootPermission):
@@ -142,7 +143,7 @@ class ManagePotluckPermission(RootPermission):
         """Can edit organization."""
         if obj.created_by_id == request.user.id:
             return True
-        return obj.event.organization.has_org_permission(request.user.id, self.action)
+        return obj.event.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
 class PotluckItemPermission(RootPermission):

@@ -282,7 +282,7 @@ class Organization(
         """Check if user is the organization owner or a staff member."""
         return self.owner_id == user.id or OrganizationStaff.objects.filter(organization=self, user_id=user.id).exists()
 
-    def has_org_permission(self, user_id: t.Any, action: str) -> bool:
+    def has_org_permission(self, user_id: UUID, action: str) -> bool:
         """Check if user has a specific permission on this organization.
 
         Owners implicitly have all permissions. Staff members are checked
