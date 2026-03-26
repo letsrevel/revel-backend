@@ -249,6 +249,21 @@ class TestDetermineAttendeeVatEdgeCases:
 
         assert result_lower == result_upper
 
+    def test_greek_el_gr_normalization(self) -> None:
+        """Greek EL (VIES) and GR (ISO) should be treated as same country."""
+        result = determine_attendee_vat(
+            gross_price=Decimal("100.00"),
+            seller_vat_rate=Decimal("24.00"),
+            seller_country="EL",  # VIES prefix for Greece
+            buyer_country="GR",  # ISO code for Greece
+            buyer_vat_id_valid=True,
+        )
+
+        # Should be domestic (same country), not reverse charge
+        assert result.reverse_charge is False
+        assert result.vat_amount > Decimal("0.00")
+        assert result.effective_price == Decimal("100.00")
+
     def test_zero_vat_rate_yields_no_vat(self) -> None:
         """A 0% VAT rate should result in zero VAT regardless of scenario."""
         result = determine_attendee_vat(

@@ -89,7 +89,7 @@ def _create_payment(
     )
 
 
-def _default_billing_snapshot() -> dict[str, t.Any]:
+def _default_billing_snapshot(reverse_charge: bool = False) -> dict[str, t.Any]:
     return {
         "billing_name": "Buyer GmbH",
         "vat_id": "DE123456789",
@@ -97,6 +97,7 @@ def _default_billing_snapshot() -> dict[str, t.Any]:
         "vat_id_validated": True,
         "billing_address": "Berliner Str. 1, 10115 Berlin",
         "billing_email": "buyer@example.de",
+        "reverse_charge": reverse_charge,
     }
 
 
@@ -439,7 +440,7 @@ class TestGenerateAttendeeInvoice:
         event_ticket_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """Reverse charge flag set when buyer has validated VAT ID and total_vat is 0."""
+        """Reverse charge flag set when billing snapshot records reverse_charge=True."""
         org = _make_org_invoicing_ready(organization)
         org.invoicing_mode = Organization.InvoicingMode.HYBRID
         org.save()
@@ -452,7 +453,7 @@ class TestGenerateAttendeeInvoice:
             net_amount=Decimal("81.97"),
             vat_amount=Decimal("0.00"),
             vat_rate=Decimal("0.00"),
-            buyer_billing_snapshot=_default_billing_snapshot(),
+            buyer_billing_snapshot=_default_billing_snapshot(reverse_charge=True),
         )
         invoice = generate_attendee_invoice("cs_rc")
         assert invoice is not None
@@ -604,14 +605,21 @@ class TestIssueDraftInvoice:
         assert result.issued_at is not None
         mock_pdf.assert_called_once()
 
-    def test_cannot_issue_already_issued(
-        self, organization: Organization, event: Event, member_user: RevelUser
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    def test_reissue_already_issued_is_idempotent(
+        self,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
     ) -> None:
-        """Issuing an already-issued invoice should raise 409."""
+        """Re-issuing an already-issued invoice should succeed (regenerate PDF)."""
         inv = _create_issued(organization, event, member_user)
-        with pytest.raises(HttpError) as exc_info:
-            issue_draft_invoice(inv)
-        assert exc_info.value.status_code == 409
+        original_issued_at = inv.issued_at
+        result = issue_draft_invoice(inv)
+        assert result.status == AttendeeInvoice.InvoiceStatus.ISSUED
+        assert result.issued_at == original_issued_at  # not re-set
+        mock_pdf.assert_called_once()
 
     def test_cannot_issue_cancelled(self, organization: Organization, event: Event, member_user: RevelUser) -> None:
         """Issuing a cancelled invoice should raise 409."""

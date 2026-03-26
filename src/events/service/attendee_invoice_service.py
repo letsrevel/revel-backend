@@ -5,6 +5,7 @@ Handles the full lifecycle of attendee invoices issued on behalf of organizers.
 
 import typing as t
 from decimal import Decimal
+from email.utils import formataddr
 
 import structlog
 from django.core.files.base import ContentFile
@@ -153,10 +154,8 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
     # Dominant VAT rate (from first payment)
     vat_rate = first_payment.vat_rate or Decimal("0.00")
 
-    # Reverse charge: true if any payment has 0 VAT and buyer has a VAT ID
-    reverse_charge = bool(
-        billing_snapshot.get("vat_id") and billing_snapshot.get("vat_id_validated") and total_vat == Decimal("0.00")
-    )
+    # Reverse charge: use the authoritative decision from checkout, not re-inferred
+    reverse_charge = bool(billing_snapshot.get("reverse_charge", False))
 
     # Discount info
     discount_codes = {p.ticket.discount_code.code for p in payments if p.ticket.discount_code}
@@ -222,12 +221,21 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
 # ---------------------------------------------------------------------------
 
 
+def _is_export(invoice: AttendeeInvoice) -> bool:
+    """Check if the invoice is for a non-EU export (no VAT, not reverse charge)."""
+    from common.constants import EU_MEMBER_STATES
+
+    buyer_country = invoice.buyer_vat_country.upper() if invoice.buyer_vat_country else ""
+    return bool(buyer_country and buyer_country not in EU_MEMBER_STATES and not invoice.reverse_charge)
+
+
 def _generate_and_save_pdf(invoice: AttendeeInvoice) -> None:
     """Render the invoice PDF and save it to the invoice's pdf_file field."""
     template = "invoices/attendee_invoice.html"
     context = {
         "invoice": invoice,
         "is_draft": invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT,
+        "is_export": _is_export(invoice),
     }
     pdf_bytes = render_pdf(template, context)
     filename = f"{invoice.invoice_number}.pdf"
@@ -312,23 +320,27 @@ def update_draft_invoice(
 def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
     """Issue a DRAFT invoice: finalize, set issued_at, regenerate PDF.
 
+    Idempotent: if the invoice is already ISSUED (e.g., PDF generation failed
+    on a previous attempt), re-generates the PDF and re-delivers.
+
     Args:
-        invoice: The draft invoice to issue.
+        invoice: The draft or already-issued invoice.
 
     Returns:
         The issued invoice.
 
     Raises:
-        HttpError 409: If the invoice is not a draft.
+        HttpError 409: If the invoice is CANCELLED.
     """
-    if invoice.status != AttendeeInvoice.InvoiceStatus.DRAFT:
-        raise HttpError(409, str(_("Only draft invoices can be issued.")))
+    if invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED:
+        raise HttpError(409, str(_("Cancelled invoices cannot be issued.")))
 
-    invoice.status = AttendeeInvoice.InvoiceStatus.ISSUED
-    invoice.issued_at = timezone.now()
-    invoice.save(update_fields=["status", "issued_at", "updated_at"])
+    if invoice.status == AttendeeInvoice.InvoiceStatus.DRAFT:
+        invoice.status = AttendeeInvoice.InvoiceStatus.ISSUED
+        invoice.issued_at = timezone.now()
+        invoice.save(update_fields=["status", "issued_at", "updated_at"])
 
-    # Regenerate PDF without DRAFT watermark
+    # (Re-)generate PDF without DRAFT watermark
     _generate_and_save_pdf(invoice)
 
     return invoice
@@ -389,7 +401,7 @@ def _send_org_branded_email(
         to=to_email,
         subject=subject,
         body=body,
-        from_email=f"{org_billing_name} <{org_slug}@letsrevel.io>",
+        from_email=formataddr((org_billing_name, f"{org_slug}@letsrevel.io")),
         reply_to=[reply_to_email] if reply_to_email else None,
         bcc=[bcc_email] if bcc_email else None,
         attachment_storage_path=attachment_path,

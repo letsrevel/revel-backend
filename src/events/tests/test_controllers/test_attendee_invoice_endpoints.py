@@ -521,14 +521,18 @@ class TestIssueAttendeeInvoiceEndpoint:
         assert data["status"] == "issued"
         assert data["issued_at"] is not None
 
-    def test_cannot_issue_already_issued(
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_reissue_already_issued_is_idempotent(
         self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
         organization_owner_client: Client,
         organization: Organization,
         event: Event,
         member_user: RevelUser,
     ) -> None:
-        """Issuing an already-issued invoice should return 409."""
+        """Re-issuing an already-issued invoice should succeed (idempotent retry)."""
         invoice = _create_issued_invoice(organization, event, member_user, suffix="issue2")
         url = reverse(
             "api:issue_attendee_invoice",
@@ -536,7 +540,8 @@ class TestIssueAttendeeInvoiceEndpoint:
         )
         response = organization_owner_client.post(url)
 
-        assert response.status_code == 409
+        assert response.status_code == 200
+        assert response.json()["status"] == "issued"
 
 
 # ---------------------------------------------------------------------------

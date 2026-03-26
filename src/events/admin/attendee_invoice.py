@@ -39,6 +39,7 @@ class AttendeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[m
     readonly_fields = [
         "id",
         "invoice_number",
+        "status",
         "organization",
         "event",
         "user",

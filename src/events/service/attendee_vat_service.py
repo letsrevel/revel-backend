@@ -37,6 +37,18 @@ class AttendeeVATResult:
     reverse_charge: bool
 
 
+def _normalize_country(code: str) -> str:
+    """Normalize country codes for VAT comparison.
+
+    Greece uses "EL" as the VIES/VAT prefix but "GR" as the ISO 3166-1 code.
+    Normalize to ISO to avoid misclassifying Greek domestic sales as cross-border.
+    """
+    code = code.upper()
+    if code == "EL":
+        return "GR"
+    return code
+
+
 def determine_attendee_vat(
     gross_price: Decimal,
     seller_vat_rate: Decimal,
@@ -56,8 +68,8 @@ def determine_attendee_vat(
     Returns:
         AttendeeVATResult with effective price and VAT breakdown.
     """
-    seller_country = seller_country.upper()
-    buyer_country = buyer_country.upper()
+    seller_country = _normalize_country(seller_country)
+    buyer_country = _normalize_country(buyer_country)
     buyer_in_eu = buyer_country in EU_MEMBER_STATES
     same_country = buyer_country == seller_country
 
@@ -170,9 +182,9 @@ def _validate_buyer_vat(
             vat_id_valid = False
             vat_id_validation_error = "Invalid VAT ID format"
 
-    # Derive country from VAT ID prefix when country code not provided
+    # Derive country from VAT ID prefix only if VIES validated it
     buyer_country = billing_info.vat_country_code
-    if not buyer_country and billing_info.vat_id and len(billing_info.vat_id) >= 2:
+    if not buyer_country and billing_info.vat_id and len(billing_info.vat_id) >= 2 and vat_id_valid:
         buyer_country = billing_info.vat_id[:2].upper()
     if not buyer_country:
         # Fallback to org country — safe default (same-country = full VAT)

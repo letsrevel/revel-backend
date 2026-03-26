@@ -98,14 +98,14 @@
         <span>VAT</span>
         <span>Reverse Charge</span>
       </div>
-      {% elif invoice.total_vat %}
+      {% elif is_export %}
       <div class="totals-row vat">
-        <span>VAT ({{ invoice.vat_rate }}%)</span>
+        <span>VAT (export)</span>
         <span>{{ invoice.total_vat|format_currency:invoice.currency }}</span>
       </div>
       {% else %}
       <div class="totals-row vat">
-        <span>VAT (0%)</span>
+        <span>VAT ({{ invoice.vat_rate }}%)</span>
         <span>{{ invoice.total_vat|format_currency:invoice.currency }}</span>
       </div>
       {% endif %}
@@ -131,7 +131,7 @@
         by the recipient of the service.<br>
         Tax liability transfers to the recipient.
       </div>
-      {% elif not invoice.total_vat %}
+      {% elif is_export %}
       <div class="footer-label">Tax Notice</div>
       <div class="notes-text">
         Export of services — no VAT applicable.

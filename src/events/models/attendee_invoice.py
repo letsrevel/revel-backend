@@ -23,6 +23,7 @@ class BuyerBillingSnapshot(t.TypedDict):
     vat_id_validated: bool
     billing_address: str
     billing_email: str
+    reverse_charge: bool
 
 
 class InvoiceLineItemDict(t.TypedDict):

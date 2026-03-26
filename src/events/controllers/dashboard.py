@@ -19,6 +19,7 @@ from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.signing import get_file_url
+from common.throttling import UserDefaultThrottle
 from events import filters, models, schema
 from events.service import event_service
 from events.service.attendee_invoice_service import ensure_pdf_exists
@@ -354,6 +355,7 @@ class DashboardController(UserAwareController):
         "/invoices/{invoice_id}/download",
         url_name="dashboard_invoice_download",
         response=schema.InvoiceDownloadURLSchema,
+        throttle=UserDefaultThrottle(),
     )
     def dashboard_invoice_download(self, invoice_id: UUID) -> schema.InvoiceDownloadURLSchema:
         """Get a signed download URL for an attendee invoice PDF.

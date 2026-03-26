@@ -273,7 +273,11 @@ def create_checkout_session(
     return t.cast(str, session.url), payment
 
 
-def _build_billing_snapshot(billing_info: "BuyerBillingInfoSchema", vat_id_validated: bool) -> BuyerBillingSnapshot:
+def _build_billing_snapshot(
+    billing_info: "BuyerBillingInfoSchema",
+    vat_id_validated: bool,
+    reverse_charge: bool,
+) -> BuyerBillingSnapshot:
     """Build a buyer billing snapshot dict from checkout billing info."""
     return BuyerBillingSnapshot(
         billing_name=billing_info.billing_name,
@@ -282,6 +286,7 @@ def _build_billing_snapshot(billing_info: "BuyerBillingInfoSchema", vat_id_valid
         vat_id_validated=vat_id_validated,
         billing_address=billing_info.billing_address,
         billing_email=billing_info.billing_email,
+        reverse_charge=reverse_charge,
     )
 
 
@@ -338,6 +343,30 @@ def _resolve_attendee_vat(
     return vat_result, buyer_vat_validated
 
 
+def _maybe_resolve_attendee_vat(
+    billing_info: "BuyerBillingInfoSchema | None",
+    tier: TicketTier,
+    org: Organization,
+    base_price: Decimal,
+) -> "tuple[AttendeeVATResult | None, bool]":
+    """Resolve attendee VAT if billing info is provided with a buyer country.
+
+    Returns:
+        Tuple of (AttendeeVATResult or None, buyer_vat_validated).
+    """
+    if not billing_info:
+        return None, False
+
+    buyer_country = billing_info.vat_country_code
+    if not buyer_country and billing_info.vat_id and len(billing_info.vat_id) >= 2:
+        buyer_country = billing_info.vat_id[:2].upper()
+
+    if not buyer_country:
+        return None, False
+
+    return _resolve_attendee_vat(billing_info, tier, org, base_price, buyer_country)
+
+
 @transaction.atomic
 def create_batch_checkout_session(
     event: Event,
@@ -375,16 +404,7 @@ def create_batch_checkout_session(
     org = event.organization
 
     # Determine VAT treatment based on buyer billing info
-    buyer_vat_validated = False
-    attendee_vat_result = None
-    # Derive country from VAT ID prefix if not explicitly provided
-    buyer_country = billing_info.vat_country_code if billing_info else ""
-    if not buyer_country and billing_info and billing_info.vat_id and len(billing_info.vat_id) >= 2:
-        buyer_country = billing_info.vat_id[:2].upper()
-    if billing_info and buyer_country:
-        attendee_vat_result, buyer_vat_validated = _resolve_attendee_vat(
-            billing_info, tier, org, base_price, buyer_country
-        )
+    attendee_vat_result, buyer_vat_validated = _maybe_resolve_attendee_vat(billing_info, tier, org, base_price)
 
     # The price the buyer actually pays (may be reduced for reverse charge / export)
     effective_price = attendee_vat_result.effective_price if attendee_vat_result else base_price
@@ -477,7 +497,8 @@ def create_batch_checkout_session(
     # Build buyer billing snapshot if billing info was provided
     billing_snapshot: BuyerBillingSnapshot | None = None
     if billing_info:
-        billing_snapshot = _build_billing_snapshot(billing_info, buyer_vat_validated)
+        is_reverse_charge = attendee_vat_result.reverse_charge if attendee_vat_result else False
+        billing_snapshot = _build_billing_snapshot(billing_info, buyer_vat_validated, is_reverse_charge)
 
     payments = [
         Payment(
