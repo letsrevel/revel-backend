@@ -236,6 +236,168 @@ All endpoints require organization **owner** permissions.
 | `GET` | `/organization-admin/{slug}/invoices/{id}/download` | Get signed PDF download URL |
 | `GET` | `/organization-admin/{slug}/credit-notes` | List credit notes (paginated) |
 
+## Attendee Invoicing
+
+Revel generates invoices for attendees (buyers) **on behalf of organizers** (sellers) for online ticket purchases. The organizer is the legal seller; Revel acts as an intermediary. VAT treatment is determined at checkout time based on the buyer's billing info.
+
+### Architecture Overview
+
+```mermaid
+flowchart TD
+    subgraph Preview["VAT Preview (pre-checkout)"]
+        FE[Frontend] -->|"billing info + cart"| VPEndpoint[VAT Preview Endpoint]
+        VPEndpoint -->|"validates VAT ID"| VIESCache[VIES Cache<br>Redis 30min TTL]
+        VIESCache -->|"cache miss"| VIES2[VIES REST API]
+        VPEndpoint -->|"calculates"| VATSvc[Attendee VAT Service]
+        VATSvc -->|"price breakdown"| FE
+    end
+
+    subgraph Checkout["Stripe Checkout"]
+        FE -->|"billing_info in payload"| BatchSvc[BatchTicketService]
+        BatchSvc --> StripeSvc[Stripe Service]
+        StripeSvc -->|"adjusted amounts"| Stripe[Stripe Checkout Session]
+        StripeSvc -->|"buyer_billing_snapshot"| PaymentRec[(Payment records)]
+    end
+
+    subgraph InvoiceGen["Invoice Generation (webhook)"]
+        Webhook[checkout.session.completed] -->|"on_commit"| CeleryTask[generate_attendee_invoice_task]
+        CeleryTask --> InvSvc[Attendee Invoice Service]
+        InvSvc -->|"HYBRID → DRAFT"| DraftInv[(AttendeeInvoice<br>DRAFT)]
+        InvSvc -->|"AUTO → ISSUED"| IssuedInv[(AttendeeInvoice<br>ISSUED)]
+        IssuedInv -->|"email"| EmailTask[send_email task]
+    end
+
+    subgraph Refund["Credit Notes (refund webhook)"]
+        RefundWH[charge.refunded] -->|"on_commit"| CNCelery[generate_attendee_credit_note_task]
+        CNCelery --> CNSvc[Credit Note Service]
+        CNSvc -->|"ISSUED invoice"| CN[(AttendeeInvoiceCreditNote)]
+        CNSvc -->|"DRAFT invoice"| Delete[Delete draft]
+    end
+```
+
+### Invoicing Modes
+
+Organizations opt in to attendee invoicing by setting `Organization.invoicing_mode`:
+
+| Mode | Invoice created as | Editable | Auto-emailed | Use case |
+|------|-------------------|----------|--------------|----------|
+| `NONE` | — (no invoice generated) | — | — | Default |
+| `HYBRID` | `DRAFT` | All fields except seller info | No — manual issue by org admin | Org needs review/control |
+| `AUTO` | `ISSUED` | Immutable | Yes | Hands-off automation |
+
+**Prerequisites** (same as enabling Stripe ticket sales):
+
+- EU-based (`vat_country_code` in EU member states)
+- VIES-validated VAT ID
+- `billing_name` and `billing_address` set
+
+Setting to `NONE` is always allowed.
+
+### Buyer-Specific VAT at Checkout
+
+Unlike platform fee VAT (which is B2B between Revel and the org), attendee VAT follows EU rules for event ticket sales where the **buyer's billing info** affects the price:
+
+| Scenario | VAT Treatment | Buyer Pays |
+|----------|--------------|------------|
+| Domestic B2C/B2B (same country) | Org's VAT rate | Full gross price |
+| EU cross-border B2B (valid VAT ID, different country) | **Reverse charge** (0%) | Net only |
+| EU cross-border B2C (no valid VAT ID) | Org's VAT rate | Full gross price |
+| Non-EU buyer | No VAT (export) | Net only |
+
+This means the Stripe checkout amount varies per buyer. The platform fee is calculated on the **amount actually charged** (reduced for reverse charge/export).
+
+### Service: `events.service.attendee_vat_service`
+
+| Function | Purpose |
+|----------|---------|
+| `determine_attendee_vat(gross_price, seller_vat_rate, seller_country, buyer_country, buyer_vat_id_valid)` | Pure calculation: returns effective price, net, VAT, rate, reverse_charge |
+| `get_effective_vat_rate(tier, org)` | Tier override vs. org default |
+| `calculate_vat_preview(event, billing_info, items, discount_code, price_per_ticket)` | Full preview with VIES validation, discount/PWYC support |
+
+### VIES Caching
+
+`validate_vat_id_cached()` wraps VIES validation with a Redis cache (30-minute TTL). The preview endpoint validates and caches; the checkout path reuses the cached result. VIES errors are **not** cached — the error propagates so the frontend can handle the fallback (charge full VAT when VIES is unavailable).
+
+### Invoice Generation
+
+Triggered by the `checkout.session.completed` webhook via `transaction.on_commit`. The service:
+
+1. Finds `Payment` records by `stripe_session_id` with `status=SUCCEEDED`
+2. Checks `buyer_billing_snapshot` is present and org has `invoicing_mode != NONE`
+3. **Idempotency**: checks inside `transaction.atomic()` for existing invoice
+4. Generates sequential invoice number: `{ORG_SLUG}-{YEAR}-{SEQ:06d}` (e.g., `TECHCONF-2026-000001`)
+5. Creates `AttendeeInvoice` with seller/buyer snapshots and line items from Payment data
+6. Renders PDF via WeasyPrint (outside the transaction)
+7. For AUTO mode: sends email immediately
+
+### Invoice Numbering
+
+Per-org sequential numbering with the same 3-layer race protection as platform invoices:
+
+| Document | Format |
+|----------|--------|
+| Invoice | `{ORG_SLUG}-{YEAR}-{SEQ:06d}` |
+| Credit Note | `{ORG_SLUG}-CN-{YEAR}-{SEQ:06d}` |
+
+### HYBRID Mode: Draft Lifecycle
+
+```
+DRAFT → [org edits] → DRAFT → [org issues] → ISSUED → [refund] → CANCELLED
+                       ↓
+                  [org deletes]
+```
+
+- **Edit**: All fields except seller (org) info are editable. The org is liable for invoice content. Stale PDF is deleted on edit and regenerated on-demand at download time.
+- **Issue**: Sets `status=ISSUED`, `issued_at=now()`, regenerates final PDF, sends email.
+- **Delete**: Removes draft and its PDF file.
+
+!!! warning "Attendee invoices vs. platform fee invoices"
+    Attendee invoice content is independent of platform fee calculations. If an org edits a draft invoice, it does not affect Revel's platform fee invoices, which are always based on actual `Payment` records.
+
+### Credit Notes
+
+Generated on the `charge.refunded` webhook. For each refund:
+
+- If the invoice is `DRAFT` → delete the draft (nothing was issued)
+- If the invoice is `ISSUED` → create a credit note with the refunded amounts
+- If total credited across all credit notes ≥ invoice total → mark invoice as `CANCELLED`
+
+Idempotency is enforced by checking for existing credit notes with the exact same set of refunded payment IDs.
+
+### Email Delivery
+
+Emails are sent from the org's branded address:
+
+| Header | Value |
+|--------|-------|
+| From | `{org_billing_name} <{org_slug}@letsrevel.io>` |
+| Reply-To | Org's `billing_email` or `contact_email` |
+| BCC | Org's `billing_email` (org gets a copy) |
+| Attachment | Invoice/credit note PDF |
+
+### API Endpoints
+
+#### Buyer-facing (authenticated user)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/events/{event_id}/tickets/vat-preview` | Preview VAT breakdown (supports discounts/PWYC) |
+| `GET` | `/dashboard/invoices` | List user's issued invoices |
+| `GET` | `/dashboard/invoices/{id}/download` | Signed PDF download URL |
+
+#### Org admin (owner only)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `PATCH` | `/organization-admin/{slug}/invoicing` | Set invoicing mode (NONE/HYBRID/AUTO) |
+| `GET` | `/organization-admin/{slug}/attendee-invoices` | List all attendee invoices |
+| `GET` | `/organization-admin/{slug}/attendee-invoices/{id}` | Invoice detail |
+| `GET` | `/organization-admin/{slug}/attendee-invoices/{id}/download` | Signed PDF URL (generates on-demand) |
+| `PATCH` | `/organization-admin/{slug}/attendee-invoices/{id}` | Edit draft invoice |
+| `POST` | `/organization-admin/{slug}/attendee-invoices/{id}/issue` | Issue draft + send email |
+| `DELETE` | `/organization-admin/{slug}/attendee-invoices/{id}` | Delete draft |
+| `GET` | `/organization-admin/{slug}/attendee-credit-notes` | List attendee credit notes |
+
 ## Referral Payout Statements
 
 When referral payouts are disbursed, Revel generates a document for each payout. The document type depends on whether the referrer is a B2B entity (has a validated VAT ID) or a B2C individual.
