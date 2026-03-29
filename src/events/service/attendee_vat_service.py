@@ -157,23 +157,32 @@ class VATPreviewResult:
     currency: str
 
 
-def _validate_buyer_vat(
-    billing_info: "BuyerBillingInfoSchema",
-    org_country: str,
-) -> tuple[bool | None, str | None, str]:
-    """Validate buyer VAT ID and resolve buyer country.
+def validate_and_resolve_buyer_country(
+    vat_id: str | None,
+    vat_country_code: str | None,
+) -> tuple[bool | None, str | None, str | None]:
+    """Validate a buyer's VAT ID via VIES and resolve their country.
+
+    Core logic shared between VAT preview and checkout flows.
+    Derives buyer country from VAT ID prefix only when VIES validates the ID,
+    preventing invalid IDs (e.g. "US123") from triggering non-EU zero-rating.
+
+    Args:
+        vat_id: The buyer's VAT ID (if provided).
+        vat_country_code: Explicit buyer country code (if provided).
 
     Returns:
         Tuple of (vat_id_valid, vat_id_validation_error, buyer_country).
+        buyer_country may be None if neither explicit nor derivable.
     """
     vat_id_valid: bool | None = None
     vat_id_validation_error: str | None = None
 
-    if billing_info.vat_id:
+    if vat_id:
         from common.service.vies_service import VIESUnavailableError, validate_vat_id_cached
 
         try:
-            result = validate_vat_id_cached(billing_info.vat_id)
+            result = validate_vat_id_cached(vat_id)
             vat_id_valid = result.valid
         except VIESUnavailableError:
             vat_id_valid = None
@@ -183,14 +192,65 @@ def _validate_buyer_vat(
             vat_id_validation_error = "Invalid VAT ID format"
 
     # Derive country from VAT ID prefix only if VIES validated it
-    buyer_country = billing_info.vat_country_code
-    if not buyer_country and billing_info.vat_id and len(billing_info.vat_id) >= 2 and vat_id_valid:
-        buyer_country = billing_info.vat_id[:2].upper()
+    buyer_country = vat_country_code
+    if not buyer_country and vat_id and len(vat_id) >= 2 and vat_id_valid:
+        buyer_country = vat_id[:2].upper()
+
+    return vat_id_valid, vat_id_validation_error, buyer_country
+
+
+def _validate_buyer_vat(
+    billing_info: "BuyerBillingInfoSchema",
+    org_country: str,
+) -> tuple[bool | None, str | None, str]:
+    """Validate buyer VAT ID and resolve buyer country for VAT preview.
+
+    Wraps validate_and_resolve_buyer_country with org_country fallback,
+    ensuring the preview always has a country (safe default = full VAT).
+
+    Returns:
+        Tuple of (vat_id_valid, vat_id_validation_error, buyer_country).
+    """
+    vat_id_valid, vat_id_validation_error, buyer_country = validate_and_resolve_buyer_country(
+        vat_id=billing_info.vat_id,
+        vat_country_code=billing_info.vat_country_code,
+    )
     if not buyer_country:
         # Fallback to org country — safe default (same-country = full VAT)
         buyer_country = org_country
 
     return vat_id_valid, vat_id_validation_error, buyer_country
+
+
+def _resolve_effective_price(
+    tier: "TicketTier",
+    org: "Organization",
+    price_per_ticket: Decimal | None,
+    discount_code: str | None,
+) -> Decimal:
+    """Determine the effective price for a tier in the VAT preview.
+
+    Priority: PWYC override > discount code > tier list price.
+    """
+    from ninja.errors import HttpError
+
+    from events.service import discount_code_service
+
+    if price_per_ticket is not None:
+        if tier.pwyc_min and price_per_ticket < tier.pwyc_min:
+            raise HttpError(400, f"PWYC amount must be at least {tier.pwyc_min}")
+        if tier.pwyc_max and price_per_ticket > tier.pwyc_max:
+            raise HttpError(400, f"PWYC amount must be at most {tier.pwyc_max}")
+        return price_per_ticket
+
+    if discount_code:
+        try:
+            dc = discount_code_service.validate_discount_code_anonymous(discount_code, org, tier)
+            return discount_code_service.calculate_discounted_price(tier, dc)
+        except HttpError:
+            pass  # Invalid discount code in preview — use original price
+
+    return tier.price
 
 
 def calculate_vat_preview(
@@ -222,7 +282,6 @@ def calculate_vat_preview(
     from ninja.errors import HttpError
 
     from events.models.ticket import TicketTier
-    from events.service import discount_code_service
 
     org = event.organization
     vat_id_valid, vat_id_validation_error, buyer_country = _validate_buyer_vat(billing_info, org.vat_country_code)
@@ -240,16 +299,13 @@ def calculate_vat_preview(
         if not tier:
             raise HttpError(404, "Ticket tier not found.")
 
-        # Determine effective price: PWYC override > discount > tier price
-        effective_price = tier.price
-        if price_per_ticket is not None:
-            effective_price = price_per_ticket
-        elif discount_code:
-            try:
-                dc = discount_code_service.validate_discount_code_anonymous(discount_code, org, tier)
-                effective_price = discount_code_service.calculate_discounted_price(tier, dc)
-            except HttpError:
-                pass  # Invalid discount code in preview — use original price
+        # Validate consistent currency across all tiers
+        if not currency:
+            currency = tier.currency
+        elif tier.currency != currency:
+            raise HttpError(400, "All tiers must use the same currency.")
+
+        effective_price = _resolve_effective_price(tier, org, price_per_ticket, discount_code)
 
         vat_rate = get_effective_vat_rate(tier, org)
         vat_result = determine_attendee_vat(
@@ -281,7 +337,6 @@ def calculate_vat_preview(
         total_net += line_net
         total_vat += line_vat
         total_gross += line_gross
-        currency = tier.currency
         if vat_result.reverse_charge:
             reverse_charge = True
 

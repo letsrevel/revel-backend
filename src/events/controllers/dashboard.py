@@ -341,6 +341,7 @@ class DashboardController(UserAwareController):
         response=PaginatedResponseSchema[schema.AttendeeInvoiceSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(Searching, search_fields=["invoice_number", "seller_name", "buyer_name", "event__name"])
     def dashboard_invoices(self) -> QuerySet[models.AttendeeInvoice]:
         """View your attendee invoices.
 
@@ -349,7 +350,7 @@ class DashboardController(UserAwareController):
         return models.AttendeeInvoice.objects.filter(
             user=self.user(),
             status=models.AttendeeInvoice.InvoiceStatus.ISSUED,
-        ).order_by("-created_at")
+        ).order_by("-issued_at", "-created_at")
 
     @route.get(
         "/invoices/{invoice_id}/download",

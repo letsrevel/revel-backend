@@ -341,7 +341,7 @@ Per-org sequential numbering with the same 3-layer race protection as platform i
 
 ### HYBRID Mode: Draft Lifecycle
 
-```
+```text
 DRAFT → [org edits] → DRAFT → [org issues] → ISSUED → [refund] → CANCELLED
                        ↓
                   [org deletes]
@@ -371,8 +371,8 @@ Emails are sent from the org's branded address:
 | Header | Value |
 |--------|-------|
 | From | `{org_billing_name} <{org_slug}@letsrevel.io>` |
-| Reply-To | Org's `billing_email` or `contact_email` |
-| BCC | Org's `billing_email` (org gets a copy) |
+| Reply-To | Org's `billing_email` (falls back to `contact_email`) |
+| BCC | Org's `billing_email` or `contact_email` (org gets a copy) |
 | Attachment | Invoice/credit note PDF |
 
 ### API Endpoints

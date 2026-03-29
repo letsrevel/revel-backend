@@ -91,6 +91,7 @@ def stripe_verify_account(organization: Organization) -> Organization:
         update_fields.append("vat_country_code")
 
     if update_fields:
+        update_fields.append("updated_at")
         organization.save(update_fields=update_fields)
 
     return organization
@@ -295,7 +296,7 @@ def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSch
     from accounts.models import UserBillingProfile
 
     profile, _ = UserBillingProfile.objects.get_or_create(user=user)
-    fields_to_update = ["billing_name", "billing_address", "billing_email", "updated_at"]
+    fields_to_update = ["billing_name", "billing_address", "billing_email"]
     profile.billing_name = billing_info.billing_name
     profile.billing_address = billing_info.billing_address
     profile.billing_email = billing_info.billing_email
@@ -306,43 +307,6 @@ def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSch
     profile.save(update_fields=fields_to_update)
 
 
-def _resolve_attendee_vat(
-    billing_info: "BuyerBillingInfoSchema",
-    tier: TicketTier,
-    org: Organization,
-    base_price: Decimal,
-    buyer_country: str,
-) -> "tuple[AttendeeVATResult, bool]":
-    """Resolve attendee VAT treatment and validate buyer VAT ID.
-
-    Returns:
-        Tuple of (AttendeeVATResult, buyer_vat_validated).
-    """
-    from events.service.attendee_vat_service import determine_attendee_vat
-    from events.service.attendee_vat_service import get_effective_vat_rate as get_vat_rate
-
-    buyer_vat_validated = False
-    seller_vat_rate = get_vat_rate(tier, org)
-
-    if billing_info.vat_id:
-        try:
-            from common.service.vies_service import VIESUnavailableError, validate_vat_id_cached
-
-            result = validate_vat_id_cached(billing_info.vat_id)
-            buyer_vat_validated = result.valid
-        except (VIESUnavailableError, ValueError):
-            buyer_vat_validated = False
-
-    vat_result = determine_attendee_vat(
-        gross_price=base_price,
-        seller_vat_rate=seller_vat_rate,
-        seller_country=org.vat_country_code,
-        buyer_country=buyer_country,
-        buyer_vat_id_valid=buyer_vat_validated,
-    )
-    return vat_result, buyer_vat_validated
-
-
 def _maybe_resolve_attendee_vat(
     billing_info: "BuyerBillingInfoSchema | None",
     tier: TicketTier,
@@ -351,20 +315,40 @@ def _maybe_resolve_attendee_vat(
 ) -> "tuple[AttendeeVATResult | None, bool]":
     """Resolve attendee VAT if billing info is provided with a buyer country.
 
+    Uses the shared validate_and_resolve_buyer_country helper for VIES
+    validation and country derivation. Returns None (no VAT adjustment)
+    when no buyer country can be determined.
+
     Returns:
         Tuple of (AttendeeVATResult or None, buyer_vat_validated).
     """
+    from events.service.attendee_vat_service import (
+        determine_attendee_vat,
+        validate_and_resolve_buyer_country,
+    )
+    from events.service.attendee_vat_service import get_effective_vat_rate as get_vat_rate
+
     if not billing_info:
         return None, False
 
-    buyer_country = billing_info.vat_country_code
-    if not buyer_country and billing_info.vat_id and len(billing_info.vat_id) >= 2:
-        buyer_country = billing_info.vat_id[:2].upper()
+    vat_id_valid, _, buyer_country = validate_and_resolve_buyer_country(
+        vat_id=billing_info.vat_id,
+        vat_country_code=billing_info.vat_country_code,
+    )
+    buyer_vat_validated = bool(vat_id_valid)
 
     if not buyer_country:
         return None, False
 
-    return _resolve_attendee_vat(billing_info, tier, org, base_price, buyer_country)
+    seller_vat_rate = get_vat_rate(tier, org)
+    vat_result = determine_attendee_vat(
+        gross_price=base_price,
+        seller_vat_rate=seller_vat_rate,
+        seller_country=org.vat_country_code,
+        buyer_country=buyer_country,
+        buyer_vat_id_valid=buyer_vat_validated,
+    )
+    return vat_result, buyer_vat_validated
 
 
 @transaction.atomic

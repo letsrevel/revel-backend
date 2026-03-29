@@ -8,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
+from ninja_extra.searching import Searching, searching
 
 from common.authentication import I18nJWTAuth
 from common.signing import get_file_url
@@ -168,6 +169,7 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         permissions=[IsOrganizationOwner()],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(Searching, search_fields=["invoice_number", "buyer_name", "buyer_email", "event__name"])
     def list_attendee_invoices(self, slug: str) -> QuerySet[models.AttendeeInvoice]:
         """List attendee invoices issued by this organization."""
         organization = self.get_one(slug)
@@ -232,12 +234,13 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
     )
     def issue_attendee_invoice(self, slug: str, invoice_id: UUID) -> models.AttendeeInvoice:
         """Issue a draft attendee invoice and send it to the buyer."""
-        from events.service.attendee_invoice_service import deliver_attendee_invoice, issue_draft_invoice
+        from events.service.attendee_invoice_service import issue_draft_invoice
+        from events.tasks import deliver_attendee_invoice_task
 
         organization = self.get_one(slug)
         invoice = get_object_or_404(models.AttendeeInvoice, id=invoice_id, organization=organization)
         invoice = issue_draft_invoice(invoice)
-        deliver_attendee_invoice(invoice)
+        deliver_attendee_invoice_task.delay(str(invoice.id))
         return invoice
 
     @route.delete(
@@ -265,6 +268,10 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         permissions=[IsOrganizationOwner()],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(
+        Searching,
+        search_fields=["credit_note_number", "invoice__buyer_name", "invoice__buyer_email", "invoice__event__name"],
+    )
     def list_attendee_credit_notes(self, slug: str) -> QuerySet[models.AttendeeInvoiceCreditNote]:
         """List attendee invoice credit notes for this organization."""
         organization = self.get_one(slug)

@@ -165,4 +165,4 @@ class AttendeeInvoiceCreditNoteAdmin(ModelAdmin):  # type: ignore[misc]
 
     @admin.display(description="Amount (gross)")
     def amount_display(self, obj: models.AttendeeInvoiceCreditNote) -> str:
-        return str(obj.amount_gross)
+        return f"{obj.amount_gross} {obj.invoice.currency}"

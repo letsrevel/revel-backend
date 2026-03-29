@@ -8,7 +8,6 @@ Tests cover:
 - issue_draft_invoice() -- DRAFT -> ISSUED transition
 - delete_draft_invoice() -- draft deletion and issued rejection
 - generate_attendee_credit_note() -- credit note lifecycle
-- ensure_pdf_exists() -- on-demand PDF generation
 """
 
 import typing as t
@@ -25,7 +24,6 @@ from events.models.attendee_invoice import AttendeeInvoice
 from events.models.ticket import Payment
 from events.service.attendee_invoice_service import (
     delete_draft_invoice,
-    ensure_pdf_exists,
     generate_attendee_credit_note,
     generate_attendee_invoice,
     issue_draft_invoice,
@@ -751,53 +749,238 @@ class TestGenerateAttendeeCreditNote:
         invoice.refresh_from_db()
         assert invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED
 
-
-# ---------------------------------------------------------------------------
-# ensure_pdf_exists
-# ---------------------------------------------------------------------------
-
-
-class TestEnsurePdfExists:
-    """Test on-demand PDF generation."""
-
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
-    def test_generates_pdf_when_missing(
+    @patch(MOCK_SEND_EMAIL)
+    def test_partial_refund_creates_credit_note_without_cancelling(
         self,
-        mock_pdf: t.Any,
-        organization: Organization,
-        event: Event,
-        member_user: RevelUser,
-    ) -> None:
-        """PDF should be generated when invoice has no pdf_file."""
-        inv = _create_draft(organization, event, member_user)
-        assert not inv.pdf_file
-        ensure_pdf_exists(inv)
-        inv.refresh_from_db()
-        assert inv.pdf_file
-        mock_pdf.assert_called_once()
-
-    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
-    def test_skips_generation_when_pdf_exists(
-        self,
+        mock_email: t.Any,
         mock_pdf: t.Any,
         organization: Organization,
         event: Event,
         event_ticket_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """No PDF generation if pdf_file already exists."""
+        """Partial refund should create a credit note but keep invoice ISSUED."""
         org = _make_org_invoicing_ready(organization)
-        org.invoicing_mode = Organization.InvoicingMode.HYBRID
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
         org.save()
+        p1 = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_cn_partial",
+            amount=Decimal("100.00"),
+            net_amount=Decimal("81.97"),
+            vat_amount=Decimal("18.03"),
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            guest_name="Guest 1",
+        )
         _create_payment(
             user=member_user,
             event=event,
             tier=event_ticket_tier,
-            session_id="cs_pdf_ex",
+            session_id="cs_cn_partial",
+            amount=Decimal("100.00"),
+            net_amount=Decimal("81.97"),
+            vat_amount=Decimal("18.03"),
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            guest_name="Guest 2",
+        )
+        invoice = generate_attendee_invoice("cs_cn_partial")
+        assert invoice is not None
+        assert invoice.total_gross == Decimal("200.00")
+
+        # Partial refund: only first payment
+        cn = generate_attendee_credit_note("cs_cn_partial", [p1.id])
+        assert cn is not None
+        assert cn.amount_gross == Decimal("100.00")
+
+        invoice.refresh_from_db()
+        assert invoice.status == AttendeeInvoice.InvoiceStatus.ISSUED
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_partial_then_remaining_refund_cancels_invoice(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Refunding remaining payments after partial refund should cancel invoice."""
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.save()
+        p1 = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_cn_seq",
+            amount=Decimal("50.00"),
+            net_amount=Decimal("40.98"),
+            vat_amount=Decimal("9.02"),
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            guest_name="Guest 1",
+        )
+        p2 = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_cn_seq",
+            amount=Decimal("50.00"),
+            net_amount=Decimal("40.98"),
+            vat_amount=Decimal("9.02"),
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            guest_name="Guest 2",
+        )
+        invoice = generate_attendee_invoice("cs_cn_seq")
+        assert invoice is not None
+
+        cn1 = generate_attendee_credit_note("cs_cn_seq", [p1.id])
+        assert cn1 is not None
+        invoice.refresh_from_db()
+        assert invoice.status == AttendeeInvoice.InvoiceStatus.ISSUED
+
+        cn2 = generate_attendee_credit_note("cs_cn_seq", [p2.id])
+        assert cn2 is not None
+        assert cn2.id != cn1.id
+        invoice.refresh_from_db()
+        assert invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_idempotent_credit_note_returns_same(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Calling generate_attendee_credit_note twice with same IDs returns same credit note."""
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.save()
+        payment = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_cn_idem",
             buyer_billing_snapshot=_default_billing_snapshot(),
         )
-        invoice = generate_attendee_invoice("cs_pdf_ex")
-        assert invoice is not None and invoice.pdf_file
-        mock_pdf.reset_mock()
-        ensure_pdf_exists(invoice)
-        mock_pdf.assert_not_called()
+        invoice = generate_attendee_invoice("cs_cn_idem")
+        assert invoice is not None
+
+        cn1 = generate_attendee_credit_note("cs_cn_idem", [payment.id])
+        cn2 = generate_attendee_credit_note("cs_cn_idem", [payment.id])
+        assert cn1 is not None
+        assert cn2 is not None
+        assert cn1.id == cn2.id
+        assert cn1.credit_note_number == cn2.credit_note_number
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_superset_retry_does_not_double_credit(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Webhook retry with superset of already-credited payment IDs must not double-credit.
+
+        Scenario: batch purchase [A, B, C]. Refund A -> CN-1. Refund B -> CN-2.
+        Stripe re-delivers with all three IDs [A, B, C]. Only C should be credited.
+        """
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.save()
+        payments = []
+        for i in range(3):
+            payments.append(
+                _create_payment(
+                    user=member_user,
+                    event=event,
+                    tier=event_ticket_tier,
+                    session_id="cs_superset",
+                    amount=Decimal("50.00"),
+                    net_amount=Decimal("40.98"),
+                    vat_amount=Decimal("9.02"),
+                    buyer_billing_snapshot=_default_billing_snapshot(),
+                    guest_name=f"Guest {i}",
+                )
+            )
+        invoice = generate_attendee_invoice("cs_superset")
+        assert invoice is not None
+
+        # Step 1: refund A
+        cn1 = generate_attendee_credit_note("cs_superset", [payments[0].id])
+        assert cn1 is not None
+
+        # Step 2: refund B
+        cn2 = generate_attendee_credit_note("cs_superset", [payments[1].id])
+        assert cn2 is not None
+        assert cn2.id != cn1.id
+
+        # Step 3: webhook retry sends superset [A, B, C]
+        cn3 = generate_attendee_credit_note("cs_superset", [p.id for p in payments])
+        assert cn3 is not None
+        assert cn3.id != cn1.id
+        assert cn3.id != cn2.id
+        # Only C should be in the new credit note
+        assert cn3.amount_gross == Decimal("50.00")
+        assert list(cn3.payments.values_list("id", flat=True)) == [payments[2].id]
+
+        # Invoice should now be fully cancelled
+        invoice.refresh_from_db()
+        assert invoice.status == AttendeeInvoice.InvoiceStatus.CANCELLED
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_superset_retry_all_already_credited_returns_none(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        event_ticket_tier: TicketTier,
+        member_user: RevelUser,
+    ) -> None:
+        """Webhook retry where all payments are already credited should return None."""
+        org = _make_org_invoicing_ready(organization)
+        org.invoicing_mode = Organization.InvoicingMode.AUTO
+        org.save()
+        p1 = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_allcredited",
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            guest_name="Guest 1",
+        )
+        p2 = _create_payment(
+            user=member_user,
+            event=event,
+            tier=event_ticket_tier,
+            session_id="cs_allcredited",
+            amount=Decimal("100.00"),
+            net_amount=Decimal("81.97"),
+            vat_amount=Decimal("18.03"),
+            buyer_billing_snapshot=_default_billing_snapshot(),
+            guest_name="Guest 2",
+        )
+        invoice = generate_attendee_invoice("cs_allcredited")
+        assert invoice is not None
+
+        # Credit both individually
+        generate_attendee_credit_note("cs_allcredited", [p1.id])
+        generate_attendee_credit_note("cs_allcredited", [p2.id])
+
+        # Retry with both — all already credited, should return None
+        result = generate_attendee_credit_note("cs_allcredited", [p1.id, p2.id])
+        assert result is None

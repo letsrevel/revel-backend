@@ -99,9 +99,24 @@ def _build_line_items(payments: list[Payment]) -> list[InvoiceLineItemDict]:
     return items
 
 
+def _sanitize_org_slug(org: Organization, max_len: int) -> str:
+    """Sanitize and truncate org slug for use in document number prefixes.
+
+    Removes hyphens, uppercases, and truncates so the full document number
+    (prefix + year + sequence) fits within the CharField max_length.
+    """
+    return org.slug.upper().replace("-", "")[:max_len]
+
+
+# Invoice number: {SLUG}-{YEAR}-{SEQ:06d} → suffix is 12 chars → max slug = 38
+_INVOICE_SLUG_MAX = 38
+# Credit note: {SLUG}-CN-{YEAR}-{SEQ:06d} → suffix is 15 chars → max slug = 35
+_CREDIT_NOTE_SLUG_MAX = 35
+
+
 def _get_org_invoice_prefix(org: Organization) -> str:
     """Get the invoice number prefix for an organization."""
-    return f"{org.slug.upper().replace('-', '')}-"
+    return f"{_sanitize_org_slug(org, _INVOICE_SLUG_MAX)}-"
 
 
 def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
@@ -118,7 +133,7 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
             stripe_session_id=stripe_session_id,
             status=Payment.PaymentStatus.SUCCEEDED,
         )
-        .select_related("ticket__event__organization", "ticket__tier")
+        .select_related("ticket__event__organization", "ticket__tier", "ticket__discount_code")
         .order_by("created_at")
     )
 
@@ -223,8 +238,6 @@ def generate_attendee_invoice(stripe_session_id: str) -> AttendeeInvoice | None:
 
 def _is_export(invoice: AttendeeInvoice) -> bool:
     """Check if the invoice is for a non-EU export (no VAT, not reverse charge)."""
-    from common.constants import EU_MEMBER_STATES
-
     buyer_country = invoice.buyer_vat_country.upper() if invoice.buyer_vat_country else ""
     return bool(buyer_country and buyer_country not in EU_MEMBER_STATES and not invoice.reverse_charge)
 
@@ -303,6 +316,20 @@ def update_draft_invoice(
     disallowed = set(update_data.keys()) - EDITABLE_DRAFT_FIELDS
     if disallowed:
         raise HttpError(422, f"Cannot edit fields: {', '.join(sorted(disallowed))}")
+
+    # Normalize line_items to ensure string values (schema sends Decimals)
+    if "line_items" in update_data:
+        update_data["line_items"] = [
+            InvoiceLineItemDict(
+                description=item.get("description", ""),
+                unit_price_gross=str(item.get("unit_price_gross", "0.00")),
+                discount_amount=str(item.get("discount_amount", "0.00")),
+                net_amount=str(item.get("net_amount", "0.00")),
+                vat_amount=str(item.get("vat_amount", "0.00")),
+                vat_rate=str(item.get("vat_rate", "0.00")),
+            )
+            for item in update_data["line_items"]
+        ]
 
     for field, value in update_data.items():
         setattr(invoice, field, value)
@@ -408,7 +435,7 @@ def _send_org_branded_email(
         attachment_filename=attachment_filename,
     )
 
-    logger.info("attendee_invoice_email_sent", subject=subject, to=to_email)
+    logger.info("attendee_invoice_email_sent", subject=subject, invoice_number=invoice.invoice_number)
 
 
 def deliver_attendee_invoice(invoice: AttendeeInvoice) -> None:
@@ -455,27 +482,47 @@ def generate_attendee_credit_note(
         return None
 
     refunded_payments = list(
-        Payment.objects.filter(id__in=refunded_payment_ids).select_related("ticket__event", "ticket__tier")
+        Payment.objects.filter(
+            id__in=refunded_payment_ids,
+            stripe_session_id=stripe_session_id,
+        ).select_related("ticket__event", "ticket__tier")
     )
 
     if not refunded_payments:
         return None
 
-    # Idempotency: check if a credit note already exists for the exact same set of payments
-    refunded_id_set = {p.id for p in refunded_payments}
-    for existing_cn in AttendeeInvoiceCreditNote.objects.filter(invoice=invoice).prefetch_related("payments"):
-        if {p.id for p in existing_cn.payments.all()} == refunded_id_set:
-            return existing_cn
-
-    amount_gross = sum(p.amount for p in refunded_payments)
-    amount_net = sum(p.net_amount or p.amount for p in refunded_payments)
-    amount_vat = sum(p.vat_amount or Decimal("0.00") for p in refunded_payments)
-
-    line_items = _build_line_items(refunded_payments)
-    org = invoice.organization
-
     with transaction.atomic():
-        cn_prefix = f"{org.slug.upper().replace('-', '')}-CN-" if org else "CN-"
+        # Lock the invoice row to serialize concurrent credit note creation
+        invoice = AttendeeInvoice.objects.select_for_update().get(pk=invoice.pk)
+
+        # Collect all payment IDs already covered by existing credit notes
+        # to prevent double-crediting on webhook re-delivery after multi-step refunds.
+        existing_cns = list(AttendeeInvoiceCreditNote.objects.filter(invoice=invoice).prefetch_related("payments"))
+        already_credited_ids: set["UUID"] = set()
+        for existing_cn in existing_cns:
+            already_credited_ids.update(p.id for p in existing_cn.payments.all())
+
+        # Exact-match idempotency: if this exact set was already credited, return it
+        refunded_id_set = {p.id for p in refunded_payments}
+        for existing_cn in existing_cns:
+            if {p.id for p in existing_cn.payments.all()} == refunded_id_set:
+                # Regenerate PDF if a previous attempt failed after DB commit
+                ensure_credit_note_pdf_exists(existing_cn)
+                return existing_cn
+
+        # Exclude payments already credited (prevents double-credit from superset retries)
+        refunded_payments = [p for p in refunded_payments if p.id not in already_credited_ids]
+        if not refunded_payments:
+            return None
+
+        amount_gross = sum(p.amount for p in refunded_payments)
+        amount_net = sum(p.net_amount or p.amount for p in refunded_payments)
+        amount_vat = sum(p.vat_amount or Decimal("0.00") for p in refunded_payments)
+
+        line_items = _build_line_items(refunded_payments)
+        org = invoice.organization
+
+        cn_prefix = f"{_sanitize_org_slug(org, _CREDIT_NOTE_SLUG_MAX)}-CN-" if org else "CN-"
         year = timezone.now().year
         credit_note_number = get_next_sequential_number(
             AttendeeInvoiceCreditNote, cn_prefix, year, "credit_note_number"
@@ -501,9 +548,6 @@ def generate_attendee_credit_note(
     # Generate credit note PDF
     _generate_credit_note_pdf(credit_note)
 
-    # Deliver via email
-    _deliver_credit_note(credit_note)
-
     logger.info(
         "attendee_credit_note_generated",
         credit_note_number=credit_note.credit_note_number,
@@ -514,18 +558,34 @@ def generate_attendee_credit_note(
 
 
 def _generate_credit_note_pdf(credit_note: AttendeeInvoiceCreditNote) -> None:
-    """Render the credit note PDF and save it."""
+    """Render the credit note PDF and save it.
+
+    The credit note intentionally renders seller/buyer info from the parent
+    invoice (the issued snapshot) rather than maintaining its own copy.
+    """
     template = "invoices/attendee_credit_note.html"
-    context = {"credit_note": credit_note, "invoice": credit_note.invoice}
+    invoice = credit_note.invoice
+    context = {
+        "credit_note": credit_note,
+        "invoice": invoice,
+        "is_export": _is_export(invoice),
+    }
     pdf_bytes = render_pdf(template, context)
     filename = f"{credit_note.credit_note_number}.pdf"
     credit_note.pdf_file.save(filename, ContentFile(pdf_bytes), save=True)
 
 
-def _deliver_credit_note(credit_note: AttendeeInvoiceCreditNote) -> None:
+def ensure_credit_note_pdf_exists(credit_note: AttendeeInvoiceCreditNote) -> None:
+    """Generate the credit note PDF if it doesn't exist (on-demand)."""
+    if not credit_note.pdf_file:
+        _generate_credit_note_pdf(credit_note)
+
+
+def deliver_credit_note(credit_note: AttendeeInvoiceCreditNote) -> None:
     """Send the credit note PDF via email."""
     invoice = credit_note.invoice
     if not credit_note.pdf_file:
+        logger.warning("attendee_credit_note_no_pdf", credit_note_number=credit_note.credit_note_number)
         return
 
     event_name = invoice.event.name if invoice.event else "Event"

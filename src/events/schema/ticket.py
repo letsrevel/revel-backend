@@ -436,7 +436,7 @@ class VATPreviewRequestSchema(Schema):
     billing_info: BuyerBillingInfoSchema
     items: list[VATPreviewItemSchema] = Field(..., min_length=1)
     discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
-    price_per_ticket: Decimal | None = Field(None, ge=0, description="PWYC price override")
+    price_per_ticket: Decimal | None = Field(None, ge=1, description="PWYC price override")
 
 
 class VATPreviewLineItemSchema(Schema):
@@ -511,6 +511,7 @@ class GuestBatchCheckoutPayload(GuestUserDataSchema):
 
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
     discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
+    billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
 
 
 class GuestBatchCheckoutPWYCPayload(GuestBatchCheckoutPayload):

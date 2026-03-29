@@ -104,6 +104,11 @@
         Reverse charge: VAT to be accounted for<br>
         by the recipient of the service.
       </div>
+      {% elif is_export %}
+      <div class="footer-label" style="margin-top: 12px;">Tax Notice</div>
+      <div class="notes-text">
+        Export of services — no VAT applicable.
+      </div>
       {% endif %}
     </div>
   </div>
