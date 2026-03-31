@@ -54,9 +54,19 @@ class StripeEventHandler:
             logger.warning("stripe_session_no_payments", session_id=session_id)
             return
 
-        # Check if already processed (idempotency)
+        # Always enqueue invoice generation (idempotent downstream).
+        # This must run even on duplicate webhooks so that a previously failed
+        # .delay() call gets retried when Stripe re-delivers the event.
+        def _trigger_invoice() -> None:
+            from events.tasks import generate_attendee_invoice_task
+
+            generate_attendee_invoice_task.delay(session_id)
+
+        transaction.on_commit(_trigger_invoice)
+
+        # Check if already processed (idempotency for payment/ticket updates)
         if all(p.status == Payment.PaymentStatus.SUCCEEDED for p in payments):
-            logger.warning(
+            logger.info(
                 "stripe_webhook_duplicate_payment_success",
                 session_id=session_id,
                 payment_count=len(payments),
@@ -168,17 +178,31 @@ class StripeEventHandler:
             logger.warning("stripe_refund_unknown_intent", payment_intent_id=payment_intent_id)
             return
 
-        # Idempotency check
-        if all(p.status == Payment.PaymentStatus.REFUNDED for p in payments):
-            logger.warning(
+        # Idempotency check — still enqueue credit note task on duplicates
+        # so that a previously failed .delay() gets retried.
+        all_already_refunded = all(p.status == Payment.PaymentStatus.REFUNDED for p in payments)
+        if all_already_refunded:
+            logger.info(
                 "stripe_webhook_duplicate_refund",
                 payment_intent_id=payment_intent_id,
                 payment_count=len(payments),
             )
+            all_refunded_ids = [str(p.id) for p in payments]
+            session_id = payments[0].stripe_session_id if payments else None
+            if session_id and all_refunded_ids:
+                _sid, _rids = session_id, all_refunded_ids
+
+                def _retry_credit_note() -> None:
+                    from events.tasks import generate_attendee_credit_note_task
+
+                    generate_attendee_credit_note_task.delay(_sid, _rids)
+
+                transaction.on_commit(_retry_credit_note)
             return
 
         raw_response = dict(event)
         refunded_tickets = []
+        newly_refunded_ids: list[str] = []
 
         for payment in payments:
             if payment.status == Payment.PaymentStatus.REFUNDED:
@@ -188,6 +212,7 @@ class StripeEventHandler:
             payment.status = Payment.PaymentStatus.REFUNDED
             payment.raw_response = raw_response
             payment.save(update_fields=["status", "raw_response"])
+            newly_refunded_ids.append(str(payment.id))
 
             # Cancel the ticket
             ticket = payment.ticket
@@ -199,6 +224,17 @@ class StripeEventHandler:
             # Restore ticket quantity
             TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
             refunded_tickets.append(ticket)
+
+        # Trigger attendee credit note generation for newly refunded payments
+        session_id = payments[0].stripe_session_id if payments else None
+        if session_id and newly_refunded_ids:
+
+            def _trigger_credit_note() -> None:
+                from events.tasks import generate_attendee_credit_note_task
+
+                generate_attendee_credit_note_task.delay(session_id, newly_refunded_ids)
+
+            transaction.on_commit(_trigger_credit_note)
 
         # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
         logger.info(

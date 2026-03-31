@@ -252,6 +252,78 @@ def cleanup_ticket_file_cache() -> dict[str, int]:
     return {"cleaned": len(cleaned_pks)}
 
 
+@shared_task(
+    name="events.generate_attendee_invoice",
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+def generate_attendee_invoice_task(stripe_session_id: str) -> None:
+    """Generate an attendee invoice PDF for a completed checkout session.
+
+    Runs asynchronously after payment success. On success, chains to the
+    delivery task for AUTO-mode invoices.
+    """
+    from events.models.attendee_invoice import AttendeeInvoice
+    from events.service.attendee_invoice_service import generate_attendee_invoice
+
+    invoice = generate_attendee_invoice(stripe_session_id)
+    if invoice and invoice.status == AttendeeInvoice.InvoiceStatus.ISSUED:
+        deliver_attendee_invoice_task.delay(str(invoice.id))
+
+
+@shared_task(
+    name="events.deliver_attendee_invoice",
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+def deliver_attendee_invoice_task(invoice_id: str) -> None:
+    """Deliver an attendee invoice via email."""
+    from events.models.attendee_invoice import AttendeeInvoice
+    from events.service.attendee_invoice_service import deliver_attendee_invoice
+
+    invoice = AttendeeInvoice.objects.get(id=UUID(invoice_id))
+    deliver_attendee_invoice(invoice)
+
+
+@shared_task(
+    name="events.generate_attendee_credit_note",
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+def generate_attendee_credit_note_task(stripe_session_id: str, refunded_payment_ids: list[str]) -> None:
+    """Generate a credit note PDF for refunded payments on an invoiced session.
+
+    On success, chains to the delivery task.
+    """
+    from events.service.attendee_invoice_service import generate_attendee_credit_note
+
+    credit_note = generate_attendee_credit_note(stripe_session_id, [UUID(pid) for pid in refunded_payment_ids])
+    if credit_note:
+        deliver_attendee_credit_note_task.delay(str(credit_note.id))
+
+
+@shared_task(
+    name="events.deliver_attendee_credit_note",
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+def deliver_attendee_credit_note_task(credit_note_id: str) -> None:
+    """Deliver a credit note via email."""
+    from events.models.attendee_invoice import AttendeeInvoiceCreditNote
+    from events.service.attendee_invoice_service import deliver_credit_note
+
+    credit_note = AttendeeInvoiceCreditNote.objects.get(id=UUID(credit_note_id))
+    deliver_credit_note(credit_note)
+
+
 @shared_task(name="events.generate_monthly_invoices")
 def generate_monthly_invoices_task() -> dict[str, int]:
     """Generate platform fee invoices for the previous month, then dispatch emails.

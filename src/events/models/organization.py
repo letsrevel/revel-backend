@@ -176,6 +176,13 @@ class Organization(
     SocialMediaMixin,
     StripeConnectMixin,
 ):
+    class InvoicingMode(models.TextChoices):
+        """Attendee invoicing mode."""
+
+        NONE = "none", "None"
+        HYBRID = "hybrid", "Hybrid (draft + manual send)"
+        AUTO = "auto", "Auto (generate + send)"
+
     name = models.CharField(max_length=255, unique=True)
     slug = models.SlugField(max_length=255, unique=True)
     description = MarkdownField(null=True, blank=True)
@@ -264,6 +271,14 @@ class Organization(
             "Legal entity name for invoicing (e.g., company or individual name as registered)."
             " Falls back to the organization name if empty."
         ),
+    )
+
+    # Attendee invoicing
+    invoicing_mode = models.CharField(
+        max_length=10,
+        choices=InvoicingMode.choices,
+        default=InvoicingMode.NONE,
+        help_text="Attendee invoicing mode: none, hybrid (draft + manual send), or auto (generate + send).",
     )
 
     accept_membership_requests = models.BooleanField(default=False)

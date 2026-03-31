@@ -29,10 +29,14 @@ CURRENCY_SYMBOLS: dict[str, str] = {
 }
 
 
-def format_currency(value: Decimal | float, currency: str = "EUR") -> str:
-    """Format a value with a currency symbol."""
+def format_currency(value: Decimal | float | str, currency: str = "EUR") -> str:
+    """Format a value with a currency symbol.
+
+    Accepts Decimal, float, or string (from JSON line items).
+    """
     symbol = CURRENCY_SYMBOLS.get(currency, currency + " ")
-    return f"{symbol}{value:,.2f}"
+    numeric = Decimal(str(value)) if not isinstance(value, (int, float, Decimal)) else value
+    return f"{symbol}{numeric:,.2f}"
 
 
 def get_next_sequential_number(

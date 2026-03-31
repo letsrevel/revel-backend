@@ -96,6 +96,11 @@ from .ticket import (
     BatchCheckoutPayload,
     BatchCheckoutPWYCPayload,
     BatchCheckoutResponse,
+    BuyerBillingInfoSchema,
+    VATPreviewItemSchema,
+    VATPreviewLineItemSchema,
+    VATPreviewRequestSchema,
+    VATPreviewResponseSchema,
     CheckInRequestSchema,
     CheckInResponseSchema,
     ConfirmPaymentSchema,
@@ -237,9 +242,15 @@ from .discount_code import (
 
 # Invoice schemas
 from .invoice import (
+    AttendeeInvoiceCreditNoteSchema,
+    AttendeeInvoiceDetailSchema,
+    AttendeeInvoiceSchema,
     InvoiceDownloadURLSchema,
+    InvoiceLineItemSchema,
+    InvoicingModeUpdateSchema,
     PlatformFeeCreditNoteSchema,
     PlatformFeeInvoiceSchema,
+    UpdateAttendeeInvoiceSchema,
 )
 
 # Export schemas
@@ -332,6 +343,11 @@ __all__ = [
     "BatchCheckoutPayload",
     "BatchCheckoutPWYCPayload",
     "BatchCheckoutResponse",
+    "BuyerBillingInfoSchema",
+    "VATPreviewItemSchema",
+    "VATPreviewLineItemSchema",
+    "VATPreviewRequestSchema",
+    "VATPreviewResponseSchema",
     "CheckInRequestSchema",
     "CheckInResponseSchema",
     "ConfirmPaymentSchema",
@@ -437,9 +453,15 @@ __all__ = [
     "DiscountCodeValidationResponse",
     "DiscountCodeValidationSchema",
     # Invoice
+    "AttendeeInvoiceCreditNoteSchema",
+    "AttendeeInvoiceDetailSchema",
+    "AttendeeInvoiceSchema",
     "InvoiceDownloadURLSchema",
+    "InvoiceLineItemSchema",
+    "InvoicingModeUpdateSchema",
     "PlatformFeeCreditNoteSchema",
     "PlatformFeeInvoiceSchema",
+    "UpdateAttendeeInvoiceSchema",
     # Export
     "FileExportSchema",
     # Announcement

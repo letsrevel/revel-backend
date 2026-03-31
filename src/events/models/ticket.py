@@ -750,6 +750,14 @@ class Payment(TimeStampedModel):
         default=False, help_text="Whether reverse charge applies to the platform fee (EU B2B cross-border)."
     )
 
+    # Buyer billing info snapshot for attendee invoicing
+    buyer_billing_snapshot = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Buyer billing info snapshot at checkout time for attendee invoice generation.",
+    )
+
     raw_response = models.JSONField(blank=True, default=dict)  # To store the full webhook event for auditing
     expires_at = models.DateTimeField(default=_get_payment_default_expiry, db_index=True, editable=False)
 

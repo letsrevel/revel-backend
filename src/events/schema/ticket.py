@@ -5,10 +5,10 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import UUID4, AwareDatetime, EmailStr, Field, model_validator
+from pydantic import UUID4, AwareDatetime, EmailStr, Field, field_validator, model_validator
 
 from accounts.schema import MemberUserSchema, MinimalRevelUserSchema, _BaseEmailJWTPayloadSchema
-from common.schema import OneToOneFiftyString, StrippedString
+from common.schema import OneToOneFiftyString, StrippedString, validate_country_code
 from common.signing import get_file_url
 from events import models
 from events.models import Payment, Ticket, TicketTier
@@ -64,6 +64,7 @@ class TicketTierSchema(ModelSchema):
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
     can_purchase: bool = True
+    invoicing_available: bool = False
 
     class Meta:
         model = TicketTier
@@ -90,6 +91,17 @@ class TicketTierSchema(ModelSchema):
     def resolve_can_purchase(obj: TicketTier) -> bool:
         """Resolve from annotated attribute, defaults to True if not set."""
         return getattr(obj, "_can_purchase", True)
+
+    @staticmethod
+    def resolve_invoicing_available(obj: TicketTier) -> bool:
+        """True when the org has attendee invoicing enabled and this tier uses online payment."""
+        org = obj.event.organization if obj.event else None
+        if not org:
+            return False
+        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and org.invoicing_mode in (
+            models.Organization.InvoicingMode.HYBRID,
+            models.Organization.InvoicingMode.AUTO,
+        )
 
 
 class PaymentSchema(ModelSchema):
@@ -332,6 +344,7 @@ class TicketTierDetailSchema(ModelSchema):
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
     vat_rate: Decimal | None = None
+    invoicing_available: bool = False
 
     class Meta:
         model = TicketTier
@@ -362,6 +375,17 @@ class TicketTierDetailSchema(ModelSchema):
             "display_order",
             "vat_rate",
         ]
+
+    @staticmethod
+    def resolve_invoicing_available(obj: TicketTier) -> bool:
+        """True when the org has attendee invoicing enabled and this tier uses online payment."""
+        org = obj.event.organization if obj.event else None
+        if not org:
+            return False
+        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and org.invoicing_mode in (
+            models.Organization.InvoicingMode.HYBRID,
+            models.Organization.InvoicingMode.AUTO,
+        )
 
 
 class ReorderSchema(Schema):
@@ -396,11 +420,82 @@ class TicketPurchaseItem(Schema):
     seat_id: UUID | None = Field(default=None, description="Seat ID for USER_CHOICE seat assignment mode")
 
 
+class BuyerBillingInfoSchema(Schema):
+    """Buyer billing info for attendee invoicing at checkout."""
+
+    billing_name: str = Field(..., min_length=1, max_length=255)
+    vat_id: str = Field("", max_length=20)
+    vat_country_code: str = Field("", max_length=2)
+    billing_address: str = ""
+    billing_email: str = ""
+    save_to_profile: bool = False
+
+    @field_validator("vat_country_code")
+    @classmethod
+    def validate_vat_country_code(cls, v: str) -> str:
+        """Validate ISO 3166-1 alpha-2 country code or allow empty."""
+        return validate_country_code(v) or ""
+
+    @field_validator("billing_email")
+    @classmethod
+    def validate_billing_email(cls, v: str) -> str:
+        """Allow empty string but reject invalid emails."""
+        if v:
+            from pydantic import TypeAdapter
+
+            TypeAdapter(EmailStr).validate_python(v)
+        return v
+
+
+class VATPreviewItemSchema(Schema):
+    """Single item in a VAT preview request."""
+
+    tier_id: UUID
+    count: int = Field(..., ge=1)
+
+
+class VATPreviewRequestSchema(Schema):
+    """Request payload for the VAT preview endpoint."""
+
+    billing_info: BuyerBillingInfoSchema
+    items: list[VATPreviewItemSchema] = Field(..., min_length=1)
+    discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
+    price_per_ticket: Decimal | None = Field(None, ge=1, description="PWYC price override")
+
+
+class VATPreviewLineItemSchema(Schema):
+    """Line item in a VAT preview response."""
+
+    tier_name: str
+    ticket_count: int
+    unit_price_gross: Decimal
+    unit_price_net: Decimal
+    unit_vat: Decimal
+    vat_rate: Decimal
+    line_net: Decimal
+    line_vat: Decimal
+    line_gross: Decimal
+
+
+class VATPreviewResponseSchema(Schema):
+    """Response from the VAT preview endpoint."""
+
+    vat_id_valid: bool | None = None
+    vat_id_validation_error: str | None = None
+    reverse_charge: bool
+    line_items: list[VATPreviewLineItemSchema]
+    total_net: Decimal
+    total_vat: Decimal
+    total_gross: Decimal
+    currency: str
+
+
 class BatchCheckoutPayload(Schema):
     """Payload for batch ticket checkout (authenticated users)."""
 
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
     discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
+    billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
 
 
 class BatchCheckoutPWYCPayload(BatchCheckoutPayload):
@@ -440,6 +535,7 @@ class GuestBatchCheckoutPayload(GuestUserDataSchema):
 
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
     discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
+    billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
 
 
 class GuestBatchCheckoutPWYCPayload(GuestBatchCheckoutPayload):

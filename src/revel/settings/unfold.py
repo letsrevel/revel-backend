@@ -273,6 +273,16 @@ UNFOLD = {
                         "icon": "payments",
                         "link": reverse_lazy("admin:events_payment_changelist"),
                     },
+                    {
+                        "title": _("Attendee Invoices"),
+                        "icon": "receipt_long",
+                        "link": reverse_lazy("admin:events_attendeeinvoice_changelist"),
+                    },
+                    {
+                        "title": _("Attendee Credit Notes"),
+                        "icon": "undo",
+                        "link": reverse_lazy("admin:events_attendeeinvoicecreditnote_changelist"),
+                    },
                 ],
             },
             {

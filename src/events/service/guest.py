@@ -230,6 +230,7 @@ def handle_guest_ticket_checkout(
     tickets: list[schema.TicketPurchaseItem],
     pwyc_amount: Decimal | None = None,
     discount_code: str | None = None,
+    billing_info: "schema.BuyerBillingInfoSchema | None" = None,
 ) -> schema.GuestCheckoutResponseSchema:
     """Handle guest ticket checkout request (business logic extracted from controller).
 
@@ -242,6 +243,7 @@ def handle_guest_ticket_checkout(
         tickets: List of ticket purchase items with guest_name and optional seat_id
         pwyc_amount: Optional PWYC amount (must be the same for all tickets)
         discount_code: Optional discount code string
+        billing_info: Optional buyer billing info for attendee invoicing
 
     Returns:
         GuestCheckoutResponseSchema with either message (non-online) or checkout_url (online)
@@ -283,7 +285,7 @@ def handle_guest_ticket_checkout(
     if tier.payment_method == models.TicketTier.PaymentMethod.ONLINE:
         # Online payment: use BatchTicketService (Stripe provides security)
         service = BatchTicketService(event, tier, user, discount_code=dc)
-        result = service.create_batch(tickets, price_override=price_override)
+        result = service.create_batch(tickets, price_override=price_override, billing_info=billing_info)
 
         if isinstance(result, str):
             return schema.GuestCheckoutResponseSchema(message=None, checkout_url=result, tickets=[])

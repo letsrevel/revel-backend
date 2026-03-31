@@ -40,6 +40,7 @@ class EventPublicTicketsController(EventPublicBaseController):
         user = self.maybe_user()
         visible_tiers = list(
             models.TicketTier.objects.for_visible_event(event, user)
+            .select_related("event__organization")
             .with_venue_and_sector()
             .distinct()
             .order_by("display_order", "name")
@@ -148,7 +149,7 @@ class EventPublicTicketsController(EventPublicBaseController):
 
         # Create batch of tickets
         service = BatchTicketService(event, tier, user, discount_code=dc)
-        result = service.create_batch(payload.tickets, price_override=price_override)
+        result = service.create_batch(payload.tickets, price_override=price_override, billing_info=payload.billing_info)
 
         if isinstance(result, str):
             return schema.BatchCheckoutResponse(checkout_url=result, tickets=[])
@@ -218,13 +219,68 @@ class EventPublicTicketsController(EventPublicBaseController):
 
         # Create batch of tickets
         service = BatchTicketService(event, tier, user)
-        result = service.create_batch(payload.tickets, price_override=payload.price_per_ticket)
+        result = service.create_batch(
+            payload.tickets, price_override=payload.price_per_ticket, billing_info=payload.billing_info
+        )
 
         if isinstance(result, str):
             return schema.BatchCheckoutResponse(checkout_url=result, tickets=[])
         return schema.BatchCheckoutResponse(
             checkout_url=None,
             tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+        )
+
+    @route.post(
+        "/{uuid:event_id}/tickets/vat-preview",
+        url_name="vat_preview",
+        response={200: schema.VATPreviewResponseSchema},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def vat_preview(
+        self,
+        event_id: UUID,
+        payload: schema.VATPreviewRequestSchema,
+    ) -> schema.VATPreviewResponseSchema:
+        """Preview VAT breakdown based on buyer billing info.
+
+        Validates the buyer's VAT ID (via VIES with caching) and calculates
+        per-line-item and total VAT breakdown. Used by the frontend to display
+        adjusted prices before Stripe checkout.
+        """
+        from events.service.attendee_vat_service import calculate_vat_preview
+
+        event = self.get_one(event_id)
+        result = calculate_vat_preview(
+            event,
+            payload.billing_info,
+            payload.items,
+            discount_code=payload.discount_code,
+            price_per_ticket=payload.price_per_ticket,
+        )
+
+        return schema.VATPreviewResponseSchema(
+            vat_id_valid=result.vat_id_valid,
+            vat_id_validation_error=result.vat_id_validation_error,
+            reverse_charge=result.reverse_charge,
+            line_items=[
+                schema.VATPreviewLineItemSchema(
+                    tier_name=li.tier_name,
+                    ticket_count=li.ticket_count,
+                    unit_price_gross=li.unit_price_gross,
+                    unit_price_net=li.unit_price_net,
+                    unit_vat=li.unit_vat,
+                    vat_rate=li.vat_rate,
+                    line_net=li.line_net,
+                    line_vat=li.line_vat,
+                    line_gross=li.line_gross,
+                )
+                for li in result.line_items
+            ],
+            total_net=result.total_net,
+            total_vat=result.total_vat,
+            total_gross=result.total_gross,
+            currency=result.currency,
         )
 
     @route.post(
