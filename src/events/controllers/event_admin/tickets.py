@@ -75,7 +75,12 @@ class EventAdminTicketsController(EventAdminBaseController):
     def list_ticket_tiers(self, event_id: UUID) -> QuerySet[models.TicketTier]:
         """List all ticket tiers for an event."""
         self.get_one(event_id)
-        return models.TicketTier.objects.with_venue_and_sector().filter(event_id=event_id).distinct()
+        return (
+            models.TicketTier.objects.with_venue_and_sector()
+            .select_related("event__organization")
+            .filter(event_id=event_id)
+            .distinct()
+        )
 
     @route.post(
         "/ticket-tier",

@@ -77,11 +77,11 @@
       <tr>
         <td>
           {{ item.description }}
-          {% if item.discount_amount and item.discount_amount != "0.00" %}<br><small style="color: #888;">Discount: -{{ item.discount_amount|format_currency:invoice.currency }}</small>{% endif %}
+          {% if item.discount_amount and item.discount_amount != "0.00" %}<br><small style="color: #888;">Discount: -{{ item.discount_amount|format_number }}</small>{% endif %}
         </td>
-        <td>{{ item.net_amount|format_currency:invoice.currency }}</td>
-        <td>{{ item.vat_amount|format_currency:invoice.currency }}</td>
-        <td>{{ item.unit_price_gross|format_currency:invoice.currency }}</td>
+        <td>{{ item.net_amount|format_number }}</td>
+        <td>{{ item.vat_amount|format_number }}</td>
+        <td>{{ item.unit_price_gross|format_number }}</td>
       </tr>
       {% endfor %}
     </tbody>

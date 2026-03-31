@@ -60,9 +60,9 @@
       {% for item in credit_note.line_items %}
       <tr>
         <td>{{ item.description }}</td>
-        <td>{{ item.net_amount|format_currency:invoice.currency }}</td>
-        <td>{{ item.vat_amount|format_currency:invoice.currency }}</td>
-        <td>{{ item.unit_price_gross|format_currency:invoice.currency }}</td>
+        <td>{{ item.net_amount|format_number }}</td>
+        <td>{{ item.vat_amount|format_number }}</td>
+        <td>{{ item.unit_price_gross|format_number }}</td>
       </tr>
       {% endfor %}
     </tbody>

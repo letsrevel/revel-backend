@@ -64,6 +64,7 @@ class TicketTierSchema(ModelSchema):
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
     can_purchase: bool = True
+    invoicing_available: bool = False
 
     class Meta:
         model = TicketTier
@@ -90,6 +91,17 @@ class TicketTierSchema(ModelSchema):
     def resolve_can_purchase(obj: TicketTier) -> bool:
         """Resolve from annotated attribute, defaults to True if not set."""
         return getattr(obj, "_can_purchase", True)
+
+    @staticmethod
+    def resolve_invoicing_available(obj: TicketTier) -> bool:
+        """True when the org has attendee invoicing enabled and this tier uses online payment."""
+        org = obj.event.organization if obj.event else None
+        if not org:
+            return False
+        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and org.invoicing_mode in (
+            models.Organization.InvoicingMode.HYBRID,
+            models.Organization.InvoicingMode.AUTO,
+        )
 
 
 class PaymentSchema(ModelSchema):
@@ -332,6 +344,7 @@ class TicketTierDetailSchema(ModelSchema):
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
     vat_rate: Decimal | None = None
+    invoicing_available: bool = False
 
     class Meta:
         model = TicketTier
@@ -362,6 +375,17 @@ class TicketTierDetailSchema(ModelSchema):
             "display_order",
             "vat_rate",
         ]
+
+    @staticmethod
+    def resolve_invoicing_available(obj: TicketTier) -> bool:
+        """True when the org has attendee invoicing enabled and this tier uses online payment."""
+        org = obj.event.organization if obj.event else None
+        if not org:
+            return False
+        return obj.payment_method == TicketTier.PaymentMethod.ONLINE and org.invoicing_mode in (
+            models.Organization.InvoicingMode.HYBRID,
+            models.Organization.InvoicingMode.AUTO,
+        )
 
 
 class ReorderSchema(Schema):

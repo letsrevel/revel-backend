@@ -40,6 +40,7 @@ class EventPublicTicketsController(EventPublicBaseController):
         user = self.maybe_user()
         visible_tiers = list(
             models.TicketTier.objects.for_visible_event(event, user)
+            .select_related("event__organization")
             .with_venue_and_sector()
             .distinct()
             .order_by("display_order", "name")
