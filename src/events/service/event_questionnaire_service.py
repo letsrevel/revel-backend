@@ -328,7 +328,7 @@ def get_questionnaire_summary(
     )
 
     # Per-user aggregation (latest submission per user via DISTINCT ON)
-    latest_per_user_ids = base_qs.order_by("user_id", "-submitted_at").distinct("user_id").values("id")
+    latest_per_user_ids = base_qs.order_by("user_id", "-submitted_at", "-id").distinct("user_id").values("id")
     per_user_stats = QuestionnaireSubmission.objects.filter(
         id__in=latest_per_user_ids,
     ).aggregate(

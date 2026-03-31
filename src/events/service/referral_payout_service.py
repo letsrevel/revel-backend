@@ -71,12 +71,12 @@ def _create_payout_record(
         Decimal("0.01"), rounding=ROUND_HALF_UP
     )
 
-    prior_payouts = ReferralPayout.objects.filter(
+    prior_payouts_qs = ReferralPayout.objects.filter(
         referral=referral,
         status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
         period_start__lt=period_start,
     )
-    rolled_over = sum(p.payout_amount for p in prior_payouts)
+    rolled_over: Decimal = prior_payouts_qs.aggregate(total=Sum("payout_amount"))["total"] or Decimal("0")
 
     payout_amount = current_period_share + rolled_over
 
@@ -95,7 +95,7 @@ def _create_payout_record(
 
     if was_created:
         if rolled_over:
-            rolled_count = prior_payouts.update(status=ReferralPayout.ReferralPayoutStatus.ROLLED_OVER)
+            rolled_count = prior_payouts_qs.update(status=ReferralPayout.ReferralPayoutStatus.ROLLED_OVER)
             logger.info(
                 "prior_payouts_rolled_over",
                 referral_id=str(referral.id),
