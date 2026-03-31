@@ -12,7 +12,7 @@ import typing as t
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Avg, Count, Max, Min, Q
+from django.db.models import Avg, Count, Max, Min, Q, QuerySet
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -184,6 +184,108 @@ def submit_event_questionnaire(
     return db_submission
 
 
+def _build_scoped_submission_qs(
+    questionnaire_id: UUID,
+    event_id: UUID | None,
+    event_series_id: UUID | None,
+) -> QuerySet[QuestionnaireSubmission]:
+    """Build the base queryset of READY submissions, optionally scoped by event or series."""
+    base_qs = QuestionnaireSubmission.objects.filter(
+        questionnaire_id=questionnaire_id,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+    )
+
+    if event_id is not None:
+        sub_ids = EventQuestionnaireSubmission.objects.filter(
+            questionnaire_id=questionnaire_id,
+            event_id=event_id,
+        ).values("submission_id")
+        base_qs = base_qs.filter(id__in=sub_ids)
+    elif event_series_id is not None:
+        evt_ids = Event.objects.filter(event_series_id=event_series_id).values("id")
+        sub_ids = EventQuestionnaireSubmission.objects.filter(
+            questionnaire_id=questionnaire_id,
+            event_id__in=evt_ids,
+        ).values("submission_id")
+        base_qs = base_qs.filter(id__in=sub_ids)
+
+    return base_qs
+
+
+def _aggregate_mc_distributions(
+    questionnaire_id: UUID,
+    base_qs: QuerySet[QuestionnaireSubmission],
+) -> list[McQuestionStatSchema]:
+    """Compute multiple-choice answer distributions for a questionnaire."""
+    submission_ids = base_qs.values("id")
+    mc_options = (
+        MultipleChoiceOption.objects.filter(question__questionnaire_id=questionnaire_id)
+        .values(
+            "id",
+            "option",
+            "is_correct",
+            "order",
+            "question_id",
+            "question__question",
+            "question__order",
+        )
+        .annotate(
+            count=Count(
+                "answers",
+                filter=Q(answers__submission_id__in=submission_ids),
+            )
+        )
+        .order_by("question__order", "order")
+    )
+
+    questions_map: dict[UUID, McQuestionStatSchema] = {}
+    for row in mc_options:
+        qid = row["question_id"]
+        if qid not in questions_map:
+            questions_map[qid] = McQuestionStatSchema(
+                question_id=qid,
+                question_text=row["question__question"],
+                options=[],
+            )
+        questions_map[qid].options.append(
+            McOptionStatSchema(
+                option_id=row["id"],
+                option_text=row["option"],
+                is_correct=row["is_correct"],
+                count=row["count"],
+            )
+        )
+
+    return list(questions_map.values())
+
+
+def _aggregate_pronoun_distribution(
+    base_qs: QuerySet[QuestionnaireSubmission],
+) -> EventPronounDistributionSchema:
+    """Compute pronoun distribution for users who submitted the questionnaire."""
+    user_ids = base_qs.values_list("user_id", flat=True).distinct()
+    pronoun_rows = (
+        RevelUser.objects.filter(id__in=user_ids).values("pronouns").annotate(count=Count("id")).order_by("-count")
+    )
+
+    pronoun_dist: list[PronounCountSchema] = []
+    total_with_pronouns = 0
+    total_without_pronouns = 0
+    for row in pronoun_rows:
+        if row["pronouns"]:
+            pronoun_dist.append(PronounCountSchema(pronouns=row["pronouns"], count=row["count"]))
+            total_with_pronouns += row["count"]
+        else:
+            total_without_pronouns = row["count"]
+
+    return EventPronounDistributionSchema(
+        distribution=pronoun_dist,
+        total_with_pronouns=total_with_pronouns,
+        total_without_pronouns=total_without_pronouns,
+        total_attendees=total_with_pronouns + total_without_pronouns,
+    )
+
+
 def get_questionnaire_summary(
     *,
     questionnaire_id: UUID,
@@ -209,27 +311,9 @@ def get_questionnaire_summary(
     if event_id is not None and event_series_id is not None:
         raise HttpError(400, str(_("Cannot filter by both event_id and event_series_id.")))
 
-    # Step 1: Build base queryset (scoped submission IDs)
-    base_qs = QuestionnaireSubmission.objects.filter(
-        questionnaire_id=questionnaire_id,
-        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
-    )
+    base_qs = _build_scoped_submission_qs(questionnaire_id, event_id, event_series_id)
 
-    if event_id is not None:
-        sub_ids = EventQuestionnaireSubmission.objects.filter(
-            questionnaire_id=questionnaire_id,
-            event_id=event_id,
-        ).values("submission_id")
-        base_qs = base_qs.filter(id__in=sub_ids)
-    elif event_series_id is not None:
-        evt_ids = Event.objects.filter(event_series_id=event_series_id).values("id")
-        sub_ids = EventQuestionnaireSubmission.objects.filter(
-            questionnaire_id=questionnaire_id,
-            event_id__in=evt_ids,
-        ).values("submission_id")
-        base_qs = base_qs.filter(id__in=sub_ids)
-
-    # Step 2: Per-submission aggregation (single query, OneToOne JOIN)
+    # Per-submission aggregation (single query, OneToOne JOIN)
     EvalStatus = QuestionnaireEvaluation.QuestionnaireEvaluationStatus
     stats = base_qs.aggregate(
         total=Count("id"),
@@ -243,7 +327,7 @@ def get_questionnaire_summary(
         max_score=Max("evaluation__score", filter=Q(evaluation__score__isnull=False)),
     )
 
-    # Step 3: Per-user aggregation (latest submission per user via DISTINCT ON)
+    # Per-user aggregation (latest submission per user via DISTINCT ON)
     latest_per_user_ids = base_qs.order_by("user_id", "-submitted_at").distinct("user_id").values("id")
     per_user_stats = QuestionnaireSubmission.objects.filter(
         id__in=latest_per_user_ids,
@@ -253,64 +337,6 @@ def get_questionnaire_summary(
         pending_review=Count("id", filter=Q(evaluation__status=EvalStatus.PENDING_REVIEW)),
         not_evaluated=Count("id", filter=Q(evaluation__isnull=True)),
     )
-
-    # Step 4: MC answer distributions
-    # Start from all options for MC questions in this questionnaire, then LEFT JOIN answers
-    submission_ids = base_qs.values("id")
-    mc_options = (
-        MultipleChoiceOption.objects.filter(question__questionnaire_id=questionnaire_id)
-        .values(
-            "id",
-            "option",
-            "is_correct",
-            "order",
-            "question_id",
-            "question__question",
-            "question__order",
-        )
-        .annotate(
-            count=Count(
-                "answers",
-                filter=Q(answers__submission_id__in=submission_ids),
-            )
-        )
-        .order_by("question__order", "order")
-    )
-
-    # Group MC data by question
-    questions_map: dict[UUID, McQuestionStatSchema] = {}
-    for row in mc_options:
-        qid = row["question_id"]
-        if qid not in questions_map:
-            questions_map[qid] = McQuestionStatSchema(
-                question_id=qid,
-                question_text=row["question__question"],
-                options=[],
-            )
-        questions_map[qid].options.append(
-            McOptionStatSchema(
-                option_id=row["id"],
-                option_text=row["option"],
-                is_correct=row["is_correct"],
-                count=row["count"],
-            )
-        )
-
-    # Step 5: Pronoun distribution (ID materialization, same pattern as event pronouns)
-    user_ids = base_qs.values_list("user_id", flat=True).distinct()
-    pronoun_rows = (
-        RevelUser.objects.filter(id__in=user_ids).values("pronouns").annotate(count=Count("id")).order_by("-count")
-    )
-
-    pronoun_dist: list[PronounCountSchema] = []
-    total_with_pronouns = 0
-    total_without_pronouns = 0
-    for row in pronoun_rows:
-        if row["pronouns"]:
-            pronoun_dist.append(PronounCountSchema(pronouns=row["pronouns"], count=row["count"]))
-            total_with_pronouns += row["count"]
-        else:
-            total_without_pronouns = row["count"]
 
     return QuestionnaireSummarySchema(
         total_submissions=stats["total"],
@@ -332,11 +358,6 @@ def get_questionnaire_summary(
             min=stats["min_score"],
             max=stats["max_score"],
         ),
-        mc_question_stats=list(questions_map.values()),
-        pronoun_distribution=EventPronounDistributionSchema(
-            distribution=pronoun_dist,
-            total_with_pronouns=total_with_pronouns,
-            total_without_pronouns=total_without_pronouns,
-            total_attendees=total_with_pronouns + total_without_pronouns,
-        ),
+        mc_question_stats=_aggregate_mc_distributions(questionnaire_id, base_qs),
+        pronoun_distribution=_aggregate_pronoun_distribution(base_qs),
     )

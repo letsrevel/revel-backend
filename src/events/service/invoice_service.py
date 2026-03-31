@@ -92,6 +92,96 @@ def get_invoice_recipients(org: Organization) -> list[str]:
     return recipients
 
 
+def _create_org_invoice(
+    *,
+    org: Organization,
+    agg: dict[str, object],
+    period_start: date,
+    period_end: date,
+    period_payments: QuerySet[Payment],
+    site: SiteSettings,
+    year: int,
+    now: datetime,
+) -> PlatformFeeInvoice | None:
+    """Create a single platform fee invoice for an organization + currency.
+
+    Returns the created invoice, or None if it already exists or was skipped.
+    """
+    org_id = org.id
+    currency: str = agg["currency"]  # type: ignore[assignment]
+
+    fee_gross: Decimal = agg["total_platform_fee"] or Decimal("0.00")  # type: ignore[assignment]
+    fee_net: Decimal = agg["total_platform_fee_net"] or fee_gross  # type: ignore[assignment]
+    fee_vat: Decimal = agg["total_platform_fee_vat"] or Decimal("0.00")  # type: ignore[assignment]
+
+    org_payments = period_payments.filter(
+        ticket__event__organization_id=org_id,
+        currency=currency,
+    )
+    fee_vat_rate, reverse_charge = _determine_vat_rate_and_reverse_charge(org_payments)
+
+    try:
+        with transaction.atomic():
+            # Idempotency check inside transaction to prevent race conditions.
+            if PlatformFeeInvoice.objects.filter(
+                organization_id=org_id,
+                period_start=period_start,
+                currency=currency,
+            ).exists():
+                logger.info("invoice_already_exists", org_id=str(org_id), period=str(period_start), currency=currency)
+                return None
+
+            invoice_number = _get_next_invoice_number(year)
+
+            invoice = PlatformFeeInvoice.objects.create(
+                organization=org,
+                invoice_number=invoice_number,
+                period_start=period_start,
+                period_end=period_end,
+                fee_gross=fee_gross,
+                fee_net=fee_net,
+                fee_vat=fee_vat,
+                fee_vat_rate=fee_vat_rate,
+                currency=currency,
+                reverse_charge=reverse_charge,
+                # Organization snapshot
+                org_name=org.billing_name or org.name,
+                org_vat_id=org.vat_id,
+                org_vat_country=org.vat_country_code,
+                org_address=org.billing_address,
+                # Platform snapshot
+                platform_business_name=site.platform_business_name,
+                platform_business_address=site.platform_business_address,
+                platform_vat_id=site.platform_vat_id,
+                # Aggregate stats
+                total_tickets=agg["ticket_count"],  # type: ignore[misc]
+                total_ticket_revenue=agg["total_amount"] or Decimal("0.00"),
+                # Status
+                status=PlatformFeeInvoice.InvoiceStatus.ISSUED,
+                issued_at=now,
+            )
+    except IntegrityError:
+        logger.info("invoice_duplicate_skipped", org_id=str(org_id), period=str(period_start), currency=currency)
+        return None
+
+    # Generate and attach PDF outside transaction (WeasyPrint is slow)
+    pdf_bytes = _render_invoice_pdf(invoice)
+    invoice.pdf_file.save(
+        f"{invoice_number}.pdf",
+        ContentFile(pdf_bytes),
+        save=True,
+    )
+
+    logger.info(
+        "invoice_generated",
+        invoice_number=invoice_number,
+        org_id=str(org_id),
+        fee_gross=str(fee_gross),
+        currency=currency,
+    )
+    return invoice
+
+
 def generate_invoices_for_period(
     period_start: date,
     period_end: date,
@@ -150,88 +240,23 @@ def generate_invoices_for_period(
 
     for agg in aggregates:
         org_id = agg["ticket__event__organization_id"]
-        currency = agg["currency"]
-
         org = orgs_by_id.get(org_id)
         if not org:
             logger.warning("org_not_found_for_invoice", org_id=str(org_id))
             continue
 
-        fee_gross = agg["total_platform_fee"] or Decimal("0.00")
-        fee_net = agg["total_platform_fee_net"] or fee_gross  # fallback for pre-VAT payments
-        fee_vat = agg["total_platform_fee_vat"] or Decimal("0.00")
-
-        org_payments = period_payments.filter(
-            ticket__event__organization_id=org_id,
-            currency=currency,
+        invoice = _create_org_invoice(
+            org=org,
+            agg=agg,
+            period_start=period_start,
+            period_end=period_end,
+            period_payments=period_payments,
+            site=site,
+            year=year,
+            now=now,
         )
-        fee_vat_rate, reverse_charge = _determine_vat_rate_and_reverse_charge(org_payments)
-
-        try:
-            with transaction.atomic():
-                # Idempotency check inside transaction to prevent race conditions.
-                # The UniqueConstraint is the ultimate guard, but checking first
-                # avoids burning an invoice number on a duplicate.
-                if PlatformFeeInvoice.objects.filter(
-                    organization_id=org_id,
-                    period_start=period_start,
-                    currency=currency,
-                ).exists():
-                    logger.info(
-                        "invoice_already_exists", org_id=str(org_id), period=str(period_start), currency=currency
-                    )
-                    continue
-
-                invoice_number = _get_next_invoice_number(year)
-
-                invoice = PlatformFeeInvoice.objects.create(
-                    organization=org,
-                    invoice_number=invoice_number,
-                    period_start=period_start,
-                    period_end=period_end,
-                    fee_gross=fee_gross,
-                    fee_net=fee_net,
-                    fee_vat=fee_vat,
-                    fee_vat_rate=fee_vat_rate,
-                    currency=currency,
-                    reverse_charge=reverse_charge,
-                    # Organization snapshot
-                    org_name=org.billing_name or org.name,
-                    org_vat_id=org.vat_id,
-                    org_vat_country=org.vat_country_code,
-                    org_address=org.billing_address,
-                    # Platform snapshot
-                    platform_business_name=site.platform_business_name,
-                    platform_business_address=site.platform_business_address,
-                    platform_vat_id=site.platform_vat_id,
-                    # Aggregate stats
-                    total_tickets=agg["ticket_count"],
-                    total_ticket_revenue=agg["total_amount"] or Decimal("0.00"),
-                    # Status
-                    status=PlatformFeeInvoice.InvoiceStatus.ISSUED,
-                    issued_at=now,
-                )
-        except IntegrityError:
-            # Concurrent run already created this invoice — safe to skip
-            logger.info("invoice_duplicate_skipped", org_id=str(org_id), period=str(period_start), currency=currency)
-            continue
-
-        # Generate and attach PDF outside transaction (WeasyPrint is slow)
-        pdf_bytes = _render_invoice_pdf(invoice)
-        invoice.pdf_file.save(
-            f"{invoice_number}.pdf",
-            ContentFile(pdf_bytes),
-            save=True,
-        )
-
-        created_invoices.append(invoice)
-        logger.info(
-            "invoice_generated",
-            invoice_number=invoice_number,
-            org_id=str(org_id),
-            fee_gross=str(fee_gross),
-            currency=currency,
-        )
+        if invoice:
+            created_invoices.append(invoice)
 
     return created_invoices
 

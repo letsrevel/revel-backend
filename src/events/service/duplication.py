@@ -101,7 +101,19 @@ def duplicate_event(
             cover_art=template_event.cover_art,
         )
 
-    # Duplicate ticket tiers
+    _duplicate_ticket_tiers(template_event, new_event, shift_date)
+    _duplicate_potluck_items(template_event, new_event)
+    _link_m2m_relations(template_event, new_event)
+
+    return new_event
+
+
+def _duplicate_ticket_tiers(
+    template_event: Event,
+    new_event: Event,
+    shift_date: t.Callable[[datetime | None], datetime | None],
+) -> None:
+    """Duplicate ticket tiers from template, resetting quantity_sold."""
     for tier in template_event.ticket_tiers.all():
         new_tier = TicketTier.objects.create(
             event=new_event,
@@ -116,15 +128,16 @@ def duplicate_event(
             pwyc_max=tier.pwyc_max,
             currency=tier.currency,
             total_quantity=tier.total_quantity,
-            quantity_sold=0,  # Reset
+            quantity_sold=0,
             manual_payment_instructions=tier.manual_payment_instructions,
             sales_start_at=shift_date(tier.sales_start_at),
             sales_end_at=shift_date(tier.sales_end_at),
         )
-        # Copy M2M for membership tier restrictions
         new_tier.restricted_to_membership_tiers.set(tier.restricted_to_membership_tiers.all())
 
-    # Duplicate suggested potluck items only
+
+def _duplicate_potluck_items(template_event: Event, new_event: Event) -> None:
+    """Duplicate suggested potluck items only."""
     suggested_items = [
         PotluckItem(
             event=new_event,
@@ -141,17 +154,15 @@ def duplicate_event(
     if suggested_items:
         PotluckItem.objects.bulk_create(suggested_items)
 
-    # Copy tags
+
+def _link_m2m_relations(template_event: Event, new_event: Event) -> None:
+    """Copy tags, questionnaires, and additional resources from template."""
     tag_names = [tag.name for tag in template_event.tags_manager.all()]
     if tag_names:
         new_event.tags_manager.add(*tag_names)
 
-    # Link to same questionnaires
     for oq in template_event.org_questionnaires.all():
         oq.events.add(new_event)
 
-    # Link to same resources
     for resource in template_event.additional_resources.all():
         resource.events.add(new_event)
-
-    return new_event
