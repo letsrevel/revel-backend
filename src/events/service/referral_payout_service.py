@@ -95,25 +95,26 @@ def _create_payout_record(
             },
         )
 
-        if was_created and rolled_over:
-            rolled_count = prior_payouts_qs.update(status=ReferralPayout.ReferralPayoutStatus.ROLLED_OVER)
-            logger.info(
-                "prior_payouts_rolled_over",
-                referral_id=str(referral.id),
-                rolled_over_count=rolled_count,
-                rolled_over_amount=str(rolled_over),
-            )
+        if was_created:
+            if rolled_over:
+                rolled_count = prior_payouts_qs.update(status=ReferralPayout.ReferralPayoutStatus.ROLLED_OVER)
+                logger.info(
+                    "prior_payouts_rolled_over",
+                    referral_id=str(referral.id),
+                    rolled_over_count=rolled_count,
+                    rolled_over_amount=str(rolled_over),
+                )
 
-        logger.info(
-            "referral_payout_created",
-            referral_id=str(referral.id),
-            referrer_id=str(referral.referrer_id),
-            period=str(period_start),
-            net_fees=str(net_fees),
-            payout=str(payout_amount),
-            rolled_over=str(rolled_over),
-            currency=platform_currency,
-        )
+            logger.info(
+                "referral_payout_created",
+                referral_id=str(referral.id),
+                referrer_id=str(referral.referrer_id),
+                period=str(period_start),
+                net_fees=str(net_fees),
+                payout=str(payout_amount),
+                rolled_over=str(rolled_over),
+                currency=platform_currency,
+            )
 
     return was_created
 
