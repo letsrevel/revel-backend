@@ -7,6 +7,207 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Decomposed long functions into focused helpers for readability
+- Extracted `is_owner_or_staff` and `has_org_permission` permission helpers
+
+## [1.47.0] - 2026-03-31
+
+### Added
+- **Attendee Invoicing**: Organizations can now generate invoices for ticket buyers on their behalf, with three modes: NONE (default), HYBRID (draft + manual issue), and AUTO (generate + send immediately)
+- VAT preview endpoint for checkout (`POST /events/{event_id}/tickets/vat-preview`) with buyer-specific VAT calculation and VIES caching (Redis, 30-minute TTL)
+- `AttendeeInvoice` and `AttendeeInvoiceCreditNote` models with per-org sequential numbering
+- Buyer-facing invoice listing and download endpoints (`/dashboard/invoices`)
+- Org admin endpoints for managing attendee invoices: list, detail, edit draft, issue, delete draft, download
+- Credit notes auto-generated on Stripe refund webhooks; draft invoices deleted on refund
+
+## [1.46.0] - 2026-03-25
+
+### Added
+- **UNLISTED Visibility**: Organizations and events can now be set to UNLISTED — accessible via direct link but hidden from browse/search listings
+
+### Fixed
+- Timezone formatting in event displays
+- `depends_on_option` validation on questionnaire questions
+- Resource org scoping to prevent cross-org resource access
+
+### Changed
+- Platform fees switched to VAT-exclusive semantics (VAT added on top of fee rather than extracted from gross)
+
+## [1.45.1] - 2026-03-24
+
+### Fixed
+- Ticket PDF and Apple Wallet pass generation now uses optimized images, reducing file size and generation time
+
+## [1.45.0] - 2026-03-24
+
+### Added
+- **Fine-Grained Tier Restrictions**: Ticket tiers can now restrict visibility and purchase access to users whose invitation links to that specific tier (`restrict_visibility_to_linked_invitations`, `restrict_purchase_to_linked_invitations`)
+- Invitations now support a many-to-many `tiers` field for tier-linked access
+- `public_pronoun_distribution` flag on events — controls whether pronoun distribution statistics are visible to non-staff attendees
+
+## [1.44.1] - 2026-03-23
+
+### Fixed
+- Follower notifications (`NEW_EVENT_FROM_FOLLOWED_ORG`/`NEW_EVENT_FROM_FOLLOWED_SERIES`) no longer sent for non-public events
+
+## [1.44.0] - 2026-03-23
+
+### Added
+- **Referral System — Full Launch**: Complete referral program with Stripe auto-payouts
+  - `UserBillingProfile` model for referrer billing details (VAT ID, address, self-billing agreement)
+  - Referrer Stripe Connect onboarding endpoints
+  - Monthly payout calculation task aggregating net platform fees per referral
+  - Stripe auto-transfers with self-billing invoice (Gutschrift) for B2B referrers or payout statement for B2C
+  - Minimum payout threshold with automatic rollover of below-threshold amounts
+  - User-facing payout listing and statement download endpoints
+- Dashboard hides invitations for events the user has already accepted
+- Audio file uploads now support `.m4a` format
+- DiscountCode registered in Django admin panel
+- Hourly periodic task to flush expired JWT tokens
+
+### Fixed
+- Referral payouts skip processing when billing profile has empty required fields
+
+### Changed
+- Events sorted newest-first in admin panel
+- Fixed reverse import dependency in admin module
+
+## [1.43.0] - 2026-03-20
+
+### Added
+- Expired or fully-used invitation tokens now return **410 Gone** with distinct messages ("expired" vs "used up") instead of 404, enabling contextual frontend guidance
+- Single-answer questionnaire questions can now have multiple options marked as correct — selecting any correct option earns full points
+
+### Fixed
+- Questionnaire retake allowed immediately when `can_retake_after` is None or zero
+- `check_in_starts_at` and `check_in_ends_at` exposed on `EventDetailSchema`
+- Billing endpoints now return 422 (not 500) when `billing_address` or `billing_email` is null
+
+## [1.42.3] - 2026-03-19
+
+### Added
+- **Referral System — Foundation**: `ReferralCode` and `Referral` models, admin registration, referral settings (revenue share %, min payout, payout day)
+
+### Fixed
+- `billing_name` field added to organizations for legal entity invoicing (auto-populated from VIES when available)
+
+## [1.42.2] - 2026-03-17
+
+### Fixed
+- `max_attempts` field added to questionnaire create schema (was missing, causing validation errors)
+- Questionnaire update schema refactored for consistency
+
+## [1.42.1] - 2026-03-17
+
+### Fixed
+- `location_maps_url` max length increased from 200 to 2048 to accommodate long Google Maps URLs
+
+## [1.42.0] - 2026-03-11
+
+### Added
+- **Full VAT Support**: Complete VAT handling for ticket sales and platform fees, with per-tier VAT rate overrides, EU B2B reverse charge, and VIES integration
+- `requires_evaluation` flag on `OrganizationQuestionnaire` — allows questionnaires that collect data without gating access
+- Invitation emails now use the event's custom `invitation_message` with safe string interpolation (`{user_name}`, `{event_name}`, etc.)
+- Pending invitees (unregistered emails) now receive notification emails with event details
+
+### Fixed
+- `ticket_tier_id` made optional on event tokens for ticketed events (was incorrectly required)
+- Maximum text answer length bumped from 500 to 1000 characters
+
+## [1.41.2] - 2026-03-10
+
+### Fixed
+- Cancelled tickets no longer count toward the eligibility check that skips re-evaluation for existing ticket holders
+
+## [1.41.1] - 2026-03-08
+
+### Changed
+- Event duplication now uses date as slug suffix (e.g., `my-event-2026-03-08`) instead of sequential numbers
+
+### Fixed
+- XLSX export generation fixed (incorrect column mapping)
+
+## [1.41.0] - 2026-03-07
+
+### Added
+- **XLSX Exports**: Event attendees, ticket holders, and member lists can now be exported as `.xlsx` spreadsheets
+
+## [1.40.0] - 2026-03-05
+
+### Added
+- Event list filtering by `requires_ticket` flag
+
+## [1.39.0] - 2026-03-05
+
+### Added
+- **Discount Codes**: Organizations can create discount codes with percentage or fixed-amount discounts, scoped to events/series/tiers, with usage limits and validity windows
+- Feature flags for LLM-based questionnaire evaluation (`FEATURE_LLM_EVALUATION`) and Google SSO (`FEATURE_GOOGLE_SSO`)
+
+## [1.38.5] - 2026-03-03
+
+### Security
+- Tightened staff management: prevent privilege escalation via staff self-promotion
+- Hardened guest user checkout flow validation
+
+## [1.38.4] - 2026-02-28
+
+### Security
+- Additional security patches and minor cleanup
+
+## [1.38.3] - 2026-02-26
+
+### Fixed
+- Logging hotfix for production stability
+
+## [1.38.2] - 2026-02-26
+
+### Changed
+- Improved logging infrastructure with structured JSON output and context enrichment
+
+### Security
+- Added Bandit (Python security linter) checks to CI pipeline
+
+## [1.38.1] - 2026-02-25
+
+### Fixed
+- Guest users now receive an email activation link (instead of automatic activation) when requesting a password reset
+
+## [1.38.0] - 2026-02-25
+
+### Added
+- **Global Banning System**: Platform-wide bans by email, domain, or Telegram username — auto-deactivates matching users with signal-based enforcement
+- Codecov.io integration for test coverage tracking
+
+## [1.37.3] - 2026-02-23
+
+### Security
+- XSS defense-in-depth hardening across notification templates and user-generated content rendering
+
+## [1.37.2] - 2026-02-23
+
+### Fixed
+- Better traceback logging in failed notification tasks
+- Improved HTML escaping in notification content
+
+### Changed
+- Bumped transitive dependencies
+
+## [1.37.1] - 2026-02-23
+
+### Fixed
+- Newline handling in Telegram system notifications
+
+## [1.37.0] - 2026-02-22
+
+### Added
+- **System Announcements**: Platform administrators can broadcast announcements to all active users via a dedicated admin UI, with optional guest inclusion and batched async delivery
+
+## [1.36.3] - 2026-02-22
+
+### Fixed
+- Dropped `.iterator()` in ticket file cache cleanup task (was causing issues with queryset evaluation)
+
 ## [1.36.0] - 2026-02-16
 
 ### Added

@@ -2,7 +2,7 @@
 
 This document maps every user journey through the Revel platform, organized by persona. Its purpose is to serve as the source of truth for Playwright E2E test cases on the frontend. Each journey describes the **what** and **why** from the user's perspective — the exact UI steps and assertions will live in the test suite.
 
-> **Status**: DRAFT — pending gap-fill interview with maintainer.
+> **Last updated**: 2026-04-01 (v1.47.0)
 
 ---
 
@@ -30,6 +30,8 @@ This document maps every user journey through the Revel platform, organized by p
 - [Journey 18: Event Series & Following](#journey-18-event-series--following)
 - [Journey 19: Venue & Seating](#journey-19-venue--seating)
 - [Journey 20: Discount Codes](#journey-20-discount-codes)
+- [Journey 21: Referral Program](#journey-21-referral-program)
+- [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing)
 - [Cross-Cutting Concerns](#cross-cutting-concerns)
 - [Gap-Fill Interview Questions](#gap-fill-interview-questions)
 
@@ -64,6 +66,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 | **Organization Owner** | Created the org, has all permissions implicitly | Fully authenticated |
 | **Organization Staff** | Assigned staff role with granular JSON-based permissions | Fully authenticated |
 | **Waitlisted User** | Joined waitlist for a full event | Fully authenticated |
+| **Referrer** | Has a referral code and earns payouts from referred users' ticket purchases | Fully authenticated |
 
 ---
 
@@ -191,19 +194,26 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - Receive notifications via Telegram bot
 - Disconnect Telegram
 
-### 3.7 Create Organization
+### 3.7 Billing Profile (for Referral Payouts)
+- Navigate to `/account/billing`
+- Set: billing name, billing address, billing email
+- Set VAT ID (VIES-validated for EU) — required for self-billing invoices
+- Agree to self-billing terms (required before payouts are processed)
+- Connect Stripe account for receiving referral payouts
+
+### 3.8 Create Organization
 - Navigate to `/create-org`
 - Fill: name, contact email, city, address, description
 - Submit → organization created, user is owner
 - Redirected to org admin dashboard
 
-### 3.8 Follow Organization
+### 3.9 Follow Organization
 - Visit org public page
 - Click "Follow" button
 - Configure: notify on new events, notify on announcements
 - View followed orgs in `/dashboard/following`
 
-### 3.9 Request Organization Membership
+### 3.10 Request Organization Membership
 - Visit org public page (org must accept_membership_requests)
 - Click "Request Membership"
 - Submit optional message
@@ -272,7 +282,7 @@ After RSVP YES:
 - See full event address (if address_visibility allows)
 - See attendee list (based on AttendeeVisibilityFlag settings)
 - See attendee-only resources
-- See dietary summary and pronoun distribution
+- See dietary summary and pronoun distribution (if `public_pronoun_distribution` enabled)
 - Access potluck coordination (if enabled)
 - Receive event announcements
 
@@ -298,6 +308,8 @@ If event at capacity and waitlist_open:
 - Tiers sorted by display_order
 - Member-restricted tiers only visible to matching members
 - Staff-only tiers visible only to staff
+- Invitation-linked tiers: when `restrict_visibility_to_linked_invitations=True`, only users whose invitation links to that tier can see it
+- Invitation-linked purchase: when `restrict_purchase_to_linked_invitations=True`, only users whose invitation links to that tier can buy
 
 ### 6.2 Purchase — Free Tier
 - Select tier → ticket created immediately with status ACTIVE
@@ -396,7 +408,7 @@ Depends on tier's seat_assignment_mode:
 - Navigate to `/org/[slug]/admin/settings`
 - Edit: name, description, contact email, address, social links
 - Upload: logo, cover art
-- Set visibility: PUBLIC, PRIVATE, MEMBERS_ONLY
+- Set visibility: PUBLIC, UNLISTED, PRIVATE, MEMBERS_ONLY
 - Toggle: accept_membership_requests
 
 ### 8.3 Stripe Connect Setup
@@ -466,7 +478,7 @@ Depends on tier's seat_assignment_mode:
 
 ### 8.11 Resource Management
 - Create resources: files, links, or text content
-- Set visibility: PUBLIC, PRIVATE, MEMBERS_ONLY, STAFF_ONLY, ATTENDEES_ONLY
+- Set visibility: PUBLIC, UNLISTED, PRIVATE, MEMBERS_ONLY, STAFF_ONLY, ATTENDEES_ONLY
 - Attach to organization page, events, or event series
 
 ---
@@ -494,7 +506,7 @@ Same as owner event management but filtered by permissions.
 - Navigate to `/org/[slug]/admin/events/new`
 - Fill: name, slug, description, dates (start/end), location
 - Configure:
-  - Event type: PUBLIC, PRIVATE, MEMBERS_ONLY
+  - Event type: PUBLIC, UNLISTED, PRIVATE, MEMBERS_ONLY
   - Status: starts as DRAFT
   - Requires ticket: yes/no
   - Requires full profile: yes/no
@@ -541,6 +553,8 @@ DRAFT → OPEN → CLOSED
   - Total quantity (capacity)
   - Max tickets per user
   - Restricted to specific membership tiers
+  - Restrict visibility to invitation-linked tiers (`restrict_visibility_to_linked_invitations`)
+  - Restrict purchase to invitation-linked tiers (`restrict_purchase_to_linked_invitations`)
   - Linked venue/sector
   - Seat assignment mode: NONE, RANDOM, USER_CHOICE
   - VAT rate
@@ -571,7 +585,7 @@ DRAFT → OPEN → CLOSED
   - waives_membership_required
   - waives_rsvp_deadline
   - waives_apply_deadline
-- Assign ticket tier to invitation
+- Link specific ticket tiers to invitation (for tier-restricted visibility/purchase)
 - Set custom message (defaults to event's invitation_message)
 - View sent invitations and pending invitations
 - Delete invitations
@@ -605,7 +619,7 @@ DRAFT → OPEN → CLOSED
 ### 10.13 View Event Statistics
 - Attendee count
 - Dietary summary (aggregated restrictions/preferences)
-- Pronoun distribution
+- Pronoun distribution (visible to non-staff only when `public_pronoun_distribution=True`)
 - Ticket sales by tier
 
 ---
@@ -817,12 +831,18 @@ FOOD, MAIN_COURSE, SIDE_DISH, DESSERT, DRINK, ALCOHOL, NON_ALCOHOLIC, SUPPLIES, 
 - Delivered via configured channels
 - Visible on event/org page (with past_visibility flag)
 
-### 15.5 Unsubscribe
+### 15.5 System Announcements (Platform Admin)
+- Platform administrators can broadcast announcements to all active users
+- Configure: title, rich-text body, optional URL
+- Option to include guest accounts
+- Delivered via all configured notification channels in async batches
+
+### 15.6 Unsubscribe
 - Every email has unsubscribe link
 - Click → `/unsubscribe` page
 - One-click unsubscribe (token-based, no auth needed)
 
-### 15.6 Notification Inbox
+### 15.7 Notification Inbox
 - Navigate to notification bell / inbox
 - See all notifications (paginated, filterable)
 - Mark as read/unread
@@ -858,6 +878,9 @@ FOOD, MAIN_COURSE, SIDE_DISH, DESSERT, DRINK, ALCOHOL, NON_ALCOHOLIC, SUPPLIES, 
 - Viewable in `/org/[slug]/admin/billing/invoices`
 - Download as PDF
 - Credit notes for refunds
+
+### 16.6 Attendee Invoicing
+See [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing) for the full flow.
 
 ### 16.5 Discount Codes
 - Organizer creates codes in `/org/[slug]/admin/discount-codes`
@@ -967,6 +990,97 @@ FOOD, MAIN_COURSE, SIDE_DISH, DESSERT, DRINK, ALCOHOL, NON_ALCOHOLIC, SUPPLIES, 
 
 ---
 
+## Journey 21: Referral Program
+
+### 21.1 Referral Code
+- Every authenticated user has a unique referral code (auto-generated, uppercase, immutable)
+- View referral code on `/account/profile` (included in `/me` API response)
+- Share code with potential new users
+
+### 21.2 Refer a New User
+- New user enters referral code during registration
+- Code validated (must be active, cannot self-refer)
+- `Referral` record created linking referrer → referred user
+- Revenue share percentage snapshotted from platform settings at creation time
+
+### 21.3 Earn Referral Payouts
+- When the referred user purchases tickets, the referrer earns a share of the net platform fees
+- Monthly payout calculation task (1st of month) aggregates net platform fees per referral for the previous month
+- `ReferralPayout` created with status CALCULATED
+- If payout amount is below the minimum threshold, it rolls over to the next month
+
+### 21.4 Set Up Billing Profile
+- Navigate to billing profile settings
+- Fill: billing name, billing address, billing email
+- Optionally set VAT ID (VIES-validated for EU)
+- Agree to self-billing terms (required for payout processing)
+- Connect Stripe account (required for receiving transfers)
+
+### 21.5 Receive Payout
+- Monthly payout processing task (1st of month, 06:30 UTC) runs after calculation
+- Pre-flight checks: Stripe enabled, billing profile complete, self-billing agreed
+- For B2B referrers (validated VAT ID): self-billing invoice (Gutschrift) generated with full VAT math
+- For B2C referrers (no VAT ID): payout statement generated (no VAT)
+- Stripe transfer executed → payout status: PAID
+- Statement PDF emailed to referrer
+- If Stripe transfer fails: status set to FAILED
+
+### 21.6 View Payout History
+- Navigate to `/account/referral/payouts`
+- See all payouts: period, amount, status (CALCULATED, PAID, FAILED, ROLLED_OVER)
+- Download statement PDFs for issued payouts
+
+---
+
+## Journey 22: Attendee Invoicing
+
+### 22.1 Enable Invoicing (Organizer)
+- Navigate to org billing settings
+- Set invoicing mode:
+  - **NONE** (default): No attendee invoices generated
+  - **HYBRID**: Invoices created as DRAFT, org admin reviews and issues manually
+  - **AUTO**: Invoices created as ISSUED and emailed immediately
+- Prerequisites: EU-based org with VIES-validated VAT ID, billing name, and billing address
+
+### 22.2 VAT Preview (Buyer)
+- During ticket checkout, buyer can enter billing info (name, address, country, VAT ID)
+- `POST /events/{event_id}/tickets/vat-preview` returns price breakdown
+- VAT treatment depends on buyer info:
+  - Domestic (same country): org's VAT rate applied
+  - EU cross-border B2B (valid VAT ID): reverse charge (0% VAT, net price only)
+  - EU cross-border B2C (no VAT ID): org's VAT rate applied
+  - Non-EU: no VAT (export of services)
+- VIES validation results cached in Redis (30-minute TTL)
+
+### 22.3 Invoice Generation
+- Triggered by `checkout.session.completed` Stripe webhook
+- Invoice created with seller snapshot (org details) and buyer snapshot (from billing info)
+- Per-org sequential numbering: `{ORG_SLUG}-{YEAR}-{SEQ:06d}`
+- Line items derived from Payment records (ticket details, quantities, VAT breakdown)
+- PDF rendered via WeasyPrint
+- For AUTO mode: email sent immediately with PDF attachment
+
+### 22.4 Manage Draft Invoices (Organizer — HYBRID Mode)
+- Navigate to `/org/[slug]/admin/attendee-invoices`
+- View draft invoices awaiting review
+- Edit buyer-facing fields (buyer name, address, VAT ID) — seller info is immutable
+- Issue draft: sets status to ISSUED, regenerates PDF, sends email to buyer
+- Delete draft: removes invoice and PDF entirely
+
+### 22.5 View Invoices (Buyer)
+- Navigate to `/dashboard/invoices`
+- See all issued invoices (paginated)
+- Download invoice PDFs via signed URLs
+
+### 22.6 Credit Notes (Refund)
+- Generated automatically on `charge.refunded` Stripe webhook
+- If invoice is DRAFT: draft is deleted
+- If invoice is ISSUED: credit note created with refunded amounts
+- If total credits >= invoice total: invoice marked as CANCELLED
+- Credit note PDF generated and emailed
+
+---
+
 ## Cross-Cutting Concerns
 
 ### Internationalization
@@ -993,6 +1107,25 @@ FOOD, MAIN_COURSE, SIDE_DISH, DESSERT, DRINK, ALCOHOL, NON_ALCOHOLIC, SUPPLIES, 
 - Failed payments → ticket remains PENDING, retry option
 - Concurrent purchases → atomic locking prevents overselling
 - Rate limiting → appropriate error messages for throttled requests
+
+### Global Banning (Platform Admin)
+- Platform administrators can ban by email, domain, or Telegram username
+- Email ban: blocks registration and deactivates existing account
+- Domain ban: blocks all emails from that domain, deactivates matching accounts async via Celery
+- Telegram ban: blocks Telegram-linked accounts
+- Auto-linking: new registrations and Telegram connections checked against global ban list
+- Banned users receive `ACCOUNT_BANNED` notification before deactivation
+
+### Feature Flags
+- `FEATURE_LLM_EVALUATION`: Gates LLM-based questionnaire evaluation (when disabled, LLM evaluation is skipped)
+- `FEATURE_GOOGLE_SSO`: Gates Google SSO login (when disabled, endpoint returns 403)
+- Configured via environment variables
+
+### UNLISTED Visibility
+- Organizations and events can be set to UNLISTED
+- Accessible via direct link (treated as publicly accessible)
+- Hidden from browse/search/discovery listings for non-owners
+- Useful for soft launches, invite-link-only events, or events not ready for public discovery
 
 ### Demo Mode
 - Login page has demo account selector
