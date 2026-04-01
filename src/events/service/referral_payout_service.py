@@ -11,6 +11,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -71,30 +72,30 @@ def _create_payout_record(
         Decimal("0.01"), rounding=ROUND_HALF_UP
     )
 
-    prior_payouts_qs = ReferralPayout.objects.filter(
-        referral=referral,
-        status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
-        period_start__lt=period_start,
-    )
-    rolled_over: Decimal = prior_payouts_qs.aggregate(total=Sum("payout_amount"))["total"] or Decimal("0")
+    with transaction.atomic():
+        prior_payouts_qs = ReferralPayout.objects.select_for_update().filter(
+            referral=referral,
+            status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
+            period_start__lt=period_start,
+        )
+        rolled_over: Decimal = prior_payouts_qs.aggregate(total=Sum("payout_amount"))["total"] or Decimal("0")
 
-    payout_amount = current_period_share + rolled_over
+        payout_amount = current_period_share + rolled_over
 
-    _, was_created = ReferralPayout.objects.get_or_create(
-        referral=referral,
-        period_start=period_start,
-        defaults={
-            "period_end": period_end,
-            "net_platform_fees": net_fees,
-            "payout_amount": payout_amount,
-            "rolled_over_amount": rolled_over,
-            "currency": platform_currency,
-            "status": ReferralPayout.ReferralPayoutStatus.CALCULATED,
-        },
-    )
+        _, was_created = ReferralPayout.objects.get_or_create(
+            referral=referral,
+            period_start=period_start,
+            defaults={
+                "period_end": period_end,
+                "net_platform_fees": net_fees,
+                "payout_amount": payout_amount,
+                "rolled_over_amount": rolled_over,
+                "currency": platform_currency,
+                "status": ReferralPayout.ReferralPayoutStatus.CALCULATED,
+            },
+        )
 
-    if was_created:
-        if rolled_over:
+        if was_created and rolled_over:
             rolled_count = prior_payouts_qs.update(status=ReferralPayout.ReferralPayoutStatus.ROLLED_OVER)
             logger.info(
                 "prior_payouts_rolled_over",
