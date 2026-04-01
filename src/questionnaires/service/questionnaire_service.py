@@ -256,21 +256,14 @@ class QuestionnaireService:
 
         return applicable_mcq_ids, applicable_ftq_ids, applicable_fuq_ids
 
-    @transaction.atomic
-    def submit(
+    def _collect_all_questions(
         self,
-        user: RevelUser,
-        submission_schema: QuestionnaireSubmissionSchema,
-        source_event: SubmissionSourceEventMetadata | None = None,
-    ) -> QuestionnaireSubmission:
-        """Perform a questionnaire submission.
-
-        Args:
-            user: The user submitting the questionnaire.
-            submission_schema: The submission data.
-            source_event: Optional event context metadata (stored in submission.metadata).
-        """
-        # Fetch and index all questions from the questionnaire
+    ) -> tuple[
+        dict[UUID, MultipleChoiceQuestion],
+        dict[UUID, FreeTextQuestion],
+        dict[UUID, FileUploadQuestion],
+    ]:
+        """Fetch and index all questions from the questionnaire and its sections."""
         mc_questions: dict[UUID, MultipleChoiceQuestion] = {
             q.id: q
             for q in list(self.questionnaire.multiplechoicequestion_questions.all())
@@ -290,10 +283,23 @@ class QuestionnaireService:
             for q in list(self.questionnaire.fileuploadquestion_questions.all())
             + [q for section in self.questionnaire.sections.all() for q in section.fileuploadquestion_questions.all()]
         }
+        return mc_questions, ft_questions, fu_questions
 
+    def _validate_submission(
+        self,
+        submission_schema: QuestionnaireSubmissionSchema,
+        mc_questions: dict[UUID, MultipleChoiceQuestion],
+        ft_questions: dict[UUID, FreeTextQuestion],
+        fu_questions: dict[UUID, FileUploadQuestion],
+    ) -> None:
+        """Validate that answers belong to this questionnaire and mandatory questions are answered.
+
+        Raises:
+            CrossQuestionnaireSubmissionError: If answers reference questions from another questionnaire.
+            MissingMandatoryAnswerError: If mandatory applicable questions are not answered (READY only).
+        """
         all_question_ids = set(mc_questions.keys()) | set(ft_questions.keys()) | set(fu_questions.keys())
 
-        # Validate all answers point to the correct questionnaire
         submitted_question_ids = {
             *[a.question_id for a in submission_schema.multiple_choice_answers],
             *[a.question_id for a in submission_schema.free_text_answers],
@@ -303,61 +309,37 @@ class QuestionnaireService:
         if not submitted_question_ids.issubset(all_question_ids):
             raise CrossQuestionnaireSubmissionError("Some answers do not belong to this questionnaire.")
 
-        # Extract selected option IDs from the submitted answers to determine applicable questions
         selected_option_ids: set[UUID] = set()
         for mc_answer in submission_schema.multiple_choice_answers:
             selected_option_ids.update(mc_answer.options_id)
 
-        # Compute which questions are applicable based on conditional dependencies
         applicable_mcq_ids, applicable_ftq_ids, applicable_fuq_ids = self._get_applicable_question_ids(
             mc_questions, ft_questions, fu_questions, selected_option_ids
         )
 
-        # Validate that all applicable mandatory questions are answered
         mandatory_ids = (
             {qid for qid, q in mc_questions.items() if q.is_mandatory and qid in applicable_mcq_ids}
             | {qid for qid, q in ft_questions.items() if q.is_mandatory and qid in applicable_ftq_ids}
             | {qid for qid, q in fu_questions.items() if q.is_mandatory and qid in applicable_fuq_ids}
         )
 
-        status = submission_schema.status
-
         if (
             not mandatory_ids.issubset(submitted_question_ids)
-            and status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
+            and submission_schema.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
         ):
             missing = mandatory_ids - submitted_question_ids
             raise MissingMandatoryAnswerError(
                 f"Mandatory questions missing from submission: {[str(qid) for qid in missing]}"
             )
 
-        # Build metadata dict if source_event is provided
-        metadata: dict[str, t.Any] | None = None
-        if source_event:
-            metadata = {"source_event": source_event}
-
-        # Create the submission and related answers
-        if status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY:
-            submission = QuestionnaireSubmission.objects.create(
-                questionnaire=self.questionnaire,
-                user=user,
-                status=status,
-                submitted_at=timezone.now(),
-                metadata=metadata,
-            )
-
-            # Notifications are now handled by post_save signal in notifications/signals/questionnaire.py
-        else:
-            submission, _ = QuestionnaireSubmission.objects.update_or_create(
-                questionnaire=self.questionnaire,
-                user=user,
-                status=submission_schema.status,
-                defaults={"submitted_at": timezone.now(), "metadata": metadata},
-            )
-            submission.multiplechoiceanswer_answers.all().delete()
-            submission.freetextanswer_answers.all().delete()
-            submission.fileuploadanswer_answers.all().delete()
-
+    @staticmethod
+    def _create_answers(
+        submission: QuestionnaireSubmission,
+        submission_schema: QuestionnaireSubmissionSchema,
+        mc_questions: dict[UUID, MultipleChoiceQuestion],
+        ft_questions: dict[UUID, FreeTextQuestion],
+    ) -> None:
+        """Bulk-create multiple-choice and free-text answers for a submission."""
         mc_answers = [
             MultipleChoiceAnswer(
                 submission=submission,
@@ -379,7 +361,51 @@ class QuestionnaireService:
         ]
         FreeTextAnswer.objects.bulk_create(ft_answers)
 
-        # Create file upload answers with M2M relationships
+    @transaction.atomic
+    def submit(
+        self,
+        user: RevelUser,
+        submission_schema: QuestionnaireSubmissionSchema,
+        source_event: SubmissionSourceEventMetadata | None = None,
+    ) -> QuestionnaireSubmission:
+        """Perform a questionnaire submission.
+
+        Args:
+            user: The user submitting the questionnaire.
+            submission_schema: The submission data.
+            source_event: Optional event context metadata (stored in submission.metadata).
+        """
+        mc_questions, ft_questions, fu_questions = self._collect_all_questions()
+        self._validate_submission(submission_schema, mc_questions, ft_questions, fu_questions)
+
+        # Build metadata dict if source_event is provided
+        metadata: dict[str, SubmissionSourceEventMetadata] | None = None
+        if source_event:
+            metadata = {"source_event": source_event}
+
+        status = submission_schema.status
+
+        # Create the submission record
+        if status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY:
+            submission = QuestionnaireSubmission.objects.create(
+                questionnaire=self.questionnaire,
+                user=user,
+                status=status,
+                submitted_at=timezone.now(),
+                metadata=metadata,
+            )
+        else:
+            submission, _ = QuestionnaireSubmission.objects.update_or_create(
+                questionnaire=self.questionnaire,
+                user=user,
+                status=submission_schema.status,
+                defaults={"submitted_at": timezone.now(), "metadata": metadata},
+            )
+            submission.multiplechoiceanswer_answers.all().delete()
+            submission.freetextanswer_answers.all().delete()
+            submission.fileuploadanswer_answers.all().delete()
+
+        self._create_answers(submission, submission_schema, mc_questions, ft_questions)
         self._create_file_upload_answers(submission, submission_schema, fu_questions, user)
 
         return submission

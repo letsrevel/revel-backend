@@ -11,6 +11,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -25,6 +26,97 @@ logger = structlog.get_logger(__name__)
 class PayoutResult(t.TypedDict):
     created: int
     skipped: int
+
+
+def _calculate_net_fees(
+    referral: Referral,
+    period_start_dt: datetime.datetime,
+    period_end_dt: datetime.datetime,
+    rates: dict[str, float],
+    platform_currency: str,
+) -> Decimal:
+    """Aggregate net platform fees for a referral, converting all currencies to platform currency."""
+    fee_by_currency = (
+        Payment.objects.filter(
+            ticket__event__organization__owner=referral.referred_user,
+            status=Payment.PaymentStatus.SUCCEEDED,
+            created_at__gte=period_start_dt,
+            created_at__lt=period_end_dt,
+        )
+        .values("currency")
+        .annotate(total=Sum(Coalesce("platform_fee_net", "platform_fee")))
+    )
+
+    net_fees = Decimal("0")
+    for entry in fee_by_currency:
+        amount = entry["total"] or Decimal("0")
+        if amount:
+            net_fees += convert_using_rates(amount, entry["currency"], platform_currency, rates)
+
+    return net_fees
+
+
+def _create_payout_record(
+    referral: Referral,
+    period_start: datetime.date,
+    period_end: datetime.date,
+    net_fees: Decimal,
+    platform_currency: str,
+) -> bool:
+    """Create a ReferralPayout record with rollover from prior periods.
+
+    Returns:
+        True if a new record was created, False if it already existed.
+    """
+    current_period_share = (net_fees * referral.revenue_share_percent / Decimal("100")).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+
+    with transaction.atomic():
+        prior_payouts_qs = ReferralPayout.objects.select_for_update().filter(
+            referral=referral,
+            status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
+            period_start__lt=period_start,
+        )
+        rolled_over: Decimal = prior_payouts_qs.aggregate(total=Sum("payout_amount"))["total"] or Decimal("0")
+
+        payout_amount = current_period_share + rolled_over
+
+        _, was_created = ReferralPayout.objects.get_or_create(
+            referral=referral,
+            period_start=period_start,
+            defaults={
+                "period_end": period_end,
+                "net_platform_fees": net_fees,
+                "payout_amount": payout_amount,
+                "rolled_over_amount": rolled_over,
+                "currency": platform_currency,
+                "status": ReferralPayout.ReferralPayoutStatus.CALCULATED,
+            },
+        )
+
+        if was_created:
+            if rolled_over:
+                rolled_count = prior_payouts_qs.update(status=ReferralPayout.ReferralPayoutStatus.ROLLED_OVER)
+                logger.info(
+                    "prior_payouts_rolled_over",
+                    referral_id=str(referral.id),
+                    rolled_over_count=rolled_count,
+                    rolled_over_amount=str(rolled_over),
+                )
+
+            logger.info(
+                "referral_payout_created",
+                referral_id=str(referral.id),
+                referrer_id=str(referral.referrer_id),
+                period=str(period_start),
+                net_fees=str(net_fees),
+                payout=str(payout_amount),
+                rolled_over=str(rolled_over),
+                currency=platform_currency,
+            )
+
+    return was_created
 
 
 def calculate_payouts_for_period(period_start: datetime.date, period_end: datetime.date) -> PayoutResult:
@@ -52,40 +144,16 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
 
     platform_currency: str = settings.DEFAULT_CURRENCY
 
-    # Use timezone-aware datetime boundaries so the created_at index is used
-    # (created_at__date__gte forces a DATE() cast in SQL, bypassing the index)
     period_start_dt = timezone.make_aware(datetime.datetime.combine(period_start, datetime.time.min))
     period_end_dt = timezone.make_aware(
         datetime.datetime.combine(period_end + datetime.timedelta(days=1), datetime.time.min)
     )
 
-    # Pre-fetch exchange rates once for the entire run (avoids N*M DB queries in the loop)
     exchange_rate = get_latest_rates()
     rates = exchange_rate.rates
 
-    # We iterate all Referral records, not just those with an active ReferralCode.
-    # Code deactivation prevents new sign-ups but existing referrals still earn payouts.
     for referral in Referral.objects.select_related("referred_user").iterator():
-        # Use net platform fee (excluding VAT); fall back to gross for historical
-        # payments where platform_fee_net is null. Group by currency to handle
-        # multi-currency payments correctly.
-        fee_by_currency = (
-            Payment.objects.filter(
-                ticket__event__organization__owner=referral.referred_user,
-                status=Payment.PaymentStatus.SUCCEEDED,
-                created_at__gte=period_start_dt,
-                created_at__lt=period_end_dt,
-            )
-            .values("currency")
-            .annotate(total=Sum(Coalesce("platform_fee_net", "platform_fee")))
-        )
-
-        # Convert each currency's fees to platform currency and sum
-        net_fees = Decimal("0")
-        for entry in fee_by_currency:
-            amount = entry["total"] or Decimal("0")
-            if amount:
-                net_fees += convert_using_rates(amount, entry["currency"], platform_currency, rates)
+        net_fees = _calculate_net_fees(referral, period_start_dt, period_end_dt, rates, platform_currency)
 
         if not net_fees:
             logger.debug(
@@ -96,55 +164,9 @@ def calculate_payouts_for_period(period_start: datetime.date, period_end: dateti
             skipped += 1
             continue
 
-        current_period_share = (net_fees * referral.revenue_share_percent / Decimal("100")).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        )
-
-        # Roll over un-disbursed amounts from prior below-threshold periods
-        prior_payouts = ReferralPayout.objects.filter(
-            referral=referral,
-            status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
-            period_start__lt=period_start,
-        )
-        rolled_over = sum(p.payout_amount for p in prior_payouts)
-
-        payout_amount = current_period_share + rolled_over
-
-        _, was_created = ReferralPayout.objects.get_or_create(
-            referral=referral,
-            period_start=period_start,
-            defaults={
-                "period_end": period_end,
-                "net_platform_fees": net_fees,
-                "payout_amount": payout_amount,
-                "rolled_over_amount": rolled_over,
-                "currency": platform_currency,
-                "status": ReferralPayout.ReferralPayoutStatus.CALCULATED,
-            },
-        )
-
+        was_created = _create_payout_record(referral, period_start, period_end, net_fees, platform_currency)
         if was_created:
-            # Mark prior payouts as rolled over (only if we actually created the new one)
-            if rolled_over:
-                rolled_count = prior_payouts.update(status=ReferralPayout.ReferralPayoutStatus.ROLLED_OVER)
-                logger.info(
-                    "prior_payouts_rolled_over",
-                    referral_id=str(referral.id),
-                    rolled_over_count=rolled_count,
-                    rolled_over_amount=str(rolled_over),
-                )
-
             created += 1
-            logger.info(
-                "referral_payout_created",
-                referral_id=str(referral.id),
-                referrer_id=str(referral.referrer_id),
-                period=str(period_start),
-                net_fees=str(net_fees),
-                payout=str(payout_amount),
-                rolled_over=str(rolled_over),
-                currency=platform_currency,
-            )
         else:
             skipped += 1
 

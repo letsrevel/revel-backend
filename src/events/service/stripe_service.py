@@ -40,6 +40,7 @@ from events.service.vat_service import (
 if t.TYPE_CHECKING:
     from events.schema.ticket import BuyerBillingInfoSchema
     from events.service.attendee_vat_service import AttendeeVATResult
+    from events.service.vat_service import PlatformFeeVATBreakdown as PlatformFeeVATResult
 
 logger = structlog.get_logger(__name__)
 
@@ -351,6 +352,152 @@ def _maybe_resolve_attendee_vat(
     return vat_result, buyer_vat_validated
 
 
+def _build_line_items(
+    tickets: list[Ticket],
+    event: Event,
+    tier: TicketTier,
+    effective_price: Decimal,
+) -> list[dict[str, object]]:
+    """Build Stripe line items — one per ticket with guest name."""
+    return [
+        {
+            "price_data": {
+                "currency": tier.currency.lower(),
+                "product_data": {
+                    "name": f"Ticket: {event.name} ({tier.name})",
+                    "description": f"Ticket for {ticket.guest_name}",
+                },
+                "unit_amount": int(effective_price * 100),
+            },
+            "quantity": 1,
+        }
+        for ticket in tickets
+    ]
+
+
+def _create_stripe_session(
+    *,
+    event: Event,
+    tier: TicketTier,
+    user: RevelUser,
+    tickets: list[Ticket],
+    effective_price: Decimal,
+    application_fee_amount: int,
+    expires_at: datetime,
+    site: SiteSettings,
+) -> Session:
+    """Build session data and create a Stripe Checkout Session.
+
+    Returns:
+        The created Stripe Session object.
+
+    Raises:
+        HttpError: If Stripe API call fails.
+    """
+    line_items = _build_line_items(tickets, event, tier, effective_price)
+    ticket_ids = ",".join(str(_t.id) for _t in tickets)
+
+    frontend_base_url = site.frontend_base_url
+    session_data = dict(  # noqa: C408
+        customer_email=user.email,
+        line_items=line_items,
+        mode="payment",
+        success_url=f"{frontend_base_url}/events/{event.organization.slug}/{event.slug}?payment_success=true",
+        cancel_url=f"{frontend_base_url}/events/{event.organization.slug}/{event.slug}?payment_cancelled=true",
+        payment_intent_data={
+            "application_fee_amount": application_fee_amount,
+        },
+        stripe_account=event.organization.stripe_account_id,
+        metadata={
+            "ticket_ids": ticket_ids,
+            "event_id": str(event.id),
+            "user_id": str(user.id),
+            "batch_size": str(len(tickets)),
+        },
+        expires_at=int(expires_at.timestamp()),
+    )
+
+    # If the organization is using the platform's own Stripe account,
+    # remove connected account parameters
+    if settings.STRIPE_ACCOUNT == event.organization.stripe_account_id:
+        session_data.pop("stripe_account")
+        session_data["payment_intent_data"].pop("application_fee_amount")  # type: ignore[union-attr, arg-type]
+
+    try:
+        return Session.create(**session_data)  # type: ignore[arg-type]
+    except Exception as e:
+        logger.error("stripe_batch_session_creation_failed", error=str(e), event_id=str(event.id))
+        raise HttpError(500, str(_("Payment processing failed. Please try again later."))) from e
+
+
+def _create_payment_records(
+    *,
+    tickets: list[Ticket],
+    user: RevelUser,
+    session_id: str,
+    tier: TicketTier,
+    effective_price: Decimal,
+    total_fee_vat: "PlatformFeeVATResult",
+    attendee_vat_result: "AttendeeVATResult | None",
+    billing_info: "BuyerBillingInfoSchema | None",
+    buyer_vat_validated: bool,
+    expires_at: datetime,
+    org: Organization,
+) -> None:
+    """Build and bulk-create Payment records for a batch checkout."""
+    # Distribute gross and vat independently; derive net = gross - vat.
+    # This guarantees non-negative per-ticket VAT (unlike distributing gross + net
+    # independently, where remainder pennies could land on different indices).
+    ticket_count = len(tickets)
+    per_ticket_gross = distribute_amount_across_items(total_fee_vat.fee_gross, ticket_count)
+    per_ticket_vat = distribute_amount_across_items(total_fee_vat.fee_vat, ticket_count)
+
+    # Ticket sale VAT breakdown
+    if attendee_vat_result:
+        ticket_net = attendee_vat_result.net_amount
+        ticket_vat_amount = attendee_vat_result.vat_amount
+        ticket_vat_rate = attendee_vat_result.vat_rate
+    else:
+        effective_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
+        ticket_vat = calculate_vat_inclusive(effective_price, effective_vat_rate)
+        ticket_net = ticket_vat.net_amount
+        ticket_vat_amount = ticket_vat.vat_amount
+        ticket_vat_rate = ticket_vat.vat_rate
+
+    # Build buyer billing snapshot if billing info was provided
+    billing_snapshot: BuyerBillingSnapshot | None = None
+    if billing_info:
+        is_reverse_charge = attendee_vat_result.reverse_charge if attendee_vat_result else False
+        billing_snapshot = _build_billing_snapshot(billing_info, buyer_vat_validated, is_reverse_charge)
+
+    payments = [
+        Payment(
+            ticket=ticket,
+            user=user,
+            stripe_session_id=session_id,
+            amount=effective_price,
+            platform_fee=per_ticket_gross[i],
+            currency=tier.currency,
+            status=Payment.PaymentStatus.PENDING,
+            raw_response={},
+            expires_at=expires_at,
+            # Ticket sale VAT breakdown
+            net_amount=ticket_net,
+            vat_amount=ticket_vat_amount,
+            vat_rate=ticket_vat_rate,
+            # Platform fee VAT breakdown (distributed to avoid penny errors)
+            platform_fee_net=per_ticket_gross[i] - per_ticket_vat[i],
+            platform_fee_vat=per_ticket_vat[i],
+            platform_fee_vat_rate=total_fee_vat.fee_vat_rate,
+            platform_fee_reverse_charge=total_fee_vat.reverse_charge,
+            # Buyer billing snapshot for attendee invoicing
+            buyer_billing_snapshot=billing_snapshot,
+        )
+        for i, ticket in enumerate(tickets)
+    ]
+    Payment.objects.bulk_create(payments)
+
+
 @transaction.atomic
 def create_batch_checkout_session(
     event: Event,
@@ -408,108 +555,30 @@ def create_batch_checkout_session(
 
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
-    # Build line items - one per ticket with guest name
-    line_items = [
-        {
-            "price_data": {
-                "currency": tier.currency.lower(),
-                "product_data": {
-                    "name": f"Ticket: {event.name} ({tier.name})",
-                    "description": f"Ticket for {ticket.guest_name}",
-                },
-                "unit_amount": int(effective_price * 100),
-            },
-            "quantity": 1,
-        }
-        for ticket in tickets
-    ]
-
-    # Build metadata with all ticket IDs
-    ticket_ids = ",".join(str(_t.id) for _t in tickets)
-
-    frontend_base_url = site.frontend_base_url
-    session_data = dict(  # noqa: C408
-        customer_email=user.email,
-        line_items=line_items,
-        mode="payment",
-        success_url=f"{frontend_base_url}/events/{event.organization.slug}/{event.slug}?payment_success=true",
-        cancel_url=f"{frontend_base_url}/events/{event.organization.slug}/{event.slug}?payment_cancelled=true",
-        payment_intent_data={
-            "application_fee_amount": application_fee_amount,
-        },
-        stripe_account=event.organization.stripe_account_id,
-        metadata={
-            "ticket_ids": ticket_ids,
-            "event_id": str(event.id),
-            "user_id": str(user.id),
-            "batch_size": str(len(tickets)),
-        },
-        expires_at=int(expires_at.timestamp()),
+    session = _create_stripe_session(
+        event=event,
+        tier=tier,
+        user=user,
+        tickets=tickets,
+        effective_price=effective_price,
+        application_fee_amount=application_fee_amount,
+        expires_at=expires_at,
+        site=site,
     )
 
-    # If the organization is using the platform's own Stripe account,
-    # remove connected account parameters
-    if settings.STRIPE_ACCOUNT == event.organization.stripe_account_id:
-        session_data.pop("stripe_account")
-        session_data["payment_intent_data"].pop("application_fee_amount")  # type: ignore[union-attr, arg-type]
-
-    try:
-        session = Session.create(**session_data)  # type: ignore[arg-type]
-    except Exception as e:
-        logger.error("stripe_batch_session_creation_failed", error=str(e), event_id=str(event.id))
-        raise HttpError(500, str(_("Payment processing failed. Please try again later."))) from e
-
-    # Distribute gross and vat independently; derive net = gross - vat.
-    # This guarantees non-negative per-ticket VAT (unlike distributing gross + net
-    # independently, where remainder pennies could land on different indices).
-    ticket_count = len(tickets)
-    per_ticket_gross = distribute_amount_across_items(total_fee_vat.fee_gross, ticket_count)
-    per_ticket_vat = distribute_amount_across_items(total_fee_vat.fee_vat, ticket_count)
-
-    # Ticket sale VAT breakdown
-    if attendee_vat_result:
-        ticket_net = attendee_vat_result.net_amount
-        ticket_vat_amount = attendee_vat_result.vat_amount
-        ticket_vat_rate = attendee_vat_result.vat_rate
-    else:
-        effective_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
-        ticket_vat = calculate_vat_inclusive(effective_price, effective_vat_rate)
-        ticket_net = ticket_vat.net_amount
-        ticket_vat_amount = ticket_vat.vat_amount
-        ticket_vat_rate = ticket_vat.vat_rate
-
-    # Build buyer billing snapshot if billing info was provided
-    billing_snapshot: BuyerBillingSnapshot | None = None
-    if billing_info:
-        is_reverse_charge = attendee_vat_result.reverse_charge if attendee_vat_result else False
-        billing_snapshot = _build_billing_snapshot(billing_info, buyer_vat_validated, is_reverse_charge)
-
-    payments = [
-        Payment(
-            ticket=ticket,
-            user=user,
-            stripe_session_id=session.id,
-            amount=effective_price,
-            platform_fee=per_ticket_gross[i],
-            currency=tier.currency,
-            status=Payment.PaymentStatus.PENDING,
-            raw_response={},
-            expires_at=expires_at,
-            # Ticket sale VAT breakdown
-            net_amount=ticket_net,
-            vat_amount=ticket_vat_amount,
-            vat_rate=ticket_vat_rate,
-            # Platform fee VAT breakdown (distributed to avoid penny errors)
-            platform_fee_net=per_ticket_gross[i] - per_ticket_vat[i],
-            platform_fee_vat=per_ticket_vat[i],
-            platform_fee_vat_rate=total_fee_vat.fee_vat_rate,
-            platform_fee_reverse_charge=total_fee_vat.reverse_charge,
-            # Buyer billing snapshot for attendee invoicing
-            buyer_billing_snapshot=billing_snapshot,
-        )
-        for i, ticket in enumerate(tickets)
-    ]
-    Payment.objects.bulk_create(payments)
+    _create_payment_records(
+        tickets=tickets,
+        user=user,
+        session_id=session.id,
+        tier=tier,
+        effective_price=effective_price,
+        total_fee_vat=total_fee_vat,
+        attendee_vat_result=attendee_vat_result,
+        billing_info=billing_info,
+        buyer_vat_validated=buyer_vat_validated,
+        expires_at=expires_at,
+        org=org,
+    )
 
     # Save billing info to user profile if requested
     if billing_info and billing_info.save_to_profile:
