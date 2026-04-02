@@ -328,11 +328,14 @@ Organizers can create discount codes to offer reduced pricing on ticket purchase
 
 Users participating in the referral program can set up a billing profile:
 
-| Endpoint | Method | Description |
+| Method | Endpoint | Description |
 |---|---|---|
-| `/api/account/billing-profile` | `GET` | Retrieve billing profile |
-| `/api/account/billing-profile` | `PUT` | Update billing name, address, email, VAT ID |
-| `/api/account/billing-profile/self-billing-agreement` | `POST` | Agree to self-billing terms |
+| `GET` | `/api/me/billing` | Retrieve billing profile |
+| `POST` | `/api/me/billing` | Create billing profile |
+| `PUT` | `/api/me/billing` | Update billing name, address, and email |
+| `DELETE` | `/api/me/billing` | Delete billing profile |
+| `PUT` | `/api/me/billing/vat-id` | Add or update VAT ID |
+| `DELETE` | `/api/me/billing/vat-id` | Remove VAT ID |
 
 !!! note "Referral payouts"
     A complete billing profile with self-billing agreement and connected Stripe account is required before referral payouts can be processed.
@@ -351,7 +354,7 @@ sequenceDiagram
     participant S as Stripe
 
     R->>N: Shares referral code
-    N->>API: POST /register (with referral code)
+    N->>API: POST /api/account/register (with referral code)
     API->>API: Validate code, create Referral record
     Note over API: Revenue share % snapshotted
 
@@ -381,12 +384,13 @@ The document type depends on the referrer's billing profile:
 
 ### Referral Endpoints
 
-| Endpoint | Method | Description |
+| Method | Endpoint | Description |
 |---|---|---|
-| `/api/referral/validate` | `POST` | Validate a referral code |
-| `/api/account/me` | `GET` | Includes `referral_code` in response |
-| `/api/account/referral/payouts` | `GET` | List payout history |
-| `/api/account/referral/payouts/{id}/statement` | `GET` | Download statement PDF |
+| `GET` | `/api/referral/validate?code=...` | Validate a referral code |
+| `GET` | `/api/me` | Includes `referral_code` in response |
+| `GET` | `/api/me/referral/payouts` | List referral payout history |
+| `GET` | `/api/me/referral/payouts/{id}/statement` | Retrieve payout statement details |
+| `GET` | `/api/me/referral/payouts/{id}/statement/download` | Download payout statement PDF |
 
 ---
 
@@ -428,7 +432,7 @@ sequenceDiagram
 
 ### Invoice Lifecycle (HYBRID Mode)
 
-```
+```text
 DRAFT → [org edits] → DRAFT → [org issues] → ISSUED → [refund] → CANCELLED
                        ↓
                   [org deletes]

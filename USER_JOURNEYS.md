@@ -879,15 +879,15 @@ FOOD, MAIN_COURSE, SIDE_DISH, DESSERT, DRINK, ALCOHOL, NON_ALCOHOLIC, SUPPLIES, 
 - Download as PDF
 - Credit notes for refunds
 
-### 16.6 Attendee Invoicing
-See [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing) for the full flow.
-
 ### 16.5 Discount Codes
 - Organizer creates codes in `/org/[slug]/admin/discount-codes`
 - Configure: code, type (percentage/fixed), value, valid dates, max uses, per-user limit
 - Scope to: events, event series, specific tiers
 - Min purchase amount
 - Usage tracking
+
+### 16.6 Attendee Invoicing
+See [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing) for the full flow.
 
 ---
 

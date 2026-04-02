@@ -969,7 +969,34 @@ Initial release of the Revel Backend platform.
 ### Internationalization
 - English, German, Italian support
 
-[Unreleased]: https://github.com/letsrevel/revel-backend/compare/v1.36.0...HEAD
+[Unreleased]: https://github.com/letsrevel/revel-backend/compare/v1.47.0...HEAD
+[1.47.0]: https://github.com/letsrevel/revel-backend/compare/v1.46.0...v1.47.0
+[1.46.0]: https://github.com/letsrevel/revel-backend/compare/v1.45.1...v1.46.0
+[1.45.1]: https://github.com/letsrevel/revel-backend/compare/v1.45.0...v1.45.1
+[1.45.0]: https://github.com/letsrevel/revel-backend/compare/v1.44.1...v1.45.0
+[1.44.1]: https://github.com/letsrevel/revel-backend/compare/v1.44.0...v1.44.1
+[1.44.0]: https://github.com/letsrevel/revel-backend/compare/v1.43.0...v1.44.0
+[1.43.0]: https://github.com/letsrevel/revel-backend/compare/v1.42.3...v1.43.0
+[1.42.3]: https://github.com/letsrevel/revel-backend/compare/v1.42.2...v1.42.3
+[1.42.2]: https://github.com/letsrevel/revel-backend/compare/v1.42.1...v1.42.2
+[1.42.1]: https://github.com/letsrevel/revel-backend/compare/v1.42.0...v1.42.1
+[1.42.0]: https://github.com/letsrevel/revel-backend/compare/v1.41.2...v1.42.0
+[1.41.2]: https://github.com/letsrevel/revel-backend/compare/v1.41.1...v1.41.2
+[1.41.1]: https://github.com/letsrevel/revel-backend/compare/v1.41.0...v1.41.1
+[1.41.0]: https://github.com/letsrevel/revel-backend/compare/v1.40.0...v1.41.0
+[1.40.0]: https://github.com/letsrevel/revel-backend/compare/v1.39.0...v1.40.0
+[1.39.0]: https://github.com/letsrevel/revel-backend/compare/v1.38.5...v1.39.0
+[1.38.5]: https://github.com/letsrevel/revel-backend/compare/v1.38.4...v1.38.5
+[1.38.4]: https://github.com/letsrevel/revel-backend/compare/v1.38.3...v1.38.4
+[1.38.3]: https://github.com/letsrevel/revel-backend/compare/v1.38.2...v1.38.3
+[1.38.2]: https://github.com/letsrevel/revel-backend/compare/v1.38.1...v1.38.2
+[1.38.1]: https://github.com/letsrevel/revel-backend/compare/v1.38.0...v1.38.1
+[1.38.0]: https://github.com/letsrevel/revel-backend/compare/v1.37.3...v1.38.0
+[1.37.3]: https://github.com/letsrevel/revel-backend/compare/v1.37.2...v1.37.3
+[1.37.2]: https://github.com/letsrevel/revel-backend/compare/v1.37.1...v1.37.2
+[1.37.1]: https://github.com/letsrevel/revel-backend/compare/v1.37.0...v1.37.1
+[1.37.0]: https://github.com/letsrevel/revel-backend/compare/v1.36.3...v1.37.0
+[1.36.3]: https://github.com/letsrevel/revel-backend/compare/v1.36.0...v1.36.3
 [1.36.0]: https://github.com/letsrevel/revel-backend/compare/v1.35.1...v1.36.0
 [1.35.1]: https://github.com/letsrevel/revel-backend/compare/v1.35.0...v1.35.1
 [1.35.0]: https://github.com/letsrevel/revel-backend/compare/v1.34.4...v1.35.0
