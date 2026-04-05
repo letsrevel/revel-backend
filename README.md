@@ -66,7 +66,7 @@ Revel is being built to address the shortcomings of existing event platforms, es
 Revel combines the ticketing power of platforms like Eventbrite with the community-building tools of Meetup, all under a privacy-minded, open-source framework.
 
 #### Community & Membership
-*   **Organizations:** Create and manage your community's central hub. Customize its visibility (Public, Members-Only).
+*   **Organizations:** Create and manage your community's central hub. Customize its visibility (Public, Unlisted, Members-Only, Private).
 *   **Roles & Permissions:** Assign roles like Owner, Staff, and Member, with a granular permission system to control who can create events, manage members, and more.
 *   **Membership System:** Manage a roster of members, enabling members-only events and fostering a sense of belonging.
 
@@ -80,6 +80,7 @@ Revel combines the ticketing power of platforms like Eventbrite with the communi
 *   **EU B2B Reverse Charge:** Platform fees automatically apply reverse charge for cross-border B2B transactions with VIES-validated VAT IDs.
 *   **VIES Integration:** Organization VAT IDs are validated in real-time against the EU's VIES system, with monthly re-validation via Celery Beat.
 *   **Automated Invoicing:** Monthly platform fee invoices are generated automatically, rendered as PDFs (WeasyPrint), and emailed to organization owners — with race-safe sequential numbering and idempotent generation.
+*   **Attendee Invoicing:** Organizations can generate invoices for ticket buyers on their behalf, with configurable modes (automatic or manual review) and buyer-specific VAT calculation including EU B2B reverse charge.
 
 #### Core Event & Ticketing Features
 *   **Event & Series Management:** Easily create single events or recurring event series under your organization.
@@ -88,7 +89,11 @@ Revel combines the ticketing power of platforms like Eventbrite with the communi
 *   **Venue & Seat Management:** Define venues with sectors and individual seats. Support for general admission, random seat assignment, or user-selected seating.
 *   **QR Code Check-In:** Manage event entry smoothly with QR code tickets and a staff-facing check-in flow.
 *   **Apple Wallet Integration:** Tickets can be added to Apple Wallet for easy access at events (optional, requires Apple Developer certificate).
+*   **Discount Codes:** Create percentage or fixed-amount discount codes scoped to events, series, or specific tiers, with usage limits and validity windows.
 *   **Potluck Coordination:** A unique, built-in system for attendees to coordinate bringing items, dietary restrictions and preferences, moving logistics off messy spreadsheets.
+*   **Referral Program:** Users earn a share of platform fees from ticket purchases by people they refer. Monthly payouts via Stripe with automated self-billing invoices (Gutschrift) or payout statements.
+*   **Global Banning:** Platform-wide bans by email, domain, or Telegram username with automatic account deactivation.
+*   **XLSX Exports:** Export attendee lists, ticket holders, and member rosters as spreadsheets.
 
 ---
 

@@ -144,9 +144,12 @@ The evaluation mode depends on the questionnaire configuration:
 
 Users browse public events and organizations. Visibility is handled by the `for_user` queryset manager, which filters based on:
 
-- Event/organization visibility settings (public, members-only, private)
+- Event/organization visibility settings (public, unlisted, members-only, private)
 - User membership status
 - Event publication state (draft events hidden from non-organizers)
+
+!!! info "Unlisted visibility"
+    Organizations and events set to **UNLISTED** are accessible via direct link but hidden from browse/search listings. This is useful for soft launches or invite-link-only events.
 
 ### RSVPing to an Event
 
@@ -311,3 +314,149 @@ When an event or ticket tier reaches capacity:
 1. User joins the waitlist
 2. When a spot opens (cancellation or capacity increase), the next waitlisted user is notified
 3. The user can then complete their RSVP or ticket purchase
+
+### Discount Codes
+
+Organizers can create discount codes to offer reduced pricing on ticket purchases:
+
+1. Create code with type (percentage or fixed amount), value, and optional scope (events, series, tiers)
+2. Set limits: max uses, per-user limit, minimum purchase amount, validity window
+3. Buyer enters code during checkout → validated and applied to price
+4. Usage tracked per code and per user
+
+### Billing Profile Management
+
+Users participating in the referral program can set up a billing profile:
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/me/billing` | Retrieve billing profile |
+| `POST` | `/api/me/billing` | Create billing profile |
+| `PUT` | `/api/me/billing` | Update billing name, address, and email |
+| `DELETE` | `/api/me/billing` | Delete billing profile |
+| `PUT` | `/api/me/billing/vat-id` | Add or update VAT ID |
+| `DELETE` | `/api/me/billing/vat-id` | Remove VAT ID |
+
+!!! note "Referral payouts"
+    A complete billing profile with self-billing agreement and connected Stripe account is required before referral payouts can be processed.
+
+---
+
+## Referral Program
+
+### Referral Flow
+
+```mermaid
+sequenceDiagram
+    participant R as Referrer
+    participant N as New User
+    participant API as API
+    participant S as Stripe
+
+    R->>N: Shares referral code
+    N->>API: POST /api/account/register (with referral code)
+    API->>API: Validate code, create Referral record
+    Note over API: Revenue share % snapshotted
+
+    N->>S: Purchases tickets (over time)
+    S->>API: Webhook: payment succeeded
+    API->>API: Platform fee recorded on Payment
+
+    Note over API: Monthly (1st): calculate_referral_payouts
+    API->>API: Aggregate net platform fees per referral
+    API->>API: Create ReferralPayout (CALCULATED)
+
+    Note over API: Monthly (1st, 06:30): process_referral_payouts
+    API->>API: Generate statement PDF
+    API->>S: Transfer payout amount
+    S-->>API: Transfer confirmed
+    API-->>R: Email with statement PDF
+```
+
+### Payout Documents
+
+The document type depends on the referrer's billing profile:
+
+| Referrer Type | Document | VAT Treatment |
+|---|---|---|
+| B2B (validated VAT ID) | Self-billing invoice (Gutschrift) | Full VAT math with reverse charge for EU cross-border |
+| B2C (no VAT ID) | Payout statement | No VAT line |
+
+### Referral Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/referral/validate?code=...` | Validate a referral code |
+| `GET` | `/api/me` | Includes `referral_code` in response |
+| `GET` | `/api/me/referral/payouts` | List referral payout history |
+| `GET` | `/api/me/referral/payouts/{id}/statement` | Retrieve payout statement details |
+| `GET` | `/api/me/referral/payouts/{id}/statement/download` | Download payout statement PDF |
+
+---
+
+## Attendee Invoicing
+
+Organizations can generate invoices for ticket buyers on their behalf. The invoicing mode is configured per organization.
+
+### Invoicing Modes
+
+| Mode | Invoice Created As | Auto-Emailed | Use Case |
+|---|---|---|---|
+| `NONE` | — | — | Default (no invoices) |
+| `HYBRID` | `DRAFT` | No — org admin issues manually | Org needs review/control |
+| `AUTO` | `ISSUED` | Yes | Hands-off automation |
+
+### VAT Preview
+
+Before checkout, the buyer can preview the VAT breakdown based on their billing info:
+
+```mermaid
+sequenceDiagram
+    participant B as Buyer
+    participant API as VAT Preview Endpoint
+    participant VIES as VIES (cached)
+
+    B->>API: POST billing info + cart items
+    API->>VIES: Validate buyer VAT ID (Redis cache, 30min TTL)
+    VIES-->>API: Valid / Invalid
+    API->>API: Calculate VAT per item
+    API-->>B: Price breakdown (net, VAT, gross per item)
+```
+
+| Buyer Scenario | VAT Treatment |
+|---|---|
+| Domestic (same country as org) | Org's VAT rate |
+| EU cross-border B2B (valid VAT ID) | Reverse charge (0%) |
+| EU cross-border B2C (no VAT ID) | Org's VAT rate |
+| Non-EU | No VAT (export) |
+
+### Invoice Lifecycle (HYBRID Mode)
+
+```text
+DRAFT → [org edits] → DRAFT → [org issues] → ISSUED → [refund] → CANCELLED
+                       ↓
+                  [org deletes]
+```
+
+### Attendee Invoice Endpoints
+
+#### Buyer-facing
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/events/{event_id}/tickets/vat-preview` | Preview VAT breakdown |
+| `GET` | `/dashboard/invoices` | List issued invoices |
+| `GET` | `/dashboard/invoices/{id}/download` | Download PDF |
+
+#### Org admin
+
+| Method | Path | Description |
+|---|---|---|
+| `PATCH` | `/organization-admin/{slug}/invoicing` | Set invoicing mode |
+| `GET` | `/organization-admin/{slug}/attendee-invoices` | List attendee invoices |
+| `PATCH` | `/organization-admin/{slug}/attendee-invoices/{id}` | Edit draft |
+| `POST` | `/organization-admin/{slug}/attendee-invoices/{id}/issue` | Issue draft |
+| `DELETE` | `/organization-admin/{slug}/attendee-invoices/{id}` | Delete draft |
+
+!!! tip "See also"
+    For full architectural details including credit notes, numbering, and PDF rendering, see [Billing & VAT](../architecture/billing-and-vat.md#attendee-invoicing).
