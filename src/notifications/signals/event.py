@@ -205,6 +205,11 @@ def _detect_field_changes(
 @receiver(pre_save, sender=Event)
 def capture_event_state(sender: type[Event], instance: Event, **kwargs: t.Any) -> None:
     """Capture event state before save to detect changes."""
+    from events.suppression import _suppress_event_notifications
+
+    if _suppress_event_notifications.get():
+        return
+
     if instance.pk:
         try:
             old_instance = Event.objects.get(pk=instance.pk)
@@ -229,6 +234,11 @@ def handle_event_notification(sender: type[Event], instance: Event, created: boo
     - EVENT_CANCELLED: When event status changes to DELETED
     - EVENT_UPDATED: When important fields change
     """
+    from events.suppression import _suppress_event_notifications
+
+    if _suppress_event_notifications.get():
+        return
+
     # Get previous state
     previous_state = _event_previous_state.pop(instance.pk, None) if instance.pk else None
 

@@ -1,29 +1,12 @@
 """Event duplication service."""
 
 import typing as t
-from contextlib import contextmanager
 from datetime import datetime
 
 from django.db import transaction
-from django.db.models.signals import post_save
 
 from events.models import Event, PotluckItem, TicketTier
-
-
-@contextmanager
-def _disconnected_event_signal() -> t.Iterator[None]:
-    """Context manager to temporarily disconnect the handle_event_save signal.
-
-    This prevents auto-creation of default ticket tiers during event duplication,
-    where we want to copy the template's tiers explicitly.
-    """
-    from events.signals import handle_event_save
-
-    post_save.disconnect(handle_event_save, sender=Event)
-    try:
-        yield
-    finally:
-        post_save.connect(handle_event_save, sender=Event)
+from events.suppression import suppress_default_tier_creation
 
 
 @transaction.atomic
@@ -67,8 +50,8 @@ def duplicate_event(
     # Calculate new end time (end is required, so template_event.end is always set)
     new_end = template_event.end + delta
 
-    # Disconnect the signal to prevent auto-creation of default ticket tier
-    with _disconnected_event_signal():
+    # Suppress auto-creation of default ticket tier (we copy tiers from template)
+    with suppress_default_tier_creation():
         new_event = Event.objects.create(
             # FK references (keep same)
             organization=template_event.organization,
