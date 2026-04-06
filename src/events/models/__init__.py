@@ -35,6 +35,7 @@ from .preferences import (
     GeneralUserPreferences,
 )
 from .questionnaire import EventQuestionnaireSubmission, OrganizationQuestionnaire
+from .recurrence_rule import RecurrenceRule
 from .rsvp import EventRSVP
 from .ticket import (
     DEFAULT_TICKET_TIER_NAME,
@@ -71,6 +72,8 @@ __all__ = [
     "PermissionsSchema",
     # Event Series
     "EventSeries",
+    # Recurrence
+    "RecurrenceRule",
     # Follows
     "EventSeriesFollow",
     "OrganizationFollow",

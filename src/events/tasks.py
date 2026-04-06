@@ -441,6 +441,38 @@ def revalidate_single_vat_id_task(org_id: str) -> None:
     logger.info("vat_revalidation_done", org_id=org_id, vat_id=org.vat_id, valid=org.vat_id_validated)
 
 
+@shared_task(name="events.generate_recurring_events")
+def generate_recurring_events_task() -> dict[str, int]:
+    """Maintain the rolling generation window for all active recurring series.
+
+    Runs daily via Celery Beat. For each active series with a recurrence rule
+    and template, generates events up to the configured window horizon.
+    Idempotent — safe to re-run (skips already-existing occurrences).
+    """
+    from events.models import EventSeries
+    from events.service.recurrence_service import generate_series_events
+
+    active_series = EventSeries.objects.filter(
+        recurrence_rule__isnull=False,
+        template_event__isnull=False,
+        is_active=True,
+    ).select_related("recurrence_rule", "template_event")
+
+    total_created = 0
+    series_count = 0
+    for series in active_series:
+        created = generate_series_events(series)
+        total_created += len(created)
+        series_count += 1
+
+    logger.info(
+        "recurring_events_generation_complete",
+        series_processed=series_count,
+        events_created=total_created,
+    )
+    return {"series_processed": series_count, "events_created": total_created}
+
+
 @shared_task
 def generate_questionnaire_export_task(export_id: str) -> None:
     """Generate an Excel export of questionnaire submissions."""

@@ -97,6 +97,27 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
     name = models.CharField(max_length=255, db_index=True)
     slug = models.SlugField(max_length=255, db_index=True)
 
+    # Recurrence fields
+    template_event = models.OneToOneField(
+        "Event",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="template_for_series",
+    )
+    recurrence_rule = models.OneToOneField(
+        "events.RecurrenceRule",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="event_series",
+    )
+    exdates = models.JSONField(default=list, blank=True)
+    is_active = models.BooleanField(default=True)
+    auto_publish = models.BooleanField(default=False)
+    generation_window_weeks = models.PositiveIntegerField(default=8)
+    last_generated_until = models.DateTimeField(null=True, blank=True)
+
     objects = EventSeriesManager()
 
     class Meta:

@@ -39,9 +39,25 @@ class EventAdminCoreController(EventAdminBaseController):
         permissions=[EventPermission("edit_event")],
     )
     def update_event(self, event_id: UUID, payload: schema.EventEditSchema) -> models.Event:
-        """Update event by ID."""
+        """Update event by ID.
+
+        Editing a series occurrence (non-template) marks it as `is_modified=True`
+        to protect it from future template propagation.
+        Template editing and propagation are handled via the series admin controller.
+        """
         event = self.get_one(event_id)
-        return update_db_instance(event, payload)
+        updated_event = update_db_instance(event, payload)
+
+        # Mark occurrences as modified to protect from template propagation
+        if (
+            updated_event.occurrence_index is not None
+            and not updated_event.is_template
+            and not updated_event.is_modified
+        ):
+            updated_event.is_modified = True
+            updated_event.save(update_fields=["is_modified"])
+
+        return updated_event
 
     @route.delete(
         "",

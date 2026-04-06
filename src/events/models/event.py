@@ -63,7 +63,7 @@ class EventQuerySet(models.QuerySet["Event"]):
         from .rsvp import EventRSVP
         from .ticket import Ticket
 
-        base_qs = self.select_related("organization", "event_series", "venue")
+        base_qs = self.select_related("organization", "event_series", "venue").filter(is_template=False)
 
         is_allowed_special = Q(id__in=allowed_ids) if allowed_ids else Q()
 
@@ -290,6 +290,11 @@ class Event(
         related_name="events",
         help_text="Optional venue for this event.",
     )
+
+    # Recurring event fields
+    is_template = models.BooleanField(default=False, db_index=True)
+    is_modified = models.BooleanField(default=False)
+    occurrence_index = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         constraints = [

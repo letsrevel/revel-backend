@@ -98,6 +98,9 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     public_pronoun_distribution: bool
     apply_before: AwareDatetime | None = None
     can_attend_without_login: bool
+    is_template: bool = False
+    is_modified: bool = False
+    occurrence_index: int | None = None
     updated_at: AwareDatetime | None = None
     created_at: AwareDatetime | None = None
 

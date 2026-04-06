@@ -10,7 +10,7 @@ import structlog
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
-from events.models import Event
+from events.models import Event, EventSeries
 from events.utils import format_event_datetime, get_event_timezone
 from notifications.enums import NotificationType
 from notifications.service.dispatcher import NotificationData, bulk_create_notifications
@@ -144,6 +144,68 @@ def notify_event_opened(event: Event) -> int:
         "event_open_notifications_sent",
         event_id=str(event.id),
         count=len(created_notifications),
+    )
+
+    return len(created_notifications)
+
+
+def notify_series_events_generated(series: EventSeries, events: list[Event]) -> int:
+    """Send a digest notification when recurring events are materialized.
+
+    Notifies org staff and series/org followers that N new events have been
+    scheduled. Uses bulk notification creation for efficiency.
+
+    Args:
+        series: The EventSeries that generated events.
+        events: List of newly created Event instances.
+
+    Returns:
+        Number of notifications sent.
+    """
+    from events.service.follow_service import get_followers_for_new_event_notification
+    from notifications.tasks import dispatch_notifications_batch
+
+    if not events:
+        return 0
+
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+    series_url = f"{frontend_base_url}/series/{series.id}"
+    organization = series.organization
+
+    context: dict[str, t.Any] = {
+        "organization_id": str(organization.id),
+        "organization_name": organization.name,
+        "event_series_id": str(series.id),
+        "event_series_name": series.name,
+        "events_count": len(events),
+        "series_url": series_url,
+    }
+
+    # Get followers (org + series followers, deduplicated)
+    followers = get_followers_for_new_event_notification(organization, series)
+
+    notifications_data: list[NotificationData] = []
+    for user, _notification_type in followers:
+        notifications_data.append(
+            NotificationData(
+                notification_type=NotificationType.SERIES_EVENTS_GENERATED,
+                user=user,
+                context=context,
+            )
+        )
+
+    if not notifications_data:
+        return 0
+
+    created_notifications = bulk_create_notifications(notifications_data)
+    notification_ids = [str(n.id) for n in created_notifications]
+    dispatch_notifications_batch.delay(notification_ids)
+
+    logger.info(
+        "series_events_generated_notifications_sent",
+        series_id=str(series.id),
+        events_count=len(events),
+        recipient_count=len(created_notifications),
     )
 
     return len(created_notifications)
