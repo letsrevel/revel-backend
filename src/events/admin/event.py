@@ -35,8 +35,16 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
         "start",
         "attendee_count",
         "requires_ticket",
+        "is_template",
     ]
-    list_filter = ["event_type", "organization", "start", "requires_ticket", "waitlist_open"]
+    list_filter = [
+        "event_type",
+        "organization",
+        "start",
+        "requires_ticket",
+        "waitlist_open",
+        "is_template",
+    ]
     search_fields = ["name", "slug", "organization__name"]
     autocomplete_fields = ["organization", "event_series", "city", "venue"]
     prepopulated_fields = {"slug": ("name",)}

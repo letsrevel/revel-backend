@@ -1,12 +1,12 @@
 """Shared fixtures for event service tests."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, Organization
+from events.models import Event, EventSeries, Organization, RecurrenceRule, TicketTier
 from questionnaires.models import (
     MultipleChoiceOption,
     MultipleChoiceQuestion,
@@ -93,3 +93,88 @@ def eq_questionnaire_service(
 ) -> QuestionnaireService:
     """QuestionnaireService instance for the test questionnaire."""
     return QuestionnaireService(eq_questionnaire.id)
+
+
+# ---------------------------------------------------------------------------
+# Recurrence service fixtures (shared across the split test_recurrence_*.py
+# files: materialize, lifecycle, propagation).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def weekly_rule(organization: Organization) -> RecurrenceRule:
+    """Create a weekly recurrence rule on Mondays, starting from a known date."""
+    dtstart = timezone.make_aware(datetime(2026, 4, 6, 10, 0))  # Monday
+    rule = RecurrenceRule.objects.create(
+        frequency=RecurrenceRule.Frequency.WEEKLY,
+        interval=1,
+        weekdays=[0],  # Monday
+        dtstart=dtstart,
+    )
+    return rule
+
+
+@pytest.fixture
+def template_event(organization: Organization, event_series: EventSeries) -> Event:
+    """Create a template event for the series."""
+    start = timezone.make_aware(datetime(2026, 4, 6, 10, 0))
+    event = Event.objects.create(
+        organization=organization,
+        event_series=event_series,
+        name="Weekly Meetup",
+        start=start,
+        end=start + timedelta(hours=2),
+        status=Event.EventStatus.DRAFT,
+        visibility=Event.Visibility.PUBLIC,
+        event_type=Event.EventType.PUBLIC,
+        is_template=True,
+        requires_ticket=True,
+    )
+    return event
+
+
+@pytest.fixture
+def template_event_with_tier(template_event: Event) -> Event:
+    """Create a template event that has a ticket tier.
+
+    The template_event has requires_ticket=True, so a default "General Admission"
+    tier is auto-created by the signal. We update it with the desired price/quantity
+    instead of creating a duplicate.
+    """
+    tier = TicketTier.objects.get(event=template_event, name="General Admission")
+    tier.price = 15.00
+    tier.total_quantity = 50
+    tier.save(update_fields=["price", "total_quantity"])
+    return template_event
+
+
+@pytest.fixture
+def active_series(
+    event_series: EventSeries,
+    weekly_rule: RecurrenceRule,
+    template_event: Event,
+) -> EventSeries:
+    """An active series with a recurrence rule and template event."""
+    event_series.recurrence_rule = weekly_rule
+    event_series.template_event = template_event
+    event_series.is_active = True
+    event_series.auto_publish = False
+    event_series.generation_window_weeks = 4
+    event_series.save()
+    return event_series
+
+
+@pytest.fixture
+def active_series_with_tier(
+    event_series: EventSeries,
+    weekly_rule: RecurrenceRule,
+    template_event_with_tier: Event,
+) -> EventSeries:
+    """An active series whose template has a ticket tier."""
+    event_series.recurrence_rule = weekly_rule
+    event_series.template_event = template_event_with_tier
+    event_series.is_active = True
+    event_series.auto_publish = False
+    event_series.generation_window_weeks = 4
+    event_series.save()
+    return event_series

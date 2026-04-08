@@ -2,6 +2,7 @@ import typing as t
 
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.gis.db import models
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db.models import Prefetch, Q
 
 from accounts.models import RevelUser
@@ -10,6 +11,9 @@ from common.models import TagAssignment, TaggableMixin, TimeStampedModel
 
 from .mixins import LogoCoverValidationMixin, SlugFromNameMixin
 from .organization import Organization
+
+# Cap the rolling generation horizon at one year to keep the daily Celery beat task bounded.
+MAX_GENERATION_WINDOW_WEEKS = 52
 
 
 class EventSeriesQuerySet(models.QuerySet["EventSeries"]):
@@ -97,17 +101,26 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
     name = models.CharField(max_length=255, db_index=True)
     slug = models.SlugField(max_length=255, db_index=True)
 
-    # Recurrence fields
+    # Recurrence fields.
+    # PROTECT on both template_event and recurrence_rule: deleting either side
+    # individually would either silently destroy a paid-ticket-bearing series
+    # (template) or leave it as a generation-broken zombie (rule). Series
+    # teardown must always go through the service layer, which orchestrates
+    # cleanup of the rule, the template, and all materialized occurrences in
+    # the right order. PROTECT enforces this contract at the DB level so an
+    # admin DELETE click can't bypass it. The fields remain nullable only
+    # because they must be created after the EventSeries row (chicken-and-egg
+    # at creation time in ``create_recurring_event_series``).
     template_event = models.OneToOneField(
         "Event",
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="template_for_series",
     )
     recurrence_rule = models.OneToOneField(
         "events.RecurrenceRule",
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name="event_series",
@@ -115,7 +128,10 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
     exdates = models.JSONField(default=list, blank=True)
     is_active = models.BooleanField(default=True)
     auto_publish = models.BooleanField(default=False)
-    generation_window_weeks = models.PositiveIntegerField(default=8)
+    generation_window_weeks = models.PositiveIntegerField(
+        default=8,
+        validators=[MinValueValidator(1), MaxValueValidator(MAX_GENERATION_WINDOW_WEEKS)],
+    )
     last_generated_until = models.DateTimeField(null=True, blank=True)
 
     objects = EventSeriesManager()

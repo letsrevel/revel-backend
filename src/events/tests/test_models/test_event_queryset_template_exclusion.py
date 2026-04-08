@@ -37,12 +37,15 @@ def _template_and_normal_event(
         visibility=Event.Visibility.PUBLIC,
         is_template=False,
     )
+    # Templates stay in DRAFT (enforced by the ``template_events_must_be_draft``
+    # check constraint). The exclusion test still proves its point because
+    # ``for_user()`` filters templates by ``is_template=False`` regardless of status.
     template_event = Event.objects.create(
         organization=organization,
         event_series=event_series,
         name="Template Event",
         start=now + timedelta(days=14),
-        status=Event.EventStatus.OPEN,
+        status=Event.EventStatus.DRAFT,
         visibility=Event.Visibility.PUBLIC,
         is_template=True,
     )
@@ -140,3 +143,24 @@ class TestEventQuerySetTemplateExclusion:
         # Assert - filter to just events in our org to avoid interference from other tests
         our_events = [e for e in events if e.organization_id == normal_event.organization_id]
         assert all(not e.is_template for e in our_events)
+
+
+class TestExcludeTemplatesHelper:
+    """The ``.exclude_templates()`` queryset helper used by non-user-facing call sites."""
+
+    def test_helper_removes_templates(
+        self,
+        _template_and_normal_event: tuple[Event, Event],
+    ) -> None:
+        """Direct ``Event.objects.filter(...)`` callers must use ``exclude_templates`` to drop templates."""
+        # Arrange
+        normal_event, template_event = _template_and_normal_event
+
+        # Act
+        all_ids = set(Event.objects.values_list("id", flat=True))
+        non_template_ids = set(Event.objects.exclude_templates().values_list("id", flat=True))
+
+        # Assert
+        assert template_event.id in all_ids
+        assert template_event.id not in non_template_ids
+        assert normal_event.id in non_template_ids

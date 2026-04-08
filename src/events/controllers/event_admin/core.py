@@ -44,16 +44,14 @@ class EventAdminCoreController(EventAdminBaseController):
         Editing a series occurrence (non-template) marks it as `is_modified=True`
         to protect it from future template propagation.
         Template editing and propagation are handled via the series admin controller.
+        Templates themselves are never reachable here: ``get_one()`` uses
+        ``Event.objects.for_user()`` which filters ``is_template=False``.
         """
         event = self.get_one(event_id)
         updated_event = update_db_instance(event, payload)
 
-        # Mark occurrences as modified to protect from template propagation
-        if (
-            updated_event.occurrence_index is not None
-            and not updated_event.is_template
-            and not updated_event.is_modified
-        ):
+        # Mark occurrences as modified to protect from template propagation.
+        if updated_event.occurrence_index is not None and not updated_event.is_modified:
             updated_event.is_modified = True
             updated_event.save(update_fields=["is_modified"])
 

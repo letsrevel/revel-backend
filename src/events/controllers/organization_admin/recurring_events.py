@@ -2,8 +2,9 @@
 
 from uuid import UUID
 
-from django.db import transaction
 from django.shortcuts import get_object_or_404
+from ninja import Body
+from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
@@ -11,7 +12,8 @@ from common.schema import ValidationErrorResponse
 from common.throttling import WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
-from events.service import recurrence_service, update_db_instance
+from events.service import recurrence_service
+from events.service.recurrence_service import PropagateScope
 
 from .base import OrganizationAdminBaseController
 
@@ -29,7 +31,11 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         """Fetch series and validate it belongs to the organization."""
         organization = self.get_one(slug)
         return get_object_or_404(
-            models.EventSeries.objects.select_related("recurrence_rule", "template_event"),
+            models.EventSeries.objects.select_related(
+                "recurrence_rule",
+                "template_event",
+                "template_event__venue",
+            ),
             id=series_id,
             organization=organization,
         )
@@ -37,51 +43,24 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
     @route.post(
         "/create-recurring-event",
         url_name="create_recurring_event",
-        response={200: schema.EventSeriesRecurrenceDetailSchema, 400: ValidationErrorResponse},
+        response={201: schema.EventSeriesRecurrenceDetailSchema, 400: ValidationErrorResponse},
         permissions=[OrganizationPermission("create_event")],
     )
-    @transaction.atomic
-    def create_recurring_event(self, slug: str, payload: schema.RecurringEventCreateSchema) -> models.EventSeries:
-        """Create a recurring event series with template and initial generation.
-
-        Creates: RecurrenceRule + EventSeries + template Event, then materializes
-        events within the configured rolling window.
-        """
+    def create_recurring_event(
+        self, slug: str, payload: schema.RecurringEventCreateSchema
+    ) -> tuple[int, models.EventSeries]:
+        """Create a recurring event series with template and initial generation."""
         organization = self.get_one(slug)
-
-        # Create recurrence rule
-        rule = models.RecurrenceRule(**payload.recurrence.model_dump())
-        rule.full_clean()
-        rule.save()
-
-        # Create series
-        series = models.EventSeries.objects.create(
-            organization=organization,
-            name=payload.series_name,
-            description=payload.series_description,
-            recurrence_rule=rule,
+        series = recurrence_service.create_recurring_event_series(
+            organization,
+            recurrence_data=payload.recurrence.model_dump(),
+            series_name=payload.series_name,
+            series_description=payload.series_description,
             auto_publish=payload.auto_publish,
             generation_window_weeks=payload.generation_window_weeks,
+            event_data=payload.event.model_dump(exclude={"event_series_id"}),
         )
-
-        # Create template event (exclude event_series_id — we set it explicitly)
-        event_data = payload.event.model_dump(exclude={"event_series_id"})
-        template_event = models.Event(
-            organization=organization,
-            event_series=series,
-            is_template=True,
-            **event_data,
-        )
-        template_event.save()
-
-        series.template_event = template_event
-        series.save(update_fields=["template_event"])
-
-        # Generate initial events
-        recurrence_service.generate_series_events(series)
-
-        series.refresh_from_db()
-        return series
+        return 201, series
 
     @route.patch(
         "/event-series/{series_id}/template",
@@ -93,8 +72,8 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         self,
         slug: str,
         series_id: UUID,
-        payload: schema.EventEditSchema,
-        propagate: str = "none",
+        payload: schema.TemplateEditSchema,
+        propagate: PropagateScope = PropagateScope.NONE,
     ) -> models.EventSeries:
         """Update the series template event, optionally propagating to future occurrences.
 
@@ -104,22 +83,15 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         - "all_future": update all future occurrences, including manually edited ones.
 
         Only safe fields are propagated (name, description, visibility, etc.).
-        Date/time, status, and FK fields are per-occurrence and never propagated.
+        Date/time, status, FK, and slug fields are per-occurrence and never propagated.
+        The template is bound to its series and venue at creation time; use dedicated
+        endpoints if those associations must change.
         """
         series = self._get_series(slug, series_id)
-        if not series.template_event:
-            from ninja.errors import HttpError
-
-            raise HttpError(400, "Series has no template event.")
-
-        changed_data = payload.model_dump(exclude_unset=True)
-        update_db_instance(series.template_event, payload)
-
-        if propagate != "none" and changed_data:
-            recurrence_service.propagate_template_changes(series, changed_data, scope=propagate)
-
-        series.refresh_from_db()
-        return series
+        try:
+            return recurrence_service.update_template(series, payload, scope=propagate)
+        except ValueError as exc:
+            raise HttpError(400, str(exc)) from exc
 
     @route.patch(
         "/event-series/{series_id}/recurrence",
@@ -132,29 +104,13 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
     ) -> models.EventSeries:
         """Update recurrence rule and/or series settings."""
         series = self._get_series(slug, series_id)
-
-        # Update series-level fields
-        series_fields: list[str] = []
-        if payload.auto_publish is not None:
-            series.auto_publish = payload.auto_publish
-            series_fields.append("auto_publish")
-        if payload.generation_window_weeks is not None:
-            series.generation_window_weeks = payload.generation_window_weeks
-            series_fields.append("generation_window_weeks")
-        if series_fields:
-            series.save(update_fields=series_fields)
-
-        # Update recurrence rule fields
-        if payload.recurrence and series.recurrence_rule:
-            rule_data = payload.recurrence.model_dump(exclude_unset=True)
-            if rule_data:
-                for field, value in rule_data.items():
-                    setattr(series.recurrence_rule, field, value)
-                series.recurrence_rule.full_clean()
-                series.recurrence_rule.save()
-
-        series.refresh_from_db()
-        return series
+        recurrence_data = payload.recurrence.model_dump(exclude_unset=True) if payload.recurrence else None
+        return recurrence_service.update_series_recurrence(
+            series,
+            auto_publish=payload.auto_publish,
+            generation_window_weeks=payload.generation_window_weeks,
+            recurrence_data=recurrence_data,
+        )
 
     @route.post(
         "/event-series/{series_id}/cancel-occurrence",
@@ -181,7 +137,7 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         self,
         slug: str,
         series_id: UUID,
-        payload: schema.GenerateSeriesEventsSchema | None = None,
+        payload: schema.GenerateSeriesEventsSchema | None = Body(None),  # type: ignore[type-arg]
     ) -> list[models.Event]:
         """Manually generate events for the series within the rolling window."""
         series = self._get_series(slug, series_id)

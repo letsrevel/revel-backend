@@ -1,5 +1,5 @@
-{% load i18n %}<!DOCTYPE html>
-<html>
+{% load i18n %}{% get_current_language as LANGUAGE_CODE %}<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -22,7 +22,7 @@
         </div>
         <div class="content">
             <p>{% trans "Hello" %} {{ user.display_name }},</p>
-            <p>{% blocktranslate with series=context.event_series_name count=context.events_count %}<strong>{{ count }}</strong> new events have been scheduled for <strong>{{ series }}</strong>.{% endblocktranslate %}</p>
+            <p>{% blocktranslate with series=context.event_series_name count counter=context.events_count %}<strong>{{ counter }}</strong> new event has been scheduled for <strong>{{ series }}</strong>.{% plural %}<strong>{{ counter }}</strong> new events have been scheduled for <strong>{{ series }}</strong>.{% endblocktranslate %}</p>
 
             <div class="card">
                 <div class="info-row"><span class="label">{% trans "Series:" %}</span> {{ context.event_series_name }}</div>

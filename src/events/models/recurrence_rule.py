@@ -1,12 +1,15 @@
 """Recurrence rule model for recurring event series."""
 
 import typing as t
+from datetime import datetime
 
 from dateutil.rrule import DAILY, MONTHLY, WEEKLY, YEARLY, rrule
+from dateutil.rrule import weekday as rrule_weekday
 from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError
 
 from common.models import TimeStampedModel
+from events.utils import recurrence_validators
 
 
 class RecurrenceRule(TimeStampedModel):
@@ -58,7 +61,10 @@ class RecurrenceRule(TimeStampedModel):
     # Computed RRULE string (read-only, populated on save)
     rrule_string = models.TextField(editable=False, blank=True, default="")
 
-    # Timezone for the recurrence anchor
+    # Timezone for the recurrence anchor. Currently reserved metadata: occurrences
+    # are anchored to the UTC ``dtstart`` and do not observe DST in the named tz
+    # (Phase 3 will use this field to localize the anchor). Validated as a real
+    # IANA zone name so bad data is rejected on save.
     timezone = models.CharField(max_length=64, default="UTC")
 
     class Meta:
@@ -68,45 +74,32 @@ class RecurrenceRule(TimeStampedModel):
         return f"{self.get_frequency_display()} (every {self.interval})"
 
     def clean(self) -> None:
-        """Validate recurrence rule fields."""
+        """Validate recurrence rule fields via shared helpers.
+
+        Delegates each check to ``events.utils.recurrence_validators`` so that
+        the Pydantic input schema and this model enforce the exact same rules.
+        ``RecurrenceValidationError`` is re-wrapped in Django's
+        ``ValidationError`` with field attribution for admin/form callers.
+        """
         super().clean()
-        self._validate_weekdays()
-        self._validate_monthly_fields()
-        self._validate_boundaries()
-
-    def _validate_weekdays(self) -> None:
-        if not self.weekdays:
-            return
-        if not isinstance(self.weekdays, list):
-            raise ValidationError({"weekdays": "Must be a list of integers."})
-        for day in self.weekdays:
-            if not isinstance(day, int) or day < 0 or day > 6:
-                raise ValidationError({"weekdays": "Each day must be an integer 0 (Monday) to 6 (Sunday)."})
-
-    def _validate_monthly_fields(self) -> None:
-        if self.frequency != self.Frequency.MONTHLY:
-            return
-        if not self.monthly_type:
-            raise ValidationError({"monthly_type": "Required for monthly recurrence."})
-        if self.monthly_type == self.MonthlyType.DAY_OF_MONTH:
-            if not self.day_of_month or self.day_of_month < 1 or self.day_of_month > 31:
-                raise ValidationError({"day_of_month": "Must be between 1 and 31."})
-        elif self.monthly_type == self.MonthlyType.NTH_WEEKDAY:
-            if self.nth_weekday is None or self.nth_weekday not in (-1, 1, 2, 3, 4):
-                raise ValidationError({"nth_weekday": "Must be 1-4 or -1 (last)."})
-            if self.weekday is None or self.weekday < 0 or self.weekday > 6:
-                raise ValidationError({"weekday": "Must be 0 (Monday) to 6 (Sunday)."})
-
-    def _validate_boundaries(self) -> None:
-        if self.until and self.count:
-            raise ValidationError("Cannot set both 'until' and 'count'. Choose one or neither.")
-        if self.until and self.until <= self.dtstart:
-            raise ValidationError({"until": "Must be after dtstart."})
+        try:
+            recurrence_validators.validate_weekdays(self.weekdays)
+            recurrence_validators.validate_monthly_fields(
+                frequency=self.frequency,
+                monthly_type=self.monthly_type,
+                day_of_month=self.day_of_month,
+                nth_weekday=self.nth_weekday,
+                weekday=self.weekday,
+            )
+            recurrence_validators.validate_boundaries(self.dtstart, self.until, self.count)
+            recurrence_validators.validate_timezone(self.timezone)
+        except recurrence_validators.RecurrenceValidationError as exc:
+            if exc.field:
+                raise ValidationError({exc.field: exc.message}) from exc
+            raise ValidationError(exc.message) from exc
 
     def to_rrule(self) -> rrule:
         """Build a dateutil rrule object from the stored fields."""
-        from dateutil.rrule import weekday as rrule_weekday
-
         freq = self.FREQ_MAP[self.frequency]
         kwargs: dict[str, t.Any] = {
             "freq": freq,
@@ -135,11 +128,25 @@ class RecurrenceRule(TimeStampedModel):
         return rrule(**kwargs)
 
     def save(self, *args: t.Any, **kwargs: t.Any) -> None:
-        """Compute rrule_string before saving."""
+        """Compute rrule_string before saving.
+
+        If the caller passes ``update_fields``, ``rrule_string`` is added to it
+        automatically so the recomputed value is persisted. Otherwise a save
+        that updates ``frequency`` alone would leave ``rrule_string`` stale on
+        disk.
+        """
         self.rrule_string = str(self.to_rrule())
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields = set(update_fields)
+            update_fields.add("rrule_string")
+            kwargs["update_fields"] = update_fields
         super().save(*args, **kwargs)
 
-    def get_occurrences(self, after: t.Any, before: t.Any) -> list[t.Any]:
-        """Return occurrence datetimes between after and before (exclusive)."""
+    def get_occurrences(self, after: datetime, before: datetime) -> list[datetime]:
+        """Return occurrence datetimes strictly between ``after`` and ``before``.
+
+        Both endpoints are exclusive: ``after < occurrence < before``.
+        """
         rule = self.to_rrule()
         return list(rule.between(after, before, inc=False))

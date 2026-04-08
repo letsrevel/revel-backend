@@ -241,29 +241,43 @@ class DashboardEventsFiltersSchema(Schema):
         event_id_querysets = []
 
         # Each condition generates a simple, fast query that only fetches event IDs.
+        # All branches exclude recurring-series templates: templates belong to an
+        # organization but are internal blueprints, not real events that users
+        # should see on a dashboard. Today templates are forced to DRAFT status
+        # by a CheckConstraint and can't have RSVPs/tickets/invitations, so the
+        # rsvp_*/got_* branches are belt-and-suspenders — but they make the
+        # invariant explicit instead of relying on a constraint two layers away.
         if self.owner:
-            owner_events = Event.objects.filter(organization__owner_id=user_id).values("id")
+            owner_events = Event.objects.exclude_templates().filter(organization__owner_id=user_id).values("id")
             event_id_querysets.append(owner_events)
         if self.staff:
-            staff_events = Event.objects.filter(organization__staff_members__id=user_id).values("id")
+            staff_events = (
+                Event.objects.exclude_templates().filter(organization__staff_members__id=user_id).values("id")
+            )
             event_id_querysets.append(staff_events)
         if self.member:
-            member_events = Event.objects.filter(organization__members__id=user_id).values("id")
+            member_events = Event.objects.exclude_templates().filter(organization__members__id=user_id).values("id")
             event_id_querysets.append(member_events)
         if self.rsvp_yes:
-            rsvp_yes_events = Event.objects.filter(rsvps__user_id=user_id, rsvps__status="yes").values("id")
+            rsvp_yes_events = (
+                Event.objects.exclude_templates().filter(rsvps__user_id=user_id, rsvps__status="yes").values("id")
+            )
             event_id_querysets.append(rsvp_yes_events)
         if self.rsvp_no:
-            rsvp_no_events = Event.objects.filter(rsvps__user_id=user_id, rsvps__status="no").values("id")
+            rsvp_no_events = (
+                Event.objects.exclude_templates().filter(rsvps__user_id=user_id, rsvps__status="no").values("id")
+            )
             event_id_querysets.append(rsvp_no_events)
         if self.rsvp_maybe:
-            rsvp_maybe_events = Event.objects.filter(rsvps__user_id=user_id, rsvps__status="maybe").values("id")
+            rsvp_maybe_events = (
+                Event.objects.exclude_templates().filter(rsvps__user_id=user_id, rsvps__status="maybe").values("id")
+            )
             event_id_querysets.append(rsvp_maybe_events)
         if self.got_ticket:
-            ticket_events = Event.objects.filter(tickets__user_id=user_id).values("id")
+            ticket_events = Event.objects.exclude_templates().filter(tickets__user_id=user_id).values("id")
             event_id_querysets.append(ticket_events)
         if self.got_invitation:
-            invitation_events = Event.objects.filter(invitations__user_id=user_id).values("id")
+            invitation_events = Event.objects.exclude_templates().filter(invitations__user_id=user_id).values("id")
             event_id_querysets.append(invitation_events)
 
         if not event_id_querysets:

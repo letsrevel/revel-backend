@@ -1,6 +1,6 @@
 {% load i18n %}{% trans "Hello" %} {{ user.display_name }},
 
-📅 {% blocktranslate with series=context.event_series_name count=context.events_count %}{{ count }} new events have been scheduled for {{ series }}.{% endblocktranslate %}
+📅 {% blocktranslate with series=context.event_series_name count counter=context.events_count %}{{ counter }} new event has been scheduled for {{ series }}.{% plural %}{{ counter }} new events have been scheduled for {{ series }}.{% endblocktranslate %}
 
 {% trans "Organization:" %} {{ context.organization_name }}
 

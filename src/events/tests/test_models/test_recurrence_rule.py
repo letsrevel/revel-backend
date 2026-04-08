@@ -141,10 +141,13 @@ class TestRecurrenceRuleMonthly:
         rrule_obj = rule.to_rrule()
         occurrences = list(rrule_obj)
 
-        # Assert
+        # Assert — each occurrence must be the LAST Friday of its month, not
+        # just any Friday. Adding 7 days should cross into the next month.
         assert len(occurrences) == 3
         for occ in occurrences:
             assert occ.weekday() == 4  # Friday
+            next_week = occ + timedelta(days=7)
+            assert next_week.month != occ.month, f"Expected last Friday of the month, but {occ.date()} is not"
 
 
 class TestRecurrenceRuleDaily:
@@ -349,6 +352,46 @@ class TestRecurrenceRuleValidation:
         # Act & Assert - should not raise
         rule.clean()
 
+    def test_invalid_timezone_raises_validation_error(self) -> None:
+        """Test that a non-IANA timezone string is rejected at clean() time."""
+        # Arrange
+        rule = RecurrenceRule(
+            frequency=RecurrenceRule.Frequency.DAILY,
+            dtstart=timezone.now(),
+            timezone="Mars/Olympus_Mons",
+        )
+
+        # Act & Assert
+        with pytest.raises(ValidationError) as exc_info:
+            rule.clean()
+        assert "timezone" in exc_info.value.message_dict
+
+    def test_empty_timezone_raises_validation_error(self) -> None:
+        """Test that an empty timezone string is rejected."""
+        # Arrange
+        rule = RecurrenceRule(
+            frequency=RecurrenceRule.Frequency.DAILY,
+            dtstart=timezone.now(),
+            timezone="",
+        )
+
+        # Act & Assert
+        with pytest.raises(ValidationError) as exc_info:
+            rule.clean()
+        assert "timezone" in exc_info.value.message_dict
+
+    def test_valid_iana_timezone_passes(self) -> None:
+        """Test that a valid IANA timezone passes validation."""
+        # Arrange
+        rule = RecurrenceRule(
+            frequency=RecurrenceRule.Frequency.DAILY,
+            dtstart=timezone.now(),
+            timezone="Europe/Rome",
+        )
+
+        # Act & Assert — must not raise
+        rule.clean()
+
 
 class TestRecurrenceRuleGetOccurrences:
     """Tests for the get_occurrences method."""
@@ -441,6 +484,29 @@ class TestRecurrenceRuleSave:
         # Assert
         assert rule.rrule_string != original_string
 
+    def test_rrule_string_persisted_with_update_fields(self) -> None:
+        """A save that passes ``update_fields`` without ``rrule_string`` must
+        still persist the recomputed RRULE — the model auto-adds it to the
+        update_fields set, preventing a stale RRULE on disk."""
+        # Arrange
+        rule = RecurrenceRule.objects.create(
+            frequency=RecurrenceRule.Frequency.DAILY,
+            interval=1,
+            dtstart=timezone.now(),
+            count=5,
+        )
+        original_string = rule.rrule_string
+        assert "FREQ=DAILY" in original_string
+
+        # Act — change frequency and save with update_fields that OMITS rrule_string.
+        rule.frequency = RecurrenceRule.Frequency.WEEKLY
+        rule.save(update_fields=["frequency"])
+
+        # Assert — reload from DB and verify rrule_string was persisted.
+        rule.refresh_from_db()
+        assert "FREQ=WEEKLY" in rule.rrule_string
+        assert rule.rrule_string != original_string
+
     def test_str_representation(self) -> None:
         """Test the string representation of a RecurrenceRule."""
         # Arrange
@@ -456,3 +522,64 @@ class TestRecurrenceRuleSave:
         # Assert
         assert "Weekly" in result
         assert "2" in result
+
+
+class TestRecurrenceRuleDSTBehavior:
+    """Lock in the (current, pre-Phase-3) DST behavior of recurrence rules.
+
+    The ``timezone`` field is currently advisory metadata only — occurrences
+    are anchored to the UTC ``dtstart`` and do **not** observe DST in the
+    named zone. This is documented in the model's field comment and in the
+    ``RecurrenceRuleCreateSchema.timezone`` description. These tests pin the
+    behavior so the eventual Phase 3 fix is intentional, observable, and
+    breaks something visible (forcing an update to these tests in lockstep
+    with the fix).
+    """
+
+    def test_weekly_rule_anchors_to_utc_across_dst_transition(self) -> None:
+        """Weekly rule starting before DST yields the same UTC time after DST.
+
+        This is the bug that Phase 3 will fix. A user expecting "Mondays at
+        10:00 in their local time" gets "Mondays at the UTC instant they
+        originally picked," which drifts by 1 hour relative to wall-clock
+        time after DST.
+        """
+        import zoneinfo
+        from datetime import timezone as dt_timezone
+
+        # Arrange — Monday 2026-03-23 10:00 Europe/Vienna (CET, UTC+1).
+        # The spring DST transition happens on 2026-03-29, so the next
+        # Monday (2026-03-30) is in CEST (UTC+2). A timezone-aware system
+        # would yield 10:00 Vienna both weeks; the current behavior yields
+        # 09:00 UTC both weeks, which is 11:00 Vienna in the second week.
+        vienna = zoneinfo.ZoneInfo("Europe/Vienna")
+        dtstart_local = datetime(2026, 3, 23, 10, 0, tzinfo=vienna)
+
+        rule = RecurrenceRule(
+            frequency=RecurrenceRule.Frequency.WEEKLY,
+            interval=1,
+            weekdays=[0],  # Monday
+            dtstart=dtstart_local,
+            count=2,
+            timezone="Europe/Vienna",
+        )
+
+        # Act
+        occurrences = list(rule.to_rrule())
+
+        # Assert — both occurrences share the same UTC instant offset from
+        # midnight, even though the second one falls after DST. A
+        # timezone-aware Phase 3 implementation would shift the second
+        # occurrence by one hour to keep the wall-clock time stable.
+        assert len(occurrences) == 2
+        first_utc = occurrences[0].astimezone(dt_timezone.utc)
+        second_utc = occurrences[1].astimezone(dt_timezone.utc)
+        assert first_utc.hour == second_utc.hour, (
+            "Phase 1/2 anchors occurrences to UTC dtstart and ignores DST. "
+            "If this assertion starts failing, Phase 3 has been implemented "
+            "and the field comment + schema description should be updated."
+        )
+        # And the wall-clock time in Vienna drifts by exactly one hour.
+        first_vienna = occurrences[0].astimezone(vienna)
+        second_vienna = occurrences[1].astimezone(vienna)
+        assert second_vienna.hour - first_vienna.hour == 1

@@ -272,6 +272,7 @@ from .recurring_event import (
     EventSeriesRecurrenceUpdateSchema,
     GenerateSeriesEventsSchema,
     RecurringEventCreateSchema,
+    TemplateEditSchema,
 )
 
 # Announcement schemas
@@ -489,6 +490,7 @@ __all__ = [
     "EventSeriesRecurrenceUpdateSchema",
     "GenerateSeriesEventsSchema",
     "RecurringEventCreateSchema",
+    "TemplateEditSchema",
     # Announcement
     "AnnouncementCreateSchema",
     "AnnouncementListSchema",

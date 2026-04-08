@@ -1,3 +1,11 @@
+"""Pure utilities for the events app.
+
+Helpers in this package may be imported by both models and services — unlike
+the service layer, they must not themselves import from ``events.service``.
+Model imports are deferred to avoid circular-import issues when submodules
+(e.g. ``recurrence_validators``) are pulled in during model loading.
+"""
+
 import base64
 import mimetypes
 import typing as t
@@ -11,9 +19,9 @@ from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
-from events import models
-
-from .models import Ticket
+if t.TYPE_CHECKING:
+    from events import models
+    from events.models import Ticket
 
 logger = structlog.get_logger(__name__)
 
@@ -21,7 +29,7 @@ logger = structlog.get_logger(__name__)
 DEFAULT_DATE_FORMAT = "l, F j, Y \\a\\t g:i A T"
 
 
-def get_event_timezone(event: models.Event) -> ZoneInfo:
+def get_event_timezone(event: "models.Event") -> ZoneInfo:
     """Get the timezone for an event based on its city.
 
     Falls back to UTC if no city or timezone is set.
@@ -46,7 +54,7 @@ def get_event_timezone(event: models.Event) -> ZoneInfo:
 
 def format_event_datetime(
     dt: datetime | None,
-    event: models.Event,
+    event: "models.Event",
     fmt: str = DEFAULT_DATE_FORMAT,
 ) -> str:
     r"""Format a datetime in the event's timezone.
@@ -79,13 +87,15 @@ class _SafeAccessStr(str):
     """
 
     def __getattr__(self, name: str) -> "_SafeAccessStr":
+        """Return an empty safe string for any attribute access."""
         return _SafeAccessStr()
 
     def __getitem__(self, key: object) -> "_SafeAccessStr":
+        """Return an empty safe string for any item access."""
         return _SafeAccessStr()
 
 
-def get_invitation_message(display_name: str, event: models.Event) -> str:
+def get_invitation_message(display_name: str, event: "models.Event") -> str:
     """Get invitation message.
 
     If the event has a custom invitation message, render it using safe string
@@ -231,7 +241,7 @@ def _file_to_data_uri(file_field: t.Any) -> str | None:
         return None
 
 
-def create_ticket_pdf(ticket: Ticket) -> bytes:
+def create_ticket_pdf(ticket: "Ticket") -> bytes:
     """Generates a PDF version of a ticket using weasyprint.
 
     Args:
