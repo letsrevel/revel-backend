@@ -530,7 +530,7 @@ def notify_admin_new_organization_pushover(self: t.Any, organization_id: str) ->
     """Send a Pushover notification to admin when a new organization is created.
 
     Includes the org name, owner's email, and the running total of organizations.
-    Skipped silently if Pushover is not configured.
+    Logs a warning and returns a skipped status if Pushover is not configured.
     """
     if not settings.PUSHOVER_USER_KEY or not settings.PUSHOVER_APP_TOKEN:
         logger.warning(
@@ -573,8 +573,9 @@ def notify_admin_new_organization_pushover(self: t.Any, organization_id: str) ->
 def notify_admin_new_organization_discord(self: t.Any, organization_id: str) -> dict[str, t.Any]:
     """Send a Discord notification when a new organization is created.
 
-    Includes the org name and running total — intentionally does NOT include
-    the owner's email or any other PII.
+    Includes the org name, owner's email, and running total. Mentions are
+    neutralized via ``allowed_mentions.parse=[]`` so that an org name
+    containing ``@everyone`` or a role mention cannot trigger pings.
     """
     webhook_url = settings.DISCORD_ADMIN_WEBHOOK_URL
     if not webhook_url:
@@ -587,7 +588,8 @@ def notify_admin_new_organization_discord(self: t.Any, organization_id: str) -> 
         "content": (
             f"🏛️ New organization created: **{org.name}** (owner: {org.owner.email}). "
             f"We now have {org_count} organizations."
-        )
+        ),
+        "allowed_mentions": {"parse": []},
     }
 
     try:

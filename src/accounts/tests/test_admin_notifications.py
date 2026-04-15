@@ -88,6 +88,10 @@ def test_discord_skipped_when_not_configured() -> None:
 @pytest.mark.django_db
 @override_settings(DISCORD_ADMIN_WEBHOOK_URL="https://example.com/webhook")
 def test_discord_message_omits_pii_and_includes_count(user: RevelUser) -> None:
+    user.first_name = "sensitive-first-name"
+    user.last_name = "sensitive-last-name"
+    user.save(update_fields=["first_name", "last_name"])
+
     with patch("accounts.tasks.httpx.post", return_value=_make_response()) as mock_post:
         notify_admin_new_user_joined_discord()
 
@@ -95,9 +99,12 @@ def test_discord_message_omits_pii_and_includes_count(user: RevelUser) -> None:
     content = kwargs["json"]["content"]
     assert user.email not in content
     assert user.first_name not in content
+    assert user.last_name not in content
     assert str(user.id) not in content
     total_non_guest_users = RevelUser.objects.filter(guest=False).count()
     assert f"We now have {total_non_guest_users} users." in content
+    # Discord mentions must be neutralized so org/user-controlled text can't ping
+    assert kwargs["json"]["allowed_mentions"] == {"parse": []}
 
 
 @pytest.mark.django_db
@@ -129,6 +136,25 @@ def test_signal_dispatches_both_tasks_on_commit_when_enabled(
         )
     mock_pushover.assert_called_once()
     mock_discord.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_signal_skips_discord_for_guest_user(
+    django_user_model: type[RevelUser], enable_user_notifications: None
+) -> None:
+    """Guests don't count toward the non-guest total, so Discord would show an unchanged count."""
+    with (
+        patch("accounts.signals.notify_admin_new_user_joined.delay") as mock_pushover,
+        patch("accounts.signals.notify_admin_new_user_joined_discord.delay") as mock_discord,
+    ):
+        django_user_model.objects.create_user(
+            username="guest@example.com",
+            email="guest@example.com",
+            password="x",
+            guest=True,
+        )
+    mock_pushover.assert_called_once()
+    mock_discord.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)

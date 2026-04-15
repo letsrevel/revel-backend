@@ -77,11 +77,13 @@ def test_org_discord_includes_name_owner_email_and_count(
     with patch("events.tasks.httpx.post", return_value=_make_response()) as mock_post:
         notify_admin_new_organization_discord(organization_id=str(organization.id))
 
-    content = mock_post.call_args.kwargs["json"]["content"]
+    payload = mock_post.call_args.kwargs["json"]
+    content = payload["content"]
     assert organization.name in content
     assert organization_owner_user.email in content
     org_count = Organization.objects.count()
     assert f"We now have {org_count} organizations." in content
+    assert payload["allowed_mentions"] == {"parse": []}
 
 
 @pytest.mark.django_db(transaction=True)

@@ -315,7 +315,10 @@ def notify_admin_new_user_joined_discord(self: t.Any) -> dict[str, t.Any]:
         return {"status": "skipped", "reason": "discord_webhook_not_configured"}
 
     user_count = RevelUser.objects.filter(guest=False).count()
-    payload = {"content": f"🎉 A new user joined! We now have {user_count} users."}
+    payload = {
+        "content": f"🎉 A new user joined! We now have {user_count} users.",
+        "allowed_mentions": {"parse": []},
+    }
 
     try:
         response = httpx.post(webhook_url, json=payload, timeout=10.0)

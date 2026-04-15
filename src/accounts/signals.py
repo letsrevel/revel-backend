@@ -16,11 +16,14 @@ logger = structlog.get_logger(__name__)
 def notify_admin_on_user_creation(
     sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: object
 ) -> None:
-    """Send Pushover notification to admin when a new user joins.
+    """Send admin notifications when a new user joins.
 
-    This is a standalone notification system that runs alongside the main notification
-    system. It checks SiteSettings.notify_user_joined and dispatches a Celery task
-    to send a Pushover notification if enabled.
+    Standalone notification system that runs alongside the main notification
+    system. Checks SiteSettings.notify_user_joined and dispatches Celery tasks
+    to send Pushover and Discord notifications if enabled. The Discord task
+    is only dispatched for non-guest users; the generic "new user" message
+    counts non-guest users only, so firing it for a guest signup would show
+    an unchanged count.
 
     Args:
         sender: The model class (RevelUser)
@@ -47,7 +50,8 @@ def notify_admin_on_user_creation(
 
     def _dispatch() -> None:
         notify_admin_new_user_joined.delay(user_id=user_id, user_email=user_email, is_guest=is_guest)
-        notify_admin_new_user_joined_discord.delay()
+        if not is_guest:
+            notify_admin_new_user_joined_discord.delay()
 
     transaction.on_commit(_dispatch)
 
