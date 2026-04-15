@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Discord admin-ping channel (`DISCORD_ADMIN_WEBHOOK_URL`) for new-user and new-organization events; PII-free content (no email/name on Discord)
+- `SiteSettings.notify_organization_created` flag to gate new-organization admin pings
+- New-user Pushover ping now includes the referrer's email (when present) and a running user count; new-organization Pushover ping includes owner email + running org count
+
 ### Changed
 - Decomposed long functions into focused helpers for readability
 - Extracted `is_owner_or_staff` and `has_org_permission` permission helpers

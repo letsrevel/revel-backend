@@ -176,3 +176,24 @@ The notification system is implemented in `notifications/service/`, which includ
 - **Unsubscribe handling**: Manages per-type and per-channel opt-outs
 
 Notifications are triggered from the service layer via Django signals and direct dispatcher calls. Delivery for email and Telegram channels is always asynchronous via Celery tasks.
+
+## Admin Pings (Pushover & Discord)
+
+Separate from the main user-facing notification system, Revel dispatches **admin-only** pings when operationally interesting events happen on the platform. These never reach end users and do not create `Notification` records; they go directly to Pushover and/or a Discord webhook.
+
+| Event | Pushover content | Discord content |
+|---|---|---|
+| New user signs up | User email, referrer email (if any), running user count | Generic "A new user joined" + running user count (no PII) |
+| New organization created | Org name, owner email, running org count | Org name + running org count (no owner email) |
+
+Each channel self-skips when its config is missing:
+
+- **Pushover** requires `PUSHOVER_USER_KEY` + `PUSHOVER_APP_TOKEN`.
+- **Discord** requires `DISCORD_ADMIN_WEBHOOK_URL`.
+
+Dispatch is gated by `SiteSettings` flags:
+
+- `notify_user_joined` → new-user pings (both channels)
+- `notify_organization_created` → new-organization pings (both channels)
+
+Tasks live in `accounts/tasks.py` (user) and `events/tasks.py` (organization); signals in the corresponding `signals.py` dispatch them via `transaction.on_commit` so any related rows (e.g., `Referral`) are visible when the task runs. All tasks retry with exponential backoff (1/2/4 min, max 3 attempts).
