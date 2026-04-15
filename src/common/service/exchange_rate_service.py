@@ -1,4 +1,4 @@
-"""Exchange rate service using frankfurter.app (ECB data).
+"""Exchange rate service using frankfurter.dev (ECB data).
 
 Provides daily exchange rates with automatic fetching and DB caching.
 Rates are fetched by a daily Celery task and stored in the ExchangeRate model.
@@ -15,7 +15,7 @@ from common.models import ExchangeRate
 
 logger = structlog.get_logger(__name__)
 
-FRANKFURTER_BASE_URL = "https://api.frankfurter.app"
+FRANKFURTER_BASE_URL = "https://api.frankfurter.dev/v1"
 
 
 def fetch_and_store_rates(base: str | None = None, date: datetime.date | None = None) -> ExchangeRate:

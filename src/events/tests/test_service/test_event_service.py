@@ -403,8 +403,10 @@ class TestDuplicateEvent:
         assert early_bird_tier.sales_start_at == original_tier.sales_start_at + timedelta(days=30)  # type: ignore[operator]
         assert early_bird_tier.sales_end_at == original_tier.sales_end_at + timedelta(days=30)  # type: ignore[operator]
 
-    def test_duplicate_event_copies_suggested_potluck_items(self, organization: Organization) -> None:
-        """Test that suggested potluck items are copied but user items are not."""
+    def test_duplicate_event_copies_all_potluck_items_without_assignments(
+        self, organization: Organization, public_user: RevelUser
+    ) -> None:
+        """Test that all potluck items are copied as host suggestions without assignments."""
         template = Event.objects.create(
             organization=organization,
             name="Potluck Event",
@@ -413,7 +415,7 @@ class TestDuplicateEvent:
             requires_ticket=False,
         )
 
-        # Create a suggested item (host-created)
+        # Host-created suggested item
         PotluckItem.objects.create(
             event=template,
             name="Chips",
@@ -421,12 +423,14 @@ class TestDuplicateEvent:
             is_suggested=True,
         )
 
-        # Create a user-contributed item
+        # User-contributed item with assignment
         PotluckItem.objects.create(
             event=template,
             name="Homemade Cookies",
             item_type=PotluckItem.ItemTypes.DESSERT,
             is_suggested=False,
+            created_by=public_user,
+            assignee=public_user,
         )
 
         new_event = event_service.duplicate_event(
@@ -435,10 +439,12 @@ class TestDuplicateEvent:
             new_start=template.start + timedelta(days=7),
         )
 
-        new_items = list(new_event.potluck_items.all())
-        assert len(new_items) == 1
-        assert new_items[0].name == "Chips"
-        assert new_items[0].is_suggested is True
+        new_items = list(new_event.potluck_items.order_by("name"))
+        assert [i.name for i in new_items] == ["Chips", "Homemade Cookies"]
+        for item in new_items:
+            assert item.is_suggested is True
+            assert item.created_by is None
+            assert item.assignee is None
 
     def test_duplicate_event_copies_tags(self, public_event: Event) -> None:
         """Test that tags are copied to the new event."""
@@ -599,6 +605,35 @@ class TestDuplicateEvent:
         )
 
         assert new_event.apply_before is None
+
+    def test_duplicate_event_copies_extended_fields(self, organization: Organization) -> None:
+        """Test that address_visibility, requires_full_profile, and other extended fields are copied."""
+        from events.models.mixins import ResourceVisibility
+
+        template = Event.objects.create(
+            organization=organization,
+            name="Extended Event",
+            start=timezone.now(),
+            address_visibility=ResourceVisibility.ATTENDEES_ONLY,
+            requires_full_profile=True,
+            public_pronoun_distribution=True,
+            max_tickets_per_user=5,
+            location_maps_url="https://maps.example.com/place",
+            location_maps_embed="https://www.google.com/maps/embed?pb=example",
+        )
+
+        new_event = event_service.duplicate_event(
+            template_event=template,
+            new_name="Copy",
+            new_start=template.start + timedelta(days=1),
+        )
+
+        assert new_event.address_visibility == ResourceVisibility.ATTENDEES_ONLY
+        assert new_event.requires_full_profile is True
+        assert new_event.public_pronoun_distribution is True
+        assert new_event.max_tickets_per_user == 5
+        assert new_event.location_maps_url == "https://maps.example.com/place"
+        assert new_event.location_maps_embed == "https://www.google.com/maps/embed?pb=example"
 
 
 class TestCreateInvitationRequest:

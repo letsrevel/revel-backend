@@ -429,7 +429,7 @@ def cleanup_expired_file_exports() -> dict[str, int]:
     max_retries=5,
 )
 def fetch_exchange_rates() -> dict[str, t.Any]:
-    """Fetch daily exchange rates from frankfurter.app and store them.
+    """Fetch daily exchange rates from frankfurter.dev and store them.
 
     Runs daily at 04:00 UTC via Celery beat. Rates are used for platform fee
     currency conversion and referral payout calculations.

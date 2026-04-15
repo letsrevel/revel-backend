@@ -17,7 +17,7 @@ from .event import MinimalEventSchema
 from .organization import MembershipTierSchema, MinimalOrganizationMemberSchema
 from .venue import MinimalSeatSchema, VenueSchema, VenueSectorSchema
 
-# Supported currencies — must match frankfurter.app for exchange rate availability
+# Supported currencies — must match frankfurter.dev for exchange rate availability
 Currencies = t.Literal[
     "EUR",  # Euro
     "USD",  # US Dollar

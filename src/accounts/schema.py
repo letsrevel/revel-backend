@@ -236,10 +236,10 @@ SupportedLanguage = t.Literal["en", "de", "it"]
 class ProfileUpdateSchema(Schema):
     """Schema for updating user profile information."""
 
-    preferred_name: str = Field(..., max_length=255, description="User's preferred name")
-    pronouns: str = Field(..., max_length=100, description="User's pronouns")
-    first_name: str = Field(..., max_length=30, description="User's first name")
-    last_name: str = Field(..., max_length=150, description="User's last name")
+    preferred_name: StrippedString = Field(..., max_length=255, description="User's preferred name")
+    pronouns: StrippedString = Field(..., max_length=100, description="User's pronouns")
+    first_name: StrippedString = Field(..., max_length=30, description="User's first name")
+    last_name: StrippedString = Field(..., max_length=150, description="User's last name")
     language: SupportedLanguage = Field("en", max_length=7, description="User's preferred language (en, de, it)")
     bio: str = Field("", max_length=500, description="User's bio (publicly visible)")
 
