@@ -581,9 +581,14 @@ def notify_admin_new_organization_discord(self: t.Any, organization_id: str) -> 
         logger.info("discord_webhook_not_configured")
         return {"status": "skipped", "reason": "discord_webhook_not_configured"}
 
-    org = Organization.objects.only("name").get(id=organization_id)
+    org = Organization.objects.select_related("owner").get(id=organization_id)
     org_count = Organization.objects.count()
-    payload = {"content": f"🏛️ New organization created: **{org.name}**. We now have {org_count} organizations."}
+    payload = {
+        "content": (
+            f"🏛️ New organization created: **{org.name}** (owner: {org.owner.email}). "
+            f"We now have {org_count} organizations."
+        )
+    }
 
     try:
         response = httpx.post(webhook_url, json=payload, timeout=10.0)

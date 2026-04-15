@@ -184,7 +184,7 @@ Separate from the main user-facing notification system, Revel dispatches **admin
 | Event | Pushover content | Discord content |
 |---|---|---|
 | New user signs up | User email, referrer email (if any), running user count | Generic "A new user joined" + running user count (no PII) |
-| New organization created | Org name, owner email, running org count | Org name + running org count (no owner email) |
+| New organization created | Org name, owner email, running org count | Org name, owner email, running org count |
 
 Each channel self-skips when its config is missing:
 

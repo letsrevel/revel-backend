@@ -71,7 +71,7 @@ def test_org_discord_skipped_when_not_configured(organization: Organization) -> 
 
 @pytest.mark.django_db
 @override_settings(DISCORD_ADMIN_WEBHOOK_URL="https://example.com/webhook")
-def test_org_discord_includes_name_and_count_but_not_owner_email(
+def test_org_discord_includes_name_owner_email_and_count(
     organization: Organization, organization_owner_user: RevelUser
 ) -> None:
     with patch("events.tasks.httpx.post", return_value=_make_response()) as mock_post:
@@ -79,7 +79,7 @@ def test_org_discord_includes_name_and_count_but_not_owner_email(
 
     content = mock_post.call_args.kwargs["json"]["content"]
     assert organization.name in content
-    assert organization_owner_user.email not in content
+    assert organization_owner_user.email in content
     org_count = Organization.objects.count()
     assert f"We now have {org_count} organizations." in content
 
