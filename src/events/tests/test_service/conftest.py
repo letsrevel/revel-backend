@@ -115,9 +115,18 @@ def weekly_rule(organization: Organization) -> RecurrenceRule:
 
 
 @pytest.fixture
-def template_event(organization: Organization, event_series: EventSeries) -> Event:
-    """Create a template event for the series."""
-    start = timezone.make_aware(datetime(2026, 4, 6, 10, 0))
+def template_event(
+    organization: Organization,
+    event_series: EventSeries,
+    weekly_rule: RecurrenceRule,
+) -> Event:
+    """Create a template event for the series.
+
+    Anchors ``start`` to ``weekly_rule.dtstart`` so the rule and its template
+    describe the exact same schedule. Without this, changing one literal in
+    ``weekly_rule`` would leave the template pointing at the wrong date.
+    """
+    start = weekly_rule.dtstart
     event = Event.objects.create(
         organization=organization,
         event_series=event_series,

@@ -145,3 +145,29 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
 
     def __str__(self) -> str:
         return self.name
+
+    def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
+        """Delete the series and cascade-delete its events, including the template.
+
+        ``template_event`` and ``recurrence_rule`` both use ``on_delete=PROTECT``
+        to guard against direct deletion of the Event or RecurrenceRule rows
+        via the admin. But deleting the series itself is the blessed teardown
+        path: we must be able to reach the template event (CASCADE via
+        ``Event.event_series``) without the PROTECT FK from ``this`` series
+        tripping the collector. We null out both PROTECT-ing FKs in a single
+        UPDATE first so the subsequent cascade can complete cleanly.
+
+        The ``RecurrenceRule`` row is intentionally left orphaned — cleanup of
+        the rule belongs in a service-level teardown helper if/when one is
+        added. This is called out in the class-level comment on
+        ``template_event`` and pinned by
+        ``test_deleting_series_cascades_to_template_and_occurrences``.
+        """
+        if self.pk is not None and (self.template_event_id or self.recurrence_rule_id):
+            type(self).objects.filter(pk=self.pk).update(
+                template_event=None,
+                recurrence_rule=None,
+            )
+            self.template_event = None
+            self.recurrence_rule = None
+        return super().delete(*args, **kwargs)

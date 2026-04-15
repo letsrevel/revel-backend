@@ -230,3 +230,30 @@ class TestCreateRecurringEvent:
 
         # Assert
         assert response.status_code == 422
+
+    def test_rejects_non_draft_template_status(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+    ) -> None:
+        """Sending a non-default template ``status`` must return 422.
+
+        The server forces templates to DRAFT on creation regardless; rather
+        than silently overriding the client's value, we reject it with a
+        clear 422 so API consumers get a deterministic contract.
+        """
+        # Arrange
+        url = reverse("api:create_recurring_event", kwargs={"slug": organization.slug})
+        payload = _create_recurring_event_payload()
+        payload["event"]["status"] = "open"
+
+        # Act
+        response = organization_owner_client.post(
+            url,
+            data=orjson.dumps(payload),
+            content_type="application/json",
+        )
+
+        # Assert
+        assert response.status_code == 422
+        assert not EventSeries.objects.filter(organization=organization).exists()

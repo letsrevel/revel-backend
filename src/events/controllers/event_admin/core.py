@@ -1,3 +1,4 @@
+import typing as t
 from uuid import UUID
 
 from django.utils.translation import gettext_lazy as _
@@ -41,19 +42,41 @@ class EventAdminCoreController(EventAdminBaseController):
     def update_event(self, event_id: UUID, payload: schema.EventEditSchema) -> models.Event:
         """Update event by ID.
 
-        Editing a series occurrence (non-template) marks it as `is_modified=True`
-        to protect it from future template propagation.
-        Template editing and propagation are handled via the series admin controller.
-        Templates themselves are never reachable here: ``get_one()`` uses
-        ``Event.objects.for_user()`` which filters ``is_template=False``.
+        Editing a series occurrence (non-template) marks it as ``is_modified=True``
+        so it is protected from future template propagation — *but only when
+        the PUT actually changes a persisted field*. A no-op PUT (re-submitting
+        the current state) must not silently opt the occurrence out of
+        propagation. Template editing and propagation are handled via the
+        series admin controller. Templates themselves are never reachable here:
+        ``get_one()`` uses ``Event.objects.for_user()`` which filters
+        ``is_template=False``.
         """
         event = self.get_one(event_id)
+
+        # Snapshot the persisted values for the fields the client explicitly
+        # sent so we can detect a real diff vs. a no-op PUT. This must run
+        # *before* ``update_db_instance`` mutates the instance.
+        track_is_modified = event.occurrence_index is not None and not event.is_modified
+        pre_values: dict[str, t.Any] = {}
+        if track_is_modified:
+            payload_fields = set(payload.model_dump(exclude_unset=True).keys())
+            pre_values = {f: getattr(event, f, None) for f in payload_fields if hasattr(event, f)}
+
         updated_event = update_db_instance(event, payload)
 
-        # Mark occurrences as modified to protect from template propagation.
-        if updated_event.occurrence_index is not None and not updated_event.is_modified:
-            updated_event.is_modified = True
-            updated_event.save(update_fields=["is_modified"])
+        # Mark occurrences as modified only when a persisted field actually
+        # changed. Comparing against the pre-update snapshot avoids marking
+        # idempotent no-op PUTs as manual edits.
+        #
+        # The ``!=`` comparison is reliable for the simple types that
+        # ``EventEditSchema`` actually exposes (str, int, bool, datetime).
+        # GIS Point objects or cross-tz datetimes could compare unequal for
+        # structurally-identical values, but neither is exposed here.
+        if track_is_modified and pre_values:
+            changed = any(getattr(updated_event, field) != pre_values[field] for field in pre_values)
+            if changed:
+                updated_event.is_modified = True
+                updated_event.save(update_fields=["is_modified"])
 
         return updated_event
 

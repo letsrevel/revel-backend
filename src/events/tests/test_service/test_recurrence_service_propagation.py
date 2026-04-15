@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import pytest
 from django.contrib.gis.geos import Point
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from freezegun import freeze_time
 
@@ -152,6 +153,58 @@ class TestPropagateTemplateChanges:
         # Assert
         past_event.refresh_from_db()
         assert past_event.description != "Should not reach past"
+
+
+class TestPropagateAtomicity:
+    """``propagate_template_changes`` must be all-or-nothing under failure."""
+
+    @freeze_time("2026-04-06 10:00:00")
+    @patch("notifications.service.notification_helpers.notify_series_events_generated")
+    def test_failure_mid_loop_rolls_back_prior_updates(
+        self,
+        mock_notify: t.Any,
+        active_series: EventSeries,
+    ) -> None:
+        """If propagation raises mid-loop, all in-batch updates must roll back.
+
+        Without ``@transaction.atomic`` on ``propagate_template_changes``, a
+        save() failure on the third occurrence would leave the first two with
+        the new value while the rest stay on the old value. The atomic wrapper
+        guarantees the entire batch reverts so the propagation contract is
+        all-or-nothing regardless of which caller invokes it.
+        """
+        # Arrange — generate a handful of future occurrences and snapshot
+        # their original description.
+        created = recurrence_service.generate_series_events(active_series)
+        assert len(created) >= 3
+        original_descriptions = {e.id: e.description for e in created}
+
+        # Patch Event.save so the third call raises while the first two
+        # succeed. The atomic block must roll those two back.
+        original_save = Event.save
+        call_count = {"n": 0}
+
+        def flaky_save(self: Event, *args: t.Any, **kwargs: t.Any) -> None:
+            call_count["n"] += 1
+            if call_count["n"] == 3:
+                raise ValidationError("simulated mid-loop failure")
+            original_save(self, *args, **kwargs)
+
+        # Act + Assert — call must raise.
+        with patch.object(Event, "save", flaky_save):
+            with pytest.raises(ValidationError):
+                recurrence_service.propagate_template_changes(
+                    series=active_series,
+                    changed_fields={"description": "should be rolled back"},
+                    scope=PropagateScope.ALL_FUTURE,
+                )
+
+        # Assert — no occurrence retains the new description.
+        for event in created:
+            event.refresh_from_db()
+            assert event.description == original_descriptions[event.id], (
+                f"Event {event.id} kept the in-batch change after rollback"
+            )
 
 
 class TestPropagateCoupledFields:

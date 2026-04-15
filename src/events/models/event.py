@@ -306,6 +306,10 @@ class Event(
     )
 
     # Recurring event fields
+    # NOTE: when adding new fields to Event, check whether they should be
+    # excluded from duplication in ``events.service.duplication._EXCLUDED_FROM_COPY``.
+    # Fields in the exclusion set are NOT copied from template to occurrence;
+    # everything else is copied by default via ``_meta.concrete_fields`` introspection.
     is_template = models.BooleanField(default=False, db_index=True)
     is_modified = models.BooleanField(default=False)
     occurrence_index = models.PositiveIntegerField(

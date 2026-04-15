@@ -55,7 +55,7 @@ class EventFilterSchema(CityFilterMixin):
     organization: t.Annotated[UUID | None, FilterLookup(q="organization_id")] = None
     event_type: Event.EventType | None = None
     visibility: Event.Visibility | None = None
-    event_series: t.Annotated[UUID | None, FilterLookup(q="event_series_id")] = None
+    event_series: UUID | None = None
     requires_ticket: bool | None = None
     next_events: bool | None = True
     past_events: bool | None = None
@@ -64,6 +64,21 @@ class EventFilterSchema(CityFilterMixin):
     date: AwareDatetime | None = None
     start_after: AwareDatetime | None = None
     start_before: AwareDatetime | None = None
+
+    def filter_event_series(self, event_series: UUID | None) -> Q:
+        """Filter by event series id, with a defence-in-depth template exclusion.
+
+        All current call sites chain this filter onto querysets that already
+        apply ``is_template=False`` (via ``EventQuerySet.for_user()`` or
+        ``exclude_templates()``). Adding ``is_template=False`` here as well
+        means that a future controller which forgets to apply
+        ``exclude_templates()`` before using this filter still cannot leak
+        recurring-series template events via the ``event_series`` query
+        parameter.
+        """
+        if event_series is None:
+            return Q()
+        return Q(event_series_id=event_series, is_template=False)
 
     def filter_next_events(self, next_events: bool) -> Q:
         """Helper to find next events only."""

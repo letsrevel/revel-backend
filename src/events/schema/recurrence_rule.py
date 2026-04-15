@@ -57,7 +57,14 @@ class RecurrenceRuleCreateSchema(Schema):
 
 
 class RecurrenceRuleUpdateSchema(Schema):
-    """Schema for updating a recurrence rule — all fields optional."""
+    """Schema for updating a recurrence rule — all fields optional.
+
+    ``dtstart`` is intentionally excluded. Changing the recurrence anchor
+    date of a live series would require re-materializing all future
+    occurrences (and deciding what to do with already-sold tickets on the
+    existing ones). This is a destructive operation that belongs on a
+    dedicated "rebase series" workflow, not on a generic PATCH.
+    """
 
     frequency: RecurrenceRule.Frequency | None = None
     interval: int | None = Field(default=None, ge=1)

@@ -100,6 +100,23 @@ def generate_series_events(
     Skips excluded dates (exdates) and already-existing occurrences.
     Wraps batch in suppress_event_notifications() to prevent per-event spam.
 
+    Concurrency: the whole computation runs inside a single
+    ``transaction.atomic`` block that starts by taking a ``select_for_update``
+    lock on the series row. That serializes concurrent callers (e.g. the
+    daily beat fan-out overlapping with a manual-generation button press)
+    so we cannot read stale ``last_generated_until`` / ``existing_starts``
+    and double-insert the same (series, start) pair. Without the lock, two
+    concurrent runs would compute the same gap, call ``duplicate_event``
+    with the same deterministic slug inputs, and race on the
+    ``(organization, slug)`` unique constraint.
+
+    The materialization loop and the ``last_generated_until`` bump happen
+    inside this same atomic block so a failure on any occurrence rolls back
+    all previously-materialized events along with the cursor update. The
+    notification dispatch is intentionally *outside* the block: a
+    notification glitch must not be able to roll back successfully
+    materialized events.
+
     Args:
         series: The EventSeries with a recurrence_rule and template_event.
         until_override: Optional override for the generation horizon.
@@ -107,73 +124,112 @@ def generate_series_events(
     Returns:
         List of newly created Event instances.
     """
+    # Cheap pre-check outside the lock to avoid opening a transaction and
+    # grabbing a row lock for no-op cases. State may have changed by the
+    # time we re-fetch inside the lock; those re-checks are the source of
+    # truth.
     if not series.is_active:
         return []
-    if not series.recurrence_rule or not series.template_event:
-        # An active series without a rule or template is a broken state:
-        # CASCADE deletes normally prevent this, but a legacy half-null row
-        # could still be in the DB. Log so operators notice and clean up.
+    if not series.recurrence_rule_id or not series.template_event_id:
         logger.warning(
             "series_missing_rule_or_template",
             series_id=str(series.id),
-            has_rule=bool(series.recurrence_rule),
-            has_template=bool(series.template_event),
+            has_rule=bool(series.recurrence_rule_id),
+            has_template=bool(series.template_event_id),
         )
         return []
 
-    rule = series.recurrence_rule.to_rrule()
-    horizon = until_override or (timezone.now() + timedelta(weeks=series.generation_window_weeks))
-    # Offset start_from by 1 second so dtstart itself is included in between().
-    start_from = series.last_generated_until or (series.recurrence_rule.dtstart - timedelta(seconds=1))
-    # Defense against horizon decreases (e.g. user lowers generation_window_weeks):
-    # without this cap, start_from could exceed horizon and silently stall generation.
-    if start_from > horizon:
-        start_from = horizon
-
-    # Compute which dates to skip (using timezone-aware datetime comparison).
-    # Scope existing_starts to the window we're about to generate to avoid loading
-    # the entire history of long-running series.
-    exdates_set = _parse_exdates(series.exdates)
-    existing_starts = set(
-        series.events.filter(
-            is_template=False,
-            start__gte=start_from,
-            start__lt=horizon,
-        ).values_list("start", flat=True)
-    )
-
-    # Continue the occurrence_index sequence from where the last batch left off so
-    # indices remain globally monotonic across rolling-window runs.
-    max_index = series.events.filter(is_template=False).aggregate(max_idx=db_models.Max("occurrence_index"))["max_idx"]
-    next_index = (max_index if max_index is not None else -1) + 1
-
-    occurrences = rule.between(start_from, horizon, inc=False)
-
     created: list[Event] = []
-    with suppress_event_notifications():
+
+    with transaction.atomic(), suppress_event_notifications():
+        # Lock the series row and re-fetch the state we care about. Two
+        # concurrent callers serialize here: the second one blocks until the
+        # first commits, then sees the updated ``last_generated_until`` and
+        # the freshly-materialized occurrences via ``existing_starts``.
+        locked_series = (
+            EventSeries.objects.select_for_update()
+            .select_related("recurrence_rule", "template_event")
+            .get(pk=series.pk)
+        )
+
+        if not locked_series.is_active:
+            return []
+        if not locked_series.recurrence_rule or not locked_series.template_event:
+            # A legacy half-null row could still be in the DB. Log so
+            # operators notice and clean up.
+            logger.warning(
+                "series_missing_rule_or_template",
+                series_id=str(locked_series.id),
+                has_rule=bool(locked_series.recurrence_rule),
+                has_template=bool(locked_series.template_event),
+            )
+            return []
+
+        rule = locked_series.recurrence_rule.to_rrule()
+        horizon = until_override or (
+            timezone.now() + timedelta(weeks=locked_series.generation_window_weeks)
+        )
+        # Offset start_from by 1 second so dtstart itself is included in between().
+        start_from = locked_series.last_generated_until or (
+            locked_series.recurrence_rule.dtstart - timedelta(seconds=1)
+        )
+        # Defense against horizon decreases (e.g. user lowers
+        # generation_window_weeks): without this cap, start_from could
+        # exceed horizon and silently stall generation.
+        if start_from > horizon:
+            start_from = horizon
+
+        # Compute which dates to skip (using timezone-aware datetime comparison).
+        # Scope existing_starts to the window we're about to generate to avoid loading
+        # the entire history of long-running series.
+        exdates_set = _parse_exdates(locked_series.exdates)
+        existing_starts = set(
+            locked_series.events.filter(
+                is_template=False,
+                start__gte=start_from,
+                start__lt=horizon,
+            ).values_list("start", flat=True)
+        )
+
+        # Continue the occurrence_index sequence from where the last batch left off so
+        # indices remain globally monotonic across rolling-window runs.
+        max_index = locked_series.events.filter(is_template=False).aggregate(
+            max_idx=db_models.Max("occurrence_index")
+        )["max_idx"]
+        next_index = (max_index if max_index is not None else -1) + 1
+
+        occurrences = rule.between(start_from, horizon, inc=False)
+
         for dt in occurrences:
             if dt in exdates_set or dt in existing_starts:
                 continue
-            event = materialize_occurrence(series, dt, index=next_index)
+            event = materialize_occurrence(locked_series, dt, index=next_index)
             created.append(event)
             next_index += 1
 
+        locked_series.last_generated_until = horizon
+        locked_series.save(update_fields=["last_generated_until"])
+        # Keep the caller's in-memory ``series`` in sync with the committed
+        # cursor so downstream code (e.g. tests) sees the updated value
+        # without an extra refresh_from_db call.
         series.last_generated_until = horizon
-        series.save(update_fields=["last_generated_until"])
 
-    # Send one digest notification instead of N individual ones.
+        logger.info(
+            "series_events_generated",
+            series_id=str(locked_series.id),
+            count=len(created),
+            horizon=horizon.isoformat(),
+        )
+
+    # Send one digest notification instead of N individual ones. This runs
+    # *after* the materialization commit so a notification failure cannot
+    # roll back the freshly-materialized events.
     # Imported locally to avoid a circular import: notifications -> events -> notifications.
     if created:
         from notifications.service.notification_helpers import notify_series_events_generated  # noqa: PLC0415
 
         notify_series_events_generated(series, created)
 
-    logger.info(
-        "series_events_generated",
-        series_id=str(series.id),
-        count=len(created),
-        horizon=horizon.isoformat(),
-    )
     return created
 
 
@@ -246,22 +302,37 @@ def _normalize_exdate_set(exdates: list[str]) -> set[str]:
     return {_normalize_exdate(s) for s in exdates if s}
 
 
+@transaction.atomic
 def cancel_occurrence(series: EventSeries, occurrence_date: datetime) -> None:
     """Cancel a single occurrence by adding it to exdates.
 
     The exdate is stored as a UTC-normalized ISO 8601 string so that equivalent
     instants sent in different timezone representations don't accumulate as
     duplicates. If the occurrence was already materialized, also cancels that event.
+
+    Concurrency: takes a ``select_for_update`` lock on the series row so
+    concurrent cancellations cannot lose an update. Without the lock, two
+    operators cancelling two different occurrences simultaneously would
+    read the same ``exdates`` list, append their own exdate to a copy, and
+    the last writer would overwrite the first — silently dropping one
+    exclusion.
     """
     normalized = _normalize_exdate(occurrence_date)
-    existing_normalized = _normalize_exdate_set(series.exdates)
+
+    # Re-fetch under a row lock so the append-and-save is atomic with any
+    # concurrent cancellation against the same series.
+    locked_series = EventSeries.objects.select_for_update().get(pk=series.pk)
+    existing_normalized = _normalize_exdate_set(locked_series.exdates)
     if normalized not in existing_normalized:
-        series.exdates = [*series.exdates, normalized]
-        series.save(update_fields=["exdates"])
+        locked_series.exdates = [*locked_series.exdates, normalized]
+        locked_series.save(update_fields=["exdates"])
+        # Keep the caller's in-memory ``series`` in sync so downstream code
+        # (e.g. tests) sees the updated list without an extra refresh.
+        series.exdates = list(locked_series.exdates)
 
     # Cancel materialized event if it exists. Match by instant, not wall-clock
     # representation, by using the original aware datetime (Django compares in UTC).
-    materialized = series.events.filter(
+    materialized = locked_series.events.filter(
         is_template=False,
         start=occurrence_date,
     ).first()
@@ -270,7 +341,7 @@ def cancel_occurrence(series: EventSeries, occurrence_date: datetime) -> None:
         materialized.save(update_fields=["status"])
         logger.info(
             "occurrence_cancelled",
-            series_id=str(series.id),
+            series_id=str(locked_series.id),
             event_id=str(materialized.id),
             occurrence_date=normalized,
         )
@@ -409,6 +480,7 @@ def update_template(
     return series
 
 
+@transaction.atomic
 def propagate_template_changes(
     series: EventSeries,
     changed_fields: dict[str, t.Any],
@@ -425,7 +497,10 @@ def propagate_template_changes(
 
     Changes are written via per-instance ``save()`` so that ``full_clean()``
     runs and any coupled-field invariants enforced at the model layer are
-    respected. Notifications are suppressed during the batch.
+    respected. Notifications are suppressed during the batch. The entire
+    batch runs inside a single atomic block so a mid-loop failure rolls back
+    all prior in-batch updates; this keeps ``update_template`` and any
+    direct caller safely all-or-nothing.
 
     Args:
         series: The series whose template was updated.

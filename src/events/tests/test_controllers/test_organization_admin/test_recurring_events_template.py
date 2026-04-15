@@ -135,13 +135,16 @@ class TestUpdateRecurrence:
     ) -> None:
         """A non-member gets 404 (not 403) because the org is not discoverable.
 
-        Returning 404 avoids leaking org existence to unauthorised users; the
-        endpoint is effectively invisible outside the org membership.
+        Using a *real* series id ensures we're testing the authorisation
+        branch — if the controller accidentally exposed an existing series
+        to unauthorised callers, this test would start failing instead of
+        silently passing on a "resource does not exist" 404.
         """
         # Arrange
+        series = _make_series_with_rule(organization)
         url = reverse(
             "api:update_series_recurrence",
-            kwargs={"slug": organization.slug, "series_id": str(uuid4())},
+            kwargs={"slug": organization.slug, "series_id": str(series.id)},
         )
         payload = {"auto_publish": True}
 
@@ -248,6 +251,8 @@ class TestUpdateTemplate:
         """Invalid propagate values are rejected by the PropagateScope enum at the API boundary."""
         # Arrange
         series = _make_series_with_rule(organization)
+        assert series.template_event is not None
+        original_description = series.template_event.description
         url = reverse(
             "api:update_series_template",
             kwargs={"slug": organization.slug, "series_id": str(series.id)},
@@ -261,8 +266,10 @@ class TestUpdateTemplate:
             content_type="application/json",
         )
 
-        # Assert
+        # Assert — schema rejection must not have applied any template changes.
         assert response.status_code == 422
+        series.template_event.refresh_from_db()
+        assert series.template_event.description == original_description
 
     def test_update_template_returns_404_for_nonmember(
         self,
@@ -271,13 +278,14 @@ class TestUpdateTemplate:
     ) -> None:
         """A non-member gets 404 (not 403) because the org is not discoverable.
 
-        Returning 404 avoids leaking org existence to unauthorised users; the
-        endpoint is effectively invisible outside the org membership.
+        Using a real series id ensures we're exercising the authorisation
+        path, not the "resource does not exist" branch.
         """
         # Arrange
+        series = _make_series_with_rule(organization)
         url = reverse(
             "api:update_series_template",
-            kwargs={"slug": organization.slug, "series_id": str(uuid4())},
+            kwargs={"slug": organization.slug, "series_id": str(series.id)},
         )
         payload = {"description": "x"}
 
@@ -299,9 +307,9 @@ class TestUpdateTemplate:
         """The template edit payload must not allow rebinding the template to another series.
 
         ``TemplateEditSchema`` deliberately omits ``event_series_id`` from the
-        editable field set, so sending it should be rejected by pydantic (or
-        silently ignored) — never silently applied. This regression test
-        guards against reintroducing ``EventEditSchema`` which exposes that FK.
+        editable field set and declares ``extra="forbid"``, so sending it
+        must return 422. This regression test guards against reintroducing
+        ``EventEditSchema`` which exposes that FK.
         """
         # Arrange — two separate series in the same org.
         series = _make_series_with_rule(organization)
@@ -322,8 +330,8 @@ class TestUpdateTemplate:
             content_type="application/json",
         )
 
-        # Assert — either 200 (ignored) or 422 (rejected). Never a successful rebind.
-        assert response.status_code in (200, 422)
+        # Assert — deterministic 422 from ``extra="forbid"``.
+        assert response.status_code == 422
         series.refresh_from_db()
         assert series.template_event is not None
         assert series.template_event.event_series_id == original_series_id
@@ -352,8 +360,8 @@ class TestUpdateTemplate:
             content_type="application/json",
         )
 
-        # Assert
-        assert response.status_code in (200, 422)
+        # Assert — deterministic 422 from ``extra="forbid"``.
+        assert response.status_code == 422
         series.refresh_from_db()
         assert series.template_event is not None
         assert series.template_event.venue_id == original_venue_id
@@ -382,8 +390,8 @@ class TestUpdateTemplate:
             content_type="application/json",
         )
 
-        # Assert — status should not change regardless of payload.
-        assert response.status_code in (200, 422)
+        # Assert — deterministic 422 from ``extra="forbid"``; status unchanged.
+        assert response.status_code == 422
         series.refresh_from_db()
         assert series.template_event is not None
         assert series.template_event.status == original_status

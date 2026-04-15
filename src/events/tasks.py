@@ -469,6 +469,7 @@ def generate_recurring_events_task() -> dict[str, int]:
         ).values_list("id", flat=True)
     )
 
+    dispatched = 0
     for series_id in series_ids:
         try:
             generate_single_series_events_task.delay(str(series_id))
@@ -478,12 +479,17 @@ def generate_recurring_events_task() -> dict[str, int]:
             # next daily run will retry. Anything other than a transport
             # failure should propagate.
             logger.exception("recurring_events_dispatch_failed", series_id=str(series_id))
+            continue
+        dispatched += 1
 
+    # Report *successful* publishes, not just attempted ones, so a partial
+    # broker outage doesn't look like full success in metrics.
     logger.info(
         "recurring_events_generation_dispatched",
-        series_dispatched=len(series_ids),
+        series_attempted=len(series_ids),
+        series_dispatched=dispatched,
     )
-    return {"series_dispatched": len(series_ids)}
+    return {"series_dispatched": dispatched}
 
 
 @shared_task(

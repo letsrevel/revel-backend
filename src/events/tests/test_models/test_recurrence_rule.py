@@ -543,6 +543,15 @@ class TestRecurrenceRuleDSTBehavior:
         10:00 in their local time" gets "Mondays at the UTC instant they
         originally picked," which drifts by 1 hour relative to wall-clock
         time after DST.
+
+        Important: we pass a UTC-normalized ``dtstart`` to the model because
+        that is what production sees. Django's ``DateTimeField`` stores datetimes
+        as UTC in the database and reads them back as UTC-aware, regardless of
+        what timezone the client originally sent. Passing a ``zoneinfo``-aware
+        datetime directly to ``dateutil.rrule`` would make ``rrule`` preserve
+        the local wall-clock time across DST (its built-in behavior), which
+        would mask the current bug. Normalizing to UTC here matches the
+        round-trip that real data goes through on save.
         """
         import zoneinfo
         from datetime import timezone as dt_timezone
@@ -553,13 +562,13 @@ class TestRecurrenceRuleDSTBehavior:
         # would yield 10:00 Vienna both weeks; the current behavior yields
         # 09:00 UTC both weeks, which is 11:00 Vienna in the second week.
         vienna = zoneinfo.ZoneInfo("Europe/Vienna")
-        dtstart_local = datetime(2026, 3, 23, 10, 0, tzinfo=vienna)
+        dtstart_utc = datetime(2026, 3, 23, 10, 0, tzinfo=vienna).astimezone(dt_timezone.utc)
 
         rule = RecurrenceRule(
             frequency=RecurrenceRule.Frequency.WEEKLY,
             interval=1,
             weekdays=[0],  # Monday
-            dtstart=dtstart_local,
+            dtstart=dtstart_utc,
             count=2,
             timezone="Europe/Vienna",
         )

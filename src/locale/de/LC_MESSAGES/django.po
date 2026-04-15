@@ -239,22 +239,17 @@ msgstr ""
 msgid "Cannot impersonate inactive users."
 msgstr ""
 
-#, fuzzy, python-format
-#| msgid "Platform fee invoice %(invoice_number)s (%(currency)s)"
+#, python-format
 msgid "Referral payout statement %(document_number)s (%(currency)s)"
-msgstr "Plattformgebühren-Rechnung %(invoice_number)s (%(currency)s)"
+msgstr "Empfehlungsvergütung %(document_number)s (%(currency)s)"
 
-#, fuzzy, python-format
-#| msgid ""
-#| "Please find attached the platform fee invoice %(invoice_number)s for "
-#| "%(currency)s transactions in the period %(period_start)s to "
-#| "%(period_end)s."
+#, python-format
 msgid ""
 "Please find attached your referral payout statement %(document_number)s for "
 "the period %(period_start)s to %(period_end)s."
 msgstr ""
-"Anbei die Plattformgebühren-Rechnung %(invoice_number)s für %(currency)s-"
-"Transaktionen im Zeitraum %(period_start)s bis %(period_end)s."
+"Anbei deine Empfehlungsvergütung %(document_number)s für den Zeitraum "
+"%(period_start)s bis %(period_end)s."
 
 msgid "Activate Your Account"
 msgstr "Konto aktivieren"
@@ -1559,11 +1554,11 @@ msgstr ""
 
 #, python-format
 msgid "%(follower)s started following %(series)s"
-msgstr ""
+msgstr "%(follower)s folgt jetzt %(series)s"
 
 #, python-format
 msgid "New follower - %(series)s"
-msgstr ""
+msgstr "Neuer Follower – %(series)s"
 
 #, fuzzy, python-format
 #| msgid "You are already invited to this event."
@@ -1575,15 +1570,13 @@ msgstr "Du bist bereits zu diesem Event eingeladen."
 msgid "New event from %(org)s"
 msgstr "Neues Event: %(event_name)s"
 
-#, fuzzy, python-format
-#| msgid "New Event: %(event_name)s"
+#, python-format
 msgid "New event in %(series)s: %(event)s"
-msgstr "Neues Event: %(event_name)s"
+msgstr "Neues Event in %(series)s: %(event)s"
 
-#, fuzzy, python-format
-#| msgid "New Event: %(event_name)s"
+#, python-format
 msgid "New event in %(series)s"
-msgstr "Neues Event: %(event_name)s"
+msgstr "Neues Event in %(series)s"
 
 #, fuzzy, python-format
 #| msgid "You are already invited to this event."
@@ -2083,19 +2076,16 @@ msgid "View event details:"
 msgstr "Event-Details ansehen"
 
 msgid "New Follower"
-msgstr ""
+msgstr "Neuer Follower"
 
-#, fuzzy, python-format
-#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+#, python-format
 msgid ""
 "<strong>%(follower)s</strong> started following <strong>%(series)s</strong>."
 msgstr ""
-"Ein neues Ticket wurde für <strong>%(event_name)s</strong> ausgestellt."
+"<strong>%(follower)s</strong> folgt jetzt <strong>%(series)s</strong>."
 
-#, fuzzy
-#| msgid "View Event Details"
 msgid "Follower Details"
-msgstr "Event-Details ansehen"
+msgstr "Follower-Details"
 
 msgid "Name:"
 msgstr "Name:"
@@ -2103,19 +2093,15 @@ msgstr "Name:"
 msgid "Email:"
 msgstr "E-Mail:"
 
-#, fuzzy
-#| msgid "Event Details"
 msgid "Series:"
-msgstr "Event-Details"
+msgstr "Serie:"
 
 #, python-format
 msgid "%(follower)s started following %(series)s."
-msgstr ""
+msgstr "%(follower)s folgt jetzt %(series)s."
 
-#, fuzzy
-#| msgid "Details"
 msgid "Follower Details:"
-msgstr "Details"
+msgstr "Follower-Details:"
 
 #, fuzzy
 #| msgid "Event Date:"
@@ -2306,29 +2292,22 @@ msgstr "Neues Event: %(event_name)s"
 msgid "View the event:"
 msgstr "Zum Event:"
 
-#, fuzzy
-#| msgid "Event Details"
 msgid "New Event in Series"
-msgstr "Event-Details"
+msgstr "Neues Event in der Serie"
 
-#, fuzzy, python-format
-#| msgid ""
-#| "Your questionnaire <strong>%(questionnaire)s</strong> for "
-#| "<strong>%(org)s</strong> was not approved."
+#, python-format
 msgid "New event in <strong>%(series)s</strong>: <strong>%(event)s</strong>"
 msgstr ""
-"Dein Fragebogen <strong>%(questionnaire)s</strong> für <strong>%(org)s</"
-"strong> wurde nicht genehmigt."
+"Neues Event in <strong>%(series)s</strong>: <strong>%(event)s</strong>"
 
 msgid "View event:"
 msgstr "Zum Event:"
 
-#, fuzzy, python-format
-#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+#, python-format
 msgid ""
 "<strong>%(follower)s</strong> started following <strong>%(org)s</strong>."
 msgstr ""
-"Ein neues Ticket wurde für <strong>%(event_name)s</strong> ausgestellt."
+"<strong>%(follower)s</strong> folgt jetzt <strong>%(org)s</strong>."
 
 #, python-format
 msgid "%(follower)s started following %(org)s."
@@ -2842,13 +2821,10 @@ msgstr ""
 msgid "Updated Response:"
 msgstr ""
 
-#, fuzzy
-#| msgid "Event Details"
 msgid "New Events Scheduled"
-msgstr "Event-Details"
+msgstr "Neue Events geplant"
 
-#, fuzzy, python-format
-#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+#, python-format
 msgid ""
 "<strong>%(counter)s</strong> new event has been scheduled for "
 "<strong>%(series)s</strong>."
@@ -2856,30 +2832,26 @@ msgid_plural ""
 "<strong>%(counter)s</strong> new events have been scheduled for "
 "<strong>%(series)s</strong>."
 msgstr[0] ""
-"Ein neues Ticket wurde für <strong>%(event_name)s</strong> ausgestellt."
+"<strong>%(counter)s</strong> neues Event wurde für "
+"<strong>%(series)s</strong> geplant."
 msgstr[1] ""
-"Ein neues Ticket wurde für <strong>%(event_name)s</strong> ausgestellt."
+"<strong>%(counter)s</strong> neue Events wurden für "
+"<strong>%(series)s</strong> geplant."
 
-#, fuzzy
-#| msgid "Event Date:"
 msgid "Events scheduled:"
-msgstr "Event-Datum:"
+msgstr "Geplante Events:"
 
-#, fuzzy
-#| msgid "Event Details"
 msgid "View Series"
-msgstr "Event-Details"
+msgstr "Serie ansehen"
 
 #, python-format
 msgid "%(counter)s new event has been scheduled for %(series)s."
 msgid_plural "%(counter)s new events have been scheduled for %(series)s."
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "%(counter)s neues Event wurde für %(series)s geplant."
+msgstr[1] "%(counter)s neue Events wurden für %(series)s geplant."
 
-#, fuzzy
-#| msgid "View event:"
 msgid "View the series:"
-msgstr "Zum Event:"
+msgstr "Zur Serie:"
 
 msgid "Read More"
 msgstr ""

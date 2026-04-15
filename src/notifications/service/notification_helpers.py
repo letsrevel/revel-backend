@@ -5,6 +5,7 @@ from signal handlers or other parts of the application.
 """
 
 import typing as t
+from uuid import UUID
 
 import structlog
 
@@ -152,23 +153,40 @@ def notify_event_opened(event: Event) -> int:
 def notify_series_events_generated(series: EventSeries, events: list[Event]) -> int:
     """Send a digest notification when recurring events are materialized.
 
-    Notifies the same audience that would normally receive ``EVENT_OPEN`` for
-    each occurrence (organization owner, staff, active/paused members, plus
-    org/series followers). Per-event ``EVENT_OPEN`` notifications are
-    suppressed during materialization, so this digest must reach everyone in
-    that audience instead. Uses bulk notification creation for efficiency.
+    Mirrors the audience that would normally receive ``EVENT_OPEN`` for each
+    occurrence, *gated by the template event's visibility*. Per-event
+    ``EVENT_OPEN`` notifications are suppressed during materialization, so
+    this digest must reach everyone in that audience instead.
+
+    Visibility rules (match ``get_eligible_users_for_event_notification`` and
+    the ``handle_event_opened_notify_followers`` signal):
+
+    - ``STAFF_ONLY``: only organization staff and owners.
+    - ``MEMBERS_ONLY``: staff, owners, and active/paused members.
+    - ``PRIVATE`` / ``UNLISTED``: only staff and owners. (PRIVATE/UNLISTED
+      events are explicitly-shared; we do not broadcast them to members or
+      followers.)
+    - ``PUBLIC``: staff, owners, active/paused members, plus org/series
+      followers who opted in to new-event notifications.
+
+    Note: ``STAFF_ONLY``, ``PRIVATE``, and ``UNLISTED`` all resolve to
+    the same audience (staff + owner) for this *digest* notification.
+    Per-event ``EVENT_OPEN`` notifications may treat them differently
+    (e.g. PRIVATE could notify explicitly-invited users), but the digest
+    is a broadcast about upcoming occurrences and deliberately limits the
+    audience to avoid leaking non-public events to followers or members.
+
+    Each candidate recipient is then filtered through their
+    ``NotificationPreference``: users who silenced all notifications or
+    disabled ``SERIES_EVENTS_GENERATED`` are dropped.
 
     .. note::
-        This helper issues a small fixed number of independent DB queries
-        (followers, staff, active/paused members) on every call. It is safe
-        to invoke once per series, but **not** safe to call inside a tight
-        loop without per-call prefetching. Callers operating in a loop (e.g.
-        the daily Celery beat) must prefetch ``organization__owner`` and
-        ``organization__staff_members`` on the series queryset to avoid an
-        N+1 explosion. Callers that fire it as part of a one-off creation
-        flow (e.g. ``create_recurring_event_series``) typically skip the
-        prefetch — that is acceptable because the cost is bounded to one
-        invocation per HTTP request.
+        This helper issues a small fixed number of independent DB queries on
+        every call. It is safe to invoke once per series, but **not** safe to
+        call inside a tight loop without per-call prefetching. Callers
+        operating in a loop (e.g. the daily Celery beat) must prefetch
+        ``organization__owner``, ``organization__staff_members``, and
+        ``template_event`` on the series queryset to avoid N+1 explosion.
 
     Args:
         series: The EventSeries that generated events.
@@ -177,12 +195,33 @@ def notify_series_events_generated(series: EventSeries, events: list[Event]) -> 
     Returns:
         Number of notifications sent.
     """
+    from events.models import Event as EventModel
     from events.models import OrganizationMember
     from events.service.follow_service import get_followers_for_new_event_notification
+    from notifications.models import NotificationPreference
     from notifications.tasks import dispatch_notifications_batch
 
     if not events:
         return 0
+
+    template = series.template_event
+    if template is None:
+        # A series without a template cannot have its visibility determined.
+        # This is a broken-state safeguard; generation should never succeed
+        # without a template, but we refuse to broadcast blindly if it does.
+        logger.warning(
+            "series_events_generated_digest_skipped_no_template",
+            series_id=str(series.id),
+            events_count=len(events),
+        )
+        return 0
+
+    visibility = template.visibility
+    broadcasts_to_members = visibility in (
+        EventModel.Visibility.MEMBERS_ONLY,
+        EventModel.Visibility.PUBLIC,
+    )
+    broadcasts_to_followers = visibility == EventModel.Visibility.PUBLIC
 
     organization = series.organization
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
@@ -197,35 +236,50 @@ def notify_series_events_generated(series: EventSeries, events: list[Event]) -> 
         "series_url": series_url,
     }
 
-    # Build the recipient set: followers (which exclude owner/staff/members
-    # because those normally receive EVENT_OPEN), plus the owner, staff, and
-    # active/paused members who would have been EVENT_OPEN recipients.
-    # ``_notification_type`` is discarded because this is a single digest
-    # notification — all recipients receive the same SERIES_EVENTS_GENERATED
-    # type regardless of which follow channel put them on the list.
-    recipients_by_id: dict[t.Any, RevelUser] = {}
-
-    for user, _notification_type in get_followers_for_new_event_notification(organization, series):
-        recipients_by_id[user.id] = user
+    # Build the candidate set in visibility-aware layers.
+    recipients_by_id: dict[UUID, RevelUser] = {}
 
     if organization.owner_id:
         recipients_by_id[organization.owner_id] = organization.owner
 
-    # Pull staff and members in a single query each so the caller can prefetch
-    # ``organization__staff_members`` / ``organization__owner`` on the series
-    # queryset and avoid per-series N+1 in the daily beat dispatch.
     for user in organization.staff_members.all():
         recipients_by_id[user.id] = user
 
-    member_users = RevelUser.objects.filter(
-        organization_memberships__organization=organization,
-        organization_memberships__status__in=(
-            OrganizationMember.MembershipStatus.ACTIVE,
-            OrganizationMember.MembershipStatus.PAUSED,
-        ),
-    )
-    for user in member_users:
-        recipients_by_id[user.id] = user
+    if broadcasts_to_members:
+        member_users = RevelUser.objects.filter(
+            organization_memberships__organization=organization,
+            organization_memberships__status__in=(
+                OrganizationMember.MembershipStatus.ACTIVE,
+                OrganizationMember.MembershipStatus.PAUSED,
+            ),
+        )
+        for user in member_users:
+            recipients_by_id[user.id] = user
+
+    if broadcasts_to_followers:
+        for user, _notification_type in get_followers_for_new_event_notification(organization, series):
+            recipients_by_id[user.id] = user
+
+    # Filter by notification preferences: users who silenced all notifications
+    # or disabled ``SERIES_EVENTS_GENERATED`` specifically are dropped. We
+    # prefetch preferences in a single query keyed by user id to avoid an
+    # N+1 explosion when the candidate set is large.
+    candidate_ids = list(recipients_by_id.keys())
+    prefs_by_user_id = {p.user_id: p for p in NotificationPreference.objects.filter(user_id__in=candidate_ids)}
+    eligible_recipients: list[RevelUser] = []
+    for user_id, user in recipients_by_id.items():
+        prefs = prefs_by_user_id.get(user_id)
+        if prefs is None:
+            # Missing preferences are created lazily on user creation; if a
+            # row is missing here, fall back to default-enabled behavior
+            # (the user never explicitly opted out).
+            eligible_recipients.append(user)
+            continue
+        if prefs.silence_all_notifications:
+            continue
+        if not prefs.is_notification_type_enabled(NotificationType.SERIES_EVENTS_GENERATED):
+            continue
+        eligible_recipients.append(user)
 
     notifications_data: list[NotificationData] = [
         NotificationData(
@@ -233,7 +287,7 @@ def notify_series_events_generated(series: EventSeries, events: list[Event]) -> 
             user=user,
             context=context,
         )
-        for user in recipients_by_id.values()
+        for user in eligible_recipients
     ]
 
     if not notifications_data:
@@ -247,6 +301,7 @@ def notify_series_events_generated(series: EventSeries, events: list[Event]) -> 
         "series_events_generated_notifications_sent",
         series_id=str(series.id),
         events_count=len(events),
+        visibility=visibility,
         recipient_count=len(created_notifications),
     )
 

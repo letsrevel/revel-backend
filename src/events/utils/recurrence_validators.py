@@ -70,6 +70,14 @@ def validate_monthly_fields(
             raise RecurrenceValidationError("nth_weekday", "Must be 1-4 or -1 (last).")
         if weekday is None or weekday < 0 or weekday > 6:
             raise RecurrenceValidationError("weekday", "Must be 0 (Monday) to 6 (Sunday).")
+    else:
+        # Reject unknown monthly_type values explicitly — otherwise a typo
+        # like ``monthly_type="weekdat"`` silently passes the validator and
+        # reaches the materialization loop where it produces no occurrences.
+        raise RecurrenceValidationError(
+            "monthly_type",
+            f"Must be '{_MONTHLY_TYPE_DAY}' or '{_MONTHLY_TYPE_NTH_WEEKDAY}'.",
+        )
 
 
 def validate_boundaries(dtstart: t.Any, until: t.Any, count: t.Any) -> None:

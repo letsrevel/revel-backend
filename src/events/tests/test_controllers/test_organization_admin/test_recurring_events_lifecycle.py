@@ -10,7 +10,6 @@ import typing as t
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from unittest.mock import patch
-from uuid import uuid4
 
 import orjson
 import pytest
@@ -70,12 +69,17 @@ class TestCancelOccurrence:
         """A non-member gets 404 (not 403) because the org is not discoverable.
 
         Returning 404 avoids leaking org existence to unauthorised users; the
-        endpoint is effectively invisible outside the org membership.
+        endpoint is effectively invisible outside the org membership. We hit
+        a *real* series id (not a random uuid) so the assertion covers the
+        authorisation branch — a misconfigured permission check that exposed
+        an existing series would fail this test instead of silently returning
+        404 because the series doesn't exist at all.
         """
-        # Arrange
+        # Arrange — build a real series so the endpoint reaches the org check.
+        series = _make_series_with_rule(organization)
         url = reverse(
             "api:cancel_series_occurrence",
-            kwargs={"slug": organization.slug, "series_id": str(uuid4())},
+            kwargs={"slug": organization.slug, "series_id": str(series.id)},
         )
         payload = {"occurrence_date": timezone.now().isoformat()}
 
@@ -229,13 +233,14 @@ class TestPauseResumeSeries:
     ) -> None:
         """A non-member gets 404 (not 403) because the org is not discoverable.
 
-        Returning 404 avoids leaking org existence to unauthorised users; the
-        endpoint is effectively invisible outside the org membership.
+        Using a real series id here ensures we're testing the authorisation
+        branch rather than just "missing resource returns 404".
         """
         # Arrange
+        series = _make_series_with_rule(organization)
         url = reverse(
             "api:pause_series",
-            kwargs={"slug": organization.slug, "series_id": str(uuid4())},
+            kwargs={"slug": organization.slug, "series_id": str(series.id)},
         )
 
         # Act

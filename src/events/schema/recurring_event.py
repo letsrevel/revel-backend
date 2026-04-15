@@ -3,7 +3,7 @@
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, ConfigDict, Field, field_validator
 
 from common.schema import OneToOneFiftyString, StrippedString
 from events.models import Event, ResourceVisibility
@@ -23,6 +23,24 @@ class RecurringEventCreateSchema(Schema):
     auto_publish: bool = False
     generation_window_weeks: int = Field(default=8, ge=1, le=MAX_GENERATION_WINDOW_WEEKS)
 
+    @field_validator("event")
+    @classmethod
+    def _template_must_be_draft(cls, value: EventCreateSchema) -> EventCreateSchema:
+        """Reject any template ``status`` other than the default ``DRAFT``.
+
+        The server forces the template to DRAFT on creation regardless of
+        what the client sends (templates are blueprints — whether each
+        occurrence is auto-published is governed by ``auto_publish``, not by
+        the template's status). Instead of silently overriding the client's
+        value we reject it explicitly so an API consumer sending ``OPEN``
+        gets a clear 422 rather than a confusing no-op.
+        """
+        if value.status != Event.EventStatus.DRAFT:
+            raise ValueError(
+                "Template events must have status='draft'. Use auto_publish=true to automatically open new occurrences."
+            )
+        return value
+
 
 class TemplateEditSchema(Schema):
     """Schema for editing a recurring series template event.
@@ -33,6 +51,15 @@ class TemplateEditSchema(Schema):
     because venue re-binding belongs on a dedicated endpoint that can enforce
     organization scope, not on the template patch.
 
+    ``location`` (PostGIS PointField) is intentionally **not** exposed here.
+    The ``address`` text field can be updated, and the coupled-field logic in
+    ``propagate_template_changes`` will pull both ``address`` and ``location``
+    from the template when propagating. However, updating ``address`` via this
+    schema does **not** geocode or update ``location`` — coordinates must be
+    set separately (e.g. via the standard event edit endpoint or a future
+    geocoding integration). If coordinates matter, update the template's
+    ``location`` directly before propagating.
+
     ``rsvp_before`` and ``apply_before`` are intentionally NOT editable here:
     they are per-occurrence offsets anchored to the event's start and are
     shifted at materialization time by the delta between the template start
@@ -40,7 +67,14 @@ class TemplateEditSchema(Schema):
     recomputing every future occurrence's deadline, which is out of scope for
     Phase 1/2. Edit these per-occurrence via the standard event edit endpoint
     (the occurrence will be marked ``is_modified=True``).
+
+    ``extra="forbid"`` ensures that unknown fields (e.g. ``event_series_id``,
+    ``venue_id``, ``status``) are rejected with 422 rather than silently
+    ignored, giving API consumers a clear contract and protecting against
+    accidental introduction of editable fields by a future schema change.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     name: OneToOneFiftyString | None = None
     address_visibility: ResourceVisibility | None = None
