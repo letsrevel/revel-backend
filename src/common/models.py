@@ -129,6 +129,9 @@ class SiteSettings(SingletonModel):
     notify_user_joined = models.BooleanField(
         default=False, help_text="Send a notification when a new user joins the platform."
     )
+    notify_organization_created = models.BooleanField(
+        default=False, help_text="Send a notification when a new organization is created."
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

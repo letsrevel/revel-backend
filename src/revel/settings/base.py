@@ -321,6 +321,9 @@ NOTIFICATION_RETENTION_DAYS = config("NOTIFICATION_RETENTION_DAYS", default=90, 
 PUSHOVER_USER_KEY = config("PUSHOVER_USER_KEY", default=None)
 PUSHOVER_APP_TOKEN = config("PUSHOVER_APP_TOKEN", default=None)
 
+# DISCORD
+DISCORD_ADMIN_WEBHOOK_URL = config("DISCORD_ADMIN_WEBHOOK_URL", default=None)
+
 DEPLOYMENT_ENVIRONMENT = config(
     "DEPLOYMENT_ENVIRONMENT", default="development" if config("DEBUG", default=False, cast=bool) else "production"
 )

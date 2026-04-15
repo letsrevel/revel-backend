@@ -6,7 +6,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from accounts.models import GlobalBan, RevelUser
-from accounts.tasks import notify_admin_new_user_joined
+from accounts.tasks import notify_admin_new_user_joined, notify_admin_new_user_joined_discord
 from common.models import SiteSettings
 
 logger = structlog.get_logger(__name__)
@@ -16,11 +16,14 @@ logger = structlog.get_logger(__name__)
 def notify_admin_on_user_creation(
     sender: type[RevelUser], instance: RevelUser, created: bool, **kwargs: object
 ) -> None:
-    """Send Pushover notification to admin when a new user joins.
+    """Send admin notifications when a new user joins.
 
-    This is a standalone notification system that runs alongside the main notification
-    system. It checks SiteSettings.notify_user_joined and dispatches a Celery task
-    to send a Pushover notification if enabled.
+    Standalone notification system that runs alongside the main notification
+    system. Checks SiteSettings.notify_user_joined and dispatches Celery tasks
+    to send Pushover and Discord notifications if enabled. The Discord task
+    is only dispatched for non-guest users; the generic "new user" message
+    counts non-guest users only, so firing it for a guest signup would show
+    an unchanged count.
 
     Args:
         sender: The model class (RevelUser)
@@ -41,18 +44,22 @@ def notify_admin_on_user_creation(
         )
         return
 
-    # Dispatch the Celery task asynchronously
-    notify_admin_new_user_joined.delay(
-        user_id=str(instance.id),
-        user_email=instance.email,
-        is_guest=instance.guest,
-    )
+    user_id = str(instance.id)
+    user_email = instance.email
+    is_guest = instance.guest
+
+    def _dispatch() -> None:
+        notify_admin_new_user_joined.delay(user_id=user_id, user_email=user_email, is_guest=is_guest)
+        if not is_guest:
+            notify_admin_new_user_joined_discord.delay()
+
+    transaction.on_commit(_dispatch)
 
     logger.info(
         "user_joined_notification_dispatched",
-        user_id=str(instance.id),
-        user_email=instance.email,
-        is_guest=instance.guest,
+        user_id=user_id,
+        user_email=user_email,
+        is_guest=is_guest,
     )
 
 
