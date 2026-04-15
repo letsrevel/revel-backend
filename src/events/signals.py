@@ -28,7 +28,11 @@ from events.service.blacklist_service import apply_blacklist_consequences, link_
 from events.service.follow_service import get_followers_for_new_event_notification
 from events.service.potluck_service import unclaim_user_potluck_items
 from events.service.user_preferences_service import trigger_visibility_flags_for_user
-from events.tasks import build_attendee_visibility_flags
+from events.tasks import (
+    build_attendee_visibility_flags,
+    notify_admin_new_organization_discord,
+    notify_admin_new_organization_pushover,
+)
 from events.utils import get_invitation_message
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
@@ -55,7 +59,7 @@ def handle_event_save(sender: type[Event], instance: Event, created: bool, **kwa
 def handle_organization_creation(
     sender: type[Organization], instance: Organization, created: bool, **kwargs: t.Any
 ) -> None:
-    """Create default 'General membership' tier when organization is created."""
+    """Create default 'General membership' tier and notify admin when an organization is created."""
     if not created:
         return
 
@@ -65,6 +69,17 @@ def handle_organization_creation(
         organization_id=str(instance.id),
         organization_name=instance.name,
     )
+
+    if not SiteSettings.get_solo().notify_organization_created:
+        return
+
+    organization_id = str(instance.id)
+
+    def _dispatch_admin_notifications() -> None:
+        notify_admin_new_organization_pushover.delay(organization_id=organization_id)
+        notify_admin_new_organization_discord.delay(organization_id=organization_id)
+
+    transaction.on_commit(_dispatch_admin_notifications)
 
 
 @receiver(post_save, sender=RevelUser)

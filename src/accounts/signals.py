@@ -6,7 +6,7 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 from accounts.models import GlobalBan, RevelUser
-from accounts.tasks import notify_admin_new_user_joined
+from accounts.tasks import notify_admin_new_user_joined, notify_admin_new_user_joined_discord
 from common.models import SiteSettings
 
 logger = structlog.get_logger(__name__)
@@ -41,18 +41,21 @@ def notify_admin_on_user_creation(
         )
         return
 
-    # Dispatch the Celery task asynchronously
-    notify_admin_new_user_joined.delay(
-        user_id=str(instance.id),
-        user_email=instance.email,
-        is_guest=instance.guest,
-    )
+    user_id = str(instance.id)
+    user_email = instance.email
+    is_guest = instance.guest
+
+    def _dispatch() -> None:
+        notify_admin_new_user_joined.delay(user_id=user_id, user_email=user_email, is_guest=is_guest)
+        notify_admin_new_user_joined_discord.delay()
+
+    transaction.on_commit(_dispatch)
 
     logger.info(
         "user_joined_notification_dispatched",
-        user_id=str(instance.id),
-        user_email=instance.email,
-        is_guest=instance.guest,
+        user_id=user_id,
+        user_email=user_email,
+        is_guest=is_guest,
     )
 
 
