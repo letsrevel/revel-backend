@@ -113,7 +113,7 @@ def test_convert_from_non_base(exchange_rate: ExchangeRate) -> None:
 
 @patch("common.service.exchange_rate_service.httpx.get")
 def test_fetch_and_store_rates(mock_get: MagicMock) -> None:
-    """Test fetching rates from frankfurter.app and storing them."""
+    """Test fetching rates from frankfurter.dev and storing them."""
     mock_response = MagicMock()
     mock_response.json.return_value = {
         "amount": 1.0,

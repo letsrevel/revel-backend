@@ -23,7 +23,7 @@ def duplicate_event(
     Copies:
     - All event fields (with date shifts)
     - Ticket tiers (with date shifts, reset quantity_sold)
-    - Suggested potluck items (is_suggested=True)
+    - Potluck items (without assignments; all become host suggestions)
     - Tags
 
     Links to same:
@@ -32,7 +32,7 @@ def duplicate_event(
 
     Does NOT copy:
     - Tickets, RSVPs, invitations, tokens, waitlist
-    - User-contributed potluck items
+    - Potluck item assignees/creators
 
     Args:
         template_event: Event to copy from
@@ -57,6 +57,7 @@ def duplicate_event(
             organization=template_event.organization,
             event_series=template_event.event_series,
             city=template_event.city,
+            venue=template_event.venue,
             # Overrides
             name=new_name,
             status=Event.EventStatus.DRAFT,
@@ -72,14 +73,20 @@ def duplicate_event(
             invitation_message=template_event.invitation_message,
             event_type=template_event.event_type,
             visibility=template_event.visibility,
+            address_visibility=template_event.address_visibility,
             max_attendees=template_event.max_attendees,
+            max_tickets_per_user=template_event.max_tickets_per_user,
             waitlist_open=template_event.waitlist_open,
             requires_ticket=template_event.requires_ticket,
+            requires_full_profile=template_event.requires_full_profile,
             potluck_open=template_event.potluck_open,
             accept_invitation_requests=template_event.accept_invitation_requests,
+            public_pronoun_distribution=template_event.public_pronoun_distribution,
             can_attend_without_login=template_event.can_attend_without_login,
             address=template_event.address,
             location=template_event.location,
+            location_maps_url=template_event.location_maps_url,
+            location_maps_embed=template_event.location_maps_embed,
             logo=template_event.logo,
             cover_art=template_event.cover_art,
         )
@@ -120,8 +127,8 @@ def _duplicate_ticket_tiers(
 
 
 def _duplicate_potluck_items(template_event: Event, new_event: Event) -> None:
-    """Duplicate suggested potluck items only."""
-    suggested_items = [
+    """Duplicate all potluck items as host suggestions, without assignments."""
+    items = [
         PotluckItem(
             event=new_event,
             name=item.name,
@@ -132,10 +139,10 @@ def _duplicate_potluck_items(template_event: Event, new_event: Event) -> None:
             created_by=None,
             assignee=None,
         )
-        for item in template_event.potluck_items.filter(is_suggested=True)
+        for item in template_event.potluck_items.all()
     ]
-    if suggested_items:
-        PotluckItem.objects.bulk_create(suggested_items)
+    if items:
+        PotluckItem.objects.bulk_create(items)
 
 
 def _link_m2m_relations(template_event: Event, new_event: Event) -> None:

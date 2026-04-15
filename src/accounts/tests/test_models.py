@@ -62,3 +62,17 @@ def test_reveluser_get_display_name_no_names() -> None:
     """Test that get_display_name() returns username when no other names are available."""
     user = RevelUser.objects.create_user(username="test_user", password="password")
     assert user.get_display_name() == "test_user"
+
+
+def test_reveluser_save_strips_name_whitespace() -> None:
+    """Test that RevelUser.save() strips whitespace from name fields."""
+    user = RevelUser.objects.create_user(
+        username="test_user",
+        first_name="  John  ",
+        last_name="\tDoe\n",
+        preferred_name=" Johnny  ",
+        password="password",
+    )
+    assert user.first_name == "John"
+    assert user.last_name == "Doe"
+    assert user.preferred_name == "Johnny"

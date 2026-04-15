@@ -111,6 +111,10 @@ class RevelUser(ExifStripMixin, StripeConnectMixin, AbstractUser):
         """Override save method to call clean()."""
         if self.phone_number:
             self.phone_number = normalize_phone_number(self.phone_number)
+        for field in ("first_name", "last_name", "preferred_name"):
+            value = getattr(self, field, None)
+            if isinstance(value, str):
+                setattr(self, field, value.strip())
         super().save(*args, **kwargs)
 
     def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
