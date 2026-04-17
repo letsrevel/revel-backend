@@ -15,7 +15,7 @@ import pytest
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Blacklist, Organization
+from events.models import Blacklist, Organization, OrganizationMember
 from events.service import blacklist_service
 from telegram.models import TelegramUser
 
@@ -821,3 +821,75 @@ class TestUpdateAndRemove:
         blacklist_service.remove_from_blacklist(entry)
 
         assert not Blacklist.objects.filter(id=entry_id).exists()
+
+    def test_remove_from_blacklist_resets_banned_membership(
+        self,
+        blacklist_admin: RevelUser,
+        target_user: RevelUser,
+    ) -> None:
+        """Unbanning a linked user should transition their BANNED membership to CANCELLED.
+
+        Without this, the user's `for_user()` visibility remains blocked forever by
+        the stale BANNED membership even after the Blacklist row is deleted.
+        """
+        # PUBLIC org so visibility is gated purely on the membership row.
+        public_org = Organization.objects.create(
+            name="Public Unban Org",
+            slug="public-unban-org",
+            owner=blacklist_admin,
+            visibility=Organization.Visibility.PUBLIC,
+        )
+        entry = Blacklist.objects.create(
+            organization=public_org,
+            user=target_user,
+            created_by=blacklist_admin,
+        )
+        membership = OrganizationMember.objects.get(organization=public_org, user=target_user)
+        assert membership.status == OrganizationMember.MembershipStatus.BANNED
+        assert public_org not in Organization.objects.for_user(target_user)
+
+        blacklist_service.remove_from_blacklist(entry)
+
+        membership.refresh_from_db()
+        assert membership.status == OrganizationMember.MembershipStatus.CANCELLED
+        assert public_org in Organization.objects.for_user(target_user)
+
+    def test_remove_from_blacklist_keeps_banned_if_other_entries_exist(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+        target_user: RevelUser,
+    ) -> None:
+        """If another blacklist entry still covers the user, the ban must persist."""
+        linked_entry = Blacklist.objects.create(
+            organization=blacklist_org,
+            user=target_user,
+            created_by=blacklist_admin,
+        )
+        # Second entry matches by email only (bypasses the add_to_blacklist dedup check).
+        Blacklist.objects.create(
+            organization=blacklist_org,
+            email=target_user.email,
+            created_by=blacklist_admin,
+        )
+
+        blacklist_service.remove_from_blacklist(linked_entry)
+
+        membership = OrganizationMember.objects.get(organization=blacklist_org, user=target_user)
+        assert membership.status == OrganizationMember.MembershipStatus.BANNED
+
+    def test_remove_from_blacklist_without_user_is_noop(
+        self,
+        blacklist_org: Organization,
+        blacklist_admin: RevelUser,
+    ) -> None:
+        """Removing an entry without a linked user must not touch any memberships."""
+        entry = Blacklist.objects.create(
+            organization=blacklist_org,
+            email="unknown@example.com",
+            created_by=blacklist_admin,
+        )
+
+        blacklist_service.remove_from_blacklist(entry)
+
+        assert not OrganizationMember.objects.filter(organization=blacklist_org).exists()

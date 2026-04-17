@@ -258,13 +258,35 @@ def add_user_to_blacklist(
     )
 
 
+@transaction.atomic
 def remove_from_blacklist(entry: Blacklist) -> None:
     """Remove an entry from the blacklist.
+
+    If the entry was linked to a user and no other blacklist entries cover
+    that user in the organization, any stale ``BANNED`` membership left over
+    from :func:`apply_blacklist_consequences` is transitioned to ``CANCELLED``
+    so the user regains visibility of the organization. ``CANCELLED`` is used
+    instead of restoring ``ACTIVE`` to avoid implicitly re-granting membership
+    privileges that may have pre-existed the ban.
 
     Args:
         entry: The Blacklist entry to remove
     """
+    user = entry.user
+    organization = entry.organization
     entry.delete()
+
+    if user is None:
+        return
+
+    if check_user_hard_blacklisted(user, organization):
+        return
+
+    OrganizationMember.objects.filter(
+        organization=organization,
+        user=user,
+        status=OrganizationMember.MembershipStatus.BANNED,
+    ).update(status=OrganizationMember.MembershipStatus.CANCELLED)
 
 
 def update_blacklist_entry(
