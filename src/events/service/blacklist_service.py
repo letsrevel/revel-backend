@@ -280,13 +280,25 @@ def remove_from_blacklist(entry: Blacklist) -> None:
         return
 
     if check_user_hard_blacklisted(user, organization):
+        logger.info(
+            "unban_skipped_user_still_hard_blacklisted",
+            organization_id=str(organization.id),
+            user_id=str(user.id),
+        )
         return
 
-    OrganizationMember.objects.filter(
+    updated = OrganizationMember.objects.filter(
         organization=organization,
         user=user,
         status=OrganizationMember.MembershipStatus.BANNED,
     ).update(status=OrganizationMember.MembershipStatus.CANCELLED)
+
+    if updated:
+        logger.info(
+            "unbanned_user_membership_status_reset_to_cancelled",
+            organization_id=str(organization.id),
+            user_id=str(user.id),
+        )
 
 
 def update_blacklist_entry(

@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Decomposed long functions into focused helpers for readability
 - Extracted `is_owner_or_staff` and `has_org_permission` permission helpers
 
+## [1.48.1] - 2026-04-17
+
 ### Fixed
 - Unbanning a user now clears the stale `BANNED` `OrganizationMember` row that the ban created. The membership transitions to `CANCELLED` (not `ACTIVE`, to avoid implicitly re-granting prior membership privileges), so the org and its events become visible again. If another blacklist entry still covers the user in the org, the `BANNED` status is preserved.
 
