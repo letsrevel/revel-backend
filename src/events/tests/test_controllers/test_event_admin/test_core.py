@@ -81,9 +81,7 @@ def test_update_event_by_unauthorized_users(
     assert response.status_code == expected_status_code
 
 
-def test_update_occurrence_real_edit_marks_modified(
-    organization_owner_client: Client, event: Event
-) -> None:
+def test_update_occurrence_real_edit_marks_modified(organization_owner_client: Client, event: Event) -> None:
     """A PUT that actually changes a field on an occurrence flips ``is_modified``."""
     # Arrange — turn the fixture event into a generated occurrence.
     event.occurrence_index = 3
@@ -103,9 +101,7 @@ def test_update_occurrence_real_edit_marks_modified(
     assert event.is_modified is True
 
 
-def test_update_occurrence_noop_put_does_not_mark_modified(
-    organization_owner_client: Client, event: Event
-) -> None:
+def test_update_occurrence_noop_put_does_not_mark_modified(organization_owner_client: Client, event: Event) -> None:
     """A no-op PUT on a generated occurrence must leave ``is_modified`` False.
 
     Without this guard, re-submitting the current state (e.g. from a

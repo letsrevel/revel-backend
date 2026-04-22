@@ -166,9 +166,7 @@ def generate_series_events(
             return []
 
         rule = locked_series.recurrence_rule.to_rrule()
-        horizon = until_override or (
-            timezone.now() + timedelta(weeks=locked_series.generation_window_weeks)
-        )
+        horizon = until_override or (timezone.now() + timedelta(weeks=locked_series.generation_window_weeks))
         # Offset start_from by 1 second so dtstart itself is included in between().
         start_from = locked_series.last_generated_until or (
             locked_series.recurrence_rule.dtstart - timedelta(seconds=1)
@@ -193,9 +191,9 @@ def generate_series_events(
 
         # Continue the occurrence_index sequence from where the last batch left off so
         # indices remain globally monotonic across rolling-window runs.
-        max_index = locked_series.events.filter(is_template=False).aggregate(
-            max_idx=db_models.Max("occurrence_index")
-        )["max_idx"]
+        max_index = locked_series.events.filter(is_template=False).aggregate(max_idx=db_models.Max("occurrence_index"))[
+            "max_idx"
+        ]
         next_index = (max_index if max_index is not None else -1) + 1
 
         occurrences = rule.between(start_from, horizon, inc=False)
