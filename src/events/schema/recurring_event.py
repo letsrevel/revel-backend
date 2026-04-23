@@ -139,3 +139,23 @@ class EventSeriesRecurrenceDetailSchema(Schema):
     last_generated_until: AwareDatetime | None = None
     recurrence_rule: RecurrenceRuleSchema | None = None
     template_event: MinimalEventSchema | None = None
+
+
+class EventSeriesDriftSchema(Schema):
+    """Response for the cadence-drift detection endpoint.
+
+    After an organiser changes a series' recurrence rule, already-materialized
+    future occurrences keep their old dates. This schema carries the IDs of
+    those "stale" occurrences so the admin UI can highlight them and offer a
+    bulk-cancel action. Manually-modified occurrences (``is_modified=True``)
+    and already-cancelled events are excluded: the former were deliberately
+    shifted off the cadence, the latter are already in their terminal state.
+    """
+
+    stale_occurrences: list[UUID] = Field(
+        default_factory=list,
+        description=(
+            "IDs of future, non-cancelled, non-manually-modified occurrences whose "
+            "start datetime does not match the current recurrence rule."
+        ),
+    )

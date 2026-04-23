@@ -9,7 +9,7 @@ from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
 from common.schema import ValidationErrorResponse
-from common.throttling import WriteThrottle
+from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import OrganizationPermission
 from events.service import recurrence_service
@@ -143,6 +143,42 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         series = self._get_series(slug, series_id)
         until = payload.until if payload else None
         return recurrence_service.generate_series_events(series, until_override=until)
+
+    @route.get(
+        "/event-series/{series_id}",
+        url_name="get_series_detail",
+        response=schema.EventSeriesRecurrenceDetailSchema,
+        permissions=[OrganizationPermission("edit_event_series")],
+        throttle=UserDefaultThrottle(),
+    )
+    def get_series_detail(self, slug: str, series_id: UUID) -> models.EventSeries:
+        """Return the full admin detail for a recurring series.
+
+        This is the read counterpart to the PATCH/POST endpoints that also
+        return ``EventSeriesRecurrenceDetailSchema``: the FE dashboard needs
+        the same shape on page load without having to issue a no-op mutation
+        to read it back.
+        """
+        return self._get_series(slug, series_id)
+
+    @route.get(
+        "/event-series/{series_id}/drift",
+        url_name="get_series_drift",
+        response=schema.EventSeriesDriftSchema,
+        permissions=[OrganizationPermission("edit_event_series")],
+        throttle=UserDefaultThrottle(),
+    )
+    def get_series_drift(self, slug: str, series_id: UUID) -> schema.EventSeriesDriftSchema:
+        """Return occurrences whose start doesn't match the current recurrence rule.
+
+        After a cadence change, already-materialized future occurrences keep
+        their old dates. This endpoint computes — server-side, against the
+        authoritative ``dateutil.rrule`` — which of those occurrences are now
+        off-cadence, so the admin UI can highlight them and surface a bulk
+        "cancel stale dates" action.
+        """
+        series = self._get_series(slug, series_id)
+        return schema.EventSeriesDriftSchema(stale_occurrences=recurrence_service.detect_cadence_drift(series))
 
     @route.post(
         "/event-series/{series_id}/pause",
