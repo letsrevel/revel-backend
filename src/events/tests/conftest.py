@@ -280,6 +280,30 @@ def organization_token(organization: Organization, organization_owner_user: Reve
 
 
 @pytest.fixture
+def tier_online_with_cancellation_enabled(tier_factory: t.Callable[..., TicketTier]) -> TicketTier:
+    """An ONLINE tier with user cancellation enabled and a simple 100% refund policy."""
+    return tier_factory(
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        price=Decimal("40.00"),
+        allow_user_cancellation=True,
+        refund_policy={
+            "tiers": [{"hours_before_event": 48, "refund_percentage": "100"}],
+            "flat_fee": "0",
+        },
+    )
+
+
+@pytest.fixture
+def tier_online_with_cancellation_disabled(tier_factory: t.Callable[..., TicketTier]) -> TicketTier:
+    """An ONLINE tier with user cancellation disabled."""
+    return tier_factory(
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        price=Decimal("40.00"),
+        allow_user_cancellation=False,
+    )
+
+
+@pytest.fixture
 def tier_factory(event: Event) -> t.Callable[..., TicketTier]:
     """Factory for ``TicketTier`` instances. Keyword args override defaults.
 

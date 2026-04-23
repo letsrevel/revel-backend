@@ -1,5 +1,8 @@
 """Stripe webhook event handlers."""
 
+import typing as t
+from decimal import Decimal
+
 import stripe
 import structlog
 from django.db import transaction
@@ -155,12 +158,14 @@ class StripeEventHandler:
 
     @transaction.atomic
     def handle_charge_refunded(self, event: stripe.Event) -> None:
-        """Handle refund events from Stripe.
+        """Match each refund object in the charge to its specific Payment row.
 
-        When a connected account issues a refund (via Dashboard or API),
-        this webhook updates the payment and ticket status.
-        Stripe automatically refunds application fees proportionally.
-        Supports both single-ticket and batch ticket purchases.
+        Five-branch matching strategy (first match wins):
+          1. existing stripe_refund_id on a Payment
+          2. refund.metadata["ticket_id"]
+          3. exactly one unrefunded Payment with matching amount
+          4. refund.amount equals sum of unrefunded-payment amounts (full remaining batch)
+          5. ambiguous → logged, no mutation
         """
         charge_data = event.data.object
         payment_intent_id = charge_data.get("payment_intent")
@@ -169,82 +174,187 @@ class StripeEventHandler:
             logger.warning("stripe_refund_missing_intent", charge_id=charge_data.get("id"))
             return
 
-        # Find all payments by payment_intent_id (supports batch purchases)
-        payments = list(
+        candidates = list(
             Payment.objects.filter(stripe_payment_intent_id=payment_intent_id).select_related("ticket", "ticket__tier")
         )
-
-        if not payments:
+        if not candidates:
             logger.warning("stripe_refund_unknown_intent", payment_intent_id=payment_intent_id)
             return
 
-        # Idempotency check — still enqueue credit note task on duplicates
-        # so that a previously failed .delay() gets retried.
-        all_already_refunded = all(p.status == Payment.PaymentStatus.REFUNDED for p in payments)
-        if all_already_refunded:
-            logger.info(
-                "stripe_webhook_duplicate_refund",
-                payment_intent_id=payment_intent_id,
-                payment_count=len(payments),
-            )
-            all_refunded_ids = [str(p.id) for p in payments]
-            session_id = payments[0].stripe_session_id if payments else None
-            if session_id and all_refunded_ids:
-                _sid, _rids = session_id, all_refunded_ids
-
-                def _retry_credit_note() -> None:
-                    from events.tasks import generate_attendee_credit_note_task
-
-                    generate_attendee_credit_note_task.delay(_sid, _rids)
-
-                transaction.on_commit(_retry_credit_note)
+        refunds = charge_data.get("refunds", {}).get("data", []) or []
+        if not refunds:
+            logger.warning("stripe_refund_event_no_refund_data", payment_intent_id=payment_intent_id)
             return
 
         raw_response = dict(event)
-        refunded_tickets = []
+        touched_session_id: str | None = None
         newly_refunded_ids: list[str] = []
 
-        for payment in payments:
-            if payment.status == Payment.PaymentStatus.REFUNDED:
-                continue  # Already processed
+        for refund in refunds:
+            matched = self._match_refund_to_payments(refund, candidates)
+            if not matched:
+                logger.warning(
+                    "stripe_refund_ambiguous_match",
+                    payment_intent_id=payment_intent_id,
+                    refund_id=refund.get("id"),
+                    refund_amount=refund.get("amount"),
+                    candidate_payment_ids=[str(c.id) for c in candidates if c.refund_status is None],
+                )
+                continue
+            for payment in matched:
+                if payment.refund_status == Payment.RefundStatus.SUCCEEDED:
+                    continue  # idempotent replay
+                self._apply_refund_to_payment(payment, refund, raw_response)
+                newly_refunded_ids.append(str(payment.id))
+                touched_session_id = payment.stripe_session_id
 
-            # Update payment status
-            payment.status = Payment.PaymentStatus.REFUNDED
-            payment.raw_response = raw_response
-            payment.save(update_fields=["status", "raw_response"])
-            newly_refunded_ids.append(str(payment.id))
+        self._schedule_credit_note(
+            payment_intent_id=payment_intent_id,
+            candidates=candidates,
+            newly_refunded_ids=newly_refunded_ids,
+            touched_session_id=touched_session_id,
+        )
 
-            # Cancel the ticket
-            ticket = payment.ticket
-            ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
-            ticket._refund_amount = f"{payment.amount} {payment.currency}"  # type: ignore[attr-defined]
-            ticket.status = Ticket.TicketStatus.CANCELLED
-            ticket.save(update_fields=["status"])
+        logger.info(
+            "stripe_refund_processed",
+            payment_intent_id=payment_intent_id,
+            refund_count=len(refunds),
+            newly_refunded_payment_ids=newly_refunded_ids,
+        )
 
-            # Restore ticket quantity
-            TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
-            refunded_tickets.append(ticket)
+    def _schedule_credit_note(
+        self,
+        *,
+        payment_intent_id: str,
+        candidates: list[Payment],
+        newly_refunded_ids: list[str],
+        touched_session_id: str | None,
+    ) -> None:
+        """Enqueue generate_attendee_credit_note_task after the refund loop.
 
-        # Trigger attendee credit note generation for newly refunded payments
-        session_id = payments[0].stripe_session_id if payments else None
-        if session_id and newly_refunded_ids:
+        Handles two cases:
+        - Normal path: one or more payments were just refunded → schedule with the new IDs.
+        - Pure duplicate webhook: all candidates already succeeded → re-enqueue so that a
+          previously failed .delay() (e.g. Redis hiccup) gets retried. Downstream is idempotent.
+
+        Args:
+            payment_intent_id: Stripe payment intent ID (used for logging only).
+            candidates: All Payment rows for this intent.
+            newly_refunded_ids: IDs of payments mutated in this invocation.
+            touched_session_id: stripe_session_id from the first mutated payment, or None.
+        """
+        if newly_refunded_ids and touched_session_id:
+            sid, ids = touched_session_id, newly_refunded_ids
 
             def _trigger_credit_note() -> None:
                 from events.tasks import generate_attendee_credit_note_task
 
-                generate_attendee_credit_note_task.delay(session_id, newly_refunded_ids)
+                generate_attendee_credit_note_task.delay(sid, ids)
 
             transaction.on_commit(_trigger_credit_note)
+            return
 
-        # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
-        logger.info(
-            "stripe_refund_processed",
-            payment_intent_id=payment_intent_id,
-            payment_count=len(refunded_tickets),
-            ticket_ids=[str(t.id) for t in refunded_tickets],
-            total_amount=float(sum(p.amount for p in payments)),
-            currency=payments[0].currency,
+        if not newly_refunded_ids and all(p.refund_status == Payment.RefundStatus.SUCCEEDED for p in candidates):
+            # Pure duplicate webhook — every candidate is already refunded.
+            dup_sid = candidates[0].stripe_session_id
+            dup_ids = [str(p.id) for p in candidates]
+
+            def _retry_credit_note() -> None:
+                from events.tasks import generate_attendee_credit_note_task
+
+                generate_attendee_credit_note_task.delay(dup_sid, dup_ids)
+
+            transaction.on_commit(_retry_credit_note)
+            logger.info(
+                "stripe_webhook_duplicate_refund",
+                payment_intent_id=payment_intent_id,
+                payment_count=len(candidates),
+            )
+
+    def _match_refund_to_payments(self, refund: dict[str, t.Any], candidates: list[Payment]) -> list[Payment]:
+        """Return the Payment(s) this refund should apply to. Empty list = no match.
+
+        Args:
+            refund: A Stripe refund object dict from the charge's refunds list.
+            candidates: All Payment rows sharing the same payment_intent_id.
+
+        Returns:
+            A list of matched Payment instances. Empty if the match is ambiguous or impossible.
+        """
+        refund_id: str | None = refund.get("id")
+        refund_amount = int(refund.get("amount", 0))
+
+        # Branch 1: already-known refund id.
+        for p in candidates:
+            if p.stripe_refund_id and p.stripe_refund_id == refund_id:
+                return [p]
+
+        # Branch 2: explicit metadata pointer.
+        metadata_ticket_id: str | None = (refund.get("metadata") or {}).get("ticket_id")
+        if metadata_ticket_id:
+            for p in candidates:
+                if str(p.ticket_id) == metadata_ticket_id:
+                    return [p]
+
+        unrefunded = [p for p in candidates if p.refund_status is None]
+        if not unrefunded:
+            return []
+
+        # Branch 3: exactly-one exact-amount match among unrefunded rows.
+        exact = [p for p in unrefunded if int(p.amount * 100) == refund_amount]
+        if len(exact) == 1:
+            return exact
+
+        # Branch 4: full-remaining-batch refund.
+        remaining_total = sum(int(p.amount * 100) for p in unrefunded)
+        if refund_amount == remaining_total:
+            return unrefunded
+
+        # Branch 5: ambiguous.
+        return []
+
+    def _apply_refund_to_payment(
+        self, payment: Payment, refund: dict[str, t.Any], raw_response: dict[str, t.Any]
+    ) -> None:
+        """Persist refund data onto a Payment and cancel its linked Ticket.
+
+        Args:
+            payment: The Payment instance to update.
+            refund: The Stripe refund object dict.
+            raw_response: The full serialised webhook event (for audit).
+        """
+        from django.utils import timezone
+
+        from events.models.ticket import CancellationSource
+
+        payment.stripe_refund_id = refund["id"]
+        payment.refund_amount = Decimal(refund["amount"]) / Decimal(100)
+        payment.refund_status = Payment.RefundStatus.SUCCEEDED
+        payment.refunded_at = timezone.now()
+        payment.status = Payment.PaymentStatus.REFUNDED
+        payment.raw_response = raw_response
+        payment.save(
+            update_fields=[
+                "stripe_refund_id",
+                "refund_amount",
+                "refund_status",
+                "refunded_at",
+                "status",
+                "raw_response",
+            ]
         )
+
+        ticket = payment.ticket
+        if ticket.status != Ticket.TicketStatus.CANCELLED:
+            ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
+            ticket._refund_amount = f"{payment.refund_amount} {payment.currency}"  # type: ignore[attr-defined]
+            ticket.status = Ticket.TicketStatus.CANCELLED
+            ticket.cancelled_at = timezone.now()
+            ticket.cancellation_source = CancellationSource.STRIPE_DASHBOARD
+            ticket.save(update_fields=["status", "cancelled_at", "cancellation_source"])
+            TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(
+                quantity_sold=F("quantity_sold") - 1
+            )
 
     @transaction.atomic
     def handle_payment_intent_canceled(self, event: stripe.Event) -> None:

@@ -256,9 +256,13 @@ class TestStripeEventHandler:
         tier.quantity_sold = 5
         tier.save()
 
+        # The new handler requires a `refunds` list to match payments.
+        # Branch 3 (exact-amount) will match this single payment.
+        refund_amount_cents = int(completed_payment.amount * 100)
         mock_charge_data = {
             "id": "ch_test123",
             "payment_intent": "pi_test123",
+            "refunds": {"data": [{"id": "re_test", "amount": refund_amount_cents, "metadata": {}}]},
         }
 
         event_dict_data = {"type": "charge.refunded", "data": {"object": mock_charge_data}}
@@ -302,23 +306,45 @@ class TestStripeEventHandler:
         completed_payment: Payment,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Test that duplicate refund webhooks are handled idempotently."""
-        # Arrange
+        """Test that duplicate refund webhooks are handled idempotently.
+
+        The new matching strategy uses ``refund_status == SUCCEEDED`` as the
+        idempotency key.  A payment that is already fully refunded is silently
+        skipped; ``stripe_refund_processed`` is still logged, but no mutations
+        occur and no ``stripe_webhook_duplicate_refund`` entry is emitted.
+        """
+        # Arrange — mark the payment as already fully refunded
         completed_payment.status = Payment.PaymentStatus.REFUNDED
+        completed_payment.refund_status = Payment.RefundStatus.SUCCEEDED
+        completed_payment.stripe_refund_id = "re_dup"
         completed_payment.stripe_payment_intent_id = "pi_test123"
         completed_payment.save()
 
         mock_charge_data = {
             "id": "ch_test123",
             "payment_intent": "pi_test123",
+            # Branch 1 matches via stripe_refund_id; idempotency skips mutation.
+            "refunds": {
+                "data": [
+                    {
+                        "id": "re_dup",
+                        "amount": int(completed_payment.amount * 100),
+                        "metadata": {},
+                    }
+                ]
+            },
         }
         handler.event.data.object = mock_charge_data
 
         # Act
         handler.handle_charge_refunded(handler.event)
 
-        # Assert
-        assert "stripe_webhook_duplicate_refund" in caplog.text
+        # Assert — payment stays REFUNDED, no second mutation
+        completed_payment.refresh_from_db()
+        assert completed_payment.status == Payment.PaymentStatus.REFUNDED
+        assert completed_payment.refund_status == Payment.RefundStatus.SUCCEEDED
+        # The handler logs stripe_refund_processed with an empty newly_refunded list
+        assert "stripe_refund_processed" in caplog.text
 
     def test_handle_charge_refunded_unknown_payment(
         self,
