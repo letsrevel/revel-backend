@@ -24,7 +24,7 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
 
     Handles creation of recurring events, template editing with propagation,
     recurrence rule updates, occurrence cancellation, manual generation,
-    and pause/resume.
+    pause/resume, admin detail retrieval, and cadence-drift detection.
     """
 
     def _get_series(self, slug: str, series_id: UUID) -> models.EventSeries:

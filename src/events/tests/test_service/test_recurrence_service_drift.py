@@ -198,12 +198,15 @@ class TestDetectCadenceDrift:
         self,
         active_series: EventSeries,
     ) -> None:
-        """Events stored in UTC must be comparable against rule instants even
-        when the rule's ``to_rrule()`` yields naive-tz datetimes in the
-        same-instant-different-representation.
+        """Event starts and ``to_rrule()`` outputs must compare as the same
+        instant even when their tzinfo representations differ.
 
-        This regression test pins the UTC-normalization behaviour: swap it out
-        for a naive ``==`` and on-cadence events start spuriously drifting.
+        Django (``USE_TZ=True``) stores event ``start`` fields as aware
+        datetimes in UTC; ``dateutil.rrule`` returns aware datetimes carrying
+        whatever tzinfo ``dtstart`` had (e.g. ``Europe/Vienna``). Those are
+        the same instant but fail a direct ``==`` because their tzinfo objects
+        differ. This regression test pins the UTC-normalization step: drop
+        ``.astimezone(UTC)`` and on-cadence events start spuriously drifting.
         """
         # On-cadence Monday — must not drift.
         on_rule = timezone.make_aware(datetime(2026, 4, 13, 10, 0))
