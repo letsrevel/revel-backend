@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-03-11 09:29+0100\n"
+"POT-Creation-Date: 2026-04-08 16:44+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -138,6 +138,22 @@ msgstr "Hai già un biglietto."
 msgid "You have already added this dietary preference."
 msgstr "Sei già invitato a questo evento."
 
+#, fuzzy
+#| msgid "Invalid token type."
+msgid "Invalid or inactive referral code."
+msgstr "Tipo di token non valido."
+
+msgid "Statement not yet generated for this payout."
+msgstr ""
+
+#, fuzzy
+#| msgid "Invoice PDF not yet generated."
+msgid "Statement PDF not yet generated."
+msgstr "Il PDF della fattura non è ancora stato generato."
+
+msgid "Only active referrers can connect a Stripe account."
+msgstr ""
+
 msgid "Global Ban"
 msgstr "Blocco globale"
 
@@ -221,6 +237,18 @@ msgstr ""
 
 msgid "Cannot impersonate inactive users."
 msgstr ""
+
+#, python-format
+msgid "Referral payout statement %(document_number)s (%(currency)s)"
+msgstr "Rendiconto referral %(document_number)s (%(currency)s)"
+
+#, python-format
+msgid ""
+"Please find attached your referral payout statement %(document_number)s for "
+"the period %(period_start)s to %(period_end)s."
+msgstr ""
+"In allegato il rendiconto referral %(document_number)s per il periodo dal "
+"%(period_start)s al %(period_end)s."
 
 msgid "Activate Your Account"
 msgstr "Attiva il tuo account"
@@ -613,6 +641,29 @@ msgstr ""
 msgid "File is not a valid image."
 msgstr ""
 
+msgid "You must connect your Stripe account first."
+msgstr "Devi prima connettere il tuo account Stripe."
+
+msgid "The VAT ID is not valid according to VIES."
+msgstr "La partita IVA non è valida secondo il sistema VIES."
+
+#, fuzzy
+#| msgid ""
+#| "VIES validation service is temporarily unavailable. The VAT ID has been "
+#| "saved and will be validated automatically."
+msgid ""
+"VIES validation service is temporarily unavailable. The VAT ID has been "
+"saved. Please try again later."
+msgstr ""
+"Il servizio di validazione VIES è temporaneamente non disponibile. La "
+"partita IVA è stata salvata e verrà validata automaticamente."
+
+#, python-format
+msgid "Country code must match the VAT ID prefix (%(prefix)s)."
+msgstr ""
+"Il codice paese deve corrispondere al prefisso della partita IVA "
+"(%(prefix)s)."
+
 #, fuzzy
 #| msgid "Malware detected in your upload"
 msgid "Malware Detected - Admin Alert"
@@ -701,6 +752,11 @@ msgid "The Revel Team"
 msgstr "Il Team di Revel"
 
 #, fuzzy
+#| msgid "Invoice PDF not yet generated."
+msgid "Invoice PDF not available."
+msgstr "Il PDF della fattura non è ancora stato generato."
+
+#, fuzzy
 #| msgid "A user with this email already exists."
 msgid "An event with this slug already exists in your organization."
 msgstr "Esiste già un utente con questa email."
@@ -713,18 +769,16 @@ msgstr "Devi prima connetterti a Stripe."
 
 msgid ""
 "Billing information is required for online ticket sales with platform fees. "
-"Please set your billing name, country and billing address in your organization's billing "
-"settings."
+"Please set your billing name, country and billing address in your "
+"organization's billing settings."
 msgstr ""
 "Le informazioni di fatturazione sono necessarie per la vendita di biglietti "
-"online con commissioni di piattaforma. Imposta il nome di fatturazione, il paese e l'indirizzo "
-"di fatturazione nelle impostazioni di fatturazione della tua organizzazione."
+"online con commissioni di piattaforma. Imposta il nome di fatturazione, il "
+"paese e l'indirizzo di fatturazione nelle impostazioni di fatturazione della "
+"tua organizzazione."
 
 msgid "Ticket already cancelled"
 msgstr "Biglietto già annullato"
-
-msgid "ticket_tier_id is required for events that require tickets."
-msgstr "ticket_tier_id è obbligatorio per eventi che richiedono biglietti."
 
 #, fuzzy
 #| msgid "This event does not accept invitation requests."
@@ -747,6 +801,16 @@ msgstr ""
 
 msgid "The application deadline has passed."
 msgstr "Il termine per fare domanda è scaduto."
+
+#, fuzzy
+#| msgid "Token has expired."
+msgid "This invitation link has expired."
+msgstr "Il token è scaduto."
+
+#, fuzzy
+#| msgid "You have created too many items."
+msgid "This invitation link has reached its maximum number of uses."
+msgstr "Hai creato troppi elementi."
 
 #, fuzzy
 #| msgid "Check-in is not currently open for this event."
@@ -801,25 +865,17 @@ msgid "At least one of grants_membership or grants_staff_status must be True."
 msgstr ""
 "Almeno uno tra grants_membership o grants_staff_status deve essere True."
 
-#, python-format
-msgid "Country code must match the VAT ID prefix (%(prefix)s)."
-msgstr "Il codice paese deve corrispondere al prefisso della partita IVA (%(prefix)s)."
-
-msgid "The VAT ID is not valid according to VIES."
-msgstr "La partita IVA non è valida secondo il sistema VIES."
-
-msgid ""
-"VIES validation service is temporarily unavailable. The VAT ID has been "
-"saved and will be validated automatically."
-msgstr ""
-"Il servizio di validazione VIES è temporaneamente non disponibile. "
-"La partita IVA è stata salvata e verrà validata automaticamente."
-
 msgid "Invoice PDF not yet generated."
 msgstr "Il PDF della fattura non è ancora stato generato."
 
+#, fuzzy
+#| msgid "Invoice PDF not yet generated."
+msgid "Invoice PDF could not be generated."
+msgstr "Il PDF della fattura non è ancora stato generato."
+
 msgid "Cannot filter by both event_id and event_series_id."
-msgstr "Non è possibile filtrare per event_id e event_series_id contemporaneamente."
+msgstr ""
+"Non è possibile filtrare per event_id e event_series_id contemporaneamente."
 
 msgid "One or more events do not exist or belong to this organization."
 msgstr ""
@@ -869,6 +925,25 @@ msgstr ""
 
 msgid "Address visible to attendees only"
 msgstr ""
+
+#, fuzzy
+#| msgid "Waiting for questionnaire evaluation."
+msgid "Feedback questionnaires cannot require evaluation."
+msgstr "In attesa della valutazione del questionario."
+
+msgid "Only draft invoices can be edited."
+msgstr ""
+
+msgid "Cancelled invoices cannot be issued."
+msgstr ""
+
+msgid "Only draft invoices can be deleted."
+msgstr ""
+
+#, fuzzy
+#| msgid "You are not allowed to participate in this organization's events."
+msgid "You are not allowed to purchase from this tier."
+msgstr "Non ti è consentito partecipare agli eventi di questa organizzazione."
 
 msgid "You have reached the maximum number of tickets for this tier."
 msgstr ""
@@ -1070,6 +1145,11 @@ msgstr "La tua richiesta di verifica è stata rifiutata."
 msgid "You are not eligible."
 msgstr "Non sei idoneo."
 
+#, fuzzy
+#| msgid "You are already invited to this event."
+msgid "You have already submitted this questionnaire."
+msgstr "Sei già invitato a questo evento."
+
 msgid "You have a submission pending evaluation."
 msgstr ""
 
@@ -1082,9 +1162,6 @@ msgstr "Il tuo questionario %(questionnaire)s è stato approvato!"
 #| msgid "You have created too many items."
 msgid "You have reached the maximum number of attempts."
 msgstr "Hai creato troppi elementi."
-
-msgid "Retakes are not allowed for this questionnaire."
-msgstr ""
 
 #, python-format
 msgid "You can retry after %(retry_on)s."
@@ -1187,9 +1264,6 @@ msgstr ""
 
 msgid "A file must be provided when resource_type is 'file'."
 msgstr "È necessario fornire un file quando resource_type è 'file'."
-
-msgid "You must connect your Stripe account first."
-msgstr "Devi prima connettere il tuo account Stripe."
 
 msgid "Payment processing failed. Please try again later."
 msgstr "Elaborazione del pagamento non riuscita. Per favore riprova più tardi."
@@ -1335,11 +1409,12 @@ msgstr "Fattura commissioni di piattaforma %(invoice_number)s (%(currency)s)"
 
 #, python-format
 msgid ""
-"Please find attached the platform fee invoice %(invoice_number)s "
-"for %(currency)s transactions in the period %(period_start)s to %(period_end)s."
+"Please find attached the platform fee invoice %(invoice_number)s for "
+"%(currency)s transactions in the period %(period_start)s to %(period_end)s."
 msgstr ""
 "In allegato la fattura delle commissioni di piattaforma %(invoice_number)s "
-"per le transazioni in %(currency)s nel periodo dal %(period_start)s al %(period_end)s."
+"per le transazioni in %(currency)s nel periodo dal %(period_start)s al "
+"%(period_end)s."
 
 #, python-format
 msgid "Verify contact email for %(organization_name)s"
@@ -1467,11 +1542,11 @@ msgstr ""
 
 #, python-format
 msgid "%(follower)s started following %(series)s"
-msgstr ""
+msgstr "%(follower)s ha iniziato a seguire %(series)s"
 
 #, python-format
 msgid "New follower - %(series)s"
-msgstr ""
+msgstr "Nuovo follower – %(series)s"
 
 #, fuzzy, python-format
 #| msgid "You are already invited to this event."
@@ -1483,15 +1558,13 @@ msgstr "Sei già invitato a questo evento."
 msgid "New event from %(org)s"
 msgstr "Nuovo evento: %(event_name)s"
 
-#, fuzzy, python-format
-#| msgid "New Event: %(event_name)s"
+#, python-format
 msgid "New event in %(series)s: %(event)s"
-msgstr "Nuovo evento: %(event_name)s"
+msgstr "Nuovo evento in %(series)s: %(event)s"
 
-#, fuzzy, python-format
-#| msgid "New Event: %(event_name)s"
+#, python-format
 msgid "New event in %(series)s"
-msgstr "Nuovo evento: %(event_name)s"
+msgstr "Nuovo evento in %(series)s"
 
 #, fuzzy, python-format
 #| msgid "You are already invited to this event."
@@ -1806,6 +1879,11 @@ msgstr "Email di verifica inviata."
 msgid "Event details have been updated."
 msgstr "È stata inviata un'email."
 
+#, fuzzy, python-format
+#| msgid "You are already invited to this event."
+msgid "You're invited: %(event_name)s"
+msgstr "Sei già invitato a questo evento."
+
 #, fuzzy
 #| msgid "Staff Notification"
 msgid "Notifications"
@@ -1984,18 +2062,17 @@ msgid "View event details:"
 msgstr "Visualizza dettagli evento"
 
 msgid "New Follower"
-msgstr ""
+msgstr "Nuovo follower"
 
-#, fuzzy, python-format
-#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+#, python-format
 msgid ""
 "<strong>%(follower)s</strong> started following <strong>%(series)s</strong>."
-msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+msgstr ""
+"<strong>%(follower)s</strong> ha iniziato a seguire "
+"<strong>%(series)s</strong>."
 
-#, fuzzy
-#| msgid "View Event Details"
 msgid "Follower Details"
-msgstr "Visualizza dettagli evento"
+msgstr "Dettagli follower"
 
 msgid "Name:"
 msgstr "Nome:"
@@ -2003,19 +2080,15 @@ msgstr "Nome:"
 msgid "Email:"
 msgstr "Email:"
 
-#, fuzzy
-#| msgid "Event Details"
 msgid "Series:"
-msgstr "Dettagli evento"
+msgstr "Serie:"
 
 #, python-format
 msgid "%(follower)s started following %(series)s."
-msgstr ""
+msgstr "%(follower)s ha iniziato a seguire %(series)s."
 
-#, fuzzy
-#| msgid "Details"
 msgid "Follower Details:"
-msgstr "Dettagli"
+msgstr "Dettagli follower:"
 
 #, fuzzy
 #| msgid "Event Date:"
@@ -2051,12 +2124,6 @@ msgstr ""
 #| msgid "View Event Details"
 msgid "View updated event details:"
 msgstr "Visualizza dettagli evento"
-
-msgid "You're Invited"
-msgstr ""
-
-msgid "Please check the details of this notification."
-msgstr ""
 
 #, fuzzy
 #| msgid "View Event Details"
@@ -2140,6 +2207,9 @@ msgstr "Visualizza organizzazione:"
 msgid "Role Updated"
 msgstr ""
 
+msgid "Please check the details of this notification."
+msgstr ""
+
 #, fuzzy
 #| msgid "Item Removed"
 msgid "Membership Removed"
@@ -2210,28 +2280,23 @@ msgstr "Nuovo evento: %(event_name)s"
 msgid "View the event:"
 msgstr "Vai all'evento:"
 
-#, fuzzy
-#| msgid "Event Details"
 msgid "New Event in Series"
-msgstr "Dettagli evento"
+msgstr "Nuovo evento nella serie"
 
-#, fuzzy, python-format
-#| msgid ""
-#| "Your questionnaire <strong>%(questionnaire)s</strong> for "
-#| "<strong>%(org)s</strong> was not approved."
+#, python-format
 msgid "New event in <strong>%(series)s</strong>: <strong>%(event)s</strong>"
 msgstr ""
-"Il tuo questionario <strong>%(questionnaire)s</strong> per <strong>%(org)s</"
-"strong> non è stato approvato."
+"Nuovo evento in <strong>%(series)s</strong>: <strong>%(event)s</strong>"
 
 msgid "View event:"
 msgstr "Vai all'evento:"
 
-#, fuzzy, python-format
-#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+#, python-format
 msgid ""
 "<strong>%(follower)s</strong> started following <strong>%(org)s</strong>."
-msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+msgstr ""
+"<strong>%(follower)s</strong> ha iniziato a seguire "
+"<strong>%(org)s</strong>."
 
 #, python-format
 msgid "%(follower)s started following %(org)s."
@@ -2291,6 +2356,24 @@ msgstr "Dettagli evento"
 #| msgid "Ticket Information"
 msgid "Ticket Information:"
 msgstr "Informazioni biglietto"
+
+msgid "Sign up to accept this invitation and join the event:"
+msgstr ""
+
+msgid "Sign Up & Accept"
+msgstr ""
+
+#, fuzzy
+#| msgid ""
+#| "You have received this email because you have requested to delete your "
+#| "account at %(frontend_base_url)s."
+msgid "You received this email because you were invited to an event on Revel."
+msgstr ""
+"Hai ricevuto questa email perché hai richiesto di eliminare il tuo account "
+"su %(frontend_base_url)s."
+
+msgid "Sign up to accept this invitation:"
+msgstr ""
 
 #, fuzzy
 #| msgid "Claimed by:"
@@ -2724,6 +2807,38 @@ msgstr ""
 msgid "Updated Response:"
 msgstr ""
 
+msgid "New Events Scheduled"
+msgstr "Nuovi eventi programmati"
+
+#, python-format
+msgid ""
+"<strong>%(counter)s</strong> new event has been scheduled for "
+"<strong>%(series)s</strong>."
+msgid_plural ""
+"<strong>%(counter)s</strong> new events have been scheduled for "
+"<strong>%(series)s</strong>."
+msgstr[0] ""
+"<strong>%(counter)s</strong> nuovo evento è stato programmato per "
+"<strong>%(series)s</strong>."
+msgstr[1] ""
+"<strong>%(counter)s</strong> nuovi eventi sono stati programmati per "
+"<strong>%(series)s</strong>."
+
+msgid "Events scheduled:"
+msgstr "Eventi programmati:"
+
+msgid "View Series"
+msgstr "Visualizza serie"
+
+#, python-format
+msgid "%(counter)s new event has been scheduled for %(series)s."
+msgid_plural "%(counter)s new events have been scheduled for %(series)s."
+msgstr[0] "%(counter)s nuovo evento è stato programmato per %(series)s."
+msgstr[1] "%(counter)s nuovi eventi sono stati programmati per %(series)s."
+
+msgid "View the series:"
+msgstr "Visualizza la serie:"
+
 msgid "Read More"
 msgstr ""
 
@@ -3077,6 +3192,23 @@ msgstr ""
 msgid "User Data Exports"
 msgstr "Esportazione dati utente fallita"
 
+msgid "Referral Codes"
+msgstr ""
+
+msgid "Referrals"
+msgstr ""
+
+msgid "Referral Payouts"
+msgstr ""
+
+#, fuzzy
+#| msgid "Payment ID:"
+msgid "Payout Statements"
+msgstr "ID pagamento:"
+
+msgid "User Billing Profiles"
+msgstr ""
+
 msgid "Dietary Management"
 msgstr ""
 
@@ -3157,6 +3289,11 @@ msgid "Ticket Tiers"
 msgstr "Livello biglietto:"
 
 #, fuzzy
+#| msgid "Invalid token type."
+msgid "Discount Codes"
+msgstr "Tipo di token non valido."
+
+#, fuzzy
 #| msgid "RSVP Now"
 msgid "RSVPs"
 msgstr "Conferma ora"
@@ -3199,6 +3336,12 @@ msgstr ""
 #| msgid "Payment ID:"
 msgid "Payments"
 msgstr "ID pagamento:"
+
+msgid "Attendee Invoices"
+msgstr ""
+
+msgid "Attendee Credit Notes"
+msgstr ""
 
 msgid "Preferences"
 msgstr ""
@@ -3295,6 +3438,9 @@ msgstr ""
 #| msgid "Quarantined file"
 msgid "Quarantined Files"
 msgstr "File in quarantena"
+
+msgid "Exchange Rates"
+msgstr ""
 
 msgid "Celery Tasks"
 msgstr ""

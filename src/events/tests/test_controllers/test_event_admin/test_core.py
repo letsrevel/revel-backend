@@ -81,6 +81,52 @@ def test_update_event_by_unauthorized_users(
     assert response.status_code == expected_status_code
 
 
+def test_update_occurrence_real_edit_marks_modified(organization_owner_client: Client, event: Event) -> None:
+    """A PUT that actually changes a field on an occurrence flips ``is_modified``."""
+    # Arrange — turn the fixture event into a generated occurrence.
+    event.occurrence_index = 3
+    event.is_modified = False
+    event.save(update_fields=["occurrence_index", "is_modified"])
+
+    url = reverse("api:edit_event", kwargs={"event_id": event.pk})
+    payload = {"name": "Genuinely Changed", "visibility": event.visibility}
+
+    # Act
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    # Assert
+    assert response.status_code == 200
+    event.refresh_from_db()
+    assert event.name == "Genuinely Changed"
+    assert event.is_modified is True
+
+
+def test_update_occurrence_noop_put_does_not_mark_modified(organization_owner_client: Client, event: Event) -> None:
+    """A no-op PUT on a generated occurrence must leave ``is_modified`` False.
+
+    Without this guard, re-submitting the current state (e.g. from a
+    re-opened admin form) would silently opt the occurrence out of future
+    template propagation.
+    """
+    # Arrange — turn the fixture event into a generated occurrence.
+    event.occurrence_index = 5
+    event.is_modified = False
+    event.save(update_fields=["occurrence_index", "is_modified"])
+
+    url = reverse("api:edit_event", kwargs={"event_id": event.pk})
+    # Resend the exact current state — name/visibility unchanged.
+    payload = {"name": event.name, "visibility": event.visibility}
+
+    # Act
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    # Assert
+    assert response.status_code == 200
+    event.refresh_from_db()
+    assert event.name == payload["name"]
+    assert event.is_modified is False
+
+
 def test_upload_event_logo_by_owner(
     organization_owner_client: Client, event: Event, png_file: SimpleUploadedFile, png_bytes: bytes
 ) -> None:

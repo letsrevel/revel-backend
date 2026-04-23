@@ -258,6 +258,23 @@ from .export import (
     FileExportSchema,
 )
 
+# Recurrence rule schemas
+from .recurrence_rule import (
+    RecurrenceRuleCreateSchema,
+    RecurrenceRuleSchema,
+    RecurrenceRuleUpdateSchema,
+)
+
+# Recurring event schemas
+from .recurring_event import (
+    CancelOccurrenceSchema,
+    EventSeriesRecurrenceDetailSchema,
+    EventSeriesRecurrenceUpdateSchema,
+    GenerateSeriesEventsSchema,
+    RecurringEventCreateSchema,
+    TemplateEditSchema,
+)
+
 # Announcement schemas
 from .announcement import (
     AnnouncementCreateSchema,
@@ -464,6 +481,16 @@ __all__ = [
     "UpdateAttendeeInvoiceSchema",
     # Export
     "FileExportSchema",
+    # Recurrence
+    "RecurrenceRuleCreateSchema",
+    "RecurrenceRuleSchema",
+    "RecurrenceRuleUpdateSchema",
+    "CancelOccurrenceSchema",
+    "EventSeriesRecurrenceDetailSchema",
+    "EventSeriesRecurrenceUpdateSchema",
+    "GenerateSeriesEventsSchema",
+    "RecurringEventCreateSchema",
+    "TemplateEditSchema",
     # Announcement
     "AnnouncementCreateSchema",
     "AnnouncementListSchema",

@@ -47,6 +47,8 @@ class EventSeriesRetrieveSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin)
     slug: str
     logo: str | None = None
     cover_art: str | None = None
+    is_active: bool = True
+    auto_publish: bool = False
 
 
 class EventSeriesEditSchema(Schema):

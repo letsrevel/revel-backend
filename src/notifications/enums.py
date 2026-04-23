@@ -76,6 +76,9 @@ class NotificationType(TextChoices):
     NEW_EVENT_FROM_FOLLOWED_ORG = "new_event_from_followed_org"  # Notify followers of new event
     NEW_EVENT_FROM_FOLLOWED_SERIES = "new_event_from_followed_series"  # Notify followers of new event in series
 
+    # Series notifications
+    SERIES_EVENTS_GENERATED = "series_events_generated"  # Digest: N events generated for a series
+
 
 class DeliveryChannel(TextChoices):
     """Notification delivery channels."""

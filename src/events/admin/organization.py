@@ -105,7 +105,8 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
             .values("cnt")
         )
         events_subquery = (
-            models.Event.objects.filter(organization=OuterRef("pk"))
+            models.Event.objects.exclude_templates()
+            .filter(organization=OuterRef("pk"))
             .values("organization")
             .annotate(cnt=Count("id"))
             .values("cnt")

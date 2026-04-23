@@ -98,6 +98,14 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     public_pronoun_distribution: bool
     apply_before: AwareDatetime | None = None
     can_attend_without_login: bool
+    # Recurring-series fields. Included in the base schema so list views can
+    # show series context (e.g. occurrence position). ``is_template`` is
+    # always ``False`` in user-facing responses because ``Event.objects.for_user()``
+    # filters ``is_template=False``; it is kept here for schema completeness
+    # and superuser/admin tooling that may bypass ``for_user()``.
+    is_template: bool = False
+    is_modified: bool = False
+    occurrence_index: int | None = None
     updated_at: AwareDatetime | None = None
     created_at: AwareDatetime | None = None
 

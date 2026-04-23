@@ -67,6 +67,7 @@ dependencies = [
     "pycountry>=26.2.16",
     "pydantic[email]>=2.12.5",
     "pyotp>=2.9.0",
+    "python-dateutil>=2.9.0.post0",
     "python-decouple>=3.8",
     "python-json-logger>=4.0.0",
     "python-magic>=0.4.27",

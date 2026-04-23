@@ -1,0 +1,9 @@
+{% load i18n %}{% trans "Hello" %} {{ user.display_name }},
+
+📅 {% blocktranslate with series=context.event_series_name count counter=context.events_count %}{{ counter }} new event has been scheduled for {{ series }}.{% plural %}{{ counter }} new events have been scheduled for {{ series }}.{% endblocktranslate %}
+
+{% trans "Organization:" %} {{ context.organization_name }}
+
+{% trans "View the series:" %} {{ context.series_url }}
+
+{% include "notifications/email/_footer.txt" %}

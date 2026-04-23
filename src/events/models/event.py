@@ -27,6 +27,16 @@ from .venue import Venue
 
 
 class EventQuerySet(models.QuerySet["Event"]):
+    def exclude_templates(self) -> t.Self:
+        """Exclude recurring-series template events from the queryset.
+
+        Templates are internal blueprints used by the recurring-event generator
+        and should never appear in user-facing listings, counts, exports, or
+        attendee aggregations. Prefer this helper over ad-hoc
+        ``.filter(is_template=False)`` so the intent is searchable.
+        """
+        return self.filter(is_template=False)
+
     def with_tags(self) -> t.Self:
         """Prefetch tags and related tag objects for max performance."""
         return self.prefetch_related(
@@ -63,7 +73,7 @@ class EventQuerySet(models.QuerySet["Event"]):
         from .rsvp import EventRSVP
         from .ticket import Ticket
 
-        base_qs = self.select_related("organization", "event_series", "venue")
+        base_qs = self.select_related("organization", "event_series", "venue").filter(is_template=False)
 
         is_allowed_special = Q(id__in=allowed_ids) if allowed_ids else Q()
 
@@ -163,6 +173,10 @@ class EventManager(models.Manager["Event"]):
     def get_queryset(self) -> EventQuerySet:
         """Get base queryset for events."""
         return EventQuerySet(self.model, using=self._db)
+
+    def exclude_templates(self) -> EventQuerySet:
+        """Return a queryset that excludes recurring-series template events."""
+        return self.get_queryset().exclude_templates()
 
     def with_organization(self) -> EventQuerySet:
         """Returns a queryset prefetching an organization and its members."""
@@ -291,9 +305,36 @@ class Event(
         help_text="Optional venue for this event.",
     )
 
+    # Recurring event fields
+    # NOTE: when adding new fields to Event, check whether they should be
+    # excluded from duplication in ``events.service.duplication._EXCLUDED_FROM_COPY``.
+    # Fields in the exclusion set are NOT copied from template to occurrence;
+    # everything else is copied by default via ``_meta.concrete_fields`` introspection.
+    is_template = models.BooleanField(default=False, db_index=True)
+    is_modified = models.BooleanField(default=False)
+    occurrence_index = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Monotonic count of materializations for this event's series "
+            "(0-based). This is NOT the position of the event in the RRULE "
+            "sequence: cancelled/excluded dates are skipped and do not "
+            "consume an index. Useful for audit and ordering, not for "
+            "mapping back to the original recurrence pattern."
+        ),
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["organization", "slug"], name="unique_organization_slug"),
+            # Templates are internal blueprints for recurring series and must
+            # never be published. Enforce at the DB layer so a stray update
+            # (admin action, data migration) can't accidentally expose a
+            # template to users. Templates stay in DRAFT for their entire life.
+            models.CheckConstraint(
+                condition=models.Q(is_template=False) | models.Q(status="draft"),
+                name="template_events_must_be_draft",
+            ),
         ]
         indexes = [
             models.Index(fields=["visibility", "status"], name="idx_visibility_status"),

@@ -211,6 +211,41 @@ class TestCreateAnnouncement:
 
         assert "does not belong to this organization" in str(exc_info.value)
 
+    def test_create_announcement_rejects_recurring_series_template(
+        self,
+        org: Organization,
+        org_owner: RevelUser,
+    ) -> None:
+        """Recurring-series template events must not be targetable by announcements.
+
+        Templates are internal blueprints — they never go to OPEN and are
+        hidden from user-facing queries. Attaching an announcement to a
+        template would orphan it.
+        """
+        # Arrange — create a template event directly.
+        template = Event.objects.create(
+            organization=org,
+            name="Template Event",
+            slug="template-event",
+            start=timezone.now() + timedelta(days=1),
+            end=timezone.now() + timedelta(days=1, hours=2),
+            status=Event.EventStatus.DRAFT,
+            visibility=Event.Visibility.PUBLIC,
+            event_type=Event.EventType.PUBLIC,
+            is_template=True,
+        )
+        payload = AnnouncementCreateSchema(
+            title="Template-targeted announcement",
+            body="This should be refused",
+            event_id=template.id,
+        )
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            announcement_service.create_announcement(org, org_owner, payload)
+
+        assert "Event not found" in str(exc_info.value)
+
     def test_create_announcement_filters_tiers_from_other_orgs(
         self,
         org: Organization,
@@ -385,6 +420,32 @@ class TestUpdateAnnouncement:
         payload = AnnouncementUpdateSchema(
             event_id=uuid4(),
         )
+
+        # Act & Assert
+        with pytest.raises(ValueError) as exc_info:
+            announcement_service.update_announcement(draft_announcement, payload)
+
+        assert "Event not found" in str(exc_info.value)
+
+    def test_update_announcement_rejects_recurring_series_template(
+        self,
+        org: Organization,
+        draft_announcement: Announcement,
+    ) -> None:
+        """Update must not rebind an announcement onto a template event."""
+        # Arrange
+        template = Event.objects.create(
+            organization=org,
+            name="Template Event",
+            slug="template-event",
+            start=timezone.now() + timedelta(days=1),
+            end=timezone.now() + timedelta(days=1, hours=2),
+            status=Event.EventStatus.DRAFT,
+            visibility=Event.Visibility.PUBLIC,
+            event_type=Event.EventType.PUBLIC,
+            is_template=True,
+        )
+        payload = AnnouncementUpdateSchema(event_id=template.id)
 
         # Act & Assert
         with pytest.raises(ValueError) as exc_info:

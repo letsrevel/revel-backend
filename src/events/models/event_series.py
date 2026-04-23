@@ -2,6 +2,7 @@ import typing as t
 
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.gis.db import models
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db.models import Prefetch, Q
 
 from accounts.models import RevelUser
@@ -10,6 +11,9 @@ from common.models import TagAssignment, TaggableMixin, TimeStampedModel
 
 from .mixins import LogoCoverValidationMixin, SlugFromNameMixin
 from .organization import Organization
+
+# Cap the rolling generation horizon at one year to keep the daily Celery beat task bounded.
+MAX_GENERATION_WINDOW_WEEKS = 52
 
 
 class EventSeriesQuerySet(models.QuerySet["EventSeries"]):
@@ -97,6 +101,39 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
     name = models.CharField(max_length=255, db_index=True)
     slug = models.SlugField(max_length=255, db_index=True)
 
+    # Recurrence fields.
+    # PROTECT on both template_event and recurrence_rule: deleting either side
+    # individually would either silently destroy a paid-ticket-bearing series
+    # (template) or leave it as a generation-broken zombie (rule). Series
+    # teardown must always go through the service layer, which orchestrates
+    # cleanup of the rule, the template, and all materialized occurrences in
+    # the right order. PROTECT enforces this contract at the DB level so an
+    # admin DELETE click can't bypass it. The fields remain nullable only
+    # because they must be created after the EventSeries row (chicken-and-egg
+    # at creation time in ``create_recurring_event_series``).
+    template_event = models.OneToOneField(
+        "Event",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="template_for_series",
+    )
+    recurrence_rule = models.OneToOneField(
+        "events.RecurrenceRule",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="event_series",
+    )
+    exdates = models.JSONField(default=list, blank=True)
+    is_active = models.BooleanField(default=True)
+    auto_publish = models.BooleanField(default=False)
+    generation_window_weeks = models.PositiveIntegerField(
+        default=8,
+        validators=[MinValueValidator(1), MaxValueValidator(MAX_GENERATION_WINDOW_WEEKS)],
+    )
+    last_generated_until = models.DateTimeField(null=True, blank=True)
+
     objects = EventSeriesManager()
 
     class Meta:
@@ -108,3 +145,29 @@ class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin,
 
     def __str__(self) -> str:
         return self.name
+
+    def delete(self, *args: t.Any, **kwargs: t.Any) -> tuple[int, dict[str, int]]:
+        """Delete the series and cascade-delete its events, including the template.
+
+        ``template_event`` and ``recurrence_rule`` both use ``on_delete=PROTECT``
+        to guard against direct deletion of the Event or RecurrenceRule rows
+        via the admin. But deleting the series itself is the blessed teardown
+        path: we must be able to reach the template event (CASCADE via
+        ``Event.event_series``) without the PROTECT FK from ``this`` series
+        tripping the collector. We null out both PROTECT-ing FKs in a single
+        UPDATE first so the subsequent cascade can complete cleanly.
+
+        The ``RecurrenceRule`` row is intentionally left orphaned — cleanup of
+        the rule belongs in a service-level teardown helper if/when one is
+        added. This is called out in the class-level comment on
+        ``template_event`` and pinned by
+        ``test_deleting_series_cascades_to_template_and_occurrences``.
+        """
+        if self.pk is not None and (self.template_event_id or self.recurrence_rule_id):
+            type(self).objects.filter(pk=self.pk).update(
+                template_event=None,
+                recurrence_rule=None,
+            )
+            self.template_event = None
+            self.recurrence_rule = None
+        return super().delete(*args, **kwargs)

@@ -71,13 +71,19 @@ def create_announcement(
     Returns:
         Created announcement instance.
     """
-    # Validate event belongs to organization if specified
+    # Validate event belongs to organization if specified. Recurring-series
+    # template events are excluded: they are internal blueprints and must not
+    # be targetable by user-facing announcements.
     event: Event | None = None
     if payload.event_id:
-        event = Event.objects.filter(
-            id=payload.event_id,
-            organization=organization,
-        ).first()
+        event = (
+            Event.objects.exclude_templates()
+            .filter(
+                id=payload.event_id,
+                organization=organization,
+            )
+            .first()
+        )
         if not event:
             raise ValueError(_ERR_EVENT_NOT_FOUND)
 
@@ -133,16 +139,21 @@ def update_announcement(
 
     update_data = payload.model_dump(exclude_unset=True)
 
-    # Handle event_id specially
+    # Handle event_id specially. Recurring-series template events are
+    # excluded: they are internal blueprints and must not be targetable.
     if "event_id" in update_data:
         event_id = update_data.pop("event_id")
         if event_id is None:
             announcement.event = None
         else:
-            event = Event.objects.filter(
-                id=event_id,
-                organization=announcement.organization,
-            ).first()
+            event = (
+                Event.objects.exclude_templates()
+                .filter(
+                    id=event_id,
+                    organization=announcement.organization,
+                )
+                .first()
+            )
             if not event:
                 raise ValueError(_ERR_EVENT_NOT_FOUND)
             announcement.event = event

@@ -1,3 +1,4 @@
+import typing as t
 from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -17,7 +18,12 @@ from events.models import (
     Ticket,
     TicketTier,
 )
-from events.tasks import build_attendee_visibility_flags, cleanup_expired_payments, cleanup_ticket_file_cache
+from events.tasks import (
+    build_attendee_visibility_flags,
+    cleanup_expired_payments,
+    cleanup_ticket_file_cache,
+    generate_recurring_events_task,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -555,3 +561,172 @@ class TestCleanupTicketFileCache:
         # ticket2 should still have its file (deletion failed)
         assert ticket2.pdf_file
         assert ticket2.file_content_hash is not None
+
+
+class TestGenerateRecurringEventsTask:
+    """Tests for the daily Celery beat task that materializes recurring series."""
+
+    @patch("notifications.service.notification_helpers.notify_series_events_generated")
+    def test_processes_active_series_only(
+        self,
+        mock_notify: MagicMock,
+        organization: Organization,
+    ) -> None:
+        """The task only processes active series with both a rule and template."""
+        from datetime import datetime as dt
+
+        from freezegun import freeze_time
+
+        from events.models import EventSeries, RecurrenceRule
+
+        dtstart = timezone.make_aware(dt(2026, 4, 6, 10, 0))
+        rule = RecurrenceRule.objects.create(
+            frequency=RecurrenceRule.Frequency.WEEKLY,
+            interval=1,
+            weekdays=[0],
+            dtstart=dtstart,
+        )
+        active = EventSeries.objects.create(
+            organization=organization,
+            name="Active Series",
+            recurrence_rule=rule,
+            is_active=True,
+            generation_window_weeks=4,
+        )
+        template = Event.objects.create(
+            organization=organization,
+            event_series=active,
+            name="Active Template",
+            start=dtstart,
+            end=dtstart + timedelta(hours=2),
+            status=Event.EventStatus.DRAFT,
+            visibility=Event.Visibility.PUBLIC,
+            event_type=Event.EventType.PUBLIC,
+            is_template=True,
+        )
+        active.template_event = template
+        active.save(update_fields=["template_event"])
+
+        # Inactive series — must be skipped.
+        rule2 = RecurrenceRule.objects.create(
+            frequency=RecurrenceRule.Frequency.WEEKLY,
+            interval=1,
+            weekdays=[0],
+            dtstart=dtstart,
+        )
+        inactive = EventSeries.objects.create(
+            organization=organization,
+            name="Inactive Series",
+            recurrence_rule=rule2,
+            is_active=False,
+            generation_window_weeks=4,
+        )
+        inactive_template = Event.objects.create(
+            organization=organization,
+            event_series=inactive,
+            name="Inactive Template",
+            start=dtstart,
+            end=dtstart + timedelta(hours=2),
+            status=Event.EventStatus.DRAFT,
+            visibility=Event.Visibility.PUBLIC,
+            event_type=Event.EventType.PUBLIC,
+            is_template=True,
+        )
+        inactive.template_event = inactive_template
+        inactive.save(update_fields=["template_event"])
+
+        # Series without recurrence rule or template — must be skipped via the queryset filter.
+        EventSeries.objects.create(
+            organization=organization,
+            name="Bare Series",
+            is_active=True,
+        )
+
+        # Act
+        with freeze_time("2026-04-06 10:00:00"):
+            result = generate_recurring_events_task()
+
+        # Assert — only the active series is dispatched (inactive series and
+        # series without rule/template are filtered out by the queryset). With
+        # CELERY_TASK_ALWAYS_EAGER the dispatched subtask runs inline and
+        # materializes 5 weekly Mondays — see test_weekly_rule_generates_expected_count
+        # for the timezone boundary discussion.
+        assert result == {"series_dispatched": 1}
+        assert active.events.filter(is_template=False).count() == 5
+        assert inactive.events.filter(is_template=False).count() == 0
+
+    @patch("notifications.service.notification_helpers.notify_series_events_generated")
+    def test_per_series_subtask_isolation_on_failure(
+        self,
+        mock_notify: MagicMock,
+        organization: Organization,
+        settings: t.Any,
+    ) -> None:
+        """One failing series subtask must not prevent the other series from generating.
+
+        The beat task dispatches per-series subtasks via ``.delay()``. In
+        production these are independent and a failure in one doesn't affect
+        the others. In tests with CELERY_TASK_EAGER_PROPAGATES we disable
+        propagation so the test reflects production semantics.
+        """
+        from datetime import datetime as dt
+
+        from freezegun import freeze_time
+
+        from events.models import EventSeries, RecurrenceRule
+
+        # In production, .delay() dispatches and returns immediately; a failing
+        # subtask is handled by Celery's retry loop. Emulate that here.
+        settings.CELERY_TASK_EAGER_PROPAGATES = False
+
+        dtstart = timezone.make_aware(dt(2026, 4, 6, 10, 0))
+
+        def _build_series(name: str) -> EventSeries:
+            rule = RecurrenceRule.objects.create(
+                frequency=RecurrenceRule.Frequency.WEEKLY,
+                interval=1,
+                weekdays=[0],
+                dtstart=dtstart,
+            )
+            series = EventSeries.objects.create(
+                organization=organization,
+                name=name,
+                recurrence_rule=rule,
+                is_active=True,
+                generation_window_weeks=4,
+            )
+            template = Event.objects.create(
+                organization=organization,
+                event_series=series,
+                name=f"{name} Template",
+                start=dtstart,
+                end=dtstart + timedelta(hours=2),
+                status=Event.EventStatus.DRAFT,
+                visibility=Event.Visibility.PUBLIC,
+                event_type=Event.EventType.PUBLIC,
+                is_template=True,
+            )
+            series.template_event = template
+            series.save(update_fields=["template_event"])
+            return series
+
+        bad = _build_series("Bad Series")
+        good = _build_series("Good Series")
+
+        # Fake generate_series_events so it raises for the bad series and runs
+        # normally for the good one. Patched at the tasks module where it's
+        # imported inside the subtask.
+        from events.service.recurrence_service import generate_series_events as real_generate
+
+        def _side_effect(series: EventSeries, **kwargs: t.Any) -> list[Event]:
+            if series.id == bad.id:
+                raise RuntimeError("boom")
+            return real_generate(series, **kwargs)
+
+        with patch("events.service.recurrence_service.generate_series_events", side_effect=_side_effect):
+            with freeze_time("2026-04-06 10:00:00"):
+                result = generate_recurring_events_task()
+
+        assert result == {"series_dispatched": 2}
+        assert good.events.filter(is_template=False).count() == 5
+        assert bad.events.filter(is_template=False).count() == 0

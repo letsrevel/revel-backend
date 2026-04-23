@@ -464,6 +464,17 @@ class NewEventFromFollowedSeriesContext(BaseNotificationContext):
     event_url: str
 
 
+class SeriesEventsGeneratedContext(BaseNotificationContext):
+    """Context for SERIES_EVENTS_GENERATED notification (digest to followers/staff)."""
+
+    organization_id: str
+    organization_name: str
+    event_series_id: str
+    event_series_name: str
+    events_count: int
+    series_url: str
+
+
 # Context type registry
 NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContext]] = {
     NotificationType.TICKET_CREATED: TicketCreatedContext,
@@ -506,6 +517,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.EVENT_SERIES_FOLLOWED: EventSeriesFollowedContext,
     NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG: NewEventFromFollowedOrgContext,
     NotificationType.NEW_EVENT_FROM_FOLLOWED_SERIES: NewEventFromFollowedSeriesContext,
+    NotificationType.SERIES_EVENTS_GENERATED: SeriesEventsGeneratedContext,
 }
 
 

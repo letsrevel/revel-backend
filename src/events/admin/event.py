@@ -35,8 +35,16 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
         "start",
         "attendee_count",
         "requires_ticket",
+        "is_template",
     ]
-    list_filter = ["event_type", "organization", "start", "requires_ticket", "waitlist_open"]
+    list_filter = [
+        "event_type",
+        "organization",
+        "start",
+        "requires_ticket",
+        "waitlist_open",
+        "is_template",
+    ]
     search_fields = ["name", "slug", "organization__name"]
     autocomplete_fields = ["organization", "event_series", "city", "venue"]
     prepopulated_fields = {"slug": ("name",)}
@@ -92,10 +100,20 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
 
 @admin.register(models.EventSeries)
 class EventSeriesAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
-    list_display = ["name", "slug", "organization_link"]
+    list_display = ["name", "slug", "organization_link", "is_active", "auto_publish"]
+    list_filter = ["is_active", "auto_publish"]
     search_fields = ["name", "slug", "organization__name"]
-    autocomplete_fields = ["organization"]
+    autocomplete_fields = ["organization", "template_event", "recurrence_rule"]
     prepopulated_fields = {"slug": ("name",)}
+    readonly_fields = ["last_generated_until"]
+
+
+@admin.register(models.RecurrenceRule)
+class RecurrenceRuleAdmin(ModelAdmin):  # type: ignore[misc]
+    list_display = ["__str__", "frequency", "interval", "dtstart", "until", "count"]
+    list_filter = ["frequency"]
+    readonly_fields = ["rrule_string", "created_at", "updated_at"]
+    search_fields = ["rrule_string"]
 
 
 @admin.register(models.EventInvitation)

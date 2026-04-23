@@ -202,7 +202,7 @@ def _build_scoped_submission_qs(
         ).values("submission_id")
         base_qs = base_qs.filter(id__in=sub_ids)
     elif event_series_id is not None:
-        evt_ids = Event.objects.filter(event_series_id=event_series_id).values("id")
+        evt_ids = Event.objects.exclude_templates().filter(event_series_id=event_series_id).values("id")
         sub_ids = EventQuestionnaireSubmission.objects.filter(
             questionnaire_id=questionnaire_id,
             event_id__in=evt_ids,
