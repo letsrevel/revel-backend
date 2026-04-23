@@ -25,6 +25,28 @@ if t.TYPE_CHECKING:
 DEFAULT_TICKET_TIER_NAME = "General Admission"
 
 
+class CancellationSource(models.TextChoices):
+    """Who or what cancelled the ticket."""
+
+    USER = "user", "User self-service"
+    ORGANIZER = "organizer", "Organizer via admin"
+    STRIPE_DASHBOARD = "stripe_dashboard", "Stripe dashboard"
+
+
+class CancellationBlockReason(models.TextChoices):
+    """Stable error codes surfaced to the frontend when cancellation is blocked.
+
+    Values are i18n keys — localized copy lives on the frontend.
+    """
+
+    ALREADY_CANCELLED = "already_cancelled", "Ticket is already cancelled"
+    CHECKED_IN = "checked_in", "Ticket holder has already checked in"
+    EVENT_STARTED = "event_started", "Event has already started"
+    NOT_PERMITTED = "not_permitted", "Self-service cancellation disabled for this tier"
+    PAST_DEADLINE = "past_deadline", "Past the cancellation deadline"
+    NOT_OWNER = "not_owner", "Only the ticket holder can cancel this ticket"
+
+
 class TicketTierQuerySet(models.QuerySet["TicketTier"]):
     def with_venue_and_sector(self) -> t.Self:
         """Select venue and sector for serialization (not for transactional queries)."""
@@ -322,6 +344,21 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
     )
 
     display_order = models.PositiveIntegerField(default=0, db_index=True)
+
+    allow_user_cancellation = models.BooleanField(
+        default=False,
+        help_text="When True, ticket holders can cancel their own tickets under this tier's refund policy.",
+    )
+    cancellation_deadline_hours = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Users can self-cancel up to this many hours before event start. Null = until event start.",
+    )
+    refund_policy = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Serialized RefundPolicy (tiers + flat fee). Null = allow cancellation with zero refund.",
+    )
 
     restrict_visibility_to_linked_invitations = models.BooleanField(
         default=False,
@@ -632,6 +669,29 @@ class Ticket(TimeStampedModel):
         help_text="Amount discounted from the original tier price.",
     )
 
+    refund_policy_snapshot = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Copy of tier.refund_policy at purchase time. Immutable — drives refund math.",
+    )
+    cancelled_at = models.DateTimeField(null=True, blank=True, editable=False)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cancelled_tickets",
+        editable=False,
+    )
+    cancellation_source = models.CharField(
+        max_length=20,
+        choices=CancellationSource.choices,
+        blank=True,
+        default="",
+        db_index=True,
+    )
+    cancellation_reason = models.CharField(max_length=500, blank=True, default="")
+
     # Cached ticket files (generated on-demand, cleaned up after event ends)
     pdf_file = ProtectedFileField(upload_to="tickets/pdf/", null=True, blank=True)
     pkpass_file = ProtectedFileField(upload_to="tickets/pkpass/", null=True, blank=True)
@@ -710,6 +770,11 @@ class Payment(TimeStampedModel):
         FAILED = "failed"
         REFUNDED = "refunded"
 
+    class RefundStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
     # note: we cascade on ticket and user deletion because stripe holds financial records for us/the org
     # this is not THE BEST solution, but it's the simplest to keep local GDPR compliance.
     # In the future, a more complex solution will be proposed
@@ -757,6 +822,30 @@ class Payment(TimeStampedModel):
         default=None,
         help_text="Buyer billing info snapshot at checkout time for attendee invoice generation.",
     )
+
+    refund_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Actual amount refunded. May be less than amount when a partial refund policy applies.",
+    )
+    refund_status = models.CharField(
+        max_length=20,
+        choices=RefundStatus.choices,
+        null=True,
+        blank=True,
+        db_index=True,
+    )
+    stripe_refund_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="Stripe refund object id. Used to match webhook refund events to this Payment.",
+    )
+    refund_failure_reason = models.TextField(blank=True, default="")
+    refunded_at = models.DateTimeField(null=True, blank=True)
 
     raw_response = models.JSONField(blank=True, default=dict)  # To store the full webhook event for auditing
     expires_at = models.DateTimeField(default=_get_payment_default_expiry, db_index=True, editable=False)
