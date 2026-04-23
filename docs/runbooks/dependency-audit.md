@@ -56,6 +56,15 @@ and silently falls back to a partial graph. With the flag, the uv resolver
 walks `[project.dependencies]` plus the configured `[tool.licensecheck].groups`
 and you get the full 280+ package tree.
 
+### Gotcha: `pip-audit --disable-pip` in CI
+
+The `audit` target passes `--disable-pip` alongside `--no-deps`. `pip-audit -r`
+always spawns a fresh venv and runs `python -m ensurepip` inside it; uv's
+managed Python doesn't ship `ensurepip`, so the step aborts with exit 127 on
+CI runners that use `setup-uv`. `--disable-pip` skips the bootstrap entirely
+(safe because with `--no-deps` we don't need pip to resolve). Locally this
+may mask if your system Python has `ensurepip`, but CI always needs it.
+
 ### `licensecheck`
 
 1. Open the Actions run and identify which package triggered the fail (the tool

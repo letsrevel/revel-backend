@@ -61,6 +61,11 @@ licensecheck:
 # pip-audit --strict chokes on. `uv export --no-emit-project` writes the resolved
 # graph without the self-package, then --no-deps stops pip-audit from re-resolving.
 #
+# --disable-pip is required in CI: `pip-audit -r <file>` always spawns a venv
+# and calls `python -m ensurepip` inside it. uv's managed Python doesn't ship
+# `ensurepip`, so CI fails with exit 127. --disable-pip skips the venv bootstrap
+# (safe because --no-deps means pip-audit doesn't need pip to resolve anything).
+#
 # --ignore-vuln rationale (re-review quarterly):
 #   CVE-2025-69872 (diskcache): no fix published. Transitive via `instructor`
 #       (LLM client lib). Attack requires write access to the local cache
@@ -69,8 +74,8 @@ licensecheck:
 #       diskcache release ships a fix.
 .PHONY: audit
 audit:
-	@uv export --format requirements-txt --no-emit-project --no-hashes --group dev -o .audit-reqs.txt 2>/dev/null
-	@trap 'rm -f .audit-reqs.txt' EXIT; uv run pip-audit --strict --no-deps -r .audit-reqs.txt \
+	@uv export --quiet --format requirements-txt --no-emit-project --no-hashes --group dev -o .audit-reqs.txt
+	@trap 'rm -f .audit-reqs.txt' EXIT; uv run pip-audit --strict --no-deps --disable-pip -r .audit-reqs.txt \
 		--ignore-vuln CVE-2025-69872
 
 .PHONY: deps-check
