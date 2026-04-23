@@ -522,6 +522,7 @@ class BatchTicketService:
                 price_paid=price_paid,
                 discount_code=dc,
                 discount_amount=discount_amount,
+                refund_policy_snapshot=self.tier.refund_policy,
             )
             if seat:
                 ticket.seat = seat
@@ -534,7 +535,9 @@ class BatchTicketService:
 
             # Skip FK validation - we've already validated event, tier, user exist
             # full_clean() would query DB to check each FK exists (3+ queries per ticket)
-            ticket.clean_fields(exclude=["event", "tier", "user", "seat", "sector", "venue", "discount_code"])
+            ticket.clean_fields(
+                exclude=["event", "tier", "user", "seat", "sector", "venue", "discount_code", "refund_policy_snapshot"]
+            )
             ticket.clean()
             tickets.append(ticket)
 
