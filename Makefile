@@ -74,7 +74,7 @@ licensecheck:
 #       diskcache release ships a fix.
 .PHONY: audit
 audit:
-	@uv export --quiet --format requirements-txt --no-emit-project --no-hashes --group dev -o .audit-reqs.txt
+	@uv export --quiet --locked --format requirements-txt --no-emit-project --no-hashes --group dev -o .audit-reqs.txt
 	@trap 'rm -f .audit-reqs.txt' EXIT; uv run pip-audit --strict --no-deps --disable-pip -r .audit-reqs.txt \
 		--ignore-vuln CVE-2025-69872
 

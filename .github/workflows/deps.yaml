@@ -13,11 +13,13 @@ on:
     paths:
       - pyproject.toml
       - uv.lock
+      - Makefile
       - .github/workflows/deps.yaml
   pull_request:
     paths:
       - pyproject.toml
       - uv.lock
+      - Makefile
       - .github/workflows/deps.yaml
 
 permissions:
@@ -36,7 +38,9 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --group dev
+        # --locked fails visibly if uv.lock has drifted from pyproject.toml —
+        # the compliance gate must audit the committed graph, not a runtime re-resolve.
+        run: uv sync --locked --group dev
 
       - name: Run licensecheck
         run: make licensecheck
@@ -53,7 +57,9 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --group dev
+        # --locked fails visibly if uv.lock has drifted from pyproject.toml —
+        # the compliance gate must audit the committed graph, not a runtime re-resolve.
+        run: uv sync --locked --group dev
 
       - name: Run pip-audit
         run: make audit
