@@ -1,0 +1,65 @@
+name: Dependency checks
+
+# Runs on every PR and push to main that touches the dep graph:
+#   - licensecheck: fails on copyleft / source-available licenses entering the tree
+#   - pip-audit:    fails on known CVEs in pinned dependencies
+# The nightly workflow (nightly-audit.yml) re-runs both against main so
+# newly-disclosed advisories surface within ~24h even without a PR.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - pyproject.toml
+      - uv.lock
+      - Makefile
+      - .github/workflows/deps.yaml
+  pull_request:
+    paths:
+      - pyproject.toml
+      - uv.lock
+      - Makefile
+      - .github/workflows/deps.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  licensecheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.10"
+          enable-cache: true
+
+      - name: Install dependencies
+        # --locked fails visibly if uv.lock has drifted from pyproject.toml —
+        # the compliance gate must audit the committed graph, not a runtime re-resolve.
+        run: uv sync --locked --group dev
+
+      - name: Run licensecheck
+        run: make licensecheck
+
+  pip-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.10"
+          enable-cache: true
+
+      - name: Install dependencies
+        # --locked fails visibly if uv.lock has drifted from pyproject.toml —
+        # the compliance gate must audit the committed graph, not a runtime re-resolve.
+        run: uv sync --locked --group dev
+
+      - name: Run pip-audit
+        run: make audit

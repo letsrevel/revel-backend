@@ -1,0 +1,152 @@
+name: Nightly dependency audit
+
+# Runs pip-audit and licensecheck against main every night so newly-disclosed
+# CVEs (or licenses of existing deps being reclassified) surface within ~24h
+# even when no PR is open. The PR workflow (deps.yaml) already catches issues
+# on every push; this job complements it by closing the gap between PRs.
+#
+# On failure each job opens (or bumps) a GitHub issue tagged `security` +
+# `dependencies` so the advisory lands in the tracker without relying on
+# someone staring at the Actions tab.
+
+on:
+  schedule:
+    # 03:17 UTC every day — off the top of the hour so we don't pile
+    # onto the global GitHub Actions cron thundering herd at :00.
+    - cron: "17 3 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  pip-audit:
+    name: pip-audit (main)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.10"
+          enable-cache: true
+
+      - name: Install dependencies
+        # --locked fails visibly if uv.lock has drifted from pyproject.toml —
+        # the compliance gate must audit the committed graph, not a runtime re-resolve.
+        run: uv sync --locked --group dev
+
+      - name: Run pip-audit
+        run: make audit
+
+      - name: Open tracker issue on failure
+        if: failure()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = `Nightly pip-audit failure (${new Date().toISOString().slice(0, 10)})`;
+            const body = [
+              `The nightly dependency audit on \`main\` failed.`,
+              ``,
+              `Run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              ``,
+              `Triage: see \`docs/runbooks/dependency-audit.md\`.`,
+            ].join("\n");
+            // Dedupe: if an open issue already carries the same title
+            // slug ("Nightly pip-audit failure"), bump it with a
+            // comment instead of filing a fresh one.
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: "security,dependencies",
+              per_page: 50,
+            });
+            const match = existing.data.find((i) =>
+              i.title.startsWith("Nightly pip-audit failure")
+            );
+            if (match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: match.number,
+                body: `Another failing run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ["security", "dependencies"],
+              });
+            }
+
+  licensecheck:
+    name: licensecheck (main)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.10"
+          enable-cache: true
+
+      - name: Install dependencies
+        # --locked fails visibly if uv.lock has drifted from pyproject.toml —
+        # the compliance gate must audit the committed graph, not a runtime re-resolve.
+        run: uv sync --locked --group dev
+
+      - name: Run licensecheck
+        run: make licensecheck
+
+      - name: Open tracker issue on failure
+        if: failure()
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = `Nightly license-check failure (${new Date().toISOString().slice(0, 10)})`;
+            const body = [
+              `The nightly license compliance check on \`main\` failed.`,
+              ``,
+              `Run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              ``,
+              `Triage: see \`docs/runbooks/dependency-audit.md\`.`,
+            ].join("\n");
+            // Dedupe: if an open issue already carries the same title
+            // slug ("Nightly license-check failure"), bump it with a
+            // comment instead of filing a fresh one.
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              labels: "security,dependencies",
+              per_page: 50,
+            });
+            const match = existing.data.find((i) =>
+              i.title.startsWith("Nightly license-check failure")
+            );
+            if (match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: match.number,
+                body: `Another failing run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ["security", "dependencies"],
+              });
+            }
