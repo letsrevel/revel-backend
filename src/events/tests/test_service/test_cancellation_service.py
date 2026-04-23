@@ -3,13 +3,21 @@
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 import pytest
 from django.utils import timezone
 
-from events.models import Ticket, TicketTier
+from events.models import Payment, Ticket, TicketTier
 from events.models.ticket import CancellationBlockReason
-from events.service.cancellation_service import build_cancellation_preview, quote_cancellation
+from events.service.cancellation_service import (
+    CancellationBlocked,
+    CancellationNotOwner,
+    StripeRefundFailed,
+    build_cancellation_preview,
+    cancel_ticket_by_user,
+    quote_cancellation,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -237,3 +245,121 @@ class TestBuildCancellationPreview:
         )
         preview = build_cancellation_preview(ticket, timezone.now())
         assert preview.windows == []
+
+
+class TestCancelTicketByUser:
+    def test_wrong_user_raises_not_owner(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        nonmember_user: t.Any,
+        tier_online_with_cancellation_enabled: TicketTier,
+    ) -> None:
+        ticket = ticket_factory(tier=tier_online_with_cancellation_enabled)
+        with pytest.raises(CancellationNotOwner):
+            cancel_ticket_by_user(ticket, nonmember_user, reason="", now=timezone.now())
+
+    def test_block_reason_raises_cancellation_blocked(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_online_with_cancellation_enabled: TicketTier,
+    ) -> None:
+        ticket = ticket_factory(tier=tier_online_with_cancellation_enabled, status=Ticket.TicketStatus.CANCELLED)
+        with pytest.raises(CancellationBlocked) as info:
+            cancel_ticket_by_user(ticket, ticket.user, reason="", now=timezone.now())
+        assert info.value.reason == CancellationBlockReason.ALREADY_CANCELLED
+
+    def test_free_ticket_cancels_no_stripe_call(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        event: t.Any,
+    ) -> None:
+        event.start = timezone.now() + timedelta(hours=72)
+        event.save(update_fields=["start"])
+        tier = tier_factory(
+            payment_method=TicketTier.PaymentMethod.FREE,
+            price=Decimal("0"),
+            allow_user_cancellation=True,
+        )
+        ticket = ticket_factory(tier=tier)
+        tier.quantity_sold = 1
+        tier.save(update_fields=["quantity_sold"])
+        with patch("stripe.Refund.create") as mock_create:
+            result = cancel_ticket_by_user(ticket, ticket.user, reason="moved", now=timezone.now())
+        assert mock_create.call_count == 0
+        assert result.refund_amount == Decimal("0")
+        assert result.refund_status is None
+        ticket.refresh_from_db()
+        assert ticket.status == Ticket.TicketStatus.CANCELLED
+        assert ticket.cancelled_by_id == ticket.user_id
+        assert ticket.cancellation_source == "user"
+        assert ticket.cancellation_reason == "moved"
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 0
+
+    def test_online_ticket_calls_stripe_with_idempotency_key(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        event: t.Any,
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        event.start = timezone.now() + timedelta(hours=72)
+        event.save(update_fields=["start"])
+        policy = {"tiers": [{"hours_before_event": 48, "refund_percentage": "100"}], "flat_fee": "0"}
+        tier = tier_factory(
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+            price=Decimal("40.00"),
+            allow_user_cancellation=True,
+            refund_policy=policy,
+        )
+        ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
+        payment = payment_factory(ticket=ticket, amount=Decimal("40.00"), stripe_payment_intent_id="pi_123")
+        with patch("stripe.Refund.create") as mock_create:
+            mock_create.return_value.id = "re_abc"
+            result = cancel_ticket_by_user(ticket, ticket.user, reason="", now=timezone.now())
+        mock_create.assert_called_once()
+        _, kwargs = mock_create.call_args
+        assert kwargs["payment_intent"] == "pi_123"
+        assert kwargs["amount"] == 4000
+        assert kwargs["idempotency_key"] == f"refund:{ticket.id}"
+        assert kwargs["metadata"] == {"ticket_id": str(ticket.id), "user_initiated": "true"}
+        assert result.refund_status == Payment.RefundStatus.PENDING
+        payment.refresh_from_db()
+        assert payment.stripe_refund_id == "re_abc"
+        assert payment.refund_amount == Decimal("40.00")
+        assert payment.refund_status == Payment.RefundStatus.PENDING
+
+    def test_stripe_failure_rolls_back_transaction(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        event: t.Any,
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        import stripe
+
+        event.start = timezone.now() + timedelta(hours=72)
+        event.save(update_fields=["start"])
+        policy = {"tiers": [{"hours_before_event": 48, "refund_percentage": "100"}], "flat_fee": "0"}
+        tier = tier_factory(
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+            price=Decimal("40.00"),
+            allow_user_cancellation=True,
+            refund_policy=policy,
+        )
+        tier.quantity_sold = 1
+        tier.save(update_fields=["quantity_sold"])
+        ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
+        payment = payment_factory(ticket=ticket, amount=Decimal("40.00"), stripe_payment_intent_id="pi_err")
+
+        with patch("stripe.Refund.create", side_effect=stripe.error.APIError("boom")):
+            with pytest.raises(StripeRefundFailed):
+                cancel_ticket_by_user(ticket, ticket.user, reason="", now=timezone.now())
+
+        ticket.refresh_from_db()
+        payment.refresh_from_db()
+        tier.refresh_from_db()
+        assert ticket.status == Ticket.TicketStatus.ACTIVE
+        assert payment.refund_status is None
+        assert tier.quantity_sold == 1

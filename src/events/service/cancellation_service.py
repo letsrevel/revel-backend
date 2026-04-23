@@ -23,6 +23,53 @@ _ZERO = Decimal("0")
 _CENT = Decimal("0.01")
 
 
+class CancellationNotOwner(Exception):
+    """Raised when the caller is not the ticket holder."""
+
+
+class CancellationBlocked(Exception):
+    """Raised when a business rule (ALREADY_CANCELLED, CHECKED_IN, ...) blocks cancellation.
+
+    Attributes:
+        reason: The specific ``CancellationBlockReason`` that prevented cancellation.
+    """
+
+    def __init__(self, reason: CancellationBlockReason) -> None:
+        """Initialize with the blocking reason."""
+        super().__init__(str(reason.label))
+        self.reason = reason
+
+
+class StripeRefundFailed(Exception):
+    """Raised when a Stripe refund attempt fails after all internal retries.
+
+    Attributes:
+        detail: Human-readable description of the Stripe error.
+    """
+
+    def __init__(self, detail: str) -> None:
+        """Initialize with the Stripe error detail string."""
+        super().__init__(detail)
+        self.detail = detail
+
+
+@dataclass(frozen=True)
+class CancellationResult:
+    """Outcome of a successful ``cancel_ticket_by_user`` call.
+
+    Attributes:
+        ticket: The mutated ticket instance (status == CANCELLED).
+        refund_amount: The refund issued (``Decimal("0")`` for free/offline tickets).
+        currency: ISO-4217 currency code matching the refund.
+        refund_status: ``Payment.RefundStatus`` value, or ``None`` for offline/free.
+    """
+
+    ticket: Ticket
+    refund_amount: Decimal
+    currency: str
+    refund_status: str | None
+
+
 @dataclass(frozen=True)
 class RefundWindowDto:
     """One segment of the refund-vs-time curve for UI rendering."""
@@ -225,6 +272,133 @@ def cancel_ticket_by_user(
     user: t.Any,
     reason: str,
     now: datetime,
-) -> t.Any:
-    """End-to-end user-initiated cancellation. Implemented in Phase 5."""
-    raise NotImplementedError
+) -> CancellationResult:
+    """Run the full user-initiated cancellation flow atomically.
+
+    Validates ownership and business rules, optionally issues a Stripe refund,
+    then mutates the ticket, payment, and tier rows within a single transaction.
+
+    Args:
+        ticket: The ticket to cancel. Must be fully loaded (tier, event, payment).
+        user: The requesting user. Must match ``ticket.user``.
+        reason: Free-text cancellation reason supplied by the user.
+        now: Current datetime (timezone-aware). Injected for testability.
+
+    Returns:
+        A ``CancellationResult`` describing the outcome.
+
+    Raises:
+        CancellationNotOwner: caller is not the ticket holder.
+        CancellationBlocked: business-rule guard failed.
+        StripeRefundFailed: Stripe refund API call failed.
+    """
+    from django.db import transaction
+    from django.db.models import F
+
+    from events.models import Payment
+    from events.models import TicketTier as _TicketTier  # local import, avoid circular
+
+    if ticket.user_id != user.id:
+        raise CancellationNotOwner()
+
+    quote = quote_cancellation(ticket, now)
+    if not quote.can_cancel:
+        # reason is guaranteed non-None when can_cancel is False
+        assert quote.reason is not None
+        raise CancellationBlocked(quote.reason)
+
+    refund_status: str | None = None
+
+    with transaction.atomic():
+        # Lock the tier row to serialize inventory updates with concurrent purchases.
+        _TicketTier.objects.select_for_update().filter(pk=ticket.tier_id).first()
+
+        # Online tickets with refund > 0 → hit Stripe before mutating local state.
+        payment: Payment | None = Payment.objects.filter(ticket=ticket).first()
+        if (
+            ticket.tier.payment_method == _TicketTier.PaymentMethod.ONLINE
+            and payment is not None
+            and payment.stripe_payment_intent_id
+            and quote.refund_amount > _ZERO
+        ):
+            refund_status = _issue_stripe_refund(ticket, payment, quote.refund_amount)
+
+        # Set pre-save hints used by the existing notification signal handlers.
+        ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
+        ticket._refund_amount = f"{quote.refund_amount} {quote.currency}"  # type: ignore[attr-defined]
+
+        ticket.status = Ticket.TicketStatus.CANCELLED
+        ticket.cancelled_at = now
+        ticket.cancelled_by = user
+        ticket.cancellation_source = "user"
+        ticket.cancellation_reason = reason or ""
+        ticket.save(
+            update_fields=[
+                "status",
+                "cancelled_at",
+                "cancelled_by",
+                "cancellation_source",
+                "cancellation_reason",
+            ]
+        )
+
+        _TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(quantity_sold=F("quantity_sold") - 1)
+
+    return CancellationResult(
+        ticket=ticket,
+        refund_amount=quote.refund_amount,
+        currency=quote.currency,
+        refund_status=refund_status,
+    )
+
+
+def _issue_stripe_refund(ticket: Ticket, payment: t.Any, amount: Decimal) -> str:
+    """Create a Stripe refund and mutate the Payment row. Returns refund_status.
+
+    Hits the Stripe API synchronously. On any Stripe error the exception propagates
+    so the enclosing ``transaction.atomic()`` rolls back and the ticket stays ACTIVE.
+
+    Args:
+        ticket: The ticket being cancelled (used for metadata and idempotency key).
+        payment: The ``Payment`` instance associated with the ticket.
+        amount: The refund amount in major currency units (e.g. ``Decimal("40.00")``).
+
+    Returns:
+        The string value of ``Payment.RefundStatus.PENDING``.
+
+    Raises:
+        StripeRefundFailed: on any Stripe error so the enclosing atomic() rolls back.
+    """
+    import stripe
+
+    from events.models import Payment
+
+    try:
+        refund = stripe.Refund.create(
+            payment_intent=payment.stripe_payment_intent_id,
+            amount=int(amount * 100),
+            metadata={"ticket_id": str(ticket.id), "user_initiated": "true"},
+            idempotency_key=f"refund:{ticket.id}",
+        )
+    except stripe.error.StripeError as exc:  # type: ignore[attr-defined]
+        logger.error(
+            "stripe_refund_failed",
+            ticket_id=str(ticket.id),
+            payment_id=str(payment.id),
+            error=str(exc),
+        )
+        raise StripeRefundFailed(str(exc)) from exc
+
+    payment.stripe_refund_id = refund.id
+    payment.refund_amount = amount
+    payment.refund_status = Payment.RefundStatus.PENDING
+    payment.refund_failure_reason = ""
+    payment.save(
+        update_fields=[
+            "stripe_refund_id",
+            "refund_amount",
+            "refund_status",
+            "refund_failure_reason",
+        ]
+    )
+    return str(Payment.RefundStatus.PENDING)
