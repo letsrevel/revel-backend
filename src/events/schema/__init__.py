@@ -268,6 +268,7 @@ from .recurrence_rule import (
 # Recurring event schemas
 from .recurring_event import (
     CancelOccurrenceSchema,
+    EventSeriesDriftSchema,
     EventSeriesRecurrenceDetailSchema,
     EventSeriesRecurrenceUpdateSchema,
     GenerateSeriesEventsSchema,
@@ -486,6 +487,7 @@ __all__ = [
     "RecurrenceRuleSchema",
     "RecurrenceRuleUpdateSchema",
     "CancelOccurrenceSchema",
+    "EventSeriesDriftSchema",
     "EventSeriesRecurrenceDetailSchema",
     "EventSeriesRecurrenceUpdateSchema",
     "GenerateSeriesEventsSchema",

@@ -2,6 +2,7 @@
 
 import enum
 import typing as t
+import uuid
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
@@ -566,3 +567,65 @@ def _parse_exdates(exdates: list[str]) -> set[datetime]:
     membership comparisons against rrule-generated datetimes match by instant.
     """
     return {isoparse(d).astimezone(dt_timezone.utc) for d in exdates if d}
+
+
+def detect_cadence_drift(series: EventSeries) -> list[uuid.UUID]:
+    """Return IDs of future occurrences whose start doesn't match the current RRULE.
+
+    An occurrence is "drifted" when the series' recurrence rule was changed
+    after the occurrence was materialized, so its start datetime is no longer
+    produced by the current rule. The admin UI uses this to highlight stale
+    rows and offer a bulk-cancel action.
+
+    Inclusion criteria (all required):
+    - ``is_template=False`` — the template event is never an occurrence.
+    - ``start >= now()`` — past occurrences can't be rescheduled and are
+      out of scope for the cadence-change workflow.
+    - ``status != CANCELLED`` — already-cancelled events don't need another
+      bulk-cancel pass.
+    - ``is_modified=False`` — manually-modified occurrences were deliberately
+      shifted off the cadence by an organiser (via the standard event edit
+      endpoint, which sets ``is_modified=True``). Reporting them as "stale
+      due to cadence change" would be misleading and would sweep them into a
+      "cancel all stale dates" bulk action the admin did not intend.
+
+    Comparison is by UTC instant: RRULE-produced datetimes and event ``start``
+    fields are both normalized to UTC before set membership is checked, so a
+    DST shift in a stored timezone doesn't cause a spurious drift classification.
+
+    Exdates are removed from the expected set so that an occurrence sitting on
+    an exdate (e.g. mid-materialization race, or legacy data) is correctly
+    reported as drift rather than masked as "expected".
+
+    If the series has no recurrence rule, nothing can drift — returns an empty
+    list. If there are no qualifying future events, also returns an empty list
+    (we never call ``rule.between`` with a bogus range).
+    """
+    if not series.recurrence_rule:
+        return []
+
+    now = timezone.now()
+    future_events = list(
+        series.events.filter(
+            is_template=False,
+            is_modified=False,
+            start__gte=now,
+        )
+        .exclude(status=Event.EventStatus.CANCELLED)
+        .order_by("start")
+        .values_list("id", "start")
+    )
+    if not future_events:
+        return []
+
+    earliest = future_events[0][1]
+    latest = future_events[-1][1]
+
+    rule = series.recurrence_rule.to_rrule()
+    # ``inc=True`` includes both endpoints if they hit the rule, which is what
+    # we want: the earliest and latest event datetimes are the natural bounds
+    # and must be testable for a match.
+    expected = {dt.astimezone(dt_timezone.utc) for dt in rule.between(earliest, latest, inc=True)}
+    expected -= _parse_exdates(series.exdates)
+
+    return [event_id for event_id, start in future_events if start.astimezone(dt_timezone.utc) not in expected]
