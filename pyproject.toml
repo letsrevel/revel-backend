@@ -1,6 +1,6 @@
 [project]
 name = "revel"
-version = "1.48.1"
+version = "1.49.0"
 description = "The Revel Event Manager"
 readme = "README.md"
 license = "MIT"
@@ -115,6 +115,8 @@ dev = [
     "bandit>=1.9.4",
     "tqdm>=4.67.1",
     "types-openpyxl>=3.1.5.20250919",
+    "licensecheck>=2025.1.0",
+    "pip-audit>=2.10.0",
 ]
 sentinel = [
     "torch>=2.8.0",
@@ -298,6 +300,45 @@ skips = [
     "B101",  # assert_used - ubiquitous in tests
     "B308",  # mark_safe blacklist - redundant with B703 (Django-specific check)
     "B703",  # mark_safe in admin display methods - all controlled data, staff-only
+]
+
+[tool.licensecheck]
+# `zero = true` is what makes CI actually fail on an incompatible license.
+# Without it, licensecheck prints the finding and exits 0 (see cli.py line 203 in the package).
+zero = true
+# Walk the dev dependency-group (PEP 735) in addition to [project.dependencies].
+# The uv-based resolver picks this up via `uv pip compile --group dev`.
+groups = ["dev"]
+# Hybrid deny-list: hard-fail known copyleft / source-available families.
+# Unknown SPDX identifiers warn but don't fail — keeps us from churning on every
+# obscure-but-permissive license that shows up transitively.
+fail_licenses = [
+    "GPL-2.0*", "GPL-3.0*",
+    "AGPL-3.0*", "AGPL*",
+    "SSPL*", "SSPL-1.0*",
+    "BUSL*", "Business Source License*",
+    "Commons-Clause", "Commons Clause*",
+]
+# Grandfathered packages: add here with a rationale comment.
+# Use when licensecheck's default matrix flags a permissive-but-non-MIT license
+# that has no actual compatibility concern.
+ignore_packages = [
+    # Zope Public License — BSD-like permissive, OSI-approved. Transitive via
+    # gevent (dev-only, pulled in by locust). No real incompatibility.
+    "zope-event",
+    "zope-interface",
+    # django-solo: upstream declares `License-Expression: CC-BY-3.0`. CC-BY is
+    # attribution-only (no copyleft) and is compatible with MIT redistribution as
+    # long as the upstream NOTICE/attribution is preserved (we ship it via the
+    # installed dist-info). Library is ~400 LOC implementing the singleton model
+    # pattern; no viable drop-in replacement. Re-evaluate if upstream relicenses.
+    "django-solo",
+    # pillow-heif: metadata's `License:` field is BSD-3-Clause (the Python binding
+    # itself), but a legacy trove classifier declares GPLv2 to cover the case
+    # where the wrapped libheif links against x265 (GPL). Our container builds
+    # libheif against libde265/aom (non-GPL), so our effective linkage is BSD/
+    # LGPL. Revisit if we swap decoder backends or distribute binaries bundling x265.
+    "pillow-heif",
 ]
 
 [tool.coverage.run]

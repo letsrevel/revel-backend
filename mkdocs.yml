@@ -95,6 +95,9 @@ nav:
       - adr/0006-mo-files-in-git.md
       - adr/0007-celery-exception-propagation.md
       - adr/0008-environment-feature-flags.md
+      - adr/0010-dependency-compliance.md
+  - Runbooks:
+      - runbooks/dependency-audit.md
   - Post-Mortems:
       - postmortems/index.md
       - postmortems/0001-guest-user-verification-bypass.md

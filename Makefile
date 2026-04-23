@@ -46,6 +46,36 @@ test-failed:
 bandit:
 	uv run bandit -c pyproject.toml -r src/ -ll -ii
 
+.PHONY: licensecheck
+licensecheck:
+	# `-r pyproject.toml` is mandatory: without it, licensecheck inspects
+	# stdin when stdin isn't a tty (i.e. always under `make` / CI). With an
+	# empty stdin it silently falls back to a partial resolution that only
+	# walks [project] — missing [dependency-groups] plus any package whose
+	# license metadata it can't resolve locally. The explicit -r forces the
+	# uv resolver to walk the full graph including --group dev.
+	uv run licensecheck -r pyproject.toml
+
+# pip-audit operates on a resolved requirements file rather than the project
+# directly: our own package is installed editable (has [build-system]) which
+# pip-audit --strict chokes on. `uv export --no-emit-project` writes the resolved
+# graph without the self-package, then --no-deps stops pip-audit from re-resolving.
+#
+# --ignore-vuln rationale (re-review quarterly):
+#   CVE-2025-69872 (diskcache): no fix published. Transitive via `instructor`
+#       (LLM client lib). Attack requires write access to the local cache
+#       directory; if an attacker already has that level of filesystem access
+#       on our backend host, they have much larger problems. Revisit when a
+#       diskcache release ships a fix.
+.PHONY: audit
+audit:
+	@uv export --format requirements-txt --no-emit-project --no-hashes --group dev -o .audit-reqs.txt 2>/dev/null
+	@trap 'rm -f .audit-reqs.txt' EXIT; uv run pip-audit --strict --no-deps -r .audit-reqs.txt \
+		--ignore-vuln CVE-2025-69872
+
+.PHONY: deps-check
+deps-check: licensecheck audit
+
 # Combined command: Runs format, lint, mypy, migration-check, i18n-check, and file-length in sequence
 .PHONY: check
 check: format lint mypy migration-check i18n-check file-length
