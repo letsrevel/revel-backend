@@ -146,8 +146,15 @@ def generate_series_events(
         # concurrent callers serialize here: the second one blocks until the
         # first commits, then sees the updated ``last_generated_until`` and
         # the freshly-materialized occurrences via ``existing_starts``.
+        # ``of=("self",)`` locks only the ``event_series`` row itself — the
+        # joined ``recurrence_rule`` and ``template_event`` are nullable FKs,
+        # so combining a plain ``SELECT FOR UPDATE`` with ``select_related``
+        # produces a LEFT OUTER JOIN that PostgreSQL rejects ("FOR UPDATE
+        # cannot be applied to the nullable side of an outer join"). We only
+        # need to serialize on the series row; the related rows are read
+        # under the same transaction but not locked.
         locked_series = (
-            EventSeries.objects.select_for_update()
+            EventSeries.objects.select_for_update(of=("self",))
             .select_related("recurrence_rule", "template_event")
             .get(pk=series.pk)
         )
