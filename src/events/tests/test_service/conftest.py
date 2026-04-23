@@ -1,6 +1,8 @@
 """Shared fixtures for event service tests."""
 
+import typing as t
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from django.utils import timezone
@@ -187,3 +189,32 @@ def active_series_with_tier(
     event_series.generation_window_weeks = 4
     event_series.save()
     return event_series
+
+
+# ---------------------------------------------------------------------------
+# Cancellation service fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def tier_online_with_cancellation_enabled(tier_factory: t.Callable[..., TicketTier]) -> TicketTier:
+    """An ONLINE tier with user cancellation enabled and a simple 100% refund policy."""
+    return tier_factory(
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        price=Decimal("40.00"),
+        allow_user_cancellation=True,
+        refund_policy={
+            "tiers": [{"hours_before_event": 48, "refund_percentage": "100"}],
+            "flat_fee": "0",
+        },
+    )
+
+
+@pytest.fixture
+def tier_online_with_cancellation_disabled(tier_factory: t.Callable[..., TicketTier]) -> TicketTier:
+    """An ONLINE tier with user cancellation disabled."""
+    return tier_factory(
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        price=Decimal("40.00"),
+        allow_user_cancellation=False,
+    )
