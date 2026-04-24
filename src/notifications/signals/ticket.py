@@ -107,6 +107,14 @@ def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, 
     elif ticket.status == Ticket.TicketStatus.CHECKED_IN:
         action = "checked in"
 
+    # Surface the refund amount (set transiently on the instance by the cancellation
+    # service / Stripe webhook handler) so the TICKET_CANCELLED template can report
+    # it in the same notification that announces the cancellation. Without this the
+    # user would only learn the refund amount later, via the TICKET_REFUNDED
+    # notification fired by the Payment signal when the webhook flips the Payment.
+    refund_amount_hint = getattr(ticket, "_refund_amount", "") or ""
+    refund_currency_hint = getattr(ticket, "_refund_currency", "") or ""
+
     return {
         **base_context,
         "ticket_id": str(ticket.id),
@@ -118,6 +126,8 @@ def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, 
         "action": action,
         "cancellation_source": ticket.cancellation_source or "",
         "cancellation_reason": ticket.cancellation_reason or "",
+        "refund_amount": refund_amount_hint,
+        "payment_currency": refund_currency_hint,
     }
 
 

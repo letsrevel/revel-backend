@@ -11,6 +11,7 @@ from django.db.models import F
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
 from events.models import Organization, Payment, Ticket, TicketTier
+from events.utils.currency import from_stripe_amount, to_stripe_amount
 
 logger = structlog.get_logger(__name__)
 
@@ -199,10 +200,18 @@ class StripeEventHandler:
                     candidate_payment_ids=[str(c.id) for c in candidates if c.refund_status is None],
                 )
                 continue
+            # Branch 4 fans out a single refund across N Payments — each gets its
+            # own amount, not the aggregate. Branches 1-3 always return one row.
+            is_full_batch = len(matched) > 1
             for payment in matched:
                 if payment.refund_status == Payment.RefundStatus.SUCCEEDED:
                     continue  # idempotent replay
-                self._apply_refund_to_payment(payment, refund, raw_response)
+                allocated_amount = (
+                    payment.amount
+                    if is_full_batch
+                    else from_stripe_amount(int(refund.get("amount", 0)), payment.currency)
+                )
+                self._apply_refund_to_payment(payment, refund, raw_response, allocated_amount)
                 newly_refunded_ids.append(str(payment.id))
                 touched_session_id = payment.stripe_session_id
 
@@ -299,12 +308,12 @@ class StripeEventHandler:
             return []
 
         # Branch 3: exactly-one exact-amount match among unrefunded rows.
-        exact = [p for p in unrefunded if int(p.amount * 100) == refund_amount]
+        exact = [p for p in unrefunded if to_stripe_amount(p.amount, p.currency) == refund_amount]
         if len(exact) == 1:
             return exact
 
         # Branch 4: full-remaining-batch refund.
-        remaining_total = sum(int(p.amount * 100) for p in unrefunded)
+        remaining_total = sum(to_stripe_amount(p.amount, p.currency) for p in unrefunded)
         if refund_amount == remaining_total:
             return unrefunded
 
@@ -312,7 +321,11 @@ class StripeEventHandler:
         return []
 
     def _apply_refund_to_payment(
-        self, payment: Payment, refund: dict[str, t.Any], raw_response: dict[str, t.Any]
+        self,
+        payment: Payment,
+        refund: dict[str, t.Any],
+        raw_response: dict[str, t.Any],
+        allocated_amount: Decimal,
     ) -> None:
         """Persist refund data onto a Payment and cancel its linked Ticket.
 
@@ -320,13 +333,17 @@ class StripeEventHandler:
             payment: The Payment instance to update.
             refund: The Stripe refund object dict.
             raw_response: The full serialised webhook event (for audit).
+            allocated_amount: The refund amount attributable to THIS Payment in
+                major currency units. For single-Payment matches this equals the
+                Stripe refund amount converted from smallest units; for a
+                full-batch sweep (Branch 4) this equals ``payment.amount``.
         """
         from django.utils import timezone
 
         from events.models.ticket import CancellationSource
 
         payment.stripe_refund_id = refund["id"]
-        payment.refund_amount = Decimal(refund["amount"]) / Decimal(100)
+        payment.refund_amount = allocated_amount
         payment.refund_status = Payment.RefundStatus.SUCCEEDED
         payment.refunded_at = timezone.now()
         payment.status = Payment.PaymentStatus.REFUNDED
@@ -344,7 +361,8 @@ class StripeEventHandler:
 
         ticket = payment.ticket
         if ticket.status != Ticket.TicketStatus.CANCELLED:
-            ticket._refund_amount = f"{payment.refund_amount} {payment.currency}"  # type: ignore[attr-defined]
+            ticket._refund_amount = str(payment.refund_amount)  # type: ignore[attr-defined]
+            ticket._refund_currency = payment.currency  # type: ignore[attr-defined]
             ticket.status = Ticket.TicketStatus.CANCELLED
             ticket.cancelled_at = timezone.now()
             ticket.cancellation_source = CancellationSource.STRIPE_DASHBOARD
@@ -402,8 +420,10 @@ class StripeEventHandler:
             ticket.status = Ticket.TicketStatus.CANCELLED
             ticket.save(update_fields=["status"])
 
-            # Restore ticket quantity
-            TicketTier.objects.filter(pk=ticket.tier.pk).update(quantity_sold=F("quantity_sold") - 1)
+            # Restore ticket quantity (guard against underflow if row is already at 0).
+            TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
+                quantity_sold=F("quantity_sold") - 1
+            )
             canceled_tickets.append(ticket)
 
         logger.info(

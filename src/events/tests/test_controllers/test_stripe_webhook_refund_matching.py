@@ -45,9 +45,8 @@ class TestChargeRefundedMatching:
         target.save(update_fields=["stripe_refund_id", "refund_status"])
 
         refund: dict[str, t.Any] = {"id": "re_already_recorded", "amount": 4000, "metadata": {}}
-        StripeEventHandler(_charge_event("pi_batch", [refund])).handle_charge_refunded(
-            _charge_event("pi_batch", [refund])
-        )
+        event = _charge_event("pi_batch", [refund])
+        StripeEventHandler(event).handle_charge_refunded(event)
 
         target.refresh_from_db()
         assert target.refund_status == Payment.RefundStatus.SUCCEEDED
@@ -67,9 +66,8 @@ class TestChargeRefundedMatching:
             "amount": 4000,
             "metadata": {"ticket_id": str(target.ticket_id)},
         }
-        StripeEventHandler(_charge_event("pi_batch", [refund])).handle_charge_refunded(
-            _charge_event("pi_batch", [refund])
-        )
+        event = _charge_event("pi_batch", [refund])
+        StripeEventHandler(event).handle_charge_refunded(event)
         target.refresh_from_db()
         assert target.refund_status == Payment.RefundStatus.SUCCEEDED
         target.ticket.refresh_from_db()
@@ -89,9 +87,8 @@ class TestChargeRefundedMatching:
         _batch(payments, "pi_batch")
 
         refund: dict[str, t.Any] = {"id": "re_new", "amount": 5000, "metadata": {}}
-        StripeEventHandler(_charge_event("pi_batch", [refund])).handle_charge_refunded(
-            _charge_event("pi_batch", [refund])
-        )
+        event = _charge_event("pi_batch", [refund])
+        StripeEventHandler(event).handle_charge_refunded(event)
         payments[0].refresh_from_db()
         assert payments[0].refund_status == Payment.RefundStatus.SUCCEEDED
 
@@ -100,13 +97,13 @@ class TestChargeRefundedMatching:
         _batch(payments, "pi_batch")
         total_cents = int(sum(p.amount for p in payments) * 100)
         refund: dict[str, t.Any] = {"id": "re_full", "amount": total_cents, "metadata": {}}
-        StripeEventHandler(_charge_event("pi_batch", [refund])).handle_charge_refunded(
-            _charge_event("pi_batch", [refund])
-        )
+        event = _charge_event("pi_batch", [refund])
+        StripeEventHandler(event).handle_charge_refunded(event)
         for p in payments:
             p.refresh_from_db()
             assert p.refund_status == Payment.RefundStatus.SUCCEEDED
             assert p.status == Payment.PaymentStatus.REFUNDED
+            assert p.refund_amount == p.amount, "Branch 4 must allocate per-Payment, not the total"
             p.ticket.refresh_from_db()
             assert p.ticket.status == Ticket.TicketStatus.CANCELLED
 
@@ -117,13 +114,16 @@ class TestChargeRefundedMatching:
         # All payments cost the same AND amount doesn't equal full intent.
         _batch(payments, "pi_batch")
         refund: dict[str, t.Any] = {"id": "re_ambig", "amount": 4000, "metadata": {}}  # matches any single payment
-        StripeEventHandler(_charge_event("pi_batch", [refund])).handle_charge_refunded(
-            _charge_event("pi_batch", [refund])
-        )
+        event = _charge_event("pi_batch", [refund])
+        with caplog.at_level("WARNING", logger="events.service.stripe_webhooks"):
+            StripeEventHandler(event).handle_charge_refunded(event)
         for p in payments:
             p.refresh_from_db()
             assert p.status == Payment.PaymentStatus.SUCCEEDED
             assert p.refund_status is None
+        # The whole point of branch 5 is that the ambiguity is logged loudly
+        # so a future regression that swallows the warning gets caught here.
+        assert any("stripe_refund_ambiguous_match" in record.message for record in caplog.records)
 
     def test_duplicate_webhook_is_idempotent(self, batch_of_4_online_payments: list[Payment]) -> None:
         payments = batch_of_4_online_payments
@@ -135,8 +135,7 @@ class TestChargeRefundedMatching:
         target.save(update_fields=["stripe_refund_id", "refund_status", "status"])
         refund: dict[str, t.Any] = {"id": "re_a", "amount": int(target.amount * 100), "metadata": {}}
         # Replay — should be a no-op.
-        StripeEventHandler(_charge_event("pi_batch", [refund])).handle_charge_refunded(
-            _charge_event("pi_batch", [refund])
-        )
+        event = _charge_event("pi_batch", [refund])
+        StripeEventHandler(event).handle_charge_refunded(event)
         target.refresh_from_db()
         assert target.status == Payment.PaymentStatus.REFUNDED

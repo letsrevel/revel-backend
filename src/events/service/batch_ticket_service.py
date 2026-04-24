@@ -1,5 +1,6 @@
 """Service for batch ticket purchases with seat selection support."""
 
+import copy
 import typing as t
 from decimal import Decimal
 
@@ -522,7 +523,10 @@ class BatchTicketService:
                 price_paid=price_paid,
                 discount_code=dc,
                 discount_amount=discount_amount,
-                refund_policy_snapshot=self.tier.refund_policy,
+                # Deep-copy the JSON snapshot so the ticket row doesn't share a dict
+                # reference with the live tier. Protects the "immutable snapshot"
+                # contract against future in-place mutation of tier.refund_policy.
+                refund_policy_snapshot=(copy.deepcopy(self.tier.refund_policy) if self.tier.refund_policy else None),
             )
             if seat:
                 ticket.seat = seat

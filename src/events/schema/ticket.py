@@ -12,6 +12,7 @@ from common.schema import OneToOneFiftyString, StrippedString, validate_country_
 from common.signing import get_file_url
 from events import models
 from events.models import Payment, Ticket, TicketTier
+from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
 
 from .event import MinimalEventSchema
 from .organization import MembershipTierSchema, MinimalOrganizationMemberSchema
@@ -232,31 +233,11 @@ class ConfirmPaymentSchema(Schema):
 
 # ---- Cancellation Schemas ----
 
-
-class RefundPolicyTierSchema(Schema):
-    """A single refund tier: percentage returned if cancelled >= hours_before_event."""
-
-    hours_before_event: int = Field(ge=0)
-    refund_percentage: Decimal = Field(ge=0, le=100, max_digits=5, decimal_places=2)
-
-
-class RefundPolicySchema(Schema):
-    """Full refund policy with ordered tiers and an optional flat fee."""
-
-    tiers: list[RefundPolicyTierSchema] = Field(min_length=1)
-    flat_fee: Decimal = Field(default=Decimal("0"), ge=0, max_digits=10, decimal_places=2)
-
-    @model_validator(mode="after")
-    def _validate_monotonic(self) -> t.Self:
-        """Validate that tiers are strictly descending by hours and non-increasing by percentage."""
-        for i in range(1, len(self.tiers)):
-            prev = self.tiers[i - 1]
-            curr = self.tiers[i]
-            if curr.hours_before_event >= prev.hours_before_event:
-                raise ValueError("hours_before_event must be strictly descending across tiers")
-            if curr.refund_percentage > prev.refund_percentage:
-                raise ValueError("refund_percentage must be monotonically non-increasing across tiers")
-        return self
+# RefundPolicy + RefundPolicyTier (with the monotonic-tiers validator) live in
+# events.utils.refund_policy so services, models, and schemas share one source
+# of truth. Re-export under the "Schema" suffix for API documentation clarity.
+RefundPolicyTierSchema = RefundPolicyTier
+RefundPolicySchema = RefundPolicy
 
 
 class RefundWindowSchema(Schema):

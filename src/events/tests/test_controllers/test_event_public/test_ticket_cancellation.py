@@ -19,7 +19,7 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from events.models import Event, Payment, Ticket, TicketTier
-from events.models.ticket import CancellationSource
+from events.models.ticket import CancellationBlockReason, CancellationSource
 
 pytestmark = pytest.mark.django_db
 
@@ -183,7 +183,7 @@ class TestCancelMyTicket:
         url = reverse("api:cancel_my_ticket", kwargs={"ticket_id": str(ticket.id)})
         resp = _authed(ticket.user).post(url, data={}, content_type="application/json")
         assert resp.status_code == 409
-        assert "already_cancelled" in resp.content.decode()
+        assert resp.json()["code"] == CancellationBlockReason.ALREADY_CANCELLED
 
     def test_403_for_non_owner(
         self,
@@ -215,18 +215,3 @@ class TestCancelMyTicket:
         assert resp.status_code == 502
         ticket.refresh_from_db()
         assert ticket.status == Ticket.TicketStatus.ACTIVE
-
-    def test_idempotent_duplicate_returns_409(
-        self,
-        online_cancellable_tier: TicketTier,
-        ticket_factory: t.Callable[..., Ticket],
-    ) -> None:
-        """Re-cancelling an already-cancelled ticket (idempotency check) returns 409."""
-        ticket = ticket_factory(
-            tier=online_cancellable_tier,
-            refund_policy_snapshot=online_cancellable_tier.refund_policy,
-            status=Ticket.TicketStatus.CANCELLED,
-        )
-        url = reverse("api:cancel_my_ticket", kwargs={"ticket_id": str(ticket.id)})
-        resp = _authed(ticket.user).post(url, data={}, content_type="application/json")
-        assert resp.status_code == 409

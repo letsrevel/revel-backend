@@ -3,6 +3,7 @@ from uuid import UUID
 
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
+from ninja import Body
 from ninja.errors import HttpError
 from ninja_extra import (
     api_controller,
@@ -380,7 +381,7 @@ class EventPublicTicketsController(EventPublicBaseController):
     def cancel_my_ticket(
         self,
         ticket_id: UUID,
-        payload: schema.TicketCancellationRequestSchema,
+        payload: schema.TicketCancellationRequestSchema | None = Body(None),  # type: ignore[type-arg]
     ) -> t.Any:
         """Ticket-holder-initiated cancellation with automatic Stripe refund where applicable.
 
@@ -405,7 +406,7 @@ class EventPublicTicketsController(EventPublicBaseController):
             result = cancel_ticket_by_user(
                 ticket=ticket,
                 user=user,
-                reason=payload.reason or "",
+                reason=(payload.reason if payload else None) or "",
                 now=timezone.now(),
             )
         except CancellationNotOwner as exc:

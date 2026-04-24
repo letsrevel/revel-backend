@@ -280,8 +280,11 @@ class EventAdminTicketsController(EventAdminBaseController):
             ],
         )
 
+        if ticket.status == models.Ticket.TicketStatus.CANCELLED:
+            raise HttpError(400, str(_("Ticket already cancelled")))
+
         with transaction.atomic():
-            models.TicketTier.objects.select_for_update().filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
+            models.TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
             ticket.status = models.Ticket.TicketStatus.CANCELLED
@@ -341,7 +344,7 @@ class EventAdminTicketsController(EventAdminBaseController):
             raise HttpError(400, str(_("Ticket already cancelled")))
 
         with transaction.atomic():
-            models.TicketTier.objects.select_for_update().filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
+            models.TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
             ticket.status = models.Ticket.TicketStatus.CANCELLED

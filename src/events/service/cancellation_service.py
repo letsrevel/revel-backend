@@ -14,7 +14,8 @@ import structlog
 from pydantic import ValidationError as PydanticValidationError
 
 from events.models import Ticket, TicketTier
-from events.models.ticket import CancellationBlockReason
+from events.models.ticket import CancellationBlockReason, CancellationSource
+from events.utils.currency import to_stripe_amount
 from events.utils.refund_policy import RefundPolicy, validate_refund_policy
 
 logger = structlog.get_logger(__name__)
@@ -296,7 +297,6 @@ def cancel_ticket_by_user(
     from django.db.models import F
 
     from events.models import Payment
-    from events.models import TicketTier as _TicketTier  # local import, avoid circular
 
     if ticket.user_id != user.id:
         raise CancellationNotOwner()
@@ -310,28 +310,36 @@ def cancel_ticket_by_user(
     refund_status: str | None = None
 
     with transaction.atomic():
-        # Lock the tier row to serialize inventory updates with concurrent purchases.
-        _TicketTier.objects.select_for_update().filter(pk=ticket.tier_id).first()
+        # Re-fetch the ticket under a row lock and re-check blocking conditions.
+        # Without this, two concurrent cancel requests can both pass the pre-atomic
+        # quote, both issue Stripe refunds (idempotency key prevents a double
+        # charge but not double DB mutation), and both decrement quantity_sold.
+        locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
+        if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
+            raise CancellationBlocked(CancellationBlockReason.ALREADY_CANCELLED)
 
         # Online tickets with refund > 0 → hit Stripe before mutating local state.
-        payment: Payment | None = Payment.objects.filter(ticket=ticket).first()
+        payment: Payment | None = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
         if (
-            ticket.tier.payment_method == _TicketTier.PaymentMethod.ONLINE
+            locked_ticket.tier.payment_method == TicketTier.PaymentMethod.ONLINE
             and payment is not None
             and payment.stripe_payment_intent_id
             and quote.refund_amount > _ZERO
         ):
-            refund_status = _issue_stripe_refund(ticket, payment, quote.refund_amount)
+            refund_status = _issue_stripe_refund(locked_ticket, payment, quote.refund_amount, quote.currency)
 
-        # Set pre-save hint used by notification signal handlers.
-        ticket._refund_amount = f"{quote.refund_amount} {quote.currency}"  # type: ignore[attr-defined]
+        # Set pre-save hints used by the TICKET_CANCELLED notification signal handler
+        # so the user sees the refund amount in the same notification that announces
+        # the cancellation (rather than only later via TICKET_REFUNDED on webhook).
+        locked_ticket._refund_amount = str(quote.refund_amount)  # type: ignore[attr-defined]
+        locked_ticket._refund_currency = quote.currency  # type: ignore[attr-defined]
 
-        ticket.status = Ticket.TicketStatus.CANCELLED
-        ticket.cancelled_at = now
-        ticket.cancelled_by = user
-        ticket.cancellation_source = "user"
-        ticket.cancellation_reason = reason or ""
-        ticket.save(
+        locked_ticket.status = Ticket.TicketStatus.CANCELLED
+        locked_ticket.cancelled_at = now
+        locked_ticket.cancelled_by = user
+        locked_ticket.cancellation_source = CancellationSource.USER
+        locked_ticket.cancellation_reason = reason or ""
+        locked_ticket.save(
             update_fields=[
                 "status",
                 "cancelled_at",
@@ -340,8 +348,11 @@ def cancel_ticket_by_user(
                 "cancellation_reason",
             ]
         )
+        ticket = locked_ticket
 
-        _TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(quantity_sold=F("quantity_sold") - 1)
+        TicketTier.objects.filter(pk=locked_ticket.tier_id, quantity_sold__gt=0).update(
+            quantity_sold=F("quantity_sold") - 1
+        )
 
     return CancellationResult(
         ticket=ticket,
@@ -351,7 +362,7 @@ def cancel_ticket_by_user(
     )
 
 
-def _issue_stripe_refund(ticket: Ticket, payment: t.Any, amount: Decimal) -> str:
+def _issue_stripe_refund(ticket: Ticket, payment: t.Any, amount: Decimal, currency: str) -> str:
     """Create a Stripe refund and mutate the Payment row. Returns refund_status.
 
     Hits the Stripe API synchronously. On any Stripe error the exception propagates
@@ -361,6 +372,8 @@ def _issue_stripe_refund(ticket: Ticket, payment: t.Any, amount: Decimal) -> str
         ticket: The ticket being cancelled (used for metadata and idempotency key).
         payment: The ``Payment`` instance associated with the ticket.
         amount: The refund amount in major currency units (e.g. ``Decimal("40.00")``).
+        currency: ISO 4217 currency code, used to scale ``amount`` to Stripe's
+            smallest-unit integer (matters for zero-decimal currencies like JPY).
 
     Returns:
         The string value of ``Payment.RefundStatus.PENDING``.
@@ -375,7 +388,7 @@ def _issue_stripe_refund(ticket: Ticket, payment: t.Any, amount: Decimal) -> str
     try:
         refund = stripe.Refund.create(
             payment_intent=payment.stripe_payment_intent_id,
-            amount=int(amount * 100),
+            amount=to_stripe_amount(amount, currency),
             metadata={"ticket_id": str(ticket.id), "user_initiated": "true"},
             idempotency_key=f"refund:{ticket.id}",
         )

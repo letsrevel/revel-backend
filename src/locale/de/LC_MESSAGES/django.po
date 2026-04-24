@@ -853,15 +853,13 @@ msgid "PWYC amount must be at most {max_amount}"
 msgstr "Der PWYC-Betrag darf höchstens {max_amount} betragen"
 
 msgid "Only the ticket holder can view this preview."
-msgstr ""
+msgstr "Nur der Ticketinhaber kann diese Vorschau anzeigen."
 
 msgid "Only the ticket holder can cancel this ticket."
-msgstr ""
+msgstr "Nur der Ticketinhaber kann dieses Ticket stornieren."
 
-#, fuzzy
-#| msgid "Payment processing failed. Please try again later."
 msgid "Refund failed. Please try again later."
-msgstr "Zahlung fehlgeschlagen. Bitte versuche es später erneut."
+msgstr "Die Rückerstattung ist fehlgeschlagen. Bitte versuche es später erneut."
 
 msgid "Token does not match this organization."
 msgstr "Dieses Token gehört nicht zu dieser Organisation."
