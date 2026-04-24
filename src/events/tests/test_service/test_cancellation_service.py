@@ -58,7 +58,8 @@ class TestQuoteCancellationBlockReasons:
         event: t.Any,
     ) -> None:
         event.start = timezone.now() - timedelta(minutes=1)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         ticket = ticket_factory(tier=tier_online_with_cancellation_enabled)
         result = quote_cancellation(ticket, timezone.now())
         assert result.can_cancel is False
@@ -68,7 +69,11 @@ class TestQuoteCancellationBlockReasons:
         self,
         ticket_factory: t.Callable[..., Ticket],
         tier_online_with_cancellation_disabled: TicketTier,
+        event: t.Any,
     ) -> None:
+        event.start = timezone.now() + timedelta(hours=72)
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         ticket = ticket_factory(tier=tier_online_with_cancellation_disabled)
         result = quote_cancellation(ticket, timezone.now())
         assert result.can_cancel is False
@@ -82,7 +87,8 @@ class TestQuoteCancellationBlockReasons:
     ) -> None:
         # Event starts in 10 hours, deadline is 24 hours before → we're past it.
         event.start = timezone.now() + timedelta(hours=10)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         tier = tier_factory(
             allow_user_cancellation=True,
             cancellation_deadline_hours=24,
@@ -99,8 +105,12 @@ class TestQuoteCancellationRefundMath:
         self,
         ticket_factory: t.Callable[..., Ticket],
         tier_online_with_cancellation_enabled: TicketTier,
+        event: t.Any,
     ) -> None:
         # Snapshot = None → refund 0, cancellation still permitted.
+        event.start = timezone.now() + timedelta(hours=72)
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         ticket = ticket_factory(tier=tier_online_with_cancellation_enabled, refund_policy_snapshot=None)
         result = quote_cancellation(ticket, timezone.now())
         assert result.can_cancel is True
@@ -115,7 +125,8 @@ class TestQuoteCancellationRefundMath:
     ) -> None:
         # 200 hours before event, tier at 168h=100% applies.
         event.start = timezone.now() + timedelta(hours=200)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         policy = _policy((168, "100"), (48, "50"), (24, "25"))
         tier = tier_factory(allow_user_cancellation=True, refund_policy=policy)
         ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
@@ -132,7 +143,8 @@ class TestQuoteCancellationRefundMath:
         payment_factory: t.Callable[..., t.Any],
     ) -> None:
         event.start = timezone.now() + timedelta(hours=72)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         policy = _policy((168, "100"), (48, "50"), (24, "25"))
         tier = tier_factory(allow_user_cancellation=True, refund_policy=policy)
         ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
@@ -148,7 +160,8 @@ class TestQuoteCancellationRefundMath:
         payment_factory: t.Callable[..., t.Any],
     ) -> None:
         event.start = timezone.now() + timedelta(hours=10)  # past all tiers
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         policy = _policy((48, "50"), (24, "25"))
         tier = tier_factory(allow_user_cancellation=True, refund_policy=policy)
         ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
@@ -165,7 +178,8 @@ class TestQuoteCancellationRefundMath:
         payment_factory: t.Callable[..., t.Any],
     ) -> None:
         event.start = timezone.now() + timedelta(hours=72)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         policy = _policy((48, "50"), flat_fee="100")  # base_refund < flat_fee
         tier = tier_factory(allow_user_cancellation=True, refund_policy=policy)
         ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
@@ -180,7 +194,8 @@ class TestQuoteCancellationRefundMath:
         event: t.Any,
     ) -> None:
         event.start = timezone.now() + timedelta(hours=72)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         policy = _policy((48, "100"))
         tier = tier_factory(
             allow_user_cancellation=True,
@@ -200,7 +215,8 @@ class TestQuoteCancellationRefundMath:
         payment_factory: t.Callable[..., t.Any],
     ) -> None:
         event.start = timezone.now() + timedelta(hours=72)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         frozen_policy = _policy((48, "100"))
         tier = tier_factory(allow_user_cancellation=True, refund_policy=frozen_policy)
         ticket = ticket_factory(tier=tier, refund_policy_snapshot=frozen_policy)
@@ -221,7 +237,8 @@ class TestBuildCancellationPreview:
         payment_factory: t.Callable[..., t.Any],
     ) -> None:
         event.start = timezone.now() + timedelta(hours=300)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         policy = _policy((168, "100"), (48, "50"), (24, "25"), flat_fee="1")
         tier = tier_factory(allow_user_cancellation=True, refund_policy=policy)
         ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
@@ -275,7 +292,8 @@ class TestCancelTicketByUser:
         event: t.Any,
     ) -> None:
         event.start = timezone.now() + timedelta(hours=72)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         tier = tier_factory(
             payment_method=TicketTier.PaymentMethod.FREE,
             price=Decimal("0"),
@@ -305,7 +323,8 @@ class TestCancelTicketByUser:
         payment_factory: t.Callable[..., Payment],
     ) -> None:
         event.start = timezone.now() + timedelta(hours=72)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         policy = {"tiers": [{"hours_before_event": 48, "refund_percentage": "100"}], "flat_fee": "0"}
         tier = tier_factory(
             payment_method=TicketTier.PaymentMethod.ONLINE,
@@ -340,7 +359,8 @@ class TestCancelTicketByUser:
         import stripe
 
         event.start = timezone.now() + timedelta(hours=72)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         policy = {"tiers": [{"hours_before_event": 48, "refund_percentage": "100"}], "flat_fee": "0"}
         tier = tier_factory(
             payment_method=TicketTier.PaymentMethod.ONLINE,

@@ -11,6 +11,7 @@ from decimal import Decimal
 import pytest
 
 from events.models import Event, TicketTier
+from events.models.mixins import VisibilityMixin
 from events.service.duplication import duplicate_event
 
 pytestmark = pytest.mark.django_db
@@ -25,6 +26,10 @@ def test_duplicate_event_copies_all_tier_configuration_fields(event: Event) -> N
         price=Decimal("40.00"),
         currency="EUR",
         payment_method=TicketTier.PaymentMethod.ONLINE,
+        # visibility/purchasable_by chosen so the two `restrict_*_to_linked_invitations`
+        # flags below pass model validation.
+        visibility=VisibilityMixin.Visibility.PRIVATE,
+        purchasable_by=TicketTier.PurchasableBy.INVITED,
         # #370 fields
         allow_user_cancellation=True,
         cancellation_deadline_hours=24,
@@ -32,8 +37,8 @@ def test_duplicate_event_copies_all_tier_configuration_fields(event: Event) -> N
             "tiers": [{"hours_before_event": 24, "refund_percentage": "50"}],
             "flat_fee": "0",
         },
-        # Previously-dropped fields
-        seat_assignment_mode=TicketTier.SeatAssignmentMode.RANDOM,
+        # Previously-dropped fields (seat_assignment_mode intentionally omitted here
+        # because non-NONE modes require a venue/sector on the tier)
         max_tickets_per_user=3,
         vat_rate=Decimal("21.00"),
         display_order=7,
@@ -57,7 +62,6 @@ def test_duplicate_event_copies_all_tier_configuration_fields(event: Event) -> N
     assert new_tier.refund_policy == template_tier.refund_policy
 
     # Previously-dropped fields
-    assert new_tier.seat_assignment_mode == TicketTier.SeatAssignmentMode.RANDOM
     assert new_tier.max_tickets_per_user == 3
     assert new_tier.vat_rate == Decimal("21.00")
     assert new_tier.display_order == 7

@@ -37,7 +37,7 @@ def test_mark_ticket_refunded_offline_by_owner(
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     data = response.json()
@@ -63,7 +63,7 @@ def test_mark_ticket_refunded_at_door_by_owner(
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": pending_at_door_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     pending_at_door_ticket.refresh_from_db()
@@ -93,7 +93,7 @@ def test_mark_ticket_refunded_with_payment_record(
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
 
@@ -119,7 +119,7 @@ def test_mark_ticket_refunded_by_staff_with_permission(
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_staff_client.post(url)
+    response = organization_staff_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     pending_offline_ticket.refresh_from_db()
@@ -143,7 +143,7 @@ def test_mark_ticket_refunded_by_staff_without_permission(
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_staff_client.post(url)
+    response = organization_staff_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 403
 
@@ -162,7 +162,7 @@ def test_mark_ticket_refunded_online_ticket_rejected(
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 
@@ -176,7 +176,7 @@ def test_mark_ticket_refunded_nonexistent_ticket(organization_owner_client: Clie
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": fake_ticket_id},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 
@@ -192,7 +192,7 @@ def test_mark_ticket_refunded_wrong_event(
         "api:mark_ticket_refunded",
         kwargs={"event_id": public_event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 
@@ -215,7 +215,7 @@ def test_cancel_ticket_offline_by_owner(
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     data = response.json()
@@ -241,7 +241,7 @@ def test_cancel_ticket_at_door_by_owner(
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": pending_at_door_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     pending_at_door_ticket.refresh_from_db()
@@ -265,7 +265,7 @@ def test_cancel_ticket_by_staff_with_permission(
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_staff_client.post(url)
+    response = organization_staff_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     pending_offline_ticket.refresh_from_db()
@@ -289,7 +289,7 @@ def test_cancel_ticket_by_staff_without_permission(
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_staff_client.post(url)
+    response = organization_staff_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 403
 
@@ -308,7 +308,7 @@ def test_cancel_ticket_online_ticket_rejected(
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 
@@ -322,7 +322,7 @@ def test_cancel_ticket_nonexistent_ticket(organization_owner_client: Client, eve
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": fake_ticket_id},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 
@@ -338,7 +338,7 @@ def test_cancel_ticket_wrong_event(
         "api:cancel_ticket",
         kwargs={"event_id": public_event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 

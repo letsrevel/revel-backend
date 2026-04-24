@@ -39,7 +39,8 @@ def online_cancellable_tier(
 ) -> TicketTier:
     """An ONLINE tier with a two-step refund policy; event starts in 72h."""
     event.start = timezone.now() + timedelta(hours=72)
-    event.save(update_fields=["start"])
+    event.end = event.start + timedelta(hours=1)
+    event.save(update_fields=["start", "end"])
     return tier_factory(
         payment_method=TicketTier.PaymentMethod.ONLINE,
         price=Decimal("40.00"),
@@ -97,7 +98,8 @@ class TestCancellationPreview:
     ) -> None:
         """200 with can_cancel=False and reason=event_started when the event has begun."""
         event.start = timezone.now() - timedelta(minutes=5)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         ticket = ticket_factory(tier=online_cancellable_tier)
         url = reverse("api:ticket_cancellation_preview", kwargs={"ticket_id": str(ticket.id)})
         resp = _authed(ticket.user).get(url)
@@ -153,7 +155,8 @@ class TestCancelMyTicket:
     ) -> None:
         """Cancelling a FREE ticket succeeds without ever calling Stripe."""
         event.start = timezone.now() + timedelta(hours=72)
-        event.save(update_fields=["start"])
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
         tier = tier_factory(
             payment_method=TicketTier.PaymentMethod.FREE,
             price=Decimal("0"),
