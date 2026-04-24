@@ -323,8 +323,7 @@ def cancel_ticket_by_user(
         ):
             refund_status = _issue_stripe_refund(ticket, payment, quote.refund_amount)
 
-        # Set pre-save hints used by the existing notification signal handlers.
-        ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
+        # Set pre-save hint used by notification signal handlers.
         ticket._refund_amount = f"{quote.refund_amount} {quote.currency}"  # type: ignore[attr-defined]
 
         ticket.status = Ticket.TicketStatus.CANCELLED

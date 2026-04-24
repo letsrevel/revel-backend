@@ -325,8 +325,6 @@ def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) ->
 
     update_fields = ["status"]
 
-    # Store old status before updating (signal handler needs this)
-    ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
     ticket.status = Ticket.TicketStatus.ACTIVE
 
     if is_pwyc and price_paid is not None:
@@ -349,8 +347,6 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
     Returns:
         The re-fetched ticket with full() relations for serialization.
     """
-    # Store old status before updating (signal handler needs this)
-    ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
     ticket.status = Ticket.TicketStatus.PENDING
     ticket.price_paid = None
     ticket.save(update_fields=["status", "price_paid"])

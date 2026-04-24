@@ -14,6 +14,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
+from events.models.ticket import CancellationSource
 
 pytestmark = pytest.mark.django_db
 
@@ -407,3 +408,67 @@ def test_list_tickets_membership_present_for_member(
     assert ticket_data["membership"] is not None
     assert ticket_data["membership"]["status"] == membership.status
     assert ticket_data["membership"]["tier"]["name"] == tier.name
+
+
+# --- Tests for audit-field backfill on admin cancel/refund ---
+
+
+def test_admin_cancel_populates_audit_fields(
+    organization_owner_client: Client,
+    organization_owner_user: RevelUser,
+    event: Event,
+    pending_offline_ticket: Ticket,
+) -> None:
+    """Admin cancel must record cancelled_at, cancelled_by, source, and reason."""
+    url = reverse(
+        "api:cancel_ticket",
+        kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
+    )
+    response = organization_owner_client.post(
+        url, data={"cancellation_reason": "no-show"}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    pending_offline_ticket.refresh_from_db()
+    assert pending_offline_ticket.status == Ticket.TicketStatus.CANCELLED
+    assert pending_offline_ticket.cancelled_at is not None
+    assert pending_offline_ticket.cancelled_by_id == organization_owner_user.id
+    assert pending_offline_ticket.cancellation_source == CancellationSource.ORGANIZER
+    assert pending_offline_ticket.cancellation_reason == "no-show"
+
+
+def test_admin_mark_refunded_populates_payment_refund_fields(
+    organization_owner_client: Client,
+    organization_owner_user: RevelUser,
+    event: Event,
+    pending_offline_ticket: Ticket,
+) -> None:
+    """mark_ticket_refunded must populate refund_amount, refund_status, refunded_at on the Payment."""
+    from decimal import Decimal
+
+    from events.models import Payment
+
+    payment = Payment.objects.create(
+        ticket=pending_offline_ticket,
+        user=pending_offline_ticket.user,
+        stripe_session_id="session-id",
+        amount=Decimal("25.00"),
+        platform_fee=Decimal("1.00"),
+        currency="EUR",
+        status=Payment.PaymentStatus.SUCCEEDED,
+    )
+    url = reverse(
+        "api:mark_ticket_refunded",
+        kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
+    )
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
+
+    assert response.status_code == 200
+    pending_offline_ticket.refresh_from_db()
+    payment.refresh_from_db()
+    assert pending_offline_ticket.cancellation_source == CancellationSource.ORGANIZER
+    assert pending_offline_ticket.cancelled_by_id == organization_owner_user.id
+    assert payment.status == Payment.PaymentStatus.REFUNDED
+    assert payment.refund_amount == Decimal("25.00")
+    assert payment.refund_status == Payment.RefundStatus.SUCCEEDED
+    assert payment.refunded_at is not None

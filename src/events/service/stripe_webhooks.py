@@ -90,8 +90,6 @@ class StripeEventHandler:
             payment.save(update_fields=["status", "stripe_payment_intent_id", "raw_response"])
 
             ticket = payment.ticket
-            # Store original status so signal handler can detect PENDING→ACTIVE transition
-            ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.save(update_fields=["status"])
 
@@ -346,7 +344,6 @@ class StripeEventHandler:
 
         ticket = payment.ticket
         if ticket.status != Ticket.TicketStatus.CANCELLED:
-            ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
             ticket._refund_amount = f"{payment.refund_amount} {payment.currency}"  # type: ignore[attr-defined]
             ticket.status = Ticket.TicketStatus.CANCELLED
             ticket.cancelled_at = timezone.now()
