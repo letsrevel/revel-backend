@@ -379,7 +379,7 @@ def _issue_stripe_refund(ticket: Ticket, payment: t.Any, amount: Decimal) -> str
             metadata={"ticket_id": str(ticket.id), "user_initiated": "true"},
             idempotency_key=f"refund:{ticket.id}",
         )
-    except stripe.error.StripeError as exc:  # type: ignore[attr-defined]
+    except stripe.error.StripeError as exc:
         logger.error(
             "stripe_refund_failed",
             ticket_id=str(ticket.id),

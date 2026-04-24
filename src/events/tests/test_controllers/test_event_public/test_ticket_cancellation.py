@@ -207,7 +207,7 @@ class TestCancelMyTicket:
         )
         payment_factory(ticket, amount=Decimal("40.00"), stripe_payment_intent_id="pi_fail")
         url = reverse("api:cancel_my_ticket", kwargs={"ticket_id": str(ticket.id)})
-        with patch("stripe.Refund.create", side_effect=stripe.error.StripeError("boom")):  # type: ignore[attr-defined]
+        with patch("stripe.Refund.create", side_effect=stripe.error.StripeError("boom")):
             resp = _authed(ticket.user).post(url, data={}, content_type="application/json")
         assert resp.status_code == 502
         ticket.refresh_from_db()

@@ -1,5 +1,6 @@
 """Tests for handle_charge_refunded's per-payment matching strategy."""
 
+import typing as t
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -13,7 +14,7 @@ from events.service.stripe_webhooks import StripeEventHandler
 pytestmark = pytest.mark.django_db
 
 
-def _charge_event(payment_intent_id: str, refunds: list[dict]) -> stripe.Event:
+def _charge_event(payment_intent_id: str, refunds: list[dict[str, t.Any]]) -> stripe.Event:
     ev = MagicMock(spec=stripe.Event)
     ev.type = "charge.refunded"
     ev.data = MagicMock()
@@ -43,7 +44,7 @@ class TestChargeRefundedMatching:
         target.refund_status = Payment.RefundStatus.PENDING
         target.save(update_fields=["stripe_refund_id", "refund_status"])
 
-        refund: dict = {"id": "re_already_recorded", "amount": 4000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_already_recorded", "amount": 4000, "metadata": {}}
         StripeEventHandler(_charge_event("pi_batch", [refund])).handle_charge_refunded(
             _charge_event("pi_batch", [refund])
         )
@@ -61,7 +62,7 @@ class TestChargeRefundedMatching:
         payments = batch_of_4_online_payments
         _batch(payments, "pi_batch")
         target = payments[2]
-        refund: dict = {
+        refund: dict[str, t.Any] = {
             "id": "re_new",
             "amount": 4000,
             "metadata": {"ticket_id": str(target.ticket_id)},
@@ -87,7 +88,7 @@ class TestChargeRefundedMatching:
         payments[0].save(update_fields=["amount"])
         _batch(payments, "pi_batch")
 
-        refund: dict = {"id": "re_new", "amount": 5000, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_new", "amount": 5000, "metadata": {}}
         StripeEventHandler(_charge_event("pi_batch", [refund])).handle_charge_refunded(
             _charge_event("pi_batch", [refund])
         )
@@ -98,7 +99,7 @@ class TestChargeRefundedMatching:
         payments = batch_of_4_online_payments
         _batch(payments, "pi_batch")
         total_cents = int(sum(p.amount for p in payments) * 100)
-        refund: dict = {"id": "re_full", "amount": total_cents, "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_full", "amount": total_cents, "metadata": {}}
         StripeEventHandler(_charge_event("pi_batch", [refund])).handle_charge_refunded(
             _charge_event("pi_batch", [refund])
         )
@@ -115,7 +116,7 @@ class TestChargeRefundedMatching:
         payments = batch_of_4_online_payments
         # All payments cost the same AND amount doesn't equal full intent.
         _batch(payments, "pi_batch")
-        refund: dict = {"id": "re_ambig", "amount": 4000, "metadata": {}}  # matches any single payment
+        refund: dict[str, t.Any] = {"id": "re_ambig", "amount": 4000, "metadata": {}}  # matches any single payment
         StripeEventHandler(_charge_event("pi_batch", [refund])).handle_charge_refunded(
             _charge_event("pi_batch", [refund])
         )
@@ -132,7 +133,7 @@ class TestChargeRefundedMatching:
         target.refund_status = Payment.RefundStatus.SUCCEEDED
         target.status = Payment.PaymentStatus.REFUNDED
         target.save(update_fields=["stripe_refund_id", "refund_status", "status"])
-        refund: dict = {"id": "re_a", "amount": int(target.amount * 100), "metadata": {}}
+        refund: dict[str, t.Any] = {"id": "re_a", "amount": int(target.amount * 100), "metadata": {}}
         # Replay — should be a no-op.
         StripeEventHandler(_charge_event("pi_batch", [refund])).handle_charge_refunded(
             _charge_event("pi_batch", [refund])
