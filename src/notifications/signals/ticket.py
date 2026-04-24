@@ -116,6 +116,8 @@ def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, 
         "old_status": old_status,
         "new_status": ticket.status,
         "action": action,
+        "cancellation_source": ticket.cancellation_source or "",
+        "cancellation_reason": ticket.cancellation_reason or "",
     }
 
 

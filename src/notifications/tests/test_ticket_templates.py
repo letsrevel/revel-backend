@@ -804,3 +804,58 @@ class TestTicketCheckedInTemplate:
 
         assert "Checked in" in subject
         assert active_ticket.event.name in subject
+
+
+class TestTicketCancelledTemplateBranching:
+    """Tests that ticket_cancelled templates branch the headline on cancellation_source."""
+
+    def _render_in_app(self, source: str, event_name: str = "Test Fest") -> str:
+        """Render the in-app ticket_cancelled template with given cancellation_source.
+
+        Args:
+            source: Value for context.cancellation_source.
+            event_name: Event name to use in context.
+
+        Returns:
+            Rendered template string.
+        """
+        from django.template.loader import render_to_string
+
+        return render_to_string(
+            "notifications/in_app/ticket_cancelled.md",
+            {
+                "context": {
+                    "event_name": event_name,
+                    "event_start_formatted": "TBD",
+                    "event_location": "",
+                    "tier_name": "GA",
+                    "ticket_id": "abc",
+                    "event_url": "https://example.com",
+                    "cancellation_source": source,
+                    "cancellation_reason": "",
+                },
+            },
+        )
+
+    def test_user_source_uses_self_cancellation_headline(self) -> None:
+        """When cancellation_source is 'user', headline says 'You cancelled'."""
+        rendered = self._render_in_app(source="user")
+        assert "You cancelled your ticket" in rendered
+
+    def test_stripe_dashboard_source_mentions_refund(self) -> None:
+        """When cancellation_source is 'stripe_dashboard', headline mentions refund."""
+        rendered = self._render_in_app(source="stripe_dashboard")
+        assert "cancelled and refunded" in rendered
+
+    def test_organizer_source_uses_passive_headline(self) -> None:
+        """When cancellation_source is 'organizer', headline uses passive voice."""
+        rendered = self._render_in_app(source="organizer")
+        assert "has been cancelled" in rendered
+        assert "You cancelled" not in rendered
+        assert "refunded" not in rendered
+
+    def test_empty_source_uses_passive_headline(self) -> None:
+        """Backward-compat: missing/empty cancellation_source falls through to default."""
+        rendered = self._render_in_app(source="")
+        assert "has been cancelled" in rendered
+        assert "You cancelled" not in rendered

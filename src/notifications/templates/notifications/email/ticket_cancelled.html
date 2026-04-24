@@ -23,7 +23,7 @@
         </div>
         <div class="content">
             <p>{% trans "Hello" %} {{ user.display_name }},</p>
-            <p>{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> has been cancelled.{% endblocktranslate %}</p>
+            <p>{% if context.cancellation_source == "user" %}{% blocktranslate with event=context.event_name %}You cancelled your ticket for <strong>{{ event }}</strong>.{% endblocktranslate %}{% elif context.cancellation_source == "stripe_dashboard" %}{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> has been cancelled and refunded.{% endblocktranslate %}{% else %}{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> has been cancelled.{% endblocktranslate %}{% endif %}</p>
 
             <div class="card">
                 <h3 style="margin-top: 0; color: #dc3545;">{% trans "Event Details" %}</h3>

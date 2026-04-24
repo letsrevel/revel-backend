@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-08 16:44+0200\n"
+"POT-Creation-Date: 2026-04-24 10:02+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -851,6 +851,17 @@ msgstr "Der PWYC-Betrag muss mindestens {min_amount} betragen"
 #, python-brace-format
 msgid "PWYC amount must be at most {max_amount}"
 msgstr "Der PWYC-Betrag darf höchstens {max_amount} betragen"
+
+msgid "Only the ticket holder can view this preview."
+msgstr ""
+
+msgid "Only the ticket holder can cancel this ticket."
+msgstr ""
+
+#, fuzzy
+#| msgid "Payment processing failed. Please try again later."
+msgid "Refund failed. Please try again later."
+msgstr "Zahlung fehlgeschlagen. Bitte versuche es später erneut."
 
 msgid "Token does not match this organization."
 msgstr "Dieses Token gehört nicht zu dieser Organisation."
@@ -2081,8 +2092,7 @@ msgstr "Neuer Follower"
 #, python-format
 msgid ""
 "<strong>%(follower)s</strong> started following <strong>%(series)s</strong>."
-msgstr ""
-"<strong>%(follower)s</strong> folgt jetzt <strong>%(series)s</strong>."
+msgstr "<strong>%(follower)s</strong> folgt jetzt <strong>%(series)s</strong>."
 
 msgid "Follower Details"
 msgstr "Follower-Details"
@@ -2297,8 +2307,7 @@ msgstr "Neues Event in der Serie"
 
 #, python-format
 msgid "New event in <strong>%(series)s</strong>: <strong>%(event)s</strong>"
-msgstr ""
-"Neues Event in <strong>%(series)s</strong>: <strong>%(event)s</strong>"
+msgstr "Neues Event in <strong>%(series)s</strong>: <strong>%(event)s</strong>"
 
 msgid "View event:"
 msgstr "Zum Event:"
@@ -2306,8 +2315,7 @@ msgstr "Zum Event:"
 #, python-format
 msgid ""
 "<strong>%(follower)s</strong> started following <strong>%(org)s</strong>."
-msgstr ""
-"<strong>%(follower)s</strong> folgt jetzt <strong>%(org)s</strong>."
+msgstr "<strong>%(follower)s</strong> folgt jetzt <strong>%(org)s</strong>."
 
 #, python-format
 msgid "%(follower)s started following %(org)s."
@@ -2832,11 +2840,11 @@ msgid_plural ""
 "<strong>%(counter)s</strong> new events have been scheduled for "
 "<strong>%(series)s</strong>."
 msgstr[0] ""
-"<strong>%(counter)s</strong> neues Event wurde für "
-"<strong>%(series)s</strong> geplant."
+"<strong>%(counter)s</strong> neues Event wurde für <strong>%(series)s</"
+"strong> geplant."
 msgstr[1] ""
-"<strong>%(counter)s</strong> neue Events wurden für "
-"<strong>%(series)s</strong> geplant."
+"<strong>%(counter)s</strong> neue Events wurden für <strong>%(series)s</"
+"strong> geplant."
 
 msgid "Events scheduled:"
 msgstr "Geplante Events:"
@@ -2865,6 +2873,22 @@ msgid "Ticket Cancelled"
 msgstr "Ticket bereits storniert"
 
 #, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid "You cancelled your ticket for <strong>%(event)s</strong>."
+msgstr ""
+"Ein neues Ticket wurde für <strong>%(event_name)s</strong> ausgestellt."
+
+#, fuzzy, python-format
+#| msgid ""
+#| "Your payment for <strong>%(event_name)s</strong> was successful and your "
+#| "ticket is now active!"
+msgid ""
+"Your ticket for <strong>%(event)s</strong> has been cancelled and refunded."
+msgstr ""
+"Deine Zahlung für <strong>%(event_name)s</strong> war erfolgreich und dein "
+"Ticket ist jetzt aktiv!"
+
+#, fuzzy, python-format
 #| msgid ""
 #| "Your payment for <strong>%(event_name)s</strong> was successful and your "
 #| "ticket is now active!"
@@ -2881,6 +2905,16 @@ msgid ""
 "A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
 "your original payment method within 5-10 business days."
 msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Ticket Update: %(event_name)s"
+msgid "You cancelled your ticket for %(event)s."
+msgstr "Ticket-Update: %(event_name)s"
+
+#, fuzzy, python-format
+#| msgid "This ticket has been cancelled."
+msgid "Your ticket for %(event)s has been cancelled and refunded."
+msgstr "Dieses Ticket wurde storniert."
 
 #, fuzzy, python-format
 #| msgid "This ticket has been cancelled."
