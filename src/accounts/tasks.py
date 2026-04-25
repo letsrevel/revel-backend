@@ -30,6 +30,7 @@ from accounts.service import gdpr
 from common.models import SiteSettings
 from common.signing import generate_signed_url
 from common.tasks import send_email
+from events.utils.currency import to_stripe_amount
 
 # 7 days in seconds for data export download links
 DATA_EXPORT_URL_EXPIRES_IN = 7 * 24 * 60 * 60
@@ -833,7 +834,7 @@ def process_referral_payouts() -> dict[str, int]:
         # --- Stripe Transfer (idempotent via payout ID key) ---
         try:
             transfer = stripe.Transfer.create(
-                amount=int(payout.payout_amount * 100),
+                amount=to_stripe_amount(payout.payout_amount, payout.currency),
                 currency=payout.currency.lower(),
                 destination=referrer.stripe_account_id,
                 transfer_group=f"referral-payout-{payout.id}",

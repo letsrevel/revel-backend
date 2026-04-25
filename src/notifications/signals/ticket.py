@@ -107,6 +107,14 @@ def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, 
     elif ticket.status == Ticket.TicketStatus.CHECKED_IN:
         action = "checked in"
 
+    # Surface the refund amount (set transiently on the instance by the cancellation
+    # service / Stripe webhook handler) so the TICKET_CANCELLED template can report
+    # it in the same notification that announces the cancellation. Without this the
+    # user would only learn the refund amount later, via the TICKET_REFUNDED
+    # notification fired by the Payment signal when the webhook flips the Payment.
+    refund_amount_hint = getattr(ticket, "_refund_amount", "") or ""
+    refund_currency_hint = getattr(ticket, "_refund_currency", "") or ""
+
     return {
         **base_context,
         "ticket_id": str(ticket.id),
@@ -116,6 +124,10 @@ def _build_ticket_updated_context(ticket: Ticket, old_status: str) -> dict[str, 
         "old_status": old_status,
         "new_status": ticket.status,
         "action": action,
+        "cancellation_source": ticket.cancellation_source or "",
+        "cancellation_reason": ticket.cancellation_reason or "",
+        "refund_amount": refund_amount_hint,
+        "payment_currency": refund_currency_hint,
     }
 
 
@@ -419,8 +431,13 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
     elif ticket.status == Ticket.TicketStatus.CHECKED_IN:
         _send_ticket_checked_in_notification(ticket)
     elif ticket.status == Ticket.TicketStatus.CANCELLED:
-        # Refund notifications are handled by Payment signals in notifications/signals/payment.py
-        # Only send cancellation notifications for non-refund cancellations
+        # TICKET_CANCELLED fires for every cancellation. When a Stripe refund is
+        # involved, the cancellation_service / Stripe webhook handler set
+        # `ticket._refund_amount` + `ticket._refund_currency` so the same
+        # notification surfaces the refund amount immediately. The separate
+        # TICKET_REFUNDED notification is fired later from the Payment signal
+        # (notifications/signals/payment.py) once the Stripe webhook flips
+        # Payment.status to REFUNDED.
         _send_ticket_cancelled_notifications(ticket, old_status)
 
 

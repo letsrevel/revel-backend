@@ -187,3 +187,10 @@ def active_series_with_tier(
     event_series.generation_window_weeks = 4
     event_series.save()
     return event_series
+
+
+# ---------------------------------------------------------------------------
+# Cancellation service fixtures
+# ---------------------------------------------------------------------------
+# tier_online_with_cancellation_enabled and tier_online_with_cancellation_disabled
+# are defined in src/events/tests/conftest.py for DRY access across both subtrees.

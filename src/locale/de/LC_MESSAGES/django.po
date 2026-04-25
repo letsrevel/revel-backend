@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-08 16:44+0200\n"
+"POT-Creation-Date: 2026-04-24 10:02+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -851,6 +851,15 @@ msgstr "Der PWYC-Betrag muss mindestens {min_amount} betragen"
 #, python-brace-format
 msgid "PWYC amount must be at most {max_amount}"
 msgstr "Der PWYC-Betrag darf höchstens {max_amount} betragen"
+
+msgid "Only the ticket holder can view this preview."
+msgstr "Nur der Ticketinhaber kann diese Vorschau anzeigen."
+
+msgid "Only the ticket holder can cancel this ticket."
+msgstr "Nur der Ticketinhaber kann dieses Ticket stornieren."
+
+msgid "Refund failed. Please try again later."
+msgstr "Die Rückerstattung ist fehlgeschlagen. Bitte versuche es später erneut."
 
 msgid "Token does not match this organization."
 msgstr "Dieses Token gehört nicht zu dieser Organisation."
@@ -2081,8 +2090,7 @@ msgstr "Neuer Follower"
 #, python-format
 msgid ""
 "<strong>%(follower)s</strong> started following <strong>%(series)s</strong>."
-msgstr ""
-"<strong>%(follower)s</strong> folgt jetzt <strong>%(series)s</strong>."
+msgstr "<strong>%(follower)s</strong> folgt jetzt <strong>%(series)s</strong>."
 
 msgid "Follower Details"
 msgstr "Follower-Details"
@@ -2297,8 +2305,7 @@ msgstr "Neues Event in der Serie"
 
 #, python-format
 msgid "New event in <strong>%(series)s</strong>: <strong>%(event)s</strong>"
-msgstr ""
-"Neues Event in <strong>%(series)s</strong>: <strong>%(event)s</strong>"
+msgstr "Neues Event in <strong>%(series)s</strong>: <strong>%(event)s</strong>"
 
 msgid "View event:"
 msgstr "Zum Event:"
@@ -2306,8 +2313,7 @@ msgstr "Zum Event:"
 #, python-format
 msgid ""
 "<strong>%(follower)s</strong> started following <strong>%(org)s</strong>."
-msgstr ""
-"<strong>%(follower)s</strong> folgt jetzt <strong>%(org)s</strong>."
+msgstr "<strong>%(follower)s</strong> folgt jetzt <strong>%(org)s</strong>."
 
 #, python-format
 msgid "%(follower)s started following %(org)s."
@@ -2832,11 +2838,11 @@ msgid_plural ""
 "<strong>%(counter)s</strong> new events have been scheduled for "
 "<strong>%(series)s</strong>."
 msgstr[0] ""
-"<strong>%(counter)s</strong> neues Event wurde für "
-"<strong>%(series)s</strong> geplant."
+"<strong>%(counter)s</strong> neues Event wurde für <strong>%(series)s</"
+"strong> geplant."
 msgstr[1] ""
-"<strong>%(counter)s</strong> neue Events wurden für "
-"<strong>%(series)s</strong> geplant."
+"<strong>%(counter)s</strong> neue Events wurden für <strong>%(series)s</"
+"strong> geplant."
 
 msgid "Events scheduled:"
 msgstr "Geplante Events:"
@@ -2859,19 +2865,22 @@ msgstr ""
 msgid "Read more:"
 msgstr ""
 
-#, fuzzy
-#| msgid "Ticket already cancelled"
 msgid "Ticket Cancelled"
-msgstr "Ticket bereits storniert"
+msgstr "Ticket storniert"
 
-#, fuzzy, python-format
-#| msgid ""
-#| "Your payment for <strong>%(event_name)s</strong> was successful and your "
-#| "ticket is now active!"
-msgid "Your ticket for <strong>%(event)s</strong> has been cancelled."
+#, python-format
+msgid "You cancelled your ticket for <strong>%(event)s</strong>."
+msgstr "Du hast dein Ticket für <strong>%(event)s</strong> storniert."
+
+#, python-format
+msgid ""
+"Your ticket for <strong>%(event)s</strong> has been cancelled and refunded."
 msgstr ""
-"Deine Zahlung für <strong>%(event_name)s</strong> war erfolgreich und dein "
-"Ticket ist jetzt aktiv!"
+"Dein Ticket für <strong>%(event)s</strong> wurde storniert und erstattet."
+
+#, python-format
+msgid "Your ticket for <strong>%(event)s</strong> has been cancelled."
+msgstr "Dein Ticket für <strong>%(event)s</strong> wurde storniert."
 
 msgid "Cancelled Ticket"
 msgstr ""
@@ -2882,10 +2891,17 @@ msgid ""
 "your original payment method within 5-10 business days."
 msgstr ""
 
-#, fuzzy, python-format
-#| msgid "This ticket has been cancelled."
+#, python-format
+msgid "You cancelled your ticket for %(event)s."
+msgstr "Du hast dein Ticket für %(event)s storniert."
+
+#, python-format
+msgid "Your ticket for %(event)s has been cancelled and refunded."
+msgstr "Dein Ticket für %(event)s wurde storniert und erstattet."
+
+#, python-format
 msgid "Your ticket for %(event)s has been cancelled."
-msgstr "Dieses Ticket wurde storniert."
+msgstr "Dein Ticket für %(event)s wurde storniert."
 
 msgid "Cancelled Ticket:"
 msgstr ""

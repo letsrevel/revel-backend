@@ -115,7 +115,8 @@ def _send_refund_notifications(payment: Payment) -> None:
     ticket = payment.ticket
     event = ticket.event
 
-    refund_amount = f"{payment.amount} {payment.currency}"
+    actual_amount = payment.refund_amount if payment.refund_amount is not None else payment.amount
+    refund_amount = f"{actual_amount} {payment.currency}"
 
     context = {
         "ticket_id": str(ticket.id),

@@ -1,5 +1,6 @@
 import typing as t
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -19,6 +20,7 @@ from events.models import (
     OrganizationQuestionnaire,
     OrganizationStaff,
     OrganizationToken,
+    Payment,
     PermissionMap,
     PermissionsSchema,
     Ticket,
@@ -275,3 +277,115 @@ def organization_token(organization: Organization, organization_owner_user: Reve
     return OrganizationToken.objects.create(
         organization=organization, name="Test Token", issuer=organization_owner_user, membership_tier=default_tier
     )
+
+
+@pytest.fixture
+def tier_online_with_cancellation_enabled(tier_factory: t.Callable[..., TicketTier]) -> TicketTier:
+    """An ONLINE tier with user cancellation enabled and a simple 100% refund policy."""
+    return tier_factory(
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        price=Decimal("40.00"),
+        allow_user_cancellation=True,
+        refund_policy={
+            "tiers": [{"hours_before_event": 48, "refund_percentage": "100"}],
+            "flat_fee": "0",
+        },
+    )
+
+
+@pytest.fixture
+def tier_online_with_cancellation_disabled(tier_factory: t.Callable[..., TicketTier]) -> TicketTier:
+    """An ONLINE tier with user cancellation disabled."""
+    return tier_factory(
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        price=Decimal("40.00"),
+        allow_user_cancellation=False,
+    )
+
+
+@pytest.fixture
+def tier_factory(event: Event) -> t.Callable[..., TicketTier]:
+    """Factory for ``TicketTier`` instances. Keyword args override defaults.
+
+    Args:
+        event: Default event to attach tiers to (uses the ``event`` fixture).
+
+    Returns:
+        A callable that creates and returns a ``TicketTier``.
+    """
+
+    def _make(**kwargs: t.Any) -> TicketTier:
+        defaults: dict[str, t.Any] = {
+            "event": event,
+            "name": "Factory Tier",
+            "price": Decimal("40.00"),
+            "currency": "EUR",
+            "payment_method": TicketTier.PaymentMethod.ONLINE,
+        }
+        defaults.update(kwargs)
+        # Ensure unique names when multiple tiers are created for the same event.
+        if "name" not in kwargs:
+            existing = TicketTier.objects.filter(event=defaults["event"], name=defaults["name"]).count()
+            if existing:
+                defaults["name"] = f"Factory Tier {existing + 1}"
+        return TicketTier.objects.create(**defaults)
+
+    return _make
+
+
+@pytest.fixture
+def ticket_factory(
+    event: Event,
+    member_user: RevelUser,
+    tier_factory: t.Callable[..., TicketTier],
+) -> t.Callable[..., Ticket]:
+    """Factory for ``Ticket`` instances. Keyword args override defaults.
+
+    Args:
+        event: Default event (uses the ``event`` fixture).
+        member_user: Default user (uses the ``member_user`` fixture).
+        tier_factory: Used to auto-create a tier when none is supplied.
+
+    Returns:
+        A callable that creates and returns a ``Ticket``.
+    """
+
+    def _make(**kwargs: t.Any) -> Ticket:
+        tier = kwargs.pop("tier", None) or tier_factory()
+        user = kwargs.pop("user", member_user)
+        defaults: dict[str, t.Any] = {
+            "event": event,
+            "user": user,
+            "tier": tier,
+            "status": Ticket.TicketStatus.ACTIVE,
+            "guest_name": user.get_display_name(),
+        }
+        defaults.update(kwargs)
+        return Ticket.objects.create(**defaults)
+
+    return _make
+
+
+@pytest.fixture
+def payment_factory() -> t.Callable[..., Payment]:
+    """Factory for ``Payment`` instances linked to a ticket. Keyword args override defaults.
+
+    Returns:
+        A callable that accepts a ``ticket`` positional arg and creates a ``Payment``.
+    """
+
+    def _make(ticket: Ticket, **kwargs: t.Any) -> Payment:
+        defaults: dict[str, t.Any] = {
+            "ticket": ticket,
+            "user": ticket.user,
+            "amount": Decimal("40.00"),
+            "platform_fee": Decimal("0.00"),
+            "currency": "EUR",
+            "status": Payment.PaymentStatus.SUCCEEDED,
+            "stripe_session_id": f"cs_test_{ticket.id}",
+            "stripe_payment_intent_id": f"pi_test_{ticket.id}",
+        }
+        defaults.update(kwargs)
+        return Payment.objects.create(**defaults)
+
+    return _make

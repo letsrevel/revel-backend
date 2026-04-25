@@ -12,6 +12,7 @@ from common.schema import OneToOneFiftyString, StrippedString, validate_country_
 from common.signing import get_file_url
 from events import models
 from events.models import Payment, Ticket, TicketTier
+from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
 
 from .event import MinimalEventSchema
 from .organization import MembershipTierSchema, MinimalOrganizationMemberSchema
@@ -230,6 +231,65 @@ class ConfirmPaymentSchema(Schema):
     price_paid: Decimal | None = Field(None, gt=0)
 
 
+# ---- Cancellation Schemas ----
+
+# RefundPolicy + RefundPolicyTier (with the monotonic-tiers validator) live in
+# events.utils.refund_policy so services, models, and schemas share one source
+# of truth. Re-export under the "Schema" suffix for API documentation clarity.
+RefundPolicyTierSchema = RefundPolicyTier
+RefundPolicySchema = RefundPolicy
+
+
+class RefundWindowSchema(Schema):
+    """A single active refund window: the percentage and absolute amount refundable until a deadline."""
+
+    refund_percentage: Decimal
+    refund_amount: Decimal
+    effective_until: AwareDatetime
+
+
+class CancellationPreviewSchema(Schema):
+    """Preview of what a user would receive if they cancelled their ticket now."""
+
+    can_cancel: bool
+    reason: models.ticket.CancellationBlockReason | None = None
+    refund_amount: Decimal
+    currency: str
+    deadline: AwareDatetime | None = None
+    flat_fee: Decimal
+    payment_method: TicketTier.PaymentMethod
+    windows: list[RefundWindowSchema] = Field(default_factory=list)
+    policy_snapshot: RefundPolicySchema | None = None
+
+
+class TicketCancellationRequestSchema(Schema):
+    """Optional payload sent when a user cancels their own ticket."""
+
+    reason: StrippedString | None = Field(default=None, max_length=500)
+
+
+class TicketCancellationResponseSchema(Schema):
+    """Response returned after a successful user-initiated ticket cancellation."""
+
+    ticket: UserTicketSchema
+    refund_amount: Decimal
+    currency: str
+    refund_status: Payment.RefundStatus | None = None
+
+
+class CancellationBlockedErrorSchema(Schema):
+    """Error body returned when cancellation is not permitted."""
+
+    code: models.ticket.CancellationBlockReason
+    detail: str
+
+
+class AdminCancelTicketSchema(Schema):
+    """Optional payload for admin cancel / mark-refunded endpoints."""
+
+    cancellation_reason: StrippedString | None = Field(default=None, max_length=500)
+
+
 # ---- TicketTier Schemas for Admin CRUD ----
 
 
@@ -271,6 +331,10 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     sector_id: UUID | None = None
 
     display_order: int = 0
+
+    allow_user_cancellation: bool = False
+    cancellation_deadline_hours: int | None = Field(default=None, ge=0)
+    refund_policy: RefundPolicySchema | None = None
 
     @model_validator(mode="after")
     def validate_pwyc_fields(self) -> t.Self:
@@ -314,6 +378,10 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
 
     display_order: int | None = None
 
+    allow_user_cancellation: bool | None = None
+    cancellation_deadline_hours: int | None = Field(default=None, ge=0)
+    refund_policy: RefundPolicySchema | None = None
+
     @model_validator(mode="after")
     def validate_pwyc_fields(self) -> t.Self:
         """Validate PWYC fields consistency."""
@@ -345,6 +413,7 @@ class TicketTierDetailSchema(ModelSchema):
     sector: VenueSectorSchema | None = None
     vat_rate: Decimal | None = None
     invoicing_available: bool = False
+    refund_policy: RefundPolicySchema | None = None
 
     class Meta:
         model = TicketTier
@@ -374,6 +443,8 @@ class TicketTierDetailSchema(ModelSchema):
             "max_tickets_per_user",
             "display_order",
             "vat_rate",
+            "allow_user_cancellation",
+            "cancellation_deadline_hours",
         ]
 
     @staticmethod

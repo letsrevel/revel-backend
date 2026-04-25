@@ -51,6 +51,29 @@ _SHIFTED_DATE_FIELDS: tuple[str, ...] = (
     "check_in_ends_at",
 )
 
+# Tier fields that are NOT copied from the template tier:
+# 1. Auto-managed: id, timestamps.
+# 2. Per-occurrence state: quantity_sold (must reset to 0).
+# 3. Overridden / shifted: event (new), sales_start_at / sales_end_at (date-shifted).
+# 4. Cleared per occurrence: venue / sector (new event may have a different venue).
+# 5. M2M: restricted_to_membership_tiers (set after create).
+_TIER_EXCLUDED_FROM_COPY: frozenset[str] = frozenset(
+    {
+        "id",
+        "created_at",
+        "updated_at",
+        "event",
+        "event_id",
+        "quantity_sold",
+        "sales_start_at",
+        "sales_end_at",
+        "venue",
+        "venue_id",
+        "sector",
+        "sector_id",
+    }
+)
+
 
 def _collect_copyable_field_values(template_event: Event) -> dict[str, t.Any]:
     """Collect every copyable concrete field value from the template event.
@@ -156,26 +179,25 @@ def _duplicate_ticket_tiers(
     new_event: Event,
     shift_date: t.Callable[[datetime | None], datetime | None],
 ) -> None:
-    """Duplicate ticket tiers from template, resetting quantity_sold."""
+    """Duplicate ticket tiers from template, resetting quantity_sold and shifting sales dates.
+
+    Iterates ``TicketTier._meta.concrete_fields`` with an explicit exclusion list so that
+    new tier fields are propagated by default. The previous field-by-field enumeration
+    silently dropped any field added after it was written.
+    """
     for tier in template_event.ticket_tiers.all():
-        new_tier = TicketTier.objects.create(
-            event=new_event,
-            name=tier.name,
-            visibility=tier.visibility,
-            payment_method=tier.payment_method,
-            purchasable_by=tier.purchasable_by,
-            description=tier.description,
-            price=tier.price,
-            price_type=tier.price_type,
-            pwyc_min=tier.pwyc_min,
-            pwyc_max=tier.pwyc_max,
-            currency=tier.currency,
-            total_quantity=tier.total_quantity,
-            quantity_sold=0,
-            manual_payment_instructions=tier.manual_payment_instructions,
-            sales_start_at=shift_date(tier.sales_start_at),
-            sales_end_at=shift_date(tier.sales_end_at),
-        )
+        copy_kwargs: dict[str, t.Any] = {}
+        for field in tier._meta.concrete_fields:
+            if field.name in _TIER_EXCLUDED_FROM_COPY or field.attname in _TIER_EXCLUDED_FROM_COPY:
+                continue
+            copy_kwargs[field.attname] = getattr(tier, field.attname)
+
+        copy_kwargs["event"] = new_event
+        copy_kwargs["quantity_sold"] = 0
+        copy_kwargs["sales_start_at"] = shift_date(tier.sales_start_at)
+        copy_kwargs["sales_end_at"] = shift_date(tier.sales_end_at)
+
+        new_tier = TicketTier.objects.create(**copy_kwargs)
         new_tier.restricted_to_membership_tiers.set(tier.restricted_to_membership_tiers.all())
 
 

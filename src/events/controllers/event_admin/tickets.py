@@ -4,6 +4,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import F, QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja import Body, Query
 from ninja.errors import HttpError
@@ -16,6 +17,7 @@ from common.schema import ValidationErrorResponse
 from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
+from events.models.ticket import CancellationSource
 from events.service import ticket_service
 
 from .base import EventAdminBaseController
@@ -256,11 +258,16 @@ class EventAdminTicketsController(EventAdminBaseController):
         response={200: schema.UserTicketSchema},
         permissions=[EventPermission("manage_tickets")],
     )
-    def mark_ticket_refunded(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
-        """Mark a manual payment ticket as refunded and cancel it.
+    def mark_ticket_refunded(
+        self,
+        event_id: UUID,
+        ticket_id: UUID,
+        payload: schema.AdminCancelTicketSchema | None = Body(None),  # type: ignore[type-arg]
+    ) -> models.Ticket:
+        """Mark a manual offline/at-the-door ticket as refunded and cancel it.
 
-        This endpoint is for offline/at-the-door tickets only.
-        Online tickets (Stripe) are automatically managed via webhooks.
+        This endpoint is for manually-collected payments only. Online (Stripe) tickets
+        are refunded via the Stripe Dashboard and handled automatically by webhooks.
         """
         event = self.get_one(event_id)
         ticket = get_object_or_404(
@@ -273,20 +280,35 @@ class EventAdminTicketsController(EventAdminBaseController):
             ],
         )
 
-        # Restore ticket quantity and cancel the ticket
+        if ticket.status == models.Ticket.TicketStatus.CANCELLED:
+            raise HttpError(400, str(_("Ticket already cancelled")))
+
         with transaction.atomic():
-            models.TicketTier.objects.select_for_update().filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
+            models.TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
             ticket.status = models.Ticket.TicketStatus.CANCELLED
-            ticket.save(update_fields=["status"])
+            ticket.cancelled_at = timezone.now()
+            ticket.cancelled_by = self.user()
+            ticket.cancellation_source = CancellationSource.ORGANIZER
+            ticket.cancellation_reason = (payload.cancellation_reason if payload else None) or ""
+            ticket.save(
+                update_fields=[
+                    "status",
+                    "cancelled_at",
+                    "cancelled_by",
+                    "cancellation_source",
+                    "cancellation_reason",
+                ]
+            )
 
-            # Mark the associated payment as refunded if it exists
             if hasattr(ticket, "payment"):
                 ticket.payment.status = models.Payment.PaymentStatus.REFUNDED
-                ticket.payment.save(update_fields=["status"])
+                ticket.payment.refund_amount = ticket.payment.amount
+                ticket.payment.refund_status = models.Payment.RefundStatus.SUCCEEDED
+                ticket.payment.refunded_at = timezone.now()
+                ticket.payment.save(update_fields=["status", "refund_amount", "refund_status", "refunded_at"])
 
-        # Refund notification sent automatically by stripe webhook handler
         # Re-fetch with full() to include all related objects for UserTicketSchema
         return models.Ticket.objects.full().get(pk=ticket.pk)
 
@@ -296,11 +318,16 @@ class EventAdminTicketsController(EventAdminBaseController):
         response={200: schema.UserTicketSchema},
         permissions=[EventPermission("manage_tickets")],
     )
-    def cancel_ticket(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
-        """Cancel a manual payment ticket.
+    def cancel_ticket(
+        self,
+        event_id: UUID,
+        ticket_id: UUID,
+        payload: schema.AdminCancelTicketSchema | None = Body(None),  # type: ignore[type-arg]
+    ) -> models.Ticket:
+        """Cancel an offline/at-the-door ticket and record organizer audit fields.
 
         This endpoint is for offline/at-the-door tickets only.
-        Online tickets (Stripe) should be refunded via Stripe Dashboard.
+        Online tickets (Stripe) should be refunded via the Stripe Dashboard.
         """
         event = self.get_one(event_id)
         ticket = get_object_or_404(
@@ -316,17 +343,25 @@ class EventAdminTicketsController(EventAdminBaseController):
         if ticket.status == models.Ticket.TicketStatus.CANCELLED:
             raise HttpError(400, str(_("Ticket already cancelled")))
 
-        # Restore ticket quantity and cancel the ticket
         with transaction.atomic():
-            models.TicketTier.objects.select_for_update().filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
+            models.TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
-            # Store old status before updating (signal handler needs this)
-            ticket._original_ticket_status = ticket.status  # type: ignore[attr-defined]
             ticket.status = models.Ticket.TicketStatus.CANCELLED
-            ticket.save(update_fields=["status"])
+            ticket.cancelled_at = timezone.now()
+            ticket.cancelled_by = self.user()
+            ticket.cancellation_source = CancellationSource.ORGANIZER
+            ticket.cancellation_reason = (payload.cancellation_reason if payload else None) or ""
+            ticket.save(
+                update_fields=[
+                    "status",
+                    "cancelled_at",
+                    "cancelled_by",
+                    "cancellation_source",
+                    "cancellation_reason",
+                ]
+            )
 
-        # Notification sent automatically via signal handler
         # Re-fetch with full() to include all related objects for UserTicketSchema
         return models.Ticket.objects.full().get(pk=ticket.pk)
 

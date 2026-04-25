@@ -14,6 +14,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
+from events.models.ticket import CancellationSource
 
 pytestmark = pytest.mark.django_db
 
@@ -36,7 +37,7 @@ def test_mark_ticket_refunded_offline_by_owner(
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     data = response.json()
@@ -62,7 +63,7 @@ def test_mark_ticket_refunded_at_door_by_owner(
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": pending_at_door_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     pending_at_door_ticket.refresh_from_db()
@@ -92,7 +93,7 @@ def test_mark_ticket_refunded_with_payment_record(
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
 
@@ -118,7 +119,7 @@ def test_mark_ticket_refunded_by_staff_with_permission(
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_staff_client.post(url)
+    response = organization_staff_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     pending_offline_ticket.refresh_from_db()
@@ -142,7 +143,7 @@ def test_mark_ticket_refunded_by_staff_without_permission(
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_staff_client.post(url)
+    response = organization_staff_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 403
 
@@ -161,7 +162,7 @@ def test_mark_ticket_refunded_online_ticket_rejected(
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 
@@ -175,7 +176,7 @@ def test_mark_ticket_refunded_nonexistent_ticket(organization_owner_client: Clie
         "api:mark_ticket_refunded",
         kwargs={"event_id": event.pk, "ticket_id": fake_ticket_id},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 
@@ -191,7 +192,7 @@ def test_mark_ticket_refunded_wrong_event(
         "api:mark_ticket_refunded",
         kwargs={"event_id": public_event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 
@@ -214,7 +215,7 @@ def test_cancel_ticket_offline_by_owner(
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     data = response.json()
@@ -240,7 +241,7 @@ def test_cancel_ticket_at_door_by_owner(
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": pending_at_door_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     pending_at_door_ticket.refresh_from_db()
@@ -264,7 +265,7 @@ def test_cancel_ticket_by_staff_with_permission(
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_staff_client.post(url)
+    response = organization_staff_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     pending_offline_ticket.refresh_from_db()
@@ -288,7 +289,7 @@ def test_cancel_ticket_by_staff_without_permission(
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_staff_client.post(url)
+    response = organization_staff_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 403
 
@@ -307,7 +308,7 @@ def test_cancel_ticket_online_ticket_rejected(
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 
@@ -321,7 +322,7 @@ def test_cancel_ticket_nonexistent_ticket(organization_owner_client: Client, eve
         "api:cancel_ticket",
         kwargs={"event_id": event.pk, "ticket_id": fake_ticket_id},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 
@@ -337,7 +338,7 @@ def test_cancel_ticket_wrong_event(
         "api:cancel_ticket",
         kwargs={"event_id": public_event.pk, "ticket_id": pending_offline_ticket.pk},
     )
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 
@@ -407,3 +408,67 @@ def test_list_tickets_membership_present_for_member(
     assert ticket_data["membership"] is not None
     assert ticket_data["membership"]["status"] == membership.status
     assert ticket_data["membership"]["tier"]["name"] == tier.name
+
+
+# --- Tests for audit-field backfill on admin cancel/refund ---
+
+
+def test_admin_cancel_populates_audit_fields(
+    organization_owner_client: Client,
+    organization_owner_user: RevelUser,
+    event: Event,
+    pending_offline_ticket: Ticket,
+) -> None:
+    """Admin cancel must record cancelled_at, cancelled_by, source, and reason."""
+    url = reverse(
+        "api:cancel_ticket",
+        kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
+    )
+    response = organization_owner_client.post(
+        url, data={"cancellation_reason": "no-show"}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    pending_offline_ticket.refresh_from_db()
+    assert pending_offline_ticket.status == Ticket.TicketStatus.CANCELLED
+    assert pending_offline_ticket.cancelled_at is not None
+    assert pending_offline_ticket.cancelled_by_id == organization_owner_user.id
+    assert pending_offline_ticket.cancellation_source == CancellationSource.ORGANIZER
+    assert pending_offline_ticket.cancellation_reason == "no-show"
+
+
+def test_admin_mark_refunded_populates_payment_refund_fields(
+    organization_owner_client: Client,
+    organization_owner_user: RevelUser,
+    event: Event,
+    pending_offline_ticket: Ticket,
+) -> None:
+    """mark_ticket_refunded must populate refund_amount, refund_status, refunded_at on the Payment."""
+    from decimal import Decimal
+
+    from events.models import Payment
+
+    payment = Payment.objects.create(
+        ticket=pending_offline_ticket,
+        user=pending_offline_ticket.user,
+        stripe_session_id="session-id",
+        amount=Decimal("25.00"),
+        platform_fee=Decimal("1.00"),
+        currency="EUR",
+        status=Payment.PaymentStatus.SUCCEEDED,
+    )
+    url = reverse(
+        "api:mark_ticket_refunded",
+        kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
+    )
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
+
+    assert response.status_code == 200
+    pending_offline_ticket.refresh_from_db()
+    payment.refresh_from_db()
+    assert pending_offline_ticket.cancellation_source == CancellationSource.ORGANIZER
+    assert pending_offline_ticket.cancelled_by_id == organization_owner_user.id
+    assert payment.status == Payment.PaymentStatus.REFUNDED
+    assert payment.refund_amount == Decimal("25.00")
+    assert payment.refund_status == Payment.RefundStatus.SUCCEEDED
+    assert payment.refunded_at is not None

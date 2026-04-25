@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import Event, Organization, Ticket, TicketTier
+from events.models.ticket import CancellationSource
 from notifications.enums import NotificationType
 from notifications.models import Notification
 from notifications.service.templates.ticket_templates import (
@@ -804,3 +805,69 @@ class TestTicketCheckedInTemplate:
 
         assert "Checked in" in subject
         assert active_ticket.event.name in subject
+
+
+_CANCELLATION_CHANNELS: tuple[str, ...] = (
+    "notifications/in_app/ticket_cancelled.md",
+    "notifications/email/ticket_cancelled.html",
+    "notifications/email/ticket_cancelled.txt",
+    "notifications/telegram/ticket_cancelled.md",
+)
+
+
+class TestTicketCancelledTemplateBranching:
+    """Tests that ticket_cancelled templates branch the headline on cancellation_source."""
+
+    def _render(
+        self,
+        template: str,
+        *,
+        source: str,
+        event_name: str = "Test Fest",
+    ) -> str:
+        """Render a ticket_cancelled template with the given cancellation_source."""
+        from django.template.loader import render_to_string
+
+        return render_to_string(
+            template,
+            {
+                "user": {"display_name": "Test User"},
+                "context": {
+                    "event_name": event_name,
+                    "event_start_formatted": "TBD",
+                    "event_location": "",
+                    "tier_name": "GA",
+                    "ticket_id": "abc",
+                    "event_url": "https://example.com",
+                    "cancellation_source": source,
+                    "cancellation_reason": "",
+                },
+            },
+        )
+
+    @pytest.mark.parametrize("template", _CANCELLATION_CHANNELS)
+    def test_user_source_uses_self_cancellation_headline(self, template: str) -> None:
+        """When cancellation_source is USER, headline says 'You cancelled' in every channel."""
+        rendered = self._render(template, source=CancellationSource.USER.value)
+        assert "You cancelled your ticket" in rendered
+
+    @pytest.mark.parametrize("template", _CANCELLATION_CHANNELS)
+    def test_stripe_dashboard_source_mentions_refund(self, template: str) -> None:
+        """When cancellation_source is STRIPE_DASHBOARD, headline mentions refund in every channel."""
+        rendered = self._render(template, source=CancellationSource.STRIPE_DASHBOARD.value)
+        assert "cancelled and refunded" in rendered
+
+    @pytest.mark.parametrize("template", _CANCELLATION_CHANNELS)
+    def test_organizer_source_uses_passive_headline(self, template: str) -> None:
+        """When cancellation_source is ORGANIZER, every channel uses passive voice."""
+        rendered = self._render(template, source=CancellationSource.ORGANIZER.value)
+        assert "has been cancelled" in rendered
+        assert "You cancelled" not in rendered
+        assert "refunded" not in rendered
+
+    @pytest.mark.parametrize("template", _CANCELLATION_CHANNELS)
+    def test_empty_source_uses_passive_headline(self, template: str) -> None:
+        """Backward-compat: missing/empty cancellation_source falls through to the default copy."""
+        rendered = self._render(template, source="")
+        assert "has been cancelled" in rendered
+        assert "You cancelled" not in rendered

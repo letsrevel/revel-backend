@@ -1,8 +1,14 @@
 """Tests for notification signal handlers."""
 
+import typing as t
+from decimal import Decimal
+from unittest.mock import patch
+
 import pytest
+from django.db import transaction
 
 from accounts.models import RevelUser
+from events.models import Payment, Ticket, TicketTier
 from notifications.enums import DeliveryChannel, NotificationType
 from notifications.models import NotificationPreference
 from telegram.models import TelegramUser
@@ -200,3 +206,46 @@ class TestTelegramChannelSignals:
 
         prefs.refresh_from_db()
         assert DeliveryChannel.TELEGRAM not in prefs.enabled_channels
+
+
+@pytest.mark.django_db(transaction=True)
+class TestPaymentRefundNotificationAmount:
+    """Tests that refund notifications report payment.refund_amount, not payment.amount."""
+
+    def test_refund_notification_reports_partial_refund_amount(
+        self,
+        public_event: t.Any,
+        member_user: RevelUser,
+    ) -> None:
+        """Refund notification must report payment.refund_amount, not payment.amount."""
+        tier = TicketTier.objects.create(
+            event=public_event,
+            name="Test Tier",
+            price=Decimal("40.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        ticket = Ticket.objects.create(
+            guest_name=member_user.get_display_name(),
+            event=public_event,
+            user=member_user,
+            tier=tier,
+            status=Ticket.TicketStatus.ACTIVE,
+        )
+        payment = Payment.objects.create(
+            ticket=ticket,
+            user=member_user,
+            amount=Decimal("40.00"),
+            platform_fee=Decimal("0.00"),
+            currency="EUR",
+            status=Payment.PaymentStatus.SUCCEEDED,
+            stripe_session_id=f"cs_test_{ticket.id}",
+        )
+        payment.refund_amount = Decimal("20.00")
+        with patch("notifications.signals.payment.notification_requested.send") as send_mock:
+            with transaction.atomic():
+                payment.status = Payment.PaymentStatus.REFUNDED
+                payment.save()
+        contexts = [call.kwargs["context"] for call in send_mock.call_args_list]
+        assert any("20.00" in c["refund_amount"] for c in contexts), contexts
+        assert all("40.00" not in c["refund_amount"] for c in contexts), contexts

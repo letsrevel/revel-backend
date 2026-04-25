@@ -1,4 +1,4 @@
-{% load i18n %}{% blocktranslate with event=context.event_name %}Your ticket for **{{ event }}** has been cancelled.{% endblocktranslate %}
+{% load i18n %}{% if context.cancellation_source == "user" %}{% blocktranslate with event=context.event_name %}You cancelled your ticket for **{{ event }}**.{% endblocktranslate %}{% elif context.cancellation_source == "stripe_dashboard" %}{% blocktranslate with event=context.event_name %}Your ticket for **{{ event }}** has been cancelled and refunded.{% endblocktranslate %}{% else %}{% blocktranslate with event=context.event_name %}Your ticket for **{{ event }}** has been cancelled.{% endblocktranslate %}{% endif %}
 
 **{% trans "Event Details:" %}**
 - 📅 {{ context.event_start_formatted }}

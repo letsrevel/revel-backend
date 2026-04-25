@@ -1,4 +1,5 @@
 import typing as t
+from decimal import Decimal
 
 import pytest
 from django.test.client import Client
@@ -13,7 +14,9 @@ from events.models import (
     Organization,
     OrganizationMember,
     OrganizationStaff,
+    Payment,
     Ticket,
+    TicketTier,
 )
 
 
@@ -146,3 +149,18 @@ def dashboard_setup(dashboard_user: RevelUser) -> dict[str, t.Any]:
             "invite": evt_invite,
         },
     }
+
+
+@pytest.fixture
+def batch_of_4_online_payments(
+    payment_factory: t.Callable[..., Payment],
+    ticket_factory: t.Callable[..., Ticket],
+    tier_online_with_cancellation_enabled: TicketTier,
+) -> list[Payment]:
+    """Four online payments sharing no intent initially — the test calls ``_batch`` to assign one."""
+    payments = []
+    for _ in range(4):
+        ticket = ticket_factory(tier=tier_online_with_cancellation_enabled)
+        p = payment_factory(ticket=ticket, amount=Decimal("40.00"))
+        payments.append(p)
+    return payments

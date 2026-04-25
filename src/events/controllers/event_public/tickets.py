@@ -1,7 +1,9 @@
+import typing as t
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
+from ninja import Body
 from ninja.errors import HttpError
 from ninja_extra import (
     api_controller,
@@ -46,10 +48,12 @@ class EventPublicTicketsController(EventPublicBaseController):
             .order_by("display_order", "name")
         )
         if user and not user.is_anonymous:
-            eligible_ids = {t.id for t in ticket_service.get_eligible_tiers(event, user)}
+            eligible_ids = {tier.id for tier in ticket_service.get_eligible_tiers(event, user)}
         else:
             # Anonymous users can only purchase PUBLIC tiers
-            eligible_ids = {t.id for t in visible_tiers if t.purchasable_by == models.TicketTier.PurchasableBy.PUBLIC}
+            eligible_ids = {
+                tier.id for tier in visible_tiers if tier.purchasable_by == models.TicketTier.PurchasableBy.PUBLIC
+            }
         for tier in visible_tiers:
             tier._can_purchase = tier.id in eligible_ids  # type: ignore[attr-defined]
         return visible_tiers
@@ -315,3 +319,110 @@ class EventPublicTicketsController(EventPublicBaseController):
                 valid=False,
                 message=str(e.message),
             )
+
+    @route.get(
+        "/tickets/{ticket_id}/cancellation-preview",
+        url_name="ticket_cancellation_preview",
+        response={200: schema.CancellationPreviewSchema, 403: ResponseMessage},
+        auth=I18nJWTAuth(),
+    )
+    def cancellation_preview(self, ticket_id: UUID) -> schema.CancellationPreviewSchema:
+        """Preview the refund the ticket holder would get if they cancelled now.
+
+        Returns 403 if the caller is not the ticket owner.
+        When ``can_cancel`` is False, ``reason`` is populated with a stable error code
+        that the frontend can use for i18n.
+        """
+        from django.utils import timezone
+
+        from events.service.cancellation_service import build_cancellation_preview
+
+        ticket = get_object_or_404(models.Ticket.objects.full(), pk=ticket_id)
+        user = self.user()
+        if ticket.user_id != user.id:
+            raise HttpError(403, str(_("Only the ticket holder can view this preview.")))
+
+        preview = build_cancellation_preview(ticket, timezone.now())
+        return schema.CancellationPreviewSchema(
+            can_cancel=preview.can_cancel,
+            reason=preview.reason,
+            refund_amount=preview.refund_amount,
+            currency=preview.currency,
+            deadline=preview.deadline,
+            flat_fee=preview.flat_fee,
+            payment_method=models.TicketTier.PaymentMethod(preview.payment_method),
+            windows=[
+                schema.RefundWindowSchema(
+                    refund_percentage=w.refund_percentage,
+                    refund_amount=w.refund_amount,
+                    effective_until=w.effective_until,
+                )
+                for w in preview.windows
+            ],
+            policy_snapshot=(
+                schema.RefundPolicySchema.model_validate(preview.policy_snapshot.model_dump())
+                if preview.policy_snapshot is not None
+                else None
+            ),
+        )
+
+    @route.post(
+        "/tickets/{ticket_id}/cancel",
+        url_name="cancel_my_ticket",
+        response={
+            200: schema.TicketCancellationResponseSchema,
+            403: ResponseMessage,
+            409: schema.CancellationBlockedErrorSchema,
+            502: ResponseMessage,
+        },
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def cancel_my_ticket(
+        self,
+        ticket_id: UUID,
+        payload: schema.TicketCancellationRequestSchema | None = Body(None),  # type: ignore[type-arg]
+    ) -> t.Any:
+        """Ticket-holder-initiated cancellation with automatic Stripe refund where applicable.
+
+        Returns 200 with ``TicketCancellationResponseSchema`` on success, 403 if caller
+        is not the ticket owner, 409 with a stable error code if the ticket cannot be
+        cancelled (already cancelled, event started, cancellation disabled on tier, etc.),
+        or 502 if a Stripe refund request fails.
+        """
+        from django.utils import timezone
+
+        from events.service.cancellation_service import (
+            CancellationBlocked,
+            CancellationNotOwner,
+            StripeRefundFailed,
+            cancel_ticket_by_user,
+        )
+
+        ticket = get_object_or_404(models.Ticket.objects.full(), pk=ticket_id)
+        user = self.user()
+
+        try:
+            result = cancel_ticket_by_user(
+                ticket=ticket,
+                user=user,
+                reason=(payload.reason if payload else None) or "",
+                now=timezone.now(),
+            )
+        except CancellationNotOwner as exc:
+            raise HttpError(403, str(_("Only the ticket holder can cancel this ticket."))) from exc
+        except CancellationBlocked as exc:
+            return 409, schema.CancellationBlockedErrorSchema(
+                code=exc.reason,
+                detail=str(exc.reason.label),
+            )
+        except StripeRefundFailed as exc:
+            raise HttpError(502, str(_("Refund failed. Please try again later."))) from exc
+
+        fresh = models.Ticket.objects.full().get(pk=result.ticket.pk)
+        return schema.TicketCancellationResponseSchema(
+            ticket=schema.UserTicketSchema.from_orm(fresh),
+            refund_amount=result.refund_amount,
+            currency=result.currency,
+            refund_status=(models.Payment.RefundStatus(result.refund_status) if result.refund_status else None),
+        )

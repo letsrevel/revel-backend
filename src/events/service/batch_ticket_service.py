@@ -1,5 +1,6 @@
 """Service for batch ticket purchases with seat selection support."""
 
+import copy
 import typing as t
 from decimal import Decimal
 
@@ -522,6 +523,10 @@ class BatchTicketService:
                 price_paid=price_paid,
                 discount_code=dc,
                 discount_amount=discount_amount,
+                # Deep-copy the JSON snapshot so the ticket row doesn't share a dict
+                # reference with the live tier. Protects the "immutable snapshot"
+                # contract against future in-place mutation of tier.refund_policy.
+                refund_policy_snapshot=(copy.deepcopy(self.tier.refund_policy) if self.tier.refund_policy else None),
             )
             if seat:
                 ticket.seat = seat
@@ -534,7 +539,9 @@ class BatchTicketService:
 
             # Skip FK validation - we've already validated event, tier, user exist
             # full_clean() would query DB to check each FK exists (3+ queries per ticket)
-            ticket.clean_fields(exclude=["event", "tier", "user", "seat", "sector", "venue", "discount_code"])
+            ticket.clean_fields(
+                exclude=["event", "tier", "user", "seat", "sector", "venue", "discount_code", "refund_policy_snapshot"]
+            )
             ticket.clean()
             tickets.append(ticket)
 
