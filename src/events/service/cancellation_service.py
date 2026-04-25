@@ -292,6 +292,34 @@ def cancel_ticket_by_user(
         CancellationNotOwner: caller is not the ticket holder.
         CancellationBlocked: business-rule guard failed.
         StripeRefundFailed: Stripe refund API call failed.
+
+    Note:
+        The Stripe ``Refund.create`` call happens **inside** the
+        ``transaction.atomic()`` block. The trade-off is intentional:
+
+        * **No double-charge.** ``idempotency_key=f"refund:{ticket.id}"``
+          guarantees that a retry returns the same refund object, not a new
+          one. So if the post-Stripe DB writes raise and the transaction
+          rolls back, a user-driven retry produces the correct end state
+          without charging twice.
+        * **Self-healing via webhook.** Even without a retry, Stripe sends
+          ``charge.refunded`` seconds later. ``handle_charge_refunded``
+          matches the refund to the Payment via the ``ticket_id`` metadata
+          (Branch 2) and reaches the same end state (ticket CANCELLED,
+          payment REFUNDED, quantity_sold decremented) — but with degraded
+          audit fields: ``cancellation_source`` becomes
+          ``STRIPE_DASHBOARD`` instead of ``USER``, ``cancelled_by`` is
+          ``NULL``, and ``cancellation_reason`` is empty. The financial
+          state is correct; only the attribution is fuzzier.
+        * **Lock contention is bounded.** The locked rows (this Ticket and
+          its Payment) are user-scoped; concurrent cancels of *other*
+          tickets on the same tier do not contend on these locks.
+
+        The alternative — calling Stripe outside the transaction with a
+        two-phase ``PENDING_CANCELLATION`` state and a janitor task — costs
+        ~100 LoC of new control flow + a migration to recover audit-field
+        accuracy on a single-digit-ppm failure path. Not worth it given
+        webhook self-healing already covers the financial outcome.
     """
     from django.db import transaction
     from django.db.models import F
