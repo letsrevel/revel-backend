@@ -338,13 +338,15 @@ def cancel_ticket_by_user(
     refund_status: str | None = None
 
     with transaction.atomic():
-        # Re-fetch the ticket under a row lock and re-check ALL blocking conditions
-        # against fresh state. Without this, two concurrent cancel requests can both
-        # pass the pre-atomic quote, both issue Stripe refunds (idempotency key
-        # prevents a double charge but not double DB mutation), and both decrement
-        # quantity_sold. CHECKED_IN is also re-checked here because check_in_ticket()
-        # does not take a row lock — a check-in committed between the pre-atomic
-        # quote and this lock would otherwise slip through.
+        # Re-fetch the ticket under a row lock and re-check the two state-mutating
+        # block reasons (ALREADY_CANCELLED, CHECKED_IN). Without this, two concurrent
+        # cancel requests can both pass the pre-atomic quote, both issue Stripe
+        # refunds (the idempotency key prevents a double charge but not a double DB
+        # mutation), and both decrement quantity_sold. CHECKED_IN is racy because
+        # check_in_ticket() does not take a row lock. The remaining block reasons
+        # (EVENT_STARTED, NOT_PERMITTED, PAST_DEADLINE) depend only on the injected
+        # ``now`` and on static tier/event config — they cannot flip inside this
+        # transaction, so re-checking them would be dead work.
         locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
         if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
             raise CancellationBlocked(CancellationBlockReason.ALREADY_CANCELLED)

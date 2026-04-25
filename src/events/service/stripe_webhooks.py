@@ -173,8 +173,18 @@ class StripeEventHandler:
             logger.warning("stripe_refund_missing_intent", charge_id=charge_data.get("id"))
             return
 
+        # Lock Payment rows for the duration of this transaction. Stripe webhooks
+        # are at-least-once, and a Stripe-Dashboard refund's webhook can also race
+        # against an in-flight user-initiated cancel (which itself locks the same
+        # Payment via cancellation_service). Without the lock here, two concurrent
+        # transactions both observe `refund_status is None`, both pass the SUCCEEDED
+        # skip below, and both decrement `tier.quantity_sold`. Locking with
+        # `of=("self",)` keeps the lock scoped to Payment rows so we don't also
+        # block concurrent purchases that need to lock the joined Tier.
         candidates = list(
-            Payment.objects.filter(stripe_payment_intent_id=payment_intent_id).select_related("ticket", "ticket__tier")
+            Payment.objects.select_for_update(of=("self",))
+            .filter(stripe_payment_intent_id=payment_intent_id)
+            .select_related("ticket", "ticket__tier")
         )
         if not candidates:
             logger.warning("stripe_refund_unknown_intent", payment_intent_id=payment_intent_id)
