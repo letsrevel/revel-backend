@@ -359,7 +359,9 @@ def cancel_ticket_by_user(
         # (EVENT_STARTED, NOT_PERMITTED, PAST_DEADLINE) depend only on the injected
         # ``now`` and on static tier/event config — they cannot flip inside this
         # transaction, so re-checking them would be dead work.
-        locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
+        locked_ticket = (
+            Ticket.objects.select_for_update().select_related("tier", "event__organization").get(pk=ticket.pk)
+        )
         if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
             raise CancellationBlocked(CancellationBlockReason.ALREADY_CANCELLED)
         if locked_ticket.status == Ticket.TicketStatus.CHECKED_IN:
