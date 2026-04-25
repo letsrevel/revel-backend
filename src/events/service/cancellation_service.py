@@ -13,7 +13,7 @@ from decimal import ROUND_HALF_UP, Decimal
 import structlog
 from pydantic import ValidationError as PydanticValidationError
 
-from events.models import Ticket, TicketTier
+from events.models import Payment, Ticket, TicketTier
 from events.models.ticket import CancellationBlockReason, CancellationSource
 from events.utils.currency import to_stripe_amount
 from events.utils.refund_policy import RefundPolicy, validate_refund_policy
@@ -161,14 +161,23 @@ def _block_reason(ticket: Ticket, now: datetime) -> CancellationBlockReason | No
     return None
 
 
+def _refund_for_tier(gross: Decimal, tier_pct: Decimal, flat_fee: Decimal) -> Decimal:
+    """Per-tier refund: ``gross × pct / 100 − flat_fee``, clamped to zero, quantized to cents.
+
+    Single source of truth for the refund formula — used by both ``_compute_refund``
+    (live quote against the user's current ``hours_remaining``) and ``_derive_windows``
+    (preview of every window's refund amount). Keeps quote and preview from drifting.
+    """
+    adjusted = (gross * tier_pct) / Decimal(100) - flat_fee
+    if adjusted <= _ZERO:
+        return _ZERO
+    return adjusted.quantize(_CENT, rounding=ROUND_HALF_UP)
+
+
 def _compute_refund(policy: RefundPolicy, hours_remaining: Decimal, gross: Decimal) -> Decimal:
     for tier in policy.tiers:
         if hours_remaining >= tier.hours_before_event:
-            base = (gross * tier.refund_percentage) / Decimal(100)
-            adjusted = base - policy.flat_fee
-            if adjusted <= _ZERO:
-                return _ZERO
-            return adjusted.quantize(_CENT, rounding=ROUND_HALF_UP)
+            return _refund_for_tier(gross, tier.refund_percentage, policy.flat_fee)
     return _ZERO
 
 
@@ -209,7 +218,14 @@ def quote_cancellation(ticket: Ticket, now: datetime) -> RefundQuote:
             deadline=deadline,
         )
 
-    hours_remaining = Decimal((ticket.event.start - now).total_seconds()) / Decimal(3600)
+    # Convert timedelta → Decimal hours without going through float. ``total_seconds()``
+    # returns a float, and ``Decimal(float)`` carries binary-float artifacts (e.g.
+    # ``Decimal(0.1) → Decimal('0.10000000000000000555…')``) which can flip the
+    # ``hours_remaining >= tier.hours_before_event`` comparison for users cancelling
+    # exactly on a tier edge (T-48h ± a few µs). Sum the timedelta components instead.
+    delta = ticket.event.start - now
+    total_microseconds = delta.days * 86_400_000_000 + delta.seconds * 1_000_000 + delta.microseconds
+    hours_remaining = Decimal(total_microseconds) / Decimal(3_600_000_000)
     refund = _compute_refund(policy, hours_remaining, gross)
     return RefundQuote(
         can_cancel=True,
@@ -227,9 +243,7 @@ def _derive_windows(
 ) -> list[RefundWindowDto]:
     windows: list[RefundWindowDto] = []
     for tier in policy.tiers:
-        base = (gross * tier.refund_percentage) / Decimal(100)
-        adjusted = base - policy.flat_fee
-        amount = _ZERO if adjusted <= _ZERO else adjusted.quantize(_CENT, rounding=ROUND_HALF_UP)
+        amount = _refund_for_tier(gross, tier.refund_percentage, policy.flat_fee)
         windows.append(
             RefundWindowDto(
                 refund_percentage=tier.refund_percentage,
@@ -323,8 +337,6 @@ def cancel_ticket_by_user(
     """
     from django.db import transaction
     from django.db.models import F
-
-    from events.models import Payment
 
     if ticket.user_id != user.id:
         raise CancellationNotOwner()
@@ -420,8 +432,6 @@ def _issue_stripe_refund(ticket: Ticket, payment: t.Any, amount: Decimal, curren
         StripeRefundFailed: on any Stripe error so the enclosing atomic() rolls back.
     """
     import stripe
-
-    from events.models import Payment
 
     try:
         refund = stripe.Refund.create(
