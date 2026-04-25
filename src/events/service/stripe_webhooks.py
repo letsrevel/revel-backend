@@ -248,7 +248,9 @@ class StripeEventHandler:
             payment_intent_id: Stripe payment intent ID (used for logging only).
             candidates: All Payment rows for this intent.
             newly_refunded_ids: IDs of payments mutated in this invocation.
-            touched_session_id: stripe_session_id from the first mutated payment, or None.
+            touched_session_id: stripe_session_id from the last mutated payment in this
+                invocation, or None. All matched Payments share a charge/intent so any
+                one is representative.
         """
         if newly_refunded_ids and touched_session_id:
             sid, ids = touched_session_id, newly_refunded_ids

@@ -212,3 +212,6 @@ rendered_templates/
 toc.md
 privacy.md
 .research/
+
+# Superpowers / Claude Code session artefacts (plans, specs, research drafts)
+docs/superpowers/

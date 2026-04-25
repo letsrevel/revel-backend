@@ -9,7 +9,7 @@ with the wrong result for zero-decimal currencies.
 Reference: https://docs.stripe.com/currencies#zero-decimal
 """
 
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 
 # Zero-decimal currencies per Stripe's docs. HUF and TWD are two-decimal for
 # refund/charge purposes despite being "no subunit" in practice, so they are
@@ -43,6 +43,10 @@ def _is_zero_decimal(currency: str) -> bool:
 def to_stripe_amount(amount: Decimal, currency: str) -> int:
     """Convert a major-unit amount to Stripe's smallest-unit integer representation.
 
+    Bankers' rounding (``ROUND_HALF_EVEN``) is applied to fractional minor units —
+    plain ``int(...)`` truncates toward zero, which under-charges or under-refunds
+    by 1 minor unit on amounts ending in ``...X5``.
+
     Args:
         amount: Amount in major currency units (e.g., ``Decimal("40.00")`` EUR).
         currency: ISO 4217 currency code (case-insensitive).
@@ -50,9 +54,8 @@ def to_stripe_amount(amount: Decimal, currency: str) -> int:
     Returns:
         Integer amount in the currency's smallest unit.
     """
-    if _is_zero_decimal(currency):
-        return int(amount)
-    return int(amount * 100)
+    scaled = amount if _is_zero_decimal(currency) else amount * Decimal(100)
+    return int(scaled.to_integral_value(rounding=ROUND_HALF_EVEN))
 
 
 def from_stripe_amount(amount: int, currency: str) -> Decimal:
