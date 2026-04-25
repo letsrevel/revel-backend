@@ -2858,29 +2858,20 @@ msgstr ""
 msgid "Ticket Cancelled"
 msgstr "Biglietto già annullato"
 
-#, fuzzy, python-format
-#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+#, python-format
 msgid "You cancelled your ticket for <strong>%(event)s</strong>."
-msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
+msgstr "Hai annullato il tuo biglietto per <strong>%(event)s</strong>."
 
-#, fuzzy, python-format
-#| msgid ""
-#| "Your payment for <strong>%(event_name)s</strong> was successful and your "
-#| "ticket is now active!"
+#, python-format
 msgid ""
 "Your ticket for <strong>%(event)s</strong> has been cancelled and refunded."
 msgstr ""
-"Il tuo pagamento per <strong>%(event_name)s</strong> è andato a buon fine e "
-"il tuo biglietto è ora attivo!"
+"Il tuo biglietto per <strong>%(event)s</strong> è stato annullato e "
+"rimborsato."
 
-#, fuzzy, python-format
-#| msgid ""
-#| "Your payment for <strong>%(event_name)s</strong> was successful and your "
-#| "ticket is now active!"
+#, python-format
 msgid "Your ticket for <strong>%(event)s</strong> has been cancelled."
-msgstr ""
-"Il tuo pagamento per <strong>%(event_name)s</strong> è andato a buon fine e "
-"il tuo biglietto è ora attivo!"
+msgstr "Il tuo biglietto per <strong>%(event)s</strong> è stato annullato."
 
 msgid "Cancelled Ticket"
 msgstr ""
@@ -2891,20 +2882,17 @@ msgid ""
 "your original payment method within 5-10 business days."
 msgstr ""
 
-#, fuzzy, python-format
-#| msgid "Ticket Update: %(event_name)s"
+#, python-format
 msgid "You cancelled your ticket for %(event)s."
-msgstr "Aggiornamento biglietto: %(event_name)s"
+msgstr "Hai annullato il tuo biglietto per %(event)s."
 
-#, fuzzy, python-format
-#| msgid "This ticket has been cancelled."
+#, python-format
 msgid "Your ticket for %(event)s has been cancelled and refunded."
-msgstr "Questo biglietto è stato annullato."
+msgstr "Il tuo biglietto per %(event)s è stato annullato e rimborsato."
 
-#, fuzzy, python-format
-#| msgid "This ticket has been cancelled."
+#, python-format
 msgid "Your ticket for %(event)s has been cancelled."
-msgstr "Questo biglietto è stato annullato."
+msgstr "Il tuo biglietto per %(event)s è stato annullato."
 
 msgid "Cancelled Ticket:"
 msgstr ""

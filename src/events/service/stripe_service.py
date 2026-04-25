@@ -36,6 +36,7 @@ from events.service.vat_service import (
     distribute_amount_across_items,
     get_effective_vat_rate,
 )
+from events.utils.currency import to_stripe_amount
 
 if t.TYPE_CHECKING:
     from events.schema.ticket import BuyerBillingInfoSchema
@@ -134,7 +135,7 @@ def _create_stripe_checkout_session(
                     "product_data": {
                         "name": f"Ticket: {event.name} ({tier.name})",
                     },
-                    "unit_amount": int(effective_price * 100),  # Amount in cents
+                    "unit_amount": to_stripe_amount(effective_price, tier.currency),
                 },
                 "quantity": 1,
             }
@@ -232,7 +233,7 @@ def create_checkout_session(
     # Gross up the net fee with VAT when applicable
     site = SiteSettings.get_solo()
     fee_vat = calculate_platform_fee_vat(net_fee_total, org, site.platform_vat_country, site.platform_vat_rate)
-    application_fee_amount = int(fee_vat.fee_gross * 100)
+    application_fee_amount = to_stripe_amount(fee_vat.fee_gross, tier.currency)
 
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
@@ -367,7 +368,7 @@ def _build_line_items(
                     "name": f"Ticket: {event.name} ({tier.name})",
                     "description": f"Ticket for {ticket.guest_name}",
                 },
-                "unit_amount": int(effective_price * 100),
+                "unit_amount": to_stripe_amount(effective_price, tier.currency),
             },
             "quantity": 1,
         }
@@ -551,7 +552,7 @@ def create_batch_checkout_session(
 
     site = SiteSettings.get_solo()
     total_fee_vat = calculate_platform_fee_vat(net_fee_total, org, site.platform_vat_country, site.platform_vat_rate)
-    application_fee_amount = int(total_fee_vat.fee_gross * 100)
+    application_fee_amount = to_stripe_amount(total_fee_vat.fee_gross, tier.currency)
 
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 

@@ -8,7 +8,7 @@ orchestrates the end-to-end flow including Stripe refund and DB mutations.
 import typing as t
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
 from pydantic import ValidationError as PydanticValidationError
@@ -168,7 +168,7 @@ def _compute_refund(policy: RefundPolicy, hours_remaining: Decimal, gross: Decim
             adjusted = base - policy.flat_fee
             if adjusted <= _ZERO:
                 return _ZERO
-            return adjusted.quantize(_CENT, rounding=ROUND_HALF_EVEN)
+            return adjusted.quantize(_CENT, rounding=ROUND_HALF_UP)
     return _ZERO
 
 
@@ -229,7 +229,7 @@ def _derive_windows(
     for tier in policy.tiers:
         base = (gross * tier.refund_percentage) / Decimal(100)
         adjusted = base - policy.flat_fee
-        amount = _ZERO if adjusted <= _ZERO else adjusted.quantize(_CENT, rounding=ROUND_HALF_EVEN)
+        amount = _ZERO if adjusted <= _ZERO else adjusted.quantize(_CENT, rounding=ROUND_HALF_UP)
         windows.append(
             RefundWindowDto(
                 refund_percentage=tier.refund_percentage,
@@ -310,13 +310,18 @@ def cancel_ticket_by_user(
     refund_status: str | None = None
 
     with transaction.atomic():
-        # Re-fetch the ticket under a row lock and re-check blocking conditions.
-        # Without this, two concurrent cancel requests can both pass the pre-atomic
-        # quote, both issue Stripe refunds (idempotency key prevents a double
-        # charge but not double DB mutation), and both decrement quantity_sold.
+        # Re-fetch the ticket under a row lock and re-check ALL blocking conditions
+        # against fresh state. Without this, two concurrent cancel requests can both
+        # pass the pre-atomic quote, both issue Stripe refunds (idempotency key
+        # prevents a double charge but not double DB mutation), and both decrement
+        # quantity_sold. CHECKED_IN is also re-checked here because check_in_ticket()
+        # does not take a row lock — a check-in committed between the pre-atomic
+        # quote and this lock would otherwise slip through.
         locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
         if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
             raise CancellationBlocked(CancellationBlockReason.ALREADY_CANCELLED)
+        if locked_ticket.status == Ticket.TicketStatus.CHECKED_IN:
+            raise CancellationBlocked(CancellationBlockReason.CHECKED_IN)
 
         # Online tickets with refund > 0 → hit Stripe before mutating local state.
         payment: Payment | None = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
@@ -331,8 +336,11 @@ def cancel_ticket_by_user(
         # Set pre-save hints used by the TICKET_CANCELLED notification signal handler
         # so the user sees the refund amount in the same notification that announces
         # the cancellation (rather than only later via TICKET_REFUNDED on webhook).
-        locked_ticket._refund_amount = str(quote.refund_amount)  # type: ignore[attr-defined]
-        locked_ticket._refund_currency = quote.currency  # type: ignore[attr-defined]
+        # Skip when there is no refund — templates gate on `{% if context.refund_amount %}`
+        # and the truthy string "0.00" would render a misleading "Refund of 0..." line.
+        if quote.refund_amount > _ZERO:
+            locked_ticket._refund_amount = str(quote.refund_amount)  # type: ignore[attr-defined]
+            locked_ticket._refund_currency = quote.currency  # type: ignore[attr-defined]
 
         locked_ticket.status = Ticket.TicketStatus.CANCELLED
         locked_ticket.cancelled_at = now

@@ -431,8 +431,13 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
     elif ticket.status == Ticket.TicketStatus.CHECKED_IN:
         _send_ticket_checked_in_notification(ticket)
     elif ticket.status == Ticket.TicketStatus.CANCELLED:
-        # Refund notifications are handled by Payment signals in notifications/signals/payment.py
-        # Only send cancellation notifications for non-refund cancellations
+        # TICKET_CANCELLED fires for every cancellation. When a Stripe refund is
+        # involved, the cancellation_service / Stripe webhook handler set
+        # `ticket._refund_amount` + `ticket._refund_currency` so the same
+        # notification surfaces the refund amount immediately. The separate
+        # TICKET_REFUNDED notification is fired later from the Payment signal
+        # (notifications/signals/payment.py) once the Stripe webhook flips
+        # Payment.status to REFUNDED.
         _send_ticket_cancelled_notifications(ticket, old_status)
 
 
