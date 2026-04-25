@@ -15,7 +15,7 @@ from accounts.models import (
     ReferralPayoutStatement,
     RevelUser,
 )
-from events.models import Organization
+from events.models import EventSeries, Organization, RecurrenceRule
 from questionnaires.models import Questionnaire
 
 
@@ -88,6 +88,16 @@ class Command(BaseCommand):
             Referral.objects.all().delete()
             ReferralCode.objects.all().delete()
             self.stdout.write(self.style.SUCCESS("✓ Deleted referral data"))
+
+            # Break the EventSeries → template_event / recurrence_rule PROTECT
+            # FKs (added in migration 0066). Without this, the Organization
+            # cascade hits the PROTECT when it tries to delete a template Event,
+            # and the whole transaction rolls back. Production teardown of a
+            # series goes through the recurrence service, but this demo-reset
+            # path can shortcut by nulling the FKs first.
+            EventSeries.objects.update(template_event=None, recurrence_rule=None)
+            RecurrenceRule.objects.all().delete()
+            self.stdout.write(self.style.SUCCESS("✓ Detached recurring-event series from templates"))
 
             # Delete all organizations (cascade will handle related objects)
             Organization.objects.all().delete()
