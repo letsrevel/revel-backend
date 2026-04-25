@@ -325,6 +325,10 @@ class TestCancelTicketByUser:
         event.start = timezone.now() + timedelta(hours=72)
         event.end = event.start + timedelta(hours=1)
         event.save(update_fields=["start", "end"])
+        # Direct charges live on the connected account, so the refund must
+        # target it via stripe_account.
+        event.organization.stripe_account_id = "acct_connected_123"
+        event.organization.save(update_fields=["stripe_account_id"])
         policy = {"tiers": [{"hours_before_event": 48, "refund_percentage": "100"}], "flat_fee": "0"}
         tier = tier_factory(
             payment_method=TicketTier.PaymentMethod.ONLINE,
@@ -343,11 +347,43 @@ class TestCancelTicketByUser:
         assert kwargs["amount"] == 4000
         assert kwargs["idempotency_key"] == f"refund:{ticket.id}"
         assert kwargs["metadata"] == {"ticket_id": str(ticket.id), "user_initiated": "true"}
+        assert kwargs["stripe_account"] == "acct_connected_123"
         assert result.refund_status == Payment.RefundStatus.PENDING
         payment.refresh_from_db()
         assert payment.stripe_refund_id == "re_abc"
         assert payment.refund_amount == Decimal("40.00")
         assert payment.refund_status == Payment.RefundStatus.PENDING
+
+    def test_online_ticket_omits_stripe_account_for_platform_account(
+        self,
+        ticket_factory: t.Callable[..., Ticket],
+        tier_factory: t.Callable[..., TicketTier],
+        event: t.Any,
+        payment_factory: t.Callable[..., Payment],
+        settings: t.Any,
+    ) -> None:
+        """When the org uses the platform's own Stripe account, omit ``stripe_account``."""
+        settings.STRIPE_ACCOUNT = "acct_platform"
+        event.start = timezone.now() + timedelta(hours=72)
+        event.end = event.start + timedelta(hours=1)
+        event.save(update_fields=["start", "end"])
+        event.organization.stripe_account_id = "acct_platform"
+        event.organization.save(update_fields=["stripe_account_id"])
+        policy = {"tiers": [{"hours_before_event": 48, "refund_percentage": "100"}], "flat_fee": "0"}
+        tier = tier_factory(
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+            price=Decimal("40.00"),
+            allow_user_cancellation=True,
+            refund_policy=policy,
+        )
+        ticket = ticket_factory(tier=tier, refund_policy_snapshot=policy)
+        payment_factory(ticket=ticket, amount=Decimal("40.00"), stripe_payment_intent_id="pi_plat")
+        with patch("stripe.Refund.create") as mock_create:
+            mock_create.return_value.id = "re_plat"
+            cancel_ticket_by_user(ticket, ticket.user, reason="", now=timezone.now())
+        mock_create.assert_called_once()
+        _, kwargs = mock_create.call_args
+        assert "stripe_account" not in kwargs
 
     def test_stripe_failure_rolls_back_transaction(
         self,

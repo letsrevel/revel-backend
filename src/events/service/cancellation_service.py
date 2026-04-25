@@ -432,14 +432,23 @@ def _issue_stripe_refund(ticket: Ticket, payment: t.Any, amount: Decimal, curren
         StripeRefundFailed: on any Stripe error so the enclosing atomic() rolls back.
     """
     import stripe
+    from django.conf import settings
+
+    # Direct charges (created with stripe_account=org.stripe_account_id) live on
+    # the connected account, so the refund must target that account too. Skip
+    # when the org is using the platform's own Stripe account (test/bootstrap data).
+    org_stripe_account = ticket.event.organization.stripe_account_id
+    refund_kwargs: dict[str, t.Any] = {
+        "payment_intent": payment.stripe_payment_intent_id,
+        "amount": to_stripe_amount(amount, currency),
+        "metadata": {"ticket_id": str(ticket.id), "user_initiated": "true"},
+        "idempotency_key": f"refund:{ticket.id}",
+    }
+    if org_stripe_account and org_stripe_account != settings.STRIPE_ACCOUNT:
+        refund_kwargs["stripe_account"] = org_stripe_account
 
     try:
-        refund = stripe.Refund.create(
-            payment_intent=payment.stripe_payment_intent_id,
-            amount=to_stripe_amount(amount, currency),
-            metadata={"ticket_id": str(ticket.id), "user_initiated": "true"},
-            idempotency_key=f"refund:{ticket.id}",
-        )
+        refund = stripe.Refund.create(**refund_kwargs)
     except stripe.error.StripeError as exc:
         logger.error(
             "stripe_refund_failed",
