@@ -72,11 +72,20 @@ licensecheck:
 #       directory; if an attacker already has that level of filesystem access
 #       on our backend host, they have much larger problems. Revisit when a
 #       diskcache release ships a fix.
+#   CVE-2026-3219 (pip): no fix published as of pip 26.0.1. pip handles
+#       polyglot tar+ZIP archives as ZIP regardless of filename, which could
+#       install "incorrect" files. Not exploitable here: production runs
+#       `uv sync` against `uv.lock` with hash-verified PyPI artefacts, and
+#       pip is only present in the locked graph as a transitive dep of
+#       `pip-audit` itself (via `pip-api`) — self-referential audit failure.
+#       We never run `pip install` against attacker-controlled archives.
+#       Revisit when a fixed pip release ships.
 .PHONY: audit
 audit:
 	@uv export --quiet --locked --format requirements-txt --no-emit-project --no-hashes --group dev -o .audit-reqs.txt
 	@trap 'rm -f .audit-reqs.txt' EXIT; uv run pip-audit --strict --no-deps --disable-pip -r .audit-reqs.txt \
-		--ignore-vuln CVE-2025-69872
+		--ignore-vuln CVE-2025-69872 \
+		--ignore-vuln CVE-2026-3219
 
 .PHONY: deps-check
 deps-check: licensecheck audit
