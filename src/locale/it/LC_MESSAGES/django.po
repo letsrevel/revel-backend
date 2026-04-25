@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-24 10:02+0200\n"
+"POT-Creation-Date: 2026-04-25 16:39+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2859,6 +2859,30 @@ msgid "Ticket Cancelled"
 msgstr "Biglietto già annullato"
 
 #, python-format
+msgid ""
+"<strong>%(holder)s</strong> cancelled their ticket for <strong>%(event)s</"
+"strong>."
+msgstr ""
+"<strong>%(holder)s</strong> ha annullato il proprio biglietto per "
+"<strong>%(event)s</strong>."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> was "
+"refunded via the Stripe dashboard."
+msgstr ""
+"Il biglietto di <strong>%(holder)s</strong> per <strong>%(event)s</strong> è "
+"stato rimborsato tramite la dashboard di Stripe."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has been "
+"cancelled."
+msgstr ""
+"Il biglietto di <strong>%(holder)s</strong> per <strong>%(event)s</strong> è "
+"stato annullato."
+
+#, python-format
 msgid "You cancelled your ticket for <strong>%(event)s</strong>."
 msgstr "Hai annullato il tuo biglietto per <strong>%(event)s</strong>."
 
@@ -2873,14 +2897,43 @@ msgstr ""
 msgid "Your ticket for <strong>%(event)s</strong> has been cancelled."
 msgstr "Il tuo biglietto per <strong>%(event)s</strong> è stato annullato."
 
+msgid "Ticket Holder"
+msgstr "Titolare del biglietto"
+
 msgid "Cancelled Ticket"
 msgstr ""
+
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
+"ticket holder."
+msgstr ""
+"Un rimborso di <strong>%(amount)s %(currency)s</strong> è stato emesso al "
+"titolare del biglietto."
 
 #, python-format
 msgid ""
 "A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
 "your original payment method within 5-10 business days."
 msgstr ""
+
+#, python-format
+msgid "%(holder)s cancelled their ticket for %(event)s."
+msgstr "%(holder)s ha annullato il proprio biglietto per %(event)s."
+
+#, python-format
+msgid ""
+"%(holder)s's ticket for %(event)s was refunded via the Stripe dashboard."
+msgstr ""
+"Il biglietto di %(holder)s per %(event)s è stato rimborsato tramite la "
+"dashboard di Stripe."
+
+#, python-format
+msgid "%(holder)s's ticket for %(event)s has been cancelled."
+msgstr "Il biglietto di %(holder)s per %(event)s è stato annullato."
+
+msgid "Ticket Holder:"
+msgstr "Titolare del biglietto:"
 
 #, python-format
 msgid "You cancelled your ticket for %(event)s."
@@ -2896,6 +2949,13 @@ msgstr "Il tuo biglietto per %(event)s è stato annullato."
 
 msgid "Cancelled Ticket:"
 msgstr ""
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s has been issued to the ticket holder."
+msgstr ""
+"Un rimborso di %(amount)s %(currency)s è stato emesso al titolare del "
+"biglietto."
 
 #, python-format
 msgid ""

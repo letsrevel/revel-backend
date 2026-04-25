@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-24 10:02+0200\n"
+"POT-Creation-Date: 2026-04-25 16:39+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -859,7 +859,8 @@ msgid "Only the ticket holder can cancel this ticket."
 msgstr "Nur der Ticketinhaber kann dieses Ticket stornieren."
 
 msgid "Refund failed. Please try again later."
-msgstr "Die Rückerstattung ist fehlgeschlagen. Bitte versuche es später erneut."
+msgstr ""
+"Die Rückerstattung ist fehlgeschlagen. Bitte versuche es später erneut."
 
 msgid "Token does not match this organization."
 msgstr "Dieses Token gehört nicht zu dieser Organisation."
@@ -2869,6 +2870,30 @@ msgid "Ticket Cancelled"
 msgstr "Ticket storniert"
 
 #, python-format
+msgid ""
+"<strong>%(holder)s</strong> cancelled their ticket for <strong>%(event)s</"
+"strong>."
+msgstr ""
+"<strong>%(holder)s</strong> hat das eigene Ticket für "
+"<strong>%(event)s</strong> storniert."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> was "
+"refunded via the Stripe dashboard."
+msgstr ""
+"Das Ticket von <strong>%(holder)s</strong> für <strong>%(event)s</strong> "
+"wurde über das Stripe-Dashboard erstattet."
+
+#, python-format
+msgid ""
+"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has been "
+"cancelled."
+msgstr ""
+"Das Ticket von <strong>%(holder)s</strong> für <strong>%(event)s</strong> "
+"wurde storniert."
+
+#, python-format
 msgid "You cancelled your ticket for <strong>%(event)s</strong>."
 msgstr "Du hast dein Ticket für <strong>%(event)s</strong> storniert."
 
@@ -2882,14 +2907,43 @@ msgstr ""
 msgid "Your ticket for <strong>%(event)s</strong> has been cancelled."
 msgstr "Dein Ticket für <strong>%(event)s</strong> wurde storniert."
 
+msgid "Ticket Holder"
+msgstr "Ticketinhaber"
+
 msgid "Cancelled Ticket"
 msgstr ""
+
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
+"ticket holder."
+msgstr ""
+"Eine Rückerstattung von <strong>%(amount)s %(currency)s</strong> wurde an "
+"den Ticketinhaber ausgestellt."
 
 #, python-format
 msgid ""
 "A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
 "your original payment method within 5-10 business days."
 msgstr ""
+
+#, python-format
+msgid "%(holder)s cancelled their ticket for %(event)s."
+msgstr "%(holder)s hat das eigene Ticket für %(event)s storniert."
+
+#, python-format
+msgid ""
+"%(holder)s's ticket for %(event)s was refunded via the Stripe dashboard."
+msgstr ""
+"Das Ticket von %(holder)s für %(event)s wurde über das Stripe-Dashboard "
+"erstattet."
+
+#, python-format
+msgid "%(holder)s's ticket for %(event)s has been cancelled."
+msgstr "Das Ticket von %(holder)s für %(event)s wurde storniert."
+
+msgid "Ticket Holder:"
+msgstr "Ticketinhaber:"
 
 #, python-format
 msgid "You cancelled your ticket for %(event)s."
@@ -2905,6 +2959,13 @@ msgstr "Dein Ticket für %(event)s wurde storniert."
 
 msgid "Cancelled Ticket:"
 msgstr ""
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s has been issued to the ticket holder."
+msgstr ""
+"Eine Rückerstattung von %(amount)s %(currency)s wurde an den Ticketinhaber "
+"ausgestellt."
 
 #, python-format
 msgid ""
