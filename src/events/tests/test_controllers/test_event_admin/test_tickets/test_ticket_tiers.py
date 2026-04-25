@@ -753,3 +753,66 @@ def test_reorder_ticket_tiers_unauthorized(
 
     # Assert
     assert response.status_code == expected_status_code
+
+
+# --- Regression: refund_policy through the controller (issue #381) ---
+# RefundPolicy is a nested Pydantic model whose Decimal fields must reach the
+# JSONField as JSON-serializable primitives. Exercise the HTTP path so the
+# controller's model_dump() conversion is covered, not just the service layer.
+
+
+def test_create_ticket_tier_with_refund_policy(organization_owner_client: Client, event: Event) -> None:
+    """POST /ticket-tier accepts a nested refund_policy and persists it as JSON-serializable primitives."""
+    url = reverse("api:create_ticket_tier", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "GA",
+        "payment_method": "offline",
+        "price": "20",
+        "currency": "EUR",
+        "allow_user_cancellation": True,
+        "refund_policy": {
+            "tiers": [{"hours_before_event": 24, "refund_percentage": 100}],
+            "flat_fee": "0",
+        },
+    }
+
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    assert data["allow_user_cancellation"] is True
+    tier = TicketTier.objects.get(pk=data["id"])
+    assert tier.refund_policy is not None
+    assert tier.refund_policy["flat_fee"] == "0"
+    assert tier.refund_policy["tiers"][0]["hours_before_event"] == 24
+    assert tier.refund_policy["tiers"][0]["refund_percentage"] == "100"
+
+
+def test_update_ticket_tier_with_refund_policy(
+    organization_owner_client: Client, event: Event, event_ticket_tier: TicketTier
+) -> None:
+    """PUT /ticket-tier/{id} accepts a nested refund_policy without 'Value must be valid JSON' (issue #381)."""
+    url = reverse("api:update_ticket_tier", kwargs={"event_id": event.pk, "tier_id": event_ticket_tier.pk})
+    payload = {
+        "allow_user_cancellation": True,
+        "cancellation_deadline_hours": 24,
+        "refund_policy": {
+            "tiers": [
+                {"hours_before_event": 48, "refund_percentage": 100},
+                {"hours_before_event": 24, "refund_percentage": 50},
+            ],
+            "flat_fee": "1.50",
+        },
+    }
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    event_ticket_tier.refresh_from_db()
+    assert event_ticket_tier.allow_user_cancellation is True
+    assert event_ticket_tier.cancellation_deadline_hours == 24
+    assert event_ticket_tier.refund_policy is not None
+    assert event_ticket_tier.refund_policy["flat_fee"] == "1.50"
+    assert len(event_ticket_tier.refund_policy["tiers"]) == 2
+    assert event_ticket_tier.refund_policy["tiers"][0]["refund_percentage"] == "100"
+    assert event_ticket_tier.refund_policy["tiers"][1]["refund_percentage"] == "50"

@@ -95,8 +95,11 @@ class EventAdminTicketsController(EventAdminBaseController):
         event = self.get_one(event_id)
         _check_online_tier_prerequisites(event.organization, payload.payment_method)
 
-        # Extract restricted_to_membership_tiers_ids from payload
-        payload_dict = payload.model_dump(exclude_unset=True)
+        # Extract restricted_to_membership_tiers_ids from payload.
+        # mode="json" coerces nested Pydantic models (e.g. refund_policy) and
+        # Decimals to JSON-serializable primitives so the JSONField's default
+        # encoder can persist them via full_clean().
+        payload_dict = payload.model_dump(exclude_unset=True, mode="json")
         restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
 
         # Create ticket tier with M2M handling in service layer
@@ -122,8 +125,9 @@ class EventAdminTicketsController(EventAdminBaseController):
 
         tier = get_object_or_404(models.TicketTier, pk=tier_id, event=event)
 
-        # Extract restricted_to_membership_tiers_ids from payload
-        payload_dict = payload.model_dump(exclude_unset=True)
+        # Extract restricted_to_membership_tiers_ids from payload.
+        # mode="json" — see create_ticket_tier above.
+        payload_dict = payload.model_dump(exclude_unset=True, mode="json")
         restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
 
         # Update ticket tier with M2M handling in service layer

@@ -18,6 +18,12 @@ from .event import MinimalEventSchema
 from .organization import MembershipTierSchema, MinimalOrganizationMemberSchema
 from .venue import MinimalSeatSchema, VenueSchema, VenueSectorSchema
 
+# RefundPolicy + RefundPolicyTier (with the monotonic-tiers validator) live in
+# events.utils.refund_policy so services, models, and schemas share one source
+# of truth. Re-export under the "Schema" suffix for API documentation clarity.
+RefundPolicyTierSchema = RefundPolicyTier
+RefundPolicySchema = RefundPolicy
+
 # Supported currencies — must match frankfurter.dev for exchange rate availability
 Currencies = t.Literal[
     "EUR",  # Euro
@@ -66,6 +72,7 @@ class TicketTierSchema(ModelSchema):
     sector: VenueSectorSchema | None = None
     can_purchase: bool = True
     invoicing_available: bool = False
+    refund_policy: RefundPolicySchema | None = None
 
     class Meta:
         model = TicketTier
@@ -86,6 +93,8 @@ class TicketTierSchema(ModelSchema):
             "seat_assignment_mode",
             "max_tickets_per_user",
             "display_order",
+            "allow_user_cancellation",
+            "cancellation_deadline_hours",
         ]
 
     @staticmethod
@@ -232,12 +241,6 @@ class ConfirmPaymentSchema(Schema):
 
 
 # ---- Cancellation Schemas ----
-
-# RefundPolicy + RefundPolicyTier (with the monotonic-tiers validator) live in
-# events.utils.refund_policy so services, models, and schemas share one source
-# of truth. Re-export under the "Schema" suffix for API documentation clarity.
-RefundPolicyTierSchema = RefundPolicyTier
-RefundPolicySchema = RefundPolicy
 
 
 class RefundWindowSchema(Schema):
