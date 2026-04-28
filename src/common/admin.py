@@ -36,13 +36,14 @@ class SiteSettingsAdmin(ModelAdmin):  # type: ignore[misc]
     list_display = [
         "__str__",
         "notify_user_joined",
+        "notify_organization_created",
         "live_emails",
         "data_retention_days",
         "updated_at",
     ]
     readonly_fields = ["created_at", "updated_at"]
     fieldsets = (
-        ("Notifications", {"fields": ("notify_user_joined", "live_emails")}),
+        ("Notifications", {"fields": ("notify_user_joined", "notify_organization_created", "live_emails")}),
         ("Data Management", {"fields": ("data_retention_days",)}),
         ("URLs & Emails", {"fields": ("frontend_base_url", "internal_catchall_email")}),
         (
