@@ -28,6 +28,22 @@ from events.admin.base import (
 class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     """Admin model for Organizations."""
 
+    SUPERUSER_ONLY_FIELDS: t.ClassVar[tuple[str, ...]] = (
+        "vat_id_validated",
+        "vat_id_validated_at",
+        "platform_fee_percent",
+        "platform_fee_fixed",
+        "contact_email_verified",
+    )
+
+    def get_readonly_fields(
+        self, request: HttpRequest, obj: models.Organization | None = None
+    ) -> tuple[str, ...] | list[str]:
+        readonly = tuple(super().get_readonly_fields(request, obj))
+        if not request.user.is_superuser:
+            readonly = readonly + self.SUPERUSER_ONLY_FIELDS
+        return readonly
+
     list_display = [
         "name",
         "slug",

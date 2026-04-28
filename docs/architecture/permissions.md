@@ -2,6 +2,13 @@
 
 Revel implements a layered permission system built on three distinct concepts: **organization ownership**, **staff memberships with granular permissions**, and **member memberships with statuses**. Permissions are enforced at the API layer via Django Ninja Extra permission classes that use the `has_object_permission` pattern.
 
+!!! info "Admin panel groups are separate"
+    This page covers **API-layer** permissions only. The Django admin panel
+    (`/admin/`) uses Django's built-in `auth.Group` system, which is independent
+    of `OrganizationStaff.permissions`. See the
+    [Admin groups runbook](../runbooks/admin-groups.md) for the `Sales` group
+    policy and the `sync_sales_group` management command.
+
 ## Permission Hierarchy
 
 ```mermaid
