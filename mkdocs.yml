@@ -98,6 +98,7 @@ nav:
       - adr/0010-dependency-compliance.md
   - Runbooks:
       - runbooks/dependency-audit.md
+      - runbooks/admin-groups.md
   - Post-Mortems:
       - postmortems/index.md
       - postmortems/0001-guest-user-verification-bypass.md

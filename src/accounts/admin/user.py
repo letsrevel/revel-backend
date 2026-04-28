@@ -483,6 +483,12 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
 
     organization_participation_display.short_description = "Organization Participation"  # type: ignore[attr-defined]
 
+    def get_list_display(self, request: HttpRequest) -> list[str]:  # type: ignore[override]
+        list_display = list(super().get_list_display(request))
+        if not request.user.is_superuser and "impersonate_link" in list_display:
+            list_display.remove("impersonate_link")
+        return list_display  # type: ignore[return-value]
+
     # Impersonation functionality
     @admin.display(description=_("Impersonate"))
     def impersonate_link(self, obj: RevelUser) -> str:
