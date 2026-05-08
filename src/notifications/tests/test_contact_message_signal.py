@@ -40,19 +40,24 @@ def test_signal_dispatches_to_owner_and_edit_org_staff(
     mock_signal: MagicMock,
     mock_email: MagicMock,
     org_in_form_mode: Organization,
-    organization_owner_user: RevelUser,
-    organization_staff_user: RevelUser,
+    regular_user: RevelUser,
 ) -> None:
     """A new contact message dispatches notifications to org owner + staff with edit_organization."""
+    # `regular_user` owns `org_in_form_mode` (per notifications/tests/conftest.py).
+    staff_with_perm = RevelUser.objects.create_user(
+        username="staff_with_perm", email="staff_perm@example.com", password="pass"
+    )
     OrganizationStaff.objects.create(
         organization=org_in_form_mode,
-        user=organization_staff_user,
+        user=staff_with_perm,
         permissions=PermissionsSchema(default=PermissionMap(edit_organization=True)).model_dump(mode="json"),
     )
-    other_staff = RevelUser.objects.create_user(username="no_perm_staff", email="noperm@example.com", password="pass")
+    staff_without_perm = RevelUser.objects.create_user(
+        username="no_perm_staff", email="noperm@example.com", password="pass"
+    )
     OrganizationStaff.objects.create(
         organization=org_in_form_mode,
-        user=other_staff,
+        user=staff_without_perm,
         permissions=PermissionsSchema(default=PermissionMap(edit_organization=False)).model_dump(mode="json"),
     )
 
@@ -73,9 +78,9 @@ def test_signal_dispatches_to_owner_and_edit_org_staff(
     ]
 
     notified_user_ids = {call.kwargs["user"].id for call in calls}
-    assert organization_owner_user.id in notified_user_ids
-    assert organization_staff_user.id in notified_user_ids
-    assert other_staff.id not in notified_user_ids
+    assert regular_user.id in notified_user_ids  # owner
+    assert staff_with_perm.id in notified_user_ids
+    assert staff_without_perm.id not in notified_user_ids
 
     # Email task fired exactly once for the message
     assert mock_email.called
@@ -87,13 +92,13 @@ def test_signal_does_not_fire_on_update(
     mock_signal: MagicMock,
     mock_email: MagicMock,
     org_in_form_mode: Organization,
-    organization_owner_user: RevelUser,
+    regular_user: RevelUser,
 ) -> None:
     """Only post_save with created=True triggers dispatch."""
     msg = OrganizationContactMessage.objects.create(
         organization=org_in_form_mode,
-        sender=organization_owner_user,
-        sender_email_snapshot=organization_owner_user.email,
+        sender=regular_user,
+        sender_email_snapshot=regular_user.email,
         message="Body",
     )
     mock_signal.reset_mock()

@@ -6,6 +6,7 @@ import pytest
 from django.core import mail
 
 from accounts.models import RevelUser
+from common.tasks import to_safe_email_address
 from events.models import Organization, OrganizationContactMessage
 from events.tasks import send_organization_contact_message_email
 
@@ -36,20 +37,22 @@ def contact_message(org_in_form_mode: Organization, organization_owner_user: Rev
 
 
 def test_email_task_sets_to_org_contact_email(contact_message: OrganizationContactMessage) -> None:
-    """The To header equals organization.contact_email."""
+    """The To header equals organization.contact_email (after the test-mode safe rewrite)."""
     send_organization_contact_message_email(message_id=str(contact_message.id))
 
     assert len(mail.outbox) == 1
     sent = mail.outbox[0]
-    assert sent.to == [contact_message.organization.contact_email]
+    expected = [to_safe_email_address(contact_message.organization.contact_email or "")]
+    assert sent.to == expected
 
 
 def test_email_task_sets_reply_to_sender_snapshot(contact_message: OrganizationContactMessage) -> None:
-    """Reply-To header equals sender_email_snapshot, not the user's current email."""
+    """Reply-To header equals sender_email_snapshot (after the test-mode safe rewrite)."""
     send_organization_contact_message_email(message_id=str(contact_message.id))
 
     assert len(mail.outbox) == 1
     sent = mail.outbox[0]
+    # send_email passes reply_to through unchanged (no safe-rewrite), so we just match the snapshot.
     assert sent.reply_to == ["sender@external.example"]
 
 
@@ -91,8 +94,9 @@ def test_email_task_skipped_when_org_email_unverified(
             message="Body",
         )
 
-    organization.contact_email_verified = False
-    organization.save(update_fields=["contact_email_verified"])
+    # Bypass full_clean (which would reject contact_method=FORM with unverified email)
+    # to simulate a corrupted state and verify the dispatcher still skips safely.
+    Organization.objects.filter(pk=organization.pk).update(contact_email_verified=False)
 
     send_organization_contact_message_email(message_id=str(msg.id))
 

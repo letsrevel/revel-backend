@@ -95,14 +95,17 @@ def test_public_schema_hides_contact_email_when_method_is_form(client: Client, o
 def test_public_schema_hides_contact_email_when_email_unverified(client: Client, organization: Organization) -> None:
     """Defense-in-depth: even with contact_method=EMAIL, hide if email not verified.
 
-    This state should not be reachable through the API thanks to the service-layer
-    invariant, but the resolver guards against direct DB writes.
+    This state should not be reachable through the API (service + Model.clean()
+    forbid it). We bypass the model's full_clean() with a raw .update() to verify
+    the resolver still hides the email if the row is corrupted directly in the DB.
     """
     organization.visibility = Organization.Visibility.PUBLIC
     organization.contact_email = "info@example.com"
-    organization.contact_email_verified = False
+    organization.contact_email_verified = True
     organization.contact_method = Organization.ContactMethod.EMAIL
     organization.save()
+    # Bypass full_clean to simulate a direct DB corruption (verified flag flipped off).
+    Organization.objects.filter(pk=organization.pk).update(contact_email_verified=False)
 
     url = reverse("api:get_organization", kwargs={"slug": organization.slug})
     response = client.get(url)

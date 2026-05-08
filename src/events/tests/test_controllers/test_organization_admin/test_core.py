@@ -384,9 +384,10 @@ class TestUpdateContactEmail:
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
         assert response.status_code == 200
-        data = response.json()
-        assert data["contact_email"] == "newemail@example.com"
-        assert data["contact_email_verified"] is False
+        # Public schema hides contact_email when contact_method=NONE.
+        organization.refresh_from_db()
+        assert organization.contact_email == "newemail@example.com"
+        assert organization.contact_email_verified is False
 
     def test_update_contact_email_auto_verifies_with_owner_email(
         self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
@@ -402,9 +403,9 @@ class TestUpdateContactEmail:
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
         assert response.status_code == 200
-        data = response.json()
-        assert data["contact_email"] == "owner@example.com"
-        assert data["contact_email_verified"] is True
+        organization.refresh_from_db()
+        assert organization.contact_email == "owner@example.com"
+        assert organization.contact_email_verified is True
 
     def test_update_contact_email_same_email_fails(
         self, organization_owner_client: Client, organization: Organization
@@ -472,8 +473,9 @@ class TestVerifyContactEmail:
         response = organization_owner_client.post(url, data={"token": token}, content_type="application/json")
 
         assert response.status_code == 200, response.content
-        data = response.json()
-        assert data["contact_email_verified"] is True
+        # contact_email_verified is no longer on the public schema; verify via DB.
+        organization.refresh_from_db()
+        assert organization.contact_email_verified is True
 
     def test_verify_contact_email_invalid_token_fails(
         self, organization_owner_client: Client, organization: Organization
