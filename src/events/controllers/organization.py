@@ -208,7 +208,7 @@ class OrganizationController(UserAwareController):
     @route.post(
         "/{slug}/contact",
         url_name="contact_organization",
-        response={201: ResponseMessage, 400: ResponseMessage},
+        response={201: ResponseMessage},
         auth=I18nJWTAuth(requires_verified_email=True),
         throttle=UserRequestThrottle(),
     )

@@ -224,3 +224,48 @@ def test_contact_organization_rejects_empty_message(
     url = reverse("api:contact_organization", kwargs={"slug": public_org_with_form_contact.slug})
     response = verified_nonmember_client.post(url, data={"message": ""}, content_type="application/json")
     assert response.status_code == 422  # pydantic validation error
+
+
+@pytest.mark.parametrize(
+    "bad_subject",
+    [
+        "with newline\nbody",
+        "with carriage\rreturn",
+        "BCC: attacker@example.com\nSubject: hijacked",
+    ],
+)
+def test_contact_organization_rejects_subject_with_newlines(
+    verified_nonmember_client: Client, public_org_with_form_contact: Organization, bad_subject: str
+) -> None:
+    """Subject containing \\r or \\n is rejected by schema validation.
+
+    Without this guard, the value would survive into the email Subject header and
+    Django would raise BadHeaderError on send, leaving the message persisted but
+    undelivered.
+    """
+    url = reverse("api:contact_organization", kwargs={"slug": public_org_with_form_contact.slug})
+    response = verified_nonmember_client.post(
+        url,
+        data={"subject": bad_subject, "message": "body"},
+        content_type="application/json",
+    )
+    assert response.status_code == 422
+    assert OrganizationContactMessage.objects.count() == 0
+
+
+def test_contact_organization_400_response_uses_detail_shape(
+    verified_nonmember_client: Client, organization: Organization
+) -> None:
+    """400 errors flow through Ninja's HttpError and use the {"detail": "..."} shape."""
+    organization.visibility = Organization.Visibility.PUBLIC
+    organization.contact_email = "info@example.com"
+    organization.contact_email_verified = True
+    organization.contact_method = Organization.ContactMethod.NONE
+    organization.save()
+
+    url = reverse("api:contact_organization", kwargs={"slug": organization.slug})
+    response = verified_nonmember_client.post(url, data={"message": "hi"}, content_type="application/json")
+
+    assert response.status_code == 400
+    assert "detail" in response.json()
+    assert "message" not in response.json()

@@ -207,7 +207,12 @@ class OrganizationMembershipRequestCreateSchema(Schema):
 class OrganizationContactMessageCreateSchema(Schema):
     """Payload for the public contact-organization endpoint."""
 
-    subject: t.Annotated[str, StringConstraints(max_length=200, strip_whitespace=True)] = ""
+    # subject ends up in the email Subject header; reject embedded \r/\n so the
+    # task can't trip Django's BadHeaderError on send.
+    subject: t.Annotated[
+        str,
+        StringConstraints(max_length=200, strip_whitespace=True, pattern=r"^[^\r\n]*$"),
+    ] = ""
     message: t.Annotated[str, StringConstraints(min_length=1, max_length=2000, strip_whitespace=True)]
 
 
