@@ -12,7 +12,7 @@ from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 from events import models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
-from events.service import organization_service, stripe_service, update_db_instance
+from events.service import organization_service, stripe_service
 
 from .base import OrganizationAdminBaseController
 
@@ -48,7 +48,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         Use the update-contact-email endpoint instead for email changes.
         """
         organization = self.get_one(slug)
-        return update_db_instance(organization, payload)
+        return organization_service.update_organization(organization, payload)
 
     @route.post(
         "/update-contact-email",

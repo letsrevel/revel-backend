@@ -1,6 +1,7 @@
 """Tests for organization admin core endpoints (details, media, contact email, Stripe)."""
 
 from io import BytesIO
+from unittest.mock import MagicMock, patch
 
 import orjson
 import pytest
@@ -510,3 +511,77 @@ class TestVerifyContactEmail:
 
         assert response.status_code == 400, response.content
         assert "different email address" in response.json()["detail"]
+
+
+# --- Tests for contact_method on PUT and POST update-contact-email ---
+
+
+def test_update_organization_set_contact_method_form_with_verified_email(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """Owner can set contact_method=FORM when contact_email is verified."""
+    organization.contact_email = "info@example.com"
+    organization.contact_email_verified = True
+    organization.save()
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {"visibility": "public", "contact_method": "form"}
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    organization.refresh_from_db()
+    assert organization.contact_method == Organization.ContactMethod.FORM
+
+
+def test_update_organization_rejects_email_method_without_verified_email(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """Setting contact_method=EMAIL without a verified email is rejected with 400."""
+    organization.contact_email = "info@example.com"
+    organization.contact_email_verified = False
+    organization.save()
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {"visibility": "public", "contact_method": "email"}
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 400
+
+
+@patch("events.tasks.send_organization_contact_email_verification.delay")
+def test_update_contact_email_self_heals_contact_method(
+    mock_send: MagicMock, organization_owner_client: Client, organization: Organization
+) -> None:
+    """Changing contact_email forces contact_method back to NONE."""
+    organization.contact_email = "old@example.com"
+    organization.contact_email_verified = True
+    organization.contact_method = Organization.ContactMethod.FORM
+    organization.save()
+
+    url = reverse("api:update_contact_email", kwargs={"slug": organization.slug})
+    response = organization_owner_client.post(url, data={"email": "new@example.com"}, content_type="application/json")
+
+    assert response.status_code == 200
+    organization.refresh_from_db()
+    assert organization.contact_email == "new@example.com"
+    assert organization.contact_email_verified is False
+    assert organization.contact_method == Organization.ContactMethod.NONE
+
+
+def test_admin_detail_schema_exposes_contact_method_and_verified_flag(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """Admin schema returns raw contact_method and contact_email_verified."""
+    organization.contact_email = "info@example.com"
+    organization.contact_email_verified = True
+    organization.contact_method = Organization.ContactMethod.FORM
+    organization.save()
+
+    url = reverse("api:get_organization_admin", kwargs={"slug": organization.slug})
+    response = organization_owner_client.get(url)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["contact_method"] == "form"
+    assert body["contact_email_verified"] is True
+    assert body["contact_email"] == "info@example.com"

@@ -37,6 +37,7 @@ from .models import (
     Event,
     EventRSVP,
     Organization,
+    OrganizationContactMessage,
     Payment,
     Ticket,
     TicketTier,
@@ -588,6 +589,63 @@ def send_organization_contact_email_verification(
     )
     send_email(to=email, subject=subject, body=body, html_body=html_body)
     logger.info("organization_contact_email_verification_sent", email=email)
+
+
+@shared_task
+def send_organization_contact_message_email(message_id: str) -> None:
+    """Forward a contact-form submission to an organization's contact mailbox.
+
+    Sends one email with ``Reply-To`` set to the sender so the org can reply
+    directly. The org's own ``contact_email`` MUST be verified — the resolver
+    invariant guarantees that contact_method=FORM implies a verified email.
+    """
+    message = OrganizationContactMessage.objects.select_related("organization").get(pk=UUID(message_id))
+    organization = message.organization
+    if not (organization.contact_email and organization.contact_email_verified):
+        logger.warning(
+            "organization_contact_message_skipped_unverified",
+            message_id=message_id,
+            organization_id=str(organization.id),
+        )
+        return
+
+    subject_text = message.subject.strip() or _("New contact message")
+    subject = f"[{organization.name}] {subject_text}"
+    admin_link = (
+        SiteSettings.get_solo().frontend_base_url + f"/org/{organization.slug}/admin/contact-messages/{message.id}"
+    )
+    body = render_to_string(
+        "events/emails/organization_contact_message_body.txt",
+        {
+            "organization_name": organization.name,
+            "sender_email": message.sender_email_snapshot,
+            "subject": message.subject,
+            "message": message.message,
+            "admin_link": admin_link,
+        },
+    )
+    html_body = render_to_string(
+        "events/emails/organization_contact_message_body.html",
+        {
+            "organization_name": organization.name,
+            "sender_email": message.sender_email_snapshot,
+            "subject": message.subject,
+            "message": message.message,
+            "admin_link": admin_link,
+        },
+    )
+    send_email(
+        to=organization.contact_email,
+        subject=subject,
+        body=body,
+        html_body=html_body,
+        reply_to=[message.sender_email_snapshot],
+    )
+    logger.info(
+        "organization_contact_message_sent",
+        message_id=message_id,
+        organization_id=str(organization.id),
+    )
 
 
 @shared_task(name="events.calculate_referral_payouts")

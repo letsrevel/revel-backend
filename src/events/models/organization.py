@@ -183,6 +183,13 @@ class Organization(
         HYBRID = "hybrid", "Hybrid (draft + manual send)"
         AUTO = "auto", "Auto (generate + send)"
 
+    class ContactMethod(models.TextChoices):
+        """How non-members can reach the organization."""
+
+        NONE = "none", "None"
+        EMAIL = "email", "Email"
+        FORM = "form", "Form"
+
     name = models.CharField(max_length=255, unique=True)
     slug = models.SlugField(max_length=255, unique=True)
     description = MarkdownField(null=True, blank=True)
@@ -284,6 +291,15 @@ class Organization(
     accept_membership_requests = models.BooleanField(default=False)
     contact_email = models.EmailField(blank=True, null=True)
     contact_email_verified = models.BooleanField(default=False)
+    contact_method = models.CharField(
+        max_length=10,
+        choices=ContactMethod.choices,
+        default=ContactMethod.NONE,
+        help_text=(
+            "How non-members can reach the organization: NONE hides contact info; "
+            "EMAIL exposes the verified contact_email; FORM enables the in-platform contact form."
+        ),
+    )
 
     objects = OrganizationManager()
 
@@ -292,6 +308,23 @@ class Organization(
 
     def __str__(self) -> str:
         return self.name
+
+    def clean(self) -> None:
+        """Validate contact_method invariants.
+
+        Setting contact_method to EMAIL or FORM requires a verified contact_email.
+        Service-layer callers should enforce the same rule, but this safety net
+        guarantees the invariant when models are saved via admin or other paths.
+        """
+        super().clean()
+        if self.contact_method != self.ContactMethod.NONE and not (self.contact_email and self.contact_email_verified):
+            raise DjangoValidationError(
+                {
+                    "contact_method": _(
+                        "A verified contact email is required to enable a contact method other than NONE."
+                    )
+                }
+            )
 
     def is_owner_or_staff(self, user: RevelUser) -> bool:
         """Check if user is the organization owner or a staff member."""
@@ -559,3 +592,30 @@ class OrganizationMembershipRequest(UserRequestMixin):
 
     def __str__(self) -> str:
         return f"Membership request: {self.user_id} -> {self.organization_id} ({self.status})"
+
+
+class OrganizationContactMessage(TimeStampedModel):
+    """A message sent to an organization via the public contact form."""
+
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="contact_messages",
+    )
+    sender = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sent_contact_messages",
+    )
+    sender_email_snapshot = models.EmailField()
+    subject = models.CharField(max_length=200, blank=True, default="")
+    message = models.TextField()
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["organization", "-created_at"])]
+
+    def __str__(self) -> str:
+        return f"Contact message {self.pk} for {self.organization_id}"

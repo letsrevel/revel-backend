@@ -1,0 +1,15 @@
+Hello,
+
+You've received a new contact message for {{ organization_name }}.
+
+From: {{ sender_email }}
+{% if subject %}Subject: {{ subject }}
+{% endif %}
+Message:
+{{ message }}
+
+You can reply directly to this email to reach the sender, or view the message in
+your organization admin: {{ admin_link }}
+
+Thank you,
+The Revel Team

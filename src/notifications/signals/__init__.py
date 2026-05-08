@@ -16,6 +16,7 @@ notification_requested = Signal()
 # Import all signal modules to ensure they're registered
 # These imports MUST come after the signal definition
 from notifications.signals import (  # noqa: E402, F401
+    contact,
     event,
     invitation,
     membership,
@@ -31,6 +32,7 @@ from notifications.signals import (  # noqa: E402, F401
 
 __all__ = [
     "notification_requested",
+    "contact",
     "event",
     "invitation",
     "membership",

@@ -12,6 +12,7 @@ from common.schema import BillingInfoSchemaMixin, OneToOneFiftyString, StrippedS
 from events import models
 from events.models import (
     Organization,
+    OrganizationContactMessage,
     OrganizationMember,
     OrganizationMembershipRequest,
     PermissionsSchema,
@@ -53,6 +54,7 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     description: StrippedString = ""
     visibility: Organization.Visibility
     accept_membership_requests: bool = False
+    contact_method: Organization.ContactMethod = Organization.ContactMethod.NONE
 
 
 class OrganizationBillingInfoSchema(Schema):
@@ -83,6 +85,13 @@ class VATIdUpdateSchema(VATIdUpdateBaseSchema):
     """Schema for setting/updating the organization's VAT ID."""
 
 
+def _resolve_public_contact_email(obj: Organization) -> str | None:
+    """Return contact_email only when contact_method=EMAIL and the email is verified."""
+    if obj.contact_method == Organization.ContactMethod.EMAIL and obj.contact_email_verified:
+        return obj.contact_email
+    return None
+
+
 class MinimalOrganizationSchema(LogoCoverArtThumbnailMixin):
     """Lightweight organization schema for use in event lists - excludes city and tags to avoid N+1 queries."""
 
@@ -96,8 +105,13 @@ class MinimalOrganizationSchema(LogoCoverArtThumbnailMixin):
     is_stripe_connected: bool
     platform_fee_percent: Decimal | None = Field(None, ge=0, le=100)
     accept_membership_requests: bool
+    contact_method: Organization.ContactMethod
     contact_email: str | None = None
-    contact_email_verified: bool
+
+    @staticmethod
+    def resolve_contact_email(obj: Organization, context: t.Any) -> str | None:
+        """Expose contact_email only when the org opted into EMAIL mode."""
+        return _resolve_public_contact_email(obj)
 
 
 class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
@@ -113,10 +127,15 @@ class OrganizationInListSchema(CityRetrieveMixin, TaggableSchemaMixin, LogoCover
     is_stripe_connected: bool
     platform_fee_percent: Decimal | None = Field(None, ge=0, le=100)
     accept_membership_requests: bool
+    contact_method: Organization.ContactMethod
     contact_email: str | None = None
-    contact_email_verified: bool
     updated_at: AwareDatetime | None = None
     created_at: AwareDatetime | None = None
+
+    @staticmethod
+    def resolve_contact_email(obj: Organization, context: t.Any) -> str | None:
+        """Expose contact_email only when the org opted into EMAIL mode."""
+        return _resolve_public_contact_email(obj)
 
 
 class OrganizationRetrieveSchema(
@@ -132,8 +151,13 @@ class OrganizationRetrieveSchema(
     is_stripe_connected: bool
     platform_fee_percent: Decimal | None = Field(None, ge=0, le=100)
     accept_membership_requests: bool
+    contact_method: Organization.ContactMethod
     contact_email: str | None = None
-    contact_email_verified: bool
+
+    @staticmethod
+    def resolve_contact_email(obj: Organization, context: t.Any) -> str | None:
+        """Expose contact_email only when the org opted into EMAIL mode."""
+        return _resolve_public_contact_email(obj)
 
 
 class OrganizationAdminDetailSchema(
@@ -156,6 +180,7 @@ class OrganizationAdminDetailSchema(
     stripe_charges_enabled: bool
     stripe_details_submitted: bool
     accept_membership_requests: bool
+    contact_method: Organization.ContactMethod
     contact_email: str | None = None
     contact_email_verified: bool
     # VAT / billing
@@ -177,6 +202,23 @@ class OrganizationPermissionsSchema(Schema):
 
 class OrganizationMembershipRequestCreateSchema(Schema):
     message: t.Annotated[str, StringConstraints(max_length=500, strip_whitespace=True)] | None = None
+
+
+class OrganizationContactMessageCreateSchema(Schema):
+    """Payload for the public contact-organization endpoint."""
+
+    subject: t.Annotated[str, StringConstraints(max_length=200, strip_whitespace=True)] = ""
+    message: t.Annotated[str, StringConstraints(min_length=1, max_length=2000, strip_whitespace=True)]
+
+
+class OrganizationContactMessageSchema(ModelSchema):
+    """Read schema for OrganizationContactMessage (admin/audit usage)."""
+
+    sender: MinimalRevelUserSchema | None = None
+
+    class Meta:
+        model = OrganizationContactMessage
+        fields = ["id", "sender_email_snapshot", "subject", "message", "created_at"]
 
 
 class OrganizationMembershipRequestRetrieve(ModelSchema):
