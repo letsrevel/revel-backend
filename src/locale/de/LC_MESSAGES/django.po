@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-08 14:44+0200\n"
+"POT-Creation-Date: 2026-05-08 16:34+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2335,6 +2335,28 @@ msgstr "Neues Event in <strong>%(series)s</strong>: <strong>%(event)s</strong>"
 
 msgid "View event:"
 msgstr "Zum Event:"
+
+msgid "New Contact Message"
+msgstr "Neue Kontaktnachricht"
+
+#, python-format
+msgid "<strong>%(sender)s</strong> sent a message to <strong>%(org)s</strong>."
+msgstr ""
+"<strong>%(sender)s</strong> hat eine Nachricht an <strong>%(org)s</strong> "
+"gesendet."
+
+msgid "Subject:"
+msgstr "Betreff:"
+
+msgid "View Message"
+msgstr "Nachricht anzeigen"
+
+#, python-format
+msgid "%(sender)s sent a message to %(org)s."
+msgstr "%(sender)s hat eine Nachricht an %(org)s gesendet."
+
+msgid "View this message:"
+msgstr "Diese Nachricht anzeigen:"
 
 #, python-format
 msgid ""
