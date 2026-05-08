@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-25 16:39+0200\n"
+"POT-Creation-Date: 2026-05-08 14:44+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -862,6 +862,9 @@ msgid "Refund failed. Please try again later."
 msgstr ""
 "Die Rückerstattung ist fehlgeschlagen. Bitte versuche es später erneut."
 
+msgid "Message sent."
+msgstr ""
+
 msgid "Token does not match this organization."
 msgstr "Dieses Token gehört nicht zu dieser Organisation."
 
@@ -927,6 +930,11 @@ msgid "Allow new attendees/members to see this announcement after it was sent"
 msgstr ""
 "Neuen Teilnehmer:innen/Mitgliedern erlauben, diese Ankündigung nach dem "
 "Versand zu sehen"
+
+msgid ""
+"A verified contact email is required to enable a contact method other than "
+"NONE."
+msgstr ""
 
 msgid "Membership tier is required when granting membership."
 msgstr ""
@@ -1276,6 +1284,11 @@ msgid "This is already the contact email for this organization."
 msgstr "Nutzer:in ist bereits Mitglied dieser Organisation."
 
 #, fuzzy
+#| msgid "You are already a member of this organization."
+msgid "Contact form is not enabled for this organization."
+msgstr "Du bist bereits Mitglied dieser Organisation."
+
+#, fuzzy
 #| msgid "Invitation not found."
 msgid "Organization not found."
 msgstr "Einladung nicht gefunden."
@@ -1440,6 +1453,9 @@ msgstr ""
 
 #, python-format
 msgid "Verify contact email for %(organization_name)s"
+msgstr ""
+
+msgid "New contact message"
 msgstr ""
 
 msgid "Confirm your RSVP"
@@ -1659,6 +1675,15 @@ msgstr ""
 #, python-format
 msgid "%(org)s - %(title)s"
 msgstr ""
+
+#, python-format
+msgid "New contact message for %(org)s from %(sender)s"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "New Event: %(event_name)s"
+msgid "New contact message: %(org)s"
+msgstr "Neues Event: %(event_name)s"
 
 #, python-format
 msgid "%(actor)s added %(item)s"
@@ -2874,8 +2899,8 @@ msgid ""
 "<strong>%(holder)s</strong> cancelled their ticket for <strong>%(event)s</"
 "strong>."
 msgstr ""
-"<strong>%(holder)s</strong> hat das eigene Ticket für "
-"<strong>%(event)s</strong> storniert."
+"<strong>%(holder)s</strong> hat das eigene Ticket für <strong>%(event)s</"
+"strong> storniert."
 
 #, python-format
 msgid ""

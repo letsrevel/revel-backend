@@ -55,6 +55,7 @@ class NotificationType(TextChoices):
 
     # Organization notifications
     ORG_ANNOUNCEMENT = "org_announcement"  # Placeholder - requires API endpoint
+    ORG_CONTACT_MESSAGE_RECEIVED = "org_contact_message_received"  # Notify org admins of contact form submissions
 
     # Waitlist notifications
     WAITLIST_SPOT_AVAILABLE = "waitlist_spot_available"

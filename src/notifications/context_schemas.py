@@ -354,6 +354,18 @@ class OrgAnnouncementContext(BaseNotificationContext):
     event_url: t.NotRequired[str]
 
 
+class OrgContactMessageReceivedContext(BaseNotificationContext):
+    """Context for ORG_CONTACT_MESSAGE_RECEIVED notification (to org admins)."""
+
+    message_id: str
+    organization_id: str
+    organization_name: str
+    sender_email: str
+    subject: str
+    message_preview: str
+    admin_url: str
+
+
 class SystemAnnouncementContext(BaseNotificationContext):
     """Context for SYSTEM_ANNOUNCEMENT notification."""
 
@@ -508,6 +520,7 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipContext,
     NotificationType.ACCOUNT_BANNED: AccountBannedContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,
+    NotificationType.ORG_CONTACT_MESSAGE_RECEIVED: OrgContactMessageReceivedContext,
     NotificationType.SYSTEM_ANNOUNCEMENT: SystemAnnouncementContext,
     NotificationType.WAITLIST_SPOT_AVAILABLE: WaitlistSpotAvailableContext,
     NotificationType.WHITELIST_REQUEST_CREATED: WhitelistRequestCreatedContext,

@@ -175,6 +175,12 @@ def get_default_notification_type_settings() -> dict[NotificationType, Notificat
         NotificationType.EVENT_SERIES_FOLLOWED: NotificationTypeSetting(
             enabled=True, channels=[DeliveryChannel.IN_APP]
         ),
+        # Org contact form messages - IN_APP + TELEGRAM (the transactional email is
+        # sent separately to the org's mailbox via the events email task; the dispatcher
+        # email channel would fan out to every staff user, which is not desired).
+        NotificationType.ORG_CONTACT_MESSAGE_RECEIVED: NotificationTypeSetting(
+            enabled=True, channels=[DeliveryChannel.IN_APP, DeliveryChannel.TELEGRAM]
+        ),
     }
 
 

@@ -20,6 +20,7 @@ from events.exceptions import AlreadyMemberError, PendingMembershipRequestExists
 from events.models import (
     MembershipTier,
     Organization,
+    OrganizationContactMessage,
     OrganizationMember,
     OrganizationMembershipRequest,
     OrganizationStaff,
@@ -445,6 +446,11 @@ def update_staff_permissions(staff_member: OrganizationStaff, permissions: Permi
 def update_contact_email(organization: Organization, new_email: str, requester: RevelUser) -> str:
     """Update organization contact email and send verification.
 
+    Self-heal: changing to a new (unverified) email forces ``contact_method`` back
+    to ``NONE``. This preserves the resolver invariant that a non-NONE contact
+    method always points at a verified email, without surprising owners with a
+    hard 400 on a normal email-change flow.
+
     Args:
         organization: The organization to update
         new_email: The new contact email address
@@ -468,13 +474,71 @@ def update_contact_email(organization: Organization, new_email: str, requester: 
         organization.save(update_fields=["contact_email", "contact_email_verified"])
         return ""  # No token needed
 
-    # Update the email but mark as unverified
+    # Update the email but mark as unverified, and reset contact_method.
     organization.contact_email = new_email
     organization.contact_email_verified = False
-    organization.save(update_fields=["contact_email", "contact_email_verified"])
+    organization.contact_method = Organization.ContactMethod.NONE
+    organization.save(update_fields=["contact_email", "contact_email_verified", "contact_method"])
 
     # Create verification token and send email
     return _create_and_send_contact_email_verification(organization, new_email, requester)
+
+
+def create_contact_message(
+    organization: Organization,
+    sender: RevelUser,
+    *,
+    subject: str,
+    message: str,
+) -> OrganizationContactMessage:
+    """Persist a contact-form submission for an organization.
+
+    The caller is responsible for verifying that the org's ``contact_method``
+    is ``FORM``; this function does not re-check the precondition. Sender's
+    email is captured from the user record so that downstream delivery uses
+    the verified address regardless of later account changes.
+    """
+    if organization.contact_method != Organization.ContactMethod.FORM:
+        raise HttpError(400, str(_("Contact form is not enabled for this organization.")))
+
+    return OrganizationContactMessage.objects.create(
+        organization=organization,
+        sender=sender,
+        sender_email_snapshot=sender.email,
+        subject=subject,
+        message=message,
+    )
+
+
+def validate_contact_method(organization: Organization, contact_method: Organization.ContactMethod) -> None:
+    """Validate that the requested ``contact_method`` is allowed for this org.
+
+    Setting EMAIL or FORM requires a verified contact email. NONE is always
+    allowed. Raises ``HttpError(400)`` if the rule is violated.
+    """
+    if contact_method == Organization.ContactMethod.NONE:
+        return
+    if not (organization.contact_email and organization.contact_email_verified):
+        raise HttpError(
+            400,
+            str(_("A verified contact email is required to enable a contact method other than NONE.")),
+        )
+
+
+@transaction.atomic
+def update_organization(organization: Organization, payload: schema.OrganizationEditSchema) -> Organization:
+    """Update an organization's editable fields.
+
+    Validates ``contact_method`` against the organization's verified-email state
+    before persisting. Other fields are applied via ``update_db_instance``.
+    """
+    from events.service import update_db_instance
+
+    data = payload.model_dump(exclude_unset=True)
+    if "contact_method" in data:
+        validate_contact_method(organization, Organization.ContactMethod(data["contact_method"]))
+
+    return update_db_instance(organization, payload)
 
 
 @transaction.atomic

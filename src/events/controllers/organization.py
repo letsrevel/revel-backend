@@ -205,6 +205,33 @@ class OrganizationController(UserAwareController):
         organization = self.get_one(slug)
         return organization_service.create_membership_request(organization, self.user(), message=payload.message)
 
+    @route.post(
+        "/{slug}/contact",
+        url_name="contact_organization",
+        response={201: ResponseMessage},
+        auth=I18nJWTAuth(requires_verified_email=True),
+        throttle=UserRequestThrottle(),
+    )
+    def contact_organization(
+        self, slug: str, payload: schema.OrganizationContactMessageCreateSchema
+    ) -> tuple[int, ResponseMessage]:
+        """Send a message to an organization through its in-platform contact form.
+
+        Available only when the organization has set ``contact_method=FORM``. The
+        sender's email is taken from the authenticated (verified) user account
+        and never accepted from the request body. The message is persisted and
+        delivered as a single transactional email to the organization's verified
+        contact mailbox plus an in-platform notification to staff.
+        """
+        organization = self.get_one(slug)
+        organization_service.create_contact_message(
+            organization=organization,
+            sender=self.user(),
+            subject=payload.subject,
+            message=payload.message,
+        )
+        return 201, ResponseMessage(message=str(_("Message sent.")))
+
     @route.get(
         "/tokens/{token_id}",
         url_name="get_organization_token",

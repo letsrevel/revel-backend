@@ -250,10 +250,14 @@ class TestCreateOrganization:
         data = response.json()
         assert data["name"] == "New Test Organization"
         assert data["description"] == "A test organization description"
-        assert data["contact_email"] == "contact@neworg.com"
-        assert data["contact_email_verified"] is False
+        # Public schema hides contact_email when contact_method=NONE (the create default).
+        assert data["contact_method"] == Organization.ContactMethod.NONE
+        assert data["contact_email"] is None
         assert data["visibility"] == Organization.Visibility.STAFF_ONLY
-        assert Organization.objects.filter(name="New Test Organization", owner=nonmember_user).exists()
+        # Verify the email is actually stored on the model.
+        org = Organization.objects.get(name="New Test Organization", owner=nonmember_user)
+        assert org.contact_email == "contact@neworg.com"
+        assert org.contact_email_verified is False
 
     def test_create_organization_with_owner_email_auto_verifies(
         self, nonmember_client: Client, nonmember_user: RevelUser
@@ -276,8 +280,12 @@ class TestCreateOrganization:
         # Assert
         assert response.status_code == 201
         data = response.json()
-        assert data["contact_email"] == "owner@example.com"
-        assert data["contact_email_verified"] is True
+        # Public schema hides contact_email when contact_method=NONE (the create default).
+        assert data["contact_method"] == Organization.ContactMethod.NONE
+        assert data["contact_email"] is None
+        org = Organization.objects.get(name="Auto Verify Org", owner=nonmember_user)
+        assert org.contact_email == "owner@example.com"
+        assert org.contact_email_verified is True
 
     def test_create_organization_without_verified_email_fails(
         self, nonmember_client: Client, nonmember_user: RevelUser

@@ -48,7 +48,8 @@ class TestCreateNotificationPreferences:
         # Regular users have custom settings for certain notification types:
         # - 6 potluck notifications (IN_APP only, no email)
         # - 2 follow-admin notifications (IN_APP only, no email)
-        assert len(prefs.notification_type_settings) == 8
+        # - 1 org contact message (IN_APP + TELEGRAM only, no email)
+        assert len(prefs.notification_type_settings) == 9
 
     def test_creates_preferences_for_guest_user_with_restrictions(
         self,
@@ -56,7 +57,7 @@ class TestCreateNotificationPreferences:
     ) -> None:
         """Test that guest users get restricted notification types.
 
-        Guest users get 15 notification types disabled (only event participation
+        Guest users get 16 notification types disabled (only event participation
         essentials like TICKET_CREATED, EVENT_REMINDER, etc. remain enabled).
         """
         # Act
@@ -74,8 +75,8 @@ class TestCreateNotificationPreferences:
         assert DeliveryChannel.IN_APP in prefs.enabled_channels
         assert DeliveryChannel.EMAIL in prefs.enabled_channels
 
-        # But have 15 notification types disabled
-        assert len(prefs.notification_type_settings) == 15
+        # But have 16 notification types disabled
+        assert len(prefs.notification_type_settings) == 16
 
         # Verify specific disabled types
         disabled_types = [
