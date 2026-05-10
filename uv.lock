@@ -3920,7 +3920,7 @@ wheels = [
 
 [[package]]
 name = "revel"
-version = "1.52.1"
+version = "1.52.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiogram" },
@@ -4031,7 +4031,7 @@ requires-dist = [
     { name = "aiogram", specifier = ">=3.20.0.post0" },
     { name = "celery", specifier = ">=5.6.2" },
     { name = "cryptography", specifier = ">=46.0.4" },
-    { name = "django", specifier = "==5.2.14" },
+    { name = "django", specifier = ">=5.2.14,<6.0" },
     { name = "django-celery-beat", specifier = ">=2.8.1" },
     { name = "django-celery-results", specifier = ">=2.6.0" },
     { name = "django-cors-headers", specifier = ">=4.9.0" },
