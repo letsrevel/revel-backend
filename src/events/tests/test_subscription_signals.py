@@ -145,13 +145,15 @@ class TestSyncMemberFromSubscription:
         """
         old_sub = subscription_service.create_subscription(plan, subscriber)
         subscription_service.cancel_subscription(old_sub, immediate=True)
-        new_sub = subscription_service.create_subscription(plan, subscriber)
-        new_sub.refresh_from_db()
+        subscription_service.create_subscription(plan, subscriber)
 
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.status == OrganizationMember.MembershipStatus.ACTIVE
 
         # Re-saving the old (terminal) subscription must NOT touch the member.
+        # Refresh first so the local copy reflects the CANCELLED state — otherwise
+        # the stale PENDING status would violate the partial-unique constraint.
+        old_sub.refresh_from_db()
         old_sub.save()
         member.refresh_from_db()
         assert member.status == OrganizationMember.MembershipStatus.ACTIVE
