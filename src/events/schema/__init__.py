@@ -286,6 +286,20 @@ from .recurring_event import (
     TemplateEditSchema,
 )
 
+# Subscription schemas
+from .subscription import (
+    CancelSubscriptionSchema,
+    MySubscriptionSchema,
+    PaymentRecordSchema,
+    PaymentSchema as MembershipPaymentSchema,
+    PlanCreateSchema,
+    PlanSchema,
+    PlanUpdateSchema,
+    RefundSchema,
+    SubscriptionCreateSchema,
+    SubscriptionSchema,
+)
+
 # Announcement schemas
 from .announcement import (
     AnnouncementCreateSchema,
@@ -513,6 +527,17 @@ __all__ = [
     "GenerateSeriesEventsSchema",
     "RecurringEventCreateSchema",
     "TemplateEditSchema",
+    # Subscriptions
+    "CancelSubscriptionSchema",
+    "MembershipPaymentSchema",
+    "MySubscriptionSchema",
+    "PaymentRecordSchema",
+    "PlanCreateSchema",
+    "PlanSchema",
+    "PlanUpdateSchema",
+    "RefundSchema",
+    "SubscriptionCreateSchema",
+    "SubscriptionSchema",
     # Announcement
     "AnnouncementCreateSchema",
     "AnnouncementListSchema",

@@ -22,6 +22,7 @@ from events.controllers.event_series import EventSeriesController
 from events.controllers.event_series_admin import EventSeriesAdminController
 from events.controllers.exports import ExportController
 from events.controllers.following import FollowingController
+from events.controllers.me_subscriptions import MeSubscriptionsController
 from events.controllers.organization import OrganizationController
 from events.controllers.organization_admin import ORGANIZATION_ADMIN_CONTROLLERS
 from events.controllers.permissions import PermissionController
@@ -144,6 +145,7 @@ api.register_controllers(
     QuestionnaireFileController,
     UserPreferencesController,
     FollowingController,
+    MeSubscriptionsController,
     StripeWebhookController,
     ExportController,
     # Common controllers

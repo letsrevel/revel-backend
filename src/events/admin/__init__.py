@@ -39,6 +39,11 @@ from events.admin.preferences import (
     AttendeeVisibilityFlagAdmin,
     GeneralUserPreferencesAdmin,
 )
+from events.admin.subscription import (
+    MembershipPaymentAdmin,
+    MembershipSubscriptionAdmin,
+    MembershipSubscriptionPlanAdmin,
+)
 from events.admin.ticket import (
     PaymentAdmin,
     TicketAdmin,
@@ -93,4 +98,8 @@ __all__ = [
     "WhitelistRequestAdmin",
     # Discount
     "DiscountCodeAdmin",
+    # Subscriptions
+    "MembershipPaymentAdmin",
+    "MembershipSubscriptionAdmin",
+    "MembershipSubscriptionPlanAdmin",
 ]
