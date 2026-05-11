@@ -288,6 +288,13 @@ class Organization(
         help_text="Attendee invoicing mode: none, hybrid (draft + manual send), or auto (generate + send).",
     )
 
+    # Membership subscriptions
+    membership_grace_period_days = models.PositiveIntegerField(
+        default=7,
+        help_text=_("Days a PAST_DUE subscription stays valid before expiring."),
+    )
+    membership_refund_policy = MarkdownField(blank=True, default="")
+
     accept_membership_requests = models.BooleanField(default=False)
     contact_email = models.EmailField(blank=True, null=True)
     contact_email_verified = models.BooleanField(default=False)
@@ -365,6 +372,7 @@ class PermissionMap(BaseModel):
     delete_questionnaire: bool = False
     evaluate_questionnaire: bool = True
     send_announcements: bool = False
+    manage_subscriptions: bool = True
 
 
 class PermissionsSchema(BaseModel):

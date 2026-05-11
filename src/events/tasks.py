@@ -36,6 +36,7 @@ from .models import (
     AttendeeVisibilityFlag,
     Event,
     EventRSVP,
+    MembershipSubscription,
     Organization,
     OrganizationContactMessage,
     Payment,
@@ -762,3 +763,62 @@ def notify_admin_new_organization_discord(self: t.Any, organization_id: str) -> 
             "discord_exception", channel="organization_created", organization_id=organization_id, error=str(e)
         )
         raise
+
+
+@shared_task(name="events.expire_subscriptions_past_grace")
+def expire_subscriptions_past_grace() -> dict[str, int]:
+    """Advance membership subscriptions through their lifecycle.
+
+    Runs daily via Celery beat (see migration 0070). Three transitions:
+
+    1. ``ACTIVE`` with ``current_period_end < now`` and
+       ``cancel_at_period_end=True`` → ``EXPIRED`` (terminal).
+    2. ``ACTIVE`` with ``current_period_end < now`` and
+       ``cancel_at_period_end=False`` → ``PAST_DUE``.
+    3. ``PAST_DUE`` past the org's grace window → ``EXPIRED`` (terminal).
+
+    Iterating row-by-row (rather than ``.update()``) so the
+    ``post_save`` signal fires and syncs ``OrganizationMember`` for each
+    transition.
+
+    Returns:
+        Counters for telemetry: ``{"expired_immediate", "past_due", "expired_after_grace"}``.
+    """
+    now = timezone.now()
+    counters = {"expired_immediate": 0, "past_due": 0, "expired_after_grace": 0}
+
+    # 1 + 2: lapsed ACTIVE → EXPIRED (if cancel_at_period_end) else PAST_DUE.
+    active_lapsed = MembershipSubscription.objects.filter(
+        status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+        current_period_end__lt=now,
+    )
+    for sub in active_lapsed.iterator():
+        if sub.cancel_at_period_end:
+            sub.status = MembershipSubscription.SubscriptionStatus.EXPIRED
+            sub.cancelled_at = sub.cancelled_at or now
+            sub.save(update_fields=["status", "cancelled_at", "updated_at"])
+            counters["expired_immediate"] += 1
+        else:
+            sub.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
+            sub.save(update_fields=["status", "updated_at"])
+            counters["past_due"] += 1
+
+    # 3: PAST_DUE past grace → EXPIRED.
+    past_due_subs = MembershipSubscription.objects.filter(
+        status=MembershipSubscription.SubscriptionStatus.PAST_DUE,
+        current_period_end__isnull=False,
+    ).select_related("organization")
+    for sub in past_due_subs.iterator():
+        # ``current_period_end`` is guaranteed non-null by the filter above; assert for type narrowing.
+        period_end = sub.current_period_end
+        assert period_end is not None  # noqa: S101 — filter guarantees this
+        grace_days = sub.organization.membership_grace_period_days
+        if period_end + datetime.timedelta(days=grace_days) >= now:
+            continue
+        sub.status = MembershipSubscription.SubscriptionStatus.EXPIRED
+        sub.cancelled_at = sub.cancelled_at or now
+        sub.save(update_fields=["status", "cancelled_at", "updated_at"])
+        counters["expired_after_grace"] += 1
+
+    logger.info("expire_subscriptions_past_grace_done", **counters)
+    return counters

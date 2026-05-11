@@ -16,6 +16,7 @@ from events.models import (
     EventInvitation,
     EventRSVP,
     GeneralUserPreferences,
+    MembershipSubscription,
     Organization,
     OrganizationMember,
     OrganizationStaff,
@@ -434,3 +435,67 @@ def handle_event_opened_notify_followers(sender: type[Event], instance: Event, c
         )
 
     transaction.on_commit(send_follower_notifications)
+
+
+# Map subscription status -> the OrganizationMember status it implies.
+_SUBSCRIPTION_TO_MEMBER_STATUS: dict[str, str] = {
+    MembershipSubscription.SubscriptionStatus.PENDING.value: OrganizationMember.MembershipStatus.ACTIVE.value,
+    MembershipSubscription.SubscriptionStatus.ACTIVE.value: OrganizationMember.MembershipStatus.ACTIVE.value,
+    MembershipSubscription.SubscriptionStatus.PAST_DUE.value: OrganizationMember.MembershipStatus.ACTIVE.value,
+    MembershipSubscription.SubscriptionStatus.PAUSED.value: OrganizationMember.MembershipStatus.PAUSED.value,
+    MembershipSubscription.SubscriptionStatus.EXPIRED.value: OrganizationMember.MembershipStatus.CANCELLED.value,
+    MembershipSubscription.SubscriptionStatus.CANCELLED.value: OrganizationMember.MembershipStatus.CANCELLED.value,
+}
+
+
+@receiver(post_save, sender=MembershipSubscription)
+def sync_member_from_subscription(
+    sender: type[MembershipSubscription],
+    instance: MembershipSubscription,
+    created: bool,
+    **kwargs: t.Any,
+) -> None:
+    """Sync ``OrganizationMember.status`` and ``tier`` from the subscription.
+
+    Rules:
+    - Never creates an :class:`OrganizationMember` — creation belongs to
+      :func:`events.service.subscription_service.create_subscription`.
+    - Leaves ``BANNED`` members untouched.
+    - Subscription tier wins: ``member.tier`` is set to ``plan.tier`` whenever
+      they differ.
+    """
+    target_status = _SUBSCRIPTION_TO_MEMBER_STATUS.get(instance.status)
+    if target_status is None:
+        return
+
+    member = OrganizationMember.objects.filter(
+        organization_id=instance.organization_id,
+        user_id=instance.user_id,
+    ).first()
+    if member is None:
+        return
+    if member.status == OrganizationMember.MembershipStatus.BANNED:
+        return
+
+    target_tier_id = instance.plan.tier_id
+    update_fields = []
+    if member.status != target_status:
+        member.status = target_status
+        update_fields.append("status")
+    if member.tier_id != target_tier_id:
+        member.tier_id = target_tier_id
+        update_fields.append("tier")
+
+    if not update_fields:
+        return
+
+    update_fields.append("updated_at")
+    member.save(update_fields=update_fields)
+
+    logger.info(
+        "membership_subscription_synced_member",
+        subscription_id=str(instance.id),
+        member_id=str(member.id),
+        status=member.status,
+        tier_id=str(member.tier_id) if member.tier_id else None,
+    )
