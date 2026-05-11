@@ -366,7 +366,7 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     pwyc_min: Decimal | None = Field(None, ge=1)
     pwyc_max: Decimal | None = Field(None, ge=1)
     vat_rate: Decimal | None = Field(None, ge=0, le=100, description="VAT rate override. Null = use org default.")
-    currency: str | None = Field(None, max_length=3)
+    currency: Currencies | None = None
     sales_start_at: AwareDatetime | None = None
     sales_end_at: AwareDatetime | None = None
     total_quantity: int | None = None

@@ -8,6 +8,7 @@ from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, Field, model_validator
 
 from events.models.discount_code import DiscountCode
+from events.schema.ticket import Currencies
 
 # ---- Admin schemas ----
 
@@ -59,7 +60,7 @@ class _DiscountCodeValidatorMixin:
 
     discount_type: DiscountCode.DiscountType | None
     discount_value: Decimal | None
-    currency: str | None
+    currency: Currencies | None
     valid_from: AwareDatetime | None
     valid_until: AwareDatetime | None
 
@@ -91,7 +92,7 @@ class DiscountCodeCreateSchema(_DiscountCodeValidatorMixin, Schema):
     code: str = Field(..., max_length=64, min_length=1, pattern=r"^[^\W_]+$")
     discount_type: DiscountCode.DiscountType
     discount_value: Decimal = Field(..., ge=0)
-    currency: str | None = Field(None, max_length=3)
+    currency: Currencies | None = None
     valid_from: AwareDatetime | None = None
     valid_until: AwareDatetime | None = None
     max_uses: int | None = Field(None, ge=1)
@@ -108,7 +109,7 @@ class DiscountCodeUpdateSchema(_DiscountCodeValidatorMixin, Schema):
 
     discount_type: DiscountCode.DiscountType | None = None
     discount_value: Decimal | None = Field(None, ge=0)
-    currency: str | None = Field(None, max_length=3)
+    currency: Currencies | None = None
     valid_from: AwareDatetime | None = None
     valid_until: AwareDatetime | None = None
     max_uses: int | None = Field(None, ge=1)
