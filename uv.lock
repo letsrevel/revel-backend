@@ -3920,7 +3920,7 @@ wheels = [
 
 [[package]]
 name = "revel"
-version = "1.52.2"
+version = "1.52.3"
 source = { editable = "." }
 dependencies = [
     { name = "aiogram" },
