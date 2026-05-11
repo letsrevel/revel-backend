@@ -765,8 +765,16 @@ def notify_admin_new_organization_discord(self: t.Any, organization_id: str) -> 
         raise
 
 
+class SubscriptionExpiryCounters(t.TypedDict):
+    """Telemetry counters returned by ``expire_subscriptions_past_grace``."""
+
+    expired_immediate: int
+    past_due: int
+    expired_after_grace: int
+
+
 @shared_task(name="events.expire_subscriptions_past_grace")
-def expire_subscriptions_past_grace() -> dict[str, int]:
+def expire_subscriptions_past_grace() -> SubscriptionExpiryCounters:
     """Advance membership subscriptions through their lifecycle.
 
     Runs daily via Celery beat (see migration 0070). Transitions:
@@ -779,12 +787,9 @@ def expire_subscriptions_past_grace() -> dict[str, int]:
     are re-checked inside the lock so concurrent ``record_payment`` /
     cancellation calls cannot be clobbered. Rows are processed individually
     so the ``post_save`` signal fires and syncs ``OrganizationMember``.
-
-    Returns:
-        Counters for telemetry: ``{"expired_immediate", "past_due", "expired_after_grace"}``.
     """
     now = timezone.now()
-    counters = {"expired_immediate": 0, "past_due": 0, "expired_after_grace": 0}
+    counters: SubscriptionExpiryCounters = {"expired_immediate": 0, "past_due": 0, "expired_after_grace": 0}
 
     # 1 + 2: lapsed ACTIVE → EXPIRED (if cancel_at_period_end) else PAST_DUE.
     active_lapsed_ids = MembershipSubscription.objects.filter(
