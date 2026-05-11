@@ -4,10 +4,9 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
-from django.utils.translation import gettext_lazy as _
-from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
+from ninja_extra.searching import Searching, searching
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
@@ -121,6 +120,10 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
+    @searching(
+        Searching,
+        search_fields=["user__email", "user__first_name", "user__last_name", "user__preferred_name", "status"],
+    )
     def list_subscriptions(self, slug: str) -> QuerySet[models.MembershipSubscription]:
         """List all subscriptions for the organization."""
         organization = self.get_one(slug)
@@ -166,8 +169,9 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
 
         initial: InitialPayment | None = None
         if payload.initial_payment_amount is not None:
-            if not payload.initial_payment_currency:
-                raise HttpError(400, str(_("initial_payment_currency is required when initial_payment_amount is set.")))
+            # ``SubscriptionCreateSchema._validate_initial_payment`` guarantees
+            # ``initial_payment_currency`` is set when amount is provided.
+            assert payload.initial_payment_currency is not None  # noqa: S101
             initial = InitialPayment(
                 amount=payload.initial_payment_amount,
                 currency=payload.initial_payment_currency,

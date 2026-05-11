@@ -463,9 +463,26 @@ def sync_member_from_subscription(
     - Leaves ``BANNED`` members untouched.
     - Subscription tier wins: ``member.tier`` is set to ``plan.tier`` whenever
       they differ.
+    - Skips syncing when a newer non-terminal subscription exists for the
+      same (user, org) — older terminal rows must not clobber the effective
+      subscription when, e.g., admin re-saves a historical entry after the
+      user has resubscribed.
     """
     target_status = _SUBSCRIPTION_TO_MEMBER_STATUS.get(instance.status)
     if target_status is None:
+        return
+
+    # If a newer non-terminal subscription exists, it owns the member state.
+    newer_active_exists = (
+        MembershipSubscription.objects.filter(
+            organization_id=instance.organization_id,
+            user_id=instance.user_id,
+            created_at__gt=instance.created_at,
+        )
+        .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+        .exists()
+    )
+    if newer_active_exists:
         return
 
     member = OrganizationMember.objects.filter(

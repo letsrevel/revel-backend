@@ -222,22 +222,6 @@ class TestSubscriptionEndpoints:
         sub = MembershipSubscription.objects.get(user=subscriber)
         assert sub.payments.count() == 1
 
-    def test_create_subscription_initial_amount_without_currency_rejected(
-        self,
-        organization_owner_client: Client,
-        organization: Organization,
-        plan: MembershipSubscriptionPlan,
-        subscriber: RevelUser,
-    ) -> None:
-        url = reverse("api:create_subscription", kwargs={"slug": organization.slug})
-        payload = {
-            "plan_id": str(plan.id),
-            "user_id": str(subscriber.id),
-            "initial_payment_amount": "10.00",
-        }
-        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
-        assert response.status_code == 400
-
     def test_record_payment(
         self,
         organization_owner_client: Client,
@@ -279,6 +263,42 @@ class TestSubscriptionEndpoints:
         assert response.status_code == 200
         sub.refresh_from_db()
         assert sub.status == MembershipSubscription.SubscriptionStatus.CANCELLED
+
+    def test_cancel_at_period_end_schedules_cancellation(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """The default (``immediate=False``) path flips ``cancel_at_period_end`` and leaves status alone."""
+        sub = subscription_service.create_subscription(plan, subscriber)
+        url = reverse("api:cancel_subscription", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        response = organization_owner_client.post(
+            url, data=orjson.dumps({"immediate": False}), content_type="application/json"
+        )
+        assert response.status_code == 200
+        sub.refresh_from_db()
+        assert sub.cancel_at_period_end is True
+        assert sub.status != MembershipSubscription.SubscriptionStatus.CANCELLED
+
+    def test_create_subscription_with_amount_missing_currency_rejected(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """The schema's ``@model_validator`` returns 422 when amount lacks currency."""
+        url = reverse("api:create_subscription", kwargs={"slug": organization.slug})
+        payload = {
+            "plan_id": str(plan.id),
+            "user_id": str(subscriber.id),
+            "initial_payment_amount": "10.00",
+        }
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        # Pydantic validation errors surface as 422.
+        assert response.status_code == 422
 
     def test_refund_payment(
         self,

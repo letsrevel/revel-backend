@@ -154,6 +154,13 @@ class TestCreateSubscription:
         # No initial payment: a fresh subscription is PENDING.
         assert new_sub.status == MembershipSubscription.SubscriptionStatus.PENDING
 
+    def test_refuses_archived_plan(self, plan: MembershipSubscriptionPlan, subscriber: RevelUser) -> None:
+        """Subscribing to a plan that has been archived returns 400."""
+        subscription_service.archive_plan(plan)
+        with pytest.raises(HttpError) as excinfo:
+            subscription_service.create_subscription(plan, subscriber)
+        assert excinfo.value.status_code == 400
+
     def test_initial_payment_advances_period(
         self,
         plan: MembershipSubscriptionPlan,
@@ -208,16 +215,34 @@ class TestRecordPayment:
         sub.refresh_from_db()
         assert sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
 
-    def test_expired_is_terminal_and_unrevived(
+    def test_payment_against_terminal_is_refused(
         self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
     ) -> None:
+        """Terminal subscriptions refuse SUCCEEDED payments outright."""
         sub = subscription_service.create_subscription(plan, subscriber)
+        period_before = sub.current_period_end
         sub.status = MembershipSubscription.SubscriptionStatus.EXPIRED
         sub.save()
 
-        subscription_service.record_payment(sub, amount=Decimal("10.00"), currency="EUR", recorded_by=recorder)
+        with pytest.raises(HttpError) as excinfo:
+            subscription_service.record_payment(sub, amount=Decimal("10.00"), currency="EUR", recorded_by=recorder)
+        assert excinfo.value.status_code == 400
+
         sub.refresh_from_db()
+        # Status and period stay frozen.
         assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+        assert sub.current_period_end == period_before
+        assert sub.payments.count() == 0
+
+    def test_payment_against_cancelled_is_refused(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        subscription_service.cancel_subscription(sub, immediate=True)
+
+        with pytest.raises(HttpError) as excinfo:
+            subscription_service.record_payment(sub, amount=Decimal("10.00"), currency="EUR", recorded_by=recorder)
+        assert excinfo.value.status_code == 400
 
     def test_renewal_anchors_to_current_period_end(
         self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
@@ -302,6 +327,24 @@ class TestLifecycle:
         sub = subscription_service.create_subscription(plan, subscriber)
         with pytest.raises(HttpError):
             subscription_service.resume_subscription(sub)
+
+    def test_schedule_cancel_blocked_when_paused(self, plan: MembershipSubscriptionPlan, subscriber: RevelUser) -> None:
+        """A paused subscription cannot be scheduled to cancel at period end.
+
+        Time is frozen while PAUSED, so the period boundary would never be
+        reached. Callers must resume first or cancel immediately.
+        """
+        sub = subscription_service.create_subscription(plan, subscriber)
+        subscription_service.pause_subscription(sub)
+        with pytest.raises(HttpError) as excinfo:
+            subscription_service.cancel_subscription(sub, immediate=False)
+        assert excinfo.value.status_code == 400
+
+    def test_cancel_immediate_works_when_paused(self, plan: MembershipSubscriptionPlan, subscriber: RevelUser) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        subscription_service.pause_subscription(sub)
+        out = subscription_service.cancel_subscription(sub, immediate=True)
+        assert out.status == MembershipSubscription.SubscriptionStatus.CANCELLED
 
 
 # ---- refund_payment ----------------------------------------------------------

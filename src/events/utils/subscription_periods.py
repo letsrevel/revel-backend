@@ -6,17 +6,15 @@ spilling forward or raising.
 """
 
 import datetime
-import typing as t
 
 from dateutil.relativedelta import relativedelta
 
-if t.TYPE_CHECKING:
-    from events.models import MembershipSubscriptionPlan
+from events.models import MembershipSubscriptionPlan
 
 
 def calculate_period_end(
     period_start: datetime.datetime,
-    plan: "MembershipSubscriptionPlan",
+    plan: MembershipSubscriptionPlan,
 ) -> datetime.datetime:
     """Return the period end for a renewal anchored at ``period_start``.
 
@@ -27,6 +25,14 @@ def calculate_period_end(
     Returns:
         ``period_start + plan.period_count * plan.period_unit`` with month-end
         edges handled by :class:`relativedelta`.
+
+    Raises:
+        ValueError: If ``plan.period_unit`` is not a known unit.
     """
-    delta = relativedelta(**{f"{plan.period_unit}s": plan.period_count})  # type: ignore[arg-type]
+    if plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.MONTH:
+        delta = relativedelta(months=plan.period_count)
+    elif plan.period_unit == MembershipSubscriptionPlan.PeriodUnit.YEAR:
+        delta = relativedelta(years=plan.period_count)
+    else:
+        raise ValueError(f"Unsupported subscription period unit: {plan.period_unit!r}")
     return period_start + delta

@@ -131,6 +131,31 @@ class TestSyncMemberFromSubscription:
         member = OrganizationMember.objects.get(organization=organization, user=subscriber)
         assert member.status == OrganizationMember.MembershipStatus.PAUSED
 
+    def test_stale_terminal_subscription_does_not_overwrite_active(
+        self,
+        organization: Organization,
+        subscriber: RevelUser,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        """Re-saving an older terminal subscription must not clobber the current one.
+
+        Scenario: user subscribes (Sub1), cancels, then resubscribes (Sub2).
+        Sub1 is later re-saved (e.g. via admin edit). The signal must not
+        flip the member back to CANCELLED because Sub2 owns the state.
+        """
+        old_sub = subscription_service.create_subscription(plan, subscriber)
+        subscription_service.cancel_subscription(old_sub, immediate=True)
+        new_sub = subscription_service.create_subscription(plan, subscriber)
+        new_sub.refresh_from_db()
+
+        member = OrganizationMember.objects.get(organization=organization, user=subscriber)
+        assert member.status == OrganizationMember.MembershipStatus.ACTIVE
+
+        # Re-saving the old (terminal) subscription must NOT touch the member.
+        old_sub.save()
+        member.refresh_from_db()
+        assert member.status == OrganizationMember.MembershipStatus.ACTIVE
+
 
 class TestModelIntegrity:
     def test_subscription_org_must_match_plan_org(

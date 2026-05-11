@@ -18,6 +18,12 @@ from common.models import TimeStampedModel
 
 from .organization import MembershipTier, Organization
 
+# Single source of truth for the subscription statuses that are terminal
+# (no further transitions possible). Lives at module scope so it can be
+# referenced both from ``MembershipSubscription.Meta.constraints`` and from
+# runtime callers via ``MembershipSubscription.TERMINAL_STATUSES``.
+_TERMINAL_STATUS_VALUES: tuple[str, ...] = ("cancelled", "expired")
+
 
 class MembershipSubscriptionPlan(TimeStampedModel):
     """A paid plan attached to a :class:`MembershipTier`.
@@ -85,9 +91,7 @@ class MembershipSubscription(TimeStampedModel):
         CANCELLED = "cancelled", _("Cancelled")
         EXPIRED = "expired", _("Expired")
 
-    TERMINAL_STATUSES: t.ClassVar[frozenset[str]] = frozenset(
-        {SubscriptionStatus.CANCELLED.value, SubscriptionStatus.EXPIRED.value}
-    )
+    TERMINAL_STATUSES: t.ClassVar[frozenset[str]] = frozenset(_TERMINAL_STATUS_VALUES)
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -120,7 +124,7 @@ class MembershipSubscription(TimeStampedModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["user", "organization"],
-                condition=~models.Q(status__in=["cancelled", "expired"]),
+                condition=~models.Q(status__in=list(_TERMINAL_STATUS_VALUES)),
                 name="one_active_subscription_per_user_org",
             ),
         ]

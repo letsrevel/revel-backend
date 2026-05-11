@@ -4,7 +4,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field, model_validator
 
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 
@@ -62,6 +62,13 @@ class SubscriptionCreateSchema(Schema):
     initial_payment_amount: Decimal | None = Field(None, ge=Decimal("0"))
     initial_payment_currency: Currencies | None = None
     initial_payment_notes: str = ""
+
+    @model_validator(mode="after")
+    def _validate_initial_payment(self) -> "SubscriptionCreateSchema":
+        """Require ``initial_payment_currency`` when ``initial_payment_amount`` is set."""
+        if self.initial_payment_amount is not None and not self.initial_payment_currency:
+            raise ValueError("initial_payment_currency is required when initial_payment_amount is set.")
+        return self
 
 
 class CancelSubscriptionSchema(Schema):

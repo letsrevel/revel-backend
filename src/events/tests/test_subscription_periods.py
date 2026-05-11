@@ -70,3 +70,10 @@ def test_calculate_period_end_uses_timezone_aware_input() -> None:
     end = calculate_period_end(start, plan)  # type: ignore[arg-type]
     assert end.tzinfo is not None
     assert end > start
+
+
+def test_calculate_period_end_rejects_unknown_unit() -> None:
+    """Unsupported period units raise ``ValueError`` rather than passing silently."""
+    plan = _PlanProxy("week", 1)
+    with pytest.raises(ValueError):
+        calculate_period_end(timezone.now(), plan)  # type: ignore[arg-type]

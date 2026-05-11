@@ -9,7 +9,8 @@ import typing as t
 from decimal import Decimal
 
 import structlog
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import ProtectedError
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -100,7 +101,13 @@ def delete_plan(plan: MembershipSubscriptionPlan) -> None:
     """
     if plan.subscriptions.exists():
         raise HttpError(400, str(_("Cannot delete a plan with existing subscriptions. Archive it instead.")))
-    plan.delete()
+    try:
+        plan.delete()
+    except ProtectedError as exc:
+        # Concurrent ``create_subscription`` slipped in between our existence
+        # check and the delete: PROTECT raises ProtectedError which would
+        # otherwise bubble up as a 500.
+        raise HttpError(400, str(_("Cannot delete a plan with existing subscriptions. Archive it instead."))) from exc
 
 
 # ---- Subscription operations -------------------------------------------------
@@ -120,6 +127,9 @@ def create_subscription(
     exists at the plan's tier in the same transaction.
     """
     organization = plan.tier.organization
+
+    if not plan.is_active:
+        raise HttpError(400, str(_("This plan is archived and no longer accepts new subscriptions.")))
 
     # Refuse BANNED.
     banned = OrganizationMember.objects.filter(
@@ -149,12 +159,18 @@ def create_subscription(
         },
     )
 
-    subscription = MembershipSubscription.objects.create(
-        user=user,
-        plan=plan,
-        organization=organization,
-        status=MembershipSubscription.SubscriptionStatus.PENDING,
-    )
+    try:
+        subscription = MembershipSubscription.objects.create(
+            user=user,
+            plan=plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.PENDING,
+        )
+    except IntegrityError as exc:
+        # The partial-unique index protects against a race where two requests
+        # both pass the duplicate check above. Convert the resulting 500 to a
+        # clean 400.
+        raise HttpError(400, str(_("This user already has an active subscription in this organization."))) from exc
 
     if initial_payment is not None:
         record_payment(
@@ -185,9 +201,20 @@ def record_payment(
     """Record a payment and advance the subscription's billing period.
 
     A SUCCEEDED payment advances the period and resets PENDING/PAST_DUE to
-    ACTIVE. EXPIRED is terminal and stays put.
+    ACTIVE. Terminal subscriptions (CANCELLED, EXPIRED) refuse the payment
+    entirely — staff must create a fresh subscription instead.
     """
     subscription = MembershipSubscription.objects.select_for_update().get(pk=subscription.pk)
+    if subscription.is_terminal:
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "Cannot record a payment against a cancelled or expired subscription. "
+                    "Create a new subscription instead."
+                )
+            ),
+        )
     plan = subscription.plan
     now = timezone.now()
 
@@ -239,7 +266,9 @@ def cancel_subscription(
 
     ``immediate=False`` (default) sets ``cancel_at_period_end`` and lets the
     grace-expiry task finish the cancellation at the period boundary.
-    ``immediate=True`` jumps straight to CANCELLED.
+    ``immediate=True`` jumps straight to CANCELLED. PAUSED subscriptions
+    refuse the scheduled path — pause freezes time so the period boundary
+    would never be reached; callers must resume first or cancel immediately.
     """
     subscription = MembershipSubscription.objects.select_for_update().get(pk=subscription.pk)
     if subscription.is_terminal:
@@ -251,6 +280,12 @@ def cancel_subscription(
         subscription.cancel_at_period_end = False
         subscription.save(update_fields=["status", "cancelled_at", "cancel_at_period_end", "updated_at"])
         return subscription
+
+    if subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED:
+        raise HttpError(
+            400,
+            str(_("Cannot schedule cancellation for a paused subscription. Resume it first, or cancel immediately.")),
+        )
 
     subscription.cancel_at_period_end = True
     subscription.save(update_fields=["cancel_at_period_end", "updated_at"])
