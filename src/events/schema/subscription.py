@@ -12,10 +12,11 @@ from .ticket import Currencies
 
 
 class PlanSchema(ModelSchema):
-    """Response schema for a subscription plan."""
+    """Response schema for a subscription plan (staff-facing)."""
 
     tier_id: UUID
     period_unit: MembershipSubscriptionPlan.PeriodUnit
+    payment_method: MembershipSubscriptionPlan.PaymentMethod
 
     class Meta:
         model = MembershipSubscriptionPlan
@@ -30,6 +31,29 @@ class PlanSchema(ModelSchema):
         ]
 
 
+class PublicPlanSchema(ModelSchema):
+    """Response schema for a subscription plan (public/member-facing).
+
+    Mirrors :class:`PlanSchema` but only exposes archived plans hidden — the
+    public list filters them — and does not return Stripe internals.
+    """
+
+    tier_id: UUID
+    period_unit: MembershipSubscriptionPlan.PeriodUnit
+    payment_method: MembershipSubscriptionPlan.PaymentMethod
+
+    class Meta:
+        model = MembershipSubscriptionPlan
+        fields = [
+            "id",
+            "name",
+            "description",
+            "price",
+            "currency",
+            "period_count",
+        ]
+
+
 class PlanCreateSchema(Schema):
     """Create payload for a subscription plan (tier inferred from URL)."""
 
@@ -40,10 +64,16 @@ class PlanCreateSchema(Schema):
     period_unit: MembershipSubscriptionPlan.PeriodUnit = MembershipSubscriptionPlan.PeriodUnit.MONTH
     period_count: int = Field(1, ge=1, le=120)
     is_active: bool = True
+    payment_method: MembershipSubscriptionPlan.PaymentMethod = MembershipSubscriptionPlan.PaymentMethod.OFFLINE
 
 
 class PlanUpdateSchema(Schema):
-    """Partial update payload for a subscription plan."""
+    """Partial update payload for a subscription plan.
+
+    ``payment_method`` is intentionally not patchable: switching between
+    OFFLINE and ONLINE mid-lifecycle would require non-trivial Stripe
+    migration. Archive the plan and create a new one instead.
+    """
 
     name: str | None = Field(None, max_length=255)
     description: str | None = None
@@ -176,3 +206,26 @@ class SubscriptionSchema(_BaseSubscriptionSchema):
     def resolve_plan(obj: MembershipSubscription) -> MembershipSubscriptionPlan:
         """Return the plan for nested serialization."""
         return obj.plan
+
+
+class SubscribeRequestSchema(Schema):
+    """Member-initiated subscribe payload."""
+
+    plan_id: UUID
+
+
+class SubscribeResponseSchema(Schema):
+    """Response to a member-initiated subscribe.
+
+    Carries the Stripe PaymentIntent ``client_secret`` so the frontend can
+    confirm the first invoice via Stripe.js.
+    """
+
+    subscription: MySubscriptionSchema
+    client_secret: str
+
+
+class MemberCancelSubscriptionSchema(Schema):
+    """Member-initiated cancel payload."""
+
+    immediate: bool = False

@@ -39,6 +39,7 @@ from .questionnaire import EventQuestionnaireSubmission, OrganizationQuestionnai
 from .recurrence_rule import RecurrenceRule
 from .rsvp import EventRSVP
 from .subscription import (
+    CustomerProfile,
     MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
@@ -80,6 +81,7 @@ __all__ = [
     # Event Series
     "EventSeries",
     # Subscriptions
+    "CustomerProfile",
     "MembershipPayment",
     "MembershipSubscription",
     "MembershipSubscriptionPlan",

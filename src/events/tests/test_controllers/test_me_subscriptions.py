@@ -1,8 +1,10 @@
 """Tests for the member-facing /me subscription endpoints."""
 
 from decimal import Decimal
+from unittest import mock
 
 import pytest
+import stripe
 from django.test.client import Client
 from django.urls import reverse
 from ninja_jwt.tokens import RefreshToken
@@ -17,6 +19,13 @@ from events.models import (
 from events.service import subscription_service
 
 pytestmark = pytest.mark.django_db
+
+
+def _make_stripe_connected(org: Organization) -> None:
+    org.stripe_account_id = "acct_test_org"
+    org.stripe_charges_enabled = True
+    org.stripe_details_submitted = True
+    org.save(update_fields=["stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"])
 
 
 @pytest.fixture
@@ -99,4 +108,139 @@ class TestGetMyOrgSubscription:
         subscription_service.cancel_subscription(their_subscription, immediate=True)
         url = reverse("api:get_my_organization_subscription", kwargs={"org_id": organization.id})
         response = subscriber_client.get(url)
+        assert response.status_code == 404
+
+
+class TestSubscribeEndpoint:
+    @pytest.fixture
+    def online_plan(self, organization: Organization, tier: MembershipTier) -> MembershipSubscriptionPlan:
+        _make_stripe_connected(organization)
+        return MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly Online",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_test",
+            stripe_price_id="price_test",
+        )
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    def test_subscribe_returns_client_secret(
+        self,
+        mock_customer: mock.Mock,
+        mock_subscription: mock.Mock,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        mock_customer.return_value = mock.MagicMock(id="cus_x")
+        mock_subscription.return_value = mock.MagicMock(
+            id="sub_x", latest_invoice={"payment_intent": {"client_secret": "pi_secret"}}
+        )
+
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+
+        assert response.status_code == 201, response.content
+        body = response.json()
+        assert body["client_secret"] == "pi_secret"
+        assert body["subscription"]["plan_id"] == str(online_plan.id)
+        assert MembershipSubscription.objects.filter(user=subscriber_user, organization=organization).exists()
+
+    def test_subscribe_refuses_offline_plan(
+        self,
+        subscriber_client: Client,
+        plan: MembershipSubscriptionPlan,  # OFFLINE fixture
+        organization: Organization,
+    ) -> None:
+        _make_stripe_connected(organization)
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(plan.id)}, content_type="application/json")
+        assert response.status_code == 400
+
+    def test_subscribe_unauthenticated_blocked(
+        self,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = Client().post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+        assert response.status_code == 401
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    def test_subscribe_stripe_failure_rolls_back(
+        self,
+        mock_customer: mock.Mock,
+        mock_subscription: mock.Mock,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        mock_customer.return_value = mock.MagicMock(id="cus_x")
+        mock_subscription.side_effect = stripe.error.CardError("declined", "card", "card_declined")
+        url = reverse("api:subscribe_to_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(online_plan.id)}, content_type="application/json")
+        assert response.status_code == 502
+        assert not MembershipSubscription.objects.filter(user=subscriber_user, organization=organization).exists()
+
+
+class TestCancelMyMembershipEndpoint:
+    @pytest.fixture
+    def online_plan(self, organization: Organization, tier: MembershipTier) -> MembershipSubscriptionPlan:
+        _make_stripe_connected(organization)
+        return MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly Online",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_test",
+            stripe_price_id="price_test",
+        )
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    def test_cancel_online_routes_to_stripe(
+        self,
+        mock_modify: mock.Mock,
+        subscriber_client: Client,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        MembershipSubscription.objects.create(
+            user=subscriber_user,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_to_cancel",
+        )
+
+        url = reverse("api:cancel_my_membership_subscription", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"immediate": False}, content_type="application/json")
+        assert response.status_code == 200, response.content
+        mock_modify.assert_called_once()
+        assert response.json()["cancel_at_period_end"] is True
+
+    def test_cancel_offline_uses_phase1_path(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        url = reverse("api:cancel_my_membership_subscription", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"immediate": False}, content_type="application/json")
+        assert response.status_code == 200, response.content
+        their_subscription.refresh_from_db()
+        assert their_subscription.cancel_at_period_end is True
+
+    def test_cancel_404_when_no_active(self, subscriber_client: Client, organization: Organization) -> None:
+        url = reverse("api:cancel_my_membership_subscription", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"immediate": False}, content_type="application/json")
         assert response.status_code == 404

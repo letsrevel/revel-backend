@@ -1,4 +1,4 @@
-"""Member-facing read endpoints for membership subscriptions."""
+"""Member-facing endpoints for membership subscriptions."""
 
 from uuid import UUID
 
@@ -9,14 +9,15 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
-from common.throttling import UserDefaultThrottle
+from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import schema
-from events.models import MembershipSubscription
+from events.models import MembershipSubscription, MembershipSubscriptionPlan, Organization
+from events.service import subscription_service, subscription_stripe_service
 
 
 @api_controller("/me", auth=I18nJWTAuth(), tags=["Me - Subscriptions"], throttle=UserDefaultThrottle())
 class MeSubscriptionsController(UserAwareController):
-    """Read-only access to the current user's own membership subscriptions."""
+    """Member-facing access to the current user's own membership subscriptions."""
 
     @route.get(
         "/membership-subscriptions",
@@ -49,3 +50,60 @@ class MeSubscriptionsController(UserAwareController):
             .order_by("-created_at")
         )
         return get_object_or_404(qs)
+
+    @route.post(
+        "/organizations/{org_id}/subscribe",
+        url_name="subscribe_to_membership_plan",
+        response={201: schema.SubscribeResponseSchema},
+        throttle=WriteThrottle(),
+    )
+    def subscribe(
+        self,
+        org_id: UUID,
+        payload: schema.SubscribeRequestSchema,
+    ) -> tuple[int, schema.SubscribeResponseSchema]:
+        """Start a Stripe-backed subscription on an ONLINE plan.
+
+        Returns the local subscription row plus a Stripe ``client_secret`` the
+        frontend uses to confirm the first invoice's PaymentIntent.
+        """
+        organization = get_object_or_404(Organization, pk=org_id)
+        plan = get_object_or_404(
+            MembershipSubscriptionPlan.objects.select_related("tier", "tier__organization"),
+            pk=payload.plan_id,
+            tier__organization=organization,
+            is_active=True,
+        )
+        # ``start_online_subscription`` enforces ``payment_method == ONLINE``
+        # and raises 400 if the plan is offline; no need to repeat the check.
+        subscription, client_secret = subscription_stripe_service.start_online_subscription(plan, self.user())
+        return 201, schema.SubscribeResponseSchema(
+            subscription=schema.MySubscriptionSchema.model_validate(subscription, from_attributes=True),
+            client_secret=client_secret,
+        )
+
+    @route.post(
+        "/organizations/{org_id}/subscription/cancel",
+        url_name="cancel_my_membership_subscription",
+        response=schema.MySubscriptionSchema,
+        throttle=WriteThrottle(),
+    )
+    def cancel_subscription(
+        self,
+        org_id: UUID,
+        payload: schema.MemberCancelSubscriptionSchema,
+    ) -> MembershipSubscription:
+        """Cancel the caller's active subscription in an organization.
+
+        For ONLINE plans the cancel is mirrored to Stripe; the webhook then
+        settles local state. ``immediate=False`` (default) schedules the
+        cancellation at the period boundary.
+        """
+        qs = (
+            MembershipSubscription.objects.filter(user=self.user(), organization_id=org_id)
+            .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+            .select_related("plan", "plan__tier", "organization")
+            .order_by("-created_at")
+        )
+        subscription = get_object_or_404(qs)
+        return subscription_service.cancel_subscription(subscription, immediate=payload.immediate)
