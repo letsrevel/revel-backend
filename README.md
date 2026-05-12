@@ -5,7 +5,7 @@
 <!-- Status -->
 [![Status](https://img.shields.io/badge/status-Live-green?style=for-the-badge)](https://letsrevel.io)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](./LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/zy8nTDqQ)
+[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/Rnwbzuvxvn)
 ![Django](https://img.shields.io/badge/django-5.2_LTS-092E20.svg?logo=django&logoColor=white&style=for-the-badge)
 [![Docs](https://img.shields.io/badge/docs-docs.letsrevel.io-blue?style=for-the-badge&logo=readthedocs&logoColor=white)](https://docs.letsrevel.io)
 
