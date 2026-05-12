@@ -361,6 +361,307 @@ def cancel_online_subscription(
     return subscription
 
 
+# ---- Plan changes (Phase 3) -------------------------------------------------
+
+
+def _classify_plan_change(
+    subscription: MembershipSubscription,
+    new_plan: MembershipSubscriptionPlan,
+) -> t.Literal["upgrade", "downgrade"]:
+    """Return ``"upgrade"`` if ``new_plan`` is more expensive than the current plan, else ``"downgrade"``.
+
+    Equal prices count as downgrade — no immediate proration, just a swap at
+    the period boundary. The caller has already validated that both plans
+    share the same currency.
+    """
+    return "upgrade" if new_plan.price > subscription.plan.price else "downgrade"
+
+
+def _retrieve_subscription_item_id(stripe_subscription_id: str, org: Organization) -> str:
+    """Pull the first Subscription Item id off a live Stripe Subscription.
+
+    Stripe's upgrade API needs the *item id* (not the price id) to swap a
+    price in place. We fetch on demand instead of denormalizing because the
+    item id can change across Stripe-side schedule transitions.
+    """
+    try:
+        stripe_sub = stripe.Subscription.retrieve(stripe_subscription_id, **_stripe_account_kwargs(org))
+    except stripe.error.StripeError as exc:
+        raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
+    items = (stripe_sub.get("items") or {}).get("data") or []
+    if not items:
+        raise HttpError(502, str(_("Stripe subscription has no items to update.")))
+    return t.cast(str, items[0]["id"])
+
+
+def _upgrade_online_subscription(
+    subscription: MembershipSubscription,
+    new_plan: MembershipSubscriptionPlan,
+) -> MembershipSubscription:
+    """Apply an immediate, prorated price swap on Stripe.
+
+    Stripe issues a prorated invoice on the spot. If payment fails the
+    subscription moves to ``past_due`` and the existing dunning flow takes
+    over; either way the price swap stands.
+    """
+    org = subscription.organization
+    kwargs = _stripe_account_kwargs(org)
+    stripe_sub_id = t.cast(str, subscription.stripe_subscription_id)
+    item_id = _retrieve_subscription_item_id(stripe_sub_id, org)
+    try:
+        stripe.Subscription.modify(
+            stripe_sub_id,
+            items=[{"id": item_id, "price": new_plan.stripe_price_id}],
+            proration_behavior="create_prorations",
+            payment_behavior="allow_incomplete",
+            metadata={"revel_plan_id": str(new_plan.pk)},
+            **kwargs,
+        )
+    except stripe.error.StripeError as exc:
+        logger.error(
+            "subscription_stripe_upgrade_failed",
+            subscription_id=str(subscription.pk),
+            new_plan_id=str(new_plan.pk),
+            error=str(exc),
+        )
+        raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
+
+    # Reflect the price swap locally right away so the API response sees the
+    # new plan without waiting for the ``customer.subscription.updated`` webhook
+    # round-trip. The webhook re-applies the same state idempotently.
+    subscription.plan = new_plan
+    subscription.pending_plan = None
+    subscription.save(update_fields=["plan", "pending_plan", "updated_at"])
+    return subscription
+
+
+def _downgrade_online_subscription(
+    subscription: MembershipSubscription,
+    new_plan: MembershipSubscriptionPlan,
+) -> MembershipSubscription:
+    """Schedule a price swap at the next renewal via a Stripe Subscription Schedule.
+
+    Two-phase schedule: phase 1 keeps the current price for the rest of the
+    current period; phase 2 starts the new price at the period boundary.
+    ``end_behavior='release'`` lets the subscription fall back to a normal
+    rolling renewal at the new price once the schedule's second phase
+    completes its first iteration.
+    """
+    org = subscription.organization
+    kwargs = _stripe_account_kwargs(org)
+    try:
+        schedule = stripe.SubscriptionSchedule.create(
+            from_subscription=subscription.stripe_subscription_id,
+            **kwargs,
+        )
+        current_phase = (schedule.get("phases") or [None])[0]
+        if not current_phase:
+            raise HttpError(502, str(_("Stripe did not return a schedule phase to extend.")))
+        existing_price = ((current_phase.get("items") or [{}])[0].get("price")) or subscription.plan.stripe_price_id
+        new_phases: list[dict[str, t.Any]] = [
+            {
+                "items": [{"price": existing_price, "quantity": 1}],
+                "start_date": current_phase.get("start_date"),
+                "end_date": current_phase.get("end_date"),
+                "proration_behavior": "none",
+            },
+            {
+                "items": [{"price": new_plan.stripe_price_id, "quantity": 1}],
+                "iterations": 1,
+                "proration_behavior": "none",
+            },
+        ]
+        stripe.SubscriptionSchedule.modify(
+            schedule.id,
+            end_behavior="release",
+            phases=new_phases,
+            metadata={"revel_subscription_id": str(subscription.pk), "revel_new_plan_id": str(new_plan.pk)},
+            **kwargs,
+        )
+    except stripe.error.StripeError as exc:
+        logger.error(
+            "subscription_stripe_downgrade_failed",
+            subscription_id=str(subscription.pk),
+            new_plan_id=str(new_plan.pk),
+            error=str(exc),
+        )
+        raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
+
+    subscription.pending_plan = new_plan
+    subscription.stripe_schedule_id = t.cast(str, schedule.id)
+    subscription.save(update_fields=["pending_plan", "stripe_schedule_id", "updated_at"])
+    return subscription
+
+
+def _validate_change_plan_state(
+    subscription: MembershipSubscription,
+    new_plan: MembershipSubscriptionPlan,
+) -> None:
+    """Pre-flight checks shared by upgrade and downgrade routing."""
+    if subscription.is_terminal:
+        raise HttpError(400, str(_("Cannot change the plan on a terminated subscription.")))
+    if subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED:
+        raise HttpError(400, str(_("Resume the subscription before changing its plan.")))
+    if subscription.cancel_at_period_end:
+        raise HttpError(400, str(_("This subscription is scheduled to cancel; cannot change plan.")))
+    if subscription.pending_plan_id:
+        raise HttpError(400, str(_("A plan change is already pending on this subscription.")))
+    if subscription.plan_id == new_plan.pk:
+        raise HttpError(400, str(_("This subscription is already on that plan.")))
+
+
+def _ensure_new_plan_has_stripe_price(new_plan: MembershipSubscriptionPlan) -> None:
+    """Lazy-provision the Stripe Price for ``new_plan`` if it's missing.
+
+    Plans created before Phase 2 (or whose initial sync failed) might be
+    missing ``stripe_price_id``. Provisioning here lets a member still switch
+    to them without a manual fix-up step.
+    """
+    if new_plan.stripe_price_id:
+        return
+    ensure_stripe_price(new_plan)
+    new_plan.refresh_from_db()
+    if not new_plan.stripe_price_id:
+        raise HttpError(500, str(_("Could not prepare the plan for checkout.")))
+
+
+@transaction.atomic
+def change_online_plan(
+    subscription: MembershipSubscription,
+    new_plan: MembershipSubscriptionPlan,
+) -> MembershipSubscription:
+    """Switch the plan on an ONLINE subscription.
+
+    Same-currency check, then routes to :func:`_upgrade_online_subscription`
+    or :func:`_downgrade_online_subscription` based on price delta. The local
+    row is locked for the duration of the dispatch so two concurrent change
+    calls can't both kick off a Stripe schedule.
+    """
+    if subscription.plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        raise HttpError(400, str(_("This subscription is not managed by Stripe.")))
+    if not subscription.stripe_subscription_id:
+        raise HttpError(400, str(_("This subscription has no linked Stripe record yet.")))
+
+    _ensure_new_plan_has_stripe_price(new_plan)
+
+    subscription = (
+        MembershipSubscription.objects.select_for_update()
+        .select_related("plan", "plan__tier", "organization", "user")
+        .get(pk=subscription.pk)
+    )
+    _validate_change_plan_state(subscription, new_plan)
+
+    if _classify_plan_change(subscription, new_plan) == "upgrade":
+        return _upgrade_online_subscription(subscription, new_plan)
+    return _downgrade_online_subscription(subscription, new_plan)
+
+
+def pause_online_subscription(subscription: MembershipSubscription) -> MembershipSubscription:
+    """Pause invoice collection on Stripe.
+
+    Uses ``pause_collection.behavior='void'`` so any draft invoices created
+    while paused are voided rather than sitting around. The subscription
+    keeps its existing ``status`` on Stripe (``active``); we surface PAUSED
+    locally so members and staff see a clear signal.
+    """
+    if subscription.plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        raise HttpError(400, str(_("This subscription is not managed by Stripe.")))
+    if not subscription.stripe_subscription_id:
+        raise HttpError(400, str(_("This subscription has no linked Stripe record yet.")))
+    if subscription.is_terminal:
+        raise HttpError(400, str(_("Cannot pause a terminal subscription.")))
+    if subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED:
+        return subscription
+
+    org = subscription.organization
+    try:
+        stripe.Subscription.modify(
+            subscription.stripe_subscription_id,
+            pause_collection={"behavior": "void"},
+            **_stripe_account_kwargs(org),
+        )
+    except stripe.error.StripeError as exc:
+        logger.error(
+            "subscription_stripe_pause_failed",
+            subscription_id=str(subscription.pk),
+            error=str(exc),
+        )
+        raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
+
+    subscription.status = MembershipSubscription.SubscriptionStatus.PAUSED
+    subscription.save(update_fields=["status", "updated_at"])
+    return subscription
+
+
+def resume_online_subscription(subscription: MembershipSubscription) -> MembershipSubscription:
+    """Resume a previously paused Stripe subscription.
+
+    Sending ``pause_collection=""`` clears the pause on Stripe; the local
+    status flips back to ACTIVE. The grace-expiry Celery task will move it
+    to PAST_DUE later if the period has already lapsed during the pause.
+    """
+    if subscription.plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        raise HttpError(400, str(_("This subscription is not managed by Stripe.")))
+    if not subscription.stripe_subscription_id:
+        raise HttpError(400, str(_("This subscription has no linked Stripe record yet.")))
+    if subscription.status != MembershipSubscription.SubscriptionStatus.PAUSED:
+        raise HttpError(400, str(_("Only paused subscriptions can be resumed.")))
+
+    org = subscription.organization
+    try:
+        stripe.Subscription.modify(
+            subscription.stripe_subscription_id,
+            pause_collection="",
+            **_stripe_account_kwargs(org),
+        )
+    except stripe.error.StripeError as exc:
+        logger.error(
+            "subscription_stripe_resume_failed",
+            subscription_id=str(subscription.pk),
+            error=str(exc),
+        )
+        raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
+
+    subscription.status = MembershipSubscription.SubscriptionStatus.ACTIVE
+    subscription.save(update_fields=["status", "updated_at"])
+    return subscription
+
+
+# ---- Customer Portal --------------------------------------------------------
+
+
+def create_billing_portal_session(
+    user: RevelUser,
+    organization: Organization,
+    *,
+    return_url: str,
+) -> str:
+    """Return a URL to a Stripe Customer Portal session for ``user`` in ``organization``.
+
+    The Customer Portal lets members manage their saved payment methods,
+    view invoices, and (if enabled in the Stripe dashboard) cancel/change
+    their subscription. We pre-create the per-(user, org) Stripe Customer
+    on first use so the portal has something to attach to.
+    """
+    _require_stripe_connected(organization)
+    customer = ensure_customer_profile(user, organization)
+    try:
+        session = stripe.billing_portal.Session.create(
+            customer=customer.stripe_customer_id,
+            return_url=return_url,
+            **_stripe_account_kwargs(organization),
+        )
+    except stripe.error.StripeError as exc:
+        logger.error(
+            "subscription_stripe_billing_portal_failed",
+            user_id=str(user.pk),
+            org_id=str(organization.pk),
+            error=str(exc),
+        )
+        raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
+    return t.cast(str, session.url)
+
+
 # ---- Webhook helpers --------------------------------------------------------
 
 
@@ -409,6 +710,66 @@ def _epoch_to_dt(epoch: int | None) -> datetime | None:
     return datetime.fromtimestamp(epoch, tz=_utc.utc)
 
 
+def _resolve_target_status(stripe_subscription: dict[str, t.Any]) -> str | None:
+    """Translate the Stripe payload to a local status, honoring ``pause_collection``.
+
+    Stripe surfaces an active pause via the ``pause_collection`` object, not
+    via the top-level ``status`` field. When set, we treat the subscription
+    as PAUSED locally regardless of what ``status`` says.
+    """
+    if stripe_subscription.get("pause_collection"):
+        return MembershipSubscription.SubscriptionStatus.PAUSED.value
+    return map_stripe_status(t.cast(str, stripe_subscription.get("status", "")))
+
+
+def _apply_period_dates(
+    subscription: MembershipSubscription,
+    stripe_subscription: dict[str, t.Any],
+) -> list[str]:
+    """Mirror Stripe's ``current_period_*`` epochs onto the local row in place."""
+    changed: list[str] = []
+    new_start = _epoch_to_dt(stripe_subscription.get("current_period_start"))
+    if new_start and subscription.current_period_start != new_start:
+        subscription.current_period_start = new_start
+        changed.append("current_period_start")
+    new_end = _epoch_to_dt(stripe_subscription.get("current_period_end"))
+    if new_end and subscription.current_period_end != new_end:
+        subscription.current_period_end = new_end
+        changed.append("current_period_end")
+    return changed
+
+
+def _apply_stripe_price_swap(
+    subscription: MembershipSubscription,
+    stripe_subscription: dict[str, t.Any],
+) -> list[str]:
+    """Detect a Stripe price swap and re-point ``subscription.plan`` if needed.
+
+    Returns the list of field names that were mutated on ``subscription`` so
+    the caller can extend its own ``update_fields`` list. Mutates the
+    instance in place but does not save.
+    """
+    items = (stripe_subscription.get("items") or {}).get("data") or []
+    active_price_id = (items[0].get("price", {}).get("id") if items else None) or None
+    if not active_price_id or active_price_id == subscription.plan.stripe_price_id:
+        return []
+    new_plan = MembershipSubscriptionPlan.objects.filter(
+        stripe_price_id=active_price_id,
+        tier__organization=subscription.organization,
+    ).first()
+    if not new_plan or new_plan.pk == subscription.plan_id:
+        return []
+    changed = ["plan"]
+    subscription.plan = new_plan
+    if subscription.pending_plan_id == new_plan.pk:
+        subscription.pending_plan = None
+        changed.append("pending_plan")
+    if subscription.stripe_schedule_id:
+        subscription.stripe_schedule_id = ""
+        changed.append("stripe_schedule_id")
+    return changed
+
+
 @transaction.atomic
 def sync_subscription_from_stripe(
     stripe_subscription: dict[str, t.Any],
@@ -433,11 +794,11 @@ def sync_subscription_from_stripe(
 
     update_fields: list[str] = []
 
-    mapped = map_stripe_status(t.cast(str, stripe_subscription.get("status", "")))
-    if mapped and subscription.status != mapped:
-        subscription.status = mapped
+    target_status = _resolve_target_status(stripe_subscription)
+    if target_status and subscription.status != target_status:
+        subscription.status = target_status
         update_fields.append("status")
-        if mapped == MembershipSubscription.SubscriptionStatus.CANCELLED.value and not subscription.cancelled_at:
+        if target_status == MembershipSubscription.SubscriptionStatus.CANCELLED.value and not subscription.cancelled_at:
             subscription.cancelled_at = timezone.now()
             update_fields.append("cancelled_at")
 
@@ -446,14 +807,10 @@ def sync_subscription_from_stripe(
         subscription.cancel_at_period_end = cap
         update_fields.append("cancel_at_period_end")
 
-    new_start = _epoch_to_dt(stripe_subscription.get("current_period_start"))
-    if new_start and subscription.current_period_start != new_start:
-        subscription.current_period_start = new_start
-        update_fields.append("current_period_start")
-    new_end = _epoch_to_dt(stripe_subscription.get("current_period_end"))
-    if new_end and subscription.current_period_end != new_end:
-        subscription.current_period_end = new_end
-        update_fields.append("current_period_end")
+    update_fields.extend(_apply_period_dates(subscription, stripe_subscription))
+    # Detect a price swap (schedule phase transition or direct upgrade) and
+    # re-point ``subscription.plan`` accordingly.
+    update_fields.extend(_apply_stripe_price_swap(subscription, stripe_subscription))
 
     if update_fields:
         subscription.save(update_fields=[*update_fields, "updated_at"])

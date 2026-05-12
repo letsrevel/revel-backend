@@ -162,6 +162,7 @@ class _BaseSubscriptionSchema(ModelSchema):
     current_period_start: AwareDatetime | None = None
     current_period_end: AwareDatetime | None = None
     cancelled_at: AwareDatetime | None = None
+    pending_plan_id: UUID | None = None
 
     class Meta:
         model = MembershipSubscription
@@ -229,3 +230,29 @@ class MemberCancelSubscriptionSchema(Schema):
     """Member-initiated cancel payload."""
 
     immediate: bool = False
+
+
+class ChangePlanRequestSchema(Schema):
+    """Member-initiated change-plan payload.
+
+    Server decides upgrade vs. downgrade based on price delta and routes to
+    Stripe accordingly. Currency must match the current plan's.
+    """
+
+    plan_id: UUID
+
+
+class BillingPortalRequestSchema(Schema):
+    """Member-initiated billing-portal session request.
+
+    ``return_url`` is the URL Stripe redirects to when the user closes the
+    portal. Defaults to the platform's frontend base URL when omitted.
+    """
+
+    return_url: str | None = Field(None, max_length=2000)
+
+
+class BillingPortalSessionSchema(Schema):
+    """Response payload for the billing-portal endpoint."""
+
+    url: str

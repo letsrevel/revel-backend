@@ -47,23 +47,27 @@ class MembershipSubscriptionAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMix
         "status",
         "current_period_end",
         "cancel_at_period_end",
+        "pending_plan",
     ]
     list_filter = ["status", "cancel_at_period_end", "organization__name"]
-    list_select_related = ["user", "organization", "plan", "plan__tier"]
+    list_select_related = ["user", "organization", "plan", "plan__tier", "pending_plan"]
     search_fields = [
         "user__username",
         "user__email",
         "organization__name",
         "plan__name",
         "stripe_subscription_id",
+        "stripe_schedule_id",
     ]
-    autocomplete_fields = ["user", "organization", "plan"]
+    autocomplete_fields = ["user", "organization", "plan", "pending_plan"]
     readonly_fields = [
         "status",
         "current_period_start",
         "current_period_end",
         "cancelled_at",
         "stripe_subscription_id",
+        "stripe_schedule_id",
+        "pending_plan",
         "created_at",
         "updated_at",
     ]

@@ -395,23 +395,65 @@ class TestOnlinePlanGuards:
         )
         assert response.status_code == 400
 
-    def test_pause_refuses_online_subscription(
+    @pytest.fixture
+    def online_subscription(
         self,
-        organization_owner_client: Client,
-        organization: Organization,
         online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
         subscriber: RevelUser,
-    ) -> None:
-        sub = MembershipSubscription.objects.create(
+    ) -> MembershipSubscription:
+        return MembershipSubscription.objects.create(
             user=subscriber,
             plan=online_plan,
             organization=organization,
             status=MembershipSubscription.SubscriptionStatus.ACTIVE,
-            stripe_subscription_id="sub_stripe",
+            stripe_subscription_id="sub_stripe_admin",
         )
-        url = reverse("api:pause_subscription", kwargs={"slug": organization.slug, "sub_id": sub.id})
-        response = organization_owner_client.post(url)
-        assert response.status_code == 400
+
+    def test_pause_online_routes_to_stripe(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        online_subscription: MembershipSubscription,
+    ) -> None:
+        from unittest import mock
+
+        with mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify") as mock_modify:
+            url = reverse(
+                "api:pause_subscription",
+                kwargs={"slug": organization.slug, "sub_id": online_subscription.id},
+            )
+            response = organization_owner_client.post(url)
+
+        assert response.status_code == 200, response.content
+        mock_modify.assert_called_once()
+        assert mock_modify.call_args.kwargs["pause_collection"] == {"behavior": "void"}
+        online_subscription.refresh_from_db()
+        assert online_subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED
+
+    def test_resume_online_routes_to_stripe(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        online_subscription: MembershipSubscription,
+    ) -> None:
+        from unittest import mock
+
+        online_subscription.status = MembershipSubscription.SubscriptionStatus.PAUSED
+        online_subscription.save(update_fields=["status"])
+
+        with mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify") as mock_modify:
+            url = reverse(
+                "api:resume_subscription",
+                kwargs={"slug": organization.slug, "sub_id": online_subscription.id},
+            )
+            response = organization_owner_client.post(url)
+
+        assert response.status_code == 200, response.content
+        mock_modify.assert_called_once()
+        assert mock_modify.call_args.kwargs["pause_collection"] == ""
+        online_subscription.refresh_from_db()
+        assert online_subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE
 
 
 class TestCrossOrgIsolation:

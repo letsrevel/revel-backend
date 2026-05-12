@@ -131,6 +131,15 @@ class MembershipSubscription(TimeStampedModel):
     cancel_at_period_end = models.BooleanField(default=False)
     cancelled_at = models.DateTimeField(null=True, blank=True)
     stripe_subscription_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
+    pending_plan = models.ForeignKey(
+        MembershipSubscriptionPlan,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="pending_subscriptions",
+        help_text=_("Plan that will replace ``plan`` at the next renewal (downgrade flow)."),
+    )
+    stripe_schedule_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
 
     class Meta:
         ordering = ["-created_at"]
@@ -155,6 +164,14 @@ class MembershipSubscription(TimeStampedModel):
         if self.plan_id and self.organization_id and self.plan.tier.organization_id != self.organization_id:
             raise DjangoValidationError(
                 {"organization": _("Subscription organization must match the plan's tier organization.")}
+            )
+        if (
+            self.pending_plan_id
+            and self.pending_plan
+            and self.pending_plan.tier.organization_id != self.organization_id
+        ):
+            raise DjangoValidationError(
+                {"pending_plan": _("Pending plan must belong to the same organization as the subscription.")}
             )
 
     @property

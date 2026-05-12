@@ -288,7 +288,10 @@ from .recurring_event import (
 
 # Subscription schemas
 from .subscription import (
+    BillingPortalRequestSchema,
+    BillingPortalSessionSchema,
     CancelSubscriptionSchema,
+    ChangePlanRequestSchema,
     MemberCancelSubscriptionSchema,
     MySubscriptionSchema,
     PaymentRecordSchema,
@@ -532,7 +535,10 @@ __all__ = [
     "RecurringEventCreateSchema",
     "TemplateEditSchema",
     # Subscriptions
+    "BillingPortalRequestSchema",
+    "BillingPortalSessionSchema",
     "CancelSubscriptionSchema",
+    "ChangePlanRequestSchema",
     "MemberCancelSubscriptionSchema",
     "MembershipPaymentSchema",
     "MySubscriptionSchema",

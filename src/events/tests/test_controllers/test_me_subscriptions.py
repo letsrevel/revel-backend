@@ -244,3 +244,145 @@ class TestCancelMyMembershipEndpoint:
         url = reverse("api:cancel_my_membership_subscription", kwargs={"org_id": organization.id})
         response = subscriber_client.post(url, data={"immediate": False}, content_type="application/json")
         assert response.status_code == 404
+
+
+class TestChangePlanEndpoint:
+    @pytest.fixture
+    def online_plan(self, organization: Organization, tier: MembershipTier) -> MembershipSubscriptionPlan:
+        _make_stripe_connected(organization)
+        return MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly Online",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_change",
+            stripe_price_id="price_change_a",
+        )
+
+    @pytest.fixture
+    def pricier_online_plan(self, tier: MembershipTier) -> MembershipSubscriptionPlan:
+        return MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Premium Online",
+            price=Decimal("25.00"),
+            currency="EUR",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_premium",
+            stripe_price_id="price_premium",
+        )
+
+    @pytest.fixture
+    def online_subscription(
+        self,
+        subscriber_user: RevelUser,
+        online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> MembershipSubscription:
+        return MembershipSubscription.objects.create(
+            user=subscriber_user,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            stripe_subscription_id="sub_change_plan_test",
+        )
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.modify")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.retrieve")
+    def test_upgrade_routes_through_stripe(
+        self,
+        mock_retrieve: mock.Mock,
+        mock_modify: mock.Mock,
+        subscriber_client: Client,
+        online_subscription: MembershipSubscription,
+        pricier_online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        mock_retrieve.return_value = {"items": {"data": [{"id": "si_swap"}]}}
+        url = reverse("api:change_my_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(
+            url, data={"plan_id": str(pricier_online_plan.id)}, content_type="application/json"
+        )
+        assert response.status_code == 200, response.content
+        mock_modify.assert_called_once()
+        assert mock_modify.call_args.kwargs["proration_behavior"] == "create_prorations"
+        body = response.json()
+        assert body["plan_id"] == str(pricier_online_plan.id)
+
+    def test_change_plan_refuses_cross_currency(
+        self,
+        subscriber_client: Client,
+        online_subscription: MembershipSubscription,
+        tier: MembershipTier,
+        organization: Organization,
+    ) -> None:
+        usd_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="USD Plan",
+            price=Decimal("12.00"),
+            currency="USD",
+            period_unit="month",
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_product_id="prod_usd",
+            stripe_price_id="price_usd",
+        )
+        url = reverse("api:change_my_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={"plan_id": str(usd_plan.id)}, content_type="application/json")
+        assert response.status_code == 400
+
+    def test_change_plan_404_when_no_active(
+        self,
+        subscriber_client: Client,
+        pricier_online_plan: MembershipSubscriptionPlan,
+        organization: Organization,
+    ) -> None:
+        url = reverse("api:change_my_membership_plan", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(
+            url, data={"plan_id": str(pricier_online_plan.id)}, content_type="application/json"
+        )
+        assert response.status_code == 404
+
+
+class TestBillingPortalEndpoint:
+    @pytest.fixture
+    def stripe_org(self, organization: Organization) -> Organization:
+        _make_stripe_connected(organization)
+        return organization
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.billing_portal.Session.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    def test_returns_portal_url(
+        self,
+        mock_customer: mock.Mock,
+        mock_portal: mock.Mock,
+        subscriber_client: Client,
+        stripe_org: Organization,
+    ) -> None:
+        mock_customer.return_value = mock.MagicMock(id="cus_for_portal_endpoint")
+        mock_portal.return_value = mock.MagicMock(url="https://stripe.example/portal/123")
+        url = reverse("api:create_billing_portal_session", kwargs={"org_id": stripe_org.id})
+        response = subscriber_client.post(
+            url,
+            data={"return_url": "https://app.example/billing"},
+            content_type="application/json",
+        )
+        assert response.status_code == 201, response.content
+        body = response.json()
+        assert body["url"] == "https://stripe.example/portal/123"
+        assert mock_portal.call_args.kwargs["return_url"] == "https://app.example/billing"
+
+    def test_unauthenticated_blocked(self, stripe_org: Organization) -> None:
+        url = reverse("api:create_billing_portal_session", kwargs={"org_id": stripe_org.id})
+        response = Client().post(url, data={}, content_type="application/json")
+        assert response.status_code == 401
+
+    def test_refuses_non_connected_org(
+        self,
+        subscriber_client: Client,
+        organization: Organization,
+    ) -> None:
+        url = reverse("api:create_billing_portal_session", kwargs={"org_id": organization.id})
+        response = subscriber_client.post(url, data={}, content_type="application/json")
+        assert response.status_code == 400

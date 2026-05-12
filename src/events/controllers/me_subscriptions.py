@@ -107,3 +107,63 @@ class MeSubscriptionsController(UserAwareController):
         )
         subscription = get_object_or_404(qs)
         return subscription_service.cancel_subscription(subscription, immediate=payload.immediate)
+
+    @route.post(
+        "/organizations/{org_id}/subscription/change-plan",
+        url_name="change_my_membership_plan",
+        response=schema.MySubscriptionSchema,
+        throttle=WriteThrottle(),
+    )
+    def change_plan(
+        self,
+        org_id: UUID,
+        payload: schema.ChangePlanRequestSchema,
+    ) -> MembershipSubscription:
+        """Switch to a different plan within the same organization.
+
+        For ONLINE plans the price delta decides: upgrade prorates immediately
+        on Stripe, downgrade is scheduled via a Stripe Subscription Schedule
+        and surfaces as ``pending_plan_id`` until the period rolls over.
+        """
+        qs = (
+            MembershipSubscription.objects.filter(user=self.user(), organization_id=org_id)
+            .exclude(status__in=MembershipSubscription.TERMINAL_STATUSES)
+            .select_related("plan", "plan__tier", "organization")
+            .order_by("-created_at")
+        )
+        subscription = get_object_or_404(qs)
+        new_plan = get_object_or_404(
+            MembershipSubscriptionPlan.objects.select_related("tier", "tier__organization"),
+            pk=payload.plan_id,
+            tier__organization_id=org_id,
+            is_active=True,
+        )
+        return subscription_service.change_plan(subscription, new_plan)
+
+    @route.post(
+        "/organizations/{org_id}/billing-portal",
+        url_name="create_billing_portal_session",
+        response={201: schema.BillingPortalSessionSchema},
+        throttle=WriteThrottle(),
+    )
+    def create_billing_portal_session(
+        self,
+        org_id: UUID,
+        payload: schema.BillingPortalRequestSchema,
+    ) -> tuple[int, schema.BillingPortalSessionSchema]:
+        """Create a Stripe Customer Portal session for the caller in this org.
+
+        Members use the portal to manage saved payment methods and download
+        invoices. The portal also offers cancel/change-plan UI when the org's
+        Stripe dashboard configuration enables it.
+        """
+        from common.models import SiteSettings
+
+        organization = get_object_or_404(Organization, pk=org_id)
+        return_url = payload.return_url or SiteSettings.get_solo().frontend_base_url
+        url = subscription_stripe_service.create_billing_portal_session(
+            self.user(),
+            organization,
+            return_url=return_url,
+        )
+        return 201, schema.BillingPortalSessionSchema(url=url)

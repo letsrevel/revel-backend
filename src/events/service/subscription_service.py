@@ -349,22 +349,19 @@ def cancel_subscription(
 def pause_subscription(subscription: MembershipSubscription) -> MembershipSubscription:
     """Pause a non-terminal subscription.
 
-    ONLINE (Stripe-managed) subscriptions are not pausable in Phase 2 —
-    Stripe ``pause_collection`` arrives in Phase 3.
+    For ONLINE (Stripe-managed) subscriptions, dispatches to the Stripe
+    service so collection is paused on Stripe via ``pause_collection``.
     """
     subscription = MembershipSubscription.objects.select_for_update().select_related("plan").get(pk=subscription.pk)
-    if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
-        raise HttpError(
-            400,
-            str(
-                _(
-                    "Stripe-backed subscriptions cannot be paused yet. "
-                    "Cancel instead, or wait for Phase 3 (Stripe pause_collection)."
-                )
-            ),
-        )
     if subscription.is_terminal:
         raise HttpError(400, str(_("Cannot pause a terminal subscription.")))
+    if (
+        subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
+        and subscription.stripe_subscription_id
+    ):
+        from events.service import subscription_stripe_service  # lazy: avoid cycle
+
+        return subscription_stripe_service.pause_online_subscription(subscription)
     if subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED:
         return subscription
     subscription.status = MembershipSubscription.SubscriptionStatus.PAUSED
@@ -376,14 +373,78 @@ def pause_subscription(subscription: MembershipSubscription) -> MembershipSubscr
 def resume_subscription(subscription: MembershipSubscription) -> MembershipSubscription:
     """Resume a PAUSED subscription back to ACTIVE.
 
-    If the period has already lapsed, the next ``record_payment`` /
-    grace-expiry pass will correct the status to PAST_DUE/EXPIRED.
+    For ONLINE subscriptions, dispatches to the Stripe service so the
+    matching ``pause_collection`` is cleared on Stripe. If the period has
+    already lapsed, the next ``record_payment`` / grace-expiry pass will
+    correct the status to PAST_DUE/EXPIRED.
     """
-    subscription = MembershipSubscription.objects.select_for_update().get(pk=subscription.pk)
+    subscription = (
+        MembershipSubscription.objects.select_for_update()
+        .select_related("plan", "plan__tier", "organization")
+        .get(pk=subscription.pk)
+    )
     if subscription.status != MembershipSubscription.SubscriptionStatus.PAUSED:
         raise HttpError(400, str(_("Only paused subscriptions can be resumed.")))
+    if (
+        subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
+        and subscription.stripe_subscription_id
+    ):
+        from events.service import subscription_stripe_service  # lazy: avoid cycle
+
+        return subscription_stripe_service.resume_online_subscription(subscription)
     subscription.status = MembershipSubscription.SubscriptionStatus.ACTIVE
     subscription.save(update_fields=["status", "updated_at"])
+    return subscription
+
+
+@transaction.atomic
+def change_plan(
+    subscription: MembershipSubscription,
+    new_plan: MembershipSubscriptionPlan,
+) -> MembershipSubscription:
+    """Switch ``subscription`` to ``new_plan``.
+
+    For ONLINE subscriptions, dispatches to the Stripe service which routes
+    to either an immediate prorated upgrade or a scheduled downgrade. OFFLINE
+    subscriptions perform an immediate, fee-free swap — staff are expected
+    to handle any settlement off-book.
+
+    Refuses cross-organization plan changes and currency switches in either
+    path; the latter would require manual prorating against a moving FX rate
+    which we do not attempt.
+    """
+    subscription = (
+        MembershipSubscription.objects.select_for_update()
+        .select_related("plan", "plan__tier", "organization", "user")
+        .get(pk=subscription.pk)
+    )
+    if new_plan.tier.organization_id != subscription.organization_id:
+        raise HttpError(400, str(_("New plan must belong to the same organization as the subscription.")))
+    if not new_plan.is_active:
+        raise HttpError(400, str(_("This plan is archived and no longer accepts new subscriptions.")))
+    if new_plan.payment_method != subscription.plan.payment_method:
+        raise HttpError(
+            400,
+            str(_("Cannot switch between ONLINE and OFFLINE plans. Cancel and create a new subscription instead.")),
+        )
+    if new_plan.currency.upper() != subscription.plan.currency.upper():
+        raise HttpError(400, str(_("New plan must use the same currency as the current plan.")))
+
+    if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        from events.service import subscription_stripe_service  # lazy: avoid cycle
+
+        return subscription_stripe_service.change_online_plan(subscription, new_plan)
+
+    if subscription.is_terminal:
+        raise HttpError(400, str(_("Cannot change the plan on a terminated subscription.")))
+    if subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED:
+        raise HttpError(400, str(_("Resume the subscription before changing its plan.")))
+    if subscription.plan_id == new_plan.pk:
+        raise HttpError(400, str(_("This subscription is already on that plan.")))
+
+    subscription.plan = new_plan
+    subscription.pending_plan = None
+    subscription.save(update_fields=["plan", "pending_plan", "updated_at"])
     return subscription
 
 
