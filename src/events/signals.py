@@ -17,6 +17,7 @@ from events.models import (
     EventRSVP,
     GeneralUserPreferences,
     MembershipSubscription,
+    MembershipSubscriptionPlan,
     Organization,
     OrganizationMember,
     OrganizationStaff,
@@ -470,6 +471,15 @@ def sync_member_from_subscription(
     """
     target_status = _SUBSCRIPTION_TO_MEMBER_STATUS.get(instance.status)
     if target_status is None:
+        return
+
+    # ONLINE plans gate ACTIVE membership on the first successful Stripe
+    # payment. PENDING is the "awaiting first invoice" state — leave the
+    # member alone until the webhook flips us to ACTIVE.
+    if (
+        instance.status == MembershipSubscription.SubscriptionStatus.PENDING.value
+        and instance.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE.value
+    ):
         return
 
     # If a newer non-terminal subscription exists, it owns the member state.

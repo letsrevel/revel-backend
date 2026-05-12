@@ -4,6 +4,8 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
+from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
@@ -158,13 +160,28 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         slug: str,
         payload: schema.SubscriptionCreateSchema,
     ) -> tuple[int, models.MembershipSubscription]:
-        """Create a subscription on behalf of a user (OFFLINE flow)."""
+        """Create a subscription on behalf of a user (OFFLINE flow only).
+
+        ONLINE (Stripe) plans must be subscribed to by the member themselves
+        via ``POST /api/me/organizations/{org_id}/subscribe`` so the user can
+        confirm the first payment.
+        """
         organization = self.get_one(slug)
         plan = get_object_or_404(
             models.MembershipSubscriptionPlan.objects.select_related("tier"),
             pk=payload.plan_id,
             tier__organization=organization,
         )
+        if plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+            raise HttpError(
+                400,
+                str(
+                    _(
+                        "ONLINE plans must be subscribed to by the member directly. "
+                        "Send them to the member-facing subscribe endpoint."
+                    )
+                ),
+            )
         user = get_object_or_404(RevelUser, pk=payload.user_id)
 
         initial: InitialPayment | None = None
@@ -193,13 +210,22 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         sub_id: UUID,
         payload: schema.PaymentRecordSchema,
     ) -> tuple[int, models.MembershipPayment]:
-        """Record a manual payment against a subscription."""
+        """Record a manual payment against an OFFLINE subscription.
+
+        ONLINE (Stripe) payments arrive via the ``invoice.paid`` webhook and
+        must not be hand-recorded — that would create duplicates.
+        """
         organization = self.get_one(slug)
         subscription = get_object_or_404(
             models.MembershipSubscription.objects.select_related("plan"),
             pk=sub_id,
             organization=organization,
         )
+        if subscription.plan.payment_method == models.MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+            raise HttpError(
+                400,
+                str(_("ONLINE subscription payments are recorded automatically via Stripe webhooks.")),
+            )
         payment = subscription_service.record_payment(
             subscription,
             amount=payload.amount,

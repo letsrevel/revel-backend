@@ -383,6 +383,38 @@ class StripeEventHandler:
                 quantity_sold=F("quantity_sold") - 1
             )
 
+    # ---- Membership subscription webhooks (Phase 2) ----
+
+    def handle_customer_subscription_created(self, event: stripe.Event) -> None:
+        """Mirror Stripe Subscription state when Stripe confirms creation."""
+        from events.service import subscription_stripe_service
+
+        subscription_stripe_service.sync_subscription_from_stripe(dict(event.data.object))
+
+    def handle_customer_subscription_updated(self, event: stripe.Event) -> None:
+        """Mirror status / period / cancel_at_period_end onto the local row."""
+        from events.service import subscription_stripe_service
+
+        subscription_stripe_service.sync_subscription_from_stripe(dict(event.data.object))
+
+    def handle_customer_subscription_deleted(self, event: stripe.Event) -> None:
+        """Stripe-side cancellation (immediate or end-of-period) — mark terminal."""
+        from events.service import subscription_stripe_service
+
+        subscription_stripe_service.sync_subscription_from_stripe(dict(event.data.object))
+
+    def handle_invoice_paid(self, event: stripe.Event) -> None:
+        """Record a SUCCEEDED MembershipPayment + revive PENDING/PAST_DUE → ACTIVE."""
+        from events.service import subscription_stripe_service
+
+        subscription_stripe_service.record_stripe_payment_from_invoice(dict(event.data.object), succeeded=True)
+
+    def handle_invoice_payment_failed(self, event: stripe.Event) -> None:
+        """Record a FAILED MembershipPayment + transition subscription to PAST_DUE."""
+        from events.service import subscription_stripe_service
+
+        subscription_stripe_service.record_stripe_payment_from_invoice(dict(event.data.object), succeeded=False)
+
     @transaction.atomic
     def handle_payment_intent_canceled(self, event: stripe.Event) -> None:
         """Handle canceled payment intents.

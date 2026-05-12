@@ -41,6 +41,20 @@ class InitialPayment:
 # ---- Plan operations ---------------------------------------------------------
 
 
+def _maybe_sync_plan_to_stripe(plan: MembershipSubscriptionPlan) -> MembershipSubscriptionPlan:
+    """Provision (or refresh) the Stripe Product+Price for an ONLINE plan.
+
+    No-op for OFFLINE plans. Stripe failures bubble up as ``HttpError`` so the
+    controller can return a clean ``502``; the DB transaction rolls back along
+    with the plan write so we don't leave a half-provisioned row.
+    """
+    if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        return plan
+    from events.service import subscription_stripe_service  # lazy: avoid cycle
+
+    return subscription_stripe_service.ensure_stripe_price(plan)
+
+
 @transaction.atomic
 def create_plan(
     tier: MembershipTier,
@@ -52,9 +66,14 @@ def create_plan(
     period_count: int = 1,
     description: str = "",
     is_active: bool = True,
+    payment_method: str = MembershipSubscriptionPlan.PaymentMethod.OFFLINE,
 ) -> MembershipSubscriptionPlan:
-    """Create a subscription plan for a membership tier."""
-    return MembershipSubscriptionPlan.objects.create(
+    """Create a subscription plan for a membership tier.
+
+    For ONLINE plans, also provisions the matching Stripe Product+Price on
+    the organization's Connect account.
+    """
+    plan = MembershipSubscriptionPlan.objects.create(
         tier=tier,
         name=name,
         price=price,
@@ -63,7 +82,9 @@ def create_plan(
         period_count=period_count,
         description=description,
         is_active=is_active,
+        payment_method=payment_method,
     )
+    return _maybe_sync_plan_to_stripe(plan)
 
 
 @transaction.atomic
@@ -73,22 +94,32 @@ def update_plan(
 ) -> MembershipSubscriptionPlan:
     """Update a plan in-place.
 
-    Callers pass only the fields to change; full_clean runs on save.
+    Callers pass only the fields to change; full_clean runs on save. When the
+    plan is ONLINE and any pricing-shape field changes, the Stripe Price is
+    archived and a fresh one created (Stripe Prices are immutable).
     """
     if not fields:
         return plan
     for field, value in fields.items():
         setattr(plan, field, value)
     plan.save(update_fields=[*fields.keys(), "updated_at"])
-    return plan
+    return _maybe_sync_plan_to_stripe(plan)
 
 
 @transaction.atomic
 def archive_plan(plan: MembershipSubscriptionPlan) -> MembershipSubscriptionPlan:
-    """Soft-disable a plan by flipping ``is_active``."""
+    """Soft-disable a plan by flipping ``is_active``.
+
+    For ONLINE plans, also archives the Stripe Price so it can't be used for
+    new subscriptions. Existing subscribers keep paying their old Price.
+    """
     if plan.is_active:
         plan.is_active = False
         plan.save(update_fields=["is_active", "updated_at"])
+    if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        from events.service import subscription_stripe_service
+
+        subscription_stripe_service.archive_stripe_price(plan)
     return plan
 
 
@@ -150,14 +181,18 @@ def create_subscription(
         raise HttpError(400, str(_("This user already has an active subscription in this organization.")))
 
     # Ensure membership exists at plan.tier (don't overwrite BANNED — guarded above).
-    OrganizationMember.objects.update_or_create(
-        organization=organization,
-        user=user,
-        defaults={
-            "tier": plan.tier,
-            "status": OrganizationMember.MembershipStatus.ACTIVE,
-        },
-    )
+    # ONLINE plans gate ACTIVE membership on the first successful Stripe payment,
+    # so we don't grant tier benefits up front: that work moves into the
+    # ``invoice.paid`` / ``customer.subscription.updated`` webhook handlers.
+    if plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.OFFLINE:
+        OrganizationMember.objects.update_or_create(
+            organization=organization,
+            user=user,
+            defaults={
+                "tier": plan.tier,
+                "status": OrganizationMember.MembershipStatus.ACTIVE,
+            },
+        )
 
     try:
         subscription = MembershipSubscription.objects.create(
@@ -269,10 +304,28 @@ def cancel_subscription(
     ``immediate=True`` jumps straight to CANCELLED. PAUSED subscriptions
     refuse the scheduled path — pause freezes time so the period boundary
     would never be reached; callers must resume first or cancel immediately.
+
+    For Stripe-managed (ONLINE) subscriptions, dispatches to the Stripe
+    service so the cancel is mirrored to Stripe; the webhook then settles
+    local state. Falls back to the OFFLINE path when no Stripe link exists.
     """
-    subscription = MembershipSubscription.objects.select_for_update().get(pk=subscription.pk)
+    # Reload up front so the dispatch check sees committed plan/Stripe data.
+    subscription = (
+        MembershipSubscription.objects.select_for_update()
+        .select_related("plan", "plan__tier", "organization")
+        .get(pk=subscription.pk)
+    )
     if subscription.is_terminal:
         return subscription
+
+    if (
+        subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
+        and subscription.stripe_subscription_id
+    ):
+        # Lazy import to avoid a service<->stripe-service cycle.
+        from events.service import subscription_stripe_service
+
+        return subscription_stripe_service.cancel_online_subscription(subscription, immediate=immediate)
 
     if immediate:
         subscription.status = MembershipSubscription.SubscriptionStatus.CANCELLED
@@ -294,8 +347,22 @@ def cancel_subscription(
 
 @transaction.atomic
 def pause_subscription(subscription: MembershipSubscription) -> MembershipSubscription:
-    """Pause a non-terminal subscription."""
-    subscription = MembershipSubscription.objects.select_for_update().get(pk=subscription.pk)
+    """Pause a non-terminal subscription.
+
+    ONLINE (Stripe-managed) subscriptions are not pausable in Phase 2 —
+    Stripe ``pause_collection`` arrives in Phase 3.
+    """
+    subscription = MembershipSubscription.objects.select_for_update().select_related("plan").get(pk=subscription.pk)
+    if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "Stripe-backed subscriptions cannot be paused yet. "
+                    "Cancel instead, or wait for Phase 3 (Stripe pause_collection)."
+                )
+            ),
+        )
     if subscription.is_terminal:
         raise HttpError(400, str(_("Cannot pause a terminal subscription.")))
     if subscription.status == MembershipSubscription.SubscriptionStatus.PAUSED:
