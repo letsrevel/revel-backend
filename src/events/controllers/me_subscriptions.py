@@ -160,7 +160,10 @@ class MeSubscriptionsController(UserAwareController):
         from common.models import SiteSettings
 
         organization = get_object_or_404(Organization, pk=org_id)
-        return_url = payload.return_url or SiteSettings.get_solo().frontend_base_url
+        # ``payload.return_url`` is a validated ``HttpUrl`` (or None) — coerce
+        # to plain ``str`` for the Stripe API. Falling back to the platform's
+        # frontend keeps a sensible default when the client omits it.
+        return_url = str(payload.return_url) if payload.return_url else SiteSettings.get_solo().frontend_base_url
         url = subscription_stripe_service.create_billing_portal_session(
             self.user(),
             organization,

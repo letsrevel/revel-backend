@@ -351,16 +351,27 @@ class TestBillingPortalEndpoint:
         _make_stripe_connected(organization)
         return organization
 
+    @pytest.fixture
+    def subscriber_profile(
+        self,
+        subscriber_user: RevelUser,
+        stripe_org: Organization,
+    ) -> None:
+        """Seed a CustomerProfile so the user qualifies for a portal session."""
+        from events.models import CustomerProfile
+
+        CustomerProfile.objects.create(
+            user=subscriber_user, organization=stripe_org, stripe_customer_id="cus_seeded_portal"
+        )
+
     @mock.patch("events.service.subscription_stripe_service.stripe.billing_portal.Session.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
     def test_returns_portal_url(
         self,
-        mock_customer: mock.Mock,
         mock_portal: mock.Mock,
         subscriber_client: Client,
         stripe_org: Organization,
+        subscriber_profile: None,
     ) -> None:
-        mock_customer.return_value = mock.MagicMock(id="cus_for_portal_endpoint")
         mock_portal.return_value = mock.MagicMock(url="https://stripe.example/portal/123")
         url = reverse("api:create_billing_portal_session", kwargs={"org_id": stripe_org.id})
         response = subscriber_client.post(
@@ -371,7 +382,33 @@ class TestBillingPortalEndpoint:
         assert response.status_code == 201, response.content
         body = response.json()
         assert body["url"] == "https://stripe.example/portal/123"
-        assert mock_portal.call_args.kwargs["return_url"] == "https://app.example/billing"
+        # Pydantic's HttpUrl normalizes the URL; check the prefix instead of an exact match.
+        assert mock_portal.call_args.kwargs["return_url"].startswith("https://app.example/billing")
+
+    def test_refuses_when_no_customer_profile(
+        self,
+        subscriber_client: Client,
+        stripe_org: Organization,
+    ) -> None:
+        """Strangers who never subscribed cannot trigger a portal session."""
+        url = reverse("api:create_billing_portal_session", kwargs={"org_id": stripe_org.id})
+        response = subscriber_client.post(url, data={}, content_type="application/json")
+        assert response.status_code == 404
+
+    def test_rejects_invalid_return_url(
+        self,
+        subscriber_client: Client,
+        stripe_org: Organization,
+        subscriber_profile: None,
+    ) -> None:
+        """Non-http(s) ``return_url`` is rejected at the schema layer."""
+        url = reverse("api:create_billing_portal_session", kwargs={"org_id": stripe_org.id})
+        response = subscriber_client.post(
+            url,
+            data={"return_url": "javascript:alert(1)"},
+            content_type="application/json",
+        )
+        assert response.status_code == 422
 
     def test_unauthenticated_blocked(self, stripe_org: Organization) -> None:
         url = reverse("api:create_billing_portal_session", kwargs={"org_id": stripe_org.id})

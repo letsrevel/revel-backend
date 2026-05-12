@@ -4,7 +4,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, Field, HttpUrl, model_validator
 
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 
@@ -246,10 +246,12 @@ class BillingPortalRequestSchema(Schema):
     """Member-initiated billing-portal session request.
 
     ``return_url`` is the URL Stripe redirects to when the user closes the
-    portal. Defaults to the platform's frontend base URL when omitted.
+    portal. Validated as a real http(s) URL so we don't hand Stripe a
+    ``javascript:`` / ``data:`` / malformed redirect target. Defaults to the
+    platform's frontend base URL when omitted.
     """
 
-    return_url: str | None = Field(None, max_length=2000)
+    return_url: HttpUrl | None = Field(None, max_length=2000)
 
 
 class BillingPortalSessionSchema(Schema):

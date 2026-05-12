@@ -351,14 +351,17 @@ def pause_subscription(subscription: MembershipSubscription) -> MembershipSubscr
 
     For ONLINE (Stripe-managed) subscriptions, dispatches to the Stripe
     service so collection is paused on Stripe via ``pause_collection``.
+    Refuses to pause an ONLINE subscription that has no linked Stripe
+    record yet — pausing locally without telling Stripe would let invoices
+    keep generating on the Stripe side while we believe collection is
+    halted.
     """
     subscription = MembershipSubscription.objects.select_for_update().select_related("plan").get(pk=subscription.pk)
     if subscription.is_terminal:
         raise HttpError(400, str(_("Cannot pause a terminal subscription.")))
-    if (
-        subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
-        and subscription.stripe_subscription_id
-    ):
+    if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        if not subscription.stripe_subscription_id:
+            raise HttpError(400, str(_("This subscription has no linked Stripe record yet.")))
         from events.service import subscription_stripe_service  # lazy: avoid cycle
 
         return subscription_stripe_service.pause_online_subscription(subscription)
@@ -376,7 +379,9 @@ def resume_subscription(subscription: MembershipSubscription) -> MembershipSubsc
     For ONLINE subscriptions, dispatches to the Stripe service so the
     matching ``pause_collection`` is cleared on Stripe. If the period has
     already lapsed, the next ``record_payment`` / grace-expiry pass will
-    correct the status to PAST_DUE/EXPIRED.
+    correct the status to PAST_DUE/EXPIRED. Mirrors the safety check in
+    :func:`pause_subscription`: an ONLINE row without a Stripe link is
+    refused outright rather than resumed locally.
     """
     subscription = (
         MembershipSubscription.objects.select_for_update()
@@ -385,10 +390,9 @@ def resume_subscription(subscription: MembershipSubscription) -> MembershipSubsc
     )
     if subscription.status != MembershipSubscription.SubscriptionStatus.PAUSED:
         raise HttpError(400, str(_("Only paused subscriptions can be resumed.")))
-    if (
-        subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE
-        and subscription.stripe_subscription_id
-    ):
+    if subscription.plan.payment_method == MembershipSubscriptionPlan.PaymentMethod.ONLINE:
+        if not subscription.stripe_subscription_id:
+            raise HttpError(400, str(_("This subscription has no linked Stripe record yet.")))
         from events.service import subscription_stripe_service  # lazy: avoid cycle
 
         return subscription_stripe_service.resume_online_subscription(subscription)

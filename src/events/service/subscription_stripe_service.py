@@ -364,17 +364,39 @@ def cancel_online_subscription(
 # ---- Plan changes (Phase 3) -------------------------------------------------
 
 
+_PERIOD_UNIT_MONTHS: dict[str, Decimal] = {
+    MembershipSubscriptionPlan.PeriodUnit.MONTH.value: Decimal("1"),
+    MembershipSubscriptionPlan.PeriodUnit.YEAR.value: Decimal("12"),
+}
+
+
+def _monthly_equivalent_price(plan: MembershipSubscriptionPlan) -> Decimal:
+    """Return ``plan.price`` normalized to a per-month figure.
+
+    A cross-cadence change (e.g. Monthly→Annual) must compare like-for-like
+    or the raw ``price`` comparison wrongly classifies "cheaper per month
+    but higher headline" as an upgrade and fires immediate proration.
+    """
+    months = _PERIOD_UNIT_MONTHS[plan.period_unit] * Decimal(plan.period_count)
+    return plan.price / months
+
+
 def _classify_plan_change(
     subscription: MembershipSubscription,
     new_plan: MembershipSubscriptionPlan,
 ) -> t.Literal["upgrade", "downgrade"]:
-    """Return ``"upgrade"`` if ``new_plan`` is more expensive than the current plan, else ``"downgrade"``.
+    """Return ``"upgrade"`` if ``new_plan`` is more expensive per month than the current plan.
 
-    Equal prices count as downgrade — no immediate proration, just a swap at
-    the period boundary. The caller has already validated that both plans
-    share the same currency.
+    Both plans are normalized to a monthly-equivalent price first so that a
+    Monthly→Annual switch is judged on the *effective* cost (per-month),
+    not on the headline yearly figure. Equal effective prices count as a
+    downgrade — no immediate proration, just a swap at the period boundary.
+    The caller has already validated that both plans share the same
+    currency.
     """
-    return "upgrade" if new_plan.price > subscription.plan.price else "downgrade"
+    return (
+        "upgrade" if _monthly_equivalent_price(new_plan) > _monthly_equivalent_price(subscription.plan) else "downgrade"
+    )
 
 
 def _retrieve_subscription_item_id(stripe_subscription_id: str, org: Organization) -> str:
@@ -640,11 +662,15 @@ def create_billing_portal_session(
 
     The Customer Portal lets members manage their saved payment methods,
     view invoices, and (if enabled in the Stripe dashboard) cancel/change
-    their subscription. We pre-create the per-(user, org) Stripe Customer
-    on first use so the portal has something to attach to.
+    their subscription. Requires an existing per-(user, org) Stripe Customer
+    — only users who have actually subscribed can get a portal session.
+    This keeps strangers from triggering Stripe Customer creation on
+    arbitrary Connect accounts via the public endpoint.
     """
     _require_stripe_connected(organization)
-    customer = ensure_customer_profile(user, organization)
+    customer = CustomerProfile.objects.filter(user=user, organization=organization).first()
+    if customer is None:
+        raise HttpError(404, str(_("No billing profile exists for this organization. Subscribe first.")))
     try:
         session = stripe.billing_portal.Session.create(
             customer=customer.stripe_customer_id,
@@ -715,11 +741,17 @@ def _resolve_target_status(stripe_subscription: dict[str, t.Any]) -> str | None:
 
     Stripe surfaces an active pause via the ``pause_collection`` object, not
     via the top-level ``status`` field. When set, we treat the subscription
-    as PAUSED locally regardless of what ``status`` says.
+    as PAUSED locally — *unless* the mapped Stripe status is terminal
+    (CANCELLED/EXPIRED). Terminal wins so a deletion event that still carries
+    a stale ``pause_collection`` doesn't un-terminalize the local row and
+    re-arm the one-active-subscription-per-(user, org) unique index.
     """
+    mapped = map_stripe_status(t.cast(str, stripe_subscription.get("status", "")))
+    if mapped in MembershipSubscription.TERMINAL_STATUSES:
+        return mapped
     if stripe_subscription.get("pause_collection"):
         return MembershipSubscription.SubscriptionStatus.PAUSED.value
-    return map_stripe_status(t.cast(str, stripe_subscription.get("status", "")))
+    return mapped
 
 
 def _apply_period_dates(
@@ -747,8 +779,12 @@ def _apply_stripe_price_swap(
 
     Returns the list of field names that were mutated on ``subscription`` so
     the caller can extend its own ``update_fields`` list. Mutates the
-    instance in place but does not save.
+    instance in place but does not save. Terminal rows are frozen — late
+    webhook events for a cancelled/expired subscription must not rewrite
+    the historical plan FK.
     """
+    if subscription.is_terminal:
+        return []
     items = (stripe_subscription.get("items") or {}).get("data") or []
     active_price_id = (items[0].get("price", {}).get("id") if items else None) or None
     if not active_price_id or active_price_id == subscription.plan.stripe_price_id:
