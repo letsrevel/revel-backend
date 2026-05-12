@@ -107,11 +107,16 @@ def _make_online_subscription(
 class TestChangeOnlinePlan:
     @pytest.fixture
     def pricier_plan(self, tier: MembershipTier) -> MembershipSubscriptionPlan:
-        """A second ONLINE plan on the same tier, twice as expensive."""
+        """A second ONLINE plan on the same tier, pricier per-month than the monthly fixture.
+
+        Yearly 240 EUR / 12 months = 20 EUR/mo, which is twice the monthly
+        fixture's 10 EUR/mo, so :func:`_classify_plan_change` (now
+        period-normalized) sees this as an upgrade.
+        """
         return MembershipSubscriptionPlan.objects.create(
             tier=tier,
             name="Yearly Online",
-            price=Decimal("20.00"),
+            price=Decimal("240.00"),
             currency="EUR",
             period_unit="year",
             period_count=1,
@@ -335,16 +340,21 @@ class TestPauseResumeOnlineSubscription:
 
 
 class TestCreateBillingPortalSession:
+    @pytest.fixture
+    def seeded_profile(self, subscriber: RevelUser, stripe_org: Organization) -> CustomerProfile:
+        """Pre-seed the per-(user, org) Stripe Customer so the portal call is allowed."""
+        return CustomerProfile.objects.create(
+            user=subscriber, organization=stripe_org, stripe_customer_id="cus_for_portal"
+        )
+
     @mock.patch("events.service.subscription_stripe_service.stripe.billing_portal.Session.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
     def test_returns_session_url(
         self,
-        mock_customer: mock.Mock,
         mock_portal: mock.Mock,
         stripe_org: Organization,
         subscriber: RevelUser,
+        seeded_profile: CustomerProfile,
     ) -> None:
-        mock_customer.return_value = mock.MagicMock(id="cus_for_portal")
         mock_portal.return_value = mock.MagicMock(url="https://stripe.example/portal/abc")
 
         url = subscription_stripe_service.create_billing_portal_session(
@@ -369,15 +379,13 @@ class TestCreateBillingPortalSession:
         assert exc.value.status_code == 400
 
     @mock.patch("events.service.subscription_stripe_service.stripe.billing_portal.Session.create")
-    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
     def test_stripe_failure_propagates_502(
         self,
-        mock_customer: mock.Mock,
         mock_portal: mock.Mock,
         stripe_org: Organization,
         subscriber: RevelUser,
+        seeded_profile: CustomerProfile,
     ) -> None:
-        mock_customer.return_value = mock.MagicMock(id="cus_portal")
         mock_portal.side_effect = stripe.error.APIConnectionError("boom")
         with pytest.raises(HttpError) as exc:
             subscription_stripe_service.create_billing_portal_session(
