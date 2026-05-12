@@ -72,6 +72,9 @@ def ensure_customer_profile(user: RevelUser, organization: Organization) -> Cust
             email=user.email,
             name=user.get_display_name() or None,
             metadata={"revel_user_id": str(user.pk), "revel_org_id": str(organization.pk)},
+            # Deterministic key keeps concurrent first-time subscribes from
+            # creating duplicate Stripe Customers on the same Connect account.
+            idempotency_key=f"cust:{user.pk}:{organization.pk}",
             **_stripe_account_kwargs(organization),
         )
     except stripe.error.StripeError as exc:
@@ -236,8 +239,11 @@ def start_online_subscription(
 
     customer = ensure_customer_profile(user, org)
 
-    with transaction.atomic():
-        subscription = subscription_service.create_subscription(plan, user)
+    # ``create_subscription`` is already ``@transaction.atomic`` — no outer
+    # wrapper needed. The local PENDING row commits before the Stripe call,
+    # which is intentional: holding a DB transaction open across a slow
+    # external API call would lock the row for the entire request.
+    subscription = subscription_service.create_subscription(plan, user)
 
     create_kwargs: dict[str, t.Any] = {
         "customer": customer.stripe_customer_id,
@@ -251,6 +257,10 @@ def start_online_subscription(
             "revel_org_id": str(org.pk),
             "revel_plan_id": str(plan.pk),
         },
+        # Deterministic key tied to the local row makes Stripe-side retries
+        # idempotent: a network hiccup that times out the create call won't
+        # accidentally provision two subscriptions on the next attempt.
+        "idempotency_key": f"sub:{subscription.pk}",
     }
     if org.platform_fee_percent and org.stripe_account_id and org.stripe_account_id != settings.STRIPE_ACCOUNT:
         create_kwargs["application_fee_percent"] = float(org.platform_fee_percent)
@@ -269,17 +279,29 @@ def start_online_subscription(
         )
         raise HttpError(502, str(_("Payment processing failed. Please try again later."))) from exc
 
-    subscription.stripe_subscription_id = t.cast(str, stripe_sub.id)
-    subscription.save(update_fields=["stripe_subscription_id", "updated_at"])
-
     client_secret = _extract_client_secret(stripe_sub)
     if not client_secret:
+        # Stripe accepted the create call but didn't return an expandable
+        # PaymentIntent. The user can't confirm payment, so cancel the Stripe
+        # sub (best-effort) and drop the local row so they aren't blocked by
+        # the partial-unique index when they retry.
         logger.warning(
             "subscription_stripe_missing_client_secret",
             stripe_subscription_id=stripe_sub.id,
             subscription_id=str(subscription.pk),
         )
+        try:
+            stripe.Subscription.cancel(stripe_sub.id, **_stripe_account_kwargs(org))  # type: ignore[attr-defined]
+        except stripe.error.StripeError:
+            logger.exception(
+                "subscription_stripe_cleanup_cancel_failed",
+                stripe_subscription_id=stripe_sub.id,
+            )
+        subscription.delete()
         raise HttpError(502, str(_("Payment processing failed. Please try again later.")))
+
+    subscription.stripe_subscription_id = t.cast(str, stripe_sub.id)
+    subscription.save(update_fields=["stripe_subscription_id", "updated_at"])
     return subscription, client_secret
 
 
@@ -472,8 +494,14 @@ def record_stripe_payment_from_invoice(
         return None
 
     currency_code = t.cast(str, invoice.get("currency") or subscription.plan.currency).upper()
-    amount_paid = int(invoice.get("amount_paid") or invoice.get("amount_due") or 0)
-    amount = from_stripe_amount(amount_paid, currency_code) if amount_paid else Decimal("0")
+    # FAILED payments collected nothing — store ``amount=0``. The attempted
+    # amount is preserved in ``raw_response``. SUCCEEDED payments use
+    # ``amount_paid`` (what actually changed hands).
+    if succeeded:
+        amount_minor = int(invoice.get("amount_paid") or 0)
+    else:
+        amount_minor = 0
+    amount = from_stripe_amount(amount_minor, currency_code) if amount_minor else Decimal("0")
 
     period = invoice.get("lines", {}).get("data", [{}])[0].get("period") or {}
     period_start = _epoch_to_dt(period.get("start")) or timezone.now()

@@ -318,6 +318,56 @@ class TestStartOnlineSubscription:
         assert exc.value.status_code == 502
         assert not MembershipSubscription.objects.filter(user=subscriber, organization=stripe_org).exists()
 
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.cancel")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    def test_missing_client_secret_cancels_stripe_and_deletes_local(
+        self,
+        mock_customer: mock.Mock,
+        mock_subscription_create: mock.Mock,
+        mock_subscription_cancel: mock.Mock,
+        stripe_org: Organization,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """If Stripe returns no ``client_secret``, the user can't confirm — clean up both sides."""
+        mock_customer.return_value = mock.MagicMock(id="cus_abc")
+        # Stripe accepts the create but returns a subscription without an
+        # expandable PaymentIntent (no client_secret).
+        mock_subscription_create.return_value = mock.MagicMock(id="sub_orphan", latest_invoice=None)
+
+        with pytest.raises(HttpError) as exc:
+            subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+
+        assert exc.value.status_code == 502
+        mock_subscription_cancel.assert_called_once_with("sub_orphan", stripe_account="acct_test_org")
+        # Local row must not survive — otherwise the partial-unique index
+        # blocks the user from retrying.
+        assert not MembershipSubscription.objects.filter(user=subscriber, organization=stripe_org).exists()
+
+    @mock.patch("events.service.subscription_stripe_service.stripe.Subscription.create")
+    @mock.patch("events.service.subscription_stripe_service.stripe.Customer.create")
+    def test_idempotency_keys_are_set(
+        self,
+        mock_customer: mock.Mock,
+        mock_subscription: mock.Mock,
+        online_plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        """Customer + Subscription Stripe calls carry deterministic idempotency keys."""
+        mock_customer.return_value = mock.MagicMock(id="cus_idem")
+        mock_subscription.return_value = mock.MagicMock(
+            id="sub_idem",
+            latest_invoice={"payment_intent": {"client_secret": "pi_secret"}},
+        )
+
+        subscription, _ = subscription_stripe_service.start_online_subscription(online_plan, subscriber)
+
+        customer_key = mock_customer.call_args.kwargs["idempotency_key"]
+        assert customer_key == f"cust:{subscriber.pk}:{online_plan.tier.organization_id}"
+        sub_key = mock_subscription.call_args.kwargs["idempotency_key"]
+        assert sub_key == f"sub:{subscription.pk}"
+
 
 # ---- cancel_online_subscription ---------------------------------------------
 
@@ -492,6 +542,10 @@ class TestRecordStripePaymentFromInvoice:
         payment = subscription_stripe_service.record_stripe_payment_from_invoice(invoice, succeeded=False)
         assert payment is not None
         assert payment.status == MembershipPayment.PaymentStatus.FAILED
+        # FAILED payments collected nothing — ``amount`` reflects that.
+        # ``raw_response`` preserves Stripe's reported ``amount_due``.
+        assert payment.amount == Decimal("0")
+        assert payment.raw_response.get("amount_due") == 1000
 
         pending_online_subscription.refresh_from_db()
         assert pending_online_subscription.status == MembershipSubscription.SubscriptionStatus.PAST_DUE

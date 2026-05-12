@@ -459,8 +459,12 @@ def sync_member_from_subscription(
     """Sync ``OrganizationMember.status`` and ``tier`` from the subscription.
 
     Rules:
-    - Never creates an :class:`OrganizationMember` — creation belongs to
-      :func:`events.service.subscription_service.create_subscription`.
+    - Never creates an :class:`OrganizationMember`. Creation lives in
+      :func:`events.service.subscription_service.create_subscription` for the
+      OFFLINE flow, and in
+      :func:`events.service.subscription_stripe_service._ensure_active_member`
+      for the ONLINE flow (gated on Stripe's first paid invoice / ``active``
+      status, so members don't get tier benefits before paying).
     - Leaves ``BANNED`` members untouched.
     - Subscription tier wins: ``member.tier`` is set to ``plan.tier`` whenever
       they differ.
@@ -468,6 +472,9 @@ def sync_member_from_subscription(
       same (user, org) — older terminal rows must not clobber the effective
       subscription when, e.g., admin re-saves a historical entry after the
       user has resubscribed.
+    - For ONLINE plans in PENDING state, returns early so a freshly-created
+      subscription doesn't grant ACTIVE membership before Stripe collects
+      the first invoice.
     """
     target_status = _SUBSCRIPTION_TO_MEMBER_STATUS.get(instance.status)
     if target_status is None:

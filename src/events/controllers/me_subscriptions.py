@@ -4,8 +4,6 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
-from django.utils.translation import gettext_lazy as _
-from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
@@ -76,9 +74,8 @@ class MeSubscriptionsController(UserAwareController):
             tier__organization=organization,
             is_active=True,
         )
-        if plan.payment_method != MembershipSubscriptionPlan.PaymentMethod.ONLINE:
-            raise HttpError(400, str(_("This plan is not available for self-service subscription.")))
-
+        # ``start_online_subscription`` enforces ``payment_method == ONLINE``
+        # and raises 400 if the plan is offline; no need to repeat the check.
         subscription, client_secret = subscription_stripe_service.start_online_subscription(plan, self.user())
         return 201, schema.SubscribeResponseSchema(
             subscription=schema.MySubscriptionSchema.model_validate(subscription, from_attributes=True),
