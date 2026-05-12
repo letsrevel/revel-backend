@@ -144,9 +144,15 @@ def test_get_organization_by_privileged_users(
 
 
 class TestListMembershipPlans:
-    """Public listing of an organization's active subscription plans."""
+    """Public listing of an organization's active subscription plans.
+
+    Visibility piggybacks on ``get_one`` so private orgs return 404 for
+    anonymous users (same rule as ``get_organization``).
+    """
 
     def test_lists_active_plans_only(self, client: Client, organization: Organization) -> None:
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save(update_fields=["visibility"])
         tier = MembershipTier.objects.get(organization=organization, name="General membership")
         active = MembershipSubscriptionPlan.objects.create(
             tier=tier,
@@ -172,10 +178,18 @@ class TestListMembershipPlans:
         assert body[0]["id"] == str(active.id)
         assert body[0]["payment_method"] == "offline"
 
-    def test_unauthenticated_works(self, client: Client, organization: Organization) -> None:
+    def test_anonymous_can_list_public_org_plans(self, client: Client, organization: Organization) -> None:
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save(update_fields=["visibility"])
         url = reverse("api:list_organization_membership_plans", kwargs={"slug": organization.slug})
         response = client.get(url)
         assert response.status_code == 200
+
+    def test_anonymous_blocked_on_private_org(self, client: Client, organization: Organization) -> None:
+        # Default visibility is private; the endpoint inherits get_one's visibility rule.
+        url = reverse("api:list_organization_membership_plans", kwargs={"slug": organization.slug})
+        response = client.get(url)
+        assert response.status_code == 404
 
 
 def test_get_organization_not_found(client: Client) -> None:
