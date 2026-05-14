@@ -99,7 +99,7 @@ class TestMySubscriptionOrgMetadata:
         item = data["results"][0]
         assert item["organization_name"] == organization.name
         assert item["organization_slug"] == organization.slug
-        assert "organization_logo_url" in item
+        assert item["organization_logo_url"] is None
 
 
 class TestGetMyOrgSubscription:

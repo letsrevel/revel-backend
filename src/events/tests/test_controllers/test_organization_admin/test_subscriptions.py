@@ -365,6 +365,26 @@ class TestListSubscriptionPayments:
         assert data["count"] == 2
         assert [item["id"] for item in data["results"]] == [str(second.id), str(first.id)]
 
+    def test_staff_with_permission_can_list_payments(
+        self,
+        organization_staff_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        staff_member: OrganizationStaff,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        subscription_service.record_payment(
+            sub, amount=Decimal("10.00"), currency="EUR", recorded_by=organization_owner_user
+        )
+        _set_staff_permission(staff_member, manage_subscriptions=True)
+
+        url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        response = organization_staff_client.get(url)
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
+
     def test_staff_without_permission_blocked(
         self,
         organization_staff_client: Client,

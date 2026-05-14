@@ -196,7 +196,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         return (
             models.MembershipPayment.objects.filter(subscription=subscription)
             .select_related("recorded_by")
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
         )
 
     @route.post(

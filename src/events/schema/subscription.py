@@ -8,6 +8,7 @@ from pydantic import AwareDatetime, Field, model_validator
 
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 
+from .mixins import get_image_field_url
 from .ticket import Currencies
 
 
@@ -169,10 +170,7 @@ class MySubscriptionSchema(_BaseSubscriptionSchema):
     @staticmethod
     def resolve_organization_logo_url(obj: MembershipSubscription) -> str | None:
         """Return the parent organization's logo thumbnail URL, if any."""
-        thumb = obj.organization.logo_thumbnail
-        if thumb:
-            return str(thumb.url)
-        return None
+        return get_image_field_url(obj.organization, "logo_thumbnail")
 
 
 class SubscriptionSchema(_BaseSubscriptionSchema):
