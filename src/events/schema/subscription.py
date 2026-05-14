@@ -8,6 +8,7 @@ from pydantic import AwareDatetime, Field, model_validator
 
 from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
 
+from .mixins import get_image_field_url
 from .ticket import Currencies
 
 
@@ -147,11 +148,29 @@ class MySubscriptionSchema(_BaseSubscriptionSchema):
     """Member-facing view of their own subscription (no PII about other users)."""
 
     plan: PlanSchema
+    organization_name: str
+    organization_slug: str
+    organization_logo_url: str | None = None
 
     @staticmethod
     def resolve_plan(obj: MembershipSubscription) -> MembershipSubscriptionPlan:
         """Return the plan for nested serialization."""
         return obj.plan
+
+    @staticmethod
+    def resolve_organization_name(obj: MembershipSubscription) -> str:
+        """Return the parent organization's name."""
+        return obj.organization.name
+
+    @staticmethod
+    def resolve_organization_slug(obj: MembershipSubscription) -> str:
+        """Return the parent organization's slug."""
+        return obj.organization.slug
+
+    @staticmethod
+    def resolve_organization_logo_url(obj: MembershipSubscription) -> str | None:
+        """Return the parent organization's logo thumbnail URL, if any."""
+        return get_image_field_url(obj.organization, "logo_thumbnail")
 
 
 class SubscriptionSchema(_BaseSubscriptionSchema):

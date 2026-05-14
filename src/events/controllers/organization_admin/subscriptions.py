@@ -182,6 +182,23 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         subscription = subscription_service.create_subscription(plan, user, initial_payment=initial)
         return 201, subscription
 
+    @route.get(
+        "/subscriptions/{sub_id}/payments",
+        url_name="list_subscription_payments",
+        response=PaginatedResponseSchema[schema.MembershipPaymentSchema],
+        throttle=UserDefaultThrottle(),
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
+    def list_subscription_payments(self, slug: str, sub_id: UUID) -> QuerySet[models.MembershipPayment]:
+        """List payments recorded against a subscription, newest first."""
+        organization = self.get_one(slug)
+        subscription = get_object_or_404(models.MembershipSubscription, pk=sub_id, organization=organization)
+        return (
+            models.MembershipPayment.objects.filter(subscription=subscription)
+            .select_related("recorded_by")
+            .order_by("-created_at", "-id")
+        )
+
     @route.post(
         "/subscriptions/{sub_id}/payments",
         url_name="record_subscription_payment",

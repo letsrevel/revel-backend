@@ -341,6 +341,119 @@ class TestSubscriptionEndpoints:
         assert response.status_code == 403
 
 
+class TestListSubscriptionPayments:
+    def test_owner_lists_payments_newest_first(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        first = subscription_service.record_payment(
+            sub, amount=Decimal("10.00"), currency="EUR", recorded_by=organization_owner_user
+        )
+        second = subscription_service.record_payment(
+            sub, amount=Decimal("10.00"), currency="EUR", recorded_by=organization_owner_user
+        )
+
+        url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        response = organization_owner_client.get(url)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 2
+        assert [item["id"] for item in data["results"]] == [str(second.id), str(first.id)]
+
+    def test_staff_with_permission_can_list_payments(
+        self,
+        organization_staff_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        staff_member: OrganizationStaff,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        subscription_service.record_payment(
+            sub, amount=Decimal("10.00"), currency="EUR", recorded_by=organization_owner_user
+        )
+        _set_staff_permission(staff_member, manage_subscriptions=True)
+
+        url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        response = organization_staff_client.get(url)
+        assert response.status_code == 200
+        assert response.json()["count"] == 1
+
+    def test_staff_without_permission_blocked(
+        self,
+        organization_staff_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        staff_member: OrganizationStaff,
+    ) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        _set_staff_permission(staff_member, manage_subscriptions=False)
+        url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        response = organization_staff_client.get(url)
+        assert response.status_code == 403
+
+    def test_member_cannot_list_payments(
+        self,
+        member_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        response = member_client.get(url)
+        assert response.status_code == 403
+
+    def test_other_org_subscription_returns_404(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+    ) -> None:
+        other_owner = RevelUser.objects.create_user(
+            username="payments_other_owner", email="payments-other@example.com", password="pass"
+        )
+        other_org = Organization.objects.create(name="Other Payments Org", slug="other-payments", owner=other_owner)
+        other_tier = MembershipTier.objects.get(organization=other_org, name="General membership")
+        other_plan = subscription_service.create_plan(
+            other_tier, name="Monthly", price=Decimal("5.00"), currency="EUR", period_unit="month"
+        )
+        other_subscriber = RevelUser.objects.create_user(
+            username="payments_other_sub", email="payments-other-sub@example.com", password="pass"
+        )
+        other_sub = subscription_service.create_subscription(other_plan, other_subscriber)
+
+        url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": other_sub.id})
+        response = organization_owner_client.get(url)
+        assert response.status_code == 404
+
+    def test_pagination_respects_page_size(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        for _ in range(3):
+            subscription_service.record_payment(
+                sub, amount=Decimal("1.00"), currency="EUR", recorded_by=organization_owner_user
+            )
+        url = reverse("api:list_subscription_payments", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        response = organization_owner_client.get(url, {"page_size": 2})
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 3
+        assert len(data["results"]) == 2
+
+
 class TestCrossOrgIsolation:
     def test_cannot_act_on_other_org_plan(
         self,

@@ -12,7 +12,7 @@ from geo.models import City
 from geo.schema import CitySchema
 
 
-def _get_image_field_url(obj: t.Any, field_name: str) -> str | None:
+def get_image_field_url(obj: t.Any, field_name: str) -> str | None:
     """Get URL from an ImageField, handling empty/null values.
 
     Args:
@@ -42,17 +42,17 @@ class LogoCoverArtThumbnailMixin(Schema):
     @staticmethod
     def resolve_logo_thumbnail_url(obj: t.Any) -> str | None:
         """Resolve logo thumbnail URL."""
-        return _get_image_field_url(obj, "logo_thumbnail")
+        return get_image_field_url(obj, "logo_thumbnail")
 
     @staticmethod
     def resolve_cover_art_thumbnail_url(obj: t.Any) -> str | None:
         """Resolve cover art thumbnail URL."""
-        return _get_image_field_url(obj, "cover_art_thumbnail")
+        return get_image_field_url(obj, "cover_art_thumbnail")
 
     @staticmethod
     def resolve_cover_art_social_url(obj: t.Any) -> str | None:
         """Resolve cover art social preview URL."""
-        return _get_image_field_url(obj, "cover_art_social")
+        return get_image_field_url(obj, "cover_art_social")
 
 
 class CityBaseMixin(Schema):

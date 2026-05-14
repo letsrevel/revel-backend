@@ -69,6 +69,39 @@ class TestListMySubscriptions:
         assert response.status_code == 401
 
 
+class TestMySubscriptionOrgMetadata:
+    def test_response_includes_organization_name_and_slug(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        url = reverse("api:get_my_organization_subscription", kwargs={"org_id": organization.id})
+        response = subscriber_client.get(url)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["organization_name"] == organization.name
+        assert data["organization_slug"] == organization.slug
+        # Without an uploaded logo, the URL should be null.
+        assert data["organization_logo_url"] is None
+
+    def test_list_includes_organization_metadata(
+        self,
+        subscriber_client: Client,
+        their_subscription: MembershipSubscription,
+        organization: Organization,
+    ) -> None:
+        url = reverse("api:list_my_membership_subscriptions")
+        response = subscriber_client.get(url)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 1
+        item = data["results"][0]
+        assert item["organization_name"] == organization.name
+        assert item["organization_slug"] == organization.slug
+        assert item["organization_logo_url"] is None
+
+
 class TestGetMyOrgSubscription:
     def test_returns_active_subscription(
         self,
