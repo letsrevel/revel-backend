@@ -224,6 +224,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
             recorded_by=self.user(),
             notes=payload.notes,
             status=payload.status,
+            occurred_at=payload.occurred_at,
         )
         return 201, payment
 

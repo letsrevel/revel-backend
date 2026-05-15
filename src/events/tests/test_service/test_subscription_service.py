@@ -281,6 +281,94 @@ class TestRecordPayment:
         assert sub.status == MembershipSubscription.SubscriptionStatus.PENDING
 
 
+class TestRecordPaymentOccurredAt:
+    """Backfill semantics for ``occurred_at``."""
+
+    def test_backfill_anchors_period_to_occurred_at(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        with freeze_time("2026-03-01 12:00:00"):
+            sub = subscription_service.create_subscription(plan, subscriber)
+
+        with freeze_time("2026-03-20 12:00:00"):
+            backfill = timezone.now() - datetime.timedelta(days=15)  # 2026-03-05
+            payment = subscription_service.record_payment(
+                sub,
+                amount=Decimal("10.00"),
+                currency="EUR",
+                recorded_by=recorder,
+                occurred_at=backfill,
+            )
+
+        assert payment.occurred_at == backfill
+        assert payment.period_start == backfill
+
+    def test_occurred_at_in_future_is_rejected(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        future = timezone.now() + datetime.timedelta(days=1)
+        with pytest.raises(HttpError) as excinfo:
+            subscription_service.record_payment(
+                sub,
+                amount=Decimal("10.00"),
+                currency="EUR",
+                recorded_by=recorder,
+                occurred_at=future,
+            )
+        assert excinfo.value.status_code == 400
+
+    def test_occurred_at_predating_subscription_is_rejected(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        with freeze_time("2026-03-01 12:00:00"):
+            sub = subscription_service.create_subscription(plan, subscriber)
+        with freeze_time("2026-03-10 12:00:00"):
+            with pytest.raises(HttpError) as excinfo:
+                subscription_service.record_payment(
+                    sub,
+                    amount=Decimal("10.00"),
+                    currency="EUR",
+                    recorded_by=recorder,
+                    occurred_at=timezone.now() - datetime.timedelta(days=30),
+                )
+            assert excinfo.value.status_code == 400
+
+    def test_occurred_at_predating_lapsed_period_end_is_rejected(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        with freeze_time("2026-01-01 12:00:00"):
+            sub = subscription_service.create_subscription(
+                plan,
+                subscriber,
+                initial_payment=InitialPayment(amount=Decimal("10.00"), currency="EUR", recorded_by=recorder),
+            )
+            sub.refresh_from_db()
+
+        # Subscription has lapsed: now is well past current_period_end. Trying to backfill
+        # to a date before that lapsed period end would create a confusing back-dated
+        # active window.
+        with freeze_time("2026-06-01 12:00:00"):
+            with pytest.raises(HttpError) as excinfo:
+                subscription_service.record_payment(
+                    sub,
+                    amount=Decimal("10.00"),
+                    currency="EUR",
+                    recorded_by=recorder,
+                    occurred_at=timezone.now() - datetime.timedelta(days=121),  # 2026-02-01 - 1d
+                )
+            assert excinfo.value.status_code == 400
+
+    def test_occurred_at_omitted_uses_now_and_persists_null(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        payment = subscription_service.record_payment(
+            sub, amount=Decimal("10.00"), currency="EUR", recorded_by=recorder
+        )
+        assert payment.occurred_at is None
+
+
 # ---- cancel / pause / resume -------------------------------------------------
 
 
