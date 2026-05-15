@@ -180,6 +180,27 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         series = self._get_series(slug, series_id)
         return schema.EventSeriesDriftSchema(stale_occurrences=recurrence_service.detect_cadence_drift(series))
 
+    @route.get(
+        "/event-series/{series_id}/template-event",
+        url_name="get_series_template_event",
+        response=schema.EventDetailSchema,
+        permissions=[OrganizationPermission("edit_event_series")],
+        throttle=UserDefaultThrottle(),
+    )
+    def get_series_template_event(self, slug: str, series_id: UUID) -> models.Event:
+        """Return the full EventDetailSchema for the series template event.
+
+        The public ``GET /events/{event_id}`` endpoint filters ``is_template=True``
+        events out via ``Event.objects.for_user()``, so the admin dashboard's
+        TemplateEditDialog cannot use it to load the template's full surface
+        (visibility, capacity, toggles, etc.). This dedicated path returns the
+        template directly, gated by ``edit_event_series`` on the organization.
+        """
+        series = self._get_series(slug, series_id)
+        if not series.template_event_id:
+            raise HttpError(404, "Series has no template event.")
+        return get_object_or_404(models.Event.objects.full(), pk=series.template_event_id)
+
     @route.post(
         "/event-series/{series_id}/pause",
         url_name="pause_series",
