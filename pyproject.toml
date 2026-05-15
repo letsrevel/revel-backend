@@ -117,6 +117,7 @@ dev = [
     "types-openpyxl>=3.1.5.20250919",
     "licensecheck>=2025.1.0",
     "pip-audit>=2.10.0",
+    "pytest-split>=0.10.0",
 ]
 sentinel = [
     "torch>=2.8.0",
@@ -342,6 +343,10 @@ ignore_packages = [
 ]
 
 [tool.coverage.run]
+# `source` makes the gate count files that no test ever imports as 0%, matching
+# the behaviour of the old in-process `pytest --cov=src` report after the test
+# suite was split into shards combined by a separate `coverage report` process.
+source = ["src"]
 omit = [
     "src/manage.py",
     "src/revel/asgi.py",
