@@ -22,6 +22,7 @@ class PlanSchema(ModelSchema):
     """Response schema for a subscription plan."""
 
     tier_id: UUID
+    tier_name: str
     period_unit: MembershipSubscriptionPlan.PeriodUnit
 
     class Meta:
@@ -35,6 +36,11 @@ class PlanSchema(ModelSchema):
             "period_count",
             "is_active",
         ]
+
+    @staticmethod
+    def resolve_tier_name(obj: MembershipSubscriptionPlan) -> str:
+        """Return the parent tier's display name."""
+        return obj.tier.name
 
 
 class PlanCreateSchema(Schema):
