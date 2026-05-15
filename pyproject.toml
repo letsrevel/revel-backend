@@ -117,6 +117,7 @@ dev = [
     "types-openpyxl>=3.1.5.20250919",
     "licensecheck>=2025.1.0",
     "pip-audit>=2.10.0",
+    "pytest-split>=0.10.0",
 ]
 sentinel = [
     "torch>=2.8.0",
