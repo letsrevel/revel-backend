@@ -62,7 +62,7 @@ class MeSubscriptionsController(UserAwareController):
                     to_attr="_caller_active_subs",
                 )
             )
-            .order_by("-created_at")
+            .order_by("-created_at", "-id")
         )
 
     @route.get(

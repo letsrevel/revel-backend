@@ -229,6 +229,11 @@ def record_payment(
             raise HttpError(400, str(_("occurred_at cannot be in the future.")))
         if occurred_at < subscription.created_at:
             raise HttpError(400, str(_("occurred_at cannot predate the subscription.")))
+        if subscription.current_period_start and occurred_at < subscription.current_period_start:
+            raise HttpError(
+                400,
+                str(_("occurred_at cannot predate the start of the current billing period.")),
+            )
         if (
             subscription.current_period_end
             and subscription.current_period_end < now
@@ -248,6 +253,14 @@ def record_payment(
         else anchor
     )
     period_end = calculate_period_end(period_start, plan) if advance else (subscription.current_period_end or anchor)
+
+    if advance and occurred_at is not None and period_end < now:
+        # Refuse backfills that would leave the subscription ACTIVE with an already-lapsed
+        # period (callers checking only ``status`` would grant access until the expiry beat).
+        raise HttpError(
+            400,
+            str(_("Backfilled payment would produce an already-lapsed billing period; use a more recent occurred_at.")),
+        )
 
     payment = MembershipPayment.objects.create(
         subscription=subscription,

@@ -368,6 +368,56 @@ class TestRecordPaymentOccurredAt:
         )
         assert payment.occurred_at is None
 
+    def test_occurred_at_predating_active_period_start_is_rejected(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        # Subscription has an active period [Apr 1, May 1]; today is Apr 15.
+        # Backfilling to Mar 15 falls inside an already-paid (prior) window.
+        with freeze_time("2026-03-01 12:00:00"):
+            sub = subscription_service.create_subscription(
+                plan,
+                subscriber,
+                initial_payment=InitialPayment(amount=Decimal("10.00"), currency="EUR", recorded_by=recorder),
+            )
+        # Renew on Apr 1 to advance into [Apr 1, May 1].
+        with freeze_time("2026-04-01 12:00:00"):
+            subscription_service.record_payment(sub, amount=Decimal("10.00"), currency="EUR", recorded_by=recorder)
+        with freeze_time("2026-04-15 12:00:00"):
+            sub.refresh_from_db()
+            assert sub.current_period_start is not None
+            assert sub.current_period_end is not None and sub.current_period_end > timezone.now()
+            with pytest.raises(HttpError) as excinfo:
+                subscription_service.record_payment(
+                    sub,
+                    amount=Decimal("10.00"),
+                    currency="EUR",
+                    recorded_by=recorder,
+                    occurred_at=timezone.now() - datetime.timedelta(days=31),  # before current_period_start
+                )
+            assert excinfo.value.status_code == 400
+
+    def test_succeeded_backfill_producing_lapsed_period_end_is_rejected(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser, recorder: RevelUser
+    ) -> None:
+        # Subscription created 6 months ago, never paid (PENDING). Backfilling a
+        # SUCCEEDED payment with occurred_at = 5 months ago would produce a period
+        # ending ~4 months ago — already lapsed. The status would otherwise revive
+        # PENDING -> ACTIVE, leaving an ACTIVE-but-lapsed inconsistency.
+        with freeze_time("2026-01-01 12:00:00"):
+            sub = subscription_service.create_subscription(plan, subscriber)
+            assert sub.current_period_end is None  # never paid
+
+        with freeze_time("2026-07-01 12:00:00"):
+            with pytest.raises(HttpError) as excinfo:
+                subscription_service.record_payment(
+                    sub,
+                    amount=Decimal("10.00"),
+                    currency="EUR",
+                    recorded_by=recorder,
+                    occurred_at=timezone.now() - datetime.timedelta(days=150),  # ~Feb 2; +1mo still in past
+                )
+            assert excinfo.value.status_code == 400
+
 
 # ---- cancel / pause / resume -------------------------------------------------
 
