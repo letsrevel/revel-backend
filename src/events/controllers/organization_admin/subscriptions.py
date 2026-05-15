@@ -32,6 +32,22 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
     # ---- Plans ----
 
     @route.get(
+        "/plans",
+        url_name="list_organization_plans",
+        response=list[schema.PlanSchema],
+        throttle=UserDefaultThrottle(),
+    )
+    def list_organization_plans(
+        self, slug: str, is_active: bool | None = None
+    ) -> QuerySet[models.MembershipSubscriptionPlan]:
+        """List all subscription plans across every tier in the organization."""
+        organization = self.get_one(slug)
+        qs = models.MembershipSubscriptionPlan.objects.filter(tier__organization=organization).select_related("tier")
+        if is_active is not None:
+            qs = qs.filter(is_active=is_active)
+        return qs
+
+    @route.get(
         "/tiers/{tier_id}/plans",
         url_name="list_subscription_plans",
         response=list[schema.PlanSchema],
@@ -41,7 +57,7 @@ class OrganizationAdminSubscriptionsController(OrganizationAdminBaseController):
         """List all subscription plans for a tier."""
         organization = self.get_one(slug)
         tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
-        return models.MembershipSubscriptionPlan.objects.filter(tier=tier)
+        return models.MembershipSubscriptionPlan.objects.filter(tier=tier).select_related("tier")
 
     @route.post(
         "/tiers/{tier_id}/plans",

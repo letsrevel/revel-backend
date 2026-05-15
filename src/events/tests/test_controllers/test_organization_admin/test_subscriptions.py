@@ -61,17 +61,110 @@ def _set_staff_permission(staff_member: OrganizationStaff, *, manage_subscriptio
 
 class TestListPlans:
     def test_owner_can_list_plans(
-        self, organization_owner_client: Client, organization: Organization, tier: MembershipTier
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        tier: MembershipTier,
+        plan: MembershipSubscriptionPlan,
     ) -> None:
         url = reverse("api:list_subscription_plans", kwargs={"slug": organization.slug, "tier_id": tier.id})
         response = organization_owner_client.get(url)
         assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 1
+        assert data[0]["tier_id"] == str(tier.id)
+        assert data[0]["tier_name"] == tier.name
 
     def test_member_cannot_list_plans(
         self, member_client: Client, organization: Organization, tier: MembershipTier
     ) -> None:
         url = reverse("api:list_subscription_plans", kwargs={"slug": organization.slug, "tier_id": tier.id})
         response = member_client.get(url)
+        assert response.status_code == 403
+
+
+class TestListOrganizationPlans:
+    def test_owner_lists_plans_across_tiers(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        tier: MembershipTier,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        other_tier = MembershipTier.objects.create(organization=organization, name="VIP membership")
+        other_plan = subscription_service.create_plan(
+            other_tier, name="VIP Monthly", price=Decimal("50.00"), currency="EUR", period_unit="month"
+        )
+
+        url = reverse("api:list_organization_plans", kwargs={"slug": organization.slug})
+        response = organization_owner_client.get(url)
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) == 2
+        by_id = {item["id"]: item for item in data}
+        assert by_id[str(plan.id)]["tier_name"] == tier.name
+        assert by_id[str(other_plan.id)]["tier_name"] == other_tier.name
+
+    def test_is_active_filter(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        tier: MembershipTier,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        archived = subscription_service.create_plan(
+            tier, name="Archived", price=Decimal("1.00"), currency="EUR", period_unit="month"
+        )
+        subscription_service.archive_plan(archived)
+
+        url = reverse("api:list_organization_plans", kwargs={"slug": organization.slug})
+
+        active_only = organization_owner_client.get(url, {"is_active": "true"})
+        assert active_only.status_code == 200
+        active_ids = {item["id"] for item in active_only.json()}
+        assert str(plan.id) in active_ids
+        assert str(archived.id) not in active_ids
+
+        inactive_only = organization_owner_client.get(url, {"is_active": "false"})
+        assert inactive_only.status_code == 200
+        inactive_ids = {item["id"] for item in inactive_only.json()}
+        assert inactive_ids == {str(archived.id)}
+
+    def test_excludes_other_organizations(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+    ) -> None:
+        other_owner = RevelUser.objects.create_user(
+            username="org_plans_other", email="org-plans-other@example.com", password="pass"
+        )
+        other_org = Organization.objects.create(name="Other Plans Org", slug="other-plans", owner=other_owner)
+        other_tier = MembershipTier.objects.get(organization=other_org, name="General membership")
+        subscription_service.create_plan(
+            other_tier, name="Other", price=Decimal("9.00"), currency="EUR", period_unit="month"
+        )
+
+        url = reverse("api:list_organization_plans", kwargs={"slug": organization.slug})
+        response = organization_owner_client.get(url)
+        assert response.status_code == 200
+        data = response.json()
+        assert {item["id"] for item in data} == {str(plan.id)}
+
+    def test_member_cannot_list_organization_plans(self, member_client: Client, organization: Organization) -> None:
+        url = reverse("api:list_organization_plans", kwargs={"slug": organization.slug})
+        response = member_client.get(url)
+        assert response.status_code == 403
+
+    def test_staff_without_permission_blocked(
+        self,
+        organization_staff_client: Client,
+        organization: Organization,
+        staff_member: OrganizationStaff,
+    ) -> None:
+        _set_staff_permission(staff_member, manage_subscriptions=False)
+        url = reverse("api:list_organization_plans", kwargs={"slug": organization.slug})
+        response = organization_staff_client.get(url)
         assert response.status_code == 403
 
 
