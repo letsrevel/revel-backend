@@ -182,6 +182,12 @@ class MembershipPayment(TimeStampedModel):
     )
     period_start = models.DateTimeField()
     period_end = models.DateTimeField()
+    occurred_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="When the payment actually changed hands (for backfilled records). Null = use created_at.",
+    )
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

@@ -1,5 +1,6 @@
 """Tests for the staff subscription admin controller."""
 
+import datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -7,6 +8,8 @@ import orjson
 import pytest
 from django.test.client import Client
 from django.urls import reverse
+from django.utils import timezone
+from freezegun import freeze_time
 
 from accounts.models import RevelUser
 from events.models import (
@@ -236,6 +239,39 @@ class TestSubscriptionEndpoints:
         assert response.status_code == 201
         sub.refresh_from_db()
         assert sub.status == MembershipSubscription.SubscriptionStatus.ACTIVE
+
+    def test_record_payment_with_occurred_at_backfill(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        # Subscription must predate the backfilled payment, so create it 30 days ago.
+        with freeze_time(timezone.now() - datetime.timedelta(days=30)):
+            sub = subscription_service.create_subscription(plan, subscriber)
+        backfill = (timezone.now() - datetime.timedelta(days=10)).isoformat()
+        url = reverse("api:record_subscription_payment", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        payload = {"amount": "10.00", "currency": "EUR", "occurred_at": backfill}
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 201
+        body = response.json()
+        assert body["occurred_at"] is not None
+        assert body["occurred_at"].startswith(backfill[:19])
+
+    def test_record_payment_with_future_occurred_at_rejected(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+    ) -> None:
+        sub = subscription_service.create_subscription(plan, subscriber)
+        future = (timezone.now() + datetime.timedelta(days=1)).isoformat()
+        url = reverse("api:record_subscription_payment", kwargs={"slug": organization.slug, "sub_id": sub.id})
+        payload = {"amount": "10.00", "currency": "EUR", "occurred_at": future}
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        assert response.status_code == 400
 
     def test_cancel_pause_resume(
         self,

@@ -5,6 +5,7 @@ logic is intentionally absent; it lands in a separate Phase 2 module.
 """
 
 import dataclasses
+import datetime
 import typing as t
 from decimal import Decimal
 
@@ -197,12 +198,17 @@ def record_payment(
     recorded_by: RevelUser | None,
     notes: str = "",
     status: str = MembershipPayment.PaymentStatus.SUCCEEDED,
+    occurred_at: datetime.datetime | None = None,
 ) -> MembershipPayment:
     """Record a payment and advance the subscription's billing period.
 
     A SUCCEEDED payment advances the period and resets PENDING/PAST_DUE to
     ACTIVE. Terminal subscriptions (CANCELLED, EXPIRED) refuse the payment
     entirely — staff must create a fresh subscription instead.
+
+    ``occurred_at`` lets staff backfill historical payments. When set, it
+    becomes the anchor for ``period_start`` / ``period_end`` and is persisted
+    on the row so callers can render ``occurred_at ?? created_at`` consistently.
     """
     subscription = MembershipSubscription.objects.select_for_update().get(pk=subscription.pk)
     if subscription.is_terminal:
@@ -218,13 +224,43 @@ def record_payment(
     plan = subscription.plan
     now = timezone.now()
 
+    if occurred_at is not None:
+        if occurred_at > now:
+            raise HttpError(400, str(_("occurred_at cannot be in the future.")))
+        if occurred_at < subscription.created_at:
+            raise HttpError(400, str(_("occurred_at cannot predate the subscription.")))
+        if subscription.current_period_start and occurred_at < subscription.current_period_start:
+            raise HttpError(
+                400,
+                str(_("occurred_at cannot predate the start of the current billing period.")),
+            )
+        if (
+            subscription.current_period_end
+            and subscription.current_period_end < now
+            and occurred_at < subscription.current_period_end
+        ):
+            raise HttpError(
+                400,
+                str(_("occurred_at cannot predate the lapsed period end of the subscription.")),
+            )
+
+    anchor = occurred_at or now
+
     advance = status == MembershipPayment.PaymentStatus.SUCCEEDED
     period_start = (
         subscription.current_period_end
-        if (advance and subscription.current_period_end and subscription.current_period_end > now)
-        else now
+        if (advance and subscription.current_period_end and subscription.current_period_end > anchor)
+        else anchor
     )
-    period_end = calculate_period_end(period_start, plan) if advance else (subscription.current_period_end or now)
+    period_end = calculate_period_end(period_start, plan) if advance else (subscription.current_period_end or anchor)
+
+    if advance and occurred_at is not None and period_end < now:
+        # Refuse backfills that would leave the subscription ACTIVE with an already-lapsed
+        # period (callers checking only ``status`` would grant access until the expiry beat).
+        raise HttpError(
+            400,
+            str(_("Backfilled payment would produce an already-lapsed billing period; use a more recent occurred_at.")),
+        )
 
     payment = MembershipPayment.objects.create(
         subscription=subscription,
@@ -233,6 +269,7 @@ def record_payment(
         status=status,
         period_start=period_start,
         period_end=period_end,
+        occurred_at=occurred_at,
         recorded_by=recorded_by,
         notes=notes,
     )

@@ -6,9 +6,15 @@ from uuid import UUID
 from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, Field, model_validator
 
-from events.models import MembershipPayment, MembershipSubscription, MembershipSubscriptionPlan
+from events.models import (
+    MembershipPayment,
+    MembershipSubscription,
+    MembershipSubscriptionPlan,
+    OrganizationMember,
+)
 
 from .mixins import get_image_field_url
+from .organization import MembershipTierSchema
 from .ticket import Currencies
 
 
@@ -85,6 +91,13 @@ class PaymentRecordSchema(Schema):
     currency: Currencies
     status: MembershipPayment.PaymentStatus = MembershipPayment.PaymentStatus.SUCCEEDED
     notes: str = ""
+    occurred_at: AwareDatetime | None = Field(
+        None,
+        description=(
+            "Override the payment date for backfills. Anchors period_start/period_end math; "
+            "defaults to now when omitted."
+        ),
+    )
 
 
 class RefundSchema(Schema):
@@ -100,6 +113,7 @@ class PaymentSchema(ModelSchema):
     status: MembershipPayment.PaymentStatus
     period_start: AwareDatetime
     period_end: AwareDatetime
+    occurred_at: AwareDatetime | None = None
     recorded_by_id: UUID | None = None
     recorded_by_name: str | None = None
 
@@ -171,6 +185,49 @@ class MySubscriptionSchema(_BaseSubscriptionSchema):
     def resolve_organization_logo_url(obj: MembershipSubscription) -> str | None:
         """Return the parent organization's logo thumbnail URL, if any."""
         return get_image_field_url(obj.organization, "logo_thumbnail")
+
+
+class MyMembershipSchema(Schema):
+    """Member-facing view of a single org membership, with optional inlined active subscription.
+
+    Surfaces both legacy memberships (no subscription) and subscription-backed memberships
+    in a single shape.
+    """
+
+    organization_id: UUID
+    organization_name: str
+    organization_slug: str
+    organization_logo_url: str | None = None
+    member_since: AwareDatetime = Field(alias="created_at")
+    status: OrganizationMember.MembershipStatus
+    tier: MembershipTierSchema | None = None
+    subscription: MySubscriptionSchema | None = None
+
+    @staticmethod
+    def resolve_organization_id(obj: OrganizationMember) -> UUID:
+        """Return the organization's UUID."""
+        return obj.organization_id
+
+    @staticmethod
+    def resolve_organization_name(obj: OrganizationMember) -> str:
+        """Return the organization's name."""
+        return obj.organization.name
+
+    @staticmethod
+    def resolve_organization_slug(obj: OrganizationMember) -> str:
+        """Return the organization's slug."""
+        return obj.organization.slug
+
+    @staticmethod
+    def resolve_organization_logo_url(obj: OrganizationMember) -> str | None:
+        """Return the organization's logo thumbnail URL, if any."""
+        return get_image_field_url(obj.organization, "logo_thumbnail")
+
+    @staticmethod
+    def resolve_subscription(obj: OrganizationMember) -> MembershipSubscription | None:
+        """Return the caller's active (non-terminal) subscription for this organization, if any."""
+        subs: list[MembershipSubscription] = getattr(obj.organization, "_caller_active_subs", [])
+        return subs[0] if subs else None
 
 
 class SubscriptionSchema(_BaseSubscriptionSchema):

@@ -289,6 +289,7 @@ from .recurring_event import (
 # Subscription schemas
 from .subscription import (
     CancelSubscriptionSchema,
+    MyMembershipSchema,
     MySubscriptionSchema,
     PaymentRecordSchema,
     PaymentSchema as MembershipPaymentSchema,
@@ -530,6 +531,7 @@ __all__ = [
     # Subscriptions
     "CancelSubscriptionSchema",
     "MembershipPaymentSchema",
+    "MyMembershipSchema",
     "MySubscriptionSchema",
     "PaymentRecordSchema",
     "PlanCreateSchema",
