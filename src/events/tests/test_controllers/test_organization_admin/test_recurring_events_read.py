@@ -3,6 +3,10 @@
 Covers:
 - ``GET /organization-admin/{slug}/event-series/{series_id}`` — admin detail.
 - ``GET /organization-admin/{slug}/event-series/{series_id}/drift`` — drift.
+- ``GET /organization-admin/{slug}/event-series/{series_id}/template-event`` —
+  full ``EventDetailSchema`` for the series template (the public
+  ``/events/{id}`` endpoint filters templates out via ``for_user()``, so the
+  TemplateEditDialog needs this dedicated path).
 
 Kept in a separate module from the mutation tests (create, lifecycle, template)
 so files stay well under the project's 1000-line limit.
@@ -264,3 +268,135 @@ class TestGetSeriesDrift:
         response = organization_owner_client.get(url)
         assert response.status_code == 200
         assert response.json() == {"stale_occurrences": []}
+
+
+class TestGetSeriesTemplateEvent:
+    """Tests for ``GET /organization-admin/{slug}/event-series/{series_id}/template-event``.
+
+    The public ``/events/{id}`` endpoint filters templates out via
+    ``Event.objects.for_user()`` (``is_template=False``), which broke the
+    TemplateEditDialog's lazy refetch of the template's full surface. This
+    admin path bypasses that filter behind ``edit_event_series``.
+    """
+
+    def test_owner_gets_template_event_detail(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+    ) -> None:
+        """The owner receives the template's full ``EventDetailSchema`` payload.
+
+        The key invariant is that ``is_template=True`` events are reachable
+        here — the regression that motivated this endpoint was 404s on the
+        public path because of the template filter.
+        """
+        # Arrange
+        series = _make_series_with_rule(organization)
+        assert series.template_event is not None
+        assert series.template_event.is_template is True
+        url = reverse(
+            "api:get_series_template_event",
+            kwargs={"slug": organization.slug, "series_id": str(series.id)},
+        )
+
+        # Act
+        response = organization_owner_client.get(url)
+
+        # Assert — verify the dialog-critical fields the TemplateEditSchema
+        # surface depends on are present and match the template, not an
+        # occurrence shape (no ``occurrence_index``).
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(series.template_event_id)
+        assert data["is_template"] is True
+        assert data["is_modified"] is False
+        assert data["occurrence_index"] is None
+        # Fields the dialog form seeds from the response.
+        assert "visibility" in data
+        assert "event_type" in data
+        assert "address_visibility" in data
+        assert "max_attendees" in data
+        assert "requires_ticket" in data
+        assert "potluck_open" in data
+        assert "can_attend_without_login" in data
+
+    def test_returns_404_for_nonmember(
+        self,
+        nonmember_client: Client,
+        organization: Organization,
+    ) -> None:
+        """A non-member gets 404 — same invisibility contract as the other endpoints."""
+        series = _make_series_with_rule(organization)
+        url = reverse(
+            "api:get_series_template_event",
+            kwargs={"slug": organization.slug, "series_id": str(series.id)},
+        )
+        response = nonmember_client.get(url)
+        assert response.status_code == 404
+
+    def test_returns_404_for_missing_series(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+    ) -> None:
+        """An unknown series id returns 404 without leaking org state."""
+        url = reverse(
+            "api:get_series_template_event",
+            kwargs={"slug": organization.slug, "series_id": str(uuid4())},
+        )
+        response = organization_owner_client.get(url)
+        assert response.status_code == 404
+
+    def test_returns_404_for_wrong_org_series(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """A series belonging to a different organization must not be reachable.
+
+        Guards the ``organization=...`` filter in ``_get_series``. A regression
+        that drops it would let a request mix one org's slug with another
+        org's series id and read the template — exactly the cross-org leak
+        the helper is meant to prevent.
+        """
+        other_org = Organization.objects.create(
+            name="Other",
+            slug="other",
+            owner=organization_owner_user,
+        )
+        other_series = _make_series_with_rule(other_org)
+        url = reverse(
+            "api:get_series_template_event",
+            kwargs={"slug": organization.slug, "series_id": str(other_series.id)},
+        )
+
+        response = organization_owner_client.get(url)
+        assert response.status_code == 404
+
+    def test_returns_404_when_series_has_no_template(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+    ) -> None:
+        """An empty/grouping-only series (no template_event) returns 404, not 500.
+
+        Empty series are a legitimate shape (grouping without recurrence);
+        the dialog never opens for them, but the endpoint must still respond
+        cleanly if hit directly.
+        """
+        # Arrange — strip the template after construction so the rest of the
+        # series stays valid.
+        series = _make_series_with_rule(organization)
+        template = series.template_event
+        series.template_event = None
+        series.save(update_fields=["template_event"])
+        assert template is not None
+        template.delete()
+
+        url = reverse(
+            "api:get_series_template_event",
+            kwargs={"slug": organization.slug, "series_id": str(series.id)},
+        )
+        response = organization_owner_client.get(url)
+        assert response.status_code == 404
