@@ -266,12 +266,14 @@ def create_organization_token(
         raise ValueError("At least one of grants_membership or grants_staff_status must be True")
     if grants_membership and membership_tier is None:
         raise ValueError("membership_tier is required when grants_membership is True")
-    duration = timedelta(minutes=duration) if isinstance(duration, int) else duration
+    if isinstance(duration, int):
+        duration = timedelta(minutes=duration)
+    expires_at = timezone.now() + duration if duration else None
     return OrganizationToken.objects.create(
         name=name,
         issuer=issuer,
         organization=organization,
-        expires_at=timezone.now() + duration,
+        expires_at=expires_at,
         max_uses=max_uses,
         grants_membership=grants_membership,
         grants_staff_status=grants_staff_status,

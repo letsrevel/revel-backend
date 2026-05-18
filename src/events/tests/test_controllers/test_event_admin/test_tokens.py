@@ -2,6 +2,7 @@
 
 import orjson
 import pytest
+from django.db.models import Q
 from django.test.client import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -59,6 +60,49 @@ def test_create_event_token_with_full_payload_including_invitation(
     assert token.invitation_payload is not None
     assert token.invitation_payload["waives_questionnaire"] is True
     assert token.invitation_payload["overrides_max_attendees"] is False
+
+
+def test_create_event_token_with_duration_zero_never_expires(
+    organization_owner_client: Client, event: Event, event_ticket_tier: TicketTier
+) -> None:
+    """Creating an event token with ``duration=0`` yields ``expires_at=None`` and a valid token."""
+    url = reverse("api:create_event_token", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "Never Expires Token",
+        "duration": 0,
+        "max_uses": 1,
+        "ticket_tier_id": str(event_ticket_tier.id),
+    }
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["expires_at"] is None
+    # Token must be returned by the validity filter
+    assert EventToken.objects.filter(
+        Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
+        pk=data["id"],
+    ).exists()
+
+
+def test_create_event_token_with_positive_duration_sets_future_expiry(
+    organization_owner_client: Client, event: Event, event_ticket_tier: TicketTier
+) -> None:
+    """Sanity: positive duration still produces an ``expires_at`` in the future."""
+    url = reverse("api:create_event_token", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "60min Token",
+        "duration": 60,
+        "max_uses": 1,
+        "ticket_tier_id": str(event_ticket_tier.id),
+    }
+    before = timezone.now()
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["expires_at"] is not None
+    token = EventToken.objects.get(pk=data["id"])
+    assert token.expires_at is not None
+    assert token.expires_at > before
 
 
 # --- Tests for GET /event-admin/{event_id}/tokens ---
