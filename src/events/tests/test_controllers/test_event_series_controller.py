@@ -5,11 +5,12 @@ core invariant pinned here is that ``is_recurring`` is exposed without
 introducing an N+1 against ``RecurrenceRule``.
 """
 
-import typing as t
 from datetime import timedelta
 
 import pytest
+from django.db import connection
 from django.test.client import Client
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -35,44 +36,57 @@ def _make_recurring_series(organization: Organization, name: str, slug: str) -> 
     )
 
 
-def test_list_event_series_exposes_is_recurring_without_n_plus_one(
+def test_list_event_series_exposes_is_recurring(
     organization_owner_client: Client,
     organization: Organization,
     event_series: EventSeries,
-    django_assert_max_num_queries: t.Any,
 ) -> None:
-    """The list endpoint must surface ``is_recurring`` and stay flat as the row count grows.
-
-    We seed 1 grouping-only series (the ``event_series`` fixture) and 2 recurring series, then
-    hit the list endpoint twice and assert the same query count: that's the N+1 canary. The
-    bound is set generous-but-finite (auth + count + page + prefetches) so we don't paper over
-    a regression by widening it later.
-    """
+    """The list endpoint surfaces ``is_recurring`` for both grouping and recurring series."""
     recurring_one = _make_recurring_series(organization, name="Recurring One", slug="recurring-one")
     recurring_two = _make_recurring_series(organization, name="Recurring Two", slug="recurring-two")
 
-    url = reverse("api:list_event_series")
+    response = organization_owner_client.get(reverse("api:list_event_series"))
 
-    # First call establishes the query budget; second call must match to prove no N+1.
-    with django_assert_max_num_queries(20) as captured_first:
-        response = organization_owner_client.get(url)
     assert response.status_code == 200
-
-    payload = response.json()
-    items = payload["items"]
+    items = response.json()["results"]
     assert len(items) == 3
-
     by_id = {item["id"]: item["is_recurring"] for item in items}
     assert by_id[str(event_series.id)] is False
     assert by_id[str(recurring_one.id)] is True
     assert by_id[str(recurring_two.id)] is True
 
-    # Second call: same query count regardless of the recurring-row count -> no N+1.
-    first_count = len(captured_first.captured_queries)
-    with django_assert_max_num_queries(first_count) as captured_second:
-        response = organization_owner_client.get(url)
-    assert response.status_code == 200
-    assert len(captured_second.captured_queries) == first_count
+
+def test_with_is_recurring_annotation_has_no_n_plus_one(
+    organization: Organization,
+    event_series: EventSeries,
+) -> None:
+    """``with_is_recurring`` query count must not scale with the number of rows.
+
+    The annotation is an ``EXISTS`` subquery, so reading ``is_recurring`` on every row of the
+    result set must not trigger any follow-up queries. We compare the query count between
+    N=1 and N=3 rows: if it stays constant, there is no N+1.
+    """
+
+    def _fetch() -> list[tuple[object, bool]]:
+        qs = EventSeries.objects.with_is_recurring().order_by("name")
+        return [(s.pk, getattr(s, "is_recurring")) for s in qs]
+
+    with CaptureQueriesContext(connection) as ctx_one:
+        baseline = _fetch()
+
+    _make_recurring_series(organization, name="Recurring One", slug="recurring-one")
+    _make_recurring_series(organization, name="Recurring Two", slug="recurring-two")
+
+    with CaptureQueriesContext(connection) as ctx_three:
+        results = _fetch()
+
+    assert len(baseline) == 1
+    assert len(results) == 3
+    # 1 grouping (event_series fixture) + 2 recurring
+    assert sum(1 for _, is_recurring in results if is_recurring) == 2
+    assert sum(1 for _, is_recurring in results if not is_recurring) == 1
+    # The actual N+1 canary: query count must not depend on row count.
+    assert len(ctx_three.captured_queries) == len(ctx_one.captured_queries)
 
 
 def test_retrieve_event_series_exposes_is_recurring(
