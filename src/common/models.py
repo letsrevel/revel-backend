@@ -286,10 +286,15 @@ class Tag(TimeStampedModel):
     icon = models.CharField(max_length=64, blank=True, null=True, help_text="Optional icon name")
     parent = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="children")
 
+    @staticmethod
+    def normalize_name(name: str) -> str:
+        """Strip surrounding whitespace and leading ``#`` (hashtag) characters."""
+        return name.strip().lstrip("#").strip()
+
     def clean(self) -> None:
-        """Ensure stripping whitespace."""
+        """Normalize the name before validation."""
         if self.name:
-            self.name = self.name.strip()
+            self.name = self.normalize_name(self.name)
 
     def __str__(self) -> str:
         return self.name
@@ -333,7 +338,7 @@ class TagManager:
 
         ct = ContentType.objects.get_for_model(self.instance.__class__)
         for name in names:
-            name = name.strip()
+            name = Tag.normalize_name(name)
             if not name:
                 continue  # skip blanks
             tag, _ = get_or_create_with_race_protection(Tag, Q(name=name), {"name": name})
