@@ -39,12 +39,14 @@ def create_event_token(
     Returns:
         The created EventToken.
     """
-    duration = timedelta(minutes=duration) if isinstance(duration, int) else duration
+    if isinstance(duration, int):
+        duration = timedelta(minutes=duration)
+    expires_at = timezone.now() + duration if duration else None
     token = EventToken.objects.create(
         name=name,
         issuer=issuer,
         event=event,
-        expires_at=timezone.now() + duration,
+        expires_at=expires_at,
         max_uses=max_uses,
         grants_invitation=grants_invitation,
         invitation_payload=invitation_payload,

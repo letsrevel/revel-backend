@@ -161,8 +161,15 @@ def cleanup_expired_payments() -> int:
     return len(payment_ids_to_delete)
 
 
+class ResetDemoDataResult(t.TypedDict):
+    """Status payload returned by ``reset_demo_data``."""
+
+    status: str
+    message: str
+
+
 @shared_task(name="events.reset_demo_data")
-def reset_demo_data() -> dict[str, str]:
+def reset_demo_data() -> ResetDemoDataResult:
     """Reset demo data by deleting organizations and example.com users, then re-bootstrapping.
 
     This task invokes the reset_events management command with --no-input flag.
@@ -220,8 +227,14 @@ def send_guest_ticket_confirmation(email: str, token: str, event_name: str, tier
     logger.info("guest_ticket_confirmation_sent", email=email)
 
 
+class TicketFileCacheCleanupResult(t.TypedDict):
+    """Telemetry counters returned by ``cleanup_ticket_file_cache``."""
+
+    cleaned: int
+
+
 @shared_task(name="events.cleanup_ticket_file_cache")
-def cleanup_ticket_file_cache() -> dict[str, int]:
+def cleanup_ticket_file_cache() -> TicketFileCacheCleanupResult:
     """Delete cached PDF/pkpass files for tickets whose events have ended.
 
     Frees storage for past events since cached files are no longer needed.
@@ -329,8 +342,14 @@ def deliver_attendee_credit_note_task(credit_note_id: str) -> None:
     deliver_credit_note(credit_note)
 
 
+class MonthlyInvoiceGenerationResult(t.TypedDict):
+    """Telemetry counters returned by ``generate_monthly_invoices_task``."""
+
+    invoices_generated: int
+
+
 @shared_task(name="events.generate_monthly_invoices")
-def generate_monthly_invoices_task() -> dict[str, int]:
+def generate_monthly_invoices_task() -> MonthlyInvoiceGenerationResult:
     """Generate platform fee invoices for the previous month, then dispatch emails.
 
     Runs on the 1st of each month via Celery Beat.
@@ -406,8 +425,14 @@ def send_invoice_email_task(invoice_id: str) -> None:
     logger.info("invoice_email_sent", invoice_number=invoice.invoice_number, to=recipients)
 
 
+class VatRevalidationResult(t.TypedDict):
+    """Telemetry counters returned by ``revalidate_vat_ids_task``."""
+
+    dispatched: int
+
+
 @shared_task(name="events.revalidate_vat_ids")
-def revalidate_vat_ids_task() -> dict[str, int]:
+def revalidate_vat_ids_task() -> VatRevalidationResult:
     """Dispatch per-org VIES re-validation tasks.
 
     Runs on the 15th of each month via Celery Beat.
@@ -445,8 +470,14 @@ def revalidate_single_vat_id_task(org_id: str) -> None:
     logger.info("vat_revalidation_done", org_id=org_id, vat_id=org.vat_id, valid=org.vat_id_validated)
 
 
+class RecurringEventGenerationResult(t.TypedDict):
+    """Telemetry counters returned by ``generate_recurring_events_task``."""
+
+    series_dispatched: int
+
+
 @shared_task(name="events.generate_recurring_events")
-def generate_recurring_events_task() -> dict[str, int]:
+def generate_recurring_events_task() -> RecurringEventGenerationResult:
     """Maintain the rolling generation window for all active recurring series.
 
     Runs daily via Celery Beat (scheduled by migration 0067). Dispatches a

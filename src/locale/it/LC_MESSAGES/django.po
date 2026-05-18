@@ -1352,6 +1352,14 @@ msgstr "Stato del biglietto non valido: {status}"
 msgid "Check-in is not currently open for this event."
 msgstr "Il check-in non è attualmente aperto per questo evento."
 
+#, python-brace-format
+msgid "Check-in is not open yet. It will open at {opens_at}."
+msgstr "Il check-in non è ancora aperto. Aprirà alle {opens_at}."
+
+#, python-brace-format
+msgid "Check-in has closed for this event. It ended at {ended_at}."
+msgstr "Il check-in per questo evento è chiuso. È terminato alle {ended_at}."
+
 msgid "Price paid is not allowed for this ticket."
 msgstr ""
 

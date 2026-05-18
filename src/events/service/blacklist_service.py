@@ -9,7 +9,7 @@ from uuid import UUID
 
 import structlog
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from rapidfuzz import fuzz
@@ -378,29 +378,10 @@ def check_user_hard_blacklisted(user: RevelUser, organization: Organization) -> 
     return Blacklist.objects.filter(organization=organization).filter(q).exists()
 
 
-def get_hard_blacklisted_org_ids(user: RevelUser) -> "QuerySet[Blacklist]":
-    """Get organization IDs where user is hard-blacklisted.
-
-    Used by for_user() managers to exclude blacklisted organizations.
-
-    Args:
-        user: The user to check
-
-    Returns:
-        ValuesQuerySet of organization IDs
-    """
-    q = Q(user=user)
-
-    if user.email:
-        q |= Q(email__iexact=user.email)
-
-    if user.phone_number:
-        q |= Q(phone_number=user.phone_number)
-
-    if telegram_usernames := list(user.telegram_users.values_list("telegram_username", flat=True)):
-        q |= Q(telegram_username__in=[u.lower() for u in telegram_usernames if u])
-
-    return Blacklist.objects.filter(q).values_list("organization_id", flat=True)  # type: ignore[return-value]
+# Re-exported for back-compat with existing service-layer call sites and tests.
+# Canonical location is ``events.utils.blacklist`` because model managers must
+# not import from ``events.service`` (see CLAUDE.md).
+from events.utils.blacklist import get_hard_blacklisted_org_ids as get_hard_blacklisted_org_ids  # noqa: E402
 
 
 def _get_name_variants(

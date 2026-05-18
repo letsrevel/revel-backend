@@ -3,13 +3,15 @@ from __future__ import annotations
 import typing as t
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
+from django.utils import formats, timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -355,6 +357,41 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
     return Ticket.objects.full().get(pk=ticket.pk)
 
 
+def _format_in_event_tz(dt: datetime, event: Event) -> str:
+    """Format ``dt`` in the event's local timezone (via its city), falling back to Django's active timezone.
+
+    The tz abbreviation (``CET``, ``UTC``, …) is appended so the user can't misread an ambiguous local time.
+    """
+    tz: ZoneInfo | t.Any
+    if event.city and event.city.timezone:
+        try:
+            tz = ZoneInfo(event.city.timezone)
+        except KeyError:
+            tz = timezone.get_current_timezone()
+    else:
+        tz = timezone.get_current_timezone()
+    local = dt.astimezone(tz)
+    return f"{formats.date_format(local, 'DATETIME_FORMAT', use_l10n=True)} {local.tzname() or ''}".rstrip()
+
+
+def _check_in_closed_message(event: Event) -> str:
+    """Build a localized error message for a closed check-in window, surfacing the open/close time when known."""
+    if event.status != event.EventStatus.OPEN:
+        return str(_("Check-in is not currently open for this event."))
+    now = timezone.now()
+    starts_at = event.check_in_starts_at or event.start
+    ends_at = event.check_in_ends_at or event.end
+    if now < starts_at:
+        return str(_("Check-in is not open yet. It will open at {opens_at}.")).format(
+            opens_at=_format_in_event_tz(starts_at, event)
+        )
+    if now > ends_at:
+        return str(_("Check-in has closed for this event. It ended at {ended_at}.")).format(
+            ended_at=_format_in_event_tz(ends_at, event)
+        )
+    return str(_("Check-in is not currently open for this event."))
+
+
 def check_in_ticket(
     event: Event, ticket_id: UUID, checked_in_by: RevelUser, price_paid: Decimal | None = None
 ) -> Ticket:
@@ -402,7 +439,7 @@ def check_in_ticket(
 
     # Check if check-in window is open
     if not event.is_check_in_open():
-        raise HttpError(400, str(_("Check-in is not currently open for this event.")))
+        raise HttpError(400, _check_in_closed_message(event))
 
     # PWYC price_paid handling
     is_pwyc_offsite = ticket.tier.price_type == TicketTier.PriceType.PWYC and ticket.tier.payment_method in (
