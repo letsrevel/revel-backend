@@ -1,6 +1,7 @@
 """Observability middleware for context enrichment."""
 
 import time
+import traceback
 import typing as t
 import uuid
 
@@ -80,9 +81,25 @@ class StructlogContextMiddleware:
 
         structlog.contextvars.bind_contextvars(**context)
 
-        # Process request
+        # Process request. If anything outside the Ninja API (Django admin,
+        # non-API views, middleware) raises, Django swallows the traceback into
+        # a generic 500 — log it here so we always have a stacktrace tied to
+        # the request_id/trace_id context bound above.
         start_time = time.monotonic()
-        response = self.get_response(request)
+        try:
+            response = self.get_response(request)
+        except Exception as exc:
+            logger.error(
+                "unhandled_exception",
+                exc_info=exc,
+                traceback="".join(traceback.format_exception(exc)),
+                exception_type=type(exc).__name__,
+                exception_message=str(exc),
+                method=request.method,
+                path=request.path,
+            )
+            structlog.contextvars.clear_contextvars()
+            raise
 
         # Add request_id to response headers for client-side correlation
         response["X-Request-ID"] = request_id
