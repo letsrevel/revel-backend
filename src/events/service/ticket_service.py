@@ -355,6 +355,22 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
     return Ticket.objects.full().get(pk=ticket.pk)
 
 
+def _check_in_closed_message(event: Event) -> str:
+    """Build a localized error message for a closed check-in window, surfacing the open/close time when known."""
+    if event.status != event.EventStatus.OPEN:
+        return str(_("Check-in is not currently open for this event."))
+    now = timezone.now()
+    starts_at = event.check_in_starts_at or event.start
+    ends_at = event.check_in_ends_at or event.end
+    if now < starts_at:
+        return str(_("Check-in is not open yet. It will open at {opens_at}.")).format(opens_at=starts_at.isoformat())
+    if now > ends_at:
+        return str(_("Check-in has closed for this event. It ended at {ended_at}.")).format(
+            ended_at=ends_at.isoformat()
+        )
+    return str(_("Check-in is not currently open for this event."))
+
+
 def check_in_ticket(
     event: Event, ticket_id: UUID, checked_in_by: RevelUser, price_paid: Decimal | None = None
 ) -> Ticket:
@@ -402,7 +418,7 @@ def check_in_ticket(
 
     # Check if check-in window is open
     if not event.is_check_in_open():
-        raise HttpError(400, str(_("Check-in is not currently open for this event.")))
+        raise HttpError(400, _check_in_closed_message(event))
 
     # PWYC price_paid handling
     is_pwyc_offsite = ticket.tier.price_type == TicketTier.PriceType.PWYC and ticket.tier.payment_method in (
