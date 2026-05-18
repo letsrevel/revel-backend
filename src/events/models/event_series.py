@@ -3,7 +3,7 @@ import typing as t
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.gis.db import models
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db.models import Prefetch, Q
+from django.db.models import Exists, OuterRef, Prefetch, Q
 
 from accounts.models import RevelUser
 from common.fields import MarkdownField
@@ -30,6 +30,21 @@ class EventSeriesQuerySet(models.QuerySet["EventSeries"]):
     def with_organization(self) -> t.Self:
         """Get the base queryset for the eventseries."""
         return self.select_related("organization")
+
+    def with_is_recurring(self) -> t.Self:
+        """Annotate ``is_recurring`` so consumers can distinguish recurring series from grouping-only ones.
+
+        A series is considered recurring iff it has an attached ``RecurrenceRule`` row
+        (regardless of whether occurrences have been materialized yet). The annotation uses
+        an ``EXISTS`` subquery against the OneToOne reverse relation to avoid an N+1 across
+        list endpoints. We import ``RecurrenceRule`` lazily to avoid an import cycle with
+        ``events.models.recurrence_rule``, which itself imports from ``events.utils``.
+        """
+        from .recurrence_rule import RecurrenceRule
+
+        return self.annotate(
+            is_recurring=Exists(RecurrenceRule.objects.filter(event_series=OuterRef("pk"))),
+        )
 
     def for_user(self, user: RevelUser | AnonymousUser) -> t.Self:
         """Get the queryset based on the user, using a high-performance UNION-based strategy.
@@ -90,9 +105,13 @@ class EventSeriesManager(models.Manager["EventSeries"]):
         """Returns a queryset with organization."""
         return self.get_queryset().with_organization()
 
+    def with_is_recurring(self) -> EventSeriesQuerySet:
+        """Returns a queryset annotated with ``is_recurring``."""
+        return self.get_queryset().with_is_recurring()
+
     def full(self) -> EventSeriesQuerySet:
         """Returns a queryset prefetching the full event series."""
-        return self.get_queryset().with_organization().with_tags()
+        return self.get_queryset().with_organization().with_tags().with_is_recurring()
 
 
 class EventSeries(SlugFromNameMixin, TimeStampedModel, LogoCoverValidationMixin, TaggableMixin):
