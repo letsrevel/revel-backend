@@ -220,6 +220,47 @@ class AccountController(UserAwareController):
         return ResponseMessage(message=str(_("Password reset successfully.")))
 
     @route.post(
+        "/email-change-request",
+        tags=["Account"],
+        response=ResponseMessage,
+        url_name="email-change-request",
+        throttle=WriteThrottle(),
+    )
+    def email_change_request(self, payload: schema.EmailChangeRequestSchema) -> ResponseMessage:
+        """Begin a self-served email change.
+
+        Validates the current password, ensures the new address is available, issues a
+        single-use JWT, and emails the confirmation link to the **new** address. A
+        separate informational notice is sent to the current address. Returns a generic
+        success message on duplicate-banned-email targets to avoid signalling ban presence.
+        """
+        account_service.request_email_change(
+            user=self.user(),
+            new_email=payload.new_email,
+            password=payload.password,
+        )
+        return ResponseMessage(message=str(_("A confirmation link has been sent to the new email address.")))
+
+    @route.post(
+        "/email-change-confirm",
+        tags=["Account"],
+        response=schema.EmailChangeResponseSchema,
+        url_name="email-change-confirm",
+        auth=None,
+        throttle=WriteThrottle(),
+    )
+    def email_change_confirm(self, payload: schema.EmailChangeConfirmSchema) -> schema.EmailChangeResponseSchema:
+        """Confirm an email change using the token sent to the new address.
+
+        Swaps email/username, blacklists all existing JWTs for the user (email is an
+        identity primitive), and issues a fresh token pair so the confirming device
+        stays signed in. The confirmation token is single-use.
+        """
+        user = account_service.confirm_email_change(payload.token)
+        token = get_token_pair_for_user(user)
+        return schema.EmailChangeResponseSchema(user=RevelUserSchema.from_orm(user), token=token)
+
+    @route.post(
         "/me/upload-profile-picture",
         response=RevelUserSchema,
         url_name="upload-profile-picture",

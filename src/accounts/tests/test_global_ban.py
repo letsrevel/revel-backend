@@ -11,11 +11,11 @@ from django.utils import timezone
 from ninja.errors import HttpError
 
 from accounts import schema
+from accounts.jwt import blacklist_user_tokens
 from accounts.models import GlobalBan, RevelUser
 from accounts.service import account as account_service
 from accounts.service import auth as auth_service
 from accounts.service.global_ban_service import (
-    _blacklist_user_tokens,
     deactivate_user_for_ban,
     is_email_globally_banned,
     is_telegram_globally_banned,
@@ -289,7 +289,7 @@ class TestDeactivateUserForBan:
 
 
 class TestBlacklistUserTokens:
-    """Tests for _blacklist_user_tokens."""
+    """Tests for blacklist_user_tokens."""
 
     def test_blacklists_tokens(self, target_user: RevelUser) -> None:
         from ninja_jwt.token_blacklist.models import BlacklistedToken, OutstandingToken
@@ -299,7 +299,7 @@ class TestBlacklistUserTokens:
         RefreshToken.for_user(target_user)
         assert OutstandingToken.objects.filter(user=target_user).count() == 2
 
-        count = _blacklist_user_tokens(target_user)
+        count = blacklist_user_tokens(target_user)
 
         assert count == 2
         assert BlacklistedToken.objects.filter(token__user=target_user).count() == 2
@@ -309,16 +309,16 @@ class TestBlacklistUserTokens:
         from ninja_jwt.tokens import RefreshToken
 
         RefreshToken.for_user(target_user)
-        _blacklist_user_tokens(target_user)
+        blacklist_user_tokens(target_user)
         assert BlacklistedToken.objects.filter(token__user=target_user).count() == 1
 
         # Running again should not create duplicates
-        count = _blacklist_user_tokens(target_user)
+        count = blacklist_user_tokens(target_user)
         assert count == 0
         assert BlacklistedToken.objects.filter(token__user=target_user).count() == 1
 
     def test_no_tokens(self, target_user: RevelUser) -> None:
-        count = _blacklist_user_tokens(target_user)
+        count = blacklist_user_tokens(target_user)
         assert count == 0
 
 

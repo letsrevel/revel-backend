@@ -15,11 +15,12 @@ from ninja.errors import HttpError
 
 from accounts import schema, tasks
 from accounts.jwt import blacklist as blacklist_token
-from accounts.jwt import check_blacklist, create_token
+from accounts.jwt import blacklist_user_tokens, check_blacklist, create_token
 from accounts.models import Referral, ReferralCode, RevelUser
 from accounts.password_validation import validate_password
 from common.testing import (
     TOKEN_TYPE_DELETION,
+    TOKEN_TYPE_EMAIL_CHANGE,
     TOKEN_TYPE_PASSWORD_RESET,
     TOKEN_TYPE_VERIFICATION,
     store_test_token,
@@ -312,6 +313,130 @@ def reset_password(token: str, new_password: str) -> RevelUser:
 
     blacklist_token(token)
     logger.info("password_reset_completed", user_id=str(user.id), email=user.email)
+    return user
+
+
+def create_email_change_token(user: RevelUser, new_email: str) -> str:
+    """Create a single-use email change token bound to the user and the proposed new email.
+
+    Args:
+        user: The user requesting the change.
+        new_email: The proposed new email (must already be lowercased).
+
+    Returns:
+        The signed JWT token.
+    """
+    payload = schema.EmailChangeJWTPayloadSchema(
+        user_id=user.id,
+        email=user.email,
+        new_email=new_email,
+        exp=timezone.now() + settings.VERIFY_TOKEN_LIFETIME,
+    )
+    token = create_token(payload.model_dump(mode="json"), settings.SECRET_KEY, settings.JWT_ALGORITHM)
+    store_test_token(TOKEN_TYPE_EMAIL_CHANGE, token)
+    return token
+
+
+def _mask_email(email: str) -> str:
+    """Return a partially-masked rendering of an email for the notice-to-old-address.
+
+    Examples:
+        ``alice@example.com`` -> ``a****@example.com``
+        ``a@example.com``     -> ``*@example.com``
+    """
+    local, _, domain = email.partition("@")
+    if not domain:
+        return "***"
+    if len(local) <= 1:
+        return f"*@{domain}"
+    return f"{local[0]}{'*' * (len(local) - 1)}@{domain}"
+
+
+def request_email_change(user: RevelUser, new_email: str, password: str) -> str:
+    """Begin an email change flow: validate, issue a token, dispatch emails.
+
+    Args:
+        user: The authenticated user requesting the change.
+        new_email: The lowercased new email address.
+        password: The user's current password (defense-in-depth).
+
+    Returns:
+        The signed email-change token (also dispatched to the new address).
+    """
+    from accounts.service.global_ban_service import is_email_globally_banned
+
+    logger.info("email_change_requested", user_id=str(user.id), new_email=new_email)
+
+    if not user.check_password(password):
+        logger.warning("email_change_bad_password", user_id=str(user.id))
+        raise HttpError(400, str(_("Incorrect password.")))
+
+    if GoogleSSOUser.objects.filter(user=user).exists():
+        logger.info("email_change_blocked_google_sso", user_id=str(user.id))
+        raise HttpError(400, str(_("Google SSO users cannot change their email here.")))
+
+    if new_email == user.email:
+        raise HttpError(400, str(_("The new email is the same as the current one.")))
+
+    if is_email_globally_banned(new_email):
+        # Mirror the verification flow: silently no-op to avoid signalling ban presence.
+        logger.info("email_change_blocked_banned_target", user_id=str(user.id))
+        return ""
+
+    if RevelUser.objects.filter(username__iexact=new_email).exists():
+        raise HttpError(400, str(_("This email is already in use.")))
+
+    token = create_email_change_token(user, new_email)
+    tasks.send_email_change_confirmation.delay(new_email, token)
+    tasks.send_email_change_notice.delay(user.email, _mask_email(new_email))
+    logger.info("email_change_email_sent", user_id=str(user.id), new_email=new_email)
+    return token
+
+
+def confirm_email_change(token: str) -> RevelUser:
+    """Confirm an email change and rotate the user's identity.
+
+    Validates and blacklists the token, swaps ``email``/``username`` to the new
+    address, blacklists every outstanding JWT for the user (treating email as
+    an identity primitive), and dispatches notifications to both addresses.
+
+    Args:
+        token: The email-change JWT.
+
+    Returns:
+        The user with the updated email.
+    """
+    payload = token_to_payload(token, schema.EmailChangeJWTPayloadSchema)
+    check_blacklist(payload.jti)
+    user = get_object_or_404(RevelUser, id=payload.user_id)
+    new_email = payload.new_email.lower()
+
+    # Race-safe uniqueness check at confirm time. Done before any state mutation so
+    # the token remains usable for a retry only if the spec allows; here we choose
+    # the conservative path and blacklist regardless.
+    if RevelUser.objects.filter(username__iexact=new_email).exclude(pk=user.pk).exists():
+        blacklist_token(token)
+        logger.warning("email_change_confirm_email_taken", user_id=str(user.id), new_email=new_email)
+        raise HttpError(400, str(_("This email is already in use.")))
+
+    old_email = user.email
+    with transaction.atomic():
+        blacklist_token(token)
+        user.email = new_email
+        user.username = new_email
+        user.email_verified = True
+        user.save(update_fields=["email", "username", "email_verified"])
+        # Email is an identity primitive — invalidate every active session.
+        blacklist_user_tokens(user)
+
+    tasks.send_email_change_completed_old.delay(old_email, new_email)
+    tasks.send_email_change_completed_new.delay(new_email, old_email)
+    logger.info(
+        "email_change_confirmed",
+        user_id=str(user.id),
+        old_email=old_email,
+        new_email=new_email,
+    )
     return user
 
 

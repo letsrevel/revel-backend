@@ -1,0 +1,17 @@
+{% load i18n %}<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{% trans "Your Revel email address has been changed" %}</title>
+</head>
+<body>
+    <h2>{% trans "Your Revel email address has been changed" %}</h2>
+    <p>{% blocktrans %}This is a confirmation that the email address on your Revel account has been changed from <strong>{{ old_email }}</strong> to <strong>{{ new_email }}</strong>.{% endblocktrans %}</p>
+
+    <p>{% blocktrans %}All other sessions have been signed out as a security precaution. From now on, sign in using your new address.{% endblocktrans %}</p>
+
+    <p>{% blocktrans %}If you did not authorise this change, contact support immediately.{% endblocktrans %}</p>
+
+    <p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
+</body>
+</html>

@@ -46,6 +46,7 @@ def get_and_clear_test_tokens() -> dict[str, str]:
 TOKEN_TYPE_VERIFICATION = "verification"
 TOKEN_TYPE_PASSWORD_RESET = "password-reset"
 TOKEN_TYPE_DELETION = "deletion"
+TOKEN_TYPE_EMAIL_CHANGE = "email-change"
 
 
 def get_header_name(token_type: str) -> str:
@@ -69,4 +70,5 @@ __all__: t.Sequence[str] = [
     "TOKEN_TYPE_VERIFICATION",
     "TOKEN_TYPE_PASSWORD_RESET",
     "TOKEN_TYPE_DELETION",
+    "TOKEN_TYPE_EMAIL_CHANGE",
 ]

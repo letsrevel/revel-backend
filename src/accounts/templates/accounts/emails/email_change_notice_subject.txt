@@ -1,0 +1,1 @@
+{% load i18n %}{% trans "An email change was requested on your account" %}

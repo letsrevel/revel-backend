@@ -1,0 +1,10 @@
+{% load i18n %}{% trans "An email change was requested on your account." %}
+
+{% blocktrans %}Someone asked to change the email address on your Revel account to {{ masked_new_email }}. The change is not active yet — it will only take effect when the new address is confirmed.{% endblocktrans %}
+
+{% blocktrans %}If this wasn't you, change your password immediately at {{ frontend_base_url }}/account/password-reset and contact support.{% endblocktrans %}
+
+{% blocktrans %}If it was you, no action is needed — finish the confirmation from the email we just sent to your new address.{% endblocktrans %}
+
+{% blocktrans %}Thank you,
+The Revel Team{% endblocktrans %}
