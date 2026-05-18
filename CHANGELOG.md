@@ -7,19 +7,134 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.56.0] - 2026-05-18
+
 ### Added
-- Discord admin-ping channel (`DISCORD_ADMIN_WEBHOOK_URL`) for new-user and new-organization events. The new-user Discord ping is PII-free (count only, skipped for guest signups); the new-organization Discord ping includes org name + owner email
-- `SiteSettings.notify_organization_created` flag to gate new-organization admin pings
-- New-user Pushover ping now includes the referrer's email (when present) and a running user count; new-organization Pushover ping includes owner email + running org count
+- **Self-Served Email Change**: Authenticated users can change their email via a JWT-confirmation flow
+  - `POST /account/email-change-request` requires the current password and sends a single-use confirmation link to the new address (proof of control)
+  - `POST /account/email-change-confirm` swaps `email` + `username`, blacklists every outstanding JWT for the user (email is an identity primitive), and returns a fresh token pair so the confirming device stays signed in
+  - Both old and new addresses receive completion emails; the old address also receives an in-flight notice with a masked rendering of the new address
+  - Google-SSO accounts and same-email or already-taken targets are rejected with clear 400s; globally-banned targets silent-no-op (mirrors verification flow)
+
+## [1.55.0] - 2026-05-18
+
+### Added
+- `is_recurring: bool` on `EventSeriesInListSchema` and `EventSeriesRetrieveSchema`, resolved via a single subquery annotation (no N+1)
+
+### Fixed
+- Event/organization invitation tokens created with `duration=0` ("Never expires" in the frontend) now correctly persist `expires_at=None` instead of `timezone.now() + timedelta(0)` (effectively expiring immediately)
+- Unhandled exceptions in the API, the Django admin, and middleware now emit full tracebacks to Loki — previously several layers were silently dropping `exc_info`, leaving production 500s un-debuggable
 
 ### Changed
-- Decomposed long functions into focused helpers for readability
-- Extracted `is_owner_or_staff` and `has_org_permission` permission helpers
+- `cleanup_email_logs` Celery task is now scheduled daily at 04:30 UTC
+
+## [1.54.0] - 2026-05-15
+
+### Added
+- `GET /organization-admin/{slug}/plans` — list every membership-subscription plan across an organization in one request, with optional `is_active` filter
+- `tier_name` resolved on `PlanSchema` so admin UIs can render the plan-to-tier link without a client-side join
+
+## [1.53.0] - 2026-05-15
+
+### Added
+- **Membership Subscriptions — Phase 1 (OFFLINE)**: Staff-managed recurring memberships with full lifecycle
+  - `MembershipSubscriptionPlan`, `MembershipSubscription`, and `MembershipPayment` models with denormalized organization, partial-unique constraint on non-terminal status per `(user, org)`, and `dateutil.relativedelta` period arithmetic (handles month-end edges)
+  - New `manage_subscriptions` permission (owner ✓, staff ✓ default, member ✗)
+  - Staff endpoints: plan CRUD per tier, subscription create/list/get + lifecycle (cancel/pause/resume), record payment, record-only refund
+  - Member endpoints: `GET /me/membership-subscriptions`, `GET /me/organizations/{org_id}/subscription`
+  - `post_save` signal syncs `OrganizationMember.status + tier` from the subscription; never creates members, leaves `BANNED` alone
+  - Daily Celery beat task `events.expire_subscriptions_past_grace` transitions `ACTIVE → PAST_DUE → EXPIRED` past `Organization.membership_grace_period_days` (default 7)
+  - New `Organization.membership_grace_period_days` and `Organization.membership_refund_policy` fields
+- `GET /organization-admin/{slug}/subscriptions/{sub_id}/payments` — paginated payment history per subscription (newest first)
+- `occurred_at` on `MembershipPaymentSchema` lets staff backfill OFFLINE payments with the real payment date; anchors `period_start` / `period_end` math when set
+- `GET /me/memberships` — unified, paginated endpoint that surfaces every `OrganizationMember` for the caller, inlining the most recent non-terminal subscription per org when one exists
+- `organization_name`, `organization_slug`, and `organization_logo_url` resolved on `MySubscriptionSchema` so member dashboards can render a usable card without N+1 org lookups
+- `GET /organization-admin/{slug}/event-series/{series_id}/template-event` — admin endpoint that returns the `EventDetailSchema` for a series' template event (the public detail route filters out templates by design)
+
+### Security
+- Bumped `urllib3` to patch a transitive vulnerability
+
+## [1.52.3] - 2026-05-11
+
+### Fixed
+- `TicketTierUpdateSchema`, `DiscountCodeCreateSchema`, and `DiscountCodeUpdateSchema` now validate `currency` against the same supported list (`Currencies` whitelist) already enforced on create; previously clients could set unsupported currencies via update or discount endpoints, bypassing the ECB/frankfurter rate coverage
+
+## [1.52.2] - 2026-05-10
+
+### Security
+- Bumped Django to 5.2.14
+
+## [1.52.1] - 2026-05-08
+
+### Added
+- **Organization Contact Method**: Each org can now choose `none` / `email` / `form` for inbound contact
+  - `Organization.contact_method` field; `email` and `form` require a verified `contact_email`
+  - `POST /organizations/{slug}/contact` — public contact endpoint (verified-email auth, throttled). Submission is delivered as a single transactional email to the org's verified mailbox with `From: noreply@`, `Reply-To: <sender>`; staff also receive an in-platform `ORG_CONTACT_MESSAGE_RECEIVED` notification (default `IN_APP + TELEGRAM`, gated on `edit_organization`)
+  - `contact_email` resolves on public org schemas only when `contact_method=email` and the address is verified; `contact_email_verified` removed from public surfaces (still visible to admins)
+  - Changing `contact_email` to a new (unverified) address automatically forces `contact_method=none` so the resolver invariant holds
+
+### Fixed
+- In-app, Telegram, and email templates for `ORG_CONTACT_MESSAGE_RECEIVED` now render the full message body (sender, subject, preview, admin link); previously only the title showed because channel templates were missing
+
+## [1.51.0] - 2026-04-28
+
+### Changed
+- Admin-panel authorization tightened: "Impersonate user" is now restricted to superusers; sensitive organization fields are read-only for non-superuser staff
+
+## [1.50.1] - 2026-04-28
+
+### Fixed
+- `notify_organization_created` is now editable and visible in the `SiteSettings` admin (the field existed on the model but was missing from the admin `fieldsets`)
+
+## [1.50.0] - 2026-04-25
+
+### Added
+- **Recurring Events**: First-class recurring event series with rolling-window materialization
+  - `RecurrenceRule` model — frequency, interval, weekdays, monthly params, boundaries; emits RFC 5545 `RRULE` strings via `python-dateutil`
+  - `EventSeries` extensions: `template_event`, `recurrence_rule`, `exdates`, `auto_publish`, `generation_window_weeks`, scheduling control
+  - Each occurrence is a real materialized `Event` (independent tickets, payments, capacity) duplicated from the template, with `PROPAGATABLE_FIELDS` whitelist for safe template edits
+  - 7 new admin endpoints: create recurring series, edit template with propagation, update recurrence, cancel occurrence, manual generate, pause/resume
+  - Daily Celery beat task drives the rolling-window generation
+  - Single digest `SERIES_EVENTS_GENERATED` notification per batch instead of one notification per generated occurrence
+  - `GET /organization-admin/{slug}/event-series/{series_id}` returns the full admin `EventSeriesRecurrenceDetailSchema`
+  - `GET /organization-admin/{slug}/event-series/{series_id}/drift` returns the IDs of future occurrences that no longer match the current `RRULE` (cadence-change drift), excluding manually-modified and cancelled ones
+- **User-Initiated Ticket Cancellation & Refunds**: Per-tier opt-in self-service cancellation with snapshotted refund policy
+  - `TicketTier.allow_user_cancellation`, `cancellation_deadline_hours`, and `refund_policy` (tiered % by hours-before-event + flat fee)
+  - `refund_policy_snapshot` immutably written onto each `Ticket` at purchase time so policy changes do not retroactively affect issued tickets
+  - `GET /events/tickets/{id}/cancellation-preview` — refund-policy windows + live quote for the caller's ticket
+  - `POST /events/tickets/{id}/cancel` — self-service cancel for free, offline, at-the-door, and online (Stripe) tickets. Returns `409 CancellationBlockedErrorSchema` with a stable `code` when not permitted (already cancelled, checked-in, event started, past deadline, etc.)
+  - Public `TicketTierSchema` now exposes `allow_user_cancellation`, `cancellation_deadline_hours`, and `refund_policy` so buyers see the cancellation terms before purchase
+  - `Payment.refund_amount`, `refund_status`, `refunded_at`, `stripe_refund_id`, and `refund_failure_reason` fields
+  - `Ticket.cancelled_at`, `cancelled_by`, `cancellation_source`, and `cancellation_reason` fields
+
+### Changed
+- Stripe `charge.refunded` webhook now matches refunds per-`Payment` via a 5-branch strategy (existing `stripe_refund_id`, metadata `ticket_id`, unambiguous exact amount, full-intent sweep, ambiguous → log-only) — previously cascaded across all payments sharing a `PaymentIntent`
+- `TICKET_CANCELLED` notifications now branch headline copy on `cancellation_source` (user-initiated / organizer / stripe_dashboard) across in-app, Telegram, and email
+- Refund notifications now report `payment.refund_amount` when set, instead of the full `payment.amount` (fixes partial-refund UX lies)
+
+### Fixed
+- Stripe Connect refunds no longer fail with 502: `_issue_stripe_refund` now passes `stripe_account=org.stripe_account_id` for direct charges
+- Admin `cancel` and `mark-refunded` actions now record `cancelled_at`, `cancelled_by`, `cancellation_source=ORGANIZER`, and optional `cancellation_reason`; `mark_ticket_refunded` also populates `payment.refund_amount`, `refund_status=SUCCEEDED`, and `refunded_at`
+- Admin `POST/PUT /ticket-tier` accepts a nested `refund_policy` end-to-end (previously `Decimal` leaves in the nested JSON caused `full_clean()` to raise)
+- Recurring-event tier duplication previously dropped `allow_user_cancellation`, `cancellation_deadline_hours`, `refund_policy`, `seat_assignment_mode`, `max_tickets_per_user`, `vat_rate`, `display_order`, `restrict_visibility_to_linked_invitations`, and `restrict_purchase_to_linked_invitations` on every generated occurrence — `_duplicate_ticket_tiers` now introspects `_meta.concrete_fields` with an explicit exclusion list
 
 ## [1.48.1] - 2026-04-17
 
 ### Fixed
 - Unbanning a user now clears the stale `BANNED` `OrganizationMember` row that the ban created. The membership transitions to `CANCELLED` (not `ACTIVE`, to avoid implicitly re-granting prior membership privileges), so the org and its events become visible again. If another blacklist entry still covers the user in the org, the `BANNED` status is preserved.
+
+## [1.48.0] - 2026-04-15
+
+### Added
+- Discord admin-ping channel (`DISCORD_ADMIN_WEBHOOK_URL`) for new-user and new-organization events. The new-user Discord ping is PII-free (count only, skipped for guest signups); the new-organization Discord ping includes org name + owner email
+- `SiteSettings.notify_organization_created` flag to gate new-organization admin pings
+- New-user Pushover ping now includes the referrer's email (when present) and a running user count; new-organization Pushover ping includes owner email + running org count
+
+### Fixed
+- Event duplication now copies `address_visibility`, `requires_full_profile`, `public_pronoun_distribution`, `max_tickets_per_user`, `venue`, `location_maps_url`, and `location_maps_embed`; potluck items are duplicated as host suggestions (no assignee/created_by)
+- Daily exchange-rate fetch no longer crashes: switched to `https://api.frankfurter.dev/v1` (the old URL was returning 301 and breaking the Celery task)
+- `first_name`, `last_name`, and `preferred_name` whitespace is now stripped at save time (and via `StrippedString` in `ProfileUpdateSchema`)
+- `EventSeries` notification suppression during recurring-event batch materialization is now thread-safe: replaced a thread-unsafe signal disconnect/reconnect with `ContextVar`-based suppression so concurrent requests no longer interfere with each other's notifications
 
 ## [1.47.0] - 2026-03-31
 
