@@ -97,7 +97,7 @@ class EventQuerySet(models.QuerySet["Event"]):
 
         # --- Get banned and blacklisted organization IDs ---
         # Users banned/blacklisted from an organization cannot see its events, even if public
-        from events.service.blacklist_service import get_hard_blacklisted_org_ids
+        from events.utils.blacklist import get_hard_blacklisted_org_ids
 
         banned_org_ids = OrganizationMember.objects.filter(
             user=user, status=OrganizationMember.MembershipStatus.BANNED

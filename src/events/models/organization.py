@@ -70,7 +70,7 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
 
         # --- Check if user is banned or blacklisted from any organization ---
         # If a user is banned/blacklisted, they cannot see the organization at all, even if it's public
-        from events.service.blacklist_service import get_hard_blacklisted_org_ids
+        from events.utils.blacklist import get_hard_blacklisted_org_ids
 
         banned_org_ids = OrganizationMember.objects.filter(
             user=user, status=OrganizationMember.MembershipStatus.BANNED
