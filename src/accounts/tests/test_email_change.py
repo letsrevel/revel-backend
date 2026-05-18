@@ -115,7 +115,7 @@ class TestRequestEmailChange:
     ) -> None:
         GlobalBan.objects.create(
             ban_type=GlobalBan.BanType.EMAIL,
-            normalized_value="banned@example.com",
+            value="banned@example.com",
             reason="test",
         )
         token = account_service.request_email_change(
