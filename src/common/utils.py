@@ -9,6 +9,7 @@ from django.core.files import File
 from django.core.files.uploadedfile import InMemoryUploadedFile
 from django.db import IntegrityError, models, transaction
 from PIL import Image
+from pydantic import BaseModel
 
 from common import tasks
 
@@ -99,6 +100,25 @@ def get_or_create_with_race_protection(
             # Should never happen, but if it does, re-raise the original error
             raise
         return instance, False
+
+
+@transaction.atomic
+def update_db_instance(
+    instance: T,
+    payload: BaseModel | None = None,
+    *,
+    exclude_unset: bool = True,
+    exclude_defaults: bool = False,
+    **kwargs: t.Any,
+) -> T:
+    """Updates a DB instance given a Pydantic payload, safely within a select_for_update lock."""
+    instance = instance.__class__.objects.select_for_update().get(pk=instance.pk)  # type: ignore[attr-defined]
+    data = payload.model_dump(exclude_unset=exclude_unset, exclude_defaults=exclude_defaults) if payload else {}
+    data.update(**kwargs)
+    for key, value in data.items():
+        setattr(instance, key, value)
+    instance.save()
+    return instance
 
 
 def create_file_audit_and_scan(
