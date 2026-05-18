@@ -5,6 +5,7 @@ import datetime
 import typing as t
 from unittest.mock import MagicMock, patch
 
+import jwt as pyjwt
 import orjson
 import pytest
 from django.conf import settings
@@ -19,6 +20,17 @@ from accounts import schema
 from accounts.jwt import create_token
 from accounts.models import GlobalBan, RevelUser
 from accounts.service import account as account_service
+
+
+def _jti(token: str) -> str:
+    """Decode an email-change JWT and return its jti claim."""
+    return t.cast(
+        str,
+        pyjwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], audience=settings.JWT_AUDIENCE)[
+            "jti"
+        ],
+    )
+
 
 pytestmark = pytest.mark.django_db
 
@@ -85,24 +97,22 @@ class TestRequestEmailChange:
         self, mock_send: MagicMock, user: RevelUser, django_user_model: t.Type[RevelUser]
     ) -> None:
         django_user_model.objects.create_user(username="taken@example.com", email="taken@example.com", password="x")
+        # Pass mixed-case input to actually exercise the iexact branch.
         with pytest.raises(HttpError):
             account_service.request_email_change(
-                user=user, new_email="TAKEN@example.com".lower(), password="strong-password-123!"
+                user=user, new_email="TAKEN@Example.com", password="strong-password-123!"
             )
         mock_send.assert_not_called()
 
     @patch("accounts.tasks.send_email_change_confirmation.delay")
     def test_google_sso_user_rejected(self, mock_send: MagicMock, google_user: RevelUser) -> None:
-        # Google SSO users have a sentinel password; their check_password will fail,
-        # but the SSO check happens after password check — so use a fake password the
-        # check_password will reject. To test SSO branch directly, set a real password.
-        google_user.set_password("strong-password-123!")
-        google_user.save(update_fields=["password"])
+        # Real SSO accounts have only the sentinel password — do not override it. The
+        # SSO branch must fire before the password check, otherwise these users get the
+        # misleading "Incorrect password" error.
         with pytest.raises(HttpError) as exc:
-            account_service.request_email_change(
-                user=google_user, new_email="new@example.com", password="strong-password-123!"
-            )
+            account_service.request_email_change(user=google_user, new_email="new@example.com", password="any-password")
         assert exc.value.status_code == 400
+        assert "SSO" in str(exc.value.message)
         mock_send.assert_not_called()
 
     @patch("accounts.tasks.send_email_change_notice.delay")
@@ -192,7 +202,9 @@ class TestConfirmEmailChange:
     def test_blacklisted_token_rejected(self, mock_old: MagicMock, mock_new: MagicMock, user: RevelUser) -> None:
         token = _make_change_token(user, "new@example.com")
         account_service.confirm_email_change(token)
-        # Re-using the same token must fail
+        # The specific JTI is blacklisted.
+        assert BlacklistedToken.objects.filter(token__jti=_jti(token)).exists()
+        # Re-using the same token must fail.
         with pytest.raises(HttpError):
             account_service.confirm_email_change(token)
 
@@ -214,8 +226,22 @@ class TestConfirmEmailChange:
         # User's email is unchanged.
         user.refresh_from_db()
         assert user.email != "raced@example.com"
-        # Token is blacklisted so it cannot be retried later.
-        assert BlacklistedToken.objects.exists()
+        # The specific token's JTI is blacklisted — single-use semantics survive race-loss.
+        assert BlacklistedToken.objects.filter(token__jti=_jti(token)).exists()
+
+    def test_globally_banned_at_confirm_time_rejected(self, user: RevelUser) -> None:
+        """A ban added between request and confirm must block the swap."""
+        token = _make_change_token(user, "ban-me-later@example.com")
+        GlobalBan.objects.create(
+            ban_type=GlobalBan.BanType.EMAIL,
+            value="ban-me-later@example.com",
+            reason="test",
+        )
+        with pytest.raises(HttpError) as exc:
+            account_service.confirm_email_change(token)
+        assert exc.value.status_code == 403
+        user.refresh_from_db()
+        assert user.email != "ban-me-later@example.com"
 
 
 # ===== Controller tests =====
@@ -293,5 +319,9 @@ def test_full_flow_old_refresh_tokens_invalidated(
     for jti in old_outstanding_jtis:
         assert BlacklistedToken.objects.filter(token__jti=jti).exists()
 
-    # The freshly returned refresh token must NOT be blacklisted.
-    assert "refresh" in confirm_resp.json()["token"]
+    # The freshly returned refresh token must NOT be blacklisted — the confirming
+    # device stays signed in.
+    new_refresh = confirm_resp.json()["token"]["refresh"]
+    new_jti = pyjwt.decode(new_refresh, options={"verify_signature": False}, algorithms=[settings.JWT_ALGORITHM])["jti"]
+    assert not BlacklistedToken.objects.filter(token__jti=new_jti).exists()
+    assert new_jti not in old_outstanding_jtis

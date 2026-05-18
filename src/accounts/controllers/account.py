@@ -231,8 +231,16 @@ class AccountController(UserAwareController):
 
         Validates the current password, ensures the new address is available, issues a
         single-use JWT, and emails the confirmation link to the **new** address. A
-        separate informational notice is sent to the current address. Returns a generic
-        success message on duplicate-banned-email targets to avoid signalling ban presence.
+        separate informational notice is sent to the current address. Returns 400 if
+        the new address is already in use; returns the generic success message when the
+        target is globally banned, to avoid signalling ban presence.
+
+        Args:
+            payload: Schema with ``new_email`` (lowercased by the schema validator)
+                and the user's current ``password``.
+
+        Returns:
+            A generic success message indicating that the confirmation link was sent.
         """
         account_service.request_email_change(
             user=self.user(),
@@ -255,6 +263,12 @@ class AccountController(UserAwareController):
         Swaps email/username, blacklists all existing JWTs for the user (email is an
         identity primitive), and issues a fresh token pair so the confirming device
         stays signed in. The confirmation token is single-use.
+
+        Args:
+            payload: Schema containing the single-use email-change token.
+
+        Returns:
+            The updated user and a fresh JWT token pair for the confirming device.
         """
         user = account_service.confirm_email_change(payload.token)
         token = get_token_pair_for_user(user)

@@ -83,6 +83,10 @@ def send_email_change_confirmation(new_email: str, token: str) -> None:
     """Send the confirmation link to the **new** email address.
 
     Clicking the link proves the user controls the new mailbox.
+
+    Args:
+        new_email: The new email address requested by the user.
+        token: The single-use email-change JWT to embed in the confirmation link.
     """
     logger.info("email_change_confirmation_sending", new_email=new_email)
     subject = str(render_to_string("accounts/emails/email_change_confirmation_subject.txt"))
@@ -100,6 +104,10 @@ def send_email_change_notice(current_email: str, masked_new_email: str) -> None:
     """Notify the **current** email address that a change was requested.
 
     Informational only — there is no cancel link in v1.
+
+    Args:
+        current_email: The user's current email address.
+        masked_new_email: The new address in masked form (e.g. ``a***@example.com``).
     """
     logger.info("email_change_notice_sending", current_email=current_email)
     subject = str(render_to_string("accounts/emails/email_change_notice_subject.txt"))
@@ -113,7 +121,12 @@ def send_email_change_notice(current_email: str, masked_new_email: str) -> None:
 
 @shared_task
 def send_email_change_completed_old(old_email: str, new_email: str) -> None:
-    """Notify the **old** address that the email change has completed."""
+    """Notify the **old** address that the email change has completed.
+
+    Args:
+        old_email: The address being decommissioned.
+        new_email: The address that is now primary on the account.
+    """
     logger.info("email_change_completed_old_sending", old_email=old_email)
     subject = str(render_to_string("accounts/emails/email_change_completed_old_subject.txt"))
     site_settings = SiteSettings.get_solo()
@@ -126,7 +139,12 @@ def send_email_change_completed_old(old_email: str, new_email: str) -> None:
 
 @shared_task
 def send_email_change_completed_new(new_email: str, old_email: str) -> None:
-    """Welcome message to the **new** address confirming the change is live."""
+    """Welcome message to the **new** address confirming the change is live.
+
+    Args:
+        new_email: The address that is now primary on the account.
+        old_email: The previous address (referenced in the body for clarity).
+    """
     logger.info("email_change_completed_new_sending", new_email=new_email)
     subject = str(render_to_string("accounts/emails/email_change_completed_new_subject.txt"))
     site_settings = SiteSettings.get_solo()

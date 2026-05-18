@@ -5,7 +5,7 @@ import typing as t
 import jwt
 import structlog
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -367,13 +367,15 @@ def request_email_change(user: RevelUser, new_email: str, password: str) -> str:
 
     logger.info("email_change_requested", user_id=str(user.id), new_email=new_email)
 
-    if not user.check_password(password):
-        logger.warning("email_change_bad_password", user_id=str(user.id))
-        raise HttpError(400, str(_("Incorrect password.")))
-
+    # SSO check must run before the password check — SSO accounts have a sentinel
+    # password and would otherwise be rejected with a misleading "Incorrect password".
     if GoogleSSOUser.objects.filter(user=user).exists():
         logger.info("email_change_blocked_google_sso", user_id=str(user.id))
         raise HttpError(400, str(_("Google SSO users cannot change their email here.")))
+
+    if not user.check_password(password):
+        logger.warning("email_change_bad_password", user_id=str(user.id))
+        raise HttpError(400, str(_("Incorrect password.")))
 
     if new_email == user.email:
         raise HttpError(400, str(_("The new email is the same as the current one.")))
@@ -405,29 +407,47 @@ def confirm_email_change(token: str) -> RevelUser:
 
     Returns:
         The user with the updated email.
+
+    Raises:
+        HttpError: 400 if the new address is already taken (including under a
+            DB-level race), 403 if the address became globally banned between
+            request and confirm.
     """
+    from accounts.service.global_ban_service import BAN_ERROR_MESSAGE, is_email_globally_banned
+
     payload = token_to_payload(token, schema.EmailChangeJWTPayloadSchema)
     check_blacklist(payload.jti)
     user = get_object_or_404(RevelUser, id=payload.user_id)
     new_email = payload.new_email.lower()
 
-    # Race-safe uniqueness check at confirm time. Done before any state mutation so
-    # the token remains usable for a retry only if the spec allows; here we choose
-    # the conservative path and blacklist regardless.
+    # Re-check the global ban at confirm time — a ban added between request and
+    # confirm must block the swap (mirrors verify_email).
+    if is_email_globally_banned(new_email):
+        blacklist_token(token)
+        logger.warning("email_change_confirm_blocked_banned_target", user_id=str(user.id))
+        raise HttpError(403, str(BAN_ERROR_MESSAGE))
+
     if RevelUser.objects.filter(username__iexact=new_email).exclude(pk=user.pk).exists():
         blacklist_token(token)
         logger.warning("email_change_confirm_email_taken", user_id=str(user.id), new_email=new_email)
         raise HttpError(400, str(_("This email is already in use.")))
 
     old_email = user.email
-    with transaction.atomic():
+    try:
+        with transaction.atomic():
+            blacklist_token(token)
+            user.email = new_email
+            user.username = new_email
+            user.email_verified = True
+            user.save(update_fields=["email", "username", "email_verified"])
+            # Email is an identity primitive — invalidate every active session.
+            blacklist_user_tokens(user)
+    except IntegrityError:
+        # Another confirmation took the address between the pre-check and the save.
+        # Blacklist outside the rolled-back transaction so the token cannot be retried.
         blacklist_token(token)
-        user.email = new_email
-        user.username = new_email
-        user.email_verified = True
-        user.save(update_fields=["email", "username", "email_verified"])
-        # Email is an identity primitive — invalidate every active session.
-        blacklist_user_tokens(user)
+        logger.warning("email_change_confirm_race_loss", user_id=str(user.id), new_email=new_email)
+        raise HttpError(400, str(_("This email is already in use.")))
 
     tasks.send_email_change_completed_old.delay(old_email, new_email)
     tasks.send_email_change_completed_new.delay(new_email, old_email)
