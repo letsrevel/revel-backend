@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import orjson
 import pytest
+from django.db.models import Q
 from django.test.client import Client
 from django.urls import reverse
 from django.utils import timezone
@@ -44,6 +45,53 @@ def test_create_organization_token(organization_owner_client: Client, organizati
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "New Token"
+
+
+def test_create_organization_token_with_duration_zero_never_expires(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """Creating an org token with ``duration=0`` yields ``expires_at=None`` and a valid token."""
+    default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+    url = reverse("api:create_organization_token", kwargs={"slug": organization.slug})
+    payload = {
+        "name": "Never Expires Token",
+        "duration": 0,
+        "grants_membership": True,
+        "membership_tier_id": str(default_tier.id),
+        "max_uses": 1,
+    }
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["expires_at"] is None
+    # Token must be returned by the validity filter
+    assert OrganizationToken.objects.filter(
+        Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
+        pk=data["id"],
+    ).exists()
+
+
+def test_create_organization_token_with_positive_duration_sets_future_expiry(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """Sanity: positive duration still produces an ``expires_at`` in the future."""
+    default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+    url = reverse("api:create_organization_token", kwargs={"slug": organization.slug})
+    payload = {
+        "name": "60min Token",
+        "duration": 60,
+        "grants_membership": True,
+        "membership_tier_id": str(default_tier.id),
+        "max_uses": 1,
+    }
+    before = timezone.now()
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["expires_at"] is not None
+    token = OrganizationToken.objects.get(pk=data["id"])
+    assert token.expires_at is not None
+    assert token.expires_at > before
 
 
 def test_update_organization_token(
