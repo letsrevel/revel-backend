@@ -126,6 +126,28 @@ def check_blacklist(jti: str) -> None:
         raise HttpError(401, "Token is blacklisted.")
 
 
+def blacklist_user_tokens(user: t.Any) -> int:
+    """Blacklist all outstanding JWT tokens for a user.
+
+    Used when an event invalidates every active session — e.g. global ban,
+    or an identity-primitive change like email rotation.
+
+    Args:
+        user: The user whose tokens should be blacklisted.
+
+    Returns:
+        Number of tokens blacklisted.
+    """
+    outstanding = OutstandingToken.objects.filter(user=user).exclude(blacklistedtoken__isnull=False)
+    count = 0
+    for token in outstanding:
+        BlacklistedToken.objects.get_or_create(token=token)
+        count += 1
+    if count:
+        logger.info("user_tokens_blacklisted", user_id=str(user.id), count=count)
+    return count
+
+
 @transaction.atomic
 def blacklist(
     token: str,

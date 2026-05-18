@@ -214,6 +214,11 @@ class UnsubscribeJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
     type: t.Literal["unsubscribe"] = "unsubscribe"
 
 
+class EmailChangeJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+    new_email: EmailStr
+    type: t.Literal["email_change"] = "email_change"
+
+
 class DeleteAccountSchema(Schema):
     password: str
 
@@ -261,6 +266,26 @@ class LanguageUpdateSchema(Schema):
 
 
 class VerifyEmailResponseSchema(Schema):
+    user: RevelUserSchema
+    token: TokenObtainPairOutputSchema
+
+
+class EmailChangeRequestSchema(Schema):
+    new_email: EmailStr
+    password: str
+
+    @field_validator("new_email")
+    @classmethod
+    def lowercase_email(cls, v: str) -> str:
+        """Normalize email to lowercase."""
+        return v.lower()
+
+
+class EmailChangeConfirmSchema(Schema):
+    token: str
+
+
+class EmailChangeResponseSchema(Schema):
     user: RevelUserSchema
     token: TokenObtainPairOutputSchema
 

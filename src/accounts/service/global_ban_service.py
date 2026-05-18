@@ -4,8 +4,8 @@ import structlog
 from django.db import transaction
 from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
-from ninja_jwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
+from accounts.jwt import blacklist_user_tokens
 from accounts.models import GlobalBan, RevelUser
 from accounts.utils.email_normalization import (
     extract_domain,
@@ -16,25 +16,6 @@ from accounts.utils.email_normalization import (
 logger = structlog.get_logger(__name__)
 
 BAN_ERROR_MESSAGE: str = _("Registration is not available.")  # type: ignore[assignment]
-
-
-def _blacklist_user_tokens(user: RevelUser) -> int:
-    """Blacklist all outstanding JWT tokens for a user.
-
-    Args:
-        user: The user whose tokens should be blacklisted.
-
-    Returns:
-        Number of tokens blacklisted.
-    """
-    outstanding = OutstandingToken.objects.filter(user=user).exclude(blacklistedtoken__isnull=False)
-    count = 0
-    for token in outstanding:
-        BlacklistedToken.objects.get_or_create(token=token)
-        count += 1
-    if count:
-        logger.info("user_tokens_blacklisted", user_id=str(user.id), count=count)
-    return count
 
 
 def is_email_globally_banned(email: str) -> bool:
@@ -100,7 +81,7 @@ def deactivate_user_for_ban(user: RevelUser, reason: str) -> None:
     user.save(update_fields=["is_active"])
 
     # Blacklist all outstanding JWT tokens so the user is immediately locked out
-    _blacklist_user_tokens(user)
+    blacklist_user_tokens(user)
 
     logger.warning("user_deactivated_for_ban", user_id=str(user.id), email=user.email, reason=reason)
 

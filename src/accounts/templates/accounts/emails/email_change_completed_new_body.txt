@@ -1,0 +1,10 @@
+{% load i18n %}{% trans "Your Revel email address has been changed." %}
+
+{% blocktrans %}This address ({{ new_email }}) is now the primary email on your Revel account. The previous address ({{ old_email }}) has been removed and can no longer be used to sign in.{% endblocktrans %}
+
+{% blocktrans %}For security, every other session has been signed out.{% endblocktrans %}
+
+{% blocktrans %}If you did not authorise this change, contact support immediately.{% endblocktrans %}
+
+{% blocktrans %}Thank you,
+The Revel Team{% endblocktrans %}
