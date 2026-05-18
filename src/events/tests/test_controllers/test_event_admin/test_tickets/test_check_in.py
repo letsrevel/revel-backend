@@ -108,7 +108,7 @@ def test_check_in_window_not_open(
     response = organization_owner_client.post(url, content_type="application/json")
 
     assert response.status_code == 400
-    assert "Check-in is not currently open" in response.json()["detail"]
+    assert "Check-in is not open yet" in response.json()["detail"]
 
 
 def test_check_in_staff_with_permission(
