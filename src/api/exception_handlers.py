@@ -50,10 +50,21 @@ def handle_general_exception(request: HttpRequest, exc: Exception | t.Type[Excep
         except Exception:  # pragma: no cover
             json_payload = None
 
-    # Log to observability stack with full context
+    # Log to observability stack with full context.
+    # Pass the exception instance to ``exc_info`` (not ``True``) so structlog's
+    # ``format_exc_info`` processor pulls the traceback from ``exc.__traceback__``.
+    # ``exc_info=True`` relies on ``sys.exc_info()`` being populated, which is not
+    # guaranteed by the time Ninja's exception dispatch reaches this handler.
+    # We also emit the formatted traceback as an explicit ``traceback`` field as a
+    # belt-and-braces safety net: if anything downstream drops the ``exception``
+    # key (custom processors, renderers, etc.), the stacktrace is still visible.
+    exc_instance = exc if isinstance(exc, BaseException) else None
+    formatted_tb = "".join(traceback.format_exception(exc_instance)) if exc_instance else None
+
     logger.error(
         "unhandled_exception",
-        exc_info=True,
+        exc_info=exc_instance,
+        traceback=formatted_tb,
         method=request.method,
         path=request.path,
         user=str(request.user) if getattr(request, "user", None) else None,
@@ -63,6 +74,7 @@ def handle_general_exception(request: HttpRequest, exc: Exception | t.Type[Excep
         post_params=obfuscate(request.POST.dict() if request.method == "POST" else {}),
         json_payload=json_payload,
         exception_type=type(exc).__name__,
+        exception_message=str(exc),
     )
 
     # Return response

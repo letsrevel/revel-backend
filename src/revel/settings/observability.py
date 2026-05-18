@@ -111,10 +111,14 @@ STRUCTLOG_PROCESSORS = [
 ]
 
 # Processors for foreign loggers (Django, Celery, etc.)
+# ``format_exc_info`` is required so standard-library ``log.error(..., exc_info=...)``
+# calls (e.g. Django's ``django.request`` logger on unhandled 500s) emit the
+# traceback as a serializable ``exception`` field rather than dropping it.
 FOREIGN_PRE_CHAIN = [
     structlog.contextvars.merge_contextvars,
     structlog.stdlib.add_log_level,
     structlog.processors.TimeStamper(fmt="iso"),
+    structlog.processors.format_exc_info,
     add_app_context,
     scrub_pii,
 ]
@@ -170,6 +174,14 @@ LOGGING = {
         "django": {
             "handlers": DEFAULT_HANDLERS,
             "level": "INFO",
+            "propagate": False,
+        },
+        # Django logs unhandled exceptions in views (incl. admin) to ``django.request``
+        # with ``exc_info``. Without this entry, Django's default config sends them to
+        # ``mail_admins`` only — so 500s outside the Ninja API would never reach Loki.
+        "django.request": {
+            "handlers": DEFAULT_HANDLERS,
+            "level": "WARNING",
             "propagate": False,
         },
         "django.server": {
