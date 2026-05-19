@@ -39,6 +39,7 @@ from events.admin.preferences import (
     AttendeeVisibilityFlagAdmin,
     GeneralUserPreferencesAdmin,
 )
+from events.admin.reserved_slug_token import ReservedSlugTokenAdmin
 from events.admin.subscription import (
     MembershipPaymentAdmin,
     MembershipSubscriptionAdmin,
@@ -98,6 +99,8 @@ __all__ = [
     "WhitelistRequestAdmin",
     # Discount
     "DiscountCodeAdmin",
+    # Reserved slugs
+    "ReservedSlugTokenAdmin",
     # Subscriptions
     "MembershipPaymentAdmin",
     "MembershipSubscriptionAdmin",
