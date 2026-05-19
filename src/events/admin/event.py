@@ -19,6 +19,7 @@ from events.admin.base import (
     TicketInline,
     TicketTierInline,
     UserLinkMixin,
+    WaitlistOfferInline,
 )
 
 
@@ -81,7 +82,6 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
                     "event_series",
                     ("max_attendees", "max_tickets_per_user"),
                     (
-                        "waitlist_open",
                         "potluck_open",
                         "accept_invitation_requests",
                         "can_attend_without_login",
@@ -93,9 +93,29 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
                 )
             },
         ),
+        (
+            "Waitlist",
+            {
+                "fields": (
+                    "waitlist_open",
+                    "waitlist_time_window",
+                    "waitlist_batch_size",
+                    "waitlist_lottery_mode",
+                    "waitlist_cutoff_date",
+                    "waitlist_cutoff_window",
+                ),
+            },
+        ),
     ]
 
-    inlines = [EventRSVPInline, TicketInline, EventInvitationInline, EventWaitListInline, TicketTierInline]
+    inlines = [
+        EventRSVPInline,
+        TicketInline,
+        EventInvitationInline,
+        EventWaitListInline,
+        TicketTierInline,
+        WaitlistOfferInline,
+    ]
 
 
 @admin.register(models.EventSeries)
