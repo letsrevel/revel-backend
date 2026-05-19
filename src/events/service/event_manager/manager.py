@@ -1,6 +1,7 @@
 """EventManager for handling RSVP and ticket operations."""
 
 from django.db import transaction
+from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
@@ -97,12 +98,17 @@ class EventManager:
     def _assert_capacity(self, use_tickets: bool, tier: TicketTier | None) -> None:
         """Raise if the event has no more available attendee slots.
 
-        For ticket events, counts total non-cancelled tickets (each ticket = one attendee).
-        For RSVP events, counts YES RSVPs.
+        Counts committed attendees PLUS pending unexpired WaitlistOffers
+        (minus the current user's own offer, if any). Pending offers reserve
+        capacity for waitlist batches, so non-offer-holders see "event is full"
+        even when raw attendee counts are below capacity.
 
-        Uses effective_capacity (min of max_attendees and venue.capacity) as the soft limit.
-        This can be overridden by invitations with overrides_max_attendees=True.
+        For ticket events, counts total non-cancelled tickets. For RSVP events,
+        counts YES RSVPs. Uses effective_capacity (min of max_attendees and
+        venue.capacity).
         """
+        from events.models import WaitlistOffer
+
         effective_cap = self.event.effective_capacity
         if effective_cap == 0 or self.eligibility_service.overrides_max_attendees():
             return
@@ -132,13 +138,33 @@ class EventManager:
                 EventRSVP.objects.select_for_update().filter(event=self.event, status=EventRSVP.RsvpStatus.YES).count()
             )
 
-        if count >= effective_cap:
+        now = timezone.now()
+        pending_offers = (
+            WaitlistOffer.objects.select_for_update()
+            .filter(event=self.event, status=WaitlistOffer.Status.PENDING, expires_at__gt=now)
+            .count()
+        )
+        has_own_offer = WaitlistOffer.objects.filter(
+            event=self.event,
+            user=self.user,
+            status=WaitlistOffer.Status.PENDING,
+            expires_at__gt=now,
+        ).exists()
+        if has_own_offer:
+            pending_offers = max(0, pending_offers - 1)
+
+        if count + pending_offers >= effective_cap:
+            reason = (
+                Reasons.SPOTS_RESERVED_FOR_WAITLIST
+                if pending_offers > 0 and count < effective_cap
+                else Reasons.EVENT_IS_FULL
+            )
             raise UserIsIneligibleError(
                 message="Event is full.",
                 eligibility=EventUserEligibility(
                     allowed=False,
                     event_id=self.event.id,
                     next_step=NextStep.JOIN_WAITLIST if self.event.waitlist_open else None,
-                    reason=_(Reasons.EVENT_IS_FULL),
+                    reason=_(reason),
                 ),
             )
