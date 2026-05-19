@@ -11,6 +11,7 @@ from .rsvps import EventAdminRSVPsController
 from .tickets import EventAdminTicketsController
 from .tokens import EventAdminTokensController
 from .waitlist import EventAdminWaitlistController
+from .waitlist_offers import EventAdminWaitlistOffersController
 
 # Controllers in order to preserve original endpoint ordering
 EVENT_ADMIN_CONTROLLERS: list[type] = [
@@ -21,6 +22,7 @@ EVENT_ADMIN_CONTROLLERS: list[type] = [
     EventAdminInvitationsController,
     EventAdminRSVPsController,
     EventAdminWaitlistController,
+    EventAdminWaitlistOffersController,
 ]
 
 __all__ = [
@@ -31,5 +33,6 @@ __all__ = [
     "EventAdminInvitationsController",
     "EventAdminRSVPsController",
     "EventAdminWaitlistController",
+    "EventAdminWaitlistOffersController",
     "EVENT_ADMIN_CONTROLLERS",
 ]
