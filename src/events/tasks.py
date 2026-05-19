@@ -877,3 +877,64 @@ def expire_subscriptions_past_grace() -> SubscriptionExpiryCounters:
 
     logger.info("expire_subscriptions_past_grace_done", **counters)
     return counters
+
+
+@shared_task(name="events.process_waitlist_for_event")
+def process_waitlist_for_event_task(event_id: str) -> dict[str, t.Any]:
+    """Celery wrapper for ``waitlist_service.process_waitlist_for_event``.
+
+    Args:
+        event_id: String UUID of the event whose waitlist should be processed.
+
+    Returns:
+        Serializable dict produced by ``ProcessResult.as_dict()``.
+    """
+    from events.service.waitlist_service import process_waitlist_for_event
+
+    result = process_waitlist_for_event(UUID(event_id))
+    return result.as_dict()
+
+
+@shared_task(name="events.expire_waitlist_offers")
+def expire_waitlist_offers_task() -> dict[str, t.Any]:
+    """Flip expired PENDING offers to EXPIRED and trigger next batches.
+
+    Runs hourly via the periodic Beat schedule registered by migration
+    ``0075_waitlist_periodic_task``. Read paths defensively filter on
+    ``expires_at > now``, so the flip cadence does not affect capacity
+    correctness — only the timing of the next-batch enqueue.
+
+    Returns:
+        Dict with ``expired`` (number of offers flipped) and
+        ``events_processed`` (count of distinct events re-enqueued).
+    """
+    from events.models import WaitlistOffer
+
+    now = timezone.now()
+    with transaction.atomic():
+        expiring = WaitlistOffer.objects.select_for_update().filter(
+            status=WaitlistOffer.Status.PENDING, expires_at__lt=now
+        )
+        event_ids = list(expiring.values_list("event_id", flat=True).distinct())
+        count = expiring.update(status=WaitlistOffer.Status.EXPIRED)
+
+    for event_id in event_ids:
+        process_waitlist_for_event_task.delay(str(event_id))
+
+    logger.info("expire_waitlist_offers_done", expired=count, events_processed=len(event_ids))
+    return {"expired": count, "events_processed": len(event_ids)}
+
+
+@shared_task(name="events.send_waitlist_offer_notification")
+def send_waitlist_offer_notification_task(offer_id: str) -> dict[str, t.Any]:
+    """Dispatch WAITLIST_SPOT_AVAILABLE for a single offer.
+
+    Stub: full implementation lands in Task 20 of the advanced-waitlist plan.
+
+    Args:
+        offer_id: String UUID of the WaitlistOffer to notify about.
+
+    Returns:
+        Placeholder payload for traceability until Task 20 lands.
+    """
+    return {"status": "placeholder", "offer_id": offer_id}

@@ -138,7 +138,7 @@ def enqueue_waitlist_processing(event_id: uuid.UUID) -> None:
     Args:
         event_id: UUID of the event to process.
     """
-    from events.tasks import process_waitlist_for_event_task  # type: ignore[attr-defined]
+    from events.tasks import process_waitlist_for_event_task
 
     transaction.on_commit(lambda: process_waitlist_for_event_task.delay(str(event_id)))
 
@@ -152,7 +152,7 @@ def _dispatch_offer_notifications(offer_ids: list[uuid.UUID]) -> None:
     Args:
         offer_ids: UUIDs of the WaitlistOffer rows to notify about.
     """
-    from events.tasks import send_waitlist_offer_notification_task  # type: ignore[attr-defined]
+    from events.tasks import send_waitlist_offer_notification_task
 
     for offer_id in offer_ids:
         send_waitlist_offer_notification_task.delay(str(offer_id))
