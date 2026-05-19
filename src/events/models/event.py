@@ -246,6 +246,42 @@ class Event(
     )
     max_attendees = models.PositiveIntegerField(default=0)
     waitlist_open = models.BooleanField(default=False)
+    waitlist_time_window = models.DurationField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Time window for a batch to claim spots. NULL = legacy passive waitlist "
+            "(no offers, no batching, current default behavior)."
+        ),
+    )
+    waitlist_batch_size = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Number of users to notify per round. 0 = notify all eligible waitlist "
+            "members simultaneously. Only meaningful when waitlist_time_window is set."
+        ),
+    )
+    waitlist_cutoff_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "After this datetime, batching stops. One final all-hands batch fires, "
+            "then AvailabilityGate behaves normally."
+        ),
+    )
+    waitlist_cutoff_window = models.DurationField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Time window for the cutoff all-hands batch. Falls back to "
+            "waitlist_time_window when null."
+        ),
+    )
+    waitlist_lottery_mode = models.BooleanField(
+        default=False,
+        help_text="If True, randomly sample batch members instead of FIFO.",
+    )
     waitlist = models.ManyToManyField(  # type: ignore[var-annotated]
         settings.AUTH_USER_MODEL, related_name="waitlist", blank=True, through="EventWaitList"
     )
@@ -505,6 +541,27 @@ class Event(
         venue = self.venue
         if venue and venue.organization_id != self.organization_id:
             raise DjangoValidationError({"venue": "Venue must belong to the same organization as the event."})
+
+        # Waitlist configuration
+        if self.waitlist_time_window is not None:
+            if self.waitlist_time_window < timedelta(hours=1):
+                raise DjangoValidationError({"waitlist_time_window": "Time window must be at least 1 hour."})
+            if self.waitlist_time_window > timedelta(days=7):
+                raise DjangoValidationError({"waitlist_time_window": "Time window cannot exceed 7 days."})
+
+        if self.waitlist_cutoff_date is not None:
+            if self.waitlist_time_window is None:
+                raise DjangoValidationError(
+                    {"waitlist_cutoff_date": "Cutoff date requires waitlist_time_window to be set."}
+                )
+            if self.start and self.waitlist_cutoff_date >= self.start:
+                raise DjangoValidationError({"waitlist_cutoff_date": "Cutoff date must be before event start."})
+            if self.waitlist_cutoff_window is not None and self.start:
+                max_window = self.start - self.waitlist_cutoff_date
+                if self.waitlist_cutoff_window > max_window:
+                    raise DjangoValidationError(
+                        {"waitlist_cutoff_window": "Cutoff window cannot extend past event start."}
+                    )
 
     def is_check_in_open(self) -> bool:
         """Check if check-in is currently open for this event."""
