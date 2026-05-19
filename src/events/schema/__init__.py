@@ -311,6 +311,13 @@ from .announcement import (
     RecipientCountSchema,
 )
 
+# Waitlist (advanced) schemas
+from .waitlist import (
+    WaitlistOfferSchema,
+    WaitlistSettingsSchema,
+    WaitlistSettingsUpdateSchema,
+)
+
 __all__ = [
     # Mixins and utilities
     "CityEditMixin",
@@ -547,4 +554,8 @@ __all__ = [
     "AnnouncementSchema",
     "AnnouncementUpdateSchema",
     "RecipientCountSchema",
+    # Waitlist (advanced)
+    "WaitlistOfferSchema",
+    "WaitlistSettingsSchema",
+    "WaitlistSettingsUpdateSchema",
 ]
