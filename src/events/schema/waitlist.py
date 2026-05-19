@@ -1,6 +1,7 @@
 """Schemas for the advanced waitlist admin surface."""
 
 import datetime
+from uuid import UUID
 
 from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime
@@ -49,3 +50,23 @@ class WaitlistOfferSchema(ModelSchema):
             "is_cutoff_batch",
             "created_at",
         ]
+
+
+class WaitlistOfferReactivateSchema(Schema):
+    """Optional body for reactivating an expired/revoked offer.
+
+    When ``expires_at`` is omitted, the controller computes a new expiry of
+    ``now + event.waitlist_time_window``.
+    """
+
+    expires_at: AwareDatetime | None = None
+
+
+class WaitlistOfferCreateSchema(Schema):
+    """Payload for manually creating a waitlist offer for an existing entry.
+
+    ``expires_at`` defaults to ``now + event.waitlist_time_window`` when omitted.
+    """
+
+    waitlist_entry_id: UUID
+    expires_at: AwareDatetime | None = None

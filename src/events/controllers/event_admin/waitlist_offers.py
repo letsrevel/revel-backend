@@ -1,9 +1,13 @@
 """Admin endpoints for advanced waitlist configuration and offers."""
 
+import uuid
 from uuid import UUID
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from ninja import Body
+from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
@@ -54,7 +58,6 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         was_open = event.waitlist_open
         for field, value in update_data.items():
             setattr(event, field, value)
-        event.full_clean()
         event.save(update_fields=list(update_data.keys()))
         if was_open and event.waitlist_open is False:
             revoke_all_pending_offers(event.id)
@@ -96,3 +99,96 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         offer.save(update_fields=["status"])
         enqueue_waitlist_processing(event.id)
         return offer
+
+    @route.post(
+        "/waitlist-offers/{offer_id}/reactivate",
+        url_name="reactivate_waitlist_offer",
+        response={200: schema.WaitlistOfferSchema},
+    )
+    def reactivate_waitlist_offer(
+        self,
+        event_id: UUID,
+        offer_id: UUID,
+        payload: schema.WaitlistOfferReactivateSchema | None = Body(None),  # type: ignore[type-arg]
+    ) -> models.WaitlistOffer:
+        """Re-open a previously expired or revoked offer for the same user.
+
+        The offer is reset to ``PENDING`` with a fresh ``expires_at`` (the body's
+        value if provided, otherwise ``now + event.waitlist_time_window``).
+        ``claimed_at`` and ``notified_at`` are cleared, and a new notification is
+        dispatched. Returns 404 if the offer is already PENDING, 400 when the
+        event has no ``waitlist_time_window`` configured, and 409 when the user
+        already has a different PENDING offer for the event.
+        """
+        from events.tasks import send_waitlist_offer_notification_task
+
+        event = self.get_one(event_id)
+        offer = get_object_or_404(models.WaitlistOffer, pk=offer_id, event=event)
+        if offer.status == models.WaitlistOffer.Status.PENDING:
+            raise HttpError(404, "Offer not found.")
+        if event.waitlist_time_window is None:
+            raise HttpError(400, "Waitlist time window is not configured for this event.")
+        conflict = (
+            models.WaitlistOffer.objects.filter(
+                event=event,
+                user_id=offer.user_id,
+                status=models.WaitlistOffer.Status.PENDING,
+            )
+            .exclude(pk=offer.pk)
+            .exists()
+        )
+        if conflict:
+            raise HttpError(409, "User already has a pending offer for this event.")
+
+        offer.status = models.WaitlistOffer.Status.PENDING
+        offer.expires_at = (
+            payload.expires_at if payload and payload.expires_at else (timezone.now() + event.waitlist_time_window)
+        )
+        offer.claimed_at = None
+        offer.notified_at = None
+        offer.save(update_fields=["status", "expires_at", "claimed_at", "notified_at"])
+        send_waitlist_offer_notification_task.delay(str(offer.id))
+        return offer
+
+    @route.post(
+        "/waitlist-offers",
+        url_name="create_waitlist_offer",
+        response={201: schema.WaitlistOfferSchema},
+    )
+    def create_waitlist_offer(
+        self,
+        event_id: UUID,
+        payload: schema.WaitlistOfferCreateSchema,
+    ) -> tuple[int, models.WaitlistOffer]:
+        """Manually create a PENDING offer for a user already on the waitlist.
+
+        The offer is its own single-row batch (``batch_id`` is freshly generated,
+        ``is_cutoff_batch`` is False). Returns 404 when the waitlist entry does
+        not belong to this event, 400 when ``waitlist_time_window`` is unset, and
+        409 when the user already has a PENDING offer for this event. The
+        notification task is dispatched after the row is persisted.
+        """
+        from events.tasks import send_waitlist_offer_notification_task
+
+        event = self.get_one(event_id)
+        if event.waitlist_time_window is None:
+            raise HttpError(400, "Waitlist time window is not configured for this event.")
+        entry = get_object_or_404(models.EventWaitList, pk=payload.waitlist_entry_id, event=event)
+        already_pending = models.WaitlistOffer.objects.filter(
+            event=event,
+            user_id=entry.user_id,
+            status=models.WaitlistOffer.Status.PENDING,
+        ).exists()
+        if already_pending:
+            raise HttpError(409, "User already has a pending offer for this event.")
+
+        expires_at = payload.expires_at or (timezone.now() + event.waitlist_time_window)
+        offer = models.WaitlistOffer.objects.create(
+            event=event,
+            user_id=entry.user_id,
+            expires_at=expires_at,
+            batch_id=uuid.uuid4(),
+            is_cutoff_batch=False,
+        )
+        send_waitlist_offer_notification_task.delay(str(offer.id))
+        return 201, offer

@@ -313,6 +313,8 @@ from .announcement import (
 
 # Waitlist (advanced) schemas
 from .waitlist import (
+    WaitlistOfferCreateSchema,
+    WaitlistOfferReactivateSchema,
     WaitlistOfferSchema,
     WaitlistSettingsSchema,
     WaitlistSettingsUpdateSchema,
@@ -555,6 +557,8 @@ __all__ = [
     "AnnouncementUpdateSchema",
     "RecipientCountSchema",
     # Waitlist (advanced)
+    "WaitlistOfferCreateSchema",
+    "WaitlistOfferReactivateSchema",
     "WaitlistOfferSchema",
     "WaitlistSettingsSchema",
     "WaitlistSettingsUpdateSchema",
