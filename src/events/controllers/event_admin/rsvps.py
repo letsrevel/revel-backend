@@ -13,6 +13,7 @@ from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.service import update_db_instance
+from events.service.waitlist_service import enqueue_waitlist_processing
 
 from .base import EventAdminBaseController
 
@@ -85,10 +86,21 @@ class EventAdminRSVPsController(EventAdminBaseController):
         # Verify user exists
         user = get_object_or_404(RevelUser, pk=payload.user_id)
 
+        # Capture prior status (if any) before the upsert so we can detect a
+        # YES -> non-YES transition that frees a seat.
+        prior_status = (
+            models.EventRSVP.objects.filter(event=event, user=user)
+            .values_list("status", flat=True)
+            .first()
+        )
+
         # Create or update RSVP (due to unique constraint on event+user)
         rsvp, created = models.EventRSVP.objects.update_or_create(
             event=event, user=user, defaults={"status": payload.status}
         )
+
+        if prior_status == models.EventRSVP.RsvpStatus.YES and payload.status != models.EventRSVP.RsvpStatus.YES:
+            enqueue_waitlist_processing(event.id)
 
         return rsvp
 
@@ -105,7 +117,11 @@ class EventAdminRSVPsController(EventAdminBaseController):
         """
         event = self.get_one(event_id)
         rsvp = get_object_or_404(models.EventRSVP, pk=rsvp_id, event=event)
-        return update_db_instance(rsvp, payload)
+        prior_status = rsvp.status
+        updated = update_db_instance(rsvp, payload)
+        if prior_status == models.EventRSVP.RsvpStatus.YES and updated.status != models.EventRSVP.RsvpStatus.YES:
+            enqueue_waitlist_processing(event.id)
+        return updated
 
     @route.delete(
         "/rsvps/{rsvp_id}",

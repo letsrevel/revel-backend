@@ -11,6 +11,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
+from events.service.waitlist_service import enqueue_waitlist_processing
 
 from .enums import NextStep, Reasons
 from .service import EligibilityService
@@ -80,6 +81,9 @@ class EventManager:
         )
         if answer == EventRSVP.RsvpStatus.YES:
             self._claim_active_offer()
+        elif has_yes_rsvp:
+            # YES -> non-YES frees a seat; trigger next waitlist batch.
+            enqueue_waitlist_processing(self.event.id)
         return rsvp
 
     def _claim_active_offer(self) -> None:
