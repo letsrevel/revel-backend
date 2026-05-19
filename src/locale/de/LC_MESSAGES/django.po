@@ -1089,7 +1089,7 @@ msgid "Membership tier must belong to the same organization as the token."
 msgstr ""
 
 msgid "Token must be a single non-empty slug segment."
-msgstr ""
+msgstr "Token muss ein einzelnes, nicht leeres Slug-Segment sein."
 
 msgid "Month"
 msgstr ""
