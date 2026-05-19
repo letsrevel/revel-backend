@@ -7,11 +7,12 @@ from pydantic import AwareDatetime, Field
 
 from accounts.schema import MinimalRevelUserSchema
 from events import models
-from events.models import EventRSVP
+from events.models import EventRSVP, WaitlistOffer
 
 from .event import MinimalEventSchema
 from .organization import MinimalOrganizationMemberSchema
 from .ticket import UserTicketSchema
+from .waitlist import WaitlistOfferSchema
 
 
 class EventRSVPSchema(ModelSchema):
@@ -72,10 +73,29 @@ class WaitlistEntrySchema(ModelSchema):
     user: MinimalRevelUserSchema
     created_at: AwareDatetime
     updated_at: AwareDatetime
+    current_offer: WaitlistOfferSchema | None = None
 
     class Meta:
         model = models.EventWaitList
         fields = ["id", "created_at", "updated_at"]
+
+    @staticmethod
+    def resolve_current_offer(obj: "models.EventWaitList") -> WaitlistOffer | None:
+        """Return the most recent PENDING offer for this (event, user), if any.
+
+        Performs a single DB hit per row. Acceptable for the paginated admin
+        endpoint (page_size=20). Optimize via prefetch only if the cost becomes
+        material.
+        """
+        return (
+            WaitlistOffer.objects.filter(
+                event_id=obj.event_id,
+                user_id=obj.user_id,
+                status=WaitlistOffer.Status.PENDING,
+            )
+            .order_by("-created_at")
+            .first()
+        )
 
 
 class UserRSVPSchema(ModelSchema):
