@@ -11,6 +11,7 @@ from django.db.models import F
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
 from events.models import Organization, Payment, Ticket, TicketTier
+from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import from_stripe_amount, to_stripe_amount
 
 logger = structlog.get_logger(__name__)
@@ -382,6 +383,7 @@ class StripeEventHandler:
             TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
+            enqueue_waitlist_processing(ticket.event_id)
 
     @transaction.atomic
     def handle_payment_intent_canceled(self, event: stripe.Event) -> None:
@@ -436,6 +438,7 @@ class StripeEventHandler:
             TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
+            enqueue_waitlist_processing(ticket.event_id)
             canceled_tickets.append(ticket)
 
         logger.info(
