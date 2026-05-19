@@ -1,1 +1,0 @@
-# events utility test package
