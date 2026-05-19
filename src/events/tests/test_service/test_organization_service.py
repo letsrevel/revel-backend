@@ -289,13 +289,13 @@ class TestCreateOrganization:
         # Act
         organization = organization_service.create_organization(
             owner=nonmember_user,
-            name="Test Org",
+            name="Acme Collective",
             contact_email="contact@example.com",
             description="Test description",
         )
 
         # Assert
-        assert organization.name == "Test Org"
+        assert organization.name == "Acme Collective"
         assert organization.owner == nonmember_user
         assert organization.description == "Test description"
         assert organization.contact_email == "contact@example.com"
@@ -306,7 +306,7 @@ class TestCreateOrganization:
         assert mock_send_email.called
         call_args = mock_send_email.call_args[1]
         assert call_args["email"] == "contact@example.com"
-        assert call_args["organization_name"] == "Test Org"
+        assert call_args["organization_name"] == "Acme Collective"
         assert "token" in call_args
 
     @patch("events.tasks.send_organization_contact_email_verification.delay")
@@ -322,7 +322,7 @@ class TestCreateOrganization:
         # Act
         organization = organization_service.create_organization(
             owner=nonmember_user,
-            name="Test Org",
+            name="Acme Collective",
             contact_email="owner@example.com",
             description="Test description",
         )
@@ -340,7 +340,7 @@ class TestCreateOrganization:
         with pytest.raises(HttpError) as exc_info:
             organization_service.create_organization(
                 owner=organization.owner,
-                name="Second Org",
+                name="Pebble Society",
                 contact_email="contact@example.com",
             )
         assert exc_info.value.status_code == 400
@@ -356,13 +356,67 @@ class TestCreateOrganization:
         # Act
         organization = organization_service.create_organization(
             owner=nonmember_user,
-            name="Test Org",
+            name="Acme Collective",
             contact_email="owner@example.com",
         )
 
         # Assert
         assert organization.contact_email == "owner@example.com"
         assert organization.contact_email_verified is False
+
+    @patch("events.tasks.send_organization_contact_email_verification.delay")
+    def test_create_organization_rejects_hardcoded_reserved_token(
+        self, _mock_send_email: MagicMock, nonmember_user: RevelUser
+    ) -> None:
+        """Test that the service rejects names containing a hardcoded reserved token."""
+        with pytest.raises(HttpError) as exc_info:
+            organization_service.create_organization(
+                owner=nonmember_user,
+                name="Test Organization",
+                contact_email="contact@example.com",
+            )
+        assert exc_info.value.status_code == 400
+        assert "test" in str(exc_info.value).lower()
+
+    @patch("events.tasks.send_organization_contact_email_verification.delay")
+    def test_create_organization_rejects_word_order_variant(
+        self, _mock_send_email: MagicMock, nonmember_user: RevelUser
+    ) -> None:
+        """Test that the guard catches the reserved token regardless of position."""
+        with pytest.raises(HttpError) as exc_info:
+            organization_service.create_organization(
+                owner=nonmember_user,
+                name="Choir Test",
+                contact_email="contact@example.com",
+            )
+        assert exc_info.value.status_code == 400
+
+    @patch("events.tasks.send_organization_contact_email_verification.delay")
+    def test_create_organization_rejects_db_token(self, _mock_send_email: MagicMock, nonmember_user: RevelUser) -> None:
+        """Test that the guard reads from the DB-backed reserved-token list."""
+        from events.models import ReservedSlugToken
+        from events.utils.reserved_slug_tokens import invalidate_reserved_tokens_cache
+
+        ReservedSlugToken.objects.create(token="forbidden", reason="")
+        invalidate_reserved_tokens_cache()
+        with pytest.raises(HttpError):
+            organization_service.create_organization(
+                owner=nonmember_user,
+                name="My Forbidden Club",
+                contact_email="contact@example.com",
+            )
+
+    @patch("events.tasks.send_organization_contact_email_verification.delay")
+    def test_create_organization_allows_clean_name(
+        self, _mock_send_email: MagicMock, nonmember_user: RevelUser
+    ) -> None:
+        """Test that a name with no reserved tokens passes the guard."""
+        org = organization_service.create_organization(
+            owner=nonmember_user,
+            name="Acoustic Events Collective",
+            contact_email="contact@example.com",
+        )
+        assert org.pk is not None
 
 
 @pytest.mark.django_db(transaction=True)

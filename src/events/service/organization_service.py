@@ -29,6 +29,7 @@ from events.models import (
 )
 from events.models.organization import _get_default_permissions
 from events.service import blacklist_service
+from events.utils.reserved_slug_tokens import find_reserved_token
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
@@ -98,6 +99,12 @@ def create_organization(
     Raises:
         HttpError: If the user already owns an organization
     """
+    if offending := find_reserved_token(name):
+        raise HttpError(
+            400,
+            str(_('The name contains a reserved word: "%(token)s". Please choose a different name.'))
+            % {"token": offending},
+        )
     # Check if user already owns an organization
     if Organization.objects.filter(owner=owner).exists():
         raise HttpError(
