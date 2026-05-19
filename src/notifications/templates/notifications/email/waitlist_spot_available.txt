@@ -1,15 +1,16 @@
 {% load i18n %}{% trans "Hello" %} {{ user.display_name }},
 
-🎉 {% trans "Great news!" %} {% if context.spots_available == 1 %}{% blocktranslate with count=context.spots_available event=context.event_name %}{{ count }} spot is now available for {{ event }}!{% endblocktranslate %}{% else %}{% blocktranslate with count=context.spots_available event=context.event_name %}{{ count }} spots are now available for {{ event }}!{% endblocktranslate %}{% endif %}
+🎉 {% trans "A spot just opened up for" %} {{ context.event_name }}!
 
-⏰ {% trans "Act fast!" %} {% trans "Spots are limited and available on a first-come, first-served basis." %}
+{% if context.is_cutoff_batch %}{% trans "This is the final call — the waitlist has opened to everyone." %}{% else %}{% trans "You've been selected from the waitlist." %}{% endif %}
+
+⏰ {% trans "Claim your spot before" %} {{ context.expires_at_formatted }} ({{ context.time_remaining_formatted }}).
 
 {% trans "Event Details:" %}
 📅 {{ context.event_start_formatted }}
-{% if context.event_location %}📍 {{ context.event_location }}{% endif %}
 🏢 {{ context.organization_name }}
 
-{% trans "Claim your spot now:" %} {{ context.event_url }}
+{% trans "Claim your spot:" %} {{ context.event_url }}
 
 {% trans "You're receiving this because you're on the waitlist for this event." %}
 

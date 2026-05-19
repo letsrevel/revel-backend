@@ -1,8 +1,7 @@
-{% load i18n %}🎉 <b>{% trans "Great news!" %}</b> {% if context.spots_available == 1 %}{% blocktranslate with count=context.spots_available event=context.event_name %}{{ count }} spot is now available for <b>{{ event }}</b>!{% endblocktranslate %}{% else %}{% blocktranslate with count=context.spots_available event=context.event_name %}{{ count }} spots are now available for <b>{{ event }}</b>!{% endblocktranslate %}{% endif %}
+{% load i18n %}🎉 <b>{% trans "Spot Available!" %}</b> {% trans "for" %} <b>{{ context.event_name }}</b>
 
-⏰ <b>{% trans "Act fast!" %}</b> {% trans "Spots are limited and available on a first-come, first-served basis." %}
+{% if context.is_cutoff_batch %}{% trans "Final call — the waitlist has opened to everyone." %}{% else %}{% trans "You've been selected from the waitlist." %}{% endif %}
 
-<b>{% trans "Event Details:" %}</b>
-📅 {{ context.event_start_formatted }}
-{% if context.event_location %}📍 {{ context.event_location }}{% endif %}
-🏢 {{ context.organization_name }}
+⏰ {% trans "Claim before" %} {{ context.expires_at_formatted }} ({{ context.time_remaining_formatted }}).
+
+<a href="{{ context.event_url }}">{% trans "Claim your spot" %}</a>

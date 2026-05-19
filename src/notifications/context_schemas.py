@@ -378,17 +378,34 @@ class SystemAnnouncementContext(BaseNotificationContext):
 
 
 class WaitlistSpotAvailableContext(BaseNotificationContext):
-    """Context for WAITLIST_SPOT_AVAILABLE notification."""
+    """Context for WAITLIST_SPOT_AVAILABLE notification.
+
+    Sent when a user is selected in a waitlist batch (Advanced Waitlist
+    Management, issue #2). One notification per offer; the user has until
+    ``expires_at`` to claim their spot via the normal registration flow.
+
+    The legacy ``event_location``/``spots_available`` fields are retained as
+    optional for backwards compatibility with the older signal-based
+    dispatcher in ``notifications.signals.waitlist`` (which still emits the
+    full-to-non-full broadcast). New offer-based dispatches populate the
+    per-user fields below instead.
+    """
 
     event_id: str
     event_name: str
-    event_start: str  # ISO format
-    event_start_formatted: str  # User-friendly format
-    event_location: str
+    event_start: str  # ISO format (timezone-aware, in event TZ)
+    event_start_formatted: str  # User-friendly format, in event TZ
     event_url: str
     organization_id: str
     organization_name: str
-    spots_available: int
+    offer_id: t.NotRequired[str]
+    expires_at: t.NotRequired[str]  # ISO format, in event TZ
+    expires_at_formatted: t.NotRequired[str]  # User-friendly, in event TZ
+    time_remaining_formatted: t.NotRequired[str]  # e.g. "in 23 hours"
+    is_cutoff_batch: t.NotRequired[bool]
+    # Legacy fields from the broadcast (full → non-full) dispatcher
+    event_location: t.NotRequired[str]
+    spots_available: t.NotRequired[int]
 
 
 # ===== Whitelist Contexts =====

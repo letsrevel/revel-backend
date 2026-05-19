@@ -931,12 +931,66 @@ def expire_waitlist_offers_task() -> dict[str, t.Any]:
 def send_waitlist_offer_notification_task(offer_id: str) -> dict[str, t.Any]:
     """Dispatch WAITLIST_SPOT_AVAILABLE for a single offer.
 
-    Stub: full implementation lands in Task 20 of the advanced-waitlist plan.
+    Renders absolute time in the event's timezone via
+    ``events.utils.format_event_datetime`` and a humanized relative duration via
+    ``django.contrib.humanize.naturaltime``. The notification is treated as
+    transactional — dispatched unconditionally (mirroring TICKET_CREATED);
+    per-channel preferences are still honored downstream.
 
     Args:
         offer_id: String UUID of the WaitlistOffer to notify about.
 
     Returns:
-        Placeholder payload for traceability until Task 20 lands.
+        Dict with ``status`` ("sent" | "skipped") and ``offer_id``.
     """
-    return {"status": "placeholder", "offer_id": offer_id}
+    from uuid import UUID as _UUID
+
+    from django.contrib.humanize.templatetags.humanize import naturaltime
+
+    from events.models import WaitlistOffer
+    from events.utils import format_event_datetime, get_event_timezone
+    from notifications.enums import NotificationType
+    from notifications.signals import notification_requested
+
+    try:
+        offer = WaitlistOffer.objects.select_related("user", "event__organization").get(pk=_UUID(offer_id))
+    except WaitlistOffer.DoesNotExist:
+        logger.warning("send_waitlist_offer_notification_missing", offer_id=offer_id)
+        return {"status": "skipped", "offer_id": offer_id}
+
+    if offer.status != WaitlistOffer.Status.PENDING:
+        logger.info("send_waitlist_offer_notification_non_pending", offer_id=offer_id, status=offer.status)
+        return {"status": "skipped", "offer_id": offer_id}
+
+    site_settings = SiteSettings.get_solo()
+    event_tz = get_event_timezone(offer.event)
+    expires_local = offer.expires_at.astimezone(event_tz)
+    start_local = offer.event.start.astimezone(event_tz) if offer.event.start else None
+
+    context = {
+        "event_id": str(offer.event_id),
+        "event_name": offer.event.name,
+        "event_start": start_local.isoformat() if start_local else "",
+        "event_start_formatted": format_event_datetime(offer.event.start, offer.event),
+        "event_url": f"{site_settings.frontend_base_url}/events/{offer.event.slug}",
+        "organization_id": str(offer.event.organization_id),
+        "organization_name": offer.event.organization.name,
+        "offer_id": str(offer.id),
+        "expires_at": expires_local.isoformat(),
+        "expires_at_formatted": format_event_datetime(offer.expires_at, offer.event),
+        "time_remaining_formatted": str(naturaltime(offer.expires_at)),
+        "is_cutoff_batch": offer.is_cutoff_batch,
+    }
+
+    notification_requested.send(
+        sender=WaitlistOffer,
+        user=offer.user,
+        notification_type=NotificationType.WAITLIST_SPOT_AVAILABLE,
+        context=context,
+    )
+
+    offer.notified_at = timezone.now()
+    offer.save(update_fields=["notified_at"])
+
+    logger.info("send_waitlist_offer_notification_dispatched", offer_id=offer_id)
+    return {"status": "sent", "offer_id": offer_id}
