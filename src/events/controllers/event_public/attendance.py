@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -15,6 +16,7 @@ from events import models, schema
 from events.service import event_questionnaire_service, event_service, feedback_service, ticket_service
 from events.service.event_manager import EventManager, EventUserEligibility
 from events.service.ticket_service import UserEventStatus
+from events.service.waitlist_service import enqueue_waitlist_processing
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 from questionnaires.schema import (
     QuestionnaireSchema,
@@ -168,11 +170,27 @@ class EventPublicAttendanceController(EventPublicBaseController):
         if not event.waitlist_open:
             raise HttpError(400, str(_("This event does not have an open waitlist.")))
 
-        # Remove the user from the waitlist if they're on it
-        models.EventWaitList.objects.filter(
-            event=event,
-            user=self.user(),
-        ).delete()
+        user = self.user()
+        had_offer = False
+        with transaction.atomic():
+            offer = (
+                models.WaitlistOffer.objects.select_for_update()
+                .filter(
+                    event=event,
+                    user=user,
+                    status=models.WaitlistOffer.Status.PENDING,
+                    expires_at__gt=timezone.now(),
+                )
+                .first()
+            )
+            if offer is not None:
+                offer.status = models.WaitlistOffer.Status.EXPIRED
+                offer.save(update_fields=["status"])
+                had_offer = True
+            models.EventWaitList.objects.filter(event=event, user=user).delete()
+        if had_offer:
+            # The user gave up their reserved seat — let the next person in.
+            enqueue_waitlist_processing(event.id)
         return ResponseMessage(message=str(_("Successfully left the waitlist.")))
 
     @route.get(
