@@ -15,6 +15,7 @@ from events.models import (
     Event,
     EventInvitation,
     EventRSVP,
+    EventWaitList,
     GeneralUserPreferences,
     MembershipSubscription,
     Organization,
@@ -536,3 +537,26 @@ def _invalidate_reserved_slug_token_cache_on_delete(
     **kwargs: t.Any,
 ) -> None:
     invalidate_reserved_tokens_cache()
+
+
+@receiver(post_delete, sender=EventWaitList)
+def handle_waitlist_entry_deleted(sender: type[EventWaitList], instance: EventWaitList, **kwargs: t.Any) -> None:
+    """Revoke any PENDING WaitlistOffer for (event, user) when the entry is removed.
+
+    Idempotent: only PENDING offers are affected. CLAIMED offers (deletion happens
+    AFTER claim flips status) and EXPIRED offers (leave_waitlist flips status BEFORE
+    delete) are not touched.
+    """
+    from events.models import WaitlistOffer
+    from events.service.waitlist_service import enqueue_waitlist_processing
+
+    pending = WaitlistOffer.objects.filter(
+        event_id=instance.event_id,
+        user_id=instance.user_id,
+        status=WaitlistOffer.Status.PENDING,
+    ).first()
+    if pending is None:
+        return
+    pending.status = WaitlistOffer.Status.REVOKED
+    pending.save(update_fields=["status"])
+    enqueue_waitlist_processing(instance.event_id)
