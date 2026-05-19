@@ -20,6 +20,10 @@ class EventUserEligibility(BaseModel):
     questionnaires_failed: list[uuid.UUID] | None = None
     retry_on: datetime.datetime | None = None
     missing_profile_fields: list[str] | None = None
+    pending_offers_count: int | None = None
+    next_batch_at: datetime.datetime | None = None
+    waitlist_position: int | None = None
+    active_offer_expires_at: datetime.datetime | None = None
 
 
 class UserIsIneligibleError(Exception):
