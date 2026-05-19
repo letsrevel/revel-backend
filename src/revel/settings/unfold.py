@@ -450,6 +450,11 @@ UNFOLD = {
                         "icon": "currency_exchange",
                         "link": reverse_lazy("admin:common_exchangerate_changelist"),
                     },
+                    {
+                        "title": _("Reserved Slug Tokens"),
+                        "icon": "block",
+                        "link": reverse_lazy("admin:events_reservedslugtoken_changelist"),
+                    },
                 ],
             },
             {
