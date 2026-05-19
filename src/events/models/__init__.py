@@ -37,6 +37,7 @@ from .preferences import (
 )
 from .questionnaire import EventQuestionnaireSubmission, OrganizationQuestionnaire
 from .recurrence_rule import RecurrenceRule
+from .reserved_slug_token import ReservedSlugToken
 from .rsvp import EventRSVP
 from .subscription import (
     MembershipPayment,
@@ -85,6 +86,8 @@ __all__ = [
     "MembershipSubscriptionPlan",
     # Recurrence
     "RecurrenceRule",
+    # Reserved slug tokens
+    "ReservedSlugToken",
     # Follows
     "EventSeriesFollow",
     "OrganizationFollow",

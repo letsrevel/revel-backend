@@ -237,7 +237,7 @@ class TestCreateOrganization:
 
         url = reverse("api:create_organization")
         payload = {
-            "name": "New Test Organization",
+            "name": "New Acme Collective",
             "description": "A test organization description",
             "contact_email": "contact@neworg.com",
         }
@@ -248,14 +248,14 @@ class TestCreateOrganization:
         # Assert
         assert response.status_code == 201
         data = response.json()
-        assert data["name"] == "New Test Organization"
+        assert data["name"] == "New Acme Collective"
         assert data["description"] == "A test organization description"
         # Public schema hides contact_email when contact_method=NONE (the create default).
         assert data["contact_method"] == Organization.ContactMethod.NONE
         assert data["contact_email"] is None
         assert data["visibility"] == Organization.Visibility.STAFF_ONLY
         # Verify the email is actually stored on the model.
-        org = Organization.objects.get(name="New Test Organization", owner=nonmember_user)
+        org = Organization.objects.get(name="New Acme Collective", owner=nonmember_user)
         assert org.contact_email == "contact@neworg.com"
         assert org.contact_email_verified is False
 
@@ -310,7 +310,7 @@ class TestCreateOrganization:
     ) -> None:
         """Test that a user cannot create a second organization."""
         url = reverse("api:create_organization")
-        payload = {"name": "Second Organization", "contact_email": "second@org.com"}
+        payload = {"name": "Pebble Society", "contact_email": "second@org.com"}
 
         # Act
         response = organization_owner_client.post(url, data=payload, content_type="application/json")

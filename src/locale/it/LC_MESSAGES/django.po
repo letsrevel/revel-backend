@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-08 16:34+0200\n"
+"POT-Creation-Date: 2026-05-19 16:29+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -117,6 +117,9 @@ msgstr "Ti sarà inviato un link per reimpostare la password."
 msgid "Password reset successfully."
 msgstr "Password reimpostata con successo."
 
+msgid "A confirmation link has been sent to the new email address."
+msgstr ""
+
 msgid "Login via SSO."
 msgstr "Accesso tramite SSO."
 
@@ -198,6 +201,24 @@ msgstr "Non esiste più un utente con questa email."
 
 msgid "Cannot reset password for Google SSO users."
 msgstr "Impossibile reimpostare la password per utenti Google SSO."
+
+#, fuzzy
+#| msgid "Registration is not available."
+msgid "Google SSO users cannot change their email here."
+msgstr "La registrazione non è disponibile."
+
+#, fuzzy
+#| msgid "Set Password"
+msgid "Incorrect password."
+msgstr "Imposta password"
+
+msgid "The new email is the same as the current one."
+msgstr ""
+
+#, fuzzy
+#| msgid "This ticket has already been checked in."
+msgid "This email is already in use."
+msgstr "Questo biglietto è già stato registrato."
 
 msgid ""
 "You cannot delete your account while you own organizations. Please contact "
@@ -448,6 +469,127 @@ msgid ""
 msgstr ""
 "Cordiali saluti,\n"
 "Il Team di Revel"
+
+#, fuzzy
+#| msgid "Your data export has been initiated."
+msgid "Your Revel email address has been changed"
+msgstr "L'esportazione dei tuoi dati è stata avviata."
+
+#, python-format
+msgid ""
+"This address (<strong>%(new_email)s</strong>) is now the primary email on "
+"your Revel account. The previous address (<strong>%(old_email)s</strong>) "
+"has been removed and can no longer be used to sign in."
+msgstr ""
+
+msgid "For security, every other session has been signed out."
+msgstr ""
+
+#, fuzzy
+#| msgid "If you believe this is a mistake, please contact our support team."
+msgid "If you did not authorise this change, contact support immediately."
+msgstr ""
+"Se ritieni che si tratti di un errore, contatta il nostro team di supporto."
+
+#, fuzzy
+#| msgid "Your data export has been initiated."
+msgid "Your Revel email address has been changed."
+msgstr "L'esportazione dei tuoi dati è stata avviata."
+
+#, python-format
+msgid ""
+"This address (%(new_email)s) is now the primary email on your Revel account. "
+"The previous address (%(old_email)s) has been removed and can no longer be "
+"used to sign in."
+msgstr ""
+
+#, python-format
+msgid ""
+"This is a confirmation that the email address on your Revel account has been "
+"changed from <strong>%(old_email)s</strong> to <strong>%(new_email)s</"
+"strong>."
+msgstr ""
+
+msgid ""
+"All other sessions have been signed out as a security precaution. From now "
+"on, sign in using your new address."
+msgstr ""
+
+#, python-format
+msgid ""
+"This is a confirmation that the email address on your Revel account has been "
+"changed from %(old_email)s to %(new_email)s."
+msgstr ""
+
+msgid "Confirm your new email address"
+msgstr ""
+
+msgid ""
+"You (or someone using your account) asked to change the email address on "
+"your Revel account to this one. To confirm the change, click the button "
+"below:"
+msgstr ""
+
+msgid "Confirm new email"
+msgstr ""
+
+msgid ""
+"Important: after you confirm, you will be signed out of every other device "
+"and you will need to sign in again using this new email address."
+msgstr ""
+
+msgid ""
+"If you weren't expecting this email, you can safely ignore it — nothing will "
+"change until the link is clicked."
+msgstr ""
+
+msgid "Confirm your new email address."
+msgstr ""
+
+msgid ""
+"You (or someone using your account) asked to change the email address on "
+"your Revel account to this one. To confirm the change, click the link below:"
+msgstr ""
+
+msgid "An email change was requested on your account"
+msgstr ""
+
+#, python-format
+msgid ""
+"Someone asked to change the email address on your Revel account to "
+"<strong>%(masked_new_email)s</strong>. The change is not active yet — it "
+"will only take effect when the new address is confirmed."
+msgstr ""
+
+msgid ""
+"If this wasn't you, change your password immediately and contact support:"
+msgstr ""
+
+#, fuzzy
+#| msgid "Reset Password"
+msgid "Reset my password"
+msgstr "Reimposta password"
+
+msgid ""
+"If it was you, no action is needed — finish the confirmation from the email "
+"we just sent to your new address."
+msgstr ""
+
+msgid "An email change was requested on your account."
+msgstr ""
+
+#, python-format
+msgid ""
+"Someone asked to change the email address on your Revel account to "
+"%(masked_new_email)s. The change is not active yet — it will only take "
+"effect when the new address is confirmed."
+msgstr ""
+
+#, python-format
+msgid ""
+"If this wasn't you, change your password immediately at "
+"%(frontend_base_url)s/account/password-reset and contact support."
+msgstr ""
 
 msgid "Verify Your Email"
 msgstr "Verifica la tua email"
@@ -920,6 +1062,9 @@ msgid "Allow new attendees/members to see this announcement after it was sent"
 msgstr ""
 "Consenti ai nuovi partecipanti/membri di vedere questo annuncio dopo l'invio"
 
+msgid "Days a PAST_DUE subscription stays valid before expiring."
+msgstr ""
+
 msgid ""
 "A verified contact email is required to enable a contact method other than "
 "NONE."
@@ -929,6 +1074,47 @@ msgid "Membership tier is required when granting membership."
 msgstr ""
 
 msgid "Membership tier must belong to the same organization as the token."
+msgstr ""
+
+msgid "Token must be a single non-empty slug segment."
+msgstr "Il token deve essere un singolo segmento di slug non vuoto."
+
+msgid "Month"
+msgstr ""
+
+msgid "Year"
+msgstr ""
+
+msgid "e.g. \"Monthly\", \"Annual\""
+msgstr ""
+
+msgid "ISO 4217 currency code"
+msgstr ""
+
+msgid "Paused"
+msgstr ""
+
+msgid "Past Due"
+msgstr ""
+
+#, fuzzy
+#| msgid "RSVP Cancelled"
+msgid "Cancelled"
+msgstr "RSVP annullata"
+
+msgid "Expired"
+msgstr ""
+
+msgid "Subscription organization must match the plan's tier organization."
+msgstr ""
+
+msgid "Succeeded"
+msgstr ""
+
+msgid "Failed"
+msgstr ""
+
+msgid "Refunded"
 msgstr ""
 
 msgid "Address visible to invited guests only"
@@ -942,11 +1128,6 @@ msgstr ""
 
 msgid "Address visible to attendees only"
 msgstr ""
-
-#, fuzzy
-#| msgid "Waiting for questionnaire evaluation."
-msgid "Feedback questionnaires cannot require evaluation."
-msgstr "In attesa della valutazione del questionario."
 
 msgid "Only draft invoices can be edited."
 msgstr ""
@@ -1184,6 +1365,11 @@ msgstr "Hai creato troppi elementi."
 msgid "You can retry after %(retry_on)s."
 msgstr ""
 
+#, fuzzy
+#| msgid "Waiting for questionnaire evaluation."
+msgid "Feedback questionnaires cannot require evaluation."
+msgstr "In attesa della valutazione del questionario."
+
 msgid "Feedback questionnaire is only available after the event ends."
 msgstr ""
 
@@ -1246,6 +1432,13 @@ msgstr "Sei già invitato a questo evento."
 
 msgid "You have already requested an invitation to this event."
 msgstr "Hai già richiesto un invito per questo evento."
+
+#, python-format
+msgid ""
+"The name contains a reserved word: \"%(token)s\". Please choose a different "
+"name."
+msgstr ""
+"Il nome contiene una parola riservata: \"%(token)s\". Scegli un nome diverso."
 
 msgid ""
 "You already own an organization. Only one organization per user as owner is "
@@ -1328,6 +1521,55 @@ msgstr "Informazioni pagamento"
 msgid "Only pending payments can be cancelled."
 msgstr ""
 
+msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
+msgstr ""
+
+msgid "This plan is archived and no longer accepts new subscriptions."
+msgstr ""
+
+#, fuzzy
+#| msgid "User is already a member of this organization."
+msgid "This user is banned from the organization."
+msgstr "L'utente è già membro di questa organizzazione."
+
+#, fuzzy
+#| msgid "User is already a member of this organization."
+msgid "This user already has an active subscription in this organization."
+msgstr "L'utente è già membro di questa organizzazione."
+
+msgid ""
+"Cannot record a payment against a cancelled or expired subscription. Create "
+"a new subscription instead."
+msgstr ""
+
+msgid "occurred_at cannot be in the future."
+msgstr ""
+
+msgid "occurred_at cannot predate the subscription."
+msgstr ""
+
+msgid "occurred_at cannot predate the start of the current billing period."
+msgstr ""
+
+msgid "occurred_at cannot predate the lapsed period end of the subscription."
+msgstr ""
+
+msgid ""
+"Backfilled payment would produce an already-lapsed billing period; use a "
+"more recent occurred_at."
+msgstr ""
+
+msgid ""
+"Cannot schedule cancellation for a paused subscription. Resume it first, or "
+"cancel immediately."
+msgstr ""
+
+msgid "Cannot pause a terminal subscription."
+msgstr ""
+
+msgid "Only paused subscriptions can be resumed."
+msgstr ""
+
 msgid "Price paid is not allowed for fixed-price tiers."
 msgstr ""
 
@@ -1335,6 +1577,17 @@ msgstr ""
 #| msgid "ticket_tier_id is required for events that require tickets."
 msgid "Price paid is required for Pay What You Can tiers."
 msgstr "ticket_tier_id è obbligatorio per eventi che richiedono biglietti."
+
+msgid "Check-in is not currently open for this event."
+msgstr "Il check-in non è attualmente aperto per questo evento."
+
+#, python-brace-format
+msgid "Check-in is not open yet. It will open at {opens_at}."
+msgstr "Il check-in non è ancora aperto. Aprirà alle {opens_at}."
+
+#, python-brace-format
+msgid "Check-in has closed for this event. It ended at {ended_at}."
+msgstr "Il check-in per questo evento è chiuso. È terminato alle {ended_at}."
 
 msgid "This ticket has already been checked in."
 msgstr "Questo biglietto è già stato registrato."
@@ -1348,17 +1601,6 @@ msgstr "Questo biglietto è in attesa di conferma del pagamento."
 #, python-brace-format
 msgid "Invalid ticket status: {status}"
 msgstr "Stato del biglietto non valido: {status}"
-
-msgid "Check-in is not currently open for this event."
-msgstr "Il check-in non è attualmente aperto per questo evento."
-
-#, python-brace-format
-msgid "Check-in is not open yet. It will open at {opens_at}."
-msgstr "Il check-in non è ancora aperto. Aprirà alle {opens_at}."
-
-#, python-brace-format
-msgid "Check-in has closed for this event. It ended at {ended_at}."
-msgstr "Il check-in per questo evento è chiuso. È terminato alle {ended_at}."
 
 msgid "Price paid is not allowed for this ticket."
 msgstr ""
@@ -2339,7 +2581,8 @@ msgstr "Nuovo messaggio di contatto"
 #, python-format
 msgid "<strong>%(sender)s</strong> sent a message to <strong>%(org)s</strong>."
 msgstr ""
-"<strong>%(sender)s</strong> ha inviato un messaggio a <strong>%(org)s</strong>."
+"<strong>%(sender)s</strong> ha inviato un messaggio a <strong>%(org)s</"
+"strong>."
 
 msgid "Subject:"
 msgstr "Oggetto:"
@@ -3576,6 +3819,9 @@ msgstr "File in quarantena"
 
 msgid "Exchange Rates"
 msgstr ""
+
+msgid "Reserved Slug Tokens"
+msgstr "Token di slug riservati"
 
 msgid "Celery Tasks"
 msgstr ""
