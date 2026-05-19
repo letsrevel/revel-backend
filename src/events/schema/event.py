@@ -108,6 +108,20 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     occurrence_index: int | None = None
     updated_at: AwareDatetime | None = None
     created_at: AwareDatetime | None = None
+    seats_held: int = 0
+
+    @staticmethod
+    def resolve_seats_held(obj: "Event") -> int:
+        """Count pending unexpired waitlist offers for capacity transparency."""
+        from django.utils import timezone
+
+        from events.models import WaitlistOffer
+
+        return WaitlistOffer.objects.filter(
+            event=obj,
+            status=WaitlistOffer.Status.PENDING,
+            expires_at__gt=timezone.now(),
+        ).count()
 
 
 class EventInListSchema(EventBaseSchema):
