@@ -17,6 +17,7 @@ class NextStep(StrEnum):
     WAIT_FOR_EVENT_TO_OPEN = "wait_for_event_to_open"
     JOIN_WAITLIST = "join_waitlist"
     WAIT_FOR_OPEN_SPOT = "wait_for_open_spot"
+    CLAIM_WAITLIST_OFFER = "claim_waitlist_offer"
     PURCHASE_TICKET = "purchase_ticket"
     RSVP = "rsvp"
     UPGRADE_MEMBERSHIP = "upgrade_membership"
@@ -36,6 +37,8 @@ class Reasons(StrEnum):
     MEMBERSHIP_INACTIVE = gettext_noop("Your membership is not active.")
     REQUIRES_FULL_PROFILE = gettext_noop("Requires full profile.")
     EVENT_IS_FULL = gettext_noop("Event is full.")
+    SPOTS_RESERVED_FOR_WAITLIST = gettext_noop("Spots are currently reserved for waitlist members.")
+    ON_WAITLIST_WAITING_FOR_BATCH = gettext_noop("You are on the waitlist. Waiting for your turn.")
     SOLD_OUT = gettext_noop("Sold out")
     QUESTIONNAIRE_MISSING = gettext_noop("Questionnaire has not been filled.")
     QUESTIONNAIRE_FAILED = gettext_noop("Questionnaire evaluation was insufficient.")
