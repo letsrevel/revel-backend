@@ -553,7 +553,40 @@ class BatchTicketService:
 
             discount_code_service.apply_discount(dc, self.user, len(created))
 
+        self._claim_waitlist_offer_if_any()
         return created
+
+    def _claim_waitlist_offer_if_any(self) -> None:
+        """Mark a pending unexpired WaitlistOffer for this (event, user) as CLAIMED.
+
+        Mirrors EventManager._claim_active_offer for ticket purchase flows.
+        Fires on PENDING-ticket creation (online checkout) as well as active
+        ticket creation (free/offline/at-the-door) because the PENDING ticket
+        already counts toward capacity — without claiming the offer here the
+        user would consume two capacity slots. No-op when the user has no
+        pending offer.
+        """
+        from django.utils import timezone
+
+        from events.models import EventWaitList, WaitlistOffer
+
+        now = timezone.now()
+        offer = (
+            WaitlistOffer.objects.select_for_update()
+            .filter(
+                event=self.event,
+                user=self.user,
+                status=WaitlistOffer.Status.PENDING,
+                expires_at__gt=now,
+            )
+            .first()
+        )
+        if offer is None:
+            return
+        offer.status = WaitlistOffer.Status.CLAIMED
+        offer.claimed_at = now
+        offer.save(update_fields=["status", "claimed_at"])
+        EventWaitList.objects.filter(event=self.event, user=self.user).delete()
 
     def _online_checkout(
         self,

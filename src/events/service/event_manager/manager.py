@@ -78,7 +78,36 @@ class EventManager:
             event=self.event,
             defaults={"status": answer},
         )
+        if answer == EventRSVP.RsvpStatus.YES:
+            self._claim_active_offer()
         return rsvp
+
+    def _claim_active_offer(self) -> None:
+        """Mark the user's active waitlist offer as CLAIMED if any.
+
+        Must be called inside an active transaction after the user has been
+        confirmed registered (RSVP YES or non-cancelled ticket). Idempotent —
+        no-op when the user has no pending unexpired offer for this event.
+        """
+        from events.models import EventWaitList, WaitlistOffer
+
+        now = timezone.now()
+        offer = (
+            WaitlistOffer.objects.select_for_update()
+            .filter(
+                event=self.event,
+                user=self.user,
+                status=WaitlistOffer.Status.PENDING,
+                expires_at__gt=now,
+            )
+            .first()
+        )
+        if offer is None:
+            return
+        offer.status = WaitlistOffer.Status.CLAIMED
+        offer.claimed_at = now
+        offer.save(update_fields=["status", "claimed_at"])
+        EventWaitList.objects.filter(event=self.event, user=self.user).delete()
 
     def check_eligibility(self, bypass: bool = False, raise_on_false: bool = False) -> EventUserEligibility:
         """Call the eligibility check.
