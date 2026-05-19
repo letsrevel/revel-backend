@@ -15,6 +15,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from events.models import Payment, Ticket, TicketTier
 from events.models.ticket import CancellationBlockReason, CancellationSource
+from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import to_stripe_amount
 from events.utils.refund_policy import RefundPolicy, validate_refund_policy
 
@@ -405,6 +406,8 @@ def cancel_ticket_by_user(
         TicketTier.objects.filter(pk=locked_ticket.tier_id, quantity_sold__gt=0).update(
             quantity_sold=F("quantity_sold") - 1
         )
+
+        enqueue_waitlist_processing(locked_ticket.event_id)
 
     return CancellationResult(
         ticket=ticket,
