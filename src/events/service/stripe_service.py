@@ -36,6 +36,7 @@ from events.service.vat_service import (
     distribute_amount_across_items,
     get_effective_vat_rate,
 )
+from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import to_stripe_amount
 
 if t.TYPE_CHECKING:
@@ -701,6 +702,9 @@ def cancel_pending_checkout(
     ticket_count = batch_payments.count()
     ticket_ids = list(batch_payments.values_list("ticket_id", flat=True))
 
+    # Capture event_id before the ticket rows are deleted.
+    event_id = payment.ticket.event_id
+
     # Delete all tickets and payments in this batch
     batch_payments.delete()
     Ticket.objects.filter(id__in=ticket_ids).delete()
@@ -709,6 +713,8 @@ def cancel_pending_checkout(
     tier = payment.ticket.tier
     if tier:
         TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=F("quantity_sold") - ticket_count)
+
+    enqueue_waitlist_processing(event_id)
 
     logger.info(
         "pending_checkout_cancelled",
