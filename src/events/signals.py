@@ -21,6 +21,7 @@ from events.models import (
     OrganizationMember,
     OrganizationStaff,
     PendingEventInvitation,
+    ReservedSlugToken,
     Ticket,
     TicketTier,
 )
@@ -35,6 +36,7 @@ from events.tasks import (
     notify_admin_new_organization_pushover,
 )
 from events.utils import get_invitation_message
+from events.utils.reserved_slug_tokens import invalidate_reserved_tokens_cache
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
@@ -516,3 +518,21 @@ def sync_member_from_subscription(
         status=member.status,
         tier_id=str(member.tier_id) if member.tier_id else None,
     )
+
+
+@receiver(post_save, sender=ReservedSlugToken)
+def _invalidate_reserved_slug_token_cache_on_save(
+    sender: type[ReservedSlugToken],
+    instance: ReservedSlugToken,
+    **kwargs: t.Any,
+) -> None:
+    invalidate_reserved_tokens_cache()
+
+
+@receiver(post_delete, sender=ReservedSlugToken)
+def _invalidate_reserved_slug_token_cache_on_delete(
+    sender: type[ReservedSlugToken],
+    instance: ReservedSlugToken,
+    **kwargs: t.Any,
+) -> None:
+    invalidate_reserved_tokens_cache()

@@ -65,7 +65,21 @@ def test_cache_invalidation_picks_up_new_token() -> None:
     # warm the cache without the entry
     assert find_reserved_token("My Fresh Org") is None
     ReservedSlugToken.objects.create(token="fresh", reason="")
-    # without invalidation the cache still holds the old set
-    assert find_reserved_token("My Fresh Org") is None
-    invalidate_reserved_tokens_cache()
+    # signal automatically invalidates the cache, so the new token is picked up
     assert find_reserved_token("My Fresh Org") == "fresh"
+
+
+def test_post_save_signal_invalidates_cache() -> None:
+    assert find_reserved_token("My Signaled Org") is None  # warm cache without entry
+    ReservedSlugToken.objects.create(token="signaled", reason="")
+    # NO manual invalidation here — signal must do it
+    assert find_reserved_token("My Signaled Org") == "signaled"
+
+
+def test_post_delete_signal_invalidates_cache() -> None:
+    entry = ReservedSlugToken.objects.create(token="willgo", reason="")
+    invalidate_reserved_tokens_cache()
+    assert find_reserved_token("My willgo Org") == "willgo"
+    entry.delete()
+    # NO manual invalidation — signal must do it
+    assert find_reserved_token("My willgo Org") is None
