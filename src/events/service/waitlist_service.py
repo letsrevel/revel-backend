@@ -60,11 +60,11 @@ def process_waitlist_for_event(event_id: uuid.UUID) -> ProcessResult:
         return ProcessResult(status="disabled")
 
     now = timezone.now()
-    pending_count = (
-        WaitlistOffer.objects.select_for_update()
-        .filter(event=event, status=WaitlistOffer.Status.PENDING, expires_at__gt=now)
-        .count()
-    )
+    # The Event row lock above serializes concurrent processing; we don't need
+    # to additionally lock the offer rows here for the count.
+    pending_count = WaitlistOffer.objects.filter(
+        event=event, status=WaitlistOffer.Status.PENDING, expires_at__gt=now
+    ).count()
     available = event.effective_capacity - event.attendee_count - pending_count
     if available <= 0:
         return ProcessResult(status="no_spots")

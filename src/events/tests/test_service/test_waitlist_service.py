@@ -82,6 +82,8 @@ class TestOpenModeBatchSizeZero:
         result = waitlist_service.process_waitlist_for_event(event.id)
         assert result.status == "ok"
         assert result.offers_created == 2  # 10 - 8 = 2 free spots
+        offers = WaitlistOffer.objects.filter(event=event)
+        assert all(o.is_cutoff_batch is False for o in offers)
 
 
 class TestBatchedFIFO:
@@ -100,6 +102,8 @@ class TestBatchedFIFO:
         assert result.offers_created == 2
         offered = set(WaitlistOffer.objects.values_list("user_id", flat=True))
         assert offered == {u1.id, u2.id}
+        offers = WaitlistOffer.objects.filter(event=event)
+        assert all(o.is_cutoff_batch is False for o in offers)
 
 
 class TestBatchedLottery:
@@ -122,6 +126,8 @@ class TestBatchedLottery:
         result = waitlist_service.process_waitlist_for_event(event.id)
         assert result.status == "ok"
         assert result.offers_created == 2
+        offers = WaitlistOffer.objects.filter(event=event)
+        assert all(o.is_cutoff_batch is False for o in offers)
 
 
 class TestCutoff:
