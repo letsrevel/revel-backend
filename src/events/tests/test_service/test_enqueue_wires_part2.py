@@ -18,7 +18,7 @@ from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-from conftest import RevelUserFactory  # type: ignore[import-not-found]
+from conftest import RevelUserFactory
 from events.models import Event, EventRSVP, EventWaitList, WaitlistOffer
 from events.service.event_manager.manager import EventManager
 from events.service.waitlist_service import revoke_all_pending_offers
@@ -379,9 +379,7 @@ def test_revoke_all_pending_offers_marks_pending_as_revoked(
     count = revoke_all_pending_offers(event.id)
 
     assert count == 3
-    assert (
-        WaitlistOffer.objects.filter(event=event, status=WaitlistOffer.Status.REVOKED).count() == 3
-    )
+    assert WaitlistOffer.objects.filter(event=event, status=WaitlistOffer.Status.REVOKED).count() == 3
     claimed.refresh_from_db()
     assert claimed.status == WaitlistOffer.Status.CLAIMED
 
@@ -490,5 +488,3 @@ def test_leave_waitlist_with_expired_offer_does_not_enqueue(
     # periodic sweeper handles its EXPIRED transition.
     expired.refresh_from_db()
     assert expired.status == WaitlistOffer.Status.PENDING
-
-

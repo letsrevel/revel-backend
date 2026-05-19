@@ -88,11 +88,7 @@ class EventAdminRSVPsController(EventAdminBaseController):
 
         # Capture prior status (if any) before the upsert so we can detect a
         # YES -> non-YES transition that frees a seat.
-        prior_status = (
-            models.EventRSVP.objects.filter(event=event, user=user)
-            .values_list("status", flat=True)
-            .first()
-        )
+        prior_status = models.EventRSVP.objects.filter(event=event, user=user).values_list("status", flat=True).first()
 
         # Create or update RSVP (due to unique constraint on event+user)
         rsvp, created = models.EventRSVP.objects.update_or_create(

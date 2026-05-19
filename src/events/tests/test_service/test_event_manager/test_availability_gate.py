@@ -7,7 +7,7 @@ import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from conftest import RevelUserFactory  # type: ignore[import-not-found]
+from conftest import RevelUserFactory
 from events.models import Event, EventWaitList, Ticket, TicketTier, WaitlistOffer
 from events.service.event_manager.enums import NextStep
 from events.service.event_manager.service import EligibilityService
@@ -61,9 +61,7 @@ def test_non_waitlisted_user_sees_reserved_reason(event: Event, revel_user_facto
     assert elig.next_batch_at is not None
 
 
-def test_waitlisted_user_without_offer_sees_waiting_reason(
-    event: Event, revel_user_factory: RevelUserFactory
-) -> None:
+def test_waitlisted_user_without_offer_sees_waiting_reason(event: Event, revel_user_factory: RevelUserFactory) -> None:
     """A user already on the waitlist (no offer) sees the 'waiting' reason and a position."""
     holders = [revel_user_factory() for _ in range(5)]
     _setup_full_event_with_offers(
@@ -99,9 +97,7 @@ def test_user_with_active_offer_passes_capacity(event: Event, revel_user_factory
 
 def test_truly_full_no_offers_returns_event_is_full(event: Event, revel_user_factory: RevelUserFactory) -> None:
     """When the event is full on attendees alone (no pending offers), the reason is EVENT_IS_FULL."""
-    _setup_full_event_with_offers(
-        event, revel_user_factory=revel_user_factory, attendees=30, pending_offers_users=[]
-    )
+    _setup_full_event_with_offers(event, revel_user_factory=revel_user_factory, attendees=30, pending_offers_users=[])
     viewer = revel_user_factory()
 
     elig = EligibilityService(viewer, event).check_eligibility()

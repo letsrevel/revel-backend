@@ -669,9 +669,7 @@ class AvailabilityGate(BaseEligibilityGate):
 
         user_id = self.handler.user.id
         entries = (
-            EventWaitList.objects.filter(event=self.event)
-            .order_by("created_at")
-            .values_list("user_id", flat=True)
+            EventWaitList.objects.filter(event=self.event).order_by("created_at").values_list("user_id", flat=True)
         )
         for idx, uid in enumerate(entries, start=1):
             if uid == user_id:

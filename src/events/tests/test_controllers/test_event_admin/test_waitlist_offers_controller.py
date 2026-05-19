@@ -44,9 +44,7 @@ def test_get_waitlist_settings_nonowner_denied(nonmember_client: Client, event: 
 # --- PATCH /event-admin/{event_id}/waitlist-settings ---
 
 
-def test_patch_waitlist_settings_updates_fields(
-    organization_owner_client: Client, event: Event
-) -> None:
+def test_patch_waitlist_settings_updates_fields(organization_owner_client: Client, event: Event) -> None:
     url = reverse("api:update_waitlist_settings", kwargs={"event_id": event.pk})
     payload = {
         "waitlist_open": True,
@@ -54,9 +52,7 @@ def test_patch_waitlist_settings_updates_fields(
         "waitlist_batch_size": 5,
         "waitlist_lottery_mode": True,
     }
-    response = organization_owner_client.patch(
-        url, data=orjson.dumps(payload), content_type="application/json"
-    )
+    response = organization_owner_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
     assert response.status_code == 200, response.content
     event.refresh_from_db()
     assert event.waitlist_open is True
@@ -65,13 +61,9 @@ def test_patch_waitlist_settings_updates_fields(
     assert event.waitlist_lottery_mode is True
 
 
-def test_patch_waitlist_settings_empty_payload_is_noop(
-    organization_owner_client: Client, event: Event
-) -> None:
+def test_patch_waitlist_settings_empty_payload_is_noop(organization_owner_client: Client, event: Event) -> None:
     url = reverse("api:update_waitlist_settings", kwargs={"event_id": event.pk})
-    response = organization_owner_client.patch(
-        url, data=orjson.dumps({}), content_type="application/json"
-    )
+    response = organization_owner_client.patch(url, data=orjson.dumps({}), content_type="application/json")
     assert response.status_code == 200, response.content
     event.refresh_from_db()
     assert event.waitlist_open is False

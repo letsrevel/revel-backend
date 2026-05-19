@@ -917,7 +917,7 @@ def expire_waitlist_offers_task() -> dict[str, t.Any]:
         )
         # PostgreSQL rejects `FOR UPDATE` with `DISTINCT`, so we materialize the
         # locked rows' event_ids and de-duplicate in Python.
-        event_ids = list({eid for eid in expiring.values_list("event_id", flat=True)})
+        event_ids = list(set(expiring.values_list("event_id", flat=True)))
         count = expiring.update(status=WaitlistOffer.Status.EXPIRED)
 
     for event_id in event_ids:

@@ -539,26 +539,27 @@ class Event(
         if venue and venue.organization_id != self.organization_id:
             raise DjangoValidationError({"venue": "Venue must belong to the same organization as the event."})
 
-        # Waitlist configuration
+        self._clean_waitlist_config()
+
+    def _clean_waitlist_config(self) -> None:
         if self.waitlist_time_window is not None:
             if self.waitlist_time_window < timedelta(hours=1):
                 raise DjangoValidationError({"waitlist_time_window": "Time window must be at least 1 hour."})
             if self.waitlist_time_window > timedelta(days=7):
                 raise DjangoValidationError({"waitlist_time_window": "Time window cannot exceed 7 days."})
 
-        if self.waitlist_cutoff_date is not None:
-            if self.waitlist_time_window is None:
-                raise DjangoValidationError(
-                    {"waitlist_cutoff_date": "Cutoff date requires waitlist_time_window to be set."}
-                )
-            if self.start and self.waitlist_cutoff_date >= self.start:
-                raise DjangoValidationError({"waitlist_cutoff_date": "Cutoff date must be before event start."})
-            if self.waitlist_cutoff_window is not None and self.start:
-                max_window = self.start - self.waitlist_cutoff_date
-                if self.waitlist_cutoff_window > max_window:
-                    raise DjangoValidationError(
-                        {"waitlist_cutoff_window": "Cutoff window cannot extend past event start."}
-                    )
+        if self.waitlist_cutoff_date is None:
+            return
+        if self.waitlist_time_window is None:
+            raise DjangoValidationError(
+                {"waitlist_cutoff_date": "Cutoff date requires waitlist_time_window to be set."}
+            )
+        if self.start and self.waitlist_cutoff_date >= self.start:
+            raise DjangoValidationError({"waitlist_cutoff_date": "Cutoff date must be before event start."})
+        if self.waitlist_cutoff_window is not None and self.start:
+            max_window = self.start - self.waitlist_cutoff_date
+            if self.waitlist_cutoff_window > max_window:
+                raise DjangoValidationError({"waitlist_cutoff_window": "Cutoff window cannot extend past event start."})
 
     def is_check_in_open(self) -> bool:
         """Check if check-in is currently open for this event."""

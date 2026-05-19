@@ -6,7 +6,7 @@ import uuid
 import pytest
 from django.utils import timezone
 
-from conftest import RevelUserFactory  # type: ignore[import-not-found]
+from conftest import RevelUserFactory
 from events.models import Event, WaitlistOffer
 from events.service.event_manager.service import EligibilityService
 
@@ -23,7 +23,7 @@ def test_pending_offer_count_visible_on_event(event: Event, revel_user_factory: 
     )
     viewer = revel_user_factory()
     svc = EligibilityService(viewer, event)
-    assert svc.event.pending_waitlist_offer_count == 1  # type: ignore[attr-defined]
+    assert svc.event.pending_waitlist_offer_count == 1
     assert svc.active_waitlist_offer is None
 
 
@@ -50,4 +50,4 @@ def test_expired_offer_does_not_count(event: Event, revel_user_factory: RevelUse
     )
     viewer = revel_user_factory()
     svc = EligibilityService(viewer, event)
-    assert svc.event.pending_waitlist_offer_count == 0  # type: ignore[attr-defined]
+    assert svc.event.pending_waitlist_offer_count == 0

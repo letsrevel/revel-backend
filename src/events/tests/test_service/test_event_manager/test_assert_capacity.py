@@ -6,7 +6,7 @@ import uuid
 import pytest
 from django.utils import timezone
 
-from conftest import RevelUserFactory  # type: ignore[import-not-found]
+from conftest import RevelUserFactory
 from events.models import Event, EventRSVP, WaitlistOffer
 from events.service.event_manager.manager import EventManager
 from events.service.event_manager.types import UserIsIneligibleError
@@ -24,9 +24,7 @@ def _set_rsvp_event(event: Event, capacity: int) -> None:
     event.save()
 
 
-def test_non_offer_holder_blocked_by_reserved_spots(
-    event: Event, revel_user_factory: RevelUserFactory
-) -> None:
+def test_non_offer_holder_blocked_by_reserved_spots(event: Event, revel_user_factory: RevelUserFactory) -> None:
     _set_rsvp_event(event, capacity=5)
     for _ in range(4):
         EventRSVP.objects.create(event=event, user=revel_user_factory(), status=EventRSVP.RsvpStatus.YES)

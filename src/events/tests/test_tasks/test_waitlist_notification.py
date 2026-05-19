@@ -7,7 +7,8 @@ from unittest import mock
 import pytest
 from django.utils import timezone
 
-from conftest import RevelUserFactory  # type: ignore[import-not-found]
+from accounts.models import RevelUser
+from conftest import RevelUserFactory
 from events.models import Event, WaitlistOffer
 from events.tasks import send_waitlist_offer_notification_task
 
@@ -20,7 +21,7 @@ pytestmark = pytest.mark.django_db
 _NOTIFICATION_REQUESTED_PATH = "notifications.signals.notification_requested.send"
 
 
-def _make_offer(event: Event, user: object, is_cutoff: bool = False) -> WaitlistOffer:
+def _make_offer(event: Event, user: RevelUser, is_cutoff: bool = False) -> WaitlistOffer:
     return WaitlistOffer.objects.create(
         event=event,
         user=user,
@@ -30,9 +31,7 @@ def _make_offer(event: Event, user: object, is_cutoff: bool = False) -> Waitlist
     )
 
 
-def test_dispatches_with_correct_notification_type_and_user(
-    event: Event, revel_user_factory: RevelUserFactory
-) -> None:
+def test_dispatches_with_correct_notification_type_and_user(event: Event, revel_user_factory: RevelUserFactory) -> None:
     u = revel_user_factory()
     offer = _make_offer(event, u)
 
@@ -46,9 +45,7 @@ def test_dispatches_with_correct_notification_type_and_user(
     assert kwargs["user"].id == u.id
 
 
-def test_context_payload_has_required_fields(
-    event: Event, revel_user_factory: RevelUserFactory
-) -> None:
+def test_context_payload_has_required_fields(event: Event, revel_user_factory: RevelUserFactory) -> None:
     u = revel_user_factory()
     offer = _make_offer(event, u)
 

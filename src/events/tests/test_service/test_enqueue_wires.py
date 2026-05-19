@@ -65,8 +65,9 @@ def test_stripe_refund_webhook_enqueues_waitlist(
     organization_owner_user: RevelUser,
 ) -> None:
     """``handle_charge_refunded`` enqueues processing when a ticket flips to CANCELLED."""
-    import stripe
     from unittest.mock import MagicMock
+
+    import stripe
 
     from events.service.stripe_webhooks import StripeEventHandler
 
@@ -125,8 +126,9 @@ def test_stripe_payment_intent_canceled_enqueues_waitlist(
     organization_owner_user: RevelUser,
 ) -> None:
     """``handle_payment_intent_canceled`` enqueues processing for each cancelled ticket."""
-    import stripe
     from unittest.mock import MagicMock
+
+    import stripe
 
     from events.service.stripe_webhooks import StripeEventHandler
 

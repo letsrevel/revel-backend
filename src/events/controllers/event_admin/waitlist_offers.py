@@ -41,9 +41,7 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         url_name="update_waitlist_settings",
         response=schema.WaitlistSettingsSchema,
     )
-    def update_waitlist_settings(
-        self, event_id: UUID, payload: schema.WaitlistSettingsUpdateSchema
-    ) -> models.Event:
+    def update_waitlist_settings(self, event_id: UUID, payload: schema.WaitlistSettingsUpdateSchema) -> models.Event:
         """Partially update the waitlist configuration.
 
         Closing the waitlist (``waitlist_open`` True -> False) revokes any

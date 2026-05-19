@@ -16,7 +16,7 @@ from django.utils import timezone
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-from conftest import RevelUserFactory  # type: ignore[import-not-found]
+from conftest import RevelUserFactory
 from events.models import Event, EventRSVP, EventWaitList, WaitlistOffer
 from events.service import waitlist_service
 from events.service.event_manager.manager import EventManager
@@ -123,9 +123,7 @@ class TestOfferHolderClaimsViaRsvp:
 class TestNonOfferHolderBlocked:
     """A non-offer-holder trying to RSVP YES while seats are reserved must be blocked."""
 
-    def test_intruder_gets_reserved_reason(
-        self, event: Event, revel_user_factory: RevelUserFactory
-    ) -> None:
+    def test_intruder_gets_reserved_reason(self, event: Event, revel_user_factory: RevelUserFactory) -> None:
         _configure_rsvp_event(event, capacity=5, batch_size=1)
         _fill_with_yes_rsvps(event, revel_user_factory, n=4)
         holder = revel_user_factory()
@@ -198,9 +196,7 @@ class TestLeaveWaitlistExpiresOffer:
         client = Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
         url = reverse("api:leave_waitlist", kwargs={"event_id": event.pk})
 
-        with mock.patch(
-            "events.controllers.event_public.attendance.enqueue_waitlist_processing"
-        ) as enqueue_mock:
+        with mock.patch("events.controllers.event_public.attendance.enqueue_waitlist_processing") as enqueue_mock:
             response = client.delete(url)
 
         assert response.status_code == 200

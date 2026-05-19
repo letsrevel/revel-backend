@@ -7,7 +7,7 @@ from decimal import Decimal
 import pytest
 from django.utils import timezone
 
-from conftest import RevelUserFactory  # type: ignore[import-not-found]
+from conftest import RevelUserFactory
 from events.models import Event, EventRSVP, EventWaitList, TicketTier, WaitlistOffer
 from events.schema import TicketPurchaseItem
 from events.service.batch_ticket_service import BatchTicketService

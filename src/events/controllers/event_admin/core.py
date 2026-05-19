@@ -177,7 +177,7 @@ class EventAdminCoreController(EventAdminBaseController):
         if status == models.Event.EventStatus.CANCELLED:
             # The event is cancelled; outstanding offers are meaningless.
             revoke_all_pending_offers(event.id)
-        elif old_status == models.Event.EventStatus.CANCELLED and status != models.Event.EventStatus.CANCELLED:
+        elif old_status == models.Event.EventStatus.CANCELLED:
             # Un-cancelling re-creates real seats; let the waitlist take them.
             enqueue_waitlist_processing(event.id)
 
