@@ -4,7 +4,8 @@ import functools
 import uuid
 from collections import defaultdict
 
-from django.db.models import Exists, OuterRef, Prefetch, Q
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events import models
@@ -95,7 +96,27 @@ class EligibilityService:
                 "ticket_tiers",  # Prefetch ticket tiers for sales window checking
             )
             .annotate(user_is_waitlisted=Exists(models.EventWaitList.objects.filter(event=OuterRef("pk"), user=user)))
+            .annotate(
+                pending_waitlist_offer_count=Count(
+                    "waitlist_offers",
+                    filter=Q(
+                        waitlist_offers__status=models.WaitlistOffer.Status.PENDING,
+                        waitlist_offers__expires_at__gt=timezone.now(),
+                    ),
+                    distinct=True,
+                )
+            )
             .get(pk=event.pk)
+        )
+
+        self.active_waitlist_offer = (
+            user.waitlist_offers.filter(
+                event=event,
+                status=models.WaitlistOffer.Status.PENDING,
+                expires_at__gt=timezone.now(),
+            )
+            .order_by("-created_at")
+            .first()
         )
 
         # Create sets of IDs from the prefetched lightweight model instances.
