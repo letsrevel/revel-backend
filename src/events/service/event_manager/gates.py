@@ -7,6 +7,7 @@ by the EligibilityService to determine if a user can participate in an event.
 from __future__ import annotations
 
 import abc
+import datetime
 import typing as t
 import uuid
 
@@ -570,19 +571,51 @@ class AvailabilityGate(BaseEligibilityGate):
     """
 
     def check(self) -> EventUserEligibility | None:
-        """Check if the event has space available for another attendee."""
+        """Check if the event has space available, accounting for pending waitlist offers.
+
+        Pending unexpired offers reserve seats. Non-offer-holders see "spots reserved
+        for waitlist"; users already on the waitlist see "waiting for your turn".
+        When the event is full on attendees alone, the legacy EVENT_IS_FULL reason applies.
+
+        The current user's own active offer is NOT counted toward the held pool — that
+        seat is reserved FOR them, not held FROM them — so they pass capacity.
+        """
         effective_cap = self.event.effective_capacity
         if effective_cap == 0 or self.handler.overrides_max_attendees():
             return None
 
-        if self._get_attendee_count() >= effective_cap:
-            return EventUserEligibility(
-                allowed=False,
-                event_id=self.event.id,
-                reason=_(Reasons.EVENT_IS_FULL),
-                next_step=self._get_next_step(),
-            )
-        return None
+        attendees = self._get_attendee_count()
+        pending = self._pending_offer_count_for_check()
+
+        if attendees + pending < effective_cap:
+            return None
+
+        # Pick reason based on cause of fullness.
+        reason: Reasons
+        if pending > 0 and attendees < effective_cap:
+            if self.event.user_is_waitlisted:  # type: ignore[attr-defined]
+                reason = Reasons.ON_WAITLIST_WAITING_FOR_BATCH
+            else:
+                reason = Reasons.SPOTS_RESERVED_FOR_WAITLIST
+        else:
+            reason = Reasons.EVENT_IS_FULL
+
+        next_batch_at = self._earliest_pending_expiry() if pending > 0 else None
+        waitlist_position = (
+            self._get_waitlist_position()
+            if self.event.user_is_waitlisted  # type: ignore[attr-defined]
+            else None
+        )
+
+        return EventUserEligibility(
+            allowed=False,
+            event_id=self.event.id,
+            reason=_(reason),
+            next_step=self._get_next_step(),
+            pending_offers_count=pending,
+            next_batch_at=next_batch_at,
+            waitlist_position=waitlist_position,
+        )
 
     def _get_next_step(self) -> NextStep | None:
         if not self.event.waitlist_open:
@@ -606,6 +639,44 @@ class AvailabilityGate(BaseEligibilityGate):
                 [ticket for ticket in self.event.tickets.all() if ticket.status != Ticket.TicketStatus.CANCELLED]
             )
         return len([rsvp for rsvp in self.event.rsvps.all() if rsvp.status == EventRSVP.RsvpStatus.YES])
+
+    def _pending_offer_count_for_check(self) -> int:
+        """Pending unexpired offers, excluding the current user's own active offer.
+
+        The user's own seat is reserved FOR them so it must not block their access.
+        """
+        pending = getattr(self.event, "pending_waitlist_offer_count", 0) or 0
+        if self.handler.active_waitlist_offer is not None:
+            pending = max(0, pending - 1)
+        return pending
+
+    def _earliest_pending_expiry(self) -> datetime.datetime | None:
+        """Earliest expiry across PENDING, unexpired offers for this event."""
+        return (
+            models.WaitlistOffer.objects.filter(
+                event=self.event,
+                status=models.WaitlistOffer.Status.PENDING,
+                expires_at__gt=timezone.now(),
+            )
+            .order_by("expires_at")
+            .values_list("expires_at", flat=True)
+            .first()
+        )
+
+    def _get_waitlist_position(self) -> int | None:
+        """Return the 1-based position of the current user in the FIFO waitlist."""
+        from events.models import EventWaitList
+
+        user_id = self.handler.user.id
+        entries = (
+            EventWaitList.objects.filter(event=self.event)
+            .order_by("created_at")
+            .values_list("user_id", flat=True)
+        )
+        for idx, uid in enumerate(entries, start=1):
+            if uid == user_id:
+                return idx
+        return None
 
 
 class TicketSalesGate(BaseEligibilityGate):

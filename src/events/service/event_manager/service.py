@@ -154,7 +154,10 @@ class EligibilityService:
             if result := gate.check():
                 return result
 
-        return EventUserEligibility(allowed=True, event_id=self.event.id)
+        result = EventUserEligibility(allowed=True, event_id=self.event.id)
+        if self.active_waitlist_offer is not None:
+            result.active_offer_expires_at = self.active_waitlist_offer.expires_at
+        return result
 
     @functools.cached_property
     def event_submission_map(self) -> dict[uuid.UUID, list[QuestionnaireSubmission]]:
