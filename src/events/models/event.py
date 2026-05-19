@@ -273,10 +273,7 @@ class Event(
     waitlist_cutoff_window = models.DurationField(
         null=True,
         blank=True,
-        help_text=(
-            "Time window for the cutoff all-hands batch. Falls back to "
-            "waitlist_time_window when null."
-        ),
+        help_text=("Time window for the cutoff all-hands batch. Falls back to waitlist_time_window when null."),
     )
     waitlist_lottery_mode = models.BooleanField(
         default=False,
@@ -606,6 +603,47 @@ class EventWaitList(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.user_id} on waitlist for {self.event_id}"
+
+
+class WaitlistOffer(TimeStampedModel):
+    """Temporary offer granting a user the right to claim a reserved spot.
+
+    Pending unexpired offers count toward the event's capacity in both the
+    AvailabilityGate (prefetched) and EventManager._assert_capacity (row-locked).
+    See docs/superpowers/specs/2026-05-19-advanced-waitlist-design.md.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        CLAIMED = "claimed", "Claimed"
+        EXPIRED = "expired", "Expired"
+        REVOKED = "revoked", "Revoked"
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="waitlist_offers")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="waitlist_offers")
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+    batch_id = models.UUIDField(db_index=True)
+    notified_at = models.DateTimeField(null=True, blank=True)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    is_cutoff_batch = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["event", "user"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_waitlist_offer",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["event", "status", "expires_at"]),
+            models.Index(fields=["batch_id"]),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"WaitlistOffer({self.user_id}, {self.event_id}, {self.status})"
 
 
 class AttendeeVisibilityFlag(TimeStampedModel):
