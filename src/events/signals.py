@@ -543,6 +543,17 @@ def _invalidate_reserved_slug_token_cache_on_delete(
 def handle_waitlist_entry_deleted(sender: type[EventWaitList], instance: EventWaitList, **kwargs: t.Any) -> None:
     """Revoke any PENDING WaitlistOffer for (event, user) when the entry is removed.
 
+    Policy note: the rest of the advanced-waitlist feature uses **explicit**
+    ``enqueue_waitlist_processing(event_id)`` calls at every capacity-freeing
+    site rather than signals (see docs/superpowers/specs/2026-05-19-advanced-waitlist-design.md
+    decisions log). This handler is the deliberate exception: ``EventWaitList``
+    rows are deleted from many paths — admin ``delete_waitlist_entry``,
+    user-side ``leave_waitlist``, ``EventManager._claim_active_offer``,
+    ``BatchTicketService._claim_waitlist_offer_if_any``, ad-hoc ORM
+    ``.filter().delete()`` calls — and wiring each one inline is repetitive
+    and easy to miss. Callers should still document inline that the offer
+    revoke is handled here so future readers don't have to chase it down.
+
     Idempotent: only PENDING offers are affected. CLAIMED offers (deletion happens
     AFTER claim flips status) and EXPIRED offers (leave_waitlist flips status BEFORE
     delete) are not touched.

@@ -56,6 +56,12 @@ class EventAdminWaitlistController(EventAdminBaseController):
 
         Use this to manually remove someone from the waitlist (e.g., if they requested removal
         or if you want to manage the list manually).
+
+        Note: A ``post_delete`` signal on ``EventWaitList`` (events/signals.py)
+        automatically revokes any pending waitlist offer for the same (event, user)
+        and re-enqueues processing. The signal is centralized because rows can be
+        deleted from many paths (admin, ``leave_waitlist``, claim hook, manual ORM
+        deletes); wiring it inline at every site would be repetitive.
         """
         event = self.get_one(event_id)
         waitlist_entry = get_object_or_404(models.EventWaitList, pk=waitlist_id, event=event)
