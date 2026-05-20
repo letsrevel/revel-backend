@@ -549,6 +549,10 @@ class Event(
                 raise DjangoValidationError({"waitlist_time_window": "Time window cannot exceed 7 days."})
 
         if self.waitlist_cutoff_date is None:
+            if self.waitlist_cutoff_window is not None:
+                raise DjangoValidationError(
+                    {"waitlist_cutoff_window": "Cutoff window requires waitlist_cutoff_date to be set."}
+                )
             return
         if self.waitlist_time_window is None:
             raise DjangoValidationError(
