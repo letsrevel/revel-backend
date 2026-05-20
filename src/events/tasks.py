@@ -913,7 +913,7 @@ def expire_waitlist_offers_task() -> dict[str, t.Any]:
     now = timezone.now()
     with transaction.atomic():
         expiring = WaitlistOffer.objects.select_for_update().filter(
-            status=WaitlistOffer.Status.PENDING, expires_at__lt=now
+            status=WaitlistOffer.Status.PENDING, expires_at__lte=now
         )
         # PostgreSQL rejects `FOR UPDATE` with `DISTINCT`, so we materialize the
         # locked rows' event_ids and de-duplicate in Python.
@@ -960,6 +960,12 @@ def send_waitlist_offer_notification_task(offer_id: str) -> dict[str, t.Any]:
 
     if offer.status != WaitlistOffer.Status.PENDING:
         logger.info("send_waitlist_offer_notification_non_pending", offer_id=offer_id, status=offer.status)
+        return {"status": "skipped", "offer_id": offer_id}
+
+    if offer.expires_at <= timezone.now():
+        # Race: the sweeper hasn't transitioned this PENDING row to EXPIRED
+        # yet, but the user could never act on the offer. Don't pester them.
+        logger.info("send_waitlist_offer_notification_expired", offer_id=offer_id)
         return {"status": "skipped", "offer_id": offer_id}
 
     site_settings = SiteSettings.get_solo()

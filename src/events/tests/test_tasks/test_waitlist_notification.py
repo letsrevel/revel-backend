@@ -97,6 +97,24 @@ def test_skips_non_pending_offer(event: Event, revel_user_factory: RevelUserFact
     mocked.assert_not_called()
 
 
+def test_skips_already_expired_pending_offer(event: Event, revel_user_factory: RevelUserFactory) -> None:
+    """PENDING offers past their ``expires_at`` (zombie rows) are not notified."""
+    u = revel_user_factory()
+    offer = WaitlistOffer.objects.create(
+        event=event,
+        user=u,
+        expires_at=timezone.now() - dt.timedelta(minutes=1),
+        batch_id=uuid.uuid4(),
+    )
+    assert offer.status == WaitlistOffer.Status.PENDING  # past expiry, not yet swept
+
+    with mock.patch(_NOTIFICATION_REQUESTED_PATH) as mocked:
+        result = send_waitlist_offer_notification_task(str(offer.id))
+
+    assert result == {"status": "skipped", "offer_id": str(offer.id)}
+    mocked.assert_not_called()
+
+
 def test_skips_missing_offer(event: Event, revel_user_factory: RevelUserFactory) -> None:
     """Unknown offer id is a no-op (returns skipped)."""
     bogus = str(uuid.uuid4())

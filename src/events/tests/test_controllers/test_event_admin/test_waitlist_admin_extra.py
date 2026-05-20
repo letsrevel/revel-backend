@@ -427,3 +427,34 @@ def test_list_waitlist_includes_current_offer(
     # Find the entry without an offer
     other = [item for item in items if item["id"] != str(entry_with_offer.id)][0]
     assert other["current_offer"] is None
+
+
+def test_list_waitlist_hides_time_expired_pending_offer(
+    organization_owner_client: Client,
+    event: Event,
+    revel_user_factory: RevelUserFactory,
+) -> None:
+    """A PENDING offer whose ``expires_at`` has passed is not exposed to admins.
+
+    The hourly sweeper would normally transition it to EXPIRED, but the
+    resolver filters on ``expires_at > now`` so a zombie row doesn't
+    mislead admins into thinking the user can still claim.
+    """
+    _set_window(event)
+    user_with_zombie = revel_user_factory()
+    entry = EventWaitList.objects.create(event=event, user=user_with_zombie)
+    WaitlistOffer.objects.create(
+        event=event,
+        user=user_with_zombie,
+        expires_at=timezone.now() - dt.timedelta(minutes=5),
+        batch_id=uuid.uuid4(),
+        status=WaitlistOffer.Status.PENDING,
+    )
+
+    url = reverse("api:list_waitlist", kwargs={"event_id": event.pk})
+    response = organization_owner_client.get(url)
+    assert response.status_code == 200, response.content
+    body = response.json()
+    items = body.get("items") or body.get("results") or []
+    by_id = {item["id"]: item for item in items}
+    assert by_id[str(entry.id)]["current_offer"] is None

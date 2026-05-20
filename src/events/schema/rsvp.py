@@ -81,17 +81,24 @@ class WaitlistEntrySchema(ModelSchema):
 
     @staticmethod
     def resolve_current_offer(obj: "models.EventWaitList") -> WaitlistOffer | None:
-        """Return the most recent PENDING offer for this (event, user), if any.
+        """Return the most recent live PENDING offer for this (event, user), if any.
+
+        Filters out offers whose ``expires_at`` is in the past (zombie PENDING
+        rows the hourly sweeper hasn't transitioned to EXPIRED yet) so the
+        admin UI never surfaces an offer the user can no longer claim.
 
         Performs a single DB hit per row. Acceptable for the paginated admin
         endpoint (page_size=20). Optimize via prefetch only if the cost becomes
         material.
         """
+        from django.utils import timezone
+
         return (
             WaitlistOffer.objects.filter(
                 event_id=obj.event_id,
                 user_id=obj.user_id,
                 status=WaitlistOffer.Status.PENDING,
+                expires_at__gt=timezone.now(),
             )
             .order_by("-created_at")
             .first()
