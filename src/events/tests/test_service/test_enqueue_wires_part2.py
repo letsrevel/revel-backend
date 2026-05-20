@@ -462,12 +462,20 @@ def test_leave_waitlist_without_offer_does_not_enqueue(
     assert not EventWaitList.objects.filter(event=event, user=member_user).exists()
 
 
-def test_leave_waitlist_with_expired_offer_does_not_enqueue(
+def test_leave_waitlist_with_time_expired_pending_offer_is_revoked_by_signal(
     member_jwt_client: Client,
     member_user: RevelUser,
     event: Event,
 ) -> None:
-    """An already-expired offer (past ``expires_at``) is not an active reservation."""
+    """A time-expired-but-still-PENDING offer is REVOKED via the post_delete signal.
+
+    ``leave_waitlist`` itself only flips offers that are PENDING **and** still
+    in their time window (``expires_at > now``), so it does NOT call
+    ``enqueue_waitlist_processing`` directly when the offer is past its expiry.
+    The ``EventWaitList`` row delete then fires the ``post_delete`` signal in
+    ``events/signals.py``, which finds the still-PENDING offer and marks it
+    REVOKED (cleaner than leaving a zombie row for the sweeper to find).
+    """
     _open_rsvp_event(event)
     EventWaitList.objects.create(event=event, user=member_user)
     expired = WaitlistOffer.objects.create(
@@ -479,12 +487,13 @@ def test_leave_waitlist_with_expired_offer_does_not_enqueue(
 
     url = reverse("api:leave_waitlist", kwargs={"event_id": event.pk})
 
-    with mock.patch("events.controllers.event_public.attendance.enqueue_waitlist_processing") as mocked:
+    with mock.patch("events.controllers.event_public.attendance.enqueue_waitlist_processing") as controller_mock:
         response = member_jwt_client.delete(url)
 
     assert response.status_code == 200
-    mocked.assert_not_called()
-    # The expired-but-still-PENDING row is untouched by leave_waitlist; the
-    # periodic sweeper handles its EXPIRED transition.
+    # leave_waitlist's own enqueue call is not made (its offer lookup filters
+    # on `expires_at > now`); the signal's call is made via a different import
+    # path and is not captured by this patch.
+    controller_mock.assert_not_called()
     expired.refresh_from_db()
-    assert expired.status == WaitlistOffer.Status.PENDING
+    assert expired.status == WaitlistOffer.Status.REVOKED
