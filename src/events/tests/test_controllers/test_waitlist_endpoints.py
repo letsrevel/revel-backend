@@ -1,12 +1,15 @@
 """Tests for waitlist endpoints."""
 
+import datetime as dt
+from unittest import mock
+
 import pytest
 from django.test.client import Client
 from django.urls import reverse
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
-from events.models import Event, EventWaitList
+from events.models import Blacklist, Event, EventRSVP, EventWaitList
 
 pytestmark = pytest.mark.django_db
 
@@ -17,25 +20,39 @@ pytestmark = pytest.mark.django_db
 class TestJoinWaitlist:
     """Test joining the event waitlist."""
 
+    @staticmethod
+    def _make_event_full(event: Event, other_user: RevelUser) -> None:
+        """Set the event to RSVP-mode with capacity 1 and add a YES RSVP from another user.
+
+        The eligibility service counts attendees from prefetched data (tickets or RSVPs),
+        so we need a real record — toggling ``attendee_count`` alone is not enough.
+        """
+        event.requires_ticket = False
+        event.waitlist_open = True
+        event.max_attendees = 1
+        event.save()
+        EventRSVP.objects.create(event=event, user=other_user, status=EventRSVP.RsvpStatus.YES)
+
     def test_join_waitlist_success(
         self,
         member_client: Client,
         member_user: RevelUser,
+        nonmember_user: RevelUser,
         public_event: Event,
     ) -> None:
-        """Test successfully joining an event waitlist.
+        """Test successfully joining a full event's waitlist.
 
-        When a user joins a waitlist for an event with an open waitlist,
+        When a user joins a waitlist for a full event with an open waitlist,
         they should be added to the waitlist and receive a success message.
         """
-        # Arrange
-        public_event.waitlist_open = True
-        public_event.save()
+        # Arrange — make event full so eligibility next_step == JOIN_WAITLIST
+        self._make_event_full(public_event, other_user=nonmember_user)
 
         url = reverse("api:join_waitlist", kwargs={"event_id": public_event.pk})
 
         # Act
-        response = member_client.post(url)
+        with mock.patch("events.controllers.event_public.attendance.enqueue_waitlist_processing"):
+            response = member_client.post(url)
 
         # Assert
         assert response.status_code == 200
@@ -44,6 +61,80 @@ class TestJoinWaitlist:
 
         # Verify database state
         assert EventWaitList.objects.filter(event=public_event, user=member_user).exists()
+
+    def test_join_waitlist_returns_409_when_event_has_capacity(
+        self,
+        member_client: Client,
+        public_event: Event,
+    ) -> None:
+        """If the event has free capacity, the FE should refresh and register directly."""
+        public_event.waitlist_open = True
+        public_event.requires_ticket = False  # so capacity is counted via RSVPs (none)
+        public_event.max_attendees = 10  # plenty of room
+        public_event.save()
+
+        url = reverse("api:join_waitlist", kwargs={"event_id": public_event.pk})
+        resp = member_client.post(url)
+        assert resp.status_code == 409
+
+    def test_join_waitlist_blocked_when_blacklisted(
+        self,
+        member_client: Client,
+        member_user: RevelUser,
+        nonmember_user: RevelUser,
+        public_event: Event,
+    ) -> None:
+        """Blacklisted user can't join the waitlist."""
+        self._make_event_full(public_event, other_user=nonmember_user)
+        Blacklist.objects.create(
+            organization=public_event.organization,
+            email=member_user.email,
+            created_by=nonmember_user,
+        )
+
+        url = reverse("api:join_waitlist", kwargs={"event_id": public_event.pk})
+        resp = member_client.post(url)
+        assert 400 <= resp.status_code < 500
+        assert resp.status_code != 409  # not the capacity-conflict path
+        # And the user was NOT added to the waitlist.
+        assert not EventWaitList.objects.filter(event=public_event, user=member_user).exists()
+
+    def test_join_waitlist_full_event_succeeds_and_enqueues(
+        self,
+        member_client: Client,
+        nonmember_user: RevelUser,
+        public_event: Event,
+    ) -> None:
+        """The happy path: event is full, user joins, processing is enqueued."""
+        self._make_event_full(public_event, other_user=nonmember_user)
+        public_event.waitlist_time_window = dt.timedelta(hours=24)
+        public_event.save()
+
+        url = reverse("api:join_waitlist", kwargs={"event_id": public_event.pk})
+        with mock.patch("events.controllers.event_public.attendance.enqueue_waitlist_processing") as mocked:
+            resp = member_client.post(url)
+        assert resp.status_code == 200
+        mocked.assert_called_once_with(public_event.id)
+
+    def test_join_waitlist_idempotent_when_already_joined_full_event(
+        self,
+        member_client: Client,
+        member_user: RevelUser,
+        nonmember_user: RevelUser,
+        public_event: Event,
+    ) -> None:
+        """Already-joined users get the existing 200 'already on waitlist' message.
+
+        Verifies idempotency even in the full-event case (eligibility must be skipped).
+        """
+        self._make_event_full(public_event, other_user=nonmember_user)
+        EventWaitList.objects.create(event=public_event, user=member_user)
+
+        url = reverse("api:join_waitlist", kwargs={"event_id": public_event.pk})
+        resp = member_client.post(url)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "already" in body.get("message", "").lower()
 
     def test_join_waitlist_already_on_waitlist(
         self,
