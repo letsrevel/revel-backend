@@ -187,20 +187,24 @@ def create_admin_offer(
 
 @transaction.atomic
 def reactivate_admin_offer(
+    event_id: uuid.UUID,
     offer_id: uuid.UUID,
     expires_at: datetime.datetime,
 ) -> WaitlistOffer:
     """Reactivate an EXPIRED/REVOKED offer back to PENDING.
 
-    Locks the Event row, enforces capacity, then flips the offer back to
-    PENDING with a fresh ``expires_at``. The caller is expected to validate
-    that the offer's current status is EXPIRED or REVOKED before invoking
-    this function. Raises ``ValueError("capacity")`` when the event has no
-    room, or ``IntegrityError`` if another PENDING offer for the same
-    (event, user) lands between the check and save.
+    Locks the Event row, then the offer row (lock-order matches every other
+    writer in this module — process_waitlist_for_event, _assert_capacity,
+    create_admin_offer — to avoid deadlock against concurrent claims).
+    Enforces capacity, then flips the offer back to PENDING with a fresh
+    ``expires_at``. The caller is expected to validate that the offer's
+    current status is EXPIRED or REVOKED before invoking this function.
+    Raises ``ValueError("capacity")`` when the event has no room, or
+    ``IntegrityError`` if another PENDING offer for the same (event, user)
+    lands between the check and save.
     """
-    offer = WaitlistOffer.objects.select_for_update().get(pk=offer_id)
-    event = Event.objects.select_for_update().get(pk=offer.event_id)
+    event = Event.objects.select_for_update().get(pk=event_id)
+    offer = WaitlistOffer.objects.select_for_update().get(pk=offer_id, event_id=event_id)
 
     if event.effective_capacity > 0:
         attendee_count, pending = _count_attendees_and_pending(event)

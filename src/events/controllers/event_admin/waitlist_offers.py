@@ -152,7 +152,7 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
             payload.expires_at if payload and payload.expires_at else (timezone.now() + event.waitlist_time_window)
         )
         try:
-            offer = reactivate_admin_offer(offer_id=offer.pk, expires_at=expires_at)
+            offer = reactivate_admin_offer(event_id=event.id, offer_id=offer.pk, expires_at=expires_at)
         except ValueError as exc:
             if str(exc) == "capacity":
                 raise HttpError(
