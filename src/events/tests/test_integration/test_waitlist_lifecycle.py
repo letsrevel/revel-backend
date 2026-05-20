@@ -124,6 +124,8 @@ class TestNonOfferHolderBlocked:
     """A non-offer-holder trying to RSVP YES while seats are reserved must be blocked."""
 
     def test_intruder_gets_reserved_reason(self, event: Event, revel_user_factory: RevelUserFactory) -> None:
+        from events.service.event_manager.enums import NextStep
+
         _configure_rsvp_event(event, capacity=5, batch_size=1)
         _fill_with_yes_rsvps(event, revel_user_factory, n=4)
         holder = revel_user_factory()
@@ -140,6 +142,9 @@ class TestNonOfferHolderBlocked:
 
         eligibility = exc.value.eligibility
         assert eligibility.allowed is False
+        assert eligibility.next_step in {NextStep.JOIN_WAITLIST, NextStep.WAIT_FOR_OPEN_SPOT}
+        assert eligibility.reason is not None
+        assert "reserved" in eligibility.reason.lower() or "full" in eligibility.reason.lower()
 
 
 class TestOfferExpiryTriggersNextBatch:

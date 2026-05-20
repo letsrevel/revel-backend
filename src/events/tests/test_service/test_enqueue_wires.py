@@ -118,7 +118,7 @@ def test_stripe_refund_webhook_enqueues_waitlist(
     with mock.patch("events.service.stripe_webhooks.enqueue_waitlist_processing") as mocked:
         handler.handle_charge_refunded(mock_event)
 
-    mocked.assert_called_with(ticket.event_id)
+    mocked.assert_called_once_with(ticket.event_id)
 
 
 def test_stripe_payment_intent_canceled_enqueues_waitlist(
@@ -172,7 +172,7 @@ def test_stripe_payment_intent_canceled_enqueues_waitlist(
     with mock.patch("events.service.stripe_webhooks.enqueue_waitlist_processing") as mocked:
         handler.handle_payment_intent_canceled(mock_event)
 
-    mocked.assert_called_with(ticket.event_id)
+    mocked.assert_called_once_with(ticket.event_id)
 
 
 def test_stripe_payment_intent_canceled_enqueues_once_per_event(
