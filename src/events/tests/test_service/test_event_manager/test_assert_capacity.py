@@ -57,6 +57,52 @@ def test_offer_holder_passes_capacity(event: Event, revel_user_factory: RevelUse
     EventManager(holder, event)._assert_capacity(use_tickets=False, tier=None)
 
 
+def test_cutoff_offer_does_not_block_non_holder(event: Event, revel_user_factory: RevelUserFactory) -> None:
+    """Cutoff-batch offers race FCFS against real seats and must NOT reserve
+    capacity. A non-offer-holder should still be able to grab a seat even if
+    there are cutoff offers outstanding for the remaining spots."""
+    _set_rsvp_event(event, capacity=5)
+    for _ in range(4):
+        EventRSVP.objects.create(event=event, user=revel_user_factory(), status=EventRSVP.RsvpStatus.YES)
+    # 1 spot left, but many cutoff offers issued - they shouldn't count as reserving.
+    for _ in range(5):
+        WaitlistOffer.objects.create(
+            event=event,
+            user=revel_user_factory(),
+            expires_at=timezone.now() + dt.timedelta(hours=1),
+            batch_id=uuid.uuid4(),
+            is_cutoff_batch=True,
+        )
+
+    intruder = revel_user_factory()
+    # Must not raise - the intruder competes for the 1 real seat against cutoff holders.
+    EventManager(intruder, event)._assert_capacity(use_tickets=False, tier=None)
+
+
+def test_cutoff_offer_holders_not_blocked_by_each_other(
+    event: Event, revel_user_factory: RevelUserFactory
+) -> None:
+    """Multiple cutoff offer holders must all be able to attempt claim
+    (they race FCFS for remaining capacity)."""
+    _set_rsvp_event(event, capacity=5)
+    for _ in range(3):
+        EventRSVP.objects.create(event=event, user=revel_user_factory(), status=EventRSVP.RsvpStatus.YES)
+    # 2 spots left, 5 cutoff offer holders. Each one's _assert_capacity should
+    # pass (cutoff offers don't reserve, so count(3) + pending(0) < cap(5)).
+    holders = [revel_user_factory() for _ in range(5)]
+    for h in holders:
+        WaitlistOffer.objects.create(
+            event=event,
+            user=h,
+            expires_at=timezone.now() + dt.timedelta(hours=1),
+            batch_id=uuid.uuid4(),
+            is_cutoff_batch=True,
+        )
+
+    for h in holders:
+        EventManager(h, event)._assert_capacity(use_tickets=False, tier=None)
+
+
 def test_expired_offer_does_not_block(event: Event, revel_user_factory: RevelUserFactory) -> None:
     _set_rsvp_event(event, capacity=5)
     for _ in range(4):

@@ -172,9 +172,16 @@ class EventManager:
             )
 
         now = timezone.now()
+        # Cutoff-batch offers don't reserve capacity (they race FCFS against real seats),
+        # so they are excluded from both pending counts here.
         pending_offers = (
             WaitlistOffer.objects.select_for_update()
-            .filter(event=self.event, status=WaitlistOffer.Status.PENDING, expires_at__gt=now)
+            .filter(
+                event=self.event,
+                status=WaitlistOffer.Status.PENDING,
+                expires_at__gt=now,
+                is_cutoff_batch=False,
+            )
             .count()
         )
         has_own_offer = WaitlistOffer.objects.filter(
@@ -182,6 +189,7 @@ class EventManager:
             user=self.user,
             status=WaitlistOffer.Status.PENDING,
             expires_at__gt=now,
+            is_cutoff_batch=False,
         ).exists()
         if has_own_offer:
             pending_offers = max(0, pending_offers - 1)

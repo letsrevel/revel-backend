@@ -170,6 +170,55 @@ class TestCutoff:
         assert result.status == "cutoff_already_processed"
 
 
+class TestCutoffOffersDoNotReserveCapacity:
+    """Cutoff-batch offers compete FCFS against any remaining seats.
+
+    They must NOT count toward capacity-reserving pending offer counts in
+    `process_waitlist_for_event`, EventManager._assert_capacity, or the
+    EligibilityService annotation. Otherwise, with N cutoff offers > S available
+    seats, every offer holder is blocked from claiming.
+    """
+
+    def test_cutoff_offers_not_counted_in_no_spots_check(
+        self,
+        event: Event,
+        revel_user_factory: RevelUserFactory,
+    ) -> None:
+        """After a cutoff batch has been issued, a re-process should not see
+        the cutoff offers as 'reserving' seats. The early-return guard
+        `cutoff_already_processed` kicks in first, but the underlying
+        `pending_count` calculation must also exclude cutoff offers."""
+        past = timezone.now() - dt.timedelta(minutes=5)
+        _enable_waitlist(
+            event,
+            batch_size=2,
+            cutoff_date=past,
+            cutoff_window=dt.timedelta(hours=2),
+            max_attendees=2,
+        )
+        Event.objects.filter(pk=event.pk).update(attendee_count=0)
+        users = [revel_user_factory() for _ in range(5)]
+        _put_on_waitlist(event, users)
+
+        # Sanity: pending_count (cutoff-batch=False filter) is 0 BEFORE the run.
+        result = waitlist_service.process_waitlist_for_event(event.id)
+        assert result.status == "ok"
+        assert result.is_cutoff_batch is True
+        assert result.offers_created == 5
+
+        # All 5 are cutoff offers - they must not block the underlying
+        # pending_count from being 0 (it just falls into "no_spots" or the
+        # cutoff_already_processed branch on a re-process — neither triggers
+        # the 'reserved' branch).
+        pending_non_cutoff = WaitlistOffer.objects.filter(
+            event=event,
+            status=WaitlistOffer.Status.PENDING,
+            expires_at__gt=timezone.now(),
+            is_cutoff_batch=False,
+        ).count()
+        assert pending_non_cutoff == 0
+
+
 class TestExcludesUsersWithPendingOffers:
     def test_user_with_pending_offer_not_re_offered(
         self,

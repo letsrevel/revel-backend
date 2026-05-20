@@ -651,12 +651,13 @@ class AvailabilityGate(BaseEligibilityGate):
         return pending
 
     def _earliest_pending_expiry(self) -> datetime.datetime | None:
-        """Earliest expiry across PENDING, unexpired offers for this event."""
+        """Earliest expiry across non-cutoff PENDING, unexpired offers for this event."""
         return (
             models.WaitlistOffer.objects.filter(
                 event=self.event,
                 status=models.WaitlistOffer.Status.PENDING,
                 expires_at__gt=timezone.now(),
+                is_cutoff_batch=False,
             )
             .order_by("expires_at")
             .values_list("expires_at", flat=True)

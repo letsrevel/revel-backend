@@ -62,8 +62,13 @@ def process_waitlist_for_event(event_id: uuid.UUID) -> ProcessResult:
     now = timezone.now()
     # The Event row lock above serializes concurrent processing; we don't need
     # to additionally lock the offer rows here for the count.
+    # Cutoff-batch offers do NOT reserve capacity — they compete first-come-first-served
+    # against any remaining real seats, so they must be excluded from this count.
     pending_count = WaitlistOffer.objects.filter(
-        event=event, status=WaitlistOffer.Status.PENDING, expires_at__gt=now
+        event=event,
+        status=WaitlistOffer.Status.PENDING,
+        expires_at__gt=now,
+        is_cutoff_batch=False,
     ).count()
     available = event.effective_capacity - event.attendee_count - pending_count
     if available <= 0:

@@ -102,6 +102,7 @@ class EligibilityService:
                     filter=Q(
                         waitlist_offers__status=models.WaitlistOffer.Status.PENDING,
                         waitlist_offers__expires_at__gt=timezone.now(),
+                        waitlist_offers__is_cutoff_batch=False,
                     ),
                     distinct=True,
                 )
