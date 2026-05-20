@@ -559,15 +559,22 @@ class QuestionnaireGate(BaseEligibilityGate):
 class AvailabilityGate(BaseEligibilityGate):
     """Gate #10: Checks if the event has space available for another attendee.
 
-    This is a preliminary capacity check using prefetched data (zero additional DB queries).
-    It must use the same counting logic as EventManager._assert_capacity() to avoid
-    inconsistencies, but operates on in-memory data for performance.
+    Uses effective_capacity (min of max_attendees and venue.capacity) as the soft
+    limit. Pending unexpired non-cutoff WaitlistOffers also count toward capacity
+    (they reserve seats for waitlist batches); the current user's own offer is
+    not double-counted.
 
-    Uses effective_capacity (min of max_attendees and venue.capacity) as the soft limit.
-    This can be overridden by invitations with overrides_max_attendees=True.
+    The capacity check itself runs on prefetched data from EligibilityService
+    (the ``pending_waitlist_offer_count`` annotation), so the common "allowed"
+    fast path issues zero additional queries. When the gate is the blocking
+    reason, two small helper queries fire to populate the waitlist context
+    (``next_batch_at`` and ``waitlist_position``) — see ``_earliest_pending_expiry``
+    and ``_get_waitlist_position``.
 
-    The final authoritative capacity check happens in _assert_capacity() within a transaction
-    with row-level locking to prevent race conditions.
+    Must use the same counting logic as EventManager._assert_capacity() to avoid
+    inconsistencies. The final authoritative capacity check happens in
+    ``_assert_capacity()`` within a transaction with row-level locking to
+    prevent race conditions.
     """
 
     def check(self) -> EventUserEligibility | None:
@@ -665,17 +672,22 @@ class AvailabilityGate(BaseEligibilityGate):
         )
 
     def _get_waitlist_position(self) -> int | None:
-        """Return the 1-based position of the current user in the FIFO waitlist."""
+        """Return the 1-based FIFO position of the current user in the waitlist.
+
+        Computed via two indexed queries (own entry's created_at, then count of
+        earlier entries) instead of materializing all entries in Python.
+        """
         from events.models import EventWaitList
 
-        user_id = self.handler.user.id
-        entries = (
-            EventWaitList.objects.filter(event=self.event).order_by("created_at").values_list("user_id", flat=True)
+        own_created_at = (
+            EventWaitList.objects.filter(event=self.event, user=self.handler.user)
+            .values_list("created_at", flat=True)
+            .first()
         )
-        for idx, uid in enumerate(entries, start=1):
-            if uid == user_id:
-                return idx
-        return None
+        if own_created_at is None:
+            return None
+        earlier = EventWaitList.objects.filter(event=self.event, created_at__lt=own_created_at).count()
+        return earlier + 1
 
 
 class TicketSalesGate(BaseEligibilityGate):
