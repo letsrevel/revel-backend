@@ -136,11 +136,12 @@ def process_waitlist_for_event(event_id: uuid.UUID) -> ProcessResult:
 
 @transaction.atomic
 def revoke_all_pending_offers(event_id: uuid.UUID) -> int:
-    """Mark every pending unexpired WaitlistOffer for an event as REVOKED.
+    """Mark every PENDING WaitlistOffer for an event as REVOKED.
 
-    Used when the event is cancelled or its waitlist is closed. Already-expired
-    rows in PENDING state are left untouched — the periodic sweeper transitions
-    those to EXPIRED on its own schedule. Returns the number of rows updated.
+    Used when the event is cancelled or its waitlist is closed. Any PENDING
+    offer — including those past their ``expires_at`` that the hourly sweeper
+    hasn't transitioned yet — is flipped to REVOKED, making the lifecycle
+    explicit at the moment the admin took action.
 
     Args:
         event_id: UUID of the event whose pending offers should be revoked.
