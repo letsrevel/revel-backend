@@ -167,6 +167,42 @@ def test_admin_update_rsvp_yes_to_no_enqueues(
     mocked.assert_called_once_with(event.id)
 
 
+def test_admin_delete_rsvp_yes_enqueues(
+    owner_jwt_client: Client,
+    event: Event,
+    member_user: RevelUser,
+) -> None:
+    """Deleting a YES RSVP frees a seat — must enqueue waitlist processing."""
+    _open_rsvp_event(event)
+    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.YES)
+
+    url = reverse("api:delete_rsvp", kwargs={"event_id": event.pk, "rsvp_id": rsvp.pk})
+
+    with mock.patch("events.controllers.event_admin.rsvps.enqueue_waitlist_processing") as mocked:
+        response = owner_jwt_client.delete(url)
+
+    assert response.status_code == 204
+    mocked.assert_called_once_with(event.id)
+
+
+def test_admin_delete_rsvp_no_does_not_enqueue(
+    owner_jwt_client: Client,
+    event: Event,
+    member_user: RevelUser,
+) -> None:
+    """Deleting a NO RSVP releases no seat — no enqueue."""
+    _open_rsvp_event(event)
+    rsvp = EventRSVP.objects.create(event=event, user=member_user, status=EventRSVP.RsvpStatus.NO)
+
+    url = reverse("api:delete_rsvp", kwargs={"event_id": event.pk, "rsvp_id": rsvp.pk})
+
+    with mock.patch("events.controllers.event_admin.rsvps.enqueue_waitlist_processing") as mocked:
+        response = owner_jwt_client.delete(url)
+
+    assert response.status_code == 204
+    mocked.assert_not_called()
+
+
 def test_admin_update_rsvp_no_to_yes_does_not_enqueue(
     owner_jwt_client: Client,
     event: Event,

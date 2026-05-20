@@ -133,5 +133,10 @@ class EventAdminRSVPsController(EventAdminBaseController):
         """
         event = self.get_one(event_id)
         rsvp = get_object_or_404(models.EventRSVP, pk=rsvp_id, event=event)
+        # Capture status before delete: deleting a YES RSVP frees a seat and
+        # must wake the waitlist (consistent with create_rsvp / update_rsvp).
+        was_yes = rsvp.status == models.EventRSVP.RsvpStatus.YES
         rsvp.delete()
+        if was_yes:
+            enqueue_waitlist_processing(event.id)
         return 204, None

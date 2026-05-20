@@ -561,13 +561,13 @@ def handle_waitlist_entry_deleted(sender: type[EventWaitList], instance: EventWa
     from events.models import WaitlistOffer
     from events.service.waitlist_service import enqueue_waitlist_processing
 
-    pending = WaitlistOffer.objects.filter(
+    # Use a conditional UPDATE so a concurrent claim/expire flip cannot be
+    # silently clobbered: we only enqueue if THIS query actually transitioned
+    # a row, and the database — not Python — decides which writer wins.
+    affected = WaitlistOffer.objects.filter(
         event_id=instance.event_id,
         user_id=instance.user_id,
         status=WaitlistOffer.Status.PENDING,
-    ).first()
-    if pending is None:
-        return
-    pending.status = WaitlistOffer.Status.REVOKED
-    pending.save(update_fields=["status"])
-    enqueue_waitlist_processing(instance.event_id)
+    ).update(status=WaitlistOffer.Status.REVOKED)
+    if affected:
+        enqueue_waitlist_processing(instance.event_id)
