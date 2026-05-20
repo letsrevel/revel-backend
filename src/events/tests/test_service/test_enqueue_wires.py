@@ -175,6 +175,124 @@ def test_stripe_payment_intent_canceled_enqueues_waitlist(
     mocked.assert_called_with(ticket.event_id)
 
 
+def test_stripe_payment_intent_canceled_enqueues_once_per_event(
+    event: Event,
+    organization_owner_user: RevelUser,
+) -> None:
+    """A batch cancellation (N pending payments, same event) enqueues exactly once."""
+    from unittest.mock import MagicMock
+
+    import stripe
+
+    from events.service.stripe_webhooks import StripeEventHandler
+
+    tier = event.ticket_tiers.first()
+    assert tier is not None
+    tier.price = Decimal("25.00")
+    tier.quantity_sold = 5
+    tier.save()
+
+    for n in range(3):
+        ticket = Ticket.objects.create(
+            guest_name=f"Pending Guest {n}",
+            event=event,
+            tier=tier,
+            user=organization_owner_user,
+            status=Ticket.TicketStatus.PENDING,
+        )
+        Payment.objects.create(
+            ticket=ticket,
+            user=organization_owner_user,
+            stripe_session_id=f"cs_batch_pi_cancel_{n}",
+            stripe_payment_intent_id="pi_cancel_batch",
+            amount=Decimal("25.00"),
+            platform_fee=Decimal("1.25"),
+            currency="EUR",
+            status=Payment.PaymentStatus.PENDING,
+            raw_response={},
+        )
+
+    event_dict_data: dict[str, t.Any] = {
+        "type": "payment_intent.canceled",
+        "data": {"object": {"id": "pi_cancel_batch", "status": "canceled"}},
+    }
+    mock_event = MagicMock(spec=stripe.Event)
+    mock_event.__iter__.return_value = iter(event_dict_data.items())
+    mock_event.type = event_dict_data["type"]
+    mock_event.data = MagicMock()
+    mock_event.data.object = event_dict_data["data"]["object"]
+
+    handler = StripeEventHandler(mock_event)
+
+    with mock.patch("events.service.stripe_webhooks.enqueue_waitlist_processing") as mocked:
+        handler.handle_payment_intent_canceled(mock_event)
+
+    mocked.assert_called_once_with(event.id)
+
+
+def test_stripe_refund_webhook_enqueues_once_per_event(
+    event: Event,
+    organization_owner_user: RevelUser,
+) -> None:
+    """A full-batch refund spanning N payments for one event enqueues exactly once."""
+    from unittest.mock import MagicMock
+
+    import stripe
+
+    from events.service.stripe_webhooks import StripeEventHandler
+
+    tier = event.ticket_tiers.first()
+    assert tier is not None
+    tier.price = Decimal("25.00")
+    tier.quantity_sold = 5
+    tier.save()
+
+    for n in range(3):
+        ticket = Ticket.objects.create(
+            guest_name=f"Batch Guest {n}",
+            event=event,
+            tier=tier,
+            user=organization_owner_user,
+            status=Ticket.TicketStatus.ACTIVE,
+        )
+        Payment.objects.create(
+            ticket=ticket,
+            user=organization_owner_user,
+            stripe_session_id=f"cs_batch_refund_{n}",
+            stripe_payment_intent_id="pi_batch_refund",
+            amount=Decimal("25.00"),
+            platform_fee=Decimal("1.25"),
+            currency="EUR",
+            status=Payment.PaymentStatus.SUCCEEDED,
+            raw_response={},
+        )
+
+    # Full-batch refund: amount equals sum of payment amounts.
+    refund_amount_cents = int(Decimal("75.00") * 100)
+    event_dict_data: dict[str, t.Any] = {
+        "type": "charge.refunded",
+        "data": {
+            "object": {
+                "id": "ch_batch_enq",
+                "payment_intent": "pi_batch_refund",
+                "refunds": {"data": [{"id": "re_batch_enq", "amount": refund_amount_cents, "metadata": {}}]},
+            }
+        },
+    }
+    mock_event = MagicMock(spec=stripe.Event)
+    mock_event.__iter__.return_value = iter(event_dict_data.items())
+    mock_event.type = event_dict_data["type"]
+    mock_event.data = MagicMock()
+    mock_event.data.object = event_dict_data["data"]["object"]
+
+    handler = StripeEventHandler(mock_event)
+
+    with mock.patch("events.service.stripe_webhooks.enqueue_waitlist_processing") as mocked:
+        handler.handle_charge_refunded(mock_event)
+
+    mocked.assert_called_once_with(event.id)
+
+
 # ---------------------------------------------------------------------------
 # Task 14 — Admin mark_ticket_refunded and cancel_ticket endpoints
 # ---------------------------------------------------------------------------
