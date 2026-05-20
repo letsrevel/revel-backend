@@ -112,7 +112,16 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
 
     @staticmethod
     def resolve_seats_held(obj: "Event") -> int:
-        """Count pending unexpired waitlist offers for capacity transparency."""
+        """Count pending unexpired non-cutoff waitlist offers (reserved seats).
+
+        Reads from the ``pending_waitlist_offer_count`` annotation when available
+        (set by ``EligibilityService.__init__`` and any queryset that opts into it).
+        Falls back to a direct COUNT query for callers that haven't annotated.
+        """
+        annotated = getattr(obj, "pending_waitlist_offer_count", None)
+        if annotated is not None:
+            return int(annotated)
+
         from django.utils import timezone
 
         from events.models import WaitlistOffer
@@ -121,6 +130,7 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
             event=obj,
             status=WaitlistOffer.Status.PENDING,
             expires_at__gt=timezone.now(),
+            is_cutoff_batch=False,
         ).count()
 
 
