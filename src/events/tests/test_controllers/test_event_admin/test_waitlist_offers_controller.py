@@ -136,7 +136,7 @@ def test_list_waitlist_offers_returns_nested_user(
     revel_user_factory: RevelUserFactory,
 ) -> None:
     """``user`` is exposed as a nested object so the admin UI can render name + email."""
-    user = revel_user_factory(first_name="Ada", last_name="Lovelace", email="ada@example.com")
+    user = revel_user_factory()
     WaitlistOffer.objects.create(
         event=event,
         user=user,
@@ -146,14 +146,15 @@ def test_list_waitlist_offers_returns_nested_user(
     url = reverse("api:list_waitlist_offers", kwargs={"event_id": event.pk})
     response = organization_owner_client.get(url)
     assert response.status_code == 200, response.content
-    items = response.json().get("items") or []
-    assert len(items) == 1
+    body = response.json()
+    items = body.get("items") or body.get("results") or []
+    assert len(items) == 1, body
     user_payload = items[0]["user"]
     assert isinstance(user_payload, dict)
     assert user_payload["id"] == str(user.id)
-    assert user_payload["email"] == "ada@example.com"
-    assert user_payload["first_name"] == "Ada"
-    assert user_payload["last_name"] == "Lovelace"
+    assert user_payload["email"] == user.email
+    assert user_payload["first_name"] == user.first_name
+    assert user_payload["last_name"] == user.last_name
 
 
 def test_list_waitlist_offers_filter_by_status(
