@@ -215,6 +215,31 @@ def test_reactivate_does_not_dispatch_before_commit(
     task_mock.delay.assert_not_called()
 
 
+def test_reactivate_race_loss_returns_409(
+    organization_owner_client: Client,
+    event: Event,
+    revel_user_factory: RevelUserFactory,
+) -> None:
+    """If the unique-pending constraint trips on save, the endpoint returns 409 (not 500)."""
+    from django.db import IntegrityError
+
+    _set_window(event)
+    offer = WaitlistOffer.objects.create(
+        event=event,
+        user=revel_user_factory(),
+        expires_at=timezone.now() - dt.timedelta(hours=1),
+        batch_id=uuid.uuid4(),
+        status=WaitlistOffer.Status.EXPIRED,
+    )
+    url = reverse("api:reactivate_waitlist_offer", kwargs={"event_id": event.pk, "offer_id": offer.pk})
+    with mock.patch(
+        "events.controllers.event_admin.waitlist_offers.models.WaitlistOffer.save",
+        side_effect=IntegrityError("duplicate pending"),
+    ):
+        response = organization_owner_client.post(url, data=orjson.dumps({}), content_type="application/json")
+    assert response.status_code == 409
+
+
 # ---------- Manual create offer ----------
 
 
@@ -307,6 +332,30 @@ def test_create_offer_without_window_returns_400(
         content_type="application/json",
     )
     assert response.status_code == 400
+
+
+def test_create_offer_race_loss_returns_409(
+    organization_owner_client: Client,
+    event: Event,
+    revel_user_factory: RevelUserFactory,
+) -> None:
+    """If a concurrent create wins the unique-pending race, return 409 (not 500)."""
+    from django.db import IntegrityError
+
+    _set_window(event)
+    user = revel_user_factory()
+    entry = EventWaitList.objects.create(event=event, user=user)
+    url = reverse("api:create_waitlist_offer", kwargs={"event_id": event.pk})
+    with mock.patch(
+        "events.controllers.event_admin.waitlist_offers.models.WaitlistOffer.objects.create",
+        side_effect=IntegrityError("duplicate pending"),
+    ):
+        response = organization_owner_client.post(
+            url,
+            data=orjson.dumps({"waitlist_entry_id": str(entry.pk)}),
+            content_type="application/json",
+        )
+    assert response.status_code == 409
 
 
 def test_create_offer_with_unknown_entry_returns_404(

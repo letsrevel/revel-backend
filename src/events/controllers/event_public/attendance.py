@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -170,7 +170,13 @@ class EventPublicAttendanceController(EventPublicBaseController):
                 eligibility=eligibility,
             )
 
-        models.EventWaitList.objects.create(event=event, user=user)
+        try:
+            with transaction.atomic():
+                models.EventWaitList.objects.create(event=event, user=user)
+        except IntegrityError:
+            # Lost the race against another tab/request. Treat as idempotent
+            # success — the user IS on the waitlist now.
+            return ResponseMessage(message=str(_("You are already on the waitlist for this event.")))
         # Self-healing: if a seat is currently free (e.g. capacity bumped, or a
         # cancellation landed between page-load and click), the service will see
         # this user at the front of the queue and immediately create an offer.

@@ -116,6 +116,35 @@ class TestJoinWaitlist:
         assert resp.status_code == 200
         mocked.assert_called_once_with(public_event.id)
 
+    def test_join_waitlist_race_returns_idempotent_message(
+        self,
+        member_client: Client,
+        nonmember_user: RevelUser,
+        public_event: Event,
+    ) -> None:
+        """If the row lands between the existence check and the create, treat it as idempotent.
+
+        We simulate the race by making ``EventWaitList.objects.create`` raise
+        ``IntegrityError`` once. The endpoint must return 200 with the
+        "already on the waitlist" message rather than 500.
+        """
+        from django.db import IntegrityError
+
+        self._make_event_full(public_event, other_user=nonmember_user)
+        public_event.waitlist_time_window = dt.timedelta(hours=24)
+        public_event.save()
+
+        url = reverse("api:join_waitlist", kwargs={"event_id": public_event.pk})
+        with mock.patch(
+            "events.controllers.event_public.attendance.models.EventWaitList.objects.create",
+            side_effect=IntegrityError("duplicate"),
+        ):
+            resp = member_client.post(url)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "already" in body.get("message", "").lower()
+
     def test_join_waitlist_idempotent_when_already_joined_full_event(
         self,
         member_client: Client,

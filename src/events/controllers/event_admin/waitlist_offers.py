@@ -3,7 +3,7 @@
 import uuid
 from uuid import UUID
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -150,7 +150,13 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         )
         offer.claimed_at = None
         offer.notified_at = None
-        offer.save(update_fields=["status", "expires_at", "claimed_at", "notified_at"])
+        try:
+            with transaction.atomic():
+                offer.save(update_fields=["status", "expires_at", "claimed_at", "notified_at"])
+        except IntegrityError as exc:
+            # Lost the race: another writer landed a PENDING offer for this
+            # (event, user) between the conflict check above and the save.
+            raise HttpError(409, "User already has a pending offer for this event.") from exc
         offer_id_str = str(offer.id)
         transaction.on_commit(lambda: send_waitlist_offer_notification_task.delay(offer_id_str))
         return offer
@@ -188,13 +194,19 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
             raise HttpError(409, "User already has a pending offer for this event.")
 
         expires_at = payload.expires_at or (timezone.now() + event.waitlist_time_window)
-        offer = models.WaitlistOffer.objects.create(
-            event=event,
-            user_id=entry.user_id,
-            expires_at=expires_at,
-            batch_id=uuid.uuid4(),
-            is_cutoff_batch=False,
-        )
+        try:
+            with transaction.atomic():
+                offer = models.WaitlistOffer.objects.create(
+                    event=event,
+                    user_id=entry.user_id,
+                    expires_at=expires_at,
+                    batch_id=uuid.uuid4(),
+                    is_cutoff_batch=False,
+                )
+        except IntegrityError as exc:
+            # Lost the race: another writer (manual create, periodic processor)
+            # landed a PENDING offer between the existence check and our create.
+            raise HttpError(409, "User already has a pending offer for this event.") from exc
         offer_id_str = str(offer.id)
         transaction.on_commit(lambda: send_waitlist_offer_notification_task.delay(offer_id_str))
         return 201, offer
