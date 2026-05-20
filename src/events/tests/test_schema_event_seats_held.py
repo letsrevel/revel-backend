@@ -55,9 +55,7 @@ def test_seats_held_ignores_other_events(
     assert EventBaseSchema.resolve_seats_held(public_event) == 1
 
 
-def test_seats_held_does_not_count_pending_but_expired(
-    event: Event, revel_user_factory: RevelUserFactory
-) -> None:
+def test_seats_held_does_not_count_pending_but_expired(event: Event, revel_user_factory: RevelUserFactory) -> None:
     """A PENDING-but-time-expired offer must not count as held."""
     WaitlistOffer.objects.create(
         event=event,
@@ -68,9 +66,7 @@ def test_seats_held_does_not_count_pending_but_expired(
     assert EventBaseSchema.resolve_seats_held(event) == 0
 
 
-def test_seats_held_does_not_count_expired_status_in_future(
-    event: Event, revel_user_factory: RevelUserFactory
-) -> None:
+def test_seats_held_does_not_count_expired_status_in_future(event: Event, revel_user_factory: RevelUserFactory) -> None:
     """An EXPIRED-status offer with future expires_at must not count as held."""
     offer = WaitlistOffer.objects.create(
         event=event,
@@ -83,9 +79,7 @@ def test_seats_held_does_not_count_expired_status_in_future(
     assert EventBaseSchema.resolve_seats_held(event) == 0
 
 
-def test_seats_held_does_not_count_cutoff_batch_offers(
-    event: Event, revel_user_factory: RevelUserFactory
-) -> None:
+def test_seats_held_does_not_count_cutoff_batch_offers(event: Event, revel_user_factory: RevelUserFactory) -> None:
     """Cutoff-batch offers do not reserve seats (Wave 1 F3 semantics)."""
     WaitlistOffer.objects.create(
         event=event,
