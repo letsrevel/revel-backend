@@ -368,13 +368,9 @@ SPOTS_RESERVED_FOR_WAITLIST = gettext_noop("Spots are currently reserved for wai
 ON_WAITLIST_WAITING_FOR_BATCH = gettext_noop("You are on the waitlist. Waiting for your turn.")
 ```
 
-### New `NextStep`
+### `NextStep`
 
-```python
-CLAIM_WAITLIST_OFFER = "claim_waitlist_offer"
-```
-
-(Reserved for future use; the present implementation lets `AvailabilityGate` return `None` as `next_step` when the user already holds an offer because the gate now allows them through.)
+No new values. When a user holds an active offer, `AvailabilityGate` lets them through with `allowed=True` (no `next_step`); the offer details land in the new `EventUserEligibility` fields below.
 
 ### New `EventUserEligibility` fields (`events/service/event_manager/types.py`)
 

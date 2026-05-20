@@ -318,7 +318,6 @@ All possible `NextStep` values and when they are returned:
 | `WAIT_TO_RETAKE_QUESTIONNAIRE` | QuestionnaireGate | Failed questionnaire, retake cooldown has not elapsed |
 | `JOIN_WAITLIST` | AvailabilityGate | Event is full, waitlist is open, user is not on it |
 | `WAIT_FOR_OPEN_SPOT` | AvailabilityGate | Event is full, user is already on the waitlist |
-| `CLAIM_WAITLIST_OFFER` | AvailabilityGate | Reserved for users holding an active offer (see [Advanced Waitlist](waitlist.md)) |
 | `PURCHASE_TICKET` | EventManager | Returned by `EventManager.rsvp()` when event requires a ticket |
 | `RSVP` | EventManager | Returned when event requires RSVP |
 

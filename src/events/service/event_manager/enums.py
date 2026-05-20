@@ -17,7 +17,6 @@ class NextStep(StrEnum):
     WAIT_FOR_EVENT_TO_OPEN = "wait_for_event_to_open"
     JOIN_WAITLIST = "join_waitlist"
     WAIT_FOR_OPEN_SPOT = "wait_for_open_spot"
-    CLAIM_WAITLIST_OFFER = "claim_waitlist_offer"
     PURCHASE_TICKET = "purchase_ticket"
     RSVP = "rsvp"
     UPGRADE_MEMBERSHIP = "upgrade_membership"
