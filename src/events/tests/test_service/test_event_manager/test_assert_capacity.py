@@ -79,9 +79,7 @@ def test_cutoff_offer_does_not_block_non_holder(event: Event, revel_user_factory
     EventManager(intruder, event)._assert_capacity(use_tickets=False, tier=None)
 
 
-def test_cutoff_offer_holders_not_blocked_by_each_other(
-    event: Event, revel_user_factory: RevelUserFactory
-) -> None:
+def test_cutoff_offer_holders_not_blocked_by_each_other(event: Event, revel_user_factory: RevelUserFactory) -> None:
     """Multiple cutoff offer holders must all be able to attempt claim
     (they race FCFS for remaining capacity)."""
     _set_rsvp_event(event, capacity=5)
