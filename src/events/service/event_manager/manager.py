@@ -146,6 +146,10 @@ class EventManager:
         if effective_cap == 0 or self.eligibility_service.overrides_max_attendees():
             return
 
+        # Lock the Event row to serialize with process_waitlist_for_event and
+        # other capacity-modifying flows (e.g. BatchTicketService).
+        self.event = models.Event.objects.select_for_update().get(pk=self.event.pk)
+
         if use_tickets:
             # Count all non-cancelled tickets (each ticket represents one attendee)
             count = (
