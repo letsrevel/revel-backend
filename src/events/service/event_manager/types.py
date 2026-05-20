@@ -4,7 +4,7 @@ import uuid
 
 from pydantic import AwareDatetime, BaseModel
 
-from .enums import NextStep
+from .enums import NextStep, ReasonCode
 
 
 class EventUserEligibility(BaseModel):
@@ -12,7 +12,8 @@ class EventUserEligibility(BaseModel):
 
     allowed: bool
     event_id: uuid.UUID
-    reason: str | None = None  # we don't use the enum here because we want translation
+    reason: str | None = None  # human-readable, translated
+    reason_code: ReasonCode | None = None  # stable machine-readable identifier
     next_step: NextStep | None = None
     questionnaires_missing: list[uuid.UUID] | None = None
     questionnaires_pending_review: list[uuid.UUID] | None = None

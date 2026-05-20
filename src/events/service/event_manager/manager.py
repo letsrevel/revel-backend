@@ -57,6 +57,7 @@ class EventManager:
                     event_id=self.event.id,
                     next_step=NextStep.PURCHASE_TICKET,
                     reason=_(Reasons.REQUIRES_TICKET),
+                    reason_code=Reasons.REQUIRES_TICKET.code,
                 ),
             )
 
@@ -173,6 +174,7 @@ class EventManager:
                         event_id=self.event.id,
                         next_step=NextStep.JOIN_WAITLIST if self.event.waitlist_open else None,
                         reason=_(Reasons.SOLD_OUT),
+                        reason_code=Reasons.SOLD_OUT.code,
                     ),
                 )
         else:
@@ -216,5 +218,6 @@ class EventManager:
                     event_id=self.event.id,
                     next_step=NextStep.JOIN_WAITLIST if self.event.waitlist_open else None,
                     reason=_(reason),
+                    reason_code=reason.code,
                 ),
             )

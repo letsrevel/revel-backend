@@ -94,7 +94,8 @@ class WaitlistEntrySchema(ModelSchema):
         from django.utils import timezone
 
         return (
-            WaitlistOffer.objects.filter(
+            WaitlistOffer.objects.select_related("user")
+            .filter(
                 event_id=obj.event_id,
                 user_id=obj.user_id,
                 status=WaitlistOffer.WaitlistOfferStatus.PENDING,

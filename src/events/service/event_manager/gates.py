@@ -90,6 +90,7 @@ class BlacklistGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.BLACKLISTED),
+                reason_code=Reasons.BLACKLISTED.code,
                 next_step=None,
             )
 
@@ -113,6 +114,7 @@ class BlacklistGate(BaseEligibilityGate):
                     allowed=False,
                     event_id=self.event.id,
                     reason=_(Reasons.WHITELIST_PENDING),
+                    reason_code=Reasons.WHITELIST_PENDING.code,
                     next_step=NextStep.WAIT_FOR_WHITELIST_APPROVAL,
                 )
             if whitelist_request.status == WhitelistRequest.Status.REJECTED:
@@ -120,6 +122,7 @@ class BlacklistGate(BaseEligibilityGate):
                     allowed=False,
                     event_id=self.event.id,
                     reason=_(Reasons.WHITELIST_REJECTED),
+                    reason_code=Reasons.WHITELIST_REJECTED.code,
                     next_step=None,
                 )
 
@@ -128,6 +131,7 @@ class BlacklistGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(Reasons.VERIFICATION_REQUIRED),
+            reason_code=Reasons.VERIFICATION_REQUIRED.code,
             next_step=NextStep.REQUEST_WHITELIST,
         )
 
@@ -142,12 +146,14 @@ class EventStatusGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.EVENT_HAS_FINISHED),
+                reason_code=Reasons.EVENT_HAS_FINISHED.code,
             )
         if self.event.status != models.Event.EventStatus.OPEN:
             return EventUserEligibility(
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.EVENT_IS_NOT_OPEN),
+                reason_code=Reasons.EVENT_IS_NOT_OPEN.code,
                 next_step=NextStep.WAIT_FOR_EVENT_TO_OPEN,
             )
         return None
@@ -177,6 +183,7 @@ class RSVPDeadlineGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.RSVP_DEADLINE_PASSED),
+                reason_code=Reasons.RSVP_DEADLINE_PASSED.code,
                 next_step=None,
             )
         return None
@@ -208,6 +215,7 @@ class ApplyDeadlineGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(Reasons.APPLICATION_DEADLINE_PASSED),
+            reason_code=Reasons.APPLICATION_DEADLINE_PASSED.code,
             next_step=None,
         )
 
@@ -316,6 +324,7 @@ class InvitationGate(BaseEligibilityGate):
                     allowed=False,
                     event_id=self.event.id,
                     reason=_(Reasons.INVITATION_REQUEST_PENDING),
+                    reason_code=Reasons.INVITATION_REQUEST_PENDING.code,
                     next_step=NextStep.WAIT_FOR_INVITATION_APPROVAL,
                 )
             if invitation_request.status == EventInvitationRequest.InvitationRequestStatus.REJECTED:
@@ -323,6 +332,7 @@ class InvitationGate(BaseEligibilityGate):
                     allowed=False,
                     event_id=self.event.id,
                     reason=_(Reasons.INVITATION_REQUEST_REJECTED),
+                    reason_code=Reasons.INVITATION_REQUEST_REJECTED.code,
                     next_step=None,  # No action available after rejection
                 )
 
@@ -331,6 +341,7 @@ class InvitationGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(Reasons.REQUIRES_INVITATION),
+            reason_code=Reasons.REQUIRES_INVITATION.code,
             next_step=NextStep.REQUEST_INVITATION if self.event.accept_invitation_requests else None,
         )
 
@@ -357,6 +368,7 @@ class MembershipGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.MEMBERSHIP_INACTIVE),
+                reason_code=Reasons.MEMBERSHIP_INACTIVE.code,
                 next_step=None,  # They need to contact the organization to reactivate
             )
 
@@ -365,6 +377,7 @@ class MembershipGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(Reasons.MEMBERS_ONLY),
+            reason_code=Reasons.MEMBERS_ONLY.code,
             next_step=NextStep.BECOME_MEMBER if self.event.organization.accept_membership_requests else None,
         )
 
@@ -393,6 +406,7 @@ class FullProfileGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(Reasons.REQUIRES_FULL_PROFILE),
+            reason_code=Reasons.REQUIRES_FULL_PROFILE.code,
             next_step=NextStep.COMPLETE_PROFILE,
             missing_profile_fields=missing_profile_fields,
         )
@@ -475,6 +489,7 @@ class QuestionnaireGate(BaseEligibilityGate):
         return EventUserEligibility(
             allowed=False,
             reason=_(Reasons.QUESTIONNAIRE_FAILED),
+            reason_code=Reasons.QUESTIONNAIRE_FAILED.code,
             event_id=self.event.id,
             next_step=NextStep.WAIT_TO_RETAKE_QUESTIONNAIRE,
             retry_on=retry_on,
@@ -501,6 +516,7 @@ class QuestionnaireGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.QUESTIONNAIRE_MISSING),
+                reason_code=Reasons.QUESTIONNAIRE_MISSING.code,
                 next_step=NextStep.COMPLETE_QUESTIONNAIRE,
                 questionnaires_missing=questionnaires_missing,
             )
@@ -523,6 +539,7 @@ class QuestionnaireGate(BaseEligibilityGate):
             return EventUserEligibility(
                 allowed=False,
                 reason=_(Reasons.QUESTIONNAIRE_PENDING_REVIEW),
+                reason_code=Reasons.QUESTIONNAIRE_PENDING_REVIEW.code,
                 event_id=self.event.id,
                 next_step=NextStep.WAIT_FOR_QUESTIONNAIRE_EVALUATION,
                 questionnaires_pending_review=questionnaires_pending_review,
@@ -554,6 +571,7 @@ class QuestionnaireGate(BaseEligibilityGate):
             return EventUserEligibility(
                 allowed=False,
                 reason=_(Reasons.QUESTIONNAIRE_FAILED),
+                reason_code=Reasons.QUESTIONNAIRE_FAILED.code,
                 event_id=self.event.id,
                 questionnaires_failed=failed_questionnaires,
             )
@@ -562,6 +580,7 @@ class QuestionnaireGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.QUESTIONNAIRE_MISSING),
+                reason_code=Reasons.QUESTIONNAIRE_MISSING.code,
                 next_step=NextStep.COMPLETE_QUESTIONNAIRE,
                 questionnaires_missing=questionnaires_missing,
             )
@@ -632,6 +651,7 @@ class AvailabilityGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(reason),
+            reason_code=reason.code,
             next_step=self._get_next_step(),
             pending_offers_count=pending,
             next_batch_at=next_batch_at,
@@ -738,6 +758,7 @@ class TicketSalesGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(Reasons.NO_TICKETS_ON_SALE),
+            reason_code=Reasons.NO_TICKETS_ON_SALE.code,
             next_step=None,
         )
 

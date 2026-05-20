@@ -6,6 +6,7 @@ from uuid import UUID
 from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime
 
+from accounts.schema import MinimalRevelUserSchema
 from events.models import WaitlistOffer
 
 
@@ -33,12 +34,12 @@ class WaitlistOfferSchema(ModelSchema):
     """Read view of a waitlist offer (admin)."""
 
     status: WaitlistOffer.WaitlistOfferStatus
+    user: MinimalRevelUserSchema
 
     class Meta:
         model = WaitlistOffer
         fields = [
             "id",
-            "user",
             "event",
             "status",
             "expires_at",

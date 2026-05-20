@@ -274,6 +274,7 @@ class EventUserEligibility(BaseModel):
     allowed: bool
     event_id: uuid.UUID
     reason: str | None = None
+    reason_code: ReasonCode | None = None
     next_step: NextStep | None = None
     questionnaires_missing: list[uuid.UUID] | None = None
     questionnaires_pending_review: list[uuid.UUID] | None = None
@@ -286,7 +287,8 @@ class EventUserEligibility(BaseModel):
 |---|---|---|
 | `allowed` | `bool` | Whether the user can participate |
 | `event_id` | `UUID` | The event being checked |
-| `reason` | `str \| None` | Translated human-readable reason (from `Reasons` enum) |
+| `reason` | `str \| None` | Translated human-readable reason (from `Reasons` enum) — for display only |
+| `reason_code` | `ReasonCode \| None` | Stable machine-readable identifier mirroring `reason` (snake_case, never translated) — switch on this in clients |
 | `next_step` | `NextStep \| None` | Suggested action the user can take to become eligible |
 | `questionnaires_missing` | `list[UUID] \| None` | IDs of questionnaires the user needs to complete |
 | `questionnaires_pending_review` | `list[UUID] \| None` | IDs of questionnaires awaiting evaluation |
@@ -419,35 +421,38 @@ sequenceDiagram
 
 ## Reason Codes
 
-All reason strings from the `Reasons` enum (translated at runtime via `gettext`):
+Reasons are emitted on the wire in two forms:
 
-| Reason Constant | Message |
+- `reason` — the English message translated at runtime via `gettext`. **Display only** — locale and prose can change.
+- `reason_code` — a stable snake_case identifier from the `ReasonCode` enum. **Switch on this** in clients; it never changes when prose or translation does.
+
+| `ReasonCode` value | English message |
 |---|---|
-| `BLACKLISTED` | "You are not allowed to participate in this organization's events." |
-| `VERIFICATION_REQUIRED` | "Additional verification required." |
-| `WHITELIST_PENDING` | "Your verification request is pending approval." |
-| `WHITELIST_REJECTED` | "Your verification request was rejected." |
-| `EVENT_HAS_FINISHED` | "Event has finished." |
-| `EVENT_IS_NOT_OPEN` | "Event is not open." |
-| `RSVP_DEADLINE_PASSED` | "The RSVP deadline has passed." |
-| `APPLICATION_DEADLINE_PASSED` | "The application deadline has passed." |
-| `REQUIRES_INVITATION` | "Requires invitation." |
-| `INVITATION_REQUEST_PENDING` | "Your invitation request is pending approval." |
-| `INVITATION_REQUEST_REJECTED` | "Your invitation request was rejected." |
-| `MEMBERS_ONLY` | "Only members are allowed." |
-| `MEMBERSHIP_INACTIVE` | "Your membership is not active." |
-| `MEMBERSHIP_TIER_REQUIRED` | "This ticket tier requires a specific membership tier." |
-| `REQUIRES_FULL_PROFILE` | "Requires full profile." |
-| `QUESTIONNAIRE_MISSING` | "Questionnaire has not been filled." |
-| `QUESTIONNAIRE_PENDING_REVIEW` | "Waiting for questionnaire evaluation." |
-| `QUESTIONNAIRE_FAILED` | "Questionnaire evaluation was insufficient." |
-| `QUESTIONNAIRE_RETAKE_COOLDOWN` | "Questionnaire evaluation was insufficient. You can try again in {retry_on}." |
-| `EVENT_IS_FULL` | "Event is full." |
-| `SPOTS_RESERVED_FOR_WAITLIST` | "Spots are currently reserved for waitlist members." |
-| `ON_WAITLIST_WAITING_FOR_BATCH` | "You are on the waitlist. Waiting for your turn." |
-| `SOLD_OUT` | "Sold out" |
-| `NO_TICKETS_ON_SALE` | "Tickets are not currently on sale." |
-| `REQUIRES_TICKET` | "Requires a ticket." |
+| `blacklisted` | "You are not allowed to participate in this organization's events." |
+| `verification_required` | "Additional verification required." |
+| `whitelist_pending` | "Your verification request is pending approval." |
+| `whitelist_rejected` | "Your verification request was rejected." |
+| `event_has_finished` | "Event has finished." |
+| `event_is_not_open` | "Event is not open." |
+| `rsvp_deadline_passed` | "The RSVP deadline has passed." |
+| `application_deadline_passed` | "The application deadline has passed." |
+| `requires_invitation` | "Requires invitation." |
+| `invitation_request_pending` | "Your invitation request is pending approval." |
+| `invitation_request_rejected` | "Your invitation request was rejected." |
+| `members_only` | "Only members are allowed." |
+| `membership_inactive` | "Your membership is not active." |
+| `membership_tier_required` | "This ticket tier requires a specific membership tier." |
+| `requires_full_profile` | "Requires full profile." |
+| `questionnaire_missing` | "Questionnaire has not been filled." |
+| `questionnaire_pending_review` | "Waiting for questionnaire evaluation." |
+| `questionnaire_failed` | "Questionnaire evaluation was insufficient." |
+| `questionnaire_retake_cooldown` | "Questionnaire evaluation was insufficient. You can try again in {retry_on}." |
+| `event_is_full` | "Event is full." |
+| `spots_reserved_for_waitlist` | "Spots are currently reserved for waitlist members." |
+| `on_waitlist_waiting_for_batch` | "You are on the waitlist. Waiting for your turn." |
+| `sold_out` | "Sold out" |
+| `no_tickets_on_sale` | "Tickets are not currently on sale." |
+| `requires_ticket` | "Requires a ticket." |
 | `MUST_RSVP` | "Must RSVP" |
 | `REQUIRES_PURCHASE` | "Requires purchase." |
 | `NOTHING_TO_PURCHASE` | "Nothing to purchase." |

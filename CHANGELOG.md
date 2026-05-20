@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `EventUserEligibility.reason_code` — stable machine-readable `ReasonCode` enum mirroring the human-readable `reason` string; clients should switch on `reason_code` instead of matching localized prose
+- `WaitlistOfferSchema.user` now serializes as a nested `MinimalRevelUserSchema` (id, name, email, …) instead of a bare UUID, so admin UIs can render organizers' offers without a follow-up lookup
+
 ## [1.56.0] - 2026-05-18
 
 ### Added
