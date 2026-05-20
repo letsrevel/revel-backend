@@ -234,13 +234,15 @@ Checks whether the event has reached its capacity limit. Uses `event.effective_c
 - **Counting logic:**
     - **Ticketed events**: counts non-cancelled tickets.
     - **RSVP events**: counts `YES` RSVPs.
+    - **Pending unexpired non-cutoff waitlist offers** also count toward capacity (minus the current user's own offer, if any) — see [Advanced Waitlist](waitlist.md).
 - **Event full**: returns `next_step=JOIN_WAITLIST` if waitlist is open and user is not already waitlisted, `next_step=WAIT_FOR_OPEN_SPOT` if already on the waitlist, or no `next_step` if no waitlist.
+- **Reservation-driven fullness**: when seats exist on paper but are held by waitlist offers, the gate returns `SPOTS_RESERVED_FOR_WAITLIST` (or `ON_WAITLIST_WAITING_FOR_BATCH` for users already on the queue) instead of plain `EVENT_IS_FULL`.
 
 !!! info "Invitation waiver: `overrides_max_attendees`"
     This gate **can be bypassed** by an `EventInvitation` with `overrides_max_attendees=True`. Invited users can join even when the event is technically full.
 
 !!! note "Two-phase capacity check"
-    This gate performs a **preliminary** check using prefetched in-memory data (zero DB queries). The final authoritative capacity check happens in `EventManager._assert_capacity()` within a database transaction with row-level locking (`select_for_update`) to prevent race conditions.
+    This gate performs a **preliminary** check using prefetched in-memory data (zero DB queries). The final authoritative capacity check happens in `EventManager._assert_capacity()` within a database transaction with row-level locking (`select_for_update`) to prevent race conditions. Both layers apply the same offer-aware arithmetic; see [Advanced Waitlist → Capacity & reservation semantics](waitlist.md#capacity-reservation-semantics).
 
 **Source:** `events/service/event_manager/gates.py`: `AvailabilityGate`
 
@@ -316,6 +318,7 @@ All possible `NextStep` values and when they are returned:
 | `WAIT_TO_RETAKE_QUESTIONNAIRE` | QuestionnaireGate | Failed questionnaire, retake cooldown has not elapsed |
 | `JOIN_WAITLIST` | AvailabilityGate | Event is full, waitlist is open, user is not on it |
 | `WAIT_FOR_OPEN_SPOT` | AvailabilityGate | Event is full, user is already on the waitlist |
+| `CLAIM_WAITLIST_OFFER` | AvailabilityGate | Reserved for users holding an active offer (see [Advanced Waitlist](waitlist.md)) |
 | `PURCHASE_TICKET` | EventManager | Returned by `EventManager.rsvp()` when event requires a ticket |
 | `RSVP` | EventManager | Returned when event requires RSVP |
 
@@ -441,6 +444,8 @@ All reason strings from the `Reasons` enum (translated at runtime via `gettext`)
 | `QUESTIONNAIRE_FAILED` | "Questionnaire evaluation was insufficient." |
 | `QUESTIONNAIRE_RETAKE_COOLDOWN` | "Questionnaire evaluation was insufficient. You can try again in {retry_on}." |
 | `EVENT_IS_FULL` | "Event is full." |
+| `SPOTS_RESERVED_FOR_WAITLIST` | "Spots are currently reserved for waitlist members." |
+| `ON_WAITLIST_WAITING_FOR_BATCH` | "You are on the waitlist. Waiting for your turn." |
 | `SOLD_OUT` | "Sold out" |
 | `NO_TICKETS_ON_SALE` | "Tickets are not currently on sale." |
 | `REQUIRES_TICKET` | "Requires a ticket." |

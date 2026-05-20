@@ -29,6 +29,7 @@ graph LR
 | [Controllers](controllers.md) | Django Ninja Extra patterns, auth, throttling |
 | [Permissions & Roles](permissions.md) | Organization roles, event-level access control |
 | [Eligibility Pipeline](eligibility-pipeline.md) | The gate-by-gate system that determines event access |
+| [Advanced Waitlist](waitlist.md) | Batched, time-limited offers with reserved capacity for waitlist members |
 | [Protected Files](protected-files.md) | HMAC-signed URLs with Caddy (and why not S3) |
 | [Notifications](notifications.md) | Multi-channel delivery: in-app, email, Telegram |
 | [File Security](security.md) | EXIF stripping, ClamAV malware scanning, quarantine |

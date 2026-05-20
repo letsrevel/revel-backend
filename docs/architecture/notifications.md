@@ -76,7 +76,7 @@ The following notification types are supported across all channels:
 
 | Type | Description |
 |---|---|
-| `waitlist_spot_available` | A spot opened up on a waitlisted event |
+| `waitlist_spot_available` | A reserved offer was issued to the user. Carries `expires_at`, `is_cutoff_batch`, and event context. See [Advanced Waitlist](waitlist.md). |
 
 ### Questionnaires
 
