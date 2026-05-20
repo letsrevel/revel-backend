@@ -48,7 +48,6 @@ class WaitlistOfferSchema(ModelSchema):
             "notified_at",
             "batch_id",
             "is_cutoff_batch",
-            "created_at",
         ]
 
 
