@@ -30,9 +30,11 @@
             <p>{% trans "You've been selected from the waitlist." %}</p>
             {% endif %}
 
+            {% if context.expires_at_formatted %}
             <div class="alert">
-                <p style="margin: 0;"><strong>⏰ {% trans "Claim your spot before" %}</strong> {{ context.expires_at_formatted }} ({{ context.time_remaining_formatted }}).</p>
+                <p style="margin: 0;"><strong>⏰ {% trans "Claim your spot before" %}</strong> {{ context.expires_at_formatted }}{% if context.time_remaining_formatted %} ({{ context.time_remaining_formatted }}){% endif %}.</p>
             </div>
+            {% endif %}
 
             <div class="card">
                 <h3 style="margin-top: 0; color: #10b981;">{% trans "Event Details" %}</h3>
