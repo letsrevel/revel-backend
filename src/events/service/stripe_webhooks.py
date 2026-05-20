@@ -397,7 +397,7 @@ class StripeEventHandler:
             TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
-            return t.cast(uuid.UUID, ticket.event_id)
+            return ticket.event_id
         return None
 
     @transaction.atomic
@@ -454,7 +454,7 @@ class StripeEventHandler:
             TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
-            affected_event_ids.add(t.cast(uuid.UUID, ticket.event_id))
+            affected_event_ids.add(ticket.event_id)
             canceled_tickets.append(ticket)
 
         # One enqueue per event regardless of how many tickets cancelled inside it.

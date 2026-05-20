@@ -905,8 +905,7 @@ def expire_waitlist_offers_task() -> dict[str, t.Any]:
     correctness — only the timing of the next-batch enqueue.
 
     Returns:
-        Dict with ``expired`` (number of offers flipped) and
-        ``events_processed`` (count of distinct events re-enqueued).
+        Dict with ``expired`` (offers flipped) and ``events_processed``.
     """
     from events.models import WaitlistOffer
 
@@ -963,8 +962,7 @@ def send_waitlist_offer_notification_task(offer_id: str) -> dict[str, t.Any]:
         return {"status": "skipped", "offer_id": offer_id}
 
     if offer.expires_at <= timezone.now():
-        # Race: the sweeper hasn't transitioned this PENDING row to EXPIRED
-        # yet, but the user could never act on the offer. Don't pester them.
+        # Race vs sweeper: PENDING but already past expiry — don't pester user.
         logger.info("send_waitlist_offer_notification_expired", offer_id=offer_id)
         return {"status": "skipped", "offer_id": offer_id}
 
