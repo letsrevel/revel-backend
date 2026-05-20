@@ -23,14 +23,14 @@ def test_delete_entry_revokes_pending_offer_and_enqueues_processing(
         user=user,
         expires_at=timezone.now() + dt.timedelta(hours=1),
         batch_id=uuid.uuid4(),
-        status=WaitlistOffer.Status.PENDING,
+        status=WaitlistOffer.WaitlistOfferStatus.PENDING,
     )
 
     with mock.patch("events.service.waitlist_service.enqueue_waitlist_processing") as enqueue_mock:
         entry.delete()
 
     offer.refresh_from_db()
-    assert offer.status == WaitlistOffer.Status.REVOKED
+    assert offer.status == WaitlistOffer.WaitlistOfferStatus.REVOKED
     enqueue_mock.assert_called_once_with(event.id)
 
 
@@ -42,7 +42,7 @@ def test_delete_entry_does_not_touch_claimed_offer(event: Event, revel_user_fact
         user=user,
         expires_at=timezone.now() + dt.timedelta(hours=1),
         batch_id=uuid.uuid4(),
-        status=WaitlistOffer.Status.CLAIMED,
+        status=WaitlistOffer.WaitlistOfferStatus.CLAIMED,
         claimed_at=timezone.now(),
     )
 
@@ -50,7 +50,7 @@ def test_delete_entry_does_not_touch_claimed_offer(event: Event, revel_user_fact
         entry.delete()
 
     offer.refresh_from_db()
-    assert offer.status == WaitlistOffer.Status.CLAIMED
+    assert offer.status == WaitlistOffer.WaitlistOfferStatus.CLAIMED
     enqueue_mock.assert_not_called()
 
 

@@ -34,6 +34,18 @@ if t.TYPE_CHECKING:
     from .service import EligibilityService
 
 
+def _resolve_in_user_tz(dt: datetime.datetime, user: "RevelUser", event: models.Event) -> datetime.datetime:
+    """Convert ``dt`` into the user's preferred timezone (falling back to the event's).
+
+    The conversion preserves the absolute instant — only the wall-clock
+    representation changes, which is what API consumers serialize to ISO8601.
+    """
+    from events.utils import get_event_timezone, get_user_timezone
+
+    target_tz = get_user_timezone(user) or get_event_timezone(event)
+    return dt.astimezone(target_tz)
+
+
 class BaseEligibilityGate(abc.ABC):
     """Abstract Base Class for a composable eligibility check."""
 
@@ -608,6 +620,8 @@ class AvailabilityGate(BaseEligibilityGate):
             reason = Reasons.EVENT_IS_FULL
 
         next_batch_at = self._earliest_pending_expiry() if pending > 0 else None
+        if next_batch_at is not None:
+            next_batch_at = _resolve_in_user_tz(next_batch_at, self.user, self.event)
         waitlist_position = (
             self._get_waitlist_position()
             if self.event.user_is_waitlisted  # type: ignore[attr-defined]
@@ -662,7 +676,7 @@ class AvailabilityGate(BaseEligibilityGate):
         return (
             models.WaitlistOffer.objects.filter(
                 event=self.event,
-                status=models.WaitlistOffer.Status.PENDING,
+                status=models.WaitlistOffer.WaitlistOfferStatus.PENDING,
                 expires_at__gt=timezone.now(),
                 is_cutoff_batch=False,
             )

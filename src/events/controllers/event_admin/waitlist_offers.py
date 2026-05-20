@@ -1,6 +1,5 @@
 """Admin endpoints for advanced waitlist configuration and offers."""
 
-import uuid
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -16,7 +15,12 @@ from common.authentication import I18nJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import models, schema
 from events.controllers.permissions import EventPermission
-from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
+from events.service.waitlist_service import (
+    create_admin_offer,
+    enqueue_waitlist_processing,
+    reactivate_admin_offer,
+    revoke_all_pending_offers,
+)
 
 from .base import EventAdminBaseController
 
@@ -73,7 +77,7 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     def list_waitlist_offers(
-        self, event_id: UUID, status: models.WaitlistOffer.Status | None = None
+        self, event_id: UUID, status: models.WaitlistOffer.WaitlistOfferStatus | None = None
     ) -> QuerySet[models.WaitlistOffer]:
         """List waitlist offers for this event, optionally filtered by status."""
         event = self.get_one(event_id)
@@ -94,9 +98,9 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
             models.WaitlistOffer,
             pk=offer_id,
             event=event,
-            status=models.WaitlistOffer.Status.PENDING,
+            status=models.WaitlistOffer.WaitlistOfferStatus.PENDING,
         )
-        offer.status = models.WaitlistOffer.Status.REVOKED
+        offer.status = models.WaitlistOffer.WaitlistOfferStatus.REVOKED
         offer.save(update_fields=["status"])
         enqueue_waitlist_processing(event.id)
         return offer
@@ -126,8 +130,8 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         event = self.get_one(event_id)
         offer = get_object_or_404(models.WaitlistOffer, pk=offer_id, event=event)
         if offer.status not in {
-            models.WaitlistOffer.Status.EXPIRED,
-            models.WaitlistOffer.Status.REVOKED,
+            models.WaitlistOffer.WaitlistOfferStatus.EXPIRED,
+            models.WaitlistOffer.WaitlistOfferStatus.REVOKED,
         }:
             raise HttpError(404, "Offer not found.")
         if event.waitlist_time_window is None:
@@ -136,7 +140,7 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
             models.WaitlistOffer.objects.filter(
                 event=event,
                 user_id=offer.user_id,
-                status=models.WaitlistOffer.Status.PENDING,
+                status=models.WaitlistOffer.WaitlistOfferStatus.PENDING,
             )
             .exclude(pk=offer.pk)
             .exists()
@@ -144,15 +148,18 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         if conflict:
             raise HttpError(409, "User already has a pending offer for this event.")
 
-        offer.status = models.WaitlistOffer.Status.PENDING
-        offer.expires_at = (
+        expires_at = (
             payload.expires_at if payload and payload.expires_at else (timezone.now() + event.waitlist_time_window)
         )
-        offer.claimed_at = None
-        offer.notified_at = None
         try:
-            with transaction.atomic():
-                offer.save(update_fields=["status", "expires_at", "claimed_at", "notified_at"])
+            offer = reactivate_admin_offer(offer_id=offer.pk, expires_at=expires_at)
+        except ValueError as exc:
+            if str(exc) == "capacity":
+                raise HttpError(
+                    409,
+                    "Event is at capacity. Revoke an existing pending offer to make room.",
+                ) from exc
+            raise
         except IntegrityError as exc:
             # Lost the race: another writer landed a PENDING offer for this
             # (event, user) between the conflict check above and the save.
@@ -188,21 +195,21 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         already_pending = models.WaitlistOffer.objects.filter(
             event=event,
             user_id=entry.user_id,
-            status=models.WaitlistOffer.Status.PENDING,
+            status=models.WaitlistOffer.WaitlistOfferStatus.PENDING,
         ).exists()
         if already_pending:
             raise HttpError(409, "User already has a pending offer for this event.")
 
         expires_at = payload.expires_at or (timezone.now() + event.waitlist_time_window)
         try:
-            with transaction.atomic():
-                offer = models.WaitlistOffer.objects.create(
-                    event=event,
-                    user_id=entry.user_id,
-                    expires_at=expires_at,
-                    batch_id=uuid.uuid4(),
-                    is_cutoff_batch=False,
-                )
+            offer = create_admin_offer(event_id=event.id, user_id=entry.user_id, expires_at=expires_at)
+        except ValueError as exc:
+            if str(exc) == "capacity":
+                raise HttpError(
+                    409,
+                    "Event is at capacity. Revoke an existing pending offer to make room.",
+                ) from exc
+            raise
         except IntegrityError as exc:
             # Lost the race: another writer (manual create, periodic processor)
             # landed a PENDING offer between the existence check and our create.

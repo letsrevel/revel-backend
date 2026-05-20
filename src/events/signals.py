@@ -567,7 +567,7 @@ def handle_waitlist_entry_deleted(sender: type[EventWaitList], instance: EventWa
     affected = WaitlistOffer.objects.filter(
         event_id=instance.event_id,
         user_id=instance.user_id,
-        status=WaitlistOffer.Status.PENDING,
-    ).update(status=WaitlistOffer.Status.REVOKED)
+        status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+    ).update(status=WaitlistOffer.WaitlistOfferStatus.REVOKED)
     if affected:
         enqueue_waitlist_processing(instance.event_id)

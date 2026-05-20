@@ -409,15 +409,15 @@ def test_revoke_all_pending_offers_marks_pending_as_revoked(
         expires_at=timezone.now() + dt.timedelta(hours=1),
         batch_id=uuid.uuid4(),
     )
-    claimed.status = WaitlistOffer.Status.CLAIMED
+    claimed.status = WaitlistOffer.WaitlistOfferStatus.CLAIMED
     claimed.save(update_fields=["status"])
 
     count = revoke_all_pending_offers(event.id)
 
     assert count == 3
-    assert WaitlistOffer.objects.filter(event=event, status=WaitlistOffer.Status.REVOKED).count() == 3
+    assert WaitlistOffer.objects.filter(event=event, status=WaitlistOffer.WaitlistOfferStatus.REVOKED).count() == 3
     claimed.refresh_from_db()
-    assert claimed.status == WaitlistOffer.Status.CLAIMED
+    assert claimed.status == WaitlistOffer.WaitlistOfferStatus.CLAIMED
 
 
 def test_revoke_all_pending_offers_ignores_other_events(
@@ -443,7 +443,7 @@ def test_revoke_all_pending_offers_ignores_other_events(
 
     assert count == 1
     other_offer.refresh_from_db()
-    assert other_offer.status == WaitlistOffer.Status.PENDING
+    assert other_offer.status == WaitlistOffer.WaitlistOfferStatus.PENDING
 
 
 # ---------------------------------------------------------------------------
@@ -475,7 +475,7 @@ def test_leave_waitlist_with_offer_expires_and_enqueues(
     mocked.assert_called_once_with(event.id)
 
     offer.refresh_from_db()
-    assert offer.status == WaitlistOffer.Status.EXPIRED
+    assert offer.status == WaitlistOffer.WaitlistOfferStatus.EXPIRED
     assert not EventWaitList.objects.filter(event=event, user=member_user).exists()
 
 
@@ -532,4 +532,4 @@ def test_leave_waitlist_with_time_expired_pending_offer_is_revoked_by_signal(
     # path and is not captured by this patch.
     controller_mock.assert_not_called()
     expired.refresh_from_db()
-    assert expired.status == WaitlistOffer.Status.REVOKED
+    assert expired.status == WaitlistOffer.WaitlistOfferStatus.REVOKED

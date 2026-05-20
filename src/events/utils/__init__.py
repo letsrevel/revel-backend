@@ -20,6 +20,7 @@ from django.utils import timezone
 from django.utils.dateformat import format as date_format
 
 if t.TYPE_CHECKING:
+    from accounts.models import RevelUser
     from events import models
     from events.models import Ticket
 
@@ -27,6 +28,36 @@ logger = structlog.get_logger(__name__)
 
 # Default date format for user-facing dates: "Friday, February 6, 2026 at 7:00 PM CET"
 DEFAULT_DATE_FORMAT = "l, F j, Y \\a\\t g:i A T"
+
+
+def get_user_timezone(user: "RevelUser") -> ZoneInfo | None:
+    """Resolve the user's preferred timezone via ``general_preferences.city``.
+
+    Returns ``None`` when the user has no preferences row, no city, an empty
+    timezone, or an unrecognized timezone string. Callers should fall back to
+    the event's timezone (or UTC) when this returns ``None``.
+
+    Args:
+        user: The user whose preferences to inspect.
+
+    Returns:
+        A ``ZoneInfo`` for the user's city timezone, or ``None`` when
+        unresolved.
+    """
+    try:
+        prefs = user.general_preferences
+    except Exception:
+        return None
+    if prefs is None or getattr(prefs, "city_id", None) is None:
+        return None
+    tz_name = prefs.city.timezone if prefs.city else None
+    if not tz_name:
+        return None
+    try:
+        return ZoneInfo(tz_name)
+    except (KeyError, ValueError):
+        logger.warning("invalid_timezone_for_user", user_id=user.id, timezone=tz_name)
+        return None
 
 
 def get_event_timezone(event: "models.Event") -> ZoneInfo:

@@ -25,14 +25,14 @@ def test_seats_held_counts_pending_unexpired(event: Event, revel_user_factory: R
         user=revel_user_factory(),
         expires_at=timezone.now() - dt.timedelta(minutes=1),  # expired
         batch_id=uuid.uuid4(),
-        status=WaitlistOffer.Status.EXPIRED,
+        status=WaitlistOffer.WaitlistOfferStatus.EXPIRED,
     )
     WaitlistOffer.objects.create(
         event=event,
         user=revel_user_factory(),
         expires_at=timezone.now() + dt.timedelta(hours=1),
         batch_id=uuid.uuid4(),
-        status=WaitlistOffer.Status.CLAIMED,
+        status=WaitlistOffer.WaitlistOfferStatus.CLAIMED,
     )
 
     assert EventBaseSchema.resolve_seats_held(event) == 1
@@ -74,7 +74,7 @@ def test_seats_held_does_not_count_expired_status_in_future(event: Event, revel_
         expires_at=timezone.now() + dt.timedelta(hours=1),  # future
         batch_id=uuid.uuid4(),
     )
-    offer.status = WaitlistOffer.Status.EXPIRED
+    offer.status = WaitlistOffer.WaitlistOfferStatus.EXPIRED
     offer.save(update_fields=["status"])
     assert EventBaseSchema.resolve_seats_held(event) == 0
 

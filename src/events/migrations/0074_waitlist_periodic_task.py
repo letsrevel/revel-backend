@@ -38,7 +38,7 @@ def delete_periodic_task(apps: t.Any, schema_editor: t.Any) -> None:
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("events", "0074_waitlistoffer"),
+        ("events", "0073_advanced_waitlist"),
         ("django_celery_beat", "0019_alter_periodictasks_options"),
     ]
 

@@ -1,9 +1,8 @@
 """Types and exceptions for the event eligibility system."""
 
-import datetime
 import uuid
 
-from pydantic import BaseModel
+from pydantic import AwareDatetime, BaseModel
 
 from .enums import NextStep
 
@@ -18,12 +17,12 @@ class EventUserEligibility(BaseModel):
     questionnaires_missing: list[uuid.UUID] | None = None
     questionnaires_pending_review: list[uuid.UUID] | None = None
     questionnaires_failed: list[uuid.UUID] | None = None
-    retry_on: datetime.datetime | None = None
+    retry_on: AwareDatetime | None = None
     missing_profile_fields: list[str] | None = None
     pending_offers_count: int | None = None
-    next_batch_at: datetime.datetime | None = None
+    next_batch_at: AwareDatetime | None = None
     waitlist_position: int | None = None
-    active_offer_expires_at: datetime.datetime | None = None
+    active_offer_expires_at: AwareDatetime | None = None
 
 
 class UserIsIneligibleError(Exception):

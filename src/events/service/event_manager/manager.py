@@ -101,17 +101,22 @@ class EventManager:
             .filter(
                 event=self.event,
                 user=self.user,
-                status=WaitlistOffer.Status.PENDING,
+                status=WaitlistOffer.WaitlistOfferStatus.PENDING,
                 expires_at__gt=now,
             )
             .first()
         )
         if offer is None:
             return
-        offer.status = WaitlistOffer.Status.CLAIMED
+        offer.status = WaitlistOffer.WaitlistOfferStatus.CLAIMED
         offer.claimed_at = now
         offer.save(update_fields=["status", "claimed_at"])
         EventWaitList.objects.filter(event=self.event, user=self.user).delete()
+        # Defensive nudge: claiming an offer may have freed capacity for the
+        # next user (e.g., a batch where one user claimed but others didn't
+        # would otherwise leave seats stranded). The processor short-circuits
+        # when there's no work, so this is cheap when idempotent.
+        enqueue_waitlist_processing(self.event.id)
 
     def check_eligibility(self, bypass: bool = False, raise_on_false: bool = False) -> EventUserEligibility:
         """Call the eligibility check.
@@ -182,7 +187,7 @@ class EventManager:
             WaitlistOffer.objects.select_for_update()
             .filter(
                 event=self.event,
-                status=WaitlistOffer.Status.PENDING,
+                status=WaitlistOffer.WaitlistOfferStatus.PENDING,
                 expires_at__gt=now,
                 is_cutoff_batch=False,
             )
@@ -191,7 +196,7 @@ class EventManager:
         has_own_offer = WaitlistOffer.objects.filter(
             event=self.event,
             user=self.user,
-            status=WaitlistOffer.Status.PENDING,
+            status=WaitlistOffer.WaitlistOfferStatus.PENDING,
             expires_at__gt=now,
             is_cutoff_batch=False,
         ).exists()

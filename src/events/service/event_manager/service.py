@@ -100,7 +100,7 @@ class EligibilityService:
                 pending_waitlist_offer_count=Count(
                     "waitlist_offers",
                     filter=Q(
-                        waitlist_offers__status=models.WaitlistOffer.Status.PENDING,
+                        waitlist_offers__status=models.WaitlistOffer.WaitlistOfferStatus.PENDING,
                         waitlist_offers__expires_at__gt=timezone.now(),
                         waitlist_offers__is_cutoff_batch=False,
                     ),
@@ -113,7 +113,7 @@ class EligibilityService:
         self.active_waitlist_offer = (
             user.waitlist_offers.filter(
                 event=event,
-                status=models.WaitlistOffer.Status.PENDING,
+                status=models.WaitlistOffer.WaitlistOfferStatus.PENDING,
                 expires_at__gt=timezone.now(),
             )
             .order_by("-created_at")
@@ -157,7 +157,10 @@ class EligibilityService:
 
         result = EventUserEligibility(allowed=True, event_id=self.event.id)
         if self.active_waitlist_offer is not None:
-            result.active_offer_expires_at = self.active_waitlist_offer.expires_at
+            from events.utils import get_event_timezone, get_user_timezone
+
+            target_tz = get_user_timezone(self.user) or get_event_timezone(self.event)
+            result.active_offer_expires_at = self.active_waitlist_offer.expires_at.astimezone(target_tz)
         return result
 
     @functools.cached_property

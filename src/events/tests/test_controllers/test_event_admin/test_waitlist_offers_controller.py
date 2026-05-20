@@ -91,7 +91,7 @@ def test_patch_waitlist_settings_closing_revokes_pending_offers(
     )
     assert response.status_code == 200, response.content
     pending.refresh_from_db()
-    assert pending.status == WaitlistOffer.Status.REVOKED
+    assert pending.status == WaitlistOffer.WaitlistOfferStatus.REVOKED
 
 
 def test_patch_waitlist_settings_invalid_window_returns_validation_error(
@@ -140,22 +140,22 @@ def test_list_waitlist_offers_filter_by_status(
         user=revel_user_factory(),
         expires_at=timezone.now() + dt.timedelta(hours=1),
         batch_id=uuid.uuid4(),
-        status=WaitlistOffer.Status.PENDING,
+        status=WaitlistOffer.WaitlistOfferStatus.PENDING,
     )
     WaitlistOffer.objects.create(
         event=event,
         user=revel_user_factory(),
         expires_at=timezone.now() + dt.timedelta(hours=1),
         batch_id=uuid.uuid4(),
-        status=WaitlistOffer.Status.CLAIMED,
+        status=WaitlistOffer.WaitlistOfferStatus.CLAIMED,
     )
     url = reverse("api:list_waitlist_offers", kwargs={"event_id": event.pk})
-    response = organization_owner_client.get(url, {"status": WaitlistOffer.Status.PENDING.value})
+    response = organization_owner_client.get(url, {"status": WaitlistOffer.WaitlistOfferStatus.PENDING.value})
     assert response.status_code == 200, response.content
     body = response.json()
     items = body.get("items") or body.get("results") or []
     assert len(items) == 1
-    assert items[0]["status"] == WaitlistOffer.Status.PENDING.value
+    assert items[0]["status"] == WaitlistOffer.WaitlistOfferStatus.PENDING.value
 
 
 # --- POST /event-admin/{event_id}/waitlist-offers/{offer_id}/revoke ---
@@ -179,7 +179,7 @@ def test_revoke_waitlist_offer_marks_revoked(
     response = organization_owner_client.post(url)
     assert response.status_code == 200, response.content
     offer.refresh_from_db()
-    assert offer.status == WaitlistOffer.Status.REVOKED
+    assert offer.status == WaitlistOffer.WaitlistOfferStatus.REVOKED
 
 
 def test_revoke_non_pending_offer_returns_404(
@@ -192,7 +192,7 @@ def test_revoke_non_pending_offer_returns_404(
         user=revel_user_factory(),
         expires_at=timezone.now() + dt.timedelta(hours=1),
         batch_id=uuid.uuid4(),
-        status=WaitlistOffer.Status.CLAIMED,
+        status=WaitlistOffer.WaitlistOfferStatus.CLAIMED,
     )
     url = reverse(
         "api:revoke_waitlist_offer",

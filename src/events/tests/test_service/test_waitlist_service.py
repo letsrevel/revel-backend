@@ -20,11 +20,10 @@ def _enable_waitlist(
     batch_size: int = 0,
     lottery: bool = False,
     cutoff_date: dt.datetime | None = None,
-    cutoff_window: dt.timedelta | None = None,
     time_window: dt.timedelta = dt.timedelta(hours=24),
     max_attendees: int = 10,
 ) -> None:
-    # Push event into the future so cutoff_window validation has room.
+    # Push event into the future so cutoff_date validation has room.
     event.start = timezone.now() + dt.timedelta(days=1)
     event.end = event.start + dt.timedelta(hours=2)
     event.waitlist_open = True
@@ -32,7 +31,6 @@ def _enable_waitlist(
     event.waitlist_batch_size = batch_size
     event.waitlist_lottery_mode = lottery
     event.waitlist_cutoff_date = cutoff_date
-    event.waitlist_cutoff_window = cutoff_window
     event.max_attendees = max_attendees
     event.save()
 
@@ -141,7 +139,6 @@ class TestCutoff:
             event,
             batch_size=2,
             cutoff_date=past,
-            cutoff_window=dt.timedelta(hours=2),
             max_attendees=10,
         )
         Event.objects.filter(pk=event.pk).update(attendee_count=8)
@@ -193,7 +190,6 @@ class TestCutoffOffersDoNotReserveCapacity:
             event,
             batch_size=2,
             cutoff_date=past,
-            cutoff_window=dt.timedelta(hours=2),
             max_attendees=2,
         )
         Event.objects.filter(pk=event.pk).update(attendee_count=0)
@@ -212,7 +208,7 @@ class TestCutoffOffersDoNotReserveCapacity:
         # the 'reserved' branch).
         pending_non_cutoff = WaitlistOffer.objects.filter(
             event=event,
-            status=WaitlistOffer.Status.PENDING,
+            status=WaitlistOffer.WaitlistOfferStatus.PENDING,
             expires_at__gt=timezone.now(),
             is_cutoff_batch=False,
         ).count()

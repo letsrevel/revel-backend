@@ -270,11 +270,6 @@ class Event(
             "then AvailabilityGate behaves normally."
         ),
     )
-    waitlist_cutoff_window = models.DurationField(
-        null=True,
-        blank=True,
-        help_text=("Time window for the cutoff all-hands batch. Falls back to waitlist_time_window when null."),
-    )
     waitlist_lottery_mode = models.BooleanField(
         default=False,
         help_text="If True, randomly sample batch members instead of FIFO.",
@@ -549,10 +544,6 @@ class Event(
                 raise DjangoValidationError({"waitlist_time_window": "Time window cannot exceed 7 days."})
 
         if self.waitlist_cutoff_date is None:
-            if self.waitlist_cutoff_window is not None:
-                raise DjangoValidationError(
-                    {"waitlist_cutoff_window": "Cutoff window requires waitlist_cutoff_date to be set."}
-                )
             return
         if self.waitlist_time_window is None:
             raise DjangoValidationError(
@@ -560,10 +551,6 @@ class Event(
             )
         if self.start and self.waitlist_cutoff_date >= self.start:
             raise DjangoValidationError({"waitlist_cutoff_date": "Cutoff date must be before event start."})
-        if self.waitlist_cutoff_window is not None and self.start:
-            max_window = self.start - self.waitlist_cutoff_date
-            if self.waitlist_cutoff_window > max_window:
-                raise DjangoValidationError({"waitlist_cutoff_window": "Cutoff window cannot extend past event start."})
 
     def is_check_in_open(self) -> bool:
         """Check if check-in is currently open for this event."""
@@ -618,7 +605,7 @@ class WaitlistOffer(TimeStampedModel):
     See docs/superpowers/specs/2026-05-19-advanced-waitlist-design.md.
     """
 
-    class Status(models.TextChoices):
+    class WaitlistOfferStatus(models.TextChoices):
         PENDING = "pending", "Pending"
         CLAIMED = "claimed", "Claimed"
         EXPIRED = "expired", "Expired"
@@ -626,7 +613,12 @@ class WaitlistOffer(TimeStampedModel):
 
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="waitlist_offers")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="waitlist_offers")
-    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True)
+    status = models.CharField(
+        max_length=10,
+        choices=WaitlistOfferStatus.choices,
+        default=WaitlistOfferStatus.PENDING,
+        db_index=True,
+    )
     expires_at = models.DateTimeField(db_index=True)
     batch_id = models.UUIDField(db_index=True)
     notified_at = models.DateTimeField(null=True, blank=True)

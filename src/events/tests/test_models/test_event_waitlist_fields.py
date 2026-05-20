@@ -22,7 +22,6 @@ class TestWaitlistConfigDefaults:
         assert event.waitlist_time_window is None
         assert event.waitlist_batch_size == 0
         assert event.waitlist_cutoff_date is None
-        assert event.waitlist_cutoff_window is None
         assert event.waitlist_lottery_mode is False
 
 
@@ -64,31 +63,11 @@ class TestWaitlistConfigValidation:
             event.full_clean()
         assert "waitlist_cutoff_date" in exc_info.value.message_dict
 
-    def test_cutoff_window_requires_cutoff_date(self, event: Event) -> None:
-        """``waitlist_cutoff_window`` without a ``waitlist_cutoff_date`` is rejected."""
-        _prepare(event)
-        event.waitlist_time_window = dt.timedelta(hours=24)
-        event.waitlist_cutoff_date = None
-        event.waitlist_cutoff_window = dt.timedelta(hours=1)
-        with pytest.raises(ValidationError) as exc_info:
-            event.full_clean()
-        assert "waitlist_cutoff_window" in exc_info.value.message_dict
-
-    def test_cutoff_window_cap(self, event: Event) -> None:
-        _prepare(event)
-        event.waitlist_time_window = dt.timedelta(hours=24)
-        event.waitlist_cutoff_date = event.start - dt.timedelta(hours=1)
-        event.waitlist_cutoff_window = dt.timedelta(hours=2)
-        with pytest.raises(ValidationError) as exc_info:
-            event.full_clean()
-        assert "waitlist_cutoff_window" in exc_info.value.message_dict
-
     def test_full_valid_config(self, event: Event) -> None:
         _prepare(event)
         event.waitlist_time_window = dt.timedelta(hours=24)
         event.waitlist_batch_size = 5
         event.waitlist_cutoff_date = event.start - dt.timedelta(hours=2)
-        event.waitlist_cutoff_window = dt.timedelta(hours=1)
         event.waitlist_lottery_mode = True
         event.full_clean()  # must not raise
         assert event.waitlist_lottery_mode is True

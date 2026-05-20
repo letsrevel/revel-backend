@@ -97,7 +97,7 @@ class WaitlistEntrySchema(ModelSchema):
             WaitlistOffer.objects.filter(
                 event_id=obj.event_id,
                 user_id=obj.user_id,
-                status=WaitlistOffer.Status.PENDING,
+                status=WaitlistOffer.WaitlistOfferStatus.PENDING,
                 expires_at__gt=timezone.now(),
             )
             .order_by("-created_at")

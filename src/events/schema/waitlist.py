@@ -16,7 +16,6 @@ class WaitlistSettingsSchema(Schema):
     waitlist_time_window: datetime.timedelta | None
     waitlist_batch_size: int
     waitlist_cutoff_date: AwareDatetime | None
-    waitlist_cutoff_window: datetime.timedelta | None
     waitlist_lottery_mode: bool
 
 
@@ -27,14 +26,13 @@ class WaitlistSettingsUpdateSchema(Schema):
     waitlist_time_window: datetime.timedelta | None = None
     waitlist_batch_size: int | None = None
     waitlist_cutoff_date: AwareDatetime | None = None
-    waitlist_cutoff_window: datetime.timedelta | None = None
     waitlist_lottery_mode: bool | None = None
 
 
 class WaitlistOfferSchema(ModelSchema):
     """Read view of a waitlist offer (admin)."""
 
-    status: WaitlistOffer.Status
+    status: WaitlistOffer.WaitlistOfferStatus
 
     class Meta:
         model = WaitlistOffer

@@ -33,8 +33,8 @@ def test_flips_expired_pending_offers(event: Event, revel_user_factory: RevelUse
     result = expire_waitlist_offers_task()
     old.refresh_from_db()
     fresh.refresh_from_db()
-    assert old.status == WaitlistOffer.Status.EXPIRED
-    assert fresh.status == WaitlistOffer.Status.PENDING
+    assert old.status == WaitlistOffer.WaitlistOfferStatus.EXPIRED
+    assert fresh.status == WaitlistOffer.WaitlistOfferStatus.PENDING
     assert result["expired"] == 1
 
 

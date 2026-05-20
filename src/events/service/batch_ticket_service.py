@@ -374,7 +374,7 @@ class BatchTicketService:
             WaitlistOffer.objects.select_for_update()
             .filter(
                 event=self.event,
-                status=WaitlistOffer.Status.PENDING,
+                status=WaitlistOffer.WaitlistOfferStatus.PENDING,
                 expires_at__gt=now,
                 is_cutoff_batch=False,
             )
@@ -383,7 +383,7 @@ class BatchTicketService:
         has_own_offer = WaitlistOffer.objects.filter(
             event=self.event,
             user=self.user,
-            status=WaitlistOffer.Status.PENDING,
+            status=WaitlistOffer.WaitlistOfferStatus.PENDING,
             expires_at__gt=now,
             is_cutoff_batch=False,
         ).exists()
@@ -608,17 +608,21 @@ class BatchTicketService:
             .filter(
                 event=self.event,
                 user=self.user,
-                status=WaitlistOffer.Status.PENDING,
+                status=WaitlistOffer.WaitlistOfferStatus.PENDING,
                 expires_at__gt=now,
             )
             .first()
         )
         if offer is None:
             return
-        offer.status = WaitlistOffer.Status.CLAIMED
+        offer.status = WaitlistOffer.WaitlistOfferStatus.CLAIMED
         offer.claimed_at = now
         offer.save(update_fields=["status", "claimed_at"])
         EventWaitList.objects.filter(event=self.event, user=self.user).delete()
+        # Defensive nudge — see EventManager._claim_active_offer for rationale.
+        from events.service.waitlist_service import enqueue_waitlist_processing
+
+        enqueue_waitlist_processing(self.event.id)
 
     def _online_checkout(
         self,

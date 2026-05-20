@@ -21,7 +21,7 @@ class TestWaitlistOfferDefaults:
             expires_at=timezone.now() + dt.timedelta(hours=24),
             batch_id=uuid.uuid4(),
         )
-        assert offer.status == WaitlistOffer.Status.PENDING
+        assert offer.status == WaitlistOffer.WaitlistOfferStatus.PENDING
         assert offer.is_cutoff_batch is False
         assert offer.notified_at is None
         assert offer.claimed_at is None
@@ -55,7 +55,7 @@ class TestPendingUniqueConstraint:
             expires_at=timezone.now() - dt.timedelta(hours=1),
             batch_id=uuid.uuid4(),
         )
-        old.status = WaitlistOffer.Status.EXPIRED
+        old.status = WaitlistOffer.WaitlistOfferStatus.EXPIRED
         old.save(update_fields=["status"])
 
         # Should now be allowed

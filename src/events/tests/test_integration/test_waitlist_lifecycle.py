@@ -86,7 +86,7 @@ class TestCancellationToOfferFlow:
 
         assert result.status == "ok"
         # Only one spot freed: cap = min(batch_size=3, available=1) = 1 offer.
-        offers = WaitlistOffer.objects.filter(event=event, status=WaitlistOffer.Status.PENDING)
+        offers = WaitlistOffer.objects.filter(event=event, status=WaitlistOffer.WaitlistOfferStatus.PENDING)
         assert offers.count() == 1
         # FIFO: the first waitlister got it.
         first_offer = offers.first()
@@ -115,7 +115,7 @@ class TestOfferHolderClaimsViaRsvp:
         EventManager(me, event).rsvp(EventRSVP.RsvpStatus.YES)
 
         offer.refresh_from_db()
-        assert offer.status == WaitlistOffer.Status.CLAIMED
+        assert offer.status == WaitlistOffer.WaitlistOfferStatus.CLAIMED
         assert offer.claimed_at is not None
         assert not EventWaitList.objects.filter(event=event, user=me).exists()
 
@@ -175,7 +175,7 @@ class TestOfferExpiryTriggersNextBatch:
         mocked.assert_called_once_with(str(event.id))
 
         flipped = WaitlistOffer.objects.get(user=u1, event=event)
-        assert flipped.status == WaitlistOffer.Status.EXPIRED
+        assert flipped.status == WaitlistOffer.WaitlistOfferStatus.EXPIRED
 
 
 class TestLeaveWaitlistExpiresOffer:
@@ -208,7 +208,7 @@ class TestLeaveWaitlistExpiresOffer:
         assert response.json()["message"] == "Successfully left the waitlist."
 
         offer.refresh_from_db()
-        assert offer.status == WaitlistOffer.Status.EXPIRED
+        assert offer.status == WaitlistOffer.WaitlistOfferStatus.EXPIRED
         assert not EventWaitList.objects.filter(event=event, user=me).exists()
         # The endpoint should have signaled the next batch processing.
         enqueue_mock.assert_called_once_with(event.id)

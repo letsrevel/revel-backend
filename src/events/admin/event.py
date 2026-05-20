@@ -102,7 +102,6 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
                     "waitlist_batch_size",
                     "waitlist_lottery_mode",
                     "waitlist_cutoff_date",
-                    "waitlist_cutoff_window",
                 ),
             },
         ),

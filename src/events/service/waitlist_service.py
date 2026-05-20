@@ -7,6 +7,7 @@ full design. This module is the single entrypoint for offer-batch creation.
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import random
 import typing as t
 import uuid
@@ -14,7 +15,7 @@ import uuid
 from django.db import transaction
 from django.utils import timezone
 
-from events.models import Event, EventWaitList, WaitlistOffer
+from events.models import Event, EventRSVP, EventWaitList, Ticket, WaitlistOffer
 
 
 @dataclasses.dataclass(frozen=True)
@@ -66,7 +67,7 @@ def process_waitlist_for_event(event_id: uuid.UUID) -> ProcessResult:
     # against any remaining real seats, so they must be excluded from this count.
     pending_count = WaitlistOffer.objects.filter(
         event=event,
-        status=WaitlistOffer.Status.PENDING,
+        status=WaitlistOffer.WaitlistOfferStatus.PENDING,
         expires_at__gt=now,
         is_cutoff_batch=False,
     ).count()
@@ -82,7 +83,7 @@ def process_waitlist_for_event(event_id: uuid.UUID) -> ProcessResult:
         EventWaitList.objects.filter(event=event)
         .exclude(
             user__waitlist_offers__event=event,
-            user__waitlist_offers__status=WaitlistOffer.Status.PENDING,
+            user__waitlist_offers__status=WaitlistOffer.WaitlistOfferStatus.PENDING,
         )
         .select_related("user")
         .order_by("created_at")
@@ -90,7 +91,7 @@ def process_waitlist_for_event(event_id: uuid.UUID) -> ProcessResult:
 
     if past_cutoff:
         selected = [w.user for w in waitlist_qs]
-        expires_at = now + (event.waitlist_cutoff_window or event.waitlist_time_window)
+        expires_at = event.start
         is_cutoff = True
     elif event.waitlist_batch_size == 0:
         selected = [w.user for w in waitlist_qs[:available]]
@@ -134,6 +135,86 @@ def process_waitlist_for_event(event_id: uuid.UUID) -> ProcessResult:
     )
 
 
+def _count_attendees_and_pending(event: Event) -> tuple[int, int]:
+    """Return (attendee_count, capacity-reserving pending offer count) for an event.
+
+    Mirrors the counting logic used by ``process_waitlist_for_event`` and
+    ``_assert_capacity``: cutoff-batch offers do NOT count toward reserved
+    capacity, and cancelled tickets / non-YES RSVPs are excluded.
+    """
+    now = timezone.now()
+    if event.requires_ticket:
+        attendee_count = Ticket.objects.filter(event=event).exclude(status=Ticket.TicketStatus.CANCELLED).count()
+    else:
+        attendee_count = EventRSVP.objects.filter(event=event, status=EventRSVP.RsvpStatus.YES).count()
+    pending = WaitlistOffer.objects.filter(
+        event=event,
+        status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+        expires_at__gt=now,
+        is_cutoff_batch=False,
+    ).count()
+    return attendee_count, pending
+
+
+@transaction.atomic
+def create_admin_offer(
+    event_id: uuid.UUID,
+    user_id: uuid.UUID,
+    expires_at: datetime.datetime,
+) -> WaitlistOffer:
+    """Create a manual admin offer with capacity + uniqueness enforcement.
+
+    Locks the Event row, recomputes available capacity (excluding cutoff
+    offers), and rejects if no room. Raises ``ValueError("capacity")`` if
+    the event is already at capacity, or ``IntegrityError`` (propagated from
+    the unique constraint) if the user already has a PENDING offer.
+    """
+    event = Event.objects.select_for_update().get(pk=event_id)
+
+    if event.effective_capacity > 0:
+        attendee_count, pending = _count_attendees_and_pending(event)
+        if attendee_count + pending >= event.effective_capacity:
+            raise ValueError("capacity")
+
+    return WaitlistOffer.objects.create(
+        event_id=event_id,
+        user_id=user_id,
+        expires_at=expires_at,
+        batch_id=uuid.uuid4(),
+        is_cutoff_batch=False,
+    )
+
+
+@transaction.atomic
+def reactivate_admin_offer(
+    offer_id: uuid.UUID,
+    expires_at: datetime.datetime,
+) -> WaitlistOffer:
+    """Reactivate an EXPIRED/REVOKED offer back to PENDING.
+
+    Locks the Event row, enforces capacity, then flips the offer back to
+    PENDING with a fresh ``expires_at``. The caller is expected to validate
+    that the offer's current status is EXPIRED or REVOKED before invoking
+    this function. Raises ``ValueError("capacity")`` when the event has no
+    room, or ``IntegrityError`` if another PENDING offer for the same
+    (event, user) lands between the check and save.
+    """
+    offer = WaitlistOffer.objects.select_for_update().get(pk=offer_id)
+    event = Event.objects.select_for_update().get(pk=offer.event_id)
+
+    if event.effective_capacity > 0:
+        attendee_count, pending = _count_attendees_and_pending(event)
+        if attendee_count + pending >= event.effective_capacity:
+            raise ValueError("capacity")
+
+    offer.status = WaitlistOffer.WaitlistOfferStatus.PENDING
+    offer.expires_at = expires_at
+    offer.claimed_at = None
+    offer.notified_at = None
+    offer.save(update_fields=["status", "expires_at", "claimed_at", "notified_at"])
+    return offer
+
+
 @transaction.atomic
 def revoke_all_pending_offers(event_id: uuid.UUID) -> int:
     """Mark every PENDING WaitlistOffer for an event as REVOKED.
@@ -151,8 +232,8 @@ def revoke_all_pending_offers(event_id: uuid.UUID) -> int:
     """
     return (
         WaitlistOffer.objects.select_for_update()
-        .filter(event_id=event_id, status=WaitlistOffer.Status.PENDING)
-        .update(status=WaitlistOffer.Status.REVOKED)
+        .filter(event_id=event_id, status=WaitlistOffer.WaitlistOfferStatus.PENDING)
+        .update(status=WaitlistOffer.WaitlistOfferStatus.REVOKED)
     )
 
 

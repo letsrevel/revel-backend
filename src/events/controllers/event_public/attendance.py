@@ -209,13 +209,13 @@ class EventPublicAttendanceController(EventPublicBaseController):
                 .filter(
                     event=event,
                     user=user,
-                    status=models.WaitlistOffer.Status.PENDING,
+                    status=models.WaitlistOffer.WaitlistOfferStatus.PENDING,
                     expires_at__gt=timezone.now(),
                 )
                 .first()
             )
             if offer is not None:
-                offer.status = models.WaitlistOffer.Status.EXPIRED
+                offer.status = models.WaitlistOffer.WaitlistOfferStatus.EXPIRED
                 offer.save(update_fields=["status"])
                 had_offer = True
             models.EventWaitList.objects.filter(event=event, user=user).delete()

@@ -87,7 +87,7 @@ def test_marks_notified_at(event: Event, revel_user_factory: RevelUserFactory) -
 def test_skips_non_pending_offer(event: Event, revel_user_factory: RevelUserFactory) -> None:
     u = revel_user_factory()
     offer = _make_offer(event, u)
-    offer.status = WaitlistOffer.Status.EXPIRED
+    offer.status = WaitlistOffer.WaitlistOfferStatus.EXPIRED
     offer.save(update_fields=["status"])
 
     with mock.patch(_NOTIFICATION_REQUESTED_PATH) as mocked:
@@ -106,7 +106,7 @@ def test_skips_already_expired_pending_offer(event: Event, revel_user_factory: R
         expires_at=timezone.now() - dt.timedelta(minutes=1),
         batch_id=uuid.uuid4(),
     )
-    assert offer.status == WaitlistOffer.Status.PENDING  # past expiry, not yet swept
+    assert offer.status == WaitlistOffer.WaitlistOfferStatus.PENDING  # past expiry, not yet swept
 
     with mock.patch(_NOTIFICATION_REQUESTED_PATH) as mocked:
         result = send_waitlist_offer_notification_task(str(offer.id))

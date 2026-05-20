@@ -128,7 +128,7 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
 
         return WaitlistOffer.objects.filter(
             event=obj,
-            status=WaitlistOffer.Status.PENDING,
+            status=WaitlistOffer.WaitlistOfferStatus.PENDING,
             expires_at__gt=timezone.now(),
             is_cutoff_batch=False,
         ).count()
