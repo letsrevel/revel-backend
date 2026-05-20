@@ -1,6 +1,7 @@
 """Tests for the reactivate, manual-create, and schema-enrichment waitlist features."""
 
 import datetime as dt
+import typing as t
 import uuid
 from unittest import mock
 
@@ -29,6 +30,7 @@ def test_reactivate_expired_offer_resets_status_and_expiry(
     organization_owner_client: Client,
     event: Event,
     revel_user_factory: RevelUserFactory,
+    django_capture_on_commit_callbacks: t.Any,
 ) -> None:
     _set_window(event)
     user = revel_user_factory()
@@ -43,7 +45,8 @@ def test_reactivate_expired_offer_resets_status_and_expiry(
     url = reverse("api:reactivate_waitlist_offer", kwargs={"event_id": event.pk, "offer_id": offer.pk})
 
     with mock.patch("events.tasks.send_waitlist_offer_notification_task") as task_mock:
-        response = organization_owner_client.post(url, data=orjson.dumps({}), content_type="application/json")
+        with django_capture_on_commit_callbacks(execute=True):
+            response = organization_owner_client.post(url, data=orjson.dumps({}), content_type="application/json")
 
     assert response.status_code == 200, response.content
     offer.refresh_from_db()
@@ -102,6 +105,26 @@ def test_reactivate_already_pending_returns_404(
     assert response.status_code == 404
 
 
+def test_reactivate_already_claimed_returns_404(
+    organization_owner_client: Client,
+    event: Event,
+    revel_user_factory: RevelUserFactory,
+) -> None:
+    """Only EXPIRED / REVOKED offers may be reactivated; CLAIMED is not eligible."""
+    _set_window(event)
+    offer = WaitlistOffer.objects.create(
+        event=event,
+        user=revel_user_factory(),
+        expires_at=timezone.now() + dt.timedelta(hours=1),
+        batch_id=uuid.uuid4(),
+        status=WaitlistOffer.Status.CLAIMED,
+        claimed_at=timezone.now(),
+    )
+    url = reverse("api:reactivate_waitlist_offer", kwargs={"event_id": event.pk, "offer_id": offer.pk})
+    response = organization_owner_client.post(url, data=orjson.dumps({}), content_type="application/json")
+    assert response.status_code == 404
+
+
 def test_reactivate_conflicts_with_other_pending_offer(
     organization_owner_client: Client,
     event: Event,
@@ -151,6 +174,7 @@ def test_reactivate_dispatches_notification(
     organization_owner_client: Client,
     event: Event,
     revel_user_factory: RevelUserFactory,
+    django_capture_on_commit_callbacks: t.Any,
 ) -> None:
     _set_window(event)
     offer = WaitlistOffer.objects.create(
@@ -162,9 +186,33 @@ def test_reactivate_dispatches_notification(
     )
     url = reverse("api:reactivate_waitlist_offer", kwargs={"event_id": event.pk, "offer_id": offer.pk})
     with mock.patch("events.tasks.send_waitlist_offer_notification_task") as task_mock:
-        response = organization_owner_client.post(url, data=orjson.dumps({}), content_type="application/json")
+        with django_capture_on_commit_callbacks(execute=True):
+            response = organization_owner_client.post(url, data=orjson.dumps({}), content_type="application/json")
     assert response.status_code == 200
     task_mock.delay.assert_called_once_with(str(offer.id))
+
+
+def test_reactivate_does_not_dispatch_before_commit(
+    organization_owner_client: Client,
+    event: Event,
+    revel_user_factory: RevelUserFactory,
+) -> None:
+    """Notification task must be scheduled via on_commit, not fired immediately."""
+    _set_window(event)
+    offer = WaitlistOffer.objects.create(
+        event=event,
+        user=revel_user_factory(),
+        expires_at=timezone.now() - dt.timedelta(hours=1),
+        batch_id=uuid.uuid4(),
+        status=WaitlistOffer.Status.EXPIRED,
+    )
+    url = reverse("api:reactivate_waitlist_offer", kwargs={"event_id": event.pk, "offer_id": offer.pk})
+    # Without django_capture_on_commit_callbacks, the test runs inside an
+    # outer transaction that never commits, so the on_commit hook never fires.
+    with mock.patch("events.tasks.send_waitlist_offer_notification_task") as task_mock:
+        response = organization_owner_client.post(url, data=orjson.dumps({}), content_type="application/json")
+    assert response.status_code == 200
+    task_mock.delay.assert_not_called()
 
 
 # ---------- Manual create offer ----------
@@ -174,17 +222,19 @@ def test_create_offer_from_entry(
     organization_owner_client: Client,
     event: Event,
     revel_user_factory: RevelUserFactory,
+    django_capture_on_commit_callbacks: t.Any,
 ) -> None:
     _set_window(event)
     user = revel_user_factory()
     entry = EventWaitList.objects.create(event=event, user=user)
     url = reverse("api:create_waitlist_offer", kwargs={"event_id": event.pk})
     with mock.patch("events.tasks.send_waitlist_offer_notification_task") as task_mock:
-        response = organization_owner_client.post(
-            url,
-            data=orjson.dumps({"waitlist_entry_id": str(entry.pk)}),
-            content_type="application/json",
-        )
+        with django_capture_on_commit_callbacks(execute=True):
+            response = organization_owner_client.post(
+                url,
+                data=orjson.dumps({"waitlist_entry_id": str(entry.pk)}),
+                content_type="application/json",
+            )
     assert response.status_code == 201, response.content
     body = response.json()
     assert body["status"] == WaitlistOffer.Status.PENDING.value
@@ -277,17 +327,19 @@ def test_create_offer_dispatches_notification(
     organization_owner_client: Client,
     event: Event,
     revel_user_factory: RevelUserFactory,
+    django_capture_on_commit_callbacks: t.Any,
 ) -> None:
     _set_window(event)
     user = revel_user_factory()
     entry = EventWaitList.objects.create(event=event, user=user)
     url = reverse("api:create_waitlist_offer", kwargs={"event_id": event.pk})
     with mock.patch("events.tasks.send_waitlist_offer_notification_task") as task_mock:
-        response = organization_owner_client.post(
-            url,
-            data=orjson.dumps({"waitlist_entry_id": str(entry.pk)}),
-            content_type="application/json",
-        )
+        with django_capture_on_commit_callbacks(execute=True):
+            response = organization_owner_client.post(
+                url,
+                data=orjson.dumps({"waitlist_entry_id": str(entry.pk)}),
+                content_type="application/json",
+            )
     assert response.status_code == 201
     body = response.json()
     task_mock.delay.assert_called_once_with(body["id"])

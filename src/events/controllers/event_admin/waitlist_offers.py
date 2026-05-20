@@ -3,6 +3,7 @@
 import uuid
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -124,7 +125,10 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
 
         event = self.get_one(event_id)
         offer = get_object_or_404(models.WaitlistOffer, pk=offer_id, event=event)
-        if offer.status == models.WaitlistOffer.Status.PENDING:
+        if offer.status not in {
+            models.WaitlistOffer.Status.EXPIRED,
+            models.WaitlistOffer.Status.REVOKED,
+        }:
             raise HttpError(404, "Offer not found.")
         if event.waitlist_time_window is None:
             raise HttpError(400, "Waitlist time window is not configured for this event.")
@@ -147,7 +151,8 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         offer.claimed_at = None
         offer.notified_at = None
         offer.save(update_fields=["status", "expires_at", "claimed_at", "notified_at"])
-        send_waitlist_offer_notification_task.delay(str(offer.id))
+        offer_id_str = str(offer.id)
+        transaction.on_commit(lambda: send_waitlist_offer_notification_task.delay(offer_id_str))
         return offer
 
     @route.post(
@@ -190,5 +195,6 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
             batch_id=uuid.uuid4(),
             is_cutoff_batch=False,
         )
-        send_waitlist_offer_notification_task.delay(str(offer.id))
+        offer_id_str = str(offer.id)
+        transaction.on_commit(lambda: send_waitlist_offer_notification_task.delay(offer_id_str))
         return 201, offer
