@@ -120,10 +120,12 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
 
         The offer is reset to ``PENDING`` with a fresh ``expires_at`` (the body's
         value if provided, otherwise ``now + event.waitlist_time_window``).
-        ``claimed_at`` and ``notified_at`` are cleared, and a new notification is
-        dispatched. Returns 404 if the offer is already PENDING, 400 when the
-        event has no ``waitlist_time_window`` configured, and 409 when the user
-        already has a different PENDING offer for the event.
+        When the global window is not configured, the payload **must** provide
+        an explicit ``expires_at``. ``claimed_at`` and ``notified_at`` are
+        cleared, and a new notification is dispatched. Returns 404 if the offer
+        is already PENDING, 400 when neither the event nor the payload defines
+        an expiry, and 409 when the user already has a different PENDING offer
+        for the event.
         """
         from events.tasks import send_waitlist_offer_notification_task
 
@@ -134,8 +136,12 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
             models.WaitlistOffer.WaitlistOfferStatus.REVOKED,
         }:
             raise HttpError(404, "Offer not found.")
-        if event.waitlist_time_window is None:
-            raise HttpError(400, "Waitlist time window is not configured for this event.")
+        payload_expires_at = payload.expires_at if payload else None
+        if event.waitlist_time_window is None and payload_expires_at is None:
+            raise HttpError(
+                400,
+                "Waitlist time window is not configured for this event. Provide expires_at in the payload.",
+            )
         conflict = (
             models.WaitlistOffer.objects.filter(
                 event=event,
@@ -148,9 +154,11 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         if conflict:
             raise HttpError(409, "User already has a pending offer for this event.")
 
-        expires_at = (
-            payload.expires_at if payload and payload.expires_at else (timezone.now() + event.waitlist_time_window)
-        )
+        if payload_expires_at is not None:
+            expires_at = payload_expires_at
+        else:
+            assert event.waitlist_time_window is not None  # narrowed by the guard above
+            expires_at = timezone.now() + event.waitlist_time_window
         try:
             offer = reactivate_admin_offer(event_id=event.id, offer_id=offer.pk, expires_at=expires_at)
         except ValueError as exc:
@@ -181,16 +189,22 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         """Manually create a PENDING offer for a user already on the waitlist.
 
         The offer is its own single-row batch (``batch_id`` is freshly generated,
-        ``is_cutoff_batch`` is False). Returns 404 when the waitlist entry does
-        not belong to this event, 400 when ``waitlist_time_window`` is unset, and
-        409 when the user already has a PENDING offer for this event. The
-        notification task is dispatched after the row is persisted.
+        ``is_cutoff_batch`` is False). ``expires_at`` defaults to
+        ``now + event.waitlist_time_window`` when omitted; when the global
+        window is not configured, the payload **must** provide an explicit
+        ``expires_at``. Returns 404 when the waitlist entry does not belong to
+        this event, 400 when neither the event nor the payload defines an
+        expiry, and 409 when the user already has a PENDING offer for this
+        event. The notification task is dispatched after the row is persisted.
         """
         from events.tasks import send_waitlist_offer_notification_task
 
         event = self.get_one(event_id)
-        if event.waitlist_time_window is None:
-            raise HttpError(400, "Waitlist time window is not configured for this event.")
+        if event.waitlist_time_window is None and payload.expires_at is None:
+            raise HttpError(
+                400,
+                "Waitlist time window is not configured for this event. Provide expires_at in the payload.",
+            )
         entry = get_object_or_404(models.EventWaitList, pk=payload.waitlist_entry_id, event=event)
         already_pending = models.WaitlistOffer.objects.filter(
             event=event,
@@ -200,7 +214,11 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         if already_pending:
             raise HttpError(409, "User already has a pending offer for this event.")
 
-        expires_at = payload.expires_at or (timezone.now() + event.waitlist_time_window)
+        if payload.expires_at is not None:
+            expires_at = payload.expires_at
+        else:
+            assert event.waitlist_time_window is not None  # narrowed by the guard above
+            expires_at = timezone.now() + event.waitlist_time_window
         try:
             offer = create_admin_offer(event_id=event.id, user_id=entry.user_id, expires_at=expires_at)
         except ValueError as exc:

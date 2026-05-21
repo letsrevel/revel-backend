@@ -336,9 +336,9 @@ Templates live under `notifications/templates/notifications/{email,in_app,telegr
 | `GET` | `/waitlist-settings` | `manage_event` | Returns `WaitlistSettingsSchema` |
 | `PATCH` | `/waitlist-settings` | `manage_event` | Updates waitlist config. `waitlist_open: True → False` revokes pending offers. |
 | `GET` | `/waitlist-offers` | `invite_to_event` | Paginated `WaitlistOfferSchema`, filterable by status |
-| `POST` | `/waitlist-offers` | `manage_event` | Manually create an offer for an existing `EventWaitList` entry |
+| `POST` | `/waitlist-offers` | `manage_event` | Manually create an offer for an existing `EventWaitList` entry. `expires_at` defaults to `now + event.waitlist_time_window`; when the global window is unset, the payload **must** provide an explicit `expires_at` (otherwise 400). |
 | `POST` | `/waitlist-offers/{offer_id}/revoke` | `manage_event` | Flip a PENDING offer to REVOKED and enqueue the next batch. The revoked user is soft-skipped from future auto-processing until reactivated or manually re-offered. |
-| `POST` | `/waitlist-offers/{offer_id}/reactivate` | `manage_event` | Reopen an EXPIRED or REVOKED offer (capacity-checked) |
+| `POST` | `/waitlist-offers/{offer_id}/reactivate` | `manage_event` | Reopen an EXPIRED or REVOKED offer (capacity-checked). Same `expires_at` precedence as manual create. |
 
 ### Capacity-aware admin overrides
 

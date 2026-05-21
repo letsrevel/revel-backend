@@ -151,11 +151,12 @@ def test_reactivate_conflicts_with_other_pending_offer(
     assert response.status_code == 409
 
 
-def test_reactivate_without_window_returns_400(
+def test_reactivate_without_window_or_payload_returns_400(
     organization_owner_client: Client,
     event: Event,
     revel_user_factory: RevelUserFactory,
 ) -> None:
+    """No global window AND no payload expires_at — nothing to compute the expiry from."""
     # Window is None by default; ensure it stays None
     assert event.waitlist_time_window is None
     offer = WaitlistOffer.objects.create(
@@ -168,6 +169,36 @@ def test_reactivate_without_window_returns_400(
     url = reverse("api:reactivate_waitlist_offer", kwargs={"event_id": event.pk, "offer_id": offer.pk})
     response = organization_owner_client.post(url, data=orjson.dumps({}), content_type="application/json")
     assert response.status_code == 400
+
+
+def test_reactivate_without_window_uses_payload_expires_at(
+    organization_owner_client: Client,
+    event: Event,
+    revel_user_factory: RevelUserFactory,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """Admin can reactivate a one-off offer without enabling the global window."""
+    assert event.waitlist_time_window is None
+    offer = WaitlistOffer.objects.create(
+        event=event,
+        user=revel_user_factory(),
+        expires_at=timezone.now() - dt.timedelta(hours=1),
+        batch_id=uuid.uuid4(),
+        status=WaitlistOffer.WaitlistOfferStatus.EXPIRED,
+    )
+    custom_expiry = (timezone.now() + dt.timedelta(hours=4)).isoformat()
+    url = reverse("api:reactivate_waitlist_offer", kwargs={"event_id": event.pk, "offer_id": offer.pk})
+    with mock.patch("events.tasks.send_waitlist_offer_notification_task"):
+        with django_capture_on_commit_callbacks(execute=True):
+            response = organization_owner_client.post(
+                url,
+                data=orjson.dumps({"expires_at": custom_expiry}),
+                content_type="application/json",
+            )
+    assert response.status_code == 200, response.content
+    offer.refresh_from_db()
+    assert offer.status == WaitlistOffer.WaitlistOfferStatus.PENDING
+    assert abs((offer.expires_at - dt.datetime.fromisoformat(custom_expiry)).total_seconds()) < 1
 
 
 def test_reactivate_dispatches_notification(
@@ -347,11 +378,12 @@ def test_create_offer_when_user_already_has_pending_returns_409(
     assert response.status_code == 409
 
 
-def test_create_offer_without_window_returns_400(
+def test_create_offer_without_window_or_payload_returns_400(
     organization_owner_client: Client,
     event: Event,
     revel_user_factory: RevelUserFactory,
 ) -> None:
+    """No global window AND no payload expires_at — nothing to compute the expiry from."""
     assert event.waitlist_time_window is None
     user = revel_user_factory()
     entry = EventWaitList.objects.create(event=event, user=user)
@@ -362,6 +394,28 @@ def test_create_offer_without_window_returns_400(
         content_type="application/json",
     )
     assert response.status_code == 400
+
+
+def test_create_offer_without_window_uses_payload_expires_at(
+    organization_owner_client: Client,
+    event: Event,
+    revel_user_factory: RevelUserFactory,
+) -> None:
+    """Admin can issue a one-off offer without enabling the global batch window."""
+    assert event.waitlist_time_window is None
+    user = revel_user_factory()
+    entry = EventWaitList.objects.create(event=event, user=user)
+    custom_expiry = (timezone.now() + dt.timedelta(hours=6)).isoformat()
+    url = reverse("api:create_waitlist_offer", kwargs={"event_id": event.pk})
+    with mock.patch("events.tasks.send_waitlist_offer_notification_task"):
+        response = organization_owner_client.post(
+            url,
+            data=orjson.dumps({"waitlist_entry_id": str(entry.pk), "expires_at": custom_expiry}),
+            content_type="application/json",
+        )
+    assert response.status_code == 201, response.content
+    offer = WaitlistOffer.objects.get(pk=response.json()["id"])
+    assert abs((offer.expires_at - dt.datetime.fromisoformat(custom_expiry)).total_seconds()) < 1
 
 
 def test_create_offer_race_loss_returns_409(
