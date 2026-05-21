@@ -7,16 +7,22 @@ on the poll row inside a ``transaction.atomic()`` block.
 """
 
 import typing as t
+from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
 
 from events.models.event import Event
 from events.models.organization import MembershipTier, Organization
-from polls.exceptions import PollLifecycleError
+from polls.exceptions import (
+    PollLifecycleError,
+    PollNotEligibleError,
+    PollNotOpenError,
+    PollVoteAlreadyCastError,
+)
 from polls.models import Poll
-from polls.schema import PollCreateSchema, PollReopenSchema, PollUpdateSchema
-from questionnaires.models import Questionnaire
+from polls.schema import PollCreateSchema, PollReopenSchema, PollUpdateSchema, PollVoteSchema
+from questionnaires.models import Questionnaire, QuestionnaireSubmission
 from questionnaires.schema import QuestionnaireCreateSchema
 from questionnaires.service import QuestionnaireService
 
@@ -200,3 +206,107 @@ def delete_poll(poll: Poll) -> None:
     """
     with transaction.atomic():
         Questionnaire.objects.filter(pk=poll.questionnaire_id).delete()
+
+
+# ----- vote / withdraw -----
+
+
+def vote(
+    *,
+    user: t.Any,
+    poll_id: UUID,
+    payload: PollVoteSchema,
+) -> QuestionnaireSubmission:
+    """Cast or replace a vote.
+
+    Acquires ``SELECT FOR UPDATE`` on the Poll row so that close races resolve
+    deterministically. Single submission per (user, questionnaire); replaced
+    in place when ``allow_vote_changes`` is True.
+    """
+    from polls.service import eligibility as _eligibility
+
+    with transaction.atomic():
+        poll = Poll.objects.select_for_update().get(pk=poll_id)
+
+        if poll.status != Poll.PollStatus.OPEN:
+            raise PollNotOpenError()
+        if not _eligibility.can_vote(user, poll):
+            raise PollNotEligibleError()
+
+        existing = QuestionnaireSubmission.objects.filter(user=user, questionnaire=poll.questionnaire).first()
+        if existing is not None and not poll.allow_vote_changes:
+            raise PollVoteAlreadyCastError()
+
+        if existing is None:
+            submission = QuestionnaireSubmission.objects.create(
+                user=user,
+                questionnaire=poll.questionnaire,
+                status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+                submitted_at=timezone.now(),
+            )
+        else:
+            submission = existing
+            submission.status = QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
+            submission.submitted_at = timezone.now()
+            submission.save(update_fields=["status", "submitted_at", "updated_at"])
+            _clear_answers(submission)
+
+        _write_answers(submission, payload)
+        return submission
+
+
+def withdraw_vote(*, user: t.Any, poll_id: UUID) -> None:
+    """Delete the user's submission for the poll.
+
+    Only valid while the poll is OPEN AND ``allow_vote_changes=True``.
+    """
+    with transaction.atomic():
+        poll = Poll.objects.select_for_update().get(pk=poll_id)
+        if poll.status != Poll.PollStatus.OPEN:
+            raise PollNotOpenError()
+        if not poll.allow_vote_changes:
+            raise PollVoteAlreadyCastError("Vote changes are not allowed for this poll.")
+        QuestionnaireSubmission.objects.filter(user=user, questionnaire=poll.questionnaire).delete()
+
+
+def _clear_answers(submission: QuestionnaireSubmission) -> None:
+    """Remove all answers tied to a submission prior to rewriting them."""
+    from questionnaires.models import FileUploadAnswer, FreeTextAnswer, MultipleChoiceAnswer
+
+    MultipleChoiceAnswer.objects.filter(submission=submission).delete()
+    FreeTextAnswer.objects.filter(submission=submission).delete()
+    FileUploadAnswer.objects.filter(submission=submission).delete()
+
+
+def _write_answers(submission: QuestionnaireSubmission, payload: PollVoteSchema) -> None:
+    """Materialise the vote payload as answer rows under ``submission``.
+
+    Validates that referenced questions belong to the submission's questionnaire
+    (and options to their question) via scoped lookups — bogus IDs raise
+    ``DoesNotExist`` inside the outer ``transaction.atomic`` and roll back.
+    """
+    from questionnaires.models import (
+        FileUploadAnswer,
+        FileUploadQuestion,
+        FreeTextAnswer,
+        FreeTextQuestion,
+        MultipleChoiceAnswer,
+        MultipleChoiceOption,
+        MultipleChoiceQuestion,
+        QuestionnaireFile,
+    )
+
+    for mc in payload.mc_answers:
+        mc_question = MultipleChoiceQuestion.objects.get(id=mc.question_id, questionnaire=submission.questionnaire)
+        for opt_id in mc.option_ids:
+            option = MultipleChoiceOption.objects.get(id=opt_id, question=mc_question)
+            MultipleChoiceAnswer.objects.create(submission=submission, question=mc_question, option=option)
+
+    for ft in payload.free_text_answers:
+        ft_question = FreeTextQuestion.objects.get(id=ft.question_id, questionnaire=submission.questionnaire)
+        FreeTextAnswer.objects.create(submission=submission, question=ft_question, answer=ft.answer)
+
+    for fu in payload.file_upload_answers:
+        fu_question = FileUploadQuestion.objects.get(id=fu.question_id, questionnaire=submission.questionnaire)
+        ans = FileUploadAnswer.objects.create(submission=submission, question=fu_question)
+        ans.files.set(QuestionnaireFile.objects.filter(uploader=submission.user, id__in=fu.file_ids))
