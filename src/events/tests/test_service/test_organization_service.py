@@ -11,7 +11,12 @@ from accounts.jwt import blacklist as blacklist_token
 from accounts.jwt import create_token
 from accounts.models import RevelUser
 from events import schema
-from events.exceptions import AlreadyMemberError, PendingMembershipRequestExistsError
+from events.exceptions import (
+    AlreadyMemberError,
+    OrganizationTokenGrantInvariantError,
+    OrganizationTokenStaffGrantForbidden,
+    PendingMembershipRequestExistsError,
+)
 from events.models import (
     MembershipTier,
     Organization,
@@ -645,3 +650,160 @@ class TestCreateOrganizationTokenValidation:
                 grants_membership=False,
                 grants_staff_status=False,
             )
+
+
+@pytest.mark.django_db
+class TestCreateOrganizationTokenFromPayload:
+    """Tests for ``organization_service.create_organization_token_from_payload``."""
+
+    def test_owner_can_create_staff_granting_token(
+        self, organization: Organization, organization_owner_user: RevelUser
+    ) -> None:
+        default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        payload = schema.OrganizationTokenCreateSchema(
+            name="Staff Token",
+            grants_membership=True,
+            grants_staff_status=True,
+            membership_tier_id=default_tier.id,
+        )
+
+        token = organization_service.create_organization_token_from_payload(
+            organization=organization, requested_by=organization_owner_user, payload=payload
+        )
+
+        assert token.grants_staff_status is True
+        assert token.membership_tier_id == default_tier.id
+
+    def test_non_owner_cannot_create_staff_granting_token(
+        self, organization: Organization, organization_staff_user: RevelUser
+    ) -> None:
+        default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        payload = schema.OrganizationTokenCreateSchema(
+            name="Staff Token",
+            grants_membership=True,
+            grants_staff_status=True,
+            membership_tier_id=default_tier.id,
+        )
+
+        with pytest.raises(OrganizationTokenStaffGrantForbidden):
+            organization_service.create_organization_token_from_payload(
+                organization=organization, requested_by=organization_staff_user, payload=payload
+            )
+
+    def test_non_owner_can_create_membership_only_token(
+        self, organization: Organization, organization_staff_user: RevelUser
+    ) -> None:
+        default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        payload = schema.OrganizationTokenCreateSchema(
+            name="Member Token",
+            grants_membership=True,
+            grants_staff_status=False,
+            membership_tier_id=default_tier.id,
+        )
+
+        token = organization_service.create_organization_token_from_payload(
+            organization=organization, requested_by=organization_staff_user, payload=payload
+        )
+
+        assert token.grants_membership is True
+        assert token.grants_staff_status is False
+
+
+@pytest.mark.django_db
+class TestUpdateOrganizationTokenService:
+    """Tests for the high-level ``organization_service.update_organization_token``."""
+
+    def test_grant_invariant_violation_raises(
+        self, organization: Organization, organization_token: OrganizationToken
+    ) -> None:
+        # Both grants explicitly set to False
+        payload = schema.OrganizationTokenUpdateSchema(grants_membership=False, grants_staff_status=False)
+
+        with pytest.raises(OrganizationTokenGrantInvariantError):
+            organization_service.update_organization_token(
+                organization_token, requested_by=organization.owner, payload=payload
+            )
+
+        organization_token.refresh_from_db()
+        assert organization_token.grants_membership is True
+
+    def test_non_owner_cannot_promote_token_to_staff(
+        self,
+        organization: Organization,
+        organization_token: OrganizationToken,
+        organization_staff_user: RevelUser,
+    ) -> None:
+        default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        payload = schema.OrganizationTokenUpdateSchema(
+            grants_staff_status=True, grants_membership=True, membership_tier_id=default_tier.id
+        )
+
+        with pytest.raises(OrganizationTokenStaffGrantForbidden):
+            organization_service.update_organization_token(
+                organization_token, requested_by=organization_staff_user, payload=payload
+            )
+
+        organization_token.refresh_from_db()
+        assert organization_token.grants_staff_status is False
+
+    def test_non_owner_cannot_touch_existing_staff_token(
+        self,
+        organization: Organization,
+        staff_organization_token: OrganizationToken,
+        organization_staff_user: RevelUser,
+    ) -> None:
+        payload = schema.OrganizationTokenUpdateSchema(name="renamed")
+
+        with pytest.raises(OrganizationTokenStaffGrantForbidden):
+            organization_service.update_organization_token(
+                staff_organization_token, requested_by=organization_staff_user, payload=payload
+            )
+
+    def test_owner_can_update_membership_tier(
+        self,
+        organization: Organization,
+        organization_token: OrganizationToken,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        new_tier = MembershipTier.objects.create(organization=organization, name="VIP")
+        payload = schema.OrganizationTokenUpdateSchema(membership_tier_id=new_tier.id)
+
+        updated = organization_service.update_organization_token(
+            organization_token, requested_by=organization_owner_user, payload=payload
+        )
+
+        assert updated.membership_tier_id == new_tier.id
+
+
+@pytest.mark.django_db
+class TestDeleteOrganizationTokenService:
+    """Tests for the high-level ``organization_service.delete_organization_token``."""
+
+    def test_owner_can_delete_staff_token(
+        self,
+        organization_owner_user: RevelUser,
+        staff_organization_token: OrganizationToken,
+    ) -> None:
+        token_id = staff_organization_token.id
+        organization_service.delete_organization_token(staff_organization_token, requested_by=organization_owner_user)
+        assert not OrganizationToken.objects.filter(pk=token_id).exists()
+
+    def test_non_owner_cannot_delete_staff_token(
+        self,
+        staff_organization_token: OrganizationToken,
+        organization_staff_user: RevelUser,
+    ) -> None:
+        with pytest.raises(OrganizationTokenStaffGrantForbidden):
+            organization_service.delete_organization_token(
+                staff_organization_token, requested_by=organization_staff_user
+            )
+        assert OrganizationToken.objects.filter(pk=staff_organization_token.id).exists()
+
+    def test_non_owner_can_delete_membership_only_token(
+        self,
+        organization_token: OrganizationToken,
+        organization_staff_user: RevelUser,
+    ) -> None:
+        token_id = organization_token.id
+        organization_service.delete_organization_token(organization_token, requested_by=organization_staff_user)
+        assert not OrganizationToken.objects.filter(pk=token_id).exists()
