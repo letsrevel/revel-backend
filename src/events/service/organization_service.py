@@ -16,7 +16,12 @@ from accounts.models import RevelUser
 from accounts.service.account import token_to_payload
 from common.models import SiteSettings
 from events import models, schema, tasks
-from events.exceptions import AlreadyMemberError, PendingMembershipRequestExistsError
+from events.exceptions import (
+    AlreadyMemberError,
+    OrganizationTokenGrantInvariantError,
+    OrganizationTokenStaffGrantForbidden,
+    PendingMembershipRequestExistsError,
+)
 from events.models import (
     MembershipTier,
     Organization,
@@ -286,6 +291,128 @@ def create_organization_token(
         grants_staff_status=grants_staff_status,
         membership_tier=membership_tier,
     )
+
+
+def _resolve_membership_tier(organization: Organization, tier_id: UUID | None) -> MembershipTier | None:
+    """Resolve a ``MembershipTier`` belonging to ``organization`` by id."""
+    if tier_id is None:
+        return None
+    return get_object_or_404(MembershipTier, pk=tier_id, organization=organization)
+
+
+def create_organization_token_from_payload(
+    *,
+    organization: Organization,
+    requested_by: RevelUser,
+    payload: schema.OrganizationTokenCreateSchema,
+) -> OrganizationToken:
+    """Create an organization token from an API payload.
+
+    Encapsulates the controller-side work that used to live in
+    ``create_organization_token`` view: owner-only privilege guard for
+    staff-granting tokens, membership-tier resolution, and dispatch to the
+    primitive ``create_organization_token`` constructor.
+
+    Args:
+        organization: The organization the token belongs to.
+        requested_by: The authenticated user issuing the create request.
+        payload: Validated create-schema from the API.
+
+    Returns:
+        The created ``OrganizationToken``.
+
+    Raises:
+        OrganizationTokenStaffGrantForbidden: When a non-owner tries to create
+            a staff-granting token.
+    """
+    if payload.grants_staff_status and organization.owner_id != requested_by.pk:
+        raise OrganizationTokenStaffGrantForbidden
+
+    data = payload.model_dump(exclude_unset=True)
+    tier_id = data.pop("membership_tier_id", None)
+    membership_tier = _resolve_membership_tier(organization, tier_id)
+
+    return create_organization_token(
+        organization=organization,
+        issuer=requested_by,
+        membership_tier=membership_tier,
+        **data,
+    )
+
+
+@transaction.atomic
+def update_organization_token(
+    token: OrganizationToken,
+    *,
+    requested_by: RevelUser,
+    payload: schema.OrganizationTokenUpdateSchema,
+) -> OrganizationToken:
+    """Update an organization token from an API payload.
+
+    Enforces the cross-field invariant (``grants_membership`` or
+    ``grants_staff_status`` must remain ``True``) and the owner-only guard
+    for any update that touches a staff-granting token (either the existing
+    token already grants staff, or the update would grant staff). Resolves
+    ``membership_tier_id`` to the corresponding ``MembershipTier`` and
+    persists changed fields only.
+
+    Args:
+        token: The token being updated.
+        requested_by: The authenticated user issuing the update request.
+        payload: Validated update-schema from the API.
+
+    Returns:
+        The refreshed ``OrganizationToken``.
+
+    Raises:
+        OrganizationTokenGrantInvariantError: When the resulting state would
+            disable both ``grants_membership`` and ``grants_staff_status``.
+        OrganizationTokenStaffGrantForbidden: When the requester is not the
+            organization owner but the token grants (or would grant) staff
+            status.
+    """
+    data = payload.model_dump(exclude_unset=True)
+
+    resulting_grants_staff = data.get("grants_staff_status", token.grants_staff_status)
+    resulting_grants_membership = data.get("grants_membership", token.grants_membership)
+    if not resulting_grants_membership and not resulting_grants_staff:
+        raise OrganizationTokenGrantInvariantError
+
+    touches_staff_grant = token.grants_staff_status or resulting_grants_staff
+    if touches_staff_grant and token.organization.owner_id != requested_by.pk:
+        raise OrganizationTokenStaffGrantForbidden
+
+    if "membership_tier_id" in data:
+        tier_id = data.pop("membership_tier_id")
+        data["membership_tier"] = _resolve_membership_tier(token.organization, tier_id)
+
+    if not data:
+        return token
+
+    for field, value in data.items():
+        setattr(token, field, value)
+    token.save(update_fields=list(data.keys()))
+    return token
+
+
+def delete_organization_token(
+    token: OrganizationToken,
+    *,
+    requested_by: RevelUser,
+) -> None:
+    """Delete an organization token, enforcing the owner-only guard.
+
+    Args:
+        token: The token to delete.
+        requested_by: The authenticated user issuing the delete request.
+
+    Raises:
+        OrganizationTokenStaffGrantForbidden: When the requester is not the
+            organization owner but the token grants staff status.
+    """
+    if token.grants_staff_status and token.organization.owner_id != requested_by.pk:
+        raise OrganizationTokenStaffGrantForbidden
+    token.delete()
 
 
 class OrgTokenRejection(t.NamedTuple):
