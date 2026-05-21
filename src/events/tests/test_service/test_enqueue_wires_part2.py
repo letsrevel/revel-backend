@@ -239,7 +239,7 @@ def test_update_event_capacity_increase_enqueues(
     url = reverse("api:edit_event", kwargs={"event_id": event.pk})
     payload = {"max_attendees": 10, "visibility": event.visibility}
 
-    with mock.patch("events.controllers.event_admin.core.enqueue_waitlist_processing") as mocked:
+    with mock.patch("events.service.event_update_service.enqueue_waitlist_processing") as mocked:
         response = owner_jwt_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 200
@@ -258,7 +258,7 @@ def test_update_event_capacity_unchanged_does_not_enqueue(
     url = reverse("api:edit_event", kwargs={"event_id": event.pk})
     payload = {"max_attendees": 5, "visibility": event.visibility}
 
-    with mock.patch("events.controllers.event_admin.core.enqueue_waitlist_processing") as mocked:
+    with mock.patch("events.service.event_update_service.enqueue_waitlist_processing") as mocked:
         response = owner_jwt_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 200
@@ -277,7 +277,7 @@ def test_update_event_capacity_decrease_does_not_enqueue(
     url = reverse("api:edit_event", kwargs={"event_id": event.pk})
     payload = {"max_attendees": 5, "visibility": event.visibility}
 
-    with mock.patch("events.controllers.event_admin.core.enqueue_waitlist_processing") as mocked:
+    with mock.patch("events.service.event_update_service.enqueue_waitlist_processing") as mocked:
         response = owner_jwt_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 200
@@ -299,7 +299,7 @@ def test_update_event_status_cancelled_revokes_offers(
 
     url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": "cancelled"})
 
-    with mock.patch("events.controllers.event_admin.core.revoke_all_pending_offers") as mocked:
+    with mock.patch("events.service.event_update_service.revoke_all_pending_offers") as mocked:
         response = owner_jwt_client.post(url, data="{}", content_type="application/json")
 
     assert response.status_code == 200
@@ -317,7 +317,7 @@ def test_update_event_status_uncancel_enqueues(
 
     url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": "open"})
 
-    with mock.patch("events.controllers.event_admin.core.enqueue_waitlist_processing") as mocked:
+    with mock.patch("events.service.event_update_service.enqueue_waitlist_processing") as mocked:
         response = owner_jwt_client.post(url, data="{}", content_type="application/json")
 
     assert response.status_code == 200
@@ -335,8 +335,8 @@ def test_update_event_status_open_to_open_no_revoke_no_enqueue(
     url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": "open"})
 
     with (
-        mock.patch("events.controllers.event_admin.core.enqueue_waitlist_processing") as enqueue_mock,
-        mock.patch("events.controllers.event_admin.core.revoke_all_pending_offers") as revoke_mock,
+        mock.patch("events.service.event_update_service.enqueue_waitlist_processing") as enqueue_mock,
+        mock.patch("events.service.event_update_service.revoke_all_pending_offers") as revoke_mock,
     ):
         response = owner_jwt_client.post(url, data="{}", content_type="application/json")
 
@@ -356,7 +356,7 @@ def test_update_event_waitlist_open_true_to_false_revokes(
     url = reverse("api:edit_event", kwargs={"event_id": event.pk})
     payload = {"waitlist_open": False, "visibility": event.visibility}
 
-    with mock.patch("events.controllers.event_admin.core.revoke_all_pending_offers") as mocked:
+    with mock.patch("events.service.event_update_service.revoke_all_pending_offers") as mocked:
         response = owner_jwt_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 200
@@ -374,7 +374,7 @@ def test_update_event_waitlist_open_false_to_true_does_not_revoke(
     url = reverse("api:edit_event", kwargs={"event_id": event.pk})
     payload = {"waitlist_open": True, "visibility": event.visibility}
 
-    with mock.patch("events.controllers.event_admin.core.revoke_all_pending_offers") as mocked:
+    with mock.patch("events.service.event_update_service.revoke_all_pending_offers") as mocked:
         response = owner_jwt_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 200
