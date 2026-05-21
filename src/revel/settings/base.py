@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     "common",
     "events",
     "questionnaires",
+    "polls",
     "telegram",
     "geo",
     "notifications",
