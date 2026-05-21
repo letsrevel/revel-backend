@@ -27,3 +27,15 @@ class OrganizationTokenGrantInvariantError(Exception):
 
 class OrganizationTokenMembershipTierRequiredError(Exception):
     """Raised when an organization-token update would leave ``grants_membership=True`` with no ``membership_tier``."""
+
+
+class TicketAlreadyCancelledError(Exception):
+    """Raised when attempting to cancel/refund a ticket that is already in CANCELLED state."""
+
+
+class StripeNotConnectedError(Exception):
+    """Raised when an online-payment tier cannot be created/updated because the org has no Stripe Connect."""
+
+
+class BillingInfoRequiredError(Exception):
+    """Raised when an online-payment tier with platform fees lacks the organization's billing info."""

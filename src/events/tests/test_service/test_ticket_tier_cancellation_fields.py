@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from events.models import Event, TicketTier
+from events.schema import TicketTierCreateSchema, TicketTierUpdateSchema
 from events.service import ticket_service
 
 pytestmark = pytest.mark.django_db
@@ -13,9 +14,8 @@ pytestmark = pytest.mark.django_db
 
 def test_create_ticket_tier_persists_cancellation_fields(event: Event) -> None:
     """create_ticket_tier should persist allow_user_cancellation, cancellation_deadline_hours, and refund_policy."""
-    tier = ticket_service.create_ticket_tier(
-        event=event,
-        tier_data={
+    payload = TicketTierCreateSchema.model_validate(
+        {
             "name": "VIP",
             "price": Decimal("50"),
             "allow_user_cancellation": True,
@@ -24,9 +24,9 @@ def test_create_ticket_tier_persists_cancellation_fields(event: Event) -> None:
                 "tiers": [{"hours_before_event": 24, "refund_percentage": "50"}],
                 "flat_fee": "0",
             },
-        },
-        restricted_to_membership_tiers_ids=None,
+        }
     )
+    tier = ticket_service.create_ticket_tier(event=event, payload=payload)
     tier.refresh_from_db()
     assert tier.allow_user_cancellation is True
     assert tier.cancellation_deadline_hours == 24
@@ -42,8 +42,7 @@ def test_update_ticket_tier_clears_refund_policy(tier_factory: t.Callable[..., T
             "flat_fee": "0",
         }
     )
-    ticket_service.update_ticket_tier(
-        tier=tier, tier_data={"refund_policy": None}, restricted_to_membership_tiers_ids=None
-    )
+    payload = TicketTierUpdateSchema.model_validate({"refund_policy": None})
+    ticket_service.update_ticket_tier(tier=tier, payload=payload)
     tier.refresh_from_db()
     assert tier.refund_policy is None
