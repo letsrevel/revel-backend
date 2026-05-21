@@ -714,18 +714,21 @@ class TestUpdateOrganizationTokenService:
     """Tests for the high-level ``organization_service.update_organization_token``."""
 
     def test_grant_invariant_violation_raises(
-        self, organization: Organization, organization_token: OrganizationToken
+        self, organization: Organization, staff_organization_token: OrganizationToken
     ) -> None:
-        # Both grants explicitly set to False
-        payload = schema.OrganizationTokenUpdateSchema(grants_membership=False, grants_staff_status=False)
+        # The staff token already has grants_membership=False. A partial update
+        # that flips grants_staff_status=False would leave both False, which the
+        # schema's "both explicitly set" validator misses (only one field is in
+        # model_fields_set). The service-side check catches it as defense-in-depth.
+        payload = schema.OrganizationTokenUpdateSchema(grants_staff_status=False)
 
         with pytest.raises(OrganizationTokenGrantInvariantError):
             organization_service.update_organization_token(
-                organization_token, requested_by=organization.owner, payload=payload
+                staff_organization_token, requested_by=organization.owner, payload=payload
             )
 
-        organization_token.refresh_from_db()
-        assert organization_token.grants_membership is True
+        staff_organization_token.refresh_from_db()
+        assert staff_organization_token.grants_staff_status is True
 
     def test_non_owner_cannot_promote_token_to_staff(
         self,
