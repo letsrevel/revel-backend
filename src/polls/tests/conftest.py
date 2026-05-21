@@ -4,8 +4,11 @@ import typing as t
 from datetime import timedelta
 
 import pytest
+from django.test.client import Client
 from django.utils import timezone
+from ninja_jwt.tokens import RefreshToken
 
+from accounts.models import RevelUser
 from events.models.event import Event
 from events.models.organization import Organization
 from questionnaires.models import Questionnaire
@@ -22,6 +25,20 @@ def organization(revel_user_factory: t.Any) -> Organization:
 def questionnaire() -> Questionnaire:
     """A Questionnaire to back a Poll."""
     return Questionnaire.objects.create(name="Polls Test Questionnaire")
+
+
+@pytest.fixture
+def authenticated_client(revel_user_factory: t.Any) -> Client:
+    """An authenticated test client for a freshly created user."""
+    user: RevelUser = revel_user_factory()
+    refresh = RefreshToken.for_user(user)
+    return Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
+
+
+@pytest.fixture
+def anonymous_client() -> Client:
+    """An anonymous (unauthenticated) test client."""
+    return Client()
 
 
 @pytest.fixture
