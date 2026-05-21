@@ -83,6 +83,7 @@ def create_event_token(
     return EventToken.objects.select_related("event").prefetch_related("ticket_tiers").get(pk=token.pk)
 
 
+@transaction.atomic
 def update_event_token(token: EventToken, payload: EventTokenUpdateSchema) -> EventToken:
     """Update an existing event token's configuration.
 
@@ -90,7 +91,9 @@ def update_event_token(token: EventToken, payload: EventTokenUpdateSchema) -> Ev
     via a targeted ``.objects.filter(pk=...).update(...)`` (deliberately avoiding
     ``instance.save()`` so as not to overwrite concurrent ``uses`` increments
     happening in ``claim_invitation``), and replaces the M2M tier set when
-    ``ticket_tier_ids`` is provided in the payload.
+    ``ticket_tier_ids`` is provided in the payload. The scalar update and
+    the M2M replacement are wrapped in a single transaction so a failure
+    in either leaves the token unchanged.
 
     Args:
         token: The EventToken to update.
