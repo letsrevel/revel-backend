@@ -309,8 +309,15 @@ class TestExportSubmissionsEndpoint:
 # --- Attendee Export Endpoint Tests ---
 
 
+@pytest.mark.django_db(transaction=True)
 class TestExportAttendeesEndpoint:
-    """Tests for POST /event-admin/{event_id}/export-attendees."""
+    """Tests for POST /event-admin/{event_id}/export-attendees.
+
+    Uses ``transaction=True`` because the underlying service schedules the
+    export task via ``transaction.on_commit``. In default pytest-django mode
+    the wrapping transaction is rolled back and the callback never fires,
+    breaking the ``mock_task.delay`` assertions.
+    """
 
     @patch("events.tasks.generate_attendee_export_task")
     def test_returns_202_for_owner(

@@ -9,18 +9,49 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, F
 from django.shortcuts import get_object_or_404
 from django.utils import formats, timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, EventInvitation, EventRSVP, MembershipTier, OrganizationMember, Ticket, TicketTier
+from events.exceptions import (
+    BillingInfoRequiredError,
+    StripeNotConnectedError,
+    TicketAlreadyCancelledError,
+)
+from events.models import (
+    Event,
+    EventInvitation,
+    EventRSVP,
+    MembershipTier,
+    Organization,
+    OrganizationMember,
+    Payment,
+    Ticket,
+    TicketTier,
+)
 from events.models.mixins import VisibilityMixin
+from events.models.ticket import CancellationSource
+from events.service.waitlist_service import enqueue_waitlist_processing
 
 if t.TYPE_CHECKING:
+    from common.models import FileExport
+    from events.schema import TicketTierCreateSchema, TicketTierUpdateSchema
     from events.service.event_manager import EventUserEligibility
+
+
+# Translated messages exposed for HTTP mapping at the controller layer. Keeping
+# them next to the typed exceptions lets the service own the canonical wording
+# while the controller only maps the exception to a status code.
+TICKET_ALREADY_CANCELLED_MESSAGE = _("Ticket already cancelled")
+STRIPE_NOT_CONNECTED_MESSAGE = _("You must connect to Stripe first.")
+BILLING_INFO_REQUIRED_MESSAGE = _(
+    "Billing information is required for online ticket sales with platform fees."
+    " Please set your billing name, country and billing address"
+    " in your organization's billing settings."
+)
 
 
 @dataclass
@@ -468,51 +499,39 @@ def check_in_ticket(
 
 
 @transaction.atomic
-def create_ticket_tier(
-    event: Event, tier_data: dict[str, t.Any], restricted_to_membership_tiers_ids: list[UUID] | None = None
-) -> TicketTier:
-    """Create a ticket tier with membership tier restrictions.
+def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> TicketTier:
+    """Create a ticket tier from a typed payload, validating online prerequisites and M2M restrictions.
 
     Args:
-        event: The event for this ticket tier
-        tier_data: Dictionary of TicketTier model fields
-        restricted_to_membership_tiers_ids: Optional list of MembershipTier IDs to restrict this tier to
+        event: The event for this ticket tier.
+        payload: The validated ``TicketTierCreateSchema`` payload.
 
     Returns:
-        Created TicketTier instance
+        The newly-created tier, re-fetched via ``with_venue_and_sector()`` for serialization.
 
     Raises:
-        Http404: If any membership tier ID doesn't exist or doesn't belong to event's organization
+        StripeNotConnectedError: When the tier is online-payment but the org has no Stripe Connect.
+        BillingInfoRequiredError: When the tier is online-payment with platform fees and the
+            org has incomplete billing info.
+        HttpError 404: If any provided membership tier ID is invalid or belongs to another org.
 
     Note:
-        TimeStampedModel.save() automatically calls full_clean() before saving.
-        After setting M2M relationships, we call full_clean() again to validate them.
+        ``mode="json"`` is used when dumping the payload so nested Pydantic models
+        (e.g. ``refund_policy``) and ``Decimal`` are coerced to JSON-serializable primitives;
+        the JSONField's default encoder relies on this during ``full_clean()``.
     """
+    check_online_tier_prerequisites(event.organization, payload.payment_method)
+
+    payload_dict = payload.model_dump(exclude_unset=True, mode="json")
+    restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
+
     # Create the ticket tier (save() will call full_clean() automatically)
-    tier = TicketTier.objects.create(event=event, **tier_data)
+    tier = TicketTier.objects.create(event=event, **payload_dict)
 
-    # Handle membership tier restrictions
     if restricted_to_membership_tiers_ids:
-        # Fetch and validate membership tiers
-        membership_tiers = MembershipTier.objects.filter(
-            id__in=restricted_to_membership_tiers_ids, organization=event.organization
-        )
+        _set_tier_membership_restrictions(tier, restricted_to_membership_tiers_ids, event.organization)
 
-        # Ensure all provided IDs exist and belong to the organization
-        if membership_tiers.count() != len(restricted_to_membership_tiers_ids):
-            # Transaction will rollback automatically due to exception
-            raise HttpError(
-                404,
-                str(_("One or more membership tier IDs are invalid or don't belong to the event's organization.")),
-            )
-
-        # Set the M2M relationship
-        tier.restricted_to_membership_tiers.set(membership_tiers)
-
-        # Validate M2M relationships (TicketTier.clean() checks membership tiers)
-        tier.full_clean()
-
-    return tier
+    return TicketTier.objects.with_venue_and_sector().get(pk=tier.pk)
 
 
 @transaction.atomic
@@ -540,59 +559,238 @@ def reorder_ticket_tiers(event: Event, tier_ids: list[UUID]) -> None:
 
 
 @transaction.atomic
-def update_ticket_tier(
-    tier: TicketTier, tier_data: dict[str, t.Any], restricted_to_membership_tiers_ids: list[UUID] | None = None
-) -> TicketTier:
-    """Update a ticket tier with membership tier restrictions.
+def update_ticket_tier(tier: TicketTier, payload: "TicketTierUpdateSchema") -> TicketTier:
+    """Update a ticket tier from a typed payload, validating online prerequisites and M2M restrictions.
 
     Args:
-        tier: The TicketTier instance to update
-        tier_data: Dictionary of fields to update
-        restricted_to_membership_tiers_ids: Optional list of MembershipTier IDs (replaces existing)
-            - If list provided: replaces all restrictions with new list
-            - If empty list provided: clears all restrictions
-            - If None (not provided): preserves existing restrictions
+        tier: The ``TicketTier`` instance to update.
+        payload: The validated ``TicketTierUpdateSchema`` payload.
 
     Returns:
-        Updated TicketTier instance
+        The updated tier, re-fetched via ``with_venue_and_sector()`` for serialization.
 
     Raises:
-        Http404: If any membership tier ID doesn't exist or doesn't belong to event's organization
+        StripeNotConnectedError: When transitioning to online payment but org has no Stripe Connect.
+        BillingInfoRequiredError: When transitioning to online payment with platform fees and the
+            org has incomplete billing info.
+        HttpError 404: If any provided membership tier ID is invalid or belongs to another org.
 
     Note:
-        TimeStampedModel.save() automatically calls full_clean() before saving.
-        After updating M2M relationships, we call full_clean() again to validate them.
+        ``restricted_to_membership_tiers_ids`` semantics:
+            - non-empty list -> replace all restrictions
+            - empty list     -> clear all restrictions
+            - omitted (None) -> preserve existing restrictions
+
+        ``mode="json"`` see ``create_ticket_tier`` above.
     """
+    payload_dict = payload.model_dump(exclude_unset=True, mode="json")
+    restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
+
+    if payload.payment_method is not None:
+        check_online_tier_prerequisites(tier.event.organization, payload.payment_method)
+
     # Update regular fields
-    for field, value in tier_data.items():
+    for field, value in payload_dict.items():
         setattr(tier, field, value)
 
-    if tier_data:
+    if payload_dict:
         # save() will call full_clean() automatically via TimeStampedModel
-        tier.save(update_fields=list(tier_data.keys()))
+        tier.save(update_fields=list(payload_dict.keys()))
 
     # Handle membership tier restrictions update
     if restricted_to_membership_tiers_ids is not None:
         if restricted_to_membership_tiers_ids:
-            # Fetch and validate membership tiers
-            membership_tiers = MembershipTier.objects.filter(
-                id__in=restricted_to_membership_tiers_ids, organization=tier.event.organization
-            )
-
-            # Ensure all provided IDs exist and belong to the organization
-            if membership_tiers.count() != len(restricted_to_membership_tiers_ids):
-                raise HttpError(
-                    404,
-                    str(_("One or more membership tier IDs are invalid or don't belong to the event's organization.")),
-                )
-
-            # Replace the M2M relationship
-            tier.restricted_to_membership_tiers.set(membership_tiers)
+            _set_tier_membership_restrictions(tier, restricted_to_membership_tiers_ids, tier.event.organization)
         else:
             # Empty list means clear all restrictions
             tier.restricted_to_membership_tiers.clear()
+            # Validate M2M relationships (TicketTier.clean() checks membership tiers and purchasable_by logic)
+            tier.full_clean()
 
-        # Validate M2M relationships (TicketTier.clean() checks membership tiers and purchasable_by logic)
-        tier.full_clean()
+    return TicketTier.objects.with_venue_and_sector().get(pk=tier.pk)
 
-    return tier
+
+def _set_tier_membership_restrictions(
+    tier: TicketTier, restricted_to_membership_tiers_ids: list[UUID], organization: "Organization"
+) -> None:
+    """Validate membership tier IDs against the organization, then set them on the tier.
+
+    Raises:
+        HttpError 404: If any ID is unknown or belongs to a different organization.
+    """
+    membership_tiers = MembershipTier.objects.filter(
+        id__in=restricted_to_membership_tiers_ids, organization=organization
+    )
+
+    if membership_tiers.count() != len(restricted_to_membership_tiers_ids):
+        raise HttpError(
+            404,
+            str(_("One or more membership tier IDs are invalid or don't belong to the event's organization.")),
+        )
+
+    tier.restricted_to_membership_tiers.set(membership_tiers)
+    # Validate M2M relationships (TicketTier.clean() checks membership tiers and purchasable_by logic)
+    tier.full_clean()
+
+
+def check_online_tier_prerequisites(org: "Organization", payment_method: TicketTier.PaymentMethod) -> None:
+    """Validate prerequisites for creating/updating an online-payment ticket tier.
+
+    Args:
+        org: The owning organization.
+        payment_method: The tier's payment method.
+
+    Raises:
+        StripeNotConnectedError: If Stripe Connect is not enabled on the organization.
+        BillingInfoRequiredError: If platform fees are non-zero but billing info is incomplete.
+    """
+    if payment_method != TicketTier.PaymentMethod.ONLINE:
+        return
+
+    if not org.is_stripe_connected:
+        raise StripeNotConnectedError
+
+    has_platform_fees = org.platform_fee_percent > 0 or org.platform_fee_fixed > 0
+    missing_billing = not org.vat_country_code or not org.billing_address or not org.billing_name
+    if has_platform_fees and missing_billing:
+        raise BillingInfoRequiredError
+
+
+def _cancel_offline_ticket_core(
+    ticket: Ticket,
+    *,
+    cancelled_by: RevelUser,
+    reason: str,
+) -> None:
+    """Apply the shared cancellation primitive: tier decrement + ticket cancel fields + waitlist enqueue.
+
+    This mutates ``ticket`` in place (status, cancelled_at, cancelled_by, cancellation_source,
+    cancellation_reason). It must be called inside a ``transaction.atomic()`` block by the caller
+    (``cancel_offline_ticket`` / ``mark_offline_ticket_refunded``) with the ticket row already
+    locked via ``select_for_update`` to prevent concurrent double-decrement.
+
+    The tier decrement uses ``F("quantity_sold") - 1`` guarded by ``quantity_sold__gt=0`` so the
+    counter can never drop below zero (race-safe and floor-safe).
+    """
+    TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(quantity_sold=F("quantity_sold") - 1)
+
+    ticket.status = Ticket.TicketStatus.CANCELLED
+    ticket.cancelled_at = timezone.now()
+    ticket.cancelled_by = cancelled_by
+    ticket.cancellation_source = CancellationSource.ORGANIZER
+    ticket.cancellation_reason = reason
+    ticket.save(
+        update_fields=[
+            "status",
+            "cancelled_at",
+            "cancelled_by",
+            "cancellation_source",
+            "cancellation_reason",
+        ]
+    )
+
+    enqueue_waitlist_processing(ticket.event_id)
+
+
+@transaction.atomic
+def cancel_offline_ticket(
+    ticket: Ticket,
+    *,
+    cancelled_by: RevelUser,
+    reason: str | None = None,
+) -> Ticket:
+    """Cancel an offline/at-the-door ticket and record organizer audit fields.
+
+    The ticket row is re-fetched with ``select_for_update`` inside the atomic block
+    so concurrent cancel/refund requests serialize on the row lock and cannot both
+    pass the status check and double-decrement ``TicketTier.quantity_sold``.
+
+    Args:
+        ticket: The ticket to cancel.
+        cancelled_by: The organizer performing the cancellation.
+        reason: Optional free-text cancellation reason.
+
+    Returns:
+        The re-fetched ticket via ``full()`` for response serialization.
+
+    Raises:
+        TicketAlreadyCancelledError: If the ticket is already CANCELLED.
+    """
+    locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
+    if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
+        raise TicketAlreadyCancelledError
+
+    _cancel_offline_ticket_core(locked_ticket, cancelled_by=cancelled_by, reason=reason or "")
+
+    return Ticket.objects.full().get(pk=locked_ticket.pk)
+
+
+@transaction.atomic
+def mark_offline_ticket_refunded(
+    ticket: Ticket,
+    *,
+    cancelled_by: RevelUser,
+    reason: str | None = None,
+) -> Ticket:
+    """Mark a manual offline/at-the-door ticket as refunded and cancel it.
+
+    Layers a ``Payment`` refund mutation on top of the shared cancellation primitive.
+    Tickets without an associated ``Payment`` are still cancelled — no payment record
+    means there is nothing to refund, which is a valid manual flow.
+
+    The ticket and payment rows are re-fetched with ``select_for_update`` inside the
+    atomic block so concurrent cancel/refund requests serialize on the row locks and
+    cannot both pass the status check and double-apply side effects (tier decrement,
+    waitlist enqueue, payment refund).
+
+    Args:
+        ticket: The ticket to refund.
+        cancelled_by: The organizer performing the refund.
+        reason: Optional free-text cancellation reason.
+
+    Returns:
+        The re-fetched ticket via ``full()`` for response serialization.
+
+    Raises:
+        TicketAlreadyCancelledError: If the ticket is already CANCELLED.
+    """
+    locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
+    if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
+        raise TicketAlreadyCancelledError
+
+    _cancel_offline_ticket_core(locked_ticket, cancelled_by=cancelled_by, reason=reason or "")
+
+    locked_payment = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
+    if locked_payment is not None:
+        locked_payment.status = Payment.PaymentStatus.REFUNDED
+        locked_payment.refund_amount = locked_payment.amount
+        locked_payment.refund_status = Payment.RefundStatus.SUCCEEDED
+        locked_payment.refunded_at = timezone.now()
+        locked_payment.save(update_fields=["status", "refund_amount", "refund_status", "refunded_at"])
+
+    return Ticket.objects.full().get(pk=locked_ticket.pk)
+
+
+def start_attendee_export(event: Event, requested_by: RevelUser) -> "FileExport":
+    """Create a ``FileExport`` record for an attendee-list export and dispatch the export task.
+
+    Args:
+        event: The event whose attendee list should be exported.
+        requested_by: The user requesting the export (recorded on the FileExport).
+
+    Returns:
+        The newly-created ``FileExport`` in PENDING state.
+    """
+    from common.models import FileExport
+    from events.tasks import generate_attendee_export_task
+
+    export = FileExport.objects.create(
+        requested_by=requested_by,
+        export_type=FileExport.ExportType.ATTENDEE_LIST,
+        parameters={"event_id": str(event.id)},
+    )
+    # Defer dispatch until after the surrounding transaction commits so the
+    # worker can SELECT the FileExport row. Consistent with the questionnaire
+    # export pattern.
+    transaction.on_commit(lambda: generate_attendee_export_task.delay(str(export.id)))
+    return export

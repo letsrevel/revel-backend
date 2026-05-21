@@ -1,11 +1,8 @@
 import typing as t
 from uuid import UUID
 
-from django.db import transaction
-from django.db.models import F, QuerySet
+from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from django.utils.translation import gettext_lazy as _
 from ninja import Body, Query
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
@@ -17,43 +14,17 @@ from common.schema import ValidationErrorResponse
 from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
-from events.models.ticket import CancellationSource
+from events.exceptions import (
+    BillingInfoRequiredError,
+    StripeNotConnectedError,
+    TicketAlreadyCancelledError,
+)
 from events.service import ticket_service
-from events.service.waitlist_service import enqueue_waitlist_processing
 
 from .base import EventAdminBaseController
 
 if t.TYPE_CHECKING:
     from common.models import FileExport
-    from events.models import Organization
-
-
-def _check_online_tier_prerequisites(org: "Organization", payment_method: str) -> None:
-    """Validate prerequisites for creating/updating an online-payment ticket tier.
-
-    Raises HttpError 400 if:
-    - Stripe is not connected
-    - Platform fees are non-zero but billing info is incomplete
-    """
-    if payment_method != models.TicketTier.PaymentMethod.ONLINE:
-        return
-
-    if not org.is_stripe_connected:
-        raise HttpError(400, str(_("You must connect to Stripe first.")))
-
-    has_platform_fees = org.platform_fee_percent > 0 or org.platform_fee_fixed > 0
-    missing_billing = not org.vat_country_code or not org.billing_address or not org.billing_name
-    if has_platform_fees and missing_billing:
-        raise HttpError(
-            400,
-            str(
-                _(
-                    "Billing information is required for online ticket sales with platform fees."
-                    " Please set your billing name, country and billing address"
-                    " in your organization's billing settings."
-                )
-            ),
-        )
 
 
 @api_controller(
@@ -94,21 +65,12 @@ class EventAdminTicketsController(EventAdminBaseController):
     def create_ticket_tier(self, event_id: UUID, payload: schema.TicketTierCreateSchema) -> models.TicketTier:
         """Create a new ticket tier for an event."""
         event = self.get_one(event_id)
-        _check_online_tier_prerequisites(event.organization, payload.payment_method)
-
-        # Extract restricted_to_membership_tiers_ids from payload.
-        # mode="json" coerces nested Pydantic models (e.g. refund_policy) and
-        # Decimals to JSON-serializable primitives so the JSONField's default
-        # encoder can persist them via full_clean().
-        payload_dict = payload.model_dump(exclude_unset=True, mode="json")
-        restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
-
-        # Create ticket tier with M2M handling in service layer
-        tier = ticket_service.create_ticket_tier(
-            event=event, tier_data=payload_dict, restricted_to_membership_tiers_ids=restricted_to_membership_tiers_ids
-        )
-        # Refetch with venue/sector for response serialization
-        return models.TicketTier.objects.with_venue_and_sector().get(pk=tier.pk)
+        try:
+            return ticket_service.create_ticket_tier(event, payload)
+        except StripeNotConnectedError as exc:
+            raise HttpError(400, str(ticket_service.STRIPE_NOT_CONNECTED_MESSAGE)) from exc
+        except BillingInfoRequiredError as exc:
+            raise HttpError(400, str(ticket_service.BILLING_INFO_REQUIRED_MESSAGE)) from exc
 
     @route.put(
         "/ticket-tier/{tier_id}",
@@ -121,22 +83,13 @@ class EventAdminTicketsController(EventAdminBaseController):
     ) -> models.TicketTier:
         """Update a ticket tier."""
         event = self.get_one(event_id)
-        if payload.payment_method is not None:
-            _check_online_tier_prerequisites(event.organization, payload.payment_method)
-
         tier = get_object_or_404(models.TicketTier, pk=tier_id, event=event)
-
-        # Extract restricted_to_membership_tiers_ids from payload.
-        # mode="json" — see create_ticket_tier above.
-        payload_dict = payload.model_dump(exclude_unset=True, mode="json")
-        restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
-
-        # Update ticket tier with M2M handling in service layer
-        updated_tier = ticket_service.update_ticket_tier(
-            tier=tier, tier_data=payload_dict, restricted_to_membership_tiers_ids=restricted_to_membership_tiers_ids
-        )
-        # Refetch with venue/sector for response serialization
-        return models.TicketTier.objects.with_venue_and_sector().get(pk=updated_tier.pk)
+        try:
+            return ticket_service.update_ticket_tier(tier, payload)
+        except StripeNotConnectedError as exc:
+            raise HttpError(400, str(ticket_service.STRIPE_NOT_CONNECTED_MESSAGE)) from exc
+        except BillingInfoRequiredError as exc:
+            raise HttpError(400, str(ticket_service.BILLING_INFO_REQUIRED_MESSAGE)) from exc
 
     @route.delete(
         "/ticket-tier/{tier_id}",
@@ -284,40 +237,14 @@ class EventAdminTicketsController(EventAdminBaseController):
                 models.TicketTier.PaymentMethod.AT_THE_DOOR,
             ],
         )
-
-        if ticket.status == models.Ticket.TicketStatus.CANCELLED:
-            raise HttpError(400, str(_("Ticket already cancelled")))
-
-        with transaction.atomic():
-            models.TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
-                quantity_sold=F("quantity_sold") - 1
+        try:
+            return ticket_service.mark_offline_ticket_refunded(
+                ticket,
+                cancelled_by=self.user(),
+                reason=payload.cancellation_reason if payload else None,
             )
-            ticket.status = models.Ticket.TicketStatus.CANCELLED
-            ticket.cancelled_at = timezone.now()
-            ticket.cancelled_by = self.user()
-            ticket.cancellation_source = CancellationSource.ORGANIZER
-            ticket.cancellation_reason = (payload.cancellation_reason if payload else None) or ""
-            ticket.save(
-                update_fields=[
-                    "status",
-                    "cancelled_at",
-                    "cancelled_by",
-                    "cancellation_source",
-                    "cancellation_reason",
-                ]
-            )
-
-            if hasattr(ticket, "payment"):
-                ticket.payment.status = models.Payment.PaymentStatus.REFUNDED
-                ticket.payment.refund_amount = ticket.payment.amount
-                ticket.payment.refund_status = models.Payment.RefundStatus.SUCCEEDED
-                ticket.payment.refunded_at = timezone.now()
-                ticket.payment.save(update_fields=["status", "refund_amount", "refund_status", "refunded_at"])
-
-            enqueue_waitlist_processing(ticket.event_id)
-
-        # Re-fetch with full() to include all related objects for UserTicketSchema
-        return models.Ticket.objects.full().get(pk=ticket.pk)
+        except TicketAlreadyCancelledError as exc:
+            raise HttpError(400, str(ticket_service.TICKET_ALREADY_CANCELLED_MESSAGE)) from exc
 
     @route.post(
         "/tickets/{ticket_id}/cancel",
@@ -346,33 +273,14 @@ class EventAdminTicketsController(EventAdminBaseController):
                 models.TicketTier.PaymentMethod.AT_THE_DOOR,
             ],
         )
-
-        if ticket.status == models.Ticket.TicketStatus.CANCELLED:
-            raise HttpError(400, str(_("Ticket already cancelled")))
-
-        with transaction.atomic():
-            models.TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
-                quantity_sold=F("quantity_sold") - 1
+        try:
+            return ticket_service.cancel_offline_ticket(
+                ticket,
+                cancelled_by=self.user(),
+                reason=payload.cancellation_reason if payload else None,
             )
-            ticket.status = models.Ticket.TicketStatus.CANCELLED
-            ticket.cancelled_at = timezone.now()
-            ticket.cancelled_by = self.user()
-            ticket.cancellation_source = CancellationSource.ORGANIZER
-            ticket.cancellation_reason = (payload.cancellation_reason if payload else None) or ""
-            ticket.save(
-                update_fields=[
-                    "status",
-                    "cancelled_at",
-                    "cancelled_by",
-                    "cancellation_source",
-                    "cancellation_reason",
-                ]
-            )
-
-            enqueue_waitlist_processing(ticket.event_id)
-
-        # Re-fetch with full() to include all related objects for UserTicketSchema
-        return models.Ticket.objects.full().get(pk=ticket.pk)
+        except TicketAlreadyCancelledError as exc:
+            raise HttpError(400, str(ticket_service.TICKET_ALREADY_CANCELLED_MESSAGE)) from exc
 
     @route.post(
         "/tickets/{ticket_id}/check-in",
@@ -409,15 +317,5 @@ class EventAdminTicketsController(EventAdminBaseController):
         download.
         Requires 'manage_event' permission.
         """
-        from common.models import FileExport
-        from events.tasks import generate_attendee_export_task
-
-        self.get_one(event_id)  # permission check
-
-        export = FileExport.objects.create(
-            requested_by=self.user(),
-            export_type=FileExport.ExportType.ATTENDEE_LIST,
-            parameters={"event_id": str(event_id)},
-        )
-        generate_attendee_export_task.delay(str(export.id))
-        return 202, export
+        event = self.get_one(event_id)
+        return 202, ticket_service.start_attendee_export(event, requested_by=self.user())
