@@ -1,0 +1,106 @@
+"""Controller tests for POST/DELETE /polls/{id}/vote."""
+
+import typing as t
+
+import pytest
+from django.test.client import Client
+from django.utils import timezone
+
+from events.models.mixins import ResourceVisibility
+from events.models.organization import Organization
+from polls.models import Poll
+from questionnaires.models import (
+    MultipleChoiceOption,
+    MultipleChoiceQuestion,
+    Questionnaire,
+)
+
+pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture
+def votable_poll(organization: Organization) -> tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]]:
+    """Create an OPEN poll with one MC question and two options.
+
+    Question/options are created BEFORE the Poll because the T11 signal
+    lockdown forbids structural mutations to a poll's questionnaire once
+    the poll exists.
+    """
+    q = Questionnaire.objects.create(name="q")
+    mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, question="?")
+    options = [MultipleChoiceOption.objects.create(question=mcq, option=f"o-{i}") for i in range(2)]
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=q,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.OPEN,
+        opened_at=timezone.now(),
+    )
+    return poll, mcq, options
+
+
+def test_vote_succeeds(
+    authenticated_client: Client,
+    votable_poll: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+) -> None:
+    poll, mcq, options = votable_poll
+    response = authenticated_client.post(
+        f"/api/polls/{poll.id}/vote",
+        data={
+            "mc_answers": [{"question_id": str(mcq.id), "option_ids": [str(options[0].id)]}],
+            "free_text_answers": [],
+            "file_upload_answers": [],
+        },
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+
+
+def test_vote_when_anonymous_blocked(
+    anonymous_client: Client,
+    votable_poll: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+) -> None:
+    poll, _mcq, _options = votable_poll
+    response = anonymous_client.post(
+        f"/api/polls/{poll.id}/vote",
+        data={"mc_answers": [], "free_text_answers": [], "file_upload_answers": []},
+        content_type="application/json",
+    )
+    assert response.status_code in (401, 403)
+
+
+def test_double_vote_returns_409(
+    authenticated_client: Client,
+    votable_poll: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+) -> None:
+    poll, mcq, options = votable_poll
+    payload: dict[str, t.Any] = {
+        "mc_answers": [{"question_id": str(mcq.id), "option_ids": [str(options[0].id)]}],
+        "free_text_answers": [],
+        "file_upload_answers": [],
+    }
+    first = authenticated_client.post(f"/api/polls/{poll.id}/vote", data=payload, content_type="application/json")
+    assert first.status_code == 200
+    response = authenticated_client.post(f"/api/polls/{poll.id}/vote", data=payload, content_type="application/json")
+    assert response.status_code == 409
+
+
+def test_withdraw_vote_when_allowed(
+    authenticated_client: Client,
+    votable_poll: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+) -> None:
+    poll, mcq, options = votable_poll
+    poll.allow_vote_changes = True
+    poll.save(update_fields=["allow_vote_changes"])
+    cast = authenticated_client.post(
+        f"/api/polls/{poll.id}/vote",
+        data={
+            "mc_answers": [{"question_id": str(mcq.id), "option_ids": [str(options[0].id)]}],
+            "free_text_answers": [],
+            "file_upload_answers": [],
+        },
+        content_type="application/json",
+    )
+    assert cast.status_code == 200
+    response = authenticated_client.delete(f"/api/polls/{poll.id}/vote", content_type="application/json")
+    assert response.status_code == 204

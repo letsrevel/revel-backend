@@ -15,6 +15,11 @@ from common.controllers import UserAwareController
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle, WriteThrottle
 from events.models.mixins import ResourceVisibility
 from events.models.organization import Organization
+from polls.exceptions import (
+    PollNotEligibleError,
+    PollNotOpenError,
+    PollVoteAlreadyCastError,
+)
 from polls.models import Poll
 from polls.schema import (
     PollCreateSchema,
@@ -23,6 +28,7 @@ from polls.schema import (
     PollReopenSchema,
     PollResultsSchema,
     PollUpdateSchema,
+    PollVoteSchema,
 )
 from polls.service import eligibility, poll_service
 from polls.service.aggregation import compute_poll_results
@@ -173,6 +179,50 @@ class PollController(UserAwareController):
         if poll.organization.owner_id != user.id:
             raise HttpError(403, "Only the organization owner can delete a poll")
         poll_service.delete_poll(poll)
+        return 204, None
+
+    @route.post(
+        "/{poll_id}/vote",
+        response=PollDetailSchema,
+        throttle=WriteThrottle(),
+        auth=I18nJWTAuth(),
+    )
+    def vote(self, poll_id: UUID, payload: PollVoteSchema) -> PollDetailSchema:
+        """Cast or replace the caller's vote for ``poll_id``.
+
+        Translates service-layer exceptions into HTTP statuses:
+
+        * :class:`PollNotOpenError` → ``423 Locked``
+        * :class:`PollNotEligibleError` → ``403 Forbidden``
+        * :class:`PollVoteAlreadyCastError` → ``409 Conflict``
+        """
+        user = self.user()
+        try:
+            poll_service.vote(user=user, poll_id=poll_id, payload=payload)
+        except PollNotOpenError as exc:
+            raise HttpError(423, str(exc))
+        except PollNotEligibleError as exc:
+            raise HttpError(403, str(exc))
+        except PollVoteAlreadyCastError as exc:
+            raise HttpError(409, str(exc))
+        poll = get_object_or_404(Poll, pk=poll_id)
+        return self._to_detail(poll, user)
+
+    @route.delete(
+        "/{poll_id}/vote",
+        response={204: None},
+        throttle=WriteThrottle(),
+        auth=I18nJWTAuth(),
+    )
+    def withdraw_vote_action(self, poll_id: UUID) -> tuple[int, None]:
+        """Withdraw the caller's vote when the poll is OPEN and allows changes."""
+        user = self.user()
+        try:
+            poll_service.withdraw_vote(user=user, poll_id=poll_id)
+        except PollNotOpenError as exc:
+            raise HttpError(423, str(exc))
+        except PollVoteAlreadyCastError as exc:
+            raise HttpError(409, str(exc))
         return 204, None
 
     # ------------------------------------------------------------------ helpers
