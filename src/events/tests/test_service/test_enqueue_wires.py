@@ -341,7 +341,7 @@ def test_admin_mark_ticket_refunded_enqueues_waitlist(
         kwargs={"event_id": event.pk, "ticket_id": offline_ticket.pk},
     )
 
-    with mock.patch("events.controllers.event_admin.tickets.enqueue_waitlist_processing") as mocked:
+    with mock.patch("events.service.ticket_service.enqueue_waitlist_processing") as mocked:
         response = owner_jwt_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
@@ -359,7 +359,7 @@ def test_admin_cancel_ticket_enqueues_waitlist(
         kwargs={"event_id": event.pk, "ticket_id": offline_ticket.pk},
     )
 
-    with mock.patch("events.controllers.event_admin.tickets.enqueue_waitlist_processing") as mocked:
+    with mock.patch("events.service.ticket_service.enqueue_waitlist_processing") as mocked:
         response = owner_jwt_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
