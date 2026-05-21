@@ -21,7 +21,7 @@ from common.controllers import UserAwareController
 from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle
 from events import filters, models, schema
-from events.service import event_service
+from events.service import dashboard_service, event_service
 from events.service.attendee_invoice_service import ensure_pdf_exists
 
 
@@ -46,34 +46,8 @@ class DashboardController(UserAwareController):
     def get_user_related_events(
         self, params: filters.DashboardEventsFiltersSchema, *, include_past: bool = False
     ) -> QuerySet[models.Event]:
-        """Get events filtered by user's relationship and authorization.
-
-        Returns the intersection of:
-        1. Events the user is authorized to see (visibility permissions)
-        2. Events matching the user's relationship filters (owner/staff/member/rsvp/tickets/invitations)
-
-        This is the core filtering logic shared by dashboard_events and dashboard_calendar.
-
-        Performance note: We materialize IDs in Python rather than using SQL INTERSECT
-        to avoid complex nested subqueries that cause slow COUNT(*) in pagination.
-        """
-        user = self.user()
-
-        # 1. Get IDs of all events the user is AUTHORIZED to see (materialize to set)
-        authorized_event_ids = set(self.get_event_queryset(include_past=include_past).values_list("id", flat=True))
-
-        # 2. Get IDs of all events that match the dashboard's relationship filters (materialize to set)
-        relationship_event_ids = set(params.get_events_queryset(user.id).values_list("id", flat=True))
-
-        # 3. Find the INTERSECTION in Python (fast set operation)
-        final_event_ids = authorized_event_ids & relationship_event_ids
-
-        # 4. Return the base queryset filtered by these IDs
-        # Using a simple IN clause is much faster for pagination COUNT
-        qs = models.Event.objects.full().filter(id__in=list(final_event_ids))
-        if params.requires_ticket is not None:
-            qs = qs.filter(requires_ticket=params.requires_ticket)
-        return qs
+        """Thin wrapper around :func:`dashboard_service.get_user_related_events`."""
+        return dashboard_service.get_user_related_events(self.user(), params, include_past=include_past)
 
     @route.get(
         "/organizations",
@@ -92,20 +66,7 @@ class DashboardController(UserAwareController):
         Shows only organizations you have permission to view. Use this to display "My Organizations"
         sections in the UI.
         """
-        user = self.user()
-
-        # 1. Get IDs of all orgs user is AUTHORIZED to see (materialize to set)
-        authorized_org_ids = set(self.get_organization_queryset().values_list("id", flat=True))
-
-        # 2. Get IDs of all orgs matching the dashboard filter RELATIONSHIPS (materialize to set)
-        relationship_org_ids = set(params.get_organizations_queryset(user.id).values_list("id", flat=True))
-
-        # 3. Find the INTERSECTION in Python (fast set operation)
-        final_org_ids = authorized_org_ids & relationship_org_ids
-
-        # 4. Fetch the final, full Organization objects with simple IN clause
-        # No .distinct() needed - IDs are unique, no duplicates possible
-        return models.Organization.objects.full().filter(id__in=list(final_org_ids))
+        return dashboard_service.get_user_related_organizations(self.user(), params)
 
     @route.get("/events", url_name="dashboard_events", response=PaginatedResponseSchema[schema.EventInListSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -201,20 +162,7 @@ class DashboardController(UserAwareController):
         Filter by: series you're organizing or series you're attending events in. Shows only
         series you have permission to view. Use this to display "My Series" sections in the UI.
         """
-        user = self.user()
-
-        # 1. Get IDs of all event series the user is AUTHORIZED to see (materialize to set)
-        authorized_series_ids = set(self.get_event_series_queryset().values_list("id", flat=True))
-
-        # 2. Get IDs of all event series that match the dashboard's relationship filters (materialize to set)
-        relationship_series_ids = set(params.get_event_series_queryset(user.id).values_list("id", flat=True))
-
-        # 3. Find the INTERSECTION in Python (fast set operation)
-        final_series_ids = authorized_series_ids & relationship_series_ids
-
-        # 4. Fetch the final, full EventSeries objects with simple IN clause
-        # No .distinct() needed - IDs are unique, no duplicates possible
-        return models.EventSeries.objects.full().filter(id__in=list(final_series_ids))
+        return dashboard_service.get_user_related_event_series(self.user(), params)
 
     @route.get(
         "/invitations",
@@ -239,33 +187,12 @@ class DashboardController(UserAwareController):
         By default, invitations are hidden for events where you already have a non-cancelled ticket
         or a YES RSVP. Set exclude_accepted=false to include them.
         """
-        user = self.user()
-        qs = models.EventInvitation.objects.with_event_details().filter(user=user)
-
-        if event_id:
-            qs = qs.filter(event_id=event_id)
-
-        if not include_past:
-            qs = qs.filter(event__end__gt=timezone.now())
-
-        if exclude_accepted:
-            qs = qs.exclude(
-                event_id__in=models.Ticket.objects.filter(
-                    user=user,
-                    status__in=[
-                        models.Ticket.TicketStatus.PENDING,
-                        models.Ticket.TicketStatus.ACTIVE,
-                        models.Ticket.TicketStatus.CHECKED_IN,
-                    ],
-                ).values("event_id")
-            ).exclude(
-                event_id__in=models.EventRSVP.objects.filter(
-                    user=user,
-                    status=models.EventRSVP.RsvpStatus.YES,
-                ).values("event_id")
-            )
-
-        return qs.distinct().order_by("-created_at")
+        return dashboard_service.get_user_invitations(
+            self.user(),
+            event_id=event_id,
+            include_past=include_past,
+            exclude_accepted=exclude_accepted,
+        )
 
     @route.get(
         "/tickets",

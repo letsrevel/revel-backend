@@ -5,7 +5,7 @@ from ninja import File
 from ninja.files import UploadedFile
 from ninja_extra import api_controller, route, status
 
-from accounts import schema, tasks
+from accounts import schema
 from accounts.models import RevelUser
 from accounts.schema import (
     LanguageUpdateSchema,
@@ -37,7 +37,7 @@ class AccountController(UserAwareController):
         and submissions. The export will be emailed to the user when ready. Rate-limited to
         prevent abuse.
         """
-        tasks.generate_user_data_export.delay(str(self.user().pk))
+        account_service.start_data_export(self.user())
         return ResponseMessage(message=str(_("Your data export has been initiated.")))
 
     @route.get(
@@ -66,16 +66,7 @@ class AccountController(UserAwareController):
         Allows updating name, location preferences, and other profile fields. Only provided
         fields are updated. Returns the updated user profile.
         """
-        user = self.user()
-        update_data = payload.model_dump(exclude_unset=True)
-        if not update_data:
-            return user
-        for key, value in update_data.items():
-            setattr(user, key, value)
-        user.save(update_fields=list(update_data.keys()))
-        # Refresh from DB to ensure all fields (including file fields) have correct values
-        user.refresh_from_db()
-        return user
+        return account_service.update_profile(self.user(), payload)
 
     @route.put(
         "/language",
@@ -88,9 +79,7 @@ class AccountController(UserAwareController):
         Sets the user's preferred language for UI and communications.
         Returns status 200 on success.
         """
-        user = self.user()
-        user.language = payload.language
-        user.save(update_fields=["language"])
+        account_service.update_language(self.user(), payload.language)
         return 200, None
 
     @route.post(

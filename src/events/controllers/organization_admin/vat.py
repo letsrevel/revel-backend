@@ -234,14 +234,11 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
     )
     def issue_attendee_invoice(self, slug: str, invoice_id: UUID) -> models.AttendeeInvoice:
         """Issue a draft attendee invoice and send it to the buyer."""
-        from events.service.attendee_invoice_service import issue_draft_invoice
-        from events.tasks import deliver_attendee_invoice_task
+        from events.service.attendee_invoice_service import issue_and_deliver
 
         organization = self.get_one(slug)
         invoice = get_object_or_404(models.AttendeeInvoice, id=invoice_id, organization=organization)
-        invoice = issue_draft_invoice(invoice)
-        deliver_attendee_invoice_task.delay(str(invoice.id))
-        return invoice
+        return issue_and_deliver(invoice)
 
     @route.delete(
         "/attendee-invoices/{invoice_id}",
