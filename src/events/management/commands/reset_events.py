@@ -15,7 +15,7 @@ from accounts.models import (
     ReferralPayoutStatement,
     RevelUser,
 )
-from events.models import EventSeries, Organization, RecurrenceRule
+from events.models import EventSeries, MembershipSubscription, Organization, RecurrenceRule
 from questionnaires.models import Questionnaire
 
 
@@ -98,6 +98,16 @@ class Command(BaseCommand):
             EventSeries.objects.update(template_event=None, recurrence_rule=None)
             RecurrenceRule.objects.all().delete()
             self.stdout.write(self.style.SUCCESS("✓ Detached recurring-event series from templates"))
+
+            # Break the MembershipSubscriptionPlan ← MembershipSubscription
+            # PROTECT FK. The Organization cascade reaches MembershipTier →
+            # MembershipSubscriptionPlan, but PROTECT on the subscription FK
+            # aborts the whole cascade if any subscription exists (active or
+            # otherwise). Production lifecycle goes through the subscriptions
+            # service, but the demo-reset path can shortcut by deleting
+            # subscriptions directly.
+            MembershipSubscription.objects.all().delete()
+            self.stdout.write(self.style.SUCCESS("✓ Deleted membership subscriptions"))
 
             # Delete all organizations (cascade will handle related objects)
             Organization.objects.all().delete()
