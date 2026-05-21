@@ -34,6 +34,9 @@ def open_poll_with_mc(
 ) -> tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]]:
     """Build an OPEN poll with a single MC question and two options."""
     q = Questionnaire.objects.create(name="Q")
+    # Build questions BEFORE the poll so the question-lockdown signal allows mutations.
+    mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, question="pick")
+    options = [MultipleChoiceOption.objects.create(question=mcq, option=f"o-{i}") for i in range(2)]
     poll = Poll.objects.create(
         organization=organization,
         questionnaire=q,
@@ -41,8 +44,6 @@ def open_poll_with_mc(
         status=Poll.PollStatus.OPEN,
         opened_at=timezone.now(),
     )
-    mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, question="pick")
-    options = [MultipleChoiceOption.objects.create(question=mcq, option=f"o-{i}") for i in range(2)]
     return poll, mcq, options
 
 

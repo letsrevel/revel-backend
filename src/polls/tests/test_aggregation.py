@@ -24,15 +24,16 @@ pytestmark = pytest.mark.django_db
 def poll_with_questions(organization: t.Any, revel_user_factory: t.Any) -> tuple[Poll, list[t.Any], list[t.Any]]:
     """A poll with one MC question (3 options) and one free-text question."""
     q = Questionnaire.objects.create(name="poll Q")
+    # Build questions BEFORE the poll so the question-lockdown signal allows mutations.
+    mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, question="Pick one")
+    options = [MultipleChoiceOption.objects.create(question=mcq, option=f"opt-{i}") for i in range(3)]
+    ftq = FreeTextQuestion.objects.create(questionnaire=q, question="Anything?")
     poll = Poll.objects.create(
         organization=organization,
         questionnaire=q,
         vote_visibility="public",
         status=Poll.PollStatus.OPEN,
     )
-    mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, question="Pick one")
-    options = [MultipleChoiceOption.objects.create(question=mcq, option=f"opt-{i}") for i in range(3)]
-    ftq = FreeTextQuestion.objects.create(questionnaire=q, question="Anything?")
     return poll, options, [ftq]
 
 
