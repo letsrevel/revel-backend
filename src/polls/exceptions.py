@@ -1,0 +1,53 @@
+"""Polls app exceptions."""
+
+import typing as t
+
+from django.core.exceptions import ValidationError
+
+
+class PollAnonymityImmutableError(ValidationError):
+    """Raised when staff_anonymous or public_anonymous is changed after creation."""
+
+    def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
+        """Initialise with the default anonymity-lock message when no override is supplied."""
+        super().__init__(message or "Anonymity flags are immutable after a poll is created.", **kwargs)
+
+
+class PollNotOpenError(ValidationError):
+    """Raised when a vote action targets a poll that is not OPEN."""
+
+    def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
+        """Initialise with the default not-open message when no override is supplied."""
+        super().__init__(message or "This poll is not open for voting.", **kwargs)
+
+
+class PollNotEligibleError(ValidationError):
+    """Raised when a user is not eligible to vote on a poll."""
+
+    def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
+        """Initialise with the default not-eligible message when no override is supplied."""
+        super().__init__(message or "You are not eligible to vote on this poll.", **kwargs)
+
+
+class PollVoteAlreadyCastError(ValidationError):
+    """Raised when a user tries to vote twice on a poll that does not allow vote changes."""
+
+    def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
+        """Initialise with the default already-voted message when no override is supplied."""
+        super().__init__(message or "You have already voted on this poll.", **kwargs)
+
+
+class PollQuestionLockedError(ValidationError):
+    """Raised when a question/section/option mutation is attempted on a poll past DRAFT."""
+
+    def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
+        """Initialise with the default question-locked message when no override is supplied."""
+        super().__init__(message or "Questions cannot be modified once the poll leaves DRAFT.", **kwargs)
+
+
+class PollLifecycleError(ValidationError):
+    """Raised on invalid status transitions (e.g., reopen with past closes_at)."""
+
+    def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
+        """Initialise with the default lifecycle-error message when no override is supplied."""
+        super().__init__(message or "Invalid poll lifecycle action.", **kwargs)
