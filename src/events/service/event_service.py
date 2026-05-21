@@ -12,6 +12,13 @@ This module serves as a facade, re-exporting functions from:
 from events.service.calendar_utils import calculate_calendar_date_range, order_by_distance
 from events.service.dietary import get_event_dietary_summary
 from events.service.duplication import duplicate_event
+from events.service.event_update_service import (
+    SLUG_ALREADY_EXISTS_MESSAGE,
+    SlugAlreadyExistsError,
+    update_event,
+    update_slug,
+    update_status,
+)
 from events.service.invitations import (
     approve_invitation_request,
     create_invitation_request,
@@ -39,4 +46,10 @@ __all__ = [
     "get_event_pronoun_distribution",
     # duplication
     "duplicate_event",
+    # event_update_service
+    "update_event",
+    "update_status",
+    "update_slug",
+    "SlugAlreadyExistsError",
+    "SLUG_ALREADY_EXISTS_MESSAGE",
 ]

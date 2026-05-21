@@ -1,7 +1,5 @@
-import typing as t
 from uuid import UUID
 
-from django.utils.translation import gettext_lazy as _
 from ninja import File
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
@@ -15,8 +13,7 @@ from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 from events import models, schema
 from events.controllers.permissions import CanDuplicateEvent, EventPermission
-from events.service import event_service, update_db_instance
-from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
+from events.service import event_service
 
 from .base import EventAdminBaseController
 
@@ -53,48 +50,7 @@ class EventAdminCoreController(EventAdminBaseController):
         ``is_template=False``.
         """
         event = self.get_one(event_id)
-
-        # Snapshot the persisted values for the fields the client explicitly
-        # sent so we can detect a real diff vs. a no-op PUT. This must run
-        # *before* ``update_db_instance`` mutates the instance.
-        track_is_modified = event.occurrence_index is not None and not event.is_modified
-        pre_values: dict[str, t.Any] = {}
-        if track_is_modified:
-            payload_fields = set(payload.model_dump(exclude_unset=True).keys())
-            pre_values = {f: getattr(event, f, None) for f in payload_fields if hasattr(event, f)}
-
-        # Snapshot waitlist-relevant state before the update so we can detect
-        # capacity increases and waitlist_open True -> False transitions.
-        old_effective_capacity = event.effective_capacity
-        was_waitlist_open = event.waitlist_open
-
-        updated_event = update_db_instance(event, payload)
-
-        # Mark occurrences as modified only when a persisted field actually
-        # changed. Comparing against the pre-update snapshot avoids marking
-        # idempotent no-op PUTs as manual edits.
-        #
-        # The ``!=`` comparison is reliable for the simple types that
-        # ``EventEditSchema`` actually exposes (str, int, bool, datetime).
-        # GIS Point objects or cross-tz datetimes could compare unequal for
-        # structurally-identical values, but neither is exposed here.
-        if track_is_modified and pre_values:
-            changed = any(getattr(updated_event, field) != pre_values[field] for field in pre_values)
-            if changed:
-                updated_event.is_modified = True
-                updated_event.save(update_fields=["is_modified"])
-
-        # If the effective capacity grew, freshly-available seats may unblock
-        # waitlisted users — enqueue a processing pass.
-        if updated_event.effective_capacity > old_effective_capacity:
-            enqueue_waitlist_processing(updated_event.id)
-
-        # If the waitlist was just closed, revoke any pending offers — those
-        # users would otherwise see a "ghost" offer for a now-closed waitlist.
-        if was_waitlist_open and not updated_event.waitlist_open:
-            revoke_all_pending_offers(updated_event.id)
-
-        return updated_event
+        return event_service.update_event(event, payload, requested_by=self.user())
 
     @route.delete(
         "",
@@ -121,18 +77,10 @@ class EventAdminCoreController(EventAdminBaseController):
         (lowercase letters, numbers, and hyphens only).
         """
         event = self.get_one(event_id)
-
-        # Check if slug already exists for this organization
-        if (
-            models.Event.objects.filter(organization_id=event.organization_id, slug=payload.slug)
-            .exclude(pk=event.pk)
-            .exists()
-        ):
-            raise HttpError(400, str(_("An event with this slug already exists in your organization.")))
-
-        event.slug = payload.slug
-        event.save(update_fields=["slug"])
-        return event
+        try:
+            return event_service.update_slug(event, payload.slug)
+        except event_service.SlugAlreadyExistsError as exc:
+            raise HttpError(400, str(event_service.SLUG_ALREADY_EXISTS_MESSAGE)) from exc
 
     @route.post(
         "/duplicate",
@@ -170,18 +118,7 @@ class EventAdminCoreController(EventAdminBaseController):
         in events/signals.py which triggers when status field is updated.
         """
         event = self.get_one(event_id)
-        old_status = event.status
-        event.status = status
-        event.save(update_fields=["status"])
-
-        if status == models.Event.EventStatus.CANCELLED:
-            # The event is cancelled; outstanding offers are meaningless.
-            revoke_all_pending_offers(event.id)
-        elif old_status == models.Event.EventStatus.CANCELLED:
-            # Un-cancelling re-creates real seats; let the waitlist take them.
-            enqueue_waitlist_processing(event.id)
-
-        return event
+        return event_service.update_status(event, status)
 
     @route.post(
         "/upload-logo",
