@@ -236,3 +236,57 @@ class TestExcludesUsersWithPendingOffers:
         assert result.status == "ok"
         assert result.offers_created == 1
         assert WaitlistOffer.objects.filter(user=u2, status="pending").exists()
+
+    def test_user_with_revoked_offer_not_re_offered(
+        self,
+        event: Event,
+        revel_user_factory: RevelUserFactory,
+    ) -> None:
+        """Admin revoke must not cascade into auto-reoffering the same user.
+
+        Reproduces the cascade where revoke triggered re-processing, the
+        revoked user was no longer excluded (REVOKED ≠ PENDING), and they were
+        immediately re-picked — visually undoing the revoke for admins.
+        """
+        _enable_waitlist(event, batch_size=5, max_attendees=10)
+        Event.objects.filter(pk=event.pk).update(attendee_count=0)
+        u1, u2 = revel_user_factory(), revel_user_factory()
+        _put_on_waitlist(event, [u1, u2])
+        WaitlistOffer.objects.create(
+            event=event,
+            user=u1,
+            status=WaitlistOffer.WaitlistOfferStatus.REVOKED,
+            expires_at=timezone.now() + dt.timedelta(hours=1),
+            batch_id=uuid.uuid4(),
+        )
+
+        result = waitlist_service.process_waitlist_for_event(event.id)
+        assert result.status == "ok"
+        assert result.offers_created == 1
+        # u1 must not get a fresh PENDING — admin's revoke stands.
+        assert not WaitlistOffer.objects.filter(user=u1, status="pending").exists()
+        # u2 (the next FIFO user) gets the seat.
+        assert WaitlistOffer.objects.filter(user=u2, status="pending").exists()
+
+    def test_user_with_expired_offer_is_re_offered(
+        self,
+        event: Event,
+        revel_user_factory: RevelUserFactory,
+    ) -> None:
+        """EXPIRED is the normal lifecycle — users must rotate back in."""
+        _enable_waitlist(event, batch_size=5, max_attendees=10)
+        Event.objects.filter(pk=event.pk).update(attendee_count=0)
+        u1 = revel_user_factory()
+        _put_on_waitlist(event, [u1])
+        WaitlistOffer.objects.create(
+            event=event,
+            user=u1,
+            status=WaitlistOffer.WaitlistOfferStatus.EXPIRED,
+            expires_at=timezone.now() - dt.timedelta(minutes=5),
+            batch_id=uuid.uuid4(),
+        )
+
+        result = waitlist_service.process_waitlist_for_event(event.id)
+        assert result.status == "ok"
+        assert result.offers_created == 1
+        assert WaitlistOffer.objects.filter(user=u1, status="pending").exists()

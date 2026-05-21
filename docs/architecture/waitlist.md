@@ -206,7 +206,7 @@ flowchart TD
 ### Key invariants
 
 - **Disabled / no-spots short-circuit** before any selection work. Cheap idempotent re-runs are free.
-- **Excludes users who already hold a PENDING offer** via `.exclude(user__waitlist_offers__status=PENDING)`. The unique partial constraint on `WaitlistOffer` would otherwise reject the bulk-create on duplicates.
+- **Excludes users with PENDING or REVOKED offers** via `.exclude(user__waitlist_offers__status__in=[PENDING, REVOKED])`. PENDING keeps a user from being double-booked (the partial unique index would reject the bulk-create anyway). **REVOKED** is the soft-skip for admin revoke: without this filter, revoke would re-enqueue processing → the same user at the front of the FIFO queue would immediately get a fresh PENDING offer, visually undoing the revoke. To bring a REVOKED user back, an admin must explicitly reactivate the offer or manually issue a new one. EXPIRED users **stay eligible** — that's the normal batch-timeout lifecycle and they should rotate back into selection.
 - **Cutoff branch** is one-shot. The second call after cutoff returns `cutoff_already_processed` and lets `AvailabilityGate` take over for the rest of the event lifetime. Cutoff offers expire at **`event.start`**, not at `now + window`.
 - **Notifications fire on `transaction.on_commit`** to avoid sending offers for a rolled-back batch.
 
@@ -337,7 +337,7 @@ Templates live under `notifications/templates/notifications/{email,in_app,telegr
 | `PATCH` | `/waitlist-settings` | `manage_event` | Updates waitlist config. `waitlist_open: True → False` revokes pending offers. |
 | `GET` | `/waitlist-offers` | `invite_to_event` | Paginated `WaitlistOfferSchema`, filterable by status |
 | `POST` | `/waitlist-offers` | `manage_event` | Manually create an offer for an existing `EventWaitList` entry |
-| `POST` | `/waitlist-offers/{offer_id}/revoke` | `manage_event` | Flip a PENDING offer to REVOKED and enqueue the next batch |
+| `POST` | `/waitlist-offers/{offer_id}/revoke` | `manage_event` | Flip a PENDING offer to REVOKED and enqueue the next batch. The revoked user is soft-skipped from future auto-processing until reactivated or manually re-offered. |
 | `POST` | `/waitlist-offers/{offer_id}/reactivate` | `manage_event` | Reopen an EXPIRED or REVOKED offer (capacity-checked) |
 
 ### Capacity-aware admin overrides

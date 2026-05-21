@@ -79,11 +79,18 @@ def process_waitlist_for_event(event_id: uuid.UUID) -> ProcessResult:
     if past_cutoff and WaitlistOffer.objects.filter(event=event, is_cutoff_batch=True).exists():
         return ProcessResult(status="cutoff_already_processed")
 
+    # Exclude users who have either a PENDING offer (already holding a seat) or a
+    # REVOKED offer (admin explicitly skipped them — only a reactivate or a manual
+    # create should bring them back). EXPIRED stays eligible: that's the normal
+    # batch-timeout lifecycle and users should rotate back into selection.
     waitlist_qs = (
         EventWaitList.objects.filter(event=event)
         .exclude(
             user__waitlist_offers__event=event,
-            user__waitlist_offers__status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+            user__waitlist_offers__status__in=[
+                WaitlistOffer.WaitlistOfferStatus.PENDING,
+                WaitlistOffer.WaitlistOfferStatus.REVOKED,
+            ],
         )
         .select_related("user")
         .order_by("created_at")

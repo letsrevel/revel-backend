@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `EventUserEligibility.reason_code` — stable machine-readable `ReasonCode` enum mirroring the human-readable `reason` string; clients should switch on `reason_code` instead of matching localized prose
 - `WaitlistOfferSchema.user` now serializes as a nested `MinimalRevelUserSchema` (id, name, email, …) instead of a bare UUID, so admin UIs can render organizers' offers without a follow-up lookup
 
+### Fixed
+- Waitlist processing no longer cascades into auto-reoffering a user whose offer was just revoked. The processor now excludes users with REVOKED offers in addition to PENDING; admin revoke is a soft-skip until the offer is reactivated or a manual offer is issued. EXPIRED users stay eligible (normal batch-timeout lifecycle).
+
 ## [1.56.0] - 2026-05-18
 
 ### Added
