@@ -14,6 +14,7 @@ from events import schema
 from events.exceptions import (
     AlreadyMemberError,
     OrganizationTokenGrantInvariantError,
+    OrganizationTokenMembershipTierRequiredError,
     OrganizationTokenStaffGrantForbidden,
     PendingMembershipRequestExistsError,
 )
@@ -748,6 +749,25 @@ class TestUpdateOrganizationTokenService:
 
         organization_token.refresh_from_db()
         assert organization_token.grants_staff_status is False
+
+    def test_clearing_membership_tier_while_grants_membership_raises(
+        self, organization: Organization, organization_token: OrganizationToken
+    ) -> None:
+        # The token has grants_membership=True with a tier. A partial update
+        # that only sets membership_tier_id=None slips past the schema validator
+        # (grants_membership is not in model_fields_set), but would leave the
+        # token in an inconsistent state that OrganizationToken.clean() rejects
+        # at full_clean() time — surfacing as a 500. The service-side check
+        # raises a structured exception the controller maps to 422.
+        payload = schema.OrganizationTokenUpdateSchema(membership_tier_id=None)
+
+        with pytest.raises(OrganizationTokenMembershipTierRequiredError):
+            organization_service.update_organization_token(
+                organization_token, requested_by=organization.owner, payload=payload
+            )
+
+        organization_token.refresh_from_db()
+        assert organization_token.membership_tier_id is not None
 
     def test_non_owner_cannot_touch_existing_staff_token(
         self,

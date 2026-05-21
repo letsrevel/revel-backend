@@ -11,13 +11,18 @@ from common.authentication import I18nJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import OrganizationPermission
-from events.exceptions import OrganizationTokenGrantInvariantError, OrganizationTokenStaffGrantForbidden
+from events.exceptions import (
+    OrganizationTokenGrantInvariantError,
+    OrganizationTokenMembershipTierRequiredError,
+    OrganizationTokenStaffGrantForbidden,
+)
 from events.service import organization_service
 
 from .base import OrganizationAdminBaseController
 
 _STAFF_GRANT_FORBIDDEN_MESSAGE = _("Only the organization owner can manage staff-granting tokens.")
 _GRANT_INVARIANT_MESSAGE = _("At least one of grants_membership or grants_staff_status must be True.")
+_MEMBERSHIP_TIER_REQUIRED_MESSAGE = _("membership_tier_id is required when grants_membership is True.")
 
 
 @api_controller(
@@ -324,6 +329,8 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
             return organization_service.update_organization_token(token, requested_by=self.user(), payload=payload)
         except OrganizationTokenGrantInvariantError as exc:
             raise HttpError(422, str(_GRANT_INVARIANT_MESSAGE)) from exc
+        except OrganizationTokenMembershipTierRequiredError as exc:
+            raise HttpError(422, str(_MEMBERSHIP_TIER_REQUIRED_MESSAGE)) from exc
         except OrganizationTokenStaffGrantForbidden as exc:
             raise HttpError(403, str(_STAFF_GRANT_FORBIDDEN_MESSAGE)) from exc
 

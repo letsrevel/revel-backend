@@ -19,6 +19,7 @@ from events import models, schema, tasks
 from events.exceptions import (
     AlreadyMemberError,
     OrganizationTokenGrantInvariantError,
+    OrganizationTokenMembershipTierRequiredError,
     OrganizationTokenStaffGrantForbidden,
     PendingMembershipRequestExistsError,
 )
@@ -367,6 +368,8 @@ def update_organization_token(
     Raises:
         OrganizationTokenGrantInvariantError: When the resulting state would
             disable both ``grants_membership`` and ``grants_staff_status``.
+        OrganizationTokenMembershipTierRequiredError: When the resulting state
+            would have ``grants_membership=True`` but no ``membership_tier``.
         OrganizationTokenStaffGrantForbidden: When the requester is not the
             organization owner but the token grants (or would grant) staff
             status.
@@ -385,6 +388,11 @@ def update_organization_token(
     if "membership_tier_id" in data:
         tier_id = data.pop("membership_tier_id")
         data["membership_tier"] = _resolve_membership_tier(token.organization, tier_id)
+
+    # Resulting tier state: explicit value in this update, else the token's current tier.
+    resulting_tier = data["membership_tier"] if "membership_tier" in data else token.membership_tier
+    if resulting_grants_membership and resulting_tier is None:
+        raise OrganizationTokenMembershipTierRequiredError
 
     if not data:
         return token

@@ -23,3 +23,7 @@ class OrganizationTokenStaffGrantForbidden(Exception):
 
 class OrganizationTokenGrantInvariantError(Exception):
     """Raised when an organization-token update would leave both grants disabled."""
+
+
+class OrganizationTokenMembershipTierRequiredError(Exception):
+    """Raised when an organization-token update would leave ``grants_membership=True`` with no ``membership_tier``."""
