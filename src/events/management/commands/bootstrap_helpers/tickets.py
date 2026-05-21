@@ -8,6 +8,7 @@ from decimal import Decimal
 import structlog
 from django.utils import timezone
 
+from accounts.models import RevelUser
 from events import models as events_models
 
 from .base import BootstrapState
@@ -288,15 +289,23 @@ def _create_sold_out_workshop_tier(state: BootstrapState, now: "datetime.datetim
         description="Intensive workshop - materials included",
     )
 
-    # Fill the event by cycling through the bootstrap users (multiple tickets per
-    # user is allowed; the Ticket model has no event+user uniqueness constraint).
-    seat_users = list(state.users.values())
-    for i in range(20):
-        user = seat_users[i % len(seat_users)]
+    # Fill the event with 20 ad-hoc filler users so the named bootstrap users
+    # (Alice, George, …) stay free to join the waitlist during smoke testing.
+    # The fillers are intentionally not added to state.users — they exist only
+    # to occupy seats.
+    for i in range(1, 21):
+        filler = RevelUser.objects.create_user(
+            username=f"ml-filler-{i:02d}@bootstrap.example",
+            email=f"ml-filler-{i:02d}@bootstrap.example",
+            password="password123",
+            email_verified=True,
+            first_name="Workshop",
+            last_name=f"Attendee {i:02d}",
+        )
         events_models.Ticket.objects.create(
-            guest_name=user.get_display_name(),
+            guest_name=filler.get_display_name(),
             event=workshop,
-            user=user,
+            user=filler,
             tier=tier,
             status=events_models.Ticket.TicketStatus.ACTIVE,
         )
