@@ -1,5 +1,6 @@
-"""Polls API controller — read endpoints (list / detail / results)."""
+"""Polls API controller — read and write endpoints."""
 
+import typing as t
 from uuid import UUID
 
 from django.contrib.auth.models import AnonymousUser
@@ -9,17 +10,21 @@ from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
 from accounts.models import RevelUser
-from common.authentication import OptionalAuth
+from common.authentication import I18nJWTAuth, OptionalAuth
 from common.controllers import UserAwareController
-from common.throttling import AnonDefaultThrottle, UserDefaultThrottle
+from common.throttling import AnonDefaultThrottle, UserDefaultThrottle, WriteThrottle
 from events.models.mixins import ResourceVisibility
+from events.models.organization import Organization
 from polls.models import Poll
 from polls.schema import (
+    PollCreateSchema,
     PollDetailSchema,
     PollListItemSchema,
+    PollReopenSchema,
     PollResultsSchema,
+    PollUpdateSchema,
 )
-from polls.service import eligibility
+from polls.service import eligibility, poll_service
 from polls.service.aggregation import compute_poll_results
 
 UserLike = RevelUser | AnonymousUser
@@ -82,7 +87,100 @@ class PollController(UserAwareController):
             raise HttpError(403, "You are not allowed to see the results for this poll.")
         return compute_poll_results(poll, viewer_sees_identity=self._viewer_sees_identity(poll, user))
 
+    # ------------------------------------------------------------------ writes
+
+    @route.post(
+        "/",
+        response={201: PollDetailSchema},
+        throttle=WriteThrottle(),
+        auth=I18nJWTAuth(),
+    )
+    def create_poll(self, payload: PollCreateSchema) -> tuple[int, PollDetailSchema]:
+        """Create a new poll under an organization the caller can manage."""
+        user = self.user()
+        organization = get_object_or_404(Organization, pk=payload.organization_id)
+        if not organization.has_org_permission(user.id, "manage_polls"):
+            raise HttpError(403, "manage_polls permission required")
+        poll = poll_service.create_poll(payload)
+        return 201, self._to_detail(poll, user)
+
+    @route.patch(
+        "/{poll_id}/",
+        response=PollDetailSchema,
+        throttle=WriteThrottle(),
+        auth=I18nJWTAuth(),
+    )
+    def patch_poll(self, poll_id: UUID, payload: PollUpdateSchema) -> PollDetailSchema:
+        """Apply a partial update to a poll the caller can manage."""
+        user = self.user()
+        poll = get_object_or_404(Poll, pk=poll_id)
+        self._require_manage_polls(poll, user)
+        updated = poll_service.update_poll(poll, payload)
+        return self._to_detail(updated, user)
+
+    @route.post(
+        "/{poll_id}/open",
+        response=PollDetailSchema,
+        throttle=WriteThrottle(),
+        auth=I18nJWTAuth(),
+    )
+    def open_poll_action(self, poll_id: UUID) -> PollDetailSchema:
+        """Transition a DRAFT poll to OPEN."""
+        user = self.user()
+        poll = get_object_or_404(Poll, pk=poll_id)
+        self._require_manage_polls(poll, user)
+        opened = poll_service.open_poll(poll)
+        return self._to_detail(opened, user)
+
+    @route.post(
+        "/{poll_id}/close",
+        response=PollDetailSchema,
+        throttle=WriteThrottle(),
+        auth=I18nJWTAuth(),
+    )
+    def close_poll_action(self, poll_id: UUID) -> PollDetailSchema:
+        """Transition an OPEN poll to CLOSED."""
+        user = self.user()
+        poll = get_object_or_404(Poll, pk=poll_id)
+        self._require_manage_polls(poll, user)
+        closed = poll_service.close_poll(poll)
+        return self._to_detail(closed, user)
+
+    @route.post(
+        "/{poll_id}/reopen",
+        response=PollDetailSchema,
+        throttle=WriteThrottle(),
+        auth=I18nJWTAuth(),
+    )
+    def reopen_poll_action(self, poll_id: UUID, payload: PollReopenSchema) -> PollDetailSchema:
+        """Reopen a CLOSED poll, optionally setting or clearing ``closes_at``."""
+        user = self.user()
+        poll = get_object_or_404(Poll, pk=poll_id)
+        self._require_manage_polls(poll, user)
+        reopened = poll_service.reopen_poll(poll, payload)
+        return self._to_detail(reopened, user)
+
+    @route.delete(
+        "/{poll_id}/",
+        response={204: None},
+        throttle=WriteThrottle(),
+        auth=I18nJWTAuth(),
+    )
+    def delete_poll_action(self, poll_id: UUID) -> tuple[int, None]:
+        """Hard-delete a poll. Only the organization owner may perform this action."""
+        user = self.user()
+        poll = get_object_or_404(Poll, pk=poll_id)
+        if poll.organization.owner_id != user.id:
+            raise HttpError(403, "Only the organization owner can delete a poll")
+        poll_service.delete_poll(poll)
+        return 204, None
+
     # ------------------------------------------------------------------ helpers
+
+    def _require_manage_polls(self, poll: Poll, user: t.Any) -> None:
+        """Raise 403 unless ``user`` has ``manage_polls`` on ``poll.organization``."""
+        if not poll.organization.has_org_permission(user.id, "manage_polls"):
+            raise HttpError(403, "manage_polls permission required")
 
     def _to_list_item(self, poll: Poll, user: UserLike) -> PollListItemSchema:
         return PollListItemSchema(
