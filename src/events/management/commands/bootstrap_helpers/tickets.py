@@ -265,9 +265,16 @@ def _create_past_event_tier(state: BootstrapState, now: "datetime.datetime") -> 
 
 
 def _create_sold_out_workshop_tier(state: BootstrapState, now: "datetime.datetime") -> None:
-    """Create ML Workshop sold out tier."""
-    events_models.TicketTier.objects.create(
-        event=state.events["sold_out_workshop"],
+    """Create ML Workshop sold out tier and fill the event with 20 actual tickets.
+
+    Real ticket rows are required so the eligibility pipeline counts the event as
+    full (AvailabilityGate / _assert_capacity count non-cancelled tickets). The
+    Event's ``attendee_count`` is also pre-set so the waitlist processor sees
+    ``available <= 0`` immediately, without waiting for the recompute task.
+    """
+    workshop = state.events["sold_out_workshop"]
+    tier = events_models.TicketTier.objects.create(
+        event=workshop,
         name="Workshop Seat",
         visibility=events_models.TicketTier.Visibility.PUBLIC,
         payment_method=events_models.TicketTier.PaymentMethod.ONLINE,
@@ -280,6 +287,19 @@ def _create_sold_out_workshop_tier(state: BootstrapState, now: "datetime.datetim
         sales_end_at=now + timedelta(days=27),
         description="Intensive workshop - materials included",
     )
+
+    # Fill the event by cycling through the bootstrap users (multiple tickets per
+    # user is allowed; the Ticket model has no event+user uniqueness constraint).
+    seat_users = list(state.users.values())
+    for i in range(20):
+        user = seat_users[i % len(seat_users)]
+        events_models.Ticket.objects.create(
+            guest_name=user.get_display_name(),
+            event=workshop,
+            user=user,
+            tier=tier,
+            status=events_models.Ticket.TicketStatus.ACTIVE,
+        )
 
 
 def _create_seated_concert_tiers(state: BootstrapState, now: "datetime.datetime") -> None:
