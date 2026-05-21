@@ -546,7 +546,10 @@ def start_data_export(user: RevelUser) -> None:
     Args:
         user: The authenticated user requesting the export.
     """
-    tasks.generate_user_data_export.delay(str(user.pk))
+    # Defer dispatch until the surrounding transaction commits. The data
+    # export task reads the user row, which under ATOMIC_REQUESTS=True is
+    # not visible to the worker until the request commits.
+    transaction.on_commit(lambda: tasks.generate_user_data_export.delay(str(user.pk)))
 
 
 T = t.TypeVar("T", bound=Schema)

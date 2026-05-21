@@ -356,8 +356,15 @@ class TestReplaceEventSeries:
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.django_db(transaction=True)
 class TestStartSubmissionsExport:
-    """Tests for event_questionnaire_service.start_submissions_export."""
+    """Tests for event_questionnaire_service.start_submissions_export.
+
+    Uses ``transaction=True`` because ``start_submissions_export`` schedules
+    the export task via ``transaction.on_commit``. In default pytest-django
+    mode the wrapping transaction is rolled back and the callback never
+    fires, breaking the ``delay_mock`` assertions.
+    """
 
     def test_creates_export_and_dispatches_task(
         self,

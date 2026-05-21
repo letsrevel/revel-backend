@@ -608,5 +608,9 @@ def start_submissions_export(
         export_type=FileExport.ExportType.QUESTIONNAIRE_SUBMISSIONS,
         parameters=parameters,
     )
-    generate_questionnaire_export_task.delay(str(export.id))
+    # Defer dispatch until after the surrounding transaction commits so the
+    # worker can SELECT the FileExport row. With ATOMIC_REQUESTS=True, an
+    # immediate .delay() races the request's commit and the task can fail
+    # with FileExport.DoesNotExist.
+    transaction.on_commit(lambda: generate_questionnaire_export_task.delay(str(export.id)))
     return export

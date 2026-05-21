@@ -389,7 +389,10 @@ def issue_and_deliver(invoice: AttendeeInvoice) -> AttendeeInvoice:
     from events.tasks import deliver_attendee_invoice_task
 
     invoice = issue_draft_invoice(invoice)
-    deliver_attendee_invoice_task.delay(str(invoice.id))
+    # Defer delivery until the issuance write commits so the worker reads
+    # the issued invoice. With ATOMIC_REQUESTS=True an immediate .delay()
+    # would race the request commit.
+    transaction.on_commit(lambda: deliver_attendee_invoice_task.delay(str(invoice.id)))
     return invoice
 
 
