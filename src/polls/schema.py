@@ -1,6 +1,7 @@
 """Ninja Schema classes for the polls API."""
 
 import typing as t
+from decimal import Decimal
 from uuid import UUID
 
 from ninja import Schema
@@ -10,6 +11,7 @@ from events.models.mixins import ResourceVisibility
 from events.schema.questionnaire import McQuestionStatSchema
 from polls.models import Poll
 from questionnaires import schema as questionnaires_schema
+from questionnaires.models import Questionnaire
 
 # ----- Create / Update -----
 
@@ -18,9 +20,13 @@ class PollCreateSchema(questionnaires_schema.QuestionnaireCreateSchema):
     """Create a poll along with its underlying questionnaire.
 
     Inherits questionnaire-creation fields (name, sections, questions, options).
-    ``requires_evaluation`` and ``evaluation_mode`` are forced server-side and
-    must not be supplied by clients.
+    ``evaluation_mode`` is forced to ``MANUAL`` server-side and ``min_score`` is
+    irrelevant for polls — both default here so clients only need to supply
+    poll-specific fields.
     """
+
+    min_score: Decimal = Field(default=Decimal(0), ge=0, le=100)
+    evaluation_mode: Questionnaire.QuestionnaireEvaluationMode = Questionnaire.QuestionnaireEvaluationMode.MANUAL
 
     organization_id: UUID
     event_id: UUID | None = None
