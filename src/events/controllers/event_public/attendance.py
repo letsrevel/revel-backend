@@ -1,5 +1,6 @@
 from uuid import UUID
 
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -13,8 +14,15 @@ from common.schema import ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle
 from events import models, schema
 from events.service import event_questionnaire_service, event_service, feedback_service, ticket_service
-from events.service.event_manager import EventManager, EventUserEligibility
+from events.service.event_manager import (
+    EligibilityService,
+    EventManager,
+    EventUserEligibility,
+    NextStep,
+    UserIsIneligibleError,
+)
 from events.service.ticket_service import UserEventStatus
+from events.service.waitlist_service import enqueue_waitlist_processing
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 from questionnaires.schema import (
     QuestionnaireSchema,
@@ -121,7 +129,7 @@ class EventPublicAttendanceController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/waitlist/join",
         url_name="join_waitlist",
-        response={200: ResponseMessage, 400: ResponseMessage},
+        response={200: ResponseMessage, 400: ResponseMessage, 409: ResponseMessage},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
@@ -130,24 +138,49 @@ class EventPublicAttendanceController(EventPublicBaseController):
 
         Allows users to join the event waitlist when the event is at capacity. Users will be
         notified when spots become available. Returns 400 if the event doesn't have an open
-        waitlist or if the user is already on the waitlist.
+        waitlist, 409 if the event has available capacity (the FE should refresh and let the
+        user register directly), or a 4xx eligibility error if some other gate blocks the user.
         """
         event = self.get_one(event_id)
 
-        # Check if waitlist is open
         if not event.waitlist_open:
             raise HttpError(400, str(_("This event does not have an open waitlist.")))
 
-        # Use get_or_create to handle duplicate joins
-        waitlist_entry, created = models.EventWaitList.objects.get_or_create(
-            event=event,
-            user=self.user(),
-        )
+        user = self.user()
 
-        # If entry already existed, inform the user
-        if not created:
+        # Idempotency: existing waitlist member gets the same 200 they did before.
+        if models.EventWaitList.objects.filter(event=event, user=user).exists():
             return ResponseMessage(message=str(_("You are already on the waitlist for this event.")))
 
+        # Run the full eligibility pipeline. We only proceed to join the waitlist
+        # when the *only* obstacle is capacity (the user could otherwise register).
+        eligibility = EligibilityService(user, event).check_eligibility()
+        if eligibility.allowed:
+            # Event has capacity right now — the user must have been looking at a
+            # stale page. Tell the FE (via 409 Conflict) to refresh and register
+            # directly.
+            raise HttpError(409, str(_("Event has available capacity. Please refresh and register directly.")))
+
+        waitlist_next_steps = {NextStep.JOIN_WAITLIST, NextStep.WAIT_FOR_OPEN_SPOT}
+        if eligibility.next_step not in waitlist_next_steps:
+            # Some other gate blocks them (blacklist, invitation required, etc.).
+            # They couldn't claim an offer even if they got one.
+            raise UserIsIneligibleError(
+                message=eligibility.reason or str(_("You are not eligible to join the waitlist.")),
+                eligibility=eligibility,
+            )
+
+        try:
+            with transaction.atomic():
+                models.EventWaitList.objects.create(event=event, user=user)
+        except IntegrityError:
+            # Lost the race against another tab/request. Treat as idempotent
+            # success — the user IS on the waitlist now.
+            return ResponseMessage(message=str(_("You are already on the waitlist for this event.")))
+        # Self-healing: if a seat is currently free (e.g. capacity bumped, or a
+        # cancellation landed between page-load and click), the service will see
+        # this user at the front of the queue and immediately create an offer.
+        enqueue_waitlist_processing(event.id)
         return ResponseMessage(message=str(_("Successfully joined the waitlist.")))
 
     @route.delete(
@@ -168,11 +201,27 @@ class EventPublicAttendanceController(EventPublicBaseController):
         if not event.waitlist_open:
             raise HttpError(400, str(_("This event does not have an open waitlist.")))
 
-        # Remove the user from the waitlist if they're on it
-        models.EventWaitList.objects.filter(
-            event=event,
-            user=self.user(),
-        ).delete()
+        user = self.user()
+        had_offer = False
+        with transaction.atomic():
+            offer = (
+                models.WaitlistOffer.objects.select_for_update()
+                .filter(
+                    event=event,
+                    user=user,
+                    status=models.WaitlistOffer.WaitlistOfferStatus.PENDING,
+                    expires_at__gt=timezone.now(),
+                )
+                .first()
+            )
+            if offer is not None:
+                offer.status = models.WaitlistOffer.WaitlistOfferStatus.EXPIRED
+                offer.save(update_fields=["status"])
+                had_offer = True
+            models.EventWaitList.objects.filter(event=event, user=user).delete()
+        if had_offer:
+            # The user gave up their reserved seat — let the next person in.
+            enqueue_waitlist_processing(event.id)
         return ResponseMessage(message=str(_("Successfully left the waitlist.")))
 
     @route.get(

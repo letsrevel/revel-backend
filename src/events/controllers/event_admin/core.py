@@ -16,6 +16,7 @@ from common.utils import safe_save_uploaded_file
 from events import models, schema
 from events.controllers.permissions import CanDuplicateEvent, EventPermission
 from events.service import event_service, update_db_instance
+from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
 
 from .base import EventAdminBaseController
 
@@ -62,6 +63,11 @@ class EventAdminCoreController(EventAdminBaseController):
             payload_fields = set(payload.model_dump(exclude_unset=True).keys())
             pre_values = {f: getattr(event, f, None) for f in payload_fields if hasattr(event, f)}
 
+        # Snapshot waitlist-relevant state before the update so we can detect
+        # capacity increases and waitlist_open True -> False transitions.
+        old_effective_capacity = event.effective_capacity
+        was_waitlist_open = event.waitlist_open
+
         updated_event = update_db_instance(event, payload)
 
         # Mark occurrences as modified only when a persisted field actually
@@ -77,6 +83,16 @@ class EventAdminCoreController(EventAdminBaseController):
             if changed:
                 updated_event.is_modified = True
                 updated_event.save(update_fields=["is_modified"])
+
+        # If the effective capacity grew, freshly-available seats may unblock
+        # waitlisted users — enqueue a processing pass.
+        if updated_event.effective_capacity > old_effective_capacity:
+            enqueue_waitlist_processing(updated_event.id)
+
+        # If the waitlist was just closed, revoke any pending offers — those
+        # users would otherwise see a "ghost" offer for a now-closed waitlist.
+        if was_waitlist_open and not updated_event.waitlist_open:
+            revoke_all_pending_offers(updated_event.id)
 
         return updated_event
 
@@ -154,8 +170,16 @@ class EventAdminCoreController(EventAdminBaseController):
         in events/signals.py which triggers when status field is updated.
         """
         event = self.get_one(event_id)
+        old_status = event.status
         event.status = status
         event.save(update_fields=["status"])
+
+        if status == models.Event.EventStatus.CANCELLED:
+            # The event is cancelled; outstanding offers are meaningless.
+            revoke_all_pending_offers(event.id)
+        elif old_status == models.Event.EventStatus.CANCELLED:
+            # Un-cancelling re-creates real seats; let the waitlist take them.
+            enqueue_waitlist_processing(event.id)
 
         return event
 

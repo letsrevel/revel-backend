@@ -1,6 +1,7 @@
 """Stripe webhook event handlers."""
 
 import typing as t
+import uuid
 from decimal import Decimal
 
 import stripe
@@ -11,6 +12,7 @@ from django.db.models import F
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
 from events.models import Organization, Payment, Ticket, TicketTier
+from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import from_stripe_amount, to_stripe_amount
 
 logger = structlog.get_logger(__name__)
@@ -198,6 +200,7 @@ class StripeEventHandler:
         raw_response = dict(event)
         touched_session_id: str | None = None
         newly_refunded_ids: list[str] = []
+        affected_event_ids: set[uuid.UUID] = set()
 
         for refund in refunds:
             matched = self._match_refund_to_payments(refund, candidates)
@@ -221,9 +224,16 @@ class StripeEventHandler:
                     if is_full_batch
                     else from_stripe_amount(int(refund.get("amount", 0)), payment.currency)
                 )
-                self._apply_refund_to_payment(payment, refund, raw_response, allocated_amount)
+                cancelled_event_id = self._apply_refund_to_payment(payment, refund, raw_response, allocated_amount)
                 newly_refunded_ids.append(str(payment.id))
                 touched_session_id = payment.stripe_session_id
+                if cancelled_event_id is not None:
+                    affected_event_ids.add(cancelled_event_id)
+
+        # One enqueue per event regardless of how many tickets cancelled inside it;
+        # the processor scans all freed seats in a single pass.
+        for event_id in affected_event_ids:
+            enqueue_waitlist_processing(event_id)
 
         self._schedule_credit_note(
             payment_intent_id=payment_intent_id,
@@ -338,7 +348,7 @@ class StripeEventHandler:
         refund: dict[str, t.Any],
         raw_response: dict[str, t.Any],
         allocated_amount: Decimal,
-    ) -> None:
+    ) -> uuid.UUID | None:
         """Persist refund data onto a Payment and cancel its linked Ticket.
 
         Args:
@@ -349,6 +359,11 @@ class StripeEventHandler:
                 major currency units. For single-Payment matches this equals the
                 Stripe refund amount converted from smallest units; for a
                 full-batch sweep (Branch 4) this equals ``payment.amount``.
+
+        Returns:
+            The event_id of the cancelled ticket if the ticket transitioned to
+            CANCELLED in this call (capacity now freed), otherwise None. The
+            caller batches these into a single waitlist enqueue per event.
         """
         from django.utils import timezone
 
@@ -382,6 +397,8 @@ class StripeEventHandler:
             TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
+            return ticket.event_id
+        return None
 
     @transaction.atomic
     def handle_payment_intent_canceled(self, event: stripe.Event) -> None:
@@ -420,6 +437,7 @@ class StripeEventHandler:
 
         raw_response = dict(event)
         canceled_tickets = []
+        affected_event_ids: set[uuid.UUID] = set()
 
         for payment in pending_payments:
             # Update payment status to failed
@@ -436,7 +454,12 @@ class StripeEventHandler:
             TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
+            affected_event_ids.add(ticket.event_id)
             canceled_tickets.append(ticket)
+
+        # One enqueue per event regardless of how many tickets cancelled inside it.
+        for event_id in affected_event_ids:
+            enqueue_waitlist_processing(event_id)
 
         logger.info(
             "stripe_payment_intent_canceled_processed",

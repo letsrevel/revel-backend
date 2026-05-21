@@ -60,6 +60,7 @@ Key responsibilities:
 - **Tickets**: checkout, payment confirmation, check-in
 - **Venues**: location management
 - **Invitations**: invite-based access control
+- **Waitlists**: passive queue plus the advanced batched-offer flow (see `service/waitlist_service.py`)
 - **Blacklists**: organization-level email blocking
 - **Discount codes**: organization-scoped percentage/fixed-amount discounts for ticket purchases
 - **Followers**: user-to-organization following

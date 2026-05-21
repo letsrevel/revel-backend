@@ -5,6 +5,44 @@ from enum import StrEnum
 from django.utils.translation import gettext_noop
 
 
+class ReasonCode(StrEnum):
+    """Stable machine-readable identifiers for eligibility reasons.
+
+    Mirrors :class:`Reasons` member-for-member but with snake_case values that
+    are stable under prose changes and translations. Frontend should switch on
+    this rather than matching the human-readable ``reason`` string.
+    """
+
+    MEMBERS_ONLY = "members_only"
+    MEMBERSHIP_INACTIVE = "membership_inactive"
+    REQUIRES_FULL_PROFILE = "requires_full_profile"
+    EVENT_IS_FULL = "event_is_full"
+    SPOTS_RESERVED_FOR_WAITLIST = "spots_reserved_for_waitlist"
+    ON_WAITLIST_WAITING_FOR_BATCH = "on_waitlist_waiting_for_batch"
+    SOLD_OUT = "sold_out"
+    QUESTIONNAIRE_MISSING = "questionnaire_missing"
+    QUESTIONNAIRE_FAILED = "questionnaire_failed"
+    QUESTIONNAIRE_PENDING_REVIEW = "questionnaire_pending_review"
+    QUESTIONNAIRE_RETAKE_COOLDOWN = "questionnaire_retake_cooldown"
+    REQUIRES_TICKET = "requires_ticket"
+    MUST_RSVP = "must_rsvp"
+    REQUIRES_INVITATION = "requires_invitation"
+    INVITATION_REQUEST_PENDING = "invitation_request_pending"
+    INVITATION_REQUEST_REJECTED = "invitation_request_rejected"
+    REQUIRES_PURCHASE = "requires_purchase"
+    NOTHING_TO_PURCHASE = "nothing_to_purchase"
+    EVENT_IS_NOT_OPEN = "event_is_not_open"
+    EVENT_HAS_FINISHED = "event_has_finished"
+    RSVP_DEADLINE_PASSED = "rsvp_deadline_passed"
+    APPLICATION_DEADLINE_PASSED = "application_deadline_passed"
+    NO_TICKETS_ON_SALE = "no_tickets_on_sale"
+    MEMBERSHIP_TIER_REQUIRED = "membership_tier_required"
+    BLACKLISTED = "blacklisted"
+    VERIFICATION_REQUIRED = "verification_required"
+    WHITELIST_PENDING = "whitelist_pending"
+    WHITELIST_REJECTED = "whitelist_rejected"
+
+
 class NextStep(StrEnum):
     """Possible next steps for a user to become eligible for an event."""
 
@@ -36,6 +74,8 @@ class Reasons(StrEnum):
     MEMBERSHIP_INACTIVE = gettext_noop("Your membership is not active.")
     REQUIRES_FULL_PROFILE = gettext_noop("Requires full profile.")
     EVENT_IS_FULL = gettext_noop("Event is full.")
+    SPOTS_RESERVED_FOR_WAITLIST = gettext_noop("Spots are currently reserved for waitlist members.")
+    ON_WAITLIST_WAITING_FOR_BATCH = gettext_noop("You are on the waitlist. Waiting for your turn.")
     SOLD_OUT = gettext_noop("Sold out")
     QUESTIONNAIRE_MISSING = gettext_noop("Questionnaire has not been filled.")
     QUESTIONNAIRE_FAILED = gettext_noop("Questionnaire evaluation was insufficient.")
@@ -60,3 +100,12 @@ class Reasons(StrEnum):
     VERIFICATION_REQUIRED = gettext_noop("Additional verification required.")
     WHITELIST_PENDING = gettext_noop("Your verification request is pending approval.")
     WHITELIST_REJECTED = gettext_noop("Your verification request was rejected.")
+
+    @property
+    def code(self) -> ReasonCode:
+        """Return the stable machine-readable code for this reason.
+
+        Pairs with the translated ``reason`` string so API consumers can switch
+        on a stable identifier instead of matching localized prose.
+        """
+        return ReasonCode[self.name]

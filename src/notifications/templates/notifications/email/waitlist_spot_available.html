@@ -22,21 +22,28 @@
         </div>
         <div class="content">
             <p>{% trans "Hello" %} {{ user.display_name }},</p>
-            <p style="font-size: 18px;">{% trans "Great news!" %} {% if context.spots_available == 1 %}{% blocktranslate with count=context.spots_available event=context.event_name %}<strong>{{ count }} spot</strong> is now available for <strong>{{ event }}</strong>!{% endblocktranslate %}{% else %}{% blocktranslate with count=context.spots_available event=context.event_name %}<strong>{{ count }} spots</strong> are now available for <strong>{{ event }}</strong>!{% endblocktranslate %}{% endif %}</p>
+            <p style="font-size: 18px;">{% blocktranslate with event=context.event_name %}A spot just opened up for <strong>{{ event }}</strong>!{% endblocktranslate %}</p>
 
+            {% if context.is_cutoff_batch %}
+            <p>{% trans "This is the final call — the waitlist has opened to everyone." %}</p>
+            {% else %}
+            <p>{% trans "You've been selected from the waitlist." %}</p>
+            {% endif %}
+
+            {% if context.expires_at_formatted %}
             <div class="alert">
-                <p style="margin: 0;"><strong>⏰ {% trans "Act fast!" %}</strong> {% trans "Spots are limited and available on a first-come, first-served basis." %}</p>
+                <p style="margin: 0;"><strong>⏰ {% trans "Claim your spot before" %}</strong> {{ context.expires_at_formatted }}{% if context.time_remaining_formatted %} ({{ context.time_remaining_formatted }}){% endif %}.</p>
             </div>
+            {% endif %}
 
             <div class="card">
                 <h3 style="margin-top: 0; color: #10b981;">{% trans "Event Details" %}</h3>
                 <div class="info-row">📅 {{ context.event_start_formatted }}</div>
-                {% if context.event_location %}<div class="info-row">📍 {{ context.event_location }}</div>{% endif %}
                 <div class="info-row">🏢 {{ context.organization_name }}</div>
             </div>
 
             <center>
-                <a href="{{ context.event_url }}" class="button">{% trans "Claim Your Spot Now" %}</a>
+                <a href="{{ context.event_url }}" class="button">{% trans "Claim Your Spot" %}</a>
             </center>
 
             <p style="color: #666; font-size: 14px; margin-top: 30px;">{% trans "You're receiving this because you're on the waitlist for this event." %}</p>

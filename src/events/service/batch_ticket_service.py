@@ -11,7 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, EventInvitation, OrganizationMember, Ticket, TicketTier, VenueSeat
+from events.models import Event, EventInvitation, OrganizationMember, Ticket, TicketTier, VenueSeat, WaitlistOffer
 from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
 from events.tasks import build_attendee_visibility_flags
@@ -340,15 +340,26 @@ class BatchTicketService:
         Uses select_for_update to prevent race conditions when multiple users
         purchase tickets simultaneously.
 
+        Counts committed tickets PLUS pending unexpired waitlist offers
+        (excluding cutoff-batch offers which race FCFS against real seats,
+        and excluding the current user's own offer which reserves a seat
+        FOR them). This mirrors EventManager._assert_capacity.
+
         Args:
             count: Number of tickets being requested.
 
         Raises:
             HttpError: If the event is full or doesn't have enough capacity.
         """
+        from django.utils import timezone
+
         effective_cap = self.event.effective_capacity
         if effective_cap == 0:
             return  # Unlimited
+
+        # Lock the Event row to serialize against process_waitlist_for_event
+        # and other capacity-modifying flows.
+        self.event = Event.objects.select_for_update().get(pk=self.event.pk)
 
         # Count all non-cancelled tickets with row-level locking
         current_count = (
@@ -358,7 +369,28 @@ class BatchTicketService:
             .count()
         )
 
-        available = effective_cap - current_count
+        now = timezone.now()
+        pending_offers = (
+            WaitlistOffer.objects.select_for_update()
+            .filter(
+                event=self.event,
+                status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+                expires_at__gt=now,
+                is_cutoff_batch=False,
+            )
+            .count()
+        )
+        has_own_offer = WaitlistOffer.objects.filter(
+            event=self.event,
+            user=self.user,
+            status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+            expires_at__gt=now,
+            is_cutoff_batch=False,
+        ).exists()
+        if has_own_offer:
+            pending_offers = max(0, pending_offers - 1)
+
+        available = effective_cap - current_count - pending_offers
         if available <= 0:
             raise HttpError(429, str(_("This event is sold out.")))
         if count > available:
@@ -553,7 +585,44 @@ class BatchTicketService:
 
             discount_code_service.apply_discount(dc, self.user, len(created))
 
+        self._claim_waitlist_offer_if_any()
         return created
+
+    def _claim_waitlist_offer_if_any(self) -> None:
+        """Mark a pending unexpired WaitlistOffer for this (event, user) as CLAIMED.
+
+        Mirrors EventManager._claim_active_offer for ticket purchase flows.
+        Fires on PENDING-ticket creation (online checkout) as well as active
+        ticket creation (free/offline/at-the-door) because the PENDING ticket
+        already counts toward capacity — without claiming the offer here the
+        user would consume two capacity slots. No-op when the user has no
+        pending offer.
+        """
+        from django.utils import timezone
+
+        from events.models import EventWaitList, WaitlistOffer
+
+        now = timezone.now()
+        offer = (
+            WaitlistOffer.objects.select_for_update()
+            .filter(
+                event=self.event,
+                user=self.user,
+                status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+                expires_at__gt=now,
+            )
+            .first()
+        )
+        if offer is None:
+            return
+        offer.status = WaitlistOffer.WaitlistOfferStatus.CLAIMED
+        offer.claimed_at = now
+        offer.save(update_fields=["status", "claimed_at"])
+        EventWaitList.objects.filter(event=self.event, user=self.user).delete()
+        # Defensive nudge — see EventManager._claim_active_offer for rationale.
+        from events.service.waitlist_service import enqueue_waitlist_processing
+
+        enqueue_waitlist_processing(self.event.id)
 
     def _online_checkout(
         self,

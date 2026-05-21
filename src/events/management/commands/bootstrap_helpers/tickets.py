@@ -8,6 +8,7 @@ from decimal import Decimal
 import structlog
 from django.utils import timezone
 
+from accounts.models import RevelUser
 from events import models as events_models
 
 from .base import BootstrapState
@@ -265,12 +266,21 @@ def _create_past_event_tier(state: BootstrapState, now: "datetime.datetime") -> 
 
 
 def _create_sold_out_workshop_tier(state: BootstrapState, now: "datetime.datetime") -> None:
-    """Create ML Workshop sold out tier."""
-    events_models.TicketTier.objects.create(
-        event=state.events["sold_out_workshop"],
+    """Create ML Workshop sold out tier and fill the event with 20 actual tickets.
+
+    Real ticket rows are required so the eligibility pipeline counts the event as
+    full (AvailabilityGate / _assert_capacity count non-cancelled tickets). The
+    Event's ``attendee_count`` is also pre-set so the waitlist processor sees
+    ``available <= 0`` immediately, without waiting for the recompute task.
+    """
+    workshop = state.events["sold_out_workshop"]
+    # Offline payment tier so admins can cancel filler tickets manually during
+    # smoke testing without going through Stripe.
+    tier = events_models.TicketTier.objects.create(
+        event=workshop,
         name="Workshop Seat",
         visibility=events_models.TicketTier.Visibility.PUBLIC,
-        payment_method=events_models.TicketTier.PaymentMethod.ONLINE,
+        payment_method=events_models.TicketTier.PaymentMethod.OFFLINE,
         purchasable_by=events_models.TicketTier.PurchasableBy.PUBLIC,
         price=Decimal("299.00"),
         currency="EUR",
@@ -279,7 +289,29 @@ def _create_sold_out_workshop_tier(state: BootstrapState, now: "datetime.datetim
         sales_start_at=now - timedelta(days=10),
         sales_end_at=now + timedelta(days=27),
         description="Intensive workshop - materials included",
+        manual_payment_instructions=_OFFLINE_INSTRUCTIONS.format(price="299.00", currency="EUR"),
     )
+
+    # Fill the event with 20 ad-hoc filler users so the named bootstrap users
+    # (Alice, George, …) stay free to join the waitlist during smoke testing.
+    # The fillers are intentionally not added to state.users — they exist only
+    # to occupy seats.
+    for i in range(1, 21):
+        filler = RevelUser.objects.create_user(
+            username=f"ml-filler-{i:02d}@bootstrap.example",
+            email=f"ml-filler-{i:02d}@bootstrap.example",
+            password="password123",
+            email_verified=True,
+            first_name="Workshop",
+            last_name=f"Attendee {i:02d}",
+        )
+        events_models.Ticket.objects.create(
+            guest_name=filler.get_display_name(),
+            event=workshop,
+            user=filler,
+            tier=tier,
+            status=events_models.Ticket.TicketStatus.ACTIVE,
+        )
 
 
 def _create_seated_concert_tiers(state: BootstrapState, now: "datetime.datetime") -> None:

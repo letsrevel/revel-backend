@@ -65,6 +65,7 @@ nav:
       - Controllers: architecture/controllers.md
       - Permissions & Roles: architecture/permissions.md
       - Eligibility Pipeline: architecture/eligibility-pipeline.md
+      - Advanced Waitlist: architecture/waitlist.md
       - Protected Files (HMAC): architecture/protected-files.md
       - File Security: architecture/security.md
       - Notifications: architecture/notifications.md

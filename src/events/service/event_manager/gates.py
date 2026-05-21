@@ -7,6 +7,7 @@ by the EligibilityService to determine if a user can participate in an event.
 from __future__ import annotations
 
 import abc
+import datetime
 import typing as t
 import uuid
 
@@ -31,6 +32,18 @@ if t.TYPE_CHECKING:
     from accounts.models import RevelUser
 
     from .service import EligibilityService
+
+
+def _resolve_in_user_tz(dt: datetime.datetime, user: "RevelUser", event: models.Event) -> datetime.datetime:
+    """Convert ``dt`` into the user's preferred timezone (falling back to the event's).
+
+    The conversion preserves the absolute instant — only the wall-clock
+    representation changes, which is what API consumers serialize to ISO8601.
+    """
+    from events.utils import get_event_timezone, get_user_timezone
+
+    target_tz = get_user_timezone(user) or get_event_timezone(event)
+    return dt.astimezone(target_tz)
 
 
 class BaseEligibilityGate(abc.ABC):
@@ -77,6 +90,7 @@ class BlacklistGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.BLACKLISTED),
+                reason_code=Reasons.BLACKLISTED.code,
                 next_step=None,
             )
 
@@ -100,6 +114,7 @@ class BlacklistGate(BaseEligibilityGate):
                     allowed=False,
                     event_id=self.event.id,
                     reason=_(Reasons.WHITELIST_PENDING),
+                    reason_code=Reasons.WHITELIST_PENDING.code,
                     next_step=NextStep.WAIT_FOR_WHITELIST_APPROVAL,
                 )
             if whitelist_request.status == WhitelistRequest.Status.REJECTED:
@@ -107,6 +122,7 @@ class BlacklistGate(BaseEligibilityGate):
                     allowed=False,
                     event_id=self.event.id,
                     reason=_(Reasons.WHITELIST_REJECTED),
+                    reason_code=Reasons.WHITELIST_REJECTED.code,
                     next_step=None,
                 )
 
@@ -115,6 +131,7 @@ class BlacklistGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(Reasons.VERIFICATION_REQUIRED),
+            reason_code=Reasons.VERIFICATION_REQUIRED.code,
             next_step=NextStep.REQUEST_WHITELIST,
         )
 
@@ -129,12 +146,14 @@ class EventStatusGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.EVENT_HAS_FINISHED),
+                reason_code=Reasons.EVENT_HAS_FINISHED.code,
             )
         if self.event.status != models.Event.EventStatus.OPEN:
             return EventUserEligibility(
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.EVENT_IS_NOT_OPEN),
+                reason_code=Reasons.EVENT_IS_NOT_OPEN.code,
                 next_step=NextStep.WAIT_FOR_EVENT_TO_OPEN,
             )
         return None
@@ -164,6 +183,7 @@ class RSVPDeadlineGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.RSVP_DEADLINE_PASSED),
+                reason_code=Reasons.RSVP_DEADLINE_PASSED.code,
                 next_step=None,
             )
         return None
@@ -195,6 +215,7 @@ class ApplyDeadlineGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(Reasons.APPLICATION_DEADLINE_PASSED),
+            reason_code=Reasons.APPLICATION_DEADLINE_PASSED.code,
             next_step=None,
         )
 
@@ -303,6 +324,7 @@ class InvitationGate(BaseEligibilityGate):
                     allowed=False,
                     event_id=self.event.id,
                     reason=_(Reasons.INVITATION_REQUEST_PENDING),
+                    reason_code=Reasons.INVITATION_REQUEST_PENDING.code,
                     next_step=NextStep.WAIT_FOR_INVITATION_APPROVAL,
                 )
             if invitation_request.status == EventInvitationRequest.InvitationRequestStatus.REJECTED:
@@ -310,6 +332,7 @@ class InvitationGate(BaseEligibilityGate):
                     allowed=False,
                     event_id=self.event.id,
                     reason=_(Reasons.INVITATION_REQUEST_REJECTED),
+                    reason_code=Reasons.INVITATION_REQUEST_REJECTED.code,
                     next_step=None,  # No action available after rejection
                 )
 
@@ -318,6 +341,7 @@ class InvitationGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(Reasons.REQUIRES_INVITATION),
+            reason_code=Reasons.REQUIRES_INVITATION.code,
             next_step=NextStep.REQUEST_INVITATION if self.event.accept_invitation_requests else None,
         )
 
@@ -344,6 +368,7 @@ class MembershipGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.MEMBERSHIP_INACTIVE),
+                reason_code=Reasons.MEMBERSHIP_INACTIVE.code,
                 next_step=None,  # They need to contact the organization to reactivate
             )
 
@@ -352,6 +377,7 @@ class MembershipGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(Reasons.MEMBERS_ONLY),
+            reason_code=Reasons.MEMBERS_ONLY.code,
             next_step=NextStep.BECOME_MEMBER if self.event.organization.accept_membership_requests else None,
         )
 
@@ -380,6 +406,7 @@ class FullProfileGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(Reasons.REQUIRES_FULL_PROFILE),
+            reason_code=Reasons.REQUIRES_FULL_PROFILE.code,
             next_step=NextStep.COMPLETE_PROFILE,
             missing_profile_fields=missing_profile_fields,
         )
@@ -462,6 +489,7 @@ class QuestionnaireGate(BaseEligibilityGate):
         return EventUserEligibility(
             allowed=False,
             reason=_(Reasons.QUESTIONNAIRE_FAILED),
+            reason_code=Reasons.QUESTIONNAIRE_FAILED.code,
             event_id=self.event.id,
             next_step=NextStep.WAIT_TO_RETAKE_QUESTIONNAIRE,
             retry_on=retry_on,
@@ -488,6 +516,7 @@ class QuestionnaireGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.QUESTIONNAIRE_MISSING),
+                reason_code=Reasons.QUESTIONNAIRE_MISSING.code,
                 next_step=NextStep.COMPLETE_QUESTIONNAIRE,
                 questionnaires_missing=questionnaires_missing,
             )
@@ -510,6 +539,7 @@ class QuestionnaireGate(BaseEligibilityGate):
             return EventUserEligibility(
                 allowed=False,
                 reason=_(Reasons.QUESTIONNAIRE_PENDING_REVIEW),
+                reason_code=Reasons.QUESTIONNAIRE_PENDING_REVIEW.code,
                 event_id=self.event.id,
                 next_step=NextStep.WAIT_FOR_QUESTIONNAIRE_EVALUATION,
                 questionnaires_pending_review=questionnaires_pending_review,
@@ -541,6 +571,7 @@ class QuestionnaireGate(BaseEligibilityGate):
             return EventUserEligibility(
                 allowed=False,
                 reason=_(Reasons.QUESTIONNAIRE_FAILED),
+                reason_code=Reasons.QUESTIONNAIRE_FAILED.code,
                 event_id=self.event.id,
                 questionnaires_failed=failed_questionnaires,
             )
@@ -549,6 +580,7 @@ class QuestionnaireGate(BaseEligibilityGate):
                 allowed=False,
                 event_id=self.event.id,
                 reason=_(Reasons.QUESTIONNAIRE_MISSING),
+                reason_code=Reasons.QUESTIONNAIRE_MISSING.code,
                 next_step=NextStep.COMPLETE_QUESTIONNAIRE,
                 questionnaires_missing=questionnaires_missing,
             )
@@ -558,31 +590,73 @@ class QuestionnaireGate(BaseEligibilityGate):
 class AvailabilityGate(BaseEligibilityGate):
     """Gate #10: Checks if the event has space available for another attendee.
 
-    This is a preliminary capacity check using prefetched data (zero additional DB queries).
-    It must use the same counting logic as EventManager._assert_capacity() to avoid
-    inconsistencies, but operates on in-memory data for performance.
+    Uses effective_capacity (min of max_attendees and venue.capacity) as the soft
+    limit. Pending unexpired non-cutoff WaitlistOffers also count toward capacity
+    (they reserve seats for waitlist batches); the current user's own offer is
+    not double-counted.
 
-    Uses effective_capacity (min of max_attendees and venue.capacity) as the soft limit.
-    This can be overridden by invitations with overrides_max_attendees=True.
+    The capacity check itself runs on prefetched data from EligibilityService
+    (the ``pending_waitlist_offer_count`` annotation), so the common "allowed"
+    fast path issues zero additional queries. When the gate is the blocking
+    reason, two small helper queries fire to populate the waitlist context
+    (``next_batch_at`` and ``waitlist_position``) — see ``_earliest_pending_expiry``
+    and ``_get_waitlist_position``.
 
-    The final authoritative capacity check happens in _assert_capacity() within a transaction
-    with row-level locking to prevent race conditions.
+    Must use the same counting logic as EventManager._assert_capacity() to avoid
+    inconsistencies. The final authoritative capacity check happens in
+    ``_assert_capacity()`` within a transaction with row-level locking to
+    prevent race conditions.
     """
 
     def check(self) -> EventUserEligibility | None:
-        """Check if the event has space available for another attendee."""
+        """Check if the event has space available, accounting for pending waitlist offers.
+
+        Pending unexpired offers reserve seats. Non-offer-holders see "spots reserved
+        for waitlist"; users already on the waitlist see "waiting for your turn".
+        When the event is full on attendees alone, the legacy EVENT_IS_FULL reason applies.
+
+        The current user's own active offer is NOT counted toward the held pool — that
+        seat is reserved FOR them, not held FROM them — so they pass capacity.
+        """
         effective_cap = self.event.effective_capacity
         if effective_cap == 0 or self.handler.overrides_max_attendees():
             return None
 
-        if self._get_attendee_count() >= effective_cap:
-            return EventUserEligibility(
-                allowed=False,
-                event_id=self.event.id,
-                reason=_(Reasons.EVENT_IS_FULL),
-                next_step=self._get_next_step(),
-            )
-        return None
+        attendees = self._get_attendee_count()
+        pending = self._pending_offer_count_for_check()
+
+        if attendees + pending < effective_cap:
+            return None
+
+        # Pick reason based on cause of fullness.
+        reason: Reasons
+        if pending > 0 and attendees < effective_cap:
+            if self.event.user_is_waitlisted:  # type: ignore[attr-defined]
+                reason = Reasons.ON_WAITLIST_WAITING_FOR_BATCH
+            else:
+                reason = Reasons.SPOTS_RESERVED_FOR_WAITLIST
+        else:
+            reason = Reasons.EVENT_IS_FULL
+
+        next_batch_at = self._earliest_pending_expiry() if pending > 0 else None
+        if next_batch_at is not None:
+            next_batch_at = _resolve_in_user_tz(next_batch_at, self.user, self.event)
+        waitlist_position = (
+            self._get_waitlist_position()
+            if self.event.user_is_waitlisted  # type: ignore[attr-defined]
+            else None
+        )
+
+        return EventUserEligibility(
+            allowed=False,
+            event_id=self.event.id,
+            reason=_(reason),
+            reason_code=reason.code,
+            next_step=self._get_next_step(),
+            pending_offers_count=pending,
+            next_batch_at=next_batch_at,
+            waitlist_position=waitlist_position,
+        )
 
     def _get_next_step(self) -> NextStep | None:
         if not self.event.waitlist_open:
@@ -606,6 +680,48 @@ class AvailabilityGate(BaseEligibilityGate):
                 [ticket for ticket in self.event.tickets.all() if ticket.status != Ticket.TicketStatus.CANCELLED]
             )
         return len([rsvp for rsvp in self.event.rsvps.all() if rsvp.status == EventRSVP.RsvpStatus.YES])
+
+    def _pending_offer_count_for_check(self) -> int:
+        """Pending unexpired offers, excluding the current user's own active offer.
+
+        The user's own seat is reserved FOR them so it must not block their access.
+        """
+        pending = getattr(self.event, "pending_waitlist_offer_count", 0) or 0
+        if self.handler.active_waitlist_offer is not None:
+            pending = max(0, pending - 1)
+        return pending
+
+    def _earliest_pending_expiry(self) -> datetime.datetime | None:
+        """Earliest expiry across non-cutoff PENDING, unexpired offers for this event."""
+        return (
+            models.WaitlistOffer.objects.filter(
+                event=self.event,
+                status=models.WaitlistOffer.WaitlistOfferStatus.PENDING,
+                expires_at__gt=timezone.now(),
+                is_cutoff_batch=False,
+            )
+            .order_by("expires_at")
+            .values_list("expires_at", flat=True)
+            .first()
+        )
+
+    def _get_waitlist_position(self) -> int | None:
+        """Return the 1-based FIFO position of the current user in the waitlist.
+
+        Computed via two indexed queries (own entry's created_at, then count of
+        earlier entries) instead of materializing all entries in Python.
+        """
+        from events.models import EventWaitList
+
+        own_created_at = (
+            EventWaitList.objects.filter(event=self.event, user=self.handler.user)
+            .values_list("created_at", flat=True)
+            .first()
+        )
+        if own_created_at is None:
+            return None
+        earlier = EventWaitList.objects.filter(event=self.event, created_at__lt=own_created_at).count()
+        return earlier + 1
 
 
 class TicketSalesGate(BaseEligibilityGate):
@@ -642,6 +758,7 @@ class TicketSalesGate(BaseEligibilityGate):
             allowed=False,
             event_id=self.event.id,
             reason=_(Reasons.NO_TICKETS_ON_SALE),
+            reason_code=Reasons.NO_TICKETS_ON_SALE.code,
             next_step=None,
         )
 

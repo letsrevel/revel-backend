@@ -1,6 +1,7 @@
 """EventManager for handling RSVP and ticket operations."""
 
 from django.db import transaction
+from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
@@ -10,6 +11,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
+from events.service.waitlist_service import enqueue_waitlist_processing
 
 from .enums import NextStep, Reasons
 from .service import EligibilityService
@@ -55,6 +57,7 @@ class EventManager:
                     event_id=self.event.id,
                     next_step=NextStep.PURCHASE_TICKET,
                     reason=_(Reasons.REQUIRES_TICKET),
+                    reason_code=Reasons.REQUIRES_TICKET.code,
                 ),
             )
 
@@ -77,7 +80,44 @@ class EventManager:
             event=self.event,
             defaults={"status": answer},
         )
+        if answer == EventRSVP.RsvpStatus.YES:
+            self._claim_active_offer()
+        elif has_yes_rsvp:
+            # YES -> non-YES frees a seat; trigger next waitlist batch.
+            enqueue_waitlist_processing(self.event.id)
         return rsvp
+
+    def _claim_active_offer(self) -> None:
+        """Mark the user's active waitlist offer as CLAIMED if any.
+
+        Must be called inside an active transaction after the user has been
+        confirmed registered (RSVP YES or non-cancelled ticket). Idempotent —
+        no-op when the user has no pending unexpired offer for this event.
+        """
+        from events.models import EventWaitList, WaitlistOffer
+
+        now = timezone.now()
+        offer = (
+            WaitlistOffer.objects.select_for_update()
+            .filter(
+                event=self.event,
+                user=self.user,
+                status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+                expires_at__gt=now,
+            )
+            .first()
+        )
+        if offer is None:
+            return
+        offer.status = WaitlistOffer.WaitlistOfferStatus.CLAIMED
+        offer.claimed_at = now
+        offer.save(update_fields=["status", "claimed_at"])
+        EventWaitList.objects.filter(event=self.event, user=self.user).delete()
+        # Defensive nudge: claiming an offer may have freed capacity for the
+        # next user (e.g., a batch where one user claimed but others didn't
+        # would otherwise leave seats stranded). The processor short-circuits
+        # when there's no work, so this is cheap when idempotent.
+        enqueue_waitlist_processing(self.event.id)
 
     def check_eligibility(self, bypass: bool = False, raise_on_false: bool = False) -> EventUserEligibility:
         """Call the eligibility check.
@@ -97,15 +137,24 @@ class EventManager:
     def _assert_capacity(self, use_tickets: bool, tier: TicketTier | None) -> None:
         """Raise if the event has no more available attendee slots.
 
-        For ticket events, counts total non-cancelled tickets (each ticket = one attendee).
-        For RSVP events, counts YES RSVPs.
+        Counts committed attendees PLUS pending unexpired WaitlistOffers
+        (minus the current user's own offer, if any). Pending offers reserve
+        capacity for waitlist batches, so non-offer-holders see "event is full"
+        even when raw attendee counts are below capacity.
 
-        Uses effective_capacity (min of max_attendees and venue.capacity) as the soft limit.
-        This can be overridden by invitations with overrides_max_attendees=True.
+        For ticket events, counts total non-cancelled tickets. For RSVP events,
+        counts YES RSVPs. Uses effective_capacity (min of max_attendees and
+        venue.capacity).
         """
+        from events.models import WaitlistOffer
+
         effective_cap = self.event.effective_capacity
         if effective_cap == 0 or self.eligibility_service.overrides_max_attendees():
             return
+
+        # Lock the Event row to serialize with process_waitlist_for_event and
+        # other capacity-modifying flows (e.g. BatchTicketService).
+        self.event = models.Event.objects.select_for_update().get(pk=self.event.pk)
 
         if use_tickets:
             # Count all non-cancelled tickets (each ticket represents one attendee)
@@ -125,6 +174,7 @@ class EventManager:
                         event_id=self.event.id,
                         next_step=NextStep.JOIN_WAITLIST if self.event.waitlist_open else None,
                         reason=_(Reasons.SOLD_OUT),
+                        reason_code=Reasons.SOLD_OUT.code,
                     ),
                 )
         else:
@@ -132,13 +182,42 @@ class EventManager:
                 EventRSVP.objects.select_for_update().filter(event=self.event, status=EventRSVP.RsvpStatus.YES).count()
             )
 
-        if count >= effective_cap:
+        now = timezone.now()
+        # Cutoff-batch offers don't reserve capacity (they race FCFS against real seats),
+        # so they are excluded from both pending counts here.
+        pending_offers = (
+            WaitlistOffer.objects.select_for_update()
+            .filter(
+                event=self.event,
+                status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+                expires_at__gt=now,
+                is_cutoff_batch=False,
+            )
+            .count()
+        )
+        has_own_offer = WaitlistOffer.objects.filter(
+            event=self.event,
+            user=self.user,
+            status=WaitlistOffer.WaitlistOfferStatus.PENDING,
+            expires_at__gt=now,
+            is_cutoff_batch=False,
+        ).exists()
+        if has_own_offer:
+            pending_offers = max(0, pending_offers - 1)
+
+        if count + pending_offers >= effective_cap:
+            reason = (
+                Reasons.SPOTS_RESERVED_FOR_WAITLIST
+                if pending_offers > 0 and count < effective_cap
+                else Reasons.EVENT_IS_FULL
+            )
             raise UserIsIneligibleError(
                 message="Event is full.",
                 eligibility=EventUserEligibility(
                     allowed=False,
                     event_id=self.event.id,
                     next_step=NextStep.JOIN_WAITLIST if self.event.waitlist_open else None,
-                    reason=_(Reasons.EVENT_IS_FULL),
+                    reason=_(reason),
+                    reason_code=reason.code,
                 ),
             )

@@ -4,7 +4,8 @@ import functools
 import uuid
 from collections import defaultdict
 
-from django.db.models import Exists, OuterRef, Prefetch, Q
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events import models
@@ -95,7 +96,28 @@ class EligibilityService:
                 "ticket_tiers",  # Prefetch ticket tiers for sales window checking
             )
             .annotate(user_is_waitlisted=Exists(models.EventWaitList.objects.filter(event=OuterRef("pk"), user=user)))
+            .annotate(
+                pending_waitlist_offer_count=Count(
+                    "waitlist_offers",
+                    filter=Q(
+                        waitlist_offers__status=models.WaitlistOffer.WaitlistOfferStatus.PENDING,
+                        waitlist_offers__expires_at__gt=timezone.now(),
+                        waitlist_offers__is_cutoff_batch=False,
+                    ),
+                    distinct=True,
+                )
+            )
             .get(pk=event.pk)
+        )
+
+        self.active_waitlist_offer = (
+            user.waitlist_offers.filter(
+                event=event,
+                status=models.WaitlistOffer.WaitlistOfferStatus.PENDING,
+                expires_at__gt=timezone.now(),
+            )
+            .order_by("-created_at")
+            .first()
         )
 
         # Create sets of IDs from the prefetched lightweight model instances.
@@ -133,7 +155,13 @@ class EligibilityService:
             if result := gate.check():
                 return result
 
-        return EventUserEligibility(allowed=True, event_id=self.event.id)
+        result = EventUserEligibility(allowed=True, event_id=self.event.id)
+        if self.active_waitlist_offer is not None:
+            from events.utils import get_event_timezone, get_user_timezone
+
+            target_tz = get_user_timezone(self.user) or get_event_timezone(self.event)
+            result.active_offer_expires_at = self.active_waitlist_offer.expires_at.astimezone(target_tz)
+        return result
 
     @functools.cached_property
     def event_submission_map(self) -> dict[uuid.UUID, list[QuestionnaireSubmission]]:

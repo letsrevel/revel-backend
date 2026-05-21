@@ -6,16 +6,17 @@ from .event import (
     AttendeeVisibilityFlag,
     Event,
     EventWaitList,
+    WaitlistOffer,
 )
 from .event_series import EventSeries
 from .follow import EventSeriesFollow, OrganizationFollow
-from .invoice import PlatformFeeCreditNote, PlatformFeeInvoice
 from .invitation import (
     EventInvitation,
     EventInvitationRequest,
     EventToken,
     PendingEventInvitation,
 )
+from .invoice import PlatformFeeCreditNote, PlatformFeeInvoice
 from .misc import AdditionalResource
 from .mixins import ResourceVisibility
 from .organization import (
@@ -62,6 +63,7 @@ __all__ = [
     "EventRSVP",
     "EventToken",
     "EventWaitList",
+    "WaitlistOffer",
     "Payment",
     "PendingEventInvitation",
     "PotluckItem",

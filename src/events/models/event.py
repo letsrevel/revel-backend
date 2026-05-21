@@ -246,6 +246,34 @@ class Event(
     )
     max_attendees = models.PositiveIntegerField(default=0)
     waitlist_open = models.BooleanField(default=False)
+    waitlist_time_window = models.DurationField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Time window for a batch to claim spots. NULL = legacy passive waitlist "
+            "(no offers, no batching, current default behavior)."
+        ),
+    )
+    waitlist_batch_size = models.PositiveIntegerField(
+        default=0,
+        help_text=(
+            "Number of users to notify per round. 0 = notify all eligible waitlist "
+            "members simultaneously. Only meaningful when waitlist_time_window is set."
+        ),
+    )
+    waitlist_cutoff_date = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "After this datetime, batching stops. One final all-hands batch fires, "
+            "then AvailabilityGate behaves normally."
+        ),
+    )
+    waitlist_lottery_mode = models.BooleanField(
+        default=False,
+        help_text="If True, randomly sample batch members instead of FIFO.",
+    )
     waitlist = models.ManyToManyField(  # type: ignore[var-annotated]
         settings.AUTH_USER_MODEL, related_name="waitlist", blank=True, through="EventWaitList"
     )
@@ -506,6 +534,24 @@ class Event(
         if venue and venue.organization_id != self.organization_id:
             raise DjangoValidationError({"venue": "Venue must belong to the same organization as the event."})
 
+        self._clean_waitlist_config()
+
+    def _clean_waitlist_config(self) -> None:
+        if self.waitlist_time_window is not None:
+            if self.waitlist_time_window < timedelta(hours=1):
+                raise DjangoValidationError({"waitlist_time_window": "Time window must be at least 1 hour."})
+            if self.waitlist_time_window > timedelta(days=7):
+                raise DjangoValidationError({"waitlist_time_window": "Time window cannot exceed 7 days."})
+
+        if self.waitlist_cutoff_date is None:
+            return
+        if self.waitlist_time_window is None:
+            raise DjangoValidationError(
+                {"waitlist_cutoff_date": "Cutoff date requires waitlist_time_window to be set."}
+            )
+        if self.start and self.waitlist_cutoff_date >= self.start:
+            raise DjangoValidationError({"waitlist_cutoff_date": "Cutoff date must be before event start."})
+
     def is_check_in_open(self) -> bool:
         """Check if check-in is currently open for this event."""
         now = timezone.now()
@@ -549,6 +595,52 @@ class EventWaitList(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.user_id} on waitlist for {self.event_id}"
+
+
+class WaitlistOffer(TimeStampedModel):
+    """Temporary offer granting a user the right to claim a reserved spot.
+
+    Pending unexpired offers count toward the event's capacity in both the
+    AvailabilityGate (prefetched) and EventManager._assert_capacity (row-locked).
+    See docs/superpowers/specs/2026-05-19-advanced-waitlist-design.md.
+    """
+
+    class WaitlistOfferStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        CLAIMED = "claimed", "Claimed"
+        EXPIRED = "expired", "Expired"
+        REVOKED = "revoked", "Revoked"
+
+    event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name="waitlist_offers")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="waitlist_offers")
+    status = models.CharField(
+        max_length=10,
+        choices=WaitlistOfferStatus.choices,
+        default=WaitlistOfferStatus.PENDING,
+        db_index=True,
+    )
+    expires_at = models.DateTimeField(db_index=True)
+    batch_id = models.UUIDField(db_index=True)
+    notified_at = models.DateTimeField(null=True, blank=True)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    is_cutoff_batch = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["event", "user"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_waitlist_offer",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["event", "status", "expires_at"]),
+            models.Index(fields=["batch_id"]),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:  # pragma: no cover
+        return f"WaitlistOffer({self.user_id}, {self.event_id}, {self.status})"
 
 
 class AttendeeVisibilityFlag(TimeStampedModel):

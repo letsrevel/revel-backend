@@ -237,6 +237,11 @@ UNFOLD = {
                         "link": reverse_lazy("admin:events_eventwaitlist_changelist"),
                     },
                     {
+                        "title": _("Waitlist Offers"),
+                        "icon": "hourglass_top",
+                        "link": reverse_lazy("admin:events_waitlistoffer_changelist"),
+                    },
+                    {
                         "title": _("Pending Invitations"),
                         "icon": "mail_lock",
                         "link": reverse_lazy("admin:events_pendingeventinvitation_changelist"),

@@ -680,6 +680,7 @@ def _create_sold_out_workshop(state: BootstrapState, now: "datetime.datetime") -
         start=now + timedelta(days=28),
         end=now + timedelta(days=28, hours=6),
         max_attendees=20,
+        attendee_count=20,
         waitlist_open=True,
         description="""# Advanced Machine Learning Workshop
 

@@ -190,3 +190,13 @@ class EventWaitListInline(TabularInline):  # type: ignore[misc]
     extra = 0
     autocomplete_fields = ["user"]
     readonly_fields = ["created_at"]
+
+
+class WaitlistOfferInline(TabularInline):  # type: ignore[misc]
+    """Inline display of waitlist offers on the Event page."""
+
+    model = models.WaitlistOffer
+    extra = 0
+    fields = ("user", "status", "expires_at", "is_cutoff_batch", "batch_id", "created_at")
+    readonly_fields = ("created_at", "batch_id")
+    show_change_link = True

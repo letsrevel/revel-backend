@@ -13,11 +13,16 @@ class WaitlistSpotAvailableTemplate(NotificationTemplate):
     """Template for WAITLIST_SPOT_AVAILABLE notification."""
 
     def get_in_app_title(self, notification: Notification) -> str:
-        """Get title for in-app display."""
-        event_name = notification.context.get("event_name", "")
-        spots = notification.context.get("spots_available", 1)
+        """Get title for in-app display.
 
-        if spots == 1:
+        Supports both the legacy broadcast context (``spots_available``) and
+        the per-user offer context introduced in the Advanced Waitlist work
+        (no ``spots_available`` — one notification per offer).
+        """
+        event_name = notification.context.get("event_name", "")
+        spots = notification.context.get("spots_available")
+
+        if spots is None or spots == 1:
             return _("Spot available for %(event)s!") % {"event": event_name}
         return ngettext(
             "%d spot available for %s!",

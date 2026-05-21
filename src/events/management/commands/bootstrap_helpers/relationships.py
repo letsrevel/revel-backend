@@ -304,14 +304,13 @@ def _create_rsvps(state: BootstrapState) -> None:
 
 
 def _create_waitlists(state: BootstrapState) -> None:
-    """Create waitlist entries."""
-    # ML Workshop waitlist (sold out)
-    for user_key in ["attendee_3", "attendee_4", "invited_user"]:
-        events_models.EventWaitList.objects.create(
-            event=state.events["sold_out_workshop"],
-            user=state.users[user_key],
-        )
+    """Create waitlist entries.
 
+    The ML Workshop intentionally has **no** seeded waitlist entries — its sole
+    purpose in bootstrap is to let a developer smoke-test the advanced waitlist
+    flow end-to-end (join, batch processing, claim/expire) against a clean
+    fully-booked event.
+    """
     # Summer festival waitlist (near capacity)
     events_models.EventWaitList.objects.create(
         event=state.events["summer_festival"],

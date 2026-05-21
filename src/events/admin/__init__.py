@@ -10,10 +10,6 @@ from events.admin.announcement import AnnouncementAdmin
 from events.admin.attendee_invoice import AttendeeInvoiceAdmin, AttendeeInvoiceCreditNoteAdmin
 from events.admin.blacklist import BlacklistAdmin, WhitelistRequestAdmin
 from events.admin.discount_code import DiscountCodeAdmin
-from events.admin.invoice import (
-    PlatformFeeCreditNoteAdmin,
-    PlatformFeeInvoiceAdmin,
-)
 from events.admin.event import (
     EventAdmin,
     EventInvitationAdmin,
@@ -25,6 +21,10 @@ from events.admin.event import (
     EventWaitListAdmin,
     PendingEventInvitationAdmin,
     PotluckItemAdmin,
+)
+from events.admin.invoice import (
+    PlatformFeeCreditNoteAdmin,
+    PlatformFeeInvoiceAdmin,
 )
 from events.admin.organization import (
     MembershipTierAdmin,
@@ -55,6 +55,7 @@ from events.admin.venue import (
     VenueSeatAdmin,
     VenueSectorAdmin,
 )
+from events.admin.waitlist_offer import WaitlistOfferAdmin
 
 __all__ = [
     # Announcement
@@ -76,6 +77,7 @@ __all__ = [
     "EventTokenAdmin",
     "EventInvitationRequestAdmin",
     "EventWaitListAdmin",
+    "WaitlistOfferAdmin",
     "PotluckItemAdmin",
     "EventResourceAdmin",
     # Venue

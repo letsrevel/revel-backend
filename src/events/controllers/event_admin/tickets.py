@@ -19,6 +19,7 @@ from events import filters, models, schema
 from events.controllers.permissions import EventPermission
 from events.models.ticket import CancellationSource
 from events.service import ticket_service
+from events.service.waitlist_service import enqueue_waitlist_processing
 
 from .base import EventAdminBaseController
 
@@ -313,6 +314,8 @@ class EventAdminTicketsController(EventAdminBaseController):
                 ticket.payment.refunded_at = timezone.now()
                 ticket.payment.save(update_fields=["status", "refund_amount", "refund_status", "refunded_at"])
 
+            enqueue_waitlist_processing(ticket.event_id)
+
         # Re-fetch with full() to include all related objects for UserTicketSchema
         return models.Ticket.objects.full().get(pk=ticket.pk)
 
@@ -365,6 +368,8 @@ class EventAdminTicketsController(EventAdminBaseController):
                     "cancellation_reason",
                 ]
             )
+
+            enqueue_waitlist_processing(ticket.event_id)
 
         # Re-fetch with full() to include all related objects for UserTicketSchema
         return models.Ticket.objects.full().get(pk=ticket.pk)
