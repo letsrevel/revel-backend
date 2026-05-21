@@ -3,6 +3,7 @@ from uuid import UUID
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from ninja import Query
+from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
@@ -67,20 +68,11 @@ class EventAdminTokensController(EventAdminBaseController):
         4. Warn when reducing max_uses below current usage
         """
         event = self.get_one(event_id)
-        for tier_id in payload.ticket_tier_ids:
-            get_object_or_404(models.TicketTier, pk=tier_id, event=event)
         token = get_object_or_404(models.EventToken, pk=token_id, event=event)
-        payload_dict = payload.model_dump(exclude_unset=True)
-        tier_ids = payload_dict.pop("ticket_tier_ids", None)
-        # Update scalar fields via targeted .update() to avoid overwriting concurrent `uses` changes
-        if payload_dict:
-            models.EventToken.objects.filter(pk=token.pk).update(**payload_dict)
-        # Update M2M tiers if provided
-        if tier_ids is not None:
-            tiers = models.TicketTier.objects.filter(pk__in=tier_ids, event=event)
-            token.ticket_tiers.set(tiers)
-        # Refetch with prefetch for serialization
-        return models.EventToken.objects.prefetch_related("ticket_tiers").get(pk=token.pk)
+        try:
+            return event_service.update_event_token(token, payload)
+        except models.TicketTier.DoesNotExist as exc:
+            raise HttpError(404, str(exc)) from exc
 
     @route.delete(
         "/tokens/{token_id}",
@@ -261,6 +253,7 @@ class EventAdminTokensController(EventAdminBaseController):
         - 403: User lacks "invite_to_event" permission
         """
         event = self.get_one(event_id)
-        for tier_id in payload.ticket_tier_ids:
-            get_object_or_404(models.TicketTier, pk=tier_id, event=event)
-        return event_service.create_event_token(event=event, issuer=self.user(), **payload.model_dump())
+        try:
+            return event_service.create_event_token(event=event, issuer=self.user(), **payload.model_dump())
+        except models.TicketTier.DoesNotExist as exc:
+            raise HttpError(404, str(exc)) from exc

@@ -373,6 +373,29 @@ def issue_draft_invoice(invoice: AttendeeInvoice) -> AttendeeInvoice:
     return invoice
 
 
+def issue_and_deliver(invoice: AttendeeInvoice) -> AttendeeInvoice:
+    """Issue a DRAFT invoice and enqueue background delivery to the buyer.
+
+    Thin orchestration helper for the organization admin "issue" endpoint:
+    finalizes the invoice via :func:`issue_draft_invoice` and then schedules
+    the delivery task. Keeps celery dispatch out of the controller layer.
+
+    Args:
+        invoice: The draft or already-issued invoice.
+
+    Returns:
+        The issued invoice.
+    """
+    from events.tasks import deliver_attendee_invoice_task
+
+    invoice = issue_draft_invoice(invoice)
+    # Defer delivery until the issuance write commits so the worker reads
+    # the issued invoice. With ATOMIC_REQUESTS=True an immediate .delay()
+    # would race the request commit.
+    transaction.on_commit(lambda: deliver_attendee_invoice_task.delay(str(invoice.id)))
+    return invoice
+
+
 def delete_draft_invoice(invoice: AttendeeInvoice) -> None:
     """Delete a DRAFT invoice.
 

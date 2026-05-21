@@ -157,8 +157,15 @@ def other_user_client(other_user: RevelUser) -> Client:
 # --- Questionnaire Export Endpoint Tests ---
 
 
+@pytest.mark.django_db(transaction=True)
 class TestExportSubmissionsEndpoint:
-    """Tests for POST /questionnaires/{id}/submissions/export."""
+    """Tests for POST /questionnaires/{id}/submissions/export.
+
+    Uses ``transaction=True`` because the underlying service schedules the
+    export task via ``transaction.on_commit``. In default pytest-django mode
+    the wrapping transaction is rolled back and the callback never fires,
+    breaking the ``mock_task.delay`` assertions.
+    """
 
     @patch("events.tasks.generate_questionnaire_export_task")
     def test_returns_202_for_owner(

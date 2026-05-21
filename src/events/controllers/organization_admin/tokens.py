@@ -11,9 +11,18 @@ from common.authentication import I18nJWTAuth
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import OrganizationPermission
+from events.exceptions import (
+    OrganizationTokenGrantInvariantError,
+    OrganizationTokenMembershipTierRequiredError,
+    OrganizationTokenStaffGrantForbidden,
+)
 from events.service import organization_service
 
 from .base import OrganizationAdminBaseController
+
+_STAFF_GRANT_FORBIDDEN_MESSAGE = _("Only the organization owner can manage staff-granting tokens.")
+_GRANT_INVARIANT_MESSAGE = _("At least one of grants_membership or grants_staff_status must be True.")
+_MEMBERSHIP_TIER_REQUIRED_MESSAGE = _("membership_tier_id is required when grants_membership is True.")
 
 
 @api_controller(
@@ -210,20 +219,12 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         - 404: Organization slug not found or user lacks access
         """
         organization = self.get_one(slug)
-        if payload.grants_staff_status and organization.owner != self.user():
-            raise HttpError(403, str(_("Only the organization owner can manage staff-granting tokens.")))
-        payload_dict = payload.model_dump(exclude_unset=True)
-
-        # Resolve membership_tier_id to MembershipTier object
-        membership_tier = None
-        if "membership_tier_id" in payload_dict:
-            tier_id = payload_dict.pop("membership_tier_id")
-            if tier_id:
-                membership_tier = get_object_or_404(models.MembershipTier, pk=tier_id, organization=organization)
-
-        return organization_service.create_organization_token(
-            organization=organization, issuer=self.user(), membership_tier=membership_tier, **payload_dict
-        )
+        try:
+            return organization_service.create_organization_token_from_payload(
+                organization=organization, requested_by=self.user(), payload=payload
+            )
+        except OrganizationTokenStaffGrantForbidden as exc:
+            raise HttpError(403, str(_STAFF_GRANT_FORBIDDEN_MESSAGE)) from exc
 
     @route.put(
         "/tokens/{token_id}",
@@ -319,33 +320,19 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         - 404: Token ID not found or doesn't belong to this organization
         """
         organization = self.get_one(slug)
-        token = get_object_or_404(models.OrganizationToken, pk=token_id, organization=organization)
-
-        payload_dict = payload.model_dump(exclude_unset=True)
-        resulting_grants_staff = payload_dict.get("grants_staff_status", token.grants_staff_status)
-        resulting_grants_membership = payload_dict.get("grants_membership", token.grants_membership)
-        if not resulting_grants_membership and not resulting_grants_staff:
-            raise HttpError(
-                422,
-                str(_("At least one of grants_membership or grants_staff_status must be True.")),
-            )
-        if (token.grants_staff_status or resulting_grants_staff) and organization.owner != self.user():
-            raise HttpError(403, str(_("Only the organization owner can manage staff-granting tokens.")))
-
-        # Resolve membership_tier_id to MembershipTier object
-        if "membership_tier_id" in payload_dict:
-            tier_id = payload_dict.pop("membership_tier_id")
-            if tier_id:
-                payload_dict["membership_tier"] = get_object_or_404(
-                    models.MembershipTier, pk=tier_id, organization=organization
-                )
-            else:
-                payload_dict["membership_tier"] = None
-
-        for field, value in payload_dict.items():
-            setattr(token, field, value)
-        token.save(update_fields=list(payload_dict.keys()))
-        return token
+        token = get_object_or_404(
+            models.OrganizationToken.objects.select_related("organization"),
+            pk=token_id,
+            organization=organization,
+        )
+        try:
+            return organization_service.update_organization_token(token, requested_by=self.user(), payload=payload)
+        except OrganizationTokenGrantInvariantError as exc:
+            raise HttpError(422, str(_GRANT_INVARIANT_MESSAGE)) from exc
+        except OrganizationTokenMembershipTierRequiredError as exc:
+            raise HttpError(422, str(_MEMBERSHIP_TIER_REQUIRED_MESSAGE)) from exc
+        except OrganizationTokenStaffGrantForbidden as exc:
+            raise HttpError(403, str(_STAFF_GRANT_FORBIDDEN_MESSAGE)) from exc
 
     @route.delete(
         "/tokens/{token_id}",
@@ -433,8 +420,13 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         - 404: Token ID not found or doesn't belong to this organization
         """
         organization = self.get_one(slug)
-        token = get_object_or_404(models.OrganizationToken, pk=token_id, organization=organization)
-        if token.grants_staff_status and organization.owner != self.user():
-            raise HttpError(403, str(_("Only the organization owner can manage staff-granting tokens.")))
-        token.delete()
+        token = get_object_or_404(
+            models.OrganizationToken.objects.select_related("organization"),
+            pk=token_id,
+            organization=organization,
+        )
+        try:
+            organization_service.delete_organization_token(token, requested_by=self.user())
+        except OrganizationTokenStaffGrantForbidden as exc:
+            raise HttpError(403, str(_STAFF_GRANT_FORBIDDEN_MESSAGE)) from exc
         return 204, None

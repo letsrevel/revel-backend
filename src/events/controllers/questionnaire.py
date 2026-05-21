@@ -1,12 +1,9 @@
 import typing as t
 from uuid import UUID
 
-from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
-from django.utils.translation import gettext_lazy as _
 from ninja import Query
-from ninja.errors import HttpError
 from ninja_extra import (
     api_controller,
     route,
@@ -22,8 +19,7 @@ from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters
 from events import models as event_models
 from events import schema as event_schema
-from events import service as event_service
-from events.service import feedback_service, update_organization_questionnaire
+from events.service import event_questionnaire_service, feedback_service, update_organization_questionnaire
 from events.service.event_questionnaire_service import get_questionnaire_summary
 from questionnaires import models as questionnaires_models
 from questionnaires import schema as questionnaire_schema
@@ -112,18 +108,7 @@ class QuestionnaireController(UserAwareController):
             event_models.Organization,
             self.get_object_or_exception(self.get_organization_queryset(), pk=organization_id),
         )
-        event_service.validate_feedback_requires_evaluation(payload.questionnaire_type, payload.requires_evaluation)
-        with transaction.atomic():
-            questionnaire = QuestionnaireService.create_questionnaire(payload)
-            return event_models.OrganizationQuestionnaire.objects.create(
-                organization=organization,
-                questionnaire=questionnaire,
-                max_submission_age=payload.max_submission_age,
-                questionnaire_type=payload.questionnaire_type,
-                members_exempt=payload.members_exempt,
-                per_event=payload.per_event,
-                requires_evaluation=payload.requires_evaluation,
-            )
+        return event_questionnaire_service.create_org_questionnaire(organization, payload)
 
     @route.get(
         "/{org_questionnaire_id}",
@@ -441,28 +426,16 @@ class QuestionnaireController(UserAwareController):
         Optionally filter by event_id or event_series_id (mutually exclusive).
         Requires 'evaluate_questionnaire' permission.
         """
-        from common.models import FileExport
-        from events.tasks import generate_questionnaire_export_task
-
-        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
-
-        if event_id and event_series_id:
-            raise HttpError(400, str(_("Cannot filter by both event_id and event_series_id.")))
-
-        parameters: dict[str, str] = {
-            "questionnaire_id": str(org_questionnaire.questionnaire_id),
-        }
-        if event_id:
-            parameters["event_id"] = str(event_id)
-        if event_series_id:
-            parameters["event_series_id"] = str(event_series_id)
-
-        export = FileExport.objects.create(
-            requested_by=self.user(),
-            export_type=FileExport.ExportType.QUESTIONNAIRE_SUBMISSIONS,
-            parameters=parameters,
+        org_questionnaire = t.cast(
+            event_models.OrganizationQuestionnaire,
+            self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id),
         )
-        generate_questionnaire_export_task.delay(str(export.id))
+        export = event_questionnaire_service.start_submissions_export(
+            org_questionnaire,
+            requested_by=self.user(),
+            event_id=event_id,
+            event_series_id=event_series_id,
+        )
         return 202, export
 
     @route.get(
@@ -587,11 +560,11 @@ class QuestionnaireController(UserAwareController):
 
         Requires 'edit_questionnaire' permission.
         """
-        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
-        org_questionnaire.questionnaire.status = status
-        org_questionnaire.questionnaire.save(update_fields=["status"])
-        org_questionnaire.refresh_from_db()
-        return t.cast(event_models.OrganizationQuestionnaire, org_questionnaire)
+        org_questionnaire = t.cast(
+            event_models.OrganizationQuestionnaire,
+            self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id),
+        )
+        return event_questionnaire_service.set_status(org_questionnaire, status)
 
     @route.delete(
         "/{org_questionnaire_id}",
@@ -724,17 +697,11 @@ class QuestionnaireController(UserAwareController):
         Batch operation to set exactly which events require this questionnaire. Validates that
         events belong to the same organization. Requires 'edit_questionnaire' permission.
         """
-        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
-
-        # Validate events belong to the organization
-        events = event_models.Event.objects.filter(
-            pk__in=payload.event_ids, organization=org_questionnaire.organization
+        org_questionnaire = t.cast(
+            event_models.OrganizationQuestionnaire,
+            self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id),
         )
-        if events.count() != len(payload.event_ids):
-            raise HttpError(400, str(_("One or more events do not exist or belong to this organization.")))
-
-        org_questionnaire.events.set(events)
-        return t.cast(event_models.OrganizationQuestionnaire, org_questionnaire)
+        return event_questionnaire_service.replace_events(org_questionnaire, payload.event_ids)
 
     @route.post(
         "/{org_questionnaire_id}/events/{event_id}",
@@ -784,17 +751,11 @@ class QuestionnaireController(UserAwareController):
         Batch operation to set exactly which event series require this questionnaire. Validates that
         series belong to the same organization. Requires 'edit_questionnaire' permission.
         """
-        org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
-
-        # Validate event series belong to the organization
-        series = event_models.EventSeries.objects.filter(
-            pk__in=payload.event_series_ids, organization=org_questionnaire.organization
+        org_questionnaire = t.cast(
+            event_models.OrganizationQuestionnaire,
+            self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id),
         )
-        if series.count() != len(payload.event_series_ids):
-            raise HttpError(400, str(_("One or more event series do not exist or belong to this organization.")))
-
-        org_questionnaire.event_series.set(series)
-        return t.cast(event_models.OrganizationQuestionnaire, org_questionnaire)
+        return event_questionnaire_service.replace_event_series(org_questionnaire, payload.event_series_ids)
 
     @route.post(
         "/{org_questionnaire_id}/event-series/{series_id}",

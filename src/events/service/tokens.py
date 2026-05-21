@@ -10,7 +10,32 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, EventToken, TicketTier
+from events.schema import EventTokenUpdateSchema
 from events.utils import get_invitation_message
+
+
+def _validate_tier_ownership(event: Event, tier_ids: t.Sequence[UUID]) -> list[TicketTier]:
+    """Validate that all provided tier IDs belong to the given event.
+
+    Args:
+        event: The event the tiers must belong to.
+        tier_ids: The tier IDs to validate.
+
+    Returns:
+        The list of resolved TicketTier instances (de-duplicated, order not preserved).
+
+    Raises:
+        TicketTier.DoesNotExist: If any tier ID does not belong to the event.
+    """
+    unique_ids = list(dict.fromkeys(tier_ids))
+    if not unique_ids:
+        return []
+    tiers = list(TicketTier.objects.filter(pk__in=unique_ids, event=event))
+    if len(tiers) != len(unique_ids):
+        found_ids = {tier.pk for tier in tiers}
+        missing = [str(tid) for tid in unique_ids if tid not in found_ids]
+        raise TicketTier.DoesNotExist(f"Ticket tiers not found: {', '.join(missing)}")
+    return tiers
 
 
 def create_event_token(
@@ -52,14 +77,48 @@ def create_event_token(
         invitation_payload=invitation_payload,
     )
     if ticket_tier_ids:
-        unique_ids = list(dict.fromkeys(ticket_tier_ids))
-        tiers = list(TicketTier.objects.filter(pk__in=unique_ids, event=event))
-        if len(tiers) != len(unique_ids):
-            found_ids = {tier.pk for tier in tiers}
-            missing = [str(tid) for tid in unique_ids if tid not in found_ids]
-            raise TicketTier.DoesNotExist(f"Ticket tiers not found: {', '.join(missing)}")
+        tiers = _validate_tier_ownership(event, ticket_tier_ids)
         token.ticket_tiers.set(tiers)
     # Refetch with prefetch to ensure M2M is loaded for serialization
+    return EventToken.objects.select_related("event").prefetch_related("ticket_tiers").get(pk=token.pk)
+
+
+@transaction.atomic
+def update_event_token(token: EventToken, payload: EventTokenUpdateSchema) -> EventToken:
+    """Update an existing event token's configuration.
+
+    Validates tier ownership against the token's event, applies scalar updates
+    via a targeted ``.objects.filter(pk=...).update(...)`` (deliberately avoiding
+    ``instance.save()`` so as not to overwrite concurrent ``uses`` increments
+    happening in ``claim_invitation``), and replaces the M2M tier set when
+    ``ticket_tier_ids`` is provided in the payload. The scalar update and
+    the M2M replacement are wrapped in a single transaction so a failure
+    in either leaves the token unchanged.
+
+    Args:
+        token: The EventToken to update.
+        payload: Partial update payload. Fields not set in the payload are
+            preserved. ``ticket_tier_ids`` is an M2M replacement when present.
+
+    Returns:
+        The updated EventToken with ``ticket_tiers`` prefetched for serialization.
+
+    Raises:
+        TicketTier.DoesNotExist: If any tier ID in the payload does not belong
+            to the token's event.
+    """
+    payload_dict = payload.model_dump(exclude_unset=True)
+    tier_ids = payload_dict.pop("ticket_tier_ids", None)
+    tiers = _validate_tier_ownership(token.event, tier_ids) if tier_ids is not None else None
+
+    # Update scalar fields via targeted .update() to avoid overwriting
+    # concurrent `uses` changes happening in claim_invitation.
+    if payload_dict:
+        EventToken.objects.filter(pk=token.pk).update(**payload_dict)
+
+    if tiers is not None:
+        token.ticket_tiers.set(tiers)
+
     return EventToken.objects.select_related("event").prefetch_related("ticket_tiers").get(pk=token.pk)
 
 

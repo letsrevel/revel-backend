@@ -500,6 +500,58 @@ def confirm_account_deletion(token: str) -> None:
     tasks.delete_user_account.delay(str(user.id))
 
 
+def update_profile(user: RevelUser, payload: schema.ProfileUpdateSchema) -> RevelUser:
+    """Partially update a user's profile.
+
+    Applies only the fields explicitly provided in the payload, persists them
+    with a targeted ``update_fields`` save, and refreshes from the DB so any
+    derived/file fields are reflected accurately.
+
+    Args:
+        user: The authenticated user being updated.
+        payload: The profile update schema (partial update via ``exclude_unset``).
+
+    Returns:
+        The updated user instance.
+    """
+    update_data = payload.model_dump(exclude_unset=True)
+    if not update_data:
+        return user
+    for key, value in update_data.items():
+        setattr(user, key, value)
+    user.save(update_fields=list(update_data.keys()))
+    # Refresh from DB to ensure all fields (including file fields) have correct values
+    user.refresh_from_db()
+    return user
+
+
+def update_language(user: RevelUser, language: str) -> RevelUser:
+    """Update a user's preferred language.
+
+    Args:
+        user: The authenticated user.
+        language: The new language code (already validated by the schema).
+
+    Returns:
+        The updated user instance.
+    """
+    user.language = language
+    user.save(update_fields=["language"])
+    return user
+
+
+def start_data_export(user: RevelUser) -> None:
+    """Enqueue an asynchronous GDPR-compliant data export for a user.
+
+    Args:
+        user: The authenticated user requesting the export.
+    """
+    # Defer dispatch until the surrounding transaction commits. The data
+    # export task reads the user row, which under ATOMIC_REQUESTS=True is
+    # not visible to the worker until the request commits.
+    transaction.on_commit(lambda: tasks.generate_user_data_export.delay(str(user.pk)))
+
+
 T = t.TypeVar("T", bound=Schema)
 
 

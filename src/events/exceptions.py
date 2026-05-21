@@ -15,3 +15,15 @@ class PendingMembershipRequestExistsError(Exception):
 
 class TooManyItemsError(Exception):
     """Raised when too many PotluckItems are created."""
+
+
+class OrganizationTokenStaffGrantForbidden(Exception):
+    """Raised when a non-owner attempts to manage a staff-granting organization token."""
+
+
+class OrganizationTokenGrantInvariantError(Exception):
+    """Raised when an organization-token update would leave both grants disabled."""
+
+
+class OrganizationTokenMembershipTierRequiredError(Exception):
+    """Raised when an organization-token update would leave ``grants_membership=True`` with no ``membership_tier``."""
