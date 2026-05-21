@@ -18,7 +18,13 @@ from events.service.invitations import (
     reject_invitation_request,
 )
 from events.service.pronouns import get_event_pronoun_distribution
-from events.service.tokens import claim_invitation, create_event_token, get_event_token, get_token_rejection_reason
+from events.service.tokens import (
+    claim_invitation,
+    create_event_token,
+    get_event_token,
+    get_token_rejection_reason,
+    update_event_token,
+)
 
 __all__ = [
     # calendar_utils
@@ -26,6 +32,7 @@ __all__ = [
     "order_by_distance",
     # tokens
     "create_event_token",
+    "update_event_token",
     "get_event_token",
     "get_token_rejection_reason",
     "claim_invitation",

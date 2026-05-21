@@ -24,7 +24,7 @@ from events.models import (
     TicketTier,
 )
 from events.models.mixins import LocationMixin
-from events.schema import InvitationBaseSchema
+from events.schema import EventTokenUpdateSchema, InvitationBaseSchema
 from events.service import event_service
 
 pytestmark = pytest.mark.django_db
@@ -88,6 +88,81 @@ def test_create_event_token_with_invitation(
 
     assert token.invitation_payload is not None
     assert token.ticket_tiers.first() == event_ticket_tier
+
+
+def test_create_event_token_rejects_tier_from_other_event(
+    event: Event, public_event: Event, organization_owner_user: RevelUser
+) -> None:
+    """create_event_token raises TicketTier.DoesNotExist when a tier belongs to another event."""
+    foreign_tier = TicketTier.objects.create(event=public_event, name="Foreign")
+    with pytest.raises(TicketTier.DoesNotExist):
+        event_service.create_event_token(
+            event=event,
+            issuer=organization_owner_user,
+            ticket_tier_ids=[foreign_tier.id],
+        )
+
+
+def test_update_event_token_updates_scalar_fields(event: Event, organization_owner_user: RevelUser) -> None:
+    """update_event_token updates scalar fields via a targeted .update()."""
+    token = event_service.create_event_token(event=event, issuer=organization_owner_user, max_uses=5)
+    payload = EventTokenUpdateSchema(name="Renamed", max_uses=42)
+
+    updated = event_service.update_event_token(token, payload)
+
+    assert updated.name == "Renamed"
+    assert updated.max_uses == 42
+    # Database row reflects the targeted update too.
+    token.refresh_from_db()
+    assert token.name == "Renamed"
+    assert token.max_uses == 42
+
+
+def test_update_event_token_preserves_uses_via_targeted_update(
+    event: Event, organization_owner_user: RevelUser
+) -> None:
+    """update_event_token must NOT overwrite the `uses` counter (concurrency dodge)."""
+    token = event_service.create_event_token(event=event, issuer=organization_owner_user, max_uses=10)
+    # Simulate a concurrent uses increment performed by claim_invitation.
+    EventToken.objects.filter(pk=token.pk).update(uses=7)
+
+    payload = EventTokenUpdateSchema(name="New name")
+    updated = event_service.update_event_token(token, payload)
+
+    # The stale `token.uses == 0` in memory must not have clobbered the DB.
+    assert updated.uses == 7
+
+
+def test_update_event_token_replaces_tier_set(
+    event: Event, organization_owner_user: RevelUser, event_ticket_tier: TicketTier
+) -> None:
+    """update_event_token replaces the M2M tier set when ticket_tier_ids is provided."""
+    other_tier = TicketTier.objects.create(event=event, name="Other")
+    token = event_service.create_event_token(
+        event=event,
+        issuer=organization_owner_user,
+        ticket_tier_ids=[event_ticket_tier.id],
+    )
+    payload = EventTokenUpdateSchema(ticket_tier_ids=[other_tier.id])
+
+    updated = event_service.update_event_token(token, payload)
+
+    linked = set(updated.ticket_tiers.values_list("id", flat=True))
+    assert linked == {other_tier.id}
+
+
+def test_update_event_token_rejects_tier_from_other_event(
+    event: Event,
+    public_event: Event,
+    organization_owner_user: RevelUser,
+) -> None:
+    """update_event_token raises TicketTier.DoesNotExist for foreign tiers."""
+    token = event_service.create_event_token(event=event, issuer=organization_owner_user)
+    foreign_tier = TicketTier.objects.create(event=public_event, name="Foreign")
+    payload = EventTokenUpdateSchema(ticket_tier_ids=[foreign_tier.id])
+
+    with pytest.raises(TicketTier.DoesNotExist):
+        event_service.update_event_token(token, payload)
 
 
 def test_get_event_token_returns_token(event: Event, organization_owner_user: RevelUser) -> None:
