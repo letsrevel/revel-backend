@@ -666,12 +666,13 @@ def _cancel_offline_ticket_core(
 
     This mutates ``ticket`` in place (status, cancelled_at, cancelled_by, cancellation_source,
     cancellation_reason). It must be called inside a ``transaction.atomic()`` block by the caller
-    (``cancel_offline_ticket`` / ``mark_offline_ticket_refunded``).
+    (``cancel_offline_ticket`` / ``mark_offline_ticket_refunded``) with the ticket row already
+    locked via ``select_for_update`` to prevent concurrent double-decrement.
 
     The tier decrement uses ``F("quantity_sold") - 1`` guarded by ``quantity_sold__gt=0`` so the
     counter can never drop below zero (race-safe and floor-safe).
     """
-    TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(quantity_sold=F("quantity_sold") - 1)
+    TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(quantity_sold=F("quantity_sold") - 1)
 
     ticket.status = Ticket.TicketStatus.CANCELLED
     ticket.cancelled_at = timezone.now()
@@ -700,8 +701,12 @@ def cancel_offline_ticket(
 ) -> Ticket:
     """Cancel an offline/at-the-door ticket and record organizer audit fields.
 
+    The ticket row is re-fetched with ``select_for_update`` inside the atomic block
+    so concurrent cancel/refund requests serialize on the row lock and cannot both
+    pass the status check and double-decrement ``TicketTier.quantity_sold``.
+
     Args:
-        ticket: The ticket to cancel. Must have ``tier`` prefetched via ``select_related``.
+        ticket: The ticket to cancel.
         cancelled_by: The organizer performing the cancellation.
         reason: Optional free-text cancellation reason.
 
@@ -711,12 +716,13 @@ def cancel_offline_ticket(
     Raises:
         TicketAlreadyCancelledError: If the ticket is already CANCELLED.
     """
-    if ticket.status == Ticket.TicketStatus.CANCELLED:
+    locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
+    if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
         raise TicketAlreadyCancelledError
 
-    _cancel_offline_ticket_core(ticket, cancelled_by=cancelled_by, reason=reason or "")
+    _cancel_offline_ticket_core(locked_ticket, cancelled_by=cancelled_by, reason=reason or "")
 
-    return Ticket.objects.full().get(pk=ticket.pk)
+    return Ticket.objects.full().get(pk=locked_ticket.pk)
 
 
 @transaction.atomic
@@ -732,9 +738,13 @@ def mark_offline_ticket_refunded(
     Tickets without an associated ``Payment`` are still cancelled — no payment record
     means there is nothing to refund, which is a valid manual flow.
 
+    The ticket and payment rows are re-fetched with ``select_for_update`` inside the
+    atomic block so concurrent cancel/refund requests serialize on the row locks and
+    cannot both pass the status check and double-apply side effects (tier decrement,
+    waitlist enqueue, payment refund).
+
     Args:
-        ticket: The ticket to refund. Must have ``tier`` and ``payment`` prefetched via
-            ``select_related``.
+        ticket: The ticket to refund.
         cancelled_by: The organizer performing the refund.
         reason: Optional free-text cancellation reason.
 
@@ -744,19 +754,21 @@ def mark_offline_ticket_refunded(
     Raises:
         TicketAlreadyCancelledError: If the ticket is already CANCELLED.
     """
-    if ticket.status == Ticket.TicketStatus.CANCELLED:
+    locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
+    if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
         raise TicketAlreadyCancelledError
 
-    _cancel_offline_ticket_core(ticket, cancelled_by=cancelled_by, reason=reason or "")
+    _cancel_offline_ticket_core(locked_ticket, cancelled_by=cancelled_by, reason=reason or "")
 
-    if hasattr(ticket, "payment"):
-        ticket.payment.status = Payment.PaymentStatus.REFUNDED
-        ticket.payment.refund_amount = ticket.payment.amount
-        ticket.payment.refund_status = Payment.RefundStatus.SUCCEEDED
-        ticket.payment.refunded_at = timezone.now()
-        ticket.payment.save(update_fields=["status", "refund_amount", "refund_status", "refunded_at"])
+    locked_payment = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
+    if locked_payment is not None:
+        locked_payment.status = Payment.PaymentStatus.REFUNDED
+        locked_payment.refund_amount = locked_payment.amount
+        locked_payment.refund_status = Payment.RefundStatus.SUCCEEDED
+        locked_payment.refunded_at = timezone.now()
+        locked_payment.save(update_fields=["status", "refund_amount", "refund_status", "refunded_at"])
 
-    return Ticket.objects.full().get(pk=ticket.pk)
+    return Ticket.objects.full().get(pk=locked_ticket.pk)
 
 
 def start_attendee_export(event: Event, requested_by: RevelUser) -> "FileExport":

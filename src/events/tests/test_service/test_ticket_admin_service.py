@@ -273,21 +273,22 @@ def test_check_online_tier_prerequisites_passes_when_billing_complete(organizati
 
 
 def test_start_attendee_export_creates_export_row(event: Event, organization_owner_user: RevelUser) -> None:
-    """``start_attendee_export`` creates a FileExport in PENDING with the correct parameters."""
+    """``start_attendee_export`` creates a FileExport in PENDING and dispatches the task on commit."""
+    from django.test import TestCase
+
     from common.models import FileExport
 
-    with patch("events.tasks.generate_attendee_export_task.delay") as delay:
+    with (
+        patch("events.tasks.generate_attendee_export_task.delay") as delay,
+        TestCase.captureOnCommitCallbacks(execute=True),
+    ):
         export = ticket_service.start_attendee_export(event, requested_by=organization_owner_user)
 
     assert export.export_type == FileExport.ExportType.ATTENDEE_LIST
     assert export.status == FileExport.ExportStatus.PENDING
     assert export.parameters == {"event_id": str(event.id)}
     assert export.requested_by_id == organization_owner_user.id
-    # Dispatch is deferred via transaction.on_commit; pytest.mark.django_db wraps each
-    # test in an atomic block that rolls back, so the lambda fires at TestCase teardown.
-    # Asserting on the return shape is enough here; integration coverage lives in the
-    # controller tests.
-    _ = delay
+    delay.assert_called_once_with(str(export.id))
 
 
 def test_start_attendee_export_dispatch_callable_resolves_to_task(
