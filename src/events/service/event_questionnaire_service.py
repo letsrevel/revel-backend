@@ -20,8 +20,8 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from common.utils import get_or_create_with_race_protection, update_db_instance
-from events.models import Event, EventQuestionnaireSubmission, OrganizationQuestionnaire
-from events.schema import OrganizationQuestionnaireUpdateSchema
+from events.models import Event, EventQuestionnaireSubmission, EventSeries, Organization, OrganizationQuestionnaire
+from events.schema import OrganizationQuestionnaireCreateSchema, OrganizationQuestionnaireUpdateSchema
 from events.schema.pronouns import EventPronounDistributionSchema, PronounCountSchema
 from events.schema.questionnaire import (
     McOptionStatSchema,
@@ -38,11 +38,12 @@ from questionnaires.models import (
     SubmissionSourceEventMetadata,
 )
 from questionnaires.schema import QuestionnaireSubmissionSchema
+from questionnaires.service.questionnaire_service import QuestionnaireService
 
 if t.TYPE_CHECKING:
     from datetime import datetime
 
-    from questionnaires.service.questionnaire_service import QuestionnaireService
+    from common.models import FileExport
 
 
 def _validate_admission_resubmission(
@@ -118,7 +119,7 @@ def submit_event_questionnaire(
     *,
     user: RevelUser,
     event: Event,
-    questionnaire_service: "QuestionnaireService",
+    questionnaire_service: QuestionnaireService,
     org_questionnaire: OrganizationQuestionnaire,
     submission_schema: QuestionnaireSubmissionSchema,
 ) -> QuestionnaireSubmission:
@@ -459,3 +460,153 @@ def update_organization_questionnaire(
     org_questionnaire.refresh_from_db()
 
     return org_questionnaire
+
+
+@transaction.atomic
+def create_org_questionnaire(
+    organization: Organization,
+    payload: OrganizationQuestionnaireCreateSchema,
+) -> OrganizationQuestionnaire:
+    """Create a questionnaire and its OrganizationQuestionnaire wrapper atomically.
+
+    Validates that feedback questionnaires cannot require evaluation, creates the underlying
+    Questionnaire (with its sections/questions/options), then wraps it in an
+    OrganizationQuestionnaire bound to the given organization.
+
+    Args:
+        organization: The organization that will own the questionnaire.
+        payload: The create schema with both Questionnaire and OrganizationQuestionnaire fields.
+
+    Returns:
+        The created OrganizationQuestionnaire.
+
+    Raises:
+        HttpError: 400 if the configuration is invalid (e.g. feedback + requires_evaluation).
+    """
+    validate_feedback_requires_evaluation(payload.questionnaire_type, payload.requires_evaluation)
+    questionnaire = QuestionnaireService.create_questionnaire(payload)
+    return OrganizationQuestionnaire.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        max_submission_age=payload.max_submission_age,
+        questionnaire_type=payload.questionnaire_type,
+        members_exempt=payload.members_exempt,
+        per_event=payload.per_event,
+        requires_evaluation=payload.requires_evaluation,
+    )
+
+
+def set_status(
+    org_questionnaire: OrganizationQuestionnaire,
+    status: Questionnaire.QuestionnaireStatus,
+) -> OrganizationQuestionnaire:
+    """Update the status of the underlying Questionnaire.
+
+    Args:
+        org_questionnaire: The OrganizationQuestionnaire wrapping the questionnaire to update.
+        status: The target status (DRAFT, READY, PUBLISHED).
+
+    Returns:
+        The refreshed OrganizationQuestionnaire with updated nested questionnaire status.
+    """
+    org_questionnaire.questionnaire.status = status
+    org_questionnaire.questionnaire.save(update_fields=["status"])
+    org_questionnaire.refresh_from_db()
+    return org_questionnaire
+
+
+def replace_events(
+    org_questionnaire: OrganizationQuestionnaire,
+    event_ids: list[UUID],
+) -> OrganizationQuestionnaire:
+    """Replace the set of events assigned to this questionnaire.
+
+    Validates that every supplied event id belongs to the same organization as the
+    questionnaire before performing the batch assignment.
+
+    Args:
+        org_questionnaire: The OrganizationQuestionnaire to update.
+        event_ids: The complete list of event ids that should be assigned.
+
+    Returns:
+        The OrganizationQuestionnaire with its events relationship replaced.
+
+    Raises:
+        HttpError: 400 if any id does not match an event in the questionnaire's organization.
+    """
+    events = Event.objects.filter(pk__in=event_ids, organization=org_questionnaire.organization)
+    if events.count() != len(set(event_ids)):
+        raise HttpError(400, str(_("One or more events do not exist or belong to this organization.")))
+
+    org_questionnaire.events.set(events)
+    return org_questionnaire
+
+
+def replace_event_series(
+    org_questionnaire: OrganizationQuestionnaire,
+    event_series_ids: list[UUID],
+) -> OrganizationQuestionnaire:
+    """Replace the set of event series assigned to this questionnaire.
+
+    Validates that every supplied event series id belongs to the same organization as the
+    questionnaire before performing the batch assignment.
+
+    Args:
+        org_questionnaire: The OrganizationQuestionnaire to update.
+        event_series_ids: The complete list of event series ids that should be assigned.
+
+    Returns:
+        The OrganizationQuestionnaire with its event_series relationship replaced.
+
+    Raises:
+        HttpError: 400 if any id does not match a series in the questionnaire's organization.
+    """
+    series = EventSeries.objects.filter(pk__in=event_series_ids, organization=org_questionnaire.organization)
+    if series.count() != len(set(event_series_ids)):
+        raise HttpError(400, str(_("One or more event series do not exist or belong to this organization.")))
+
+    org_questionnaire.event_series.set(series)
+    return org_questionnaire
+
+
+def start_submissions_export(
+    org_questionnaire: OrganizationQuestionnaire,
+    requested_by: RevelUser,
+    event_id: UUID | None = None,
+    event_series_id: UUID | None = None,
+) -> "FileExport":
+    """Create a FileExport record for questionnaire submissions and dispatch the export task.
+
+    Args:
+        org_questionnaire: The questionnaire whose submissions should be exported.
+        requested_by: The user requesting the export (recorded on the FileExport).
+        event_id: Optional event id to scope the export to a single event.
+        event_series_id: Optional event series id to scope the export to a series.
+
+    Returns:
+        The newly-created FileExport in PENDING state.
+
+    Raises:
+        HttpError: 400 if both event_id and event_series_id are supplied (mutually exclusive).
+    """
+    from common.models import FileExport
+    from events.tasks import generate_questionnaire_export_task
+
+    if event_id and event_series_id:
+        raise HttpError(400, str(_("Cannot filter by both event_id and event_series_id.")))
+
+    parameters: dict[str, str] = {
+        "questionnaire_id": str(org_questionnaire.questionnaire_id),
+    }
+    if event_id:
+        parameters["event_id"] = str(event_id)
+    if event_series_id:
+        parameters["event_series_id"] = str(event_series_id)
+
+    export = FileExport.objects.create(
+        requested_by=requested_by,
+        export_type=FileExport.ExportType.QUESTIONNAIRE_SUBMISSIONS,
+        parameters=parameters,
+    )
+    generate_questionnaire_export_task.delay(str(export.id))
+    return export
