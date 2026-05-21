@@ -7,10 +7,132 @@ import typing as t
 import uuid
 
 from django.db import models
+from django.db.models import Exists, OuterRef, Q
 
 from common.models import TimeStampedModel
 from events.models.mixins import ResourceVisibility
 from polls.exceptions import PollAnonymityImmutableError
+
+if t.TYPE_CHECKING:
+    from django.contrib.auth.models import AnonymousUser
+
+    from accounts.models import RevelUser
+
+
+class PollQuerySet(models.QuerySet["Poll"]):
+    """Custom queryset for :class:`Poll` with visibility-aware listings."""
+
+    def for_user(self, user: "RevelUser | AnonymousUser") -> "PollQuerySet":
+        """Return polls visible to ``user`` per the listing rule.
+
+        A poll is visible iff the user passes ``vote_visibility`` OR
+        ``result_visibility``, OR has already voted on it. Owners and
+        org staff see everything in their org including drafts; Django
+        superusers/staff see everything system-wide.
+
+        Tier-restricted MEMBERS_ONLY polls are not refined here — the
+        eligibility service applies the per-poll tier check. False-positive
+        listing for tier-restricted polls is acceptable and matches the
+        listings vs. fine-grained access split used elsewhere (e.g., Event).
+        """
+        from events.models.invitation import EventInvitation
+        from events.models.organization import OrganizationMember, OrganizationStaff
+        from events.models.rsvp import EventRSVP
+        from events.models.ticket import Ticket
+        from questionnaires.models import QuestionnaireSubmission
+
+        # Django superusers/staff see everything (regardless of status).
+        if not user.is_anonymous and (getattr(user, "is_superuser", False) or getattr(user, "is_staff", False)):
+            return self.all()
+
+        if user.is_anonymous:
+            # Anonymous: only PUBLIC/UNLISTED polls in non-DRAFT statuses.
+            return self.filter(
+                Q(vote_visibility__in=ResourceVisibility.publicly_accessible())
+                | Q(result_visibility__in=ResourceVisibility.publicly_accessible()),
+            ).exclude(status=Poll.PollStatus.DRAFT)
+
+        # Authenticated, non-Django-staff user.
+        # --- Get banned and blacklisted organization IDs ---
+        # Users banned/blacklisted from an organization cannot see its polls, even if public
+        # (mirrors EventQuerySet.for_user).
+        from events.utils.blacklist import get_hard_blacklisted_org_ids
+
+        banned_org_ids = OrganizationMember.objects.filter(
+            user=user, status=OrganizationMember.MembershipStatus.BANNED
+        ).values_list("organization_id", flat=True)
+
+        blacklisted_org_ids = get_hard_blacklisted_org_ids(user)
+
+        excluded_org_ids = set(banned_org_ids) | set(blacklisted_org_ids)
+
+        org_owner_q = Q(organization__owner=user)
+        org_staff_q = Exists(OrganizationStaff.objects.filter(organization=OuterRef("organization"), user=user))
+        member_q = Exists(
+            OrganizationMember.objects.for_visibility().filter(organization=OuterRef("organization"), user=user)
+        )
+        ticket_q = Exists(
+            Ticket.objects.filter(user=user, event=OuterRef("event")).exclude(status=Ticket.TicketStatus.CANCELLED)
+        )
+        rsvp_q = Exists(EventRSVP.objects.filter(user=user, event=OuterRef("event"), status=EventRSVP.RsvpStatus.YES))
+        invite_q = Exists(EventInvitation.objects.filter(user=user, event=OuterRef("event")))
+        voted_q = Exists(
+            QuestionnaireSubmission.objects.filter(
+                user=user,
+                questionnaire=OuterRef("questionnaire"),
+                status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+            )
+        )
+
+        passes_vis = (
+            Q(vote_visibility__in=ResourceVisibility.publicly_accessible())
+            | Q(result_visibility__in=ResourceVisibility.publicly_accessible())
+            | (Q(vote_visibility=ResourceVisibility.MEMBERS_ONLY) & member_q)
+            | (Q(result_visibility=ResourceVisibility.MEMBERS_ONLY) & member_q)
+            | (
+                Q(
+                    vote_visibility__in=[
+                        ResourceVisibility.PRIVATE,
+                        ResourceVisibility.ATTENDEES_ONLY,
+                    ]
+                )
+                & (ticket_q | rsvp_q)
+            )
+            | (
+                Q(
+                    result_visibility__in=[
+                        ResourceVisibility.PRIVATE,
+                        ResourceVisibility.ATTENDEES_ONLY,
+                    ]
+                )
+                & (ticket_q | rsvp_q)
+            )
+            | (Q(vote_visibility=ResourceVisibility.PRIVATE) & invite_q)
+            | (Q(result_visibility=ResourceVisibility.PRIVATE) & invite_q)
+        )
+
+        is_org_owner_or_staff = org_owner_q | org_staff_q
+
+        # Owners/org staff: everything in their org including DRAFT.
+        # Other authenticated users: passes visibility OR has voted; DRAFT hidden.
+        # Banned/blacklisted users do not see any poll from those orgs.
+        return (
+            self.filter(is_org_owner_or_staff | ((passes_vis | voted_q) & ~Q(status=Poll.PollStatus.DRAFT)))
+            .exclude(organization_id__in=excluded_org_ids)
+            .distinct()
+        )
+
+
+class PollManager(models.Manager["Poll"]):
+    """Manager exposing :meth:`PollQuerySet.for_user`."""
+
+    def get_queryset(self) -> PollQuerySet:
+        """Return a :class:`PollQuerySet` bound to this manager's database."""
+        return PollQuerySet(self.model, using=self._db)
+
+    def for_user(self, user: "RevelUser | AnonymousUser") -> PollQuerySet:
+        """Proxy to :meth:`PollQuerySet.for_user`."""
+        return self.get_queryset().for_user(user)
 
 
 class Poll(TimeStampedModel):
@@ -91,6 +213,8 @@ class Poll(TimeStampedModel):
 
     staff_anonymous = models.BooleanField(default=True)
     public_anonymous = models.BooleanField(default=True)
+
+    objects: t.ClassVar[PollManager] = PollManager()
 
     class Meta:
         constraints = [
