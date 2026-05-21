@@ -32,6 +32,7 @@ class SlugAlreadyExistsError(Exception):
     """Raised when an event slug update collides with an existing event in the same org."""
 
     def __init__(self, slug: str) -> None:
+        """Initialise the error with the slug that collided."""
         super().__init__(f"Event slug '{slug}' already exists in this organization.")
         self.slug = slug
 
@@ -165,11 +166,7 @@ def update_slug(event: models.Event, slug: str) -> models.Event:
         SlugAlreadyExistsError: If another event in the same organization
             already uses this slug.
     """
-    if (
-        models.Event.objects.filter(organization_id=event.organization_id, slug=slug)
-        .exclude(pk=event.pk)
-        .exists()
-    ):
+    if models.Event.objects.filter(organization_id=event.organization_id, slug=slug).exclude(pk=event.pk).exists():
         raise SlugAlreadyExistsError(slug)
 
     event.slug = slug
