@@ -274,11 +274,13 @@ def _create_sold_out_workshop_tier(state: BootstrapState, now: "datetime.datetim
     ``available <= 0`` immediately, without waiting for the recompute task.
     """
     workshop = state.events["sold_out_workshop"]
+    # Offline payment tier so admins can cancel filler tickets manually during
+    # smoke testing without going through Stripe.
     tier = events_models.TicketTier.objects.create(
         event=workshop,
         name="Workshop Seat",
         visibility=events_models.TicketTier.Visibility.PUBLIC,
-        payment_method=events_models.TicketTier.PaymentMethod.ONLINE,
+        payment_method=events_models.TicketTier.PaymentMethod.OFFLINE,
         purchasable_by=events_models.TicketTier.PurchasableBy.PUBLIC,
         price=Decimal("299.00"),
         currency="EUR",
@@ -287,6 +289,7 @@ def _create_sold_out_workshop_tier(state: BootstrapState, now: "datetime.datetim
         sales_start_at=now - timedelta(days=10),
         sales_end_at=now + timedelta(days=27),
         description="Intensive workshop - materials included",
+        manual_payment_instructions=_OFFLINE_INSTRUCTIONS.format(price="299.00", currency="EUR"),
     )
 
     # Fill the event with 20 ad-hoc filler users so the named bootstrap users
