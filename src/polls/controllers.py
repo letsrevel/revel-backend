@@ -16,7 +16,7 @@ import typing as t
 from uuid import UUID
 
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
@@ -41,6 +41,12 @@ from polls.schema import (
 )
 from polls.service import eligibility, poll_service
 from polls.service.aggregation import compute_poll_results
+from questionnaires.models import (
+    FileUploadQuestion,
+    FreeTextQuestion,
+    MultipleChoiceQuestion,
+    QuestionnaireSection,
+)
 
 UserLike = RevelUser | AnonymousUser
 
@@ -78,12 +84,55 @@ class PollController(UserAwareController):
         )
 
     def _detail_queryset(self) -> QuerySet[Poll]:
-        """Queryset used for single-poll lookups (detail/lifecycle)."""
+        """Queryset used for single-poll lookups (detail/lifecycle).
+
+        Includes the deep prefetch of the wrapped questionnaire so
+        :class:`PollDetailSchema` can serialise the full question/section
+        structure without per-row queries. Mirrors
+        :meth:`events.controllers.questionnaire.QuestionnaireController.get_org_questionnaire`.
+        """
         return (
             Poll.objects.for_user(self.maybe_user())
             .select_related("organization", "event", "questionnaire")
-            .prefetch_related("vote_membership_tiers", "result_membership_tiers")
+            .prefetch_related(
+                "vote_membership_tiers",
+                "result_membership_tiers",
+                # Section-less questions (top-level)
+                Prefetch(
+                    "questionnaire__multiplechoicequestion_questions",
+                    queryset=MultipleChoiceQuestion.objects.filter(section__isnull=True).prefetch_related("options"),
+                ),
+                Prefetch(
+                    "questionnaire__freetextquestion_questions",
+                    queryset=FreeTextQuestion.objects.filter(section__isnull=True),
+                ),
+                Prefetch(
+                    "questionnaire__fileuploadquestion_questions",
+                    queryset=FileUploadQuestion.objects.filter(section__isnull=True),
+                ),
+                # Sections with their nested questions
+                Prefetch(
+                    "questionnaire__sections",
+                    queryset=QuestionnaireSection.objects.prefetch_related(
+                        Prefetch(
+                            "multiplechoicequestion_questions",
+                            queryset=MultipleChoiceQuestion.objects.prefetch_related("options"),
+                        ),
+                        "freetextquestion_questions",
+                        "fileuploadquestion_questions",
+                    ).order_by("order"),
+                ),
+            )
         )
+
+    def _refetch_for_detail(self, poll_id: UUID) -> Poll:
+        """Refetch a poll with the deep prefetches used by :class:`PollDetailSchema`.
+
+        Used after write endpoints so the response includes the prefetched
+        questionnaire structure even when the service returned a freshly-fetched
+        instance without the deep prefetches.
+        """
+        return self._detail_queryset().get(pk=poll_id)
 
     @staticmethod
     def _organization_queryset() -> QuerySet[Organization]:
@@ -120,7 +169,7 @@ class PollController(UserAwareController):
         return qs
 
     @route.get("/{poll_id}/", url_name="get_poll", response=PollDetailSchema)
-    def get_poll(self, poll_id: UUID) -> PollDetailSchema:
+    def get_poll(self, poll_id: UUID) -> dict[str, t.Any]:
         """Retrieve a single poll, including user-specific flags and (when allowed) results."""
         user = self.maybe_user()
         poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
@@ -145,7 +194,7 @@ class PollController(UserAwareController):
         auth=I18nJWTAuth(),
         permissions=[OrganizationPermission("manage_polls")],
     )
-    def create_poll(self, organization_id: UUID, payload: PollCreateSchema) -> tuple[int, PollDetailSchema]:
+    def create_poll(self, organization_id: UUID, payload: PollCreateSchema) -> tuple[int, dict[str, t.Any]]:
         """Create a new poll under an organization the caller can manage.
 
         ``organization_id`` is taken from the URL path; the
@@ -156,7 +205,7 @@ class PollController(UserAwareController):
             Organization, self.get_object_or_exception(self._organization_queryset(), pk=organization_id)
         )
         poll = poll_service.create_poll(organization, payload)
-        return 201, self._to_detail(poll, self.user())
+        return 201, self._to_detail(self._refetch_for_detail(poll.pk), self.user())
 
     @route.patch(
         "/{poll_id}/",
@@ -166,7 +215,7 @@ class PollController(UserAwareController):
         auth=I18nJWTAuth(),
         permissions=[PollPermission("manage_polls")],
     )
-    def patch_poll(self, poll_id: UUID, payload: PollUpdateSchema) -> PollDetailSchema:
+    def patch_poll(self, poll_id: UUID, payload: PollUpdateSchema) -> dict[str, t.Any]:
         """Apply a partial update to a poll the caller can manage.
 
         Cross-field constraint violations that can't be caught by the schema
@@ -176,8 +225,8 @@ class PollController(UserAwareController):
         dispatched to HTTP 422 by the registered exception handler.
         """
         poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
-        updated = poll_service.update_poll(poll, payload)
-        return self._to_detail(updated, self.user())
+        poll_service.update_poll(poll, payload)
+        return self._to_detail(self._refetch_for_detail(poll_id), self.user())
 
     @route.post(
         "/{poll_id}/open",
@@ -187,11 +236,11 @@ class PollController(UserAwareController):
         auth=I18nJWTAuth(),
         permissions=[PollPermission("manage_polls")],
     )
-    def open_poll_action(self, poll_id: UUID) -> PollDetailSchema:
+    def open_poll_action(self, poll_id: UUID) -> dict[str, t.Any]:
         """Transition a DRAFT poll to OPEN."""
         poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
-        opened = poll_service.open_poll(poll)
-        return self._to_detail(opened, self.user())
+        poll_service.open_poll(poll)
+        return self._to_detail(self._refetch_for_detail(poll_id), self.user())
 
     @route.post(
         "/{poll_id}/close",
@@ -201,11 +250,11 @@ class PollController(UserAwareController):
         auth=I18nJWTAuth(),
         permissions=[PollPermission("manage_polls")],
     )
-    def close_poll_action(self, poll_id: UUID) -> PollDetailSchema:
+    def close_poll_action(self, poll_id: UUID) -> dict[str, t.Any]:
         """Transition an OPEN poll to CLOSED."""
         poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
-        closed = poll_service.close_poll(poll)
-        return self._to_detail(closed, self.user())
+        poll_service.close_poll(poll)
+        return self._to_detail(self._refetch_for_detail(poll_id), self.user())
 
     @route.post(
         "/{poll_id}/reopen",
@@ -215,11 +264,11 @@ class PollController(UserAwareController):
         auth=I18nJWTAuth(),
         permissions=[PollPermission("manage_polls")],
     )
-    def reopen_poll_action(self, poll_id: UUID, payload: PollReopenSchema) -> PollDetailSchema:
+    def reopen_poll_action(self, poll_id: UUID, payload: PollReopenSchema) -> dict[str, t.Any]:
         """Reopen a CLOSED poll, optionally setting or clearing ``closes_at``."""
         poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
-        reopened = poll_service.reopen_poll(poll, payload)
-        return self._to_detail(reopened, self.user())
+        poll_service.reopen_poll(poll, payload)
+        return self._to_detail(self._refetch_for_detail(poll_id), self.user())
 
     @route.delete(
         "/{poll_id}/",
@@ -242,7 +291,7 @@ class PollController(UserAwareController):
         throttle=WriteThrottle(),
         auth=I18nJWTAuth(),
     )
-    def vote(self, poll_id: UUID, payload: PollVoteSchema) -> PollDetailSchema:
+    def vote(self, poll_id: UUID, payload: PollVoteSchema) -> dict[str, t.Any]:
         """Cast or replace the caller's vote for ``poll_id``.
 
         Audience/visibility checks live inside the service so that the same
@@ -282,34 +331,48 @@ class PollController(UserAwareController):
 
     # ------------------------------------------------------------------ helpers
 
-    def _to_detail(self, poll: Poll, user: UserLike) -> PollDetailSchema:
+    def _to_detail(self, poll: Poll, user: UserLike) -> dict[str, t.Any]:
+        """Build the response payload for :class:`PollDetailSchema` endpoints.
+
+        Returns a dict (not a constructed schema) so ninja's response-model
+        validator runs **once** against the ORM-shaped payload. Constructing
+        the schema manually would cause ninja to re-validate on response
+        shaping, at which point resolvers on the nested
+        :class:`questionnaires.schema.MultipleChoiceQuestionResponseSchema`
+        (which assume an ORM input via ``obj.options.all()``) break against
+        the already-constructed schema instance.
+
+        The ORM ``poll.questionnaire`` is passed through so the questionnaire
+        app's resolvers run on the model; this requires the queryset to deep-
+        prefetch sections/questions/options (see :meth:`_detail_queryset`).
+        """
         user_can_see_results = eligibility.can_see_results(user, poll)
         results: PollResultsSchema | None = None
         if user_can_see_results:
             results = compute_poll_results(poll, viewer_sees_identity=self._viewer_sees_identity(poll, user))
-        return PollDetailSchema(
-            id=poll.id,
-            organization_id=poll.organization_id,
-            event_id=poll.event_id,
-            questionnaire_id=poll.questionnaire_id,
-            status=Poll.PollStatus(poll.status),
-            opened_at=poll.opened_at,
-            closes_at=poll.closes_at,
-            closed_at=poll.closed_at,
-            allow_vote_changes=poll.allow_vote_changes,
-            vote_visibility=ResourceVisibility(poll.vote_visibility),
-            result_visibility=ResourceVisibility(poll.result_visibility),
-            result_timing=Poll.PollResultTiming(poll.result_timing),
-            staff_anonymous=poll.staff_anonymous,
-            public_anonymous=poll.public_anonymous,
-            vote_membership_tier_ids=list(poll.vote_membership_tiers.values_list("id", flat=True)),
-            result_membership_tier_ids=list(poll.result_membership_tiers.values_list("id", flat=True)),
-            user_has_voted=eligibility.user_has_voted(user, poll),
-            user_can_vote=(poll.status == Poll.PollStatus.OPEN and eligibility.can_vote(user, poll)),
-            user_can_see_results=user_can_see_results,
-            questionnaire=None,  # populated later when we wire questionnaire response into detail
-            results=results,
-        )
+        return {
+            "id": poll.id,
+            "organization_id": poll.organization_id,
+            "event_id": poll.event_id,
+            "questionnaire_id": poll.questionnaire_id,
+            "status": Poll.PollStatus(poll.status),
+            "opened_at": poll.opened_at,
+            "closes_at": poll.closes_at,
+            "closed_at": poll.closed_at,
+            "allow_vote_changes": poll.allow_vote_changes,
+            "vote_visibility": ResourceVisibility(poll.vote_visibility),
+            "result_visibility": ResourceVisibility(poll.result_visibility),
+            "result_timing": Poll.PollResultTiming(poll.result_timing),
+            "staff_anonymous": poll.staff_anonymous,
+            "public_anonymous": poll.public_anonymous,
+            "vote_membership_tier_ids": list(poll.vote_membership_tiers.values_list("id", flat=True)),
+            "result_membership_tier_ids": list(poll.result_membership_tiers.values_list("id", flat=True)),
+            "user_has_voted": eligibility.user_has_voted(user, poll),
+            "user_can_vote": poll.status == Poll.PollStatus.OPEN and eligibility.can_vote(user, poll),
+            "user_can_see_results": user_can_see_results,
+            "questionnaire": poll.questionnaire,
+            "results": results,
+        }
 
     @staticmethod
     def _viewer_sees_identity(poll: Poll, user: UserLike) -> bool:

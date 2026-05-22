@@ -68,6 +68,60 @@ def test_detail_includes_user_flags(
     assert "user_has_voted" in body
 
 
+def test_detail_includes_questionnaire_structure(
+    authenticated_client: Client,
+    organization: Organization,
+) -> None:
+    """`PollDetailSchema.questionnaire` carries the deep question/section tree.
+
+    Frontend needs the questions + options to render the vote form when
+    ``user_can_vote`` is True. Regression for the original TODO that returned
+    ``questionnaire=None`` unconditionally (see POLLS_FRONTEND_ASK.md).
+    """
+    from questionnaires.models import (
+        MultipleChoiceOption,
+        MultipleChoiceQuestion,
+        QuestionnaireSection,
+    )
+
+    q = Questionnaire.objects.create(name="poll Q")
+    # Top-level (section-less) question
+    top_mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, question="Top?")
+    MultipleChoiceOption.objects.create(question=top_mcq, option="a")
+    MultipleChoiceOption.objects.create(question=top_mcq, option="b")
+    # Section with a nested MC question
+    section = QuestionnaireSection.objects.create(questionnaire=q, name="Section A", order=0)
+    section_mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, section=section, question="Section question?")
+    MultipleChoiceOption.objects.create(question=section_mcq, option="x")
+
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=q,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.OPEN,
+    )
+
+    response = authenticated_client.get(f"/api/polls/{poll.id}/")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["questionnaire"] is not None
+    qresp = body["questionnaire"]
+    assert qresp["id"] == str(q.id)
+    assert qresp["name"] == "poll Q"
+    # Top-level question with options serialised
+    assert len(qresp["multiplechoicequestion_questions"]) == 1
+    top = qresp["multiplechoicequestion_questions"][0]
+    assert top["question"] == "Top?"
+    assert {opt["option"] for opt in top["options"]} == {"a", "b"}
+    # Section with its nested question
+    assert len(qresp["sections"]) == 1
+    sec = qresp["sections"][0]
+    assert sec["name"] == "Section A"
+    assert len(sec["multiplechoicequestion_questions"]) == 1
+    assert sec["multiplechoicequestion_questions"][0]["question"] == "Section question?"
+
+
 def test_list_polls_query_count_constant(
     authenticated_client: Client,
     organization: Organization,
