@@ -419,19 +419,20 @@ def test_can_see_poll_anonymous_with_public_vote_visibility(
     assert eligibility.can_see_poll(AnonymousUser(), poll) is True
 
 
-# --- build_bulk_context: Django staff voted set ---
+# --- Annotation-based listing helpers: Django-staff regression ---
 
 
-def test_build_bulk_context_django_staff_has_voted_questionnaire_ids(
+def test_with_user_annotations_django_staff_after_vote(
     organization: Organization,
     questionnaire: Questionnaire,
     revel_user_factory: t.Any,
 ) -> None:
-    """Django staff/superusers must still get a populated ``voted_questionnaire_ids``.
+    """Django staff/superusers see AFTER_VOTE results once they have voted.
 
-    Regression: ``bulk_user_has_voted`` and AFTER_VOTE timing returned False
-    for staff because the bulk context for ``is_django_staff=True`` left the
-    voted set empty.
+    Regression: the previous bulk-context precompute left ``voted_questionnaire_ids``
+    empty for staff users, which made ``bulk_can_see_results`` return False for
+    a staff member with AFTER_VOTE timing even after they had voted. The
+    annotation-based listing path must keep that case working.
     """
     from questionnaires.models import QuestionnaireSubmission
 
@@ -454,8 +455,6 @@ def test_build_bulk_context_django_staff_has_voted_questionnaire_ids(
         submitted_at=timezone.now(),
     )
 
-    ctx = eligibility.build_bulk_context(staff, [poll])
-    assert ctx.is_django_staff is True
-    assert eligibility.bulk_user_has_voted(staff, poll, ctx) is True
-    # AFTER_VOTE timing in bulk mode must also resolve for staff who voted.
-    assert eligibility.bulk_can_see_results(staff, poll, [], ctx) is True
+    annotated = Poll.objects.with_user_annotations(staff).get(pk=poll.pk)
+    assert eligibility.user_has_voted_from_annotations(staff, annotated) is True
+    assert eligibility.can_see_results_from_annotations(staff, annotated, []) is True

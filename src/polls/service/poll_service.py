@@ -30,7 +30,6 @@ from questionnaires.service import QuestionnaireService
 
 _POLL_ONLY_FIELDS: frozenset[str] = frozenset(
     {
-        "organization_id",
         "event_id",
         "vote_visibility",
         "result_visibility",
@@ -102,13 +101,16 @@ def _build_questionnaire_schema(payload: PollCreateSchema) -> QuestionnaireCreat
 
 
 @transaction.atomic
-def create_poll(payload: PollCreateSchema) -> Poll:
+def create_poll(organization: Organization, payload: PollCreateSchema) -> Poll:
     """Create a Poll and its underlying Questionnaire.
 
     The Questionnaire is forced to ``evaluation_mode=MANUAL`` regardless of
     payload values — polls never invoke the evaluator pipeline.
 
     Args:
+        organization: The organization the poll belongs to (taken from the
+            request URL path; the controller already verified the caller has
+            ``manage_polls`` on it).
         payload: Validated create payload (poll + questionnaire fields).
 
     Returns:
@@ -119,7 +121,6 @@ def create_poll(payload: PollCreateSchema) -> Poll:
             ``result_membership_tier_ids`` reference unknown or
             cross-organization tier rows.
     """
-    organization = Organization.objects.get(pk=payload.organization_id)
     event = Event.objects.get(pk=payload.event_id) if payload.event_id else None
 
     questionnaire_payload = _build_questionnaire_schema(payload)

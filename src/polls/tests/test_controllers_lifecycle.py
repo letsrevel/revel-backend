@@ -16,10 +16,9 @@ from questionnaires.models import Questionnaire
 pytestmark = pytest.mark.django_db
 
 
-def _make_payload(organization: Organization, **overrides: t.Any) -> dict[str, t.Any]:
+def _make_payload(**overrides: t.Any) -> dict[str, t.Any]:
     payload: dict[str, t.Any] = {
         "name": "p",
-        "organization_id": str(organization.id),
         "vote_visibility": "public",
         "result_visibility": "public",
         "result_timing": "after_vote",
@@ -30,22 +29,27 @@ def _make_payload(organization: Organization, **overrides: t.Any) -> dict[str, t
     return payload
 
 
+def _create_url(organization: Organization) -> str:
+    """URL for the create-poll endpoint (organization id is a path param)."""
+    return f"/api/polls/organizations/{organization.id}"
+
+
 def test_create_requires_manage_polls_permission(authenticated_client: Client, organization: Organization) -> None:
     response = authenticated_client.post(
-        "/api/polls/", data=_make_payload(organization), content_type="application/json"
+        _create_url(organization), data=_make_payload(), content_type="application/json"
     )
     assert response.status_code == 403
 
 
 def test_create_succeeds_for_owner(owner_client: Client, organization: Organization) -> None:
-    response = owner_client.post("/api/polls/", data=_make_payload(organization), content_type="application/json")
+    response = owner_client.post(_create_url(organization), data=_make_payload(), content_type="application/json")
     assert response.status_code == 201
     body = response.json()
     assert body["status"] == Poll.PollStatus.DRAFT.value
 
 
 def test_create_silently_forces_no_evaluation(owner_client: Client, organization: Organization) -> None:
-    response = owner_client.post("/api/polls/", data=_make_payload(organization), content_type="application/json")
+    response = owner_client.post(_create_url(organization), data=_make_payload(), content_type="application/json")
     assert response.status_code == 201
     poll_id = response.json()["id"]
     poll = Poll.objects.get(pk=poll_id)
@@ -237,7 +241,7 @@ def test_staff_with_manage_polls_can_close(
 
 def test_staff_with_manage_polls_can_create(staff_client: Client, organization: Organization) -> None:
     """Staff with ``manage_polls`` can create a poll."""
-    response = staff_client.post("/api/polls/", data=_make_payload(organization), content_type="application/json")
+    response = staff_client.post(_create_url(organization), data=_make_payload(), content_type="application/json")
     assert response.status_code == 201
     body = response.json()
     assert body["status"] == Poll.PollStatus.DRAFT.value

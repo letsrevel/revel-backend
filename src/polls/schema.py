@@ -23,12 +23,14 @@ class PollCreateSchema(questionnaires_schema.QuestionnaireCreateSchema):
     ``evaluation_mode`` is forced to ``MANUAL`` server-side and ``min_score`` is
     irrelevant for polls — both default here so clients only need to supply
     poll-specific fields.
+
+    The owning organization is taken from the URL path, not the payload:
+    ``POST /api/polls/organizations/{organization_id}``.
     """
 
     min_score: Decimal = Field(default=Decimal(0), ge=0, le=100)
     evaluation_mode: Questionnaire.QuestionnaireEvaluationMode = Questionnaire.QuestionnaireEvaluationMode.MANUAL
 
-    organization_id: UUID
     event_id: UUID | None = None
     vote_visibility: ResourceVisibility
     result_visibility: ResourceVisibility = ResourceVisibility.STAFF_ONLY
@@ -147,6 +149,15 @@ class PollDetailSchema(Schema):
 
 
 class PollListItemSchema(Schema):
+    """List-item view for :class:`polls.models.Poll`.
+
+    Per-user flags (``user_has_voted`` / ``user_can_vote`` / ``user_can_see_results``)
+    are computed from the per-row annotations attached by
+    :meth:`polls.models.PollQuerySet.with_user_annotations`. The list controller
+    composes that method into the queryset; detail/lifecycle controllers should
+    use :class:`PollDetailSchema` instead.
+    """
+
     id: UUID
     organization_id: UUID
     event_id: UUID | None
@@ -160,6 +171,44 @@ class PollListItemSchema(Schema):
     user_has_voted: bool
     user_can_vote: bool
     user_can_see_results: bool
+
+    @staticmethod
+    def resolve_questionnaire_name(obj: Poll) -> str:
+        """Read the wrapped questionnaire's display name."""
+        return obj.questionnaire.name
+
+    @staticmethod
+    def resolve_user_has_voted(obj: Poll, context: t.Any) -> bool:
+        """Whether the requesting user has a READY submission for this poll."""
+        from polls.service.eligibility import user_has_voted_from_annotations
+
+        user = context["request"].user
+        return user_has_voted_from_annotations(user, obj)
+
+    @staticmethod
+    def resolve_user_can_vote(obj: Poll, context: t.Any) -> bool:
+        """Whether the requesting user is currently eligible to cast a vote.
+
+        Returns False for anonymous users and for polls that are not OPEN.
+        """
+        from polls.service.eligibility import can_vote_from_annotations
+
+        user = context["request"].user
+        if user.is_anonymous:
+            return False
+        if obj.status != Poll.PollStatus.OPEN:
+            return False
+        tier_ids = [tier.id for tier in obj.vote_membership_tiers.all()]
+        return can_vote_from_annotations(user, obj, tier_ids)
+
+    @staticmethod
+    def resolve_user_can_see_results(obj: Poll, context: t.Any) -> bool:
+        """Whether the requesting user can view aggregate results right now."""
+        from polls.service.eligibility import can_see_results_from_annotations
+
+        user = context["request"].user
+        tier_ids = [tier.id for tier in obj.result_membership_tiers.all()]
+        return can_see_results_from_annotations(user, obj, tier_ids)
 
 
 # ----- Results -----

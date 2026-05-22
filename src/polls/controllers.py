@@ -1,20 +1,32 @@
-"""Polls API controller — read and write endpoints."""
+"""Polls API controller — read and write endpoints.
+
+Conventions (matching :mod:`events.controllers.questionnaire`):
+
+* Pagination on list endpoints uses ``@paginate(PageNumberPaginationExtra)``
+  rather than a manual ``Paginator``. The endpoint returns a ``QuerySet`` and
+  ninja_extra slices it for the requested page.
+* Object-level permissions live in :mod:`polls.permissions` as
+  :class:`PollPermission`/:class:`IsPollOrganizationOwner` subclasses of
+  ``events.controllers.permissions.RootPermission`` and are declared per-route.
+* The controller resolves rows with ``self.get_object_or_exception(qs, pk=...)``
+  which lets the framework invoke the route's permission classes.
+"""
 
 import typing as t
 from uuid import UUID
 
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.shortcuts import get_object_or_404
-from ninja import Query
+from django.db.models import QuerySet
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
-from ninja_extra.pagination import PaginatedResponseSchema
+from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth, OptionalAuth
 from common.controllers import UserAwareController
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle, WriteThrottle
+from events.controllers.permissions import OrganizationPermission
 from events.models.mixins import ResourceVisibility
 from events.models.organization import Organization
 from polls.exceptions import (
@@ -24,6 +36,7 @@ from polls.exceptions import (
     PollVoteChangesNotAllowedError,
 )
 from polls.models import Poll
+from polls.permissions import IsPollOrganizationOwner, PollPermission
 from polls.schema import (
     PollCreateSchema,
     PollDetailSchema,
@@ -56,90 +69,84 @@ def _format_validation_error(exc: DjangoValidationError) -> str:
     throttle=[AnonDefaultThrottle(), UserDefaultThrottle()],
 )
 class PollController(UserAwareController):
-    """Read endpoints for polls.
+    """Read and write endpoints for polls.
 
     Anonymous access is permitted via :class:`OptionalAuth`; visibility is
-    enforced by :meth:`Poll.objects.for_user` and the eligibility service.
+    enforced by :meth:`Poll.objects.for_user` and the per-route permission
+    classes from :mod:`polls.permissions`.
     """
 
-    @route.get("/", response=PaginatedResponseSchema[PollListItemSchema])
+    # ------------------------------------------------------------------ querysets
+
+    def _list_queryset(self) -> QuerySet[Poll]:
+        """Visibility-filtered + annotated queryset used by the list endpoint.
+
+        Combines :meth:`Poll.objects.for_user` (visibility filter) with
+        :meth:`Poll.objects.with_user_annotations` (per-row Exists() flags) so
+        per-row schema resolvers can compute eligibility without N+1 queries.
+        """
+        user = self.maybe_user()
+        return (
+            Poll.objects.for_user(user)
+            .with_user_annotations(user)
+            .select_related("organization", "event", "questionnaire")
+            .prefetch_related("vote_membership_tiers", "result_membership_tiers")
+            .order_by("-created_at", "id")
+        )
+
+    def _detail_queryset(self) -> QuerySet[Poll]:
+        """Queryset used for single-poll lookups (detail/lifecycle)."""
+        return (
+            Poll.objects.for_user(self.maybe_user())
+            .select_related("organization", "event", "questionnaire")
+            .prefetch_related("vote_membership_tiers", "result_membership_tiers")
+        )
+
+    def _organization_queryset(self) -> QuerySet[Organization]:
+        """Queryset for resolving organizations on the create endpoint."""
+        return Organization.objects.all()
+
+    # ------------------------------------------------------------------ reads
+
+    @route.get(
+        "/",
+        url_name="list_polls",
+        response=PaginatedResponseSchema[PollListItemSchema],
+    )
+    @paginate(PageNumberPaginationExtra, page_size=20)
     def list_polls(
         self,
         organization_id: UUID | None = None,
         event_id: UUID | None = None,
         status: Poll.PollStatus | None = None,
-        page: int = Query(1, ge=1),  # type: ignore[type-arg]
-        page_size: int = Query(20, ge=1, le=200),  # type: ignore[type-arg]
-    ) -> PaginatedResponseSchema[PollListItemSchema]:
+    ) -> QuerySet[Poll]:
         """List polls visible to the current user, optionally filtered.
 
-        Perf notes:
-
-        * Pagination is performed at the DB level: ``Paginator`` slices the
-          queryset so only the requested page is loaded.
-        * Per-row eligibility flags (``user_has_voted``, ``user_can_vote``,
-          ``user_can_see_results``) are precomputed in bulk by
-          :func:`polls.service.eligibility.build_bulk_context` against the
-          page slice — not the full visible set — so the bulk-query workload
-          is bounded by ``page_size``.
+        Per-user eligibility flags are computed from annotations attached by
+        :meth:`Poll.objects.with_user_annotations`, so per-row query count is
+        flat regardless of the page size.
         """
-        from django.core.paginator import Paginator
-
-        user = self.maybe_user()
-        qs = (
-            Poll.objects.for_user(user)
-            .select_related("organization", "event", "questionnaire")
-            .prefetch_related("vote_membership_tiers", "result_membership_tiers")
-            # Stable ordering: ``for_user`` does not impose an ordering, but
-            # Django's ``Paginator`` requires deterministic slices to avoid
-            # split rows between pages.
-            .order_by("-created_at", "id")
-        )
+        qs = self._list_queryset()
         if organization_id is not None:
             qs = qs.filter(organization_id=organization_id)
         if event_id is not None:
             qs = qs.filter(event_id=event_id)
         if status is not None:
             qs = qs.filter(status=status)
+        return qs
 
-        paginator = Paginator(qs, page_size)
-        # ``Paginator.page`` clamps invalid pages to a 404 via ``EmptyPage`` /
-        # ``PageNotAnInteger``; mirror :class:`PageNumberPaginationExtra` by
-        # returning an empty result set for an out-of-range page instead.
-        if page > paginator.num_pages and paginator.count > 0:
-            polls_page: list[Poll] = []
-        else:
-            polls_page = list(paginator.page(min(page, max(paginator.num_pages, 1))).object_list)
-
-        ctx = eligibility.build_bulk_context(user, polls_page)
-        results = [self._to_list_item_bulk(poll, user, ctx) for poll in polls_page]
-
-        next_url = self._page_url(page + 1) if page < paginator.num_pages else None
-        previous_url = self._page_url(page - 1) if page > 1 else None
-        return PaginatedResponseSchema[PollListItemSchema](
-            count=paginator.count,
-            next=next_url,
-            previous=previous_url,
-            results=results,
-        )
-
-    @route.get("/{poll_id}/", response=PollDetailSchema)
+    @route.get("/{poll_id}/", url_name="get_poll", response=PollDetailSchema)
     def get_poll(self, poll_id: UUID) -> PollDetailSchema:
         """Retrieve a single poll, including user-specific flags and (when allowed) results."""
         user = self.maybe_user()
-        poll = get_object_or_404(
-            Poll.objects.for_user(user)
-            .select_related("organization", "event", "questionnaire")
-            .prefetch_related("vote_membership_tiers", "result_membership_tiers"),
-            pk=poll_id,
-        )
+        poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
         return self._to_detail(poll, user)
 
-    @route.get("/{poll_id}/results", response=PollResultsSchema)
+    @route.get("/{poll_id}/results", url_name="get_poll_results", response=PollResultsSchema)
     def get_poll_results(self, poll_id: UUID) -> PollResultsSchema:
         """Return aggregated poll results, honouring visibility and timing rules."""
         user = self.maybe_user()
-        poll = get_object_or_404(Poll, pk=poll_id)
+        poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
         if not eligibility.can_see_results(user, poll):
             raise HttpError(403, "You are not allowed to see the results for this poll.")
         return compute_poll_results(poll, viewer_sees_identity=self._viewer_sees_identity(poll, user))
@@ -147,28 +154,36 @@ class PollController(UserAwareController):
     # ------------------------------------------------------------------ writes
 
     @route.post(
-        "/",
+        "/organizations/{organization_id}",
+        url_name="create_poll",
         response={201: PollDetailSchema},
         throttle=WriteThrottle(),
         auth=I18nJWTAuth(),
+        permissions=[OrganizationPermission("manage_polls")],
     )
-    def create_poll(self, payload: PollCreateSchema) -> tuple[int, PollDetailSchema]:
-        """Create a new poll under an organization the caller can manage."""
-        user = self.user()
-        organization = get_object_or_404(Organization, pk=payload.organization_id)
-        if not organization.has_org_permission(user.id, "manage_polls"):
-            raise HttpError(403, "manage_polls permission required")
+    def create_poll(self, organization_id: UUID, payload: PollCreateSchema) -> tuple[int, PollDetailSchema]:
+        """Create a new poll under an organization the caller can manage.
+
+        ``organization_id`` is taken from the URL path; the
+        :class:`OrganizationPermission` permission class enforces
+        ``manage_polls`` against the resolved :class:`Organization`.
+        """
+        organization = t.cast(
+            Organization, self.get_object_or_exception(self._organization_queryset(), pk=organization_id)
+        )
         try:
-            poll = poll_service.create_poll(payload)
+            poll = poll_service.create_poll(organization, payload)
         except DjangoValidationError as exc:
             raise HttpError(422, _format_validation_error(exc))
-        return 201, self._to_detail(poll, user)
+        return 201, self._to_detail(poll, self.user())
 
     @route.patch(
         "/{poll_id}/",
+        url_name="patch_poll",
         response=PollDetailSchema,
         throttle=WriteThrottle(),
         auth=I18nJWTAuth(),
+        permissions=[PollPermission("manage_polls")],
     )
     def patch_poll(self, poll_id: UUID, payload: PollUpdateSchema) -> PollDetailSchema:
         """Apply a partial update to a poll the caller can manage.
@@ -178,74 +193,72 @@ class PollController(UserAwareController):
         PRIVATE visibility) surface as :class:`DjangoValidationError` from
         the model's ``full_clean`` and are translated to HTTP 422.
         """
-        user = self.user()
-        poll = get_object_or_404(Poll, pk=poll_id)
-        self._require_manage_polls(poll, user)
+        poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
         try:
             updated = poll_service.update_poll(poll, payload)
         except DjangoValidationError as exc:
             raise HttpError(422, _format_validation_error(exc))
-        return self._to_detail(updated, user)
+        return self._to_detail(updated, self.user())
 
     @route.post(
         "/{poll_id}/open",
+        url_name="open_poll",
         response=PollDetailSchema,
         throttle=WriteThrottle(),
         auth=I18nJWTAuth(),
+        permissions=[PollPermission("manage_polls")],
     )
     def open_poll_action(self, poll_id: UUID) -> PollDetailSchema:
         """Transition a DRAFT poll to OPEN."""
-        user = self.user()
-        poll = get_object_or_404(Poll, pk=poll_id)
-        self._require_manage_polls(poll, user)
+        poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
         opened = poll_service.open_poll(poll)
-        return self._to_detail(opened, user)
+        return self._to_detail(opened, self.user())
 
     @route.post(
         "/{poll_id}/close",
+        url_name="close_poll",
         response=PollDetailSchema,
         throttle=WriteThrottle(),
         auth=I18nJWTAuth(),
+        permissions=[PollPermission("manage_polls")],
     )
     def close_poll_action(self, poll_id: UUID) -> PollDetailSchema:
         """Transition an OPEN poll to CLOSED."""
-        user = self.user()
-        poll = get_object_or_404(Poll, pk=poll_id)
-        self._require_manage_polls(poll, user)
+        poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
         closed = poll_service.close_poll(poll)
-        return self._to_detail(closed, user)
+        return self._to_detail(closed, self.user())
 
     @route.post(
         "/{poll_id}/reopen",
+        url_name="reopen_poll",
         response=PollDetailSchema,
         throttle=WriteThrottle(),
         auth=I18nJWTAuth(),
+        permissions=[PollPermission("manage_polls")],
     )
     def reopen_poll_action(self, poll_id: UUID, payload: PollReopenSchema) -> PollDetailSchema:
         """Reopen a CLOSED poll, optionally setting or clearing ``closes_at``."""
-        user = self.user()
-        poll = get_object_or_404(Poll, pk=poll_id)
-        self._require_manage_polls(poll, user)
+        poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
         reopened = poll_service.reopen_poll(poll, payload)
-        return self._to_detail(reopened, user)
+        return self._to_detail(reopened, self.user())
 
     @route.delete(
         "/{poll_id}/",
+        url_name="delete_poll",
         response={204: None},
         throttle=WriteThrottle(),
         auth=I18nJWTAuth(),
+        permissions=[IsPollOrganizationOwner()],
     )
     def delete_poll_action(self, poll_id: UUID) -> tuple[int, None]:
         """Hard-delete a poll. Only the organization owner may perform this action."""
-        user = self.user()
-        poll = get_object_or_404(Poll, pk=poll_id)
-        if poll.organization.owner_id != user.id:
-            raise HttpError(403, "Only the organization owner can delete a poll")
+        poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
         poll_service.delete_poll(poll)
         return 204, None
 
     @route.post(
         "/{poll_id}/vote",
+        url_name="vote_poll",
         response=PollDetailSchema,
         throttle=WriteThrottle(),
         auth=I18nJWTAuth(),
@@ -253,7 +266,9 @@ class PollController(UserAwareController):
     def vote(self, poll_id: UUID, payload: PollVoteSchema) -> PollDetailSchema:
         """Cast or replace the caller's vote for ``poll_id``.
 
-        Translates service-layer exceptions into HTTP statuses:
+        Audience/visibility checks live inside the service so that the same
+        rules apply to direct service callers; the controller stays thin and
+        translates service-layer exceptions into HTTP statuses:
 
         * :class:`PollNotOpenError` → ``423 Locked``
         * :class:`PollNotEligibleError` → ``403 Forbidden``
@@ -269,14 +284,13 @@ class PollController(UserAwareController):
         except PollVoteAlreadyCastError as exc:
             raise HttpError(409, str(exc))
         except DjangoValidationError as exc:
-            # Covers PollValidationError raised when the payload references
-            # unknown / cross-user file_upload ids.
             raise HttpError(422, _format_validation_error(exc))
-        poll = get_object_or_404(Poll, pk=poll_id)
+        poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
         return self._to_detail(poll, user)
 
     @route.delete(
         "/{poll_id}/vote",
+        url_name="withdraw_vote",
         response={204: None},
         throttle=WriteThrottle(),
         auth=I18nJWTAuth(),
@@ -299,54 +313,6 @@ class PollController(UserAwareController):
         return 204, None
 
     # ------------------------------------------------------------------ helpers
-
-    def _page_url(self, page: int) -> str | None:
-        """Build an absolute URL for a different page of the current list request.
-
-        Mirrors :class:`PageNumberPaginationExtra` semantics: when the target
-        page is 1 the ``page`` query param is removed rather than spelt out.
-        """
-        from ninja_extra.urls import remove_query_param, replace_query_param
-
-        request = self.context.request  # type: ignore[union-attr]
-        assert request is not None
-        base = request.build_absolute_uri()
-        if page <= 1:
-            return remove_query_param(base, "page")
-        return replace_query_param(base, "page", page)
-
-    def _require_manage_polls(self, poll: Poll, user: t.Any) -> None:
-        """Raise 403 unless ``user`` has ``manage_polls`` on ``poll.organization``."""
-        if not poll.organization.has_org_permission(user.id, "manage_polls"):
-            raise HttpError(403, "manage_polls permission required")
-
-    def _to_list_item_bulk(
-        self,
-        poll: Poll,
-        user: UserLike,
-        ctx: "eligibility._BulkEligibilityContext",
-    ) -> PollListItemSchema:
-        """Build a list item using pre-computed per-user sets (no extra DB round-trips)."""
-        # ``.all()`` hits the prefetch cache; ``values_list`` would bypass it.
-        vote_tier_ids = [tier.id for tier in poll.vote_membership_tiers.all()]
-        result_tier_ids = [tier.id for tier in poll.result_membership_tiers.all()]
-        return PollListItemSchema(
-            id=poll.id,
-            organization_id=poll.organization_id,
-            event_id=poll.event_id,
-            questionnaire_name=poll.questionnaire.name,
-            status=Poll.PollStatus(poll.status),
-            opened_at=poll.opened_at,
-            closes_at=poll.closes_at,
-            closed_at=poll.closed_at,
-            vote_visibility=ResourceVisibility(poll.vote_visibility),
-            result_visibility=ResourceVisibility(poll.result_visibility),
-            user_has_voted=eligibility.bulk_user_has_voted(user, poll, ctx),
-            user_can_vote=(
-                poll.status == Poll.PollStatus.OPEN and eligibility.bulk_can_vote(user, poll, vote_tier_ids, ctx)
-            ),
-            user_can_see_results=eligibility.bulk_can_see_results(user, poll, result_tier_ids, ctx),
-        )
 
     def _to_detail(self, poll: Poll, user: UserLike) -> PollDetailSchema:
         user_can_see_results = eligibility.can_see_results(user, poll)

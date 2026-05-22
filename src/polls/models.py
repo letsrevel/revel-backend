@@ -22,6 +22,66 @@ if t.TYPE_CHECKING:
 class PollQuerySet(models.QuerySet["Poll"]):
     """Custom queryset for :class:`Poll` with visibility-aware listings."""
 
+    def with_user_annotations(self, user: "RevelUser | AnonymousUser") -> "PollQuerySet":
+        """Annotate each row with per-user signals consumed by schema resolvers.
+
+        Adds the following boolean ``Exists()`` annotations (or constant Q() flags)
+        so :class:`polls.schema.PollListItemSchema` resolvers can compute
+        ``user_has_voted`` / ``user_can_vote`` / ``user_can_see_results`` without
+        a per-row round trip:
+
+        * ``_user_has_voted`` — a READY :class:`QuestionnaireSubmission` exists.
+        * ``_is_org_owner`` — the user owns the poll's organization.
+        * ``_is_org_staff_member`` — an :class:`OrganizationStaff` row links the user.
+        * ``_is_org_member`` — an active :class:`OrganizationMember` row exists.
+        * ``_user_member_tier_id`` — the user's tier id in the poll's org (or NULL).
+        * ``_has_ticket`` — a non-cancelled :class:`Ticket` for the linked event.
+        * ``_has_rsvp`` — a YES :class:`EventRSVP` for the linked event.
+        * ``_has_invitation`` — an :class:`EventInvitation` for the linked event.
+
+        Anonymous users get no annotations: the resolvers default missing
+        attributes to ``False``.
+        """
+        if user.is_anonymous:
+            return self
+
+        from django.db.models import Subquery
+
+        from events.models.invitation import EventInvitation
+        from events.models.organization import OrganizationMember, OrganizationStaff
+        from events.models.rsvp import EventRSVP
+        from events.models.ticket import Ticket
+        from questionnaires.models import QuestionnaireSubmission
+
+        return self.annotate(
+            _user_has_voted=Exists(
+                QuestionnaireSubmission.objects.filter(
+                    user=user,
+                    questionnaire=OuterRef("questionnaire"),
+                    status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+                )
+            ),
+            _is_org_owner=Exists(self.model.objects.filter(pk=OuterRef("pk"), organization__owner=user)),
+            _is_org_staff_member=Exists(
+                OrganizationStaff.objects.filter(organization=OuterRef("organization"), user=user)
+            ),
+            _is_org_member=Exists(
+                OrganizationMember.objects.for_visibility().filter(organization=OuterRef("organization"), user=user)
+            ),
+            _user_member_tier_id=Subquery(
+                OrganizationMember.objects.for_visibility()
+                .filter(organization=OuterRef("organization"), user=user)
+                .values("tier_id")[:1]
+            ),
+            _has_ticket=Exists(
+                Ticket.objects.filter(user=user, event=OuterRef("event")).exclude(status=Ticket.TicketStatus.CANCELLED)
+            ),
+            _has_rsvp=Exists(
+                EventRSVP.objects.filter(user=user, event=OuterRef("event"), status=EventRSVP.RsvpStatus.YES)
+            ),
+            _has_invitation=Exists(EventInvitation.objects.filter(user=user, event=OuterRef("event"))),
+        )
+
     def for_user(self, user: "RevelUser | AnonymousUser") -> "PollQuerySet":
         """Return polls visible to ``user`` per the listing rule.
 
@@ -133,6 +193,10 @@ class PollManager(models.Manager["Poll"]):
     def for_user(self, user: "RevelUser | AnonymousUser") -> PollQuerySet:
         """Proxy to :meth:`PollQuerySet.for_user`."""
         return self.get_queryset().for_user(user)
+
+    def with_user_annotations(self, user: "RevelUser | AnonymousUser") -> PollQuerySet:
+        """Proxy to :meth:`PollQuerySet.with_user_annotations`."""
+        return self.get_queryset().with_user_annotations(user)
 
 
 class Poll(TimeStampedModel):

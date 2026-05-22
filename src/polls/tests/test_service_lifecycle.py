@@ -19,9 +19,12 @@ pytestmark = pytest.mark.django_db
 
 
 def _create_payload(organization: Organization, **overrides: t.Any) -> PollCreateSchema:
+    # ``organization`` is now passed alongside the payload to ``create_poll``
+    # (the controller takes it from the URL path). This helper keeps the
+    # signature for callers that still need to spell out cross-org test cases.
+    _ = organization  # parameter kept for callsite symmetry / readability
     base: dict[str, t.Any] = {
         "name": "My Poll",
-        "organization_id": organization.id,
         "vote_visibility": ResourceVisibility.PUBLIC,
         "result_visibility": ResourceVisibility.PUBLIC,
         "result_timing": Poll.PollResultTiming.AFTER_VOTE,
@@ -33,7 +36,7 @@ def _create_payload(organization: Organization, **overrides: t.Any) -> PollCreat
 
 
 def test_create_poll_forces_no_evaluation(organization: Organization) -> None:
-    poll = poll_service.create_poll(_create_payload(organization))
+    poll = poll_service.create_poll(organization, _create_payload(organization))
     # Polls never run the questionnaire evaluator pipeline — the underlying
     # questionnaire is pinned to MANUAL mode regardless of what the client
     # sent (``Questionnaire`` itself has no ``requires_evaluation`` flag; that
@@ -43,14 +46,14 @@ def test_create_poll_forces_no_evaluation(organization: Organization) -> None:
 
 
 def test_open_poll_sets_opened_at_and_status(organization: Organization) -> None:
-    poll = poll_service.create_poll(_create_payload(organization))
+    poll = poll_service.create_poll(organization, _create_payload(organization))
     opened = poll_service.open_poll(poll)
     assert opened.status == Poll.PollStatus.OPEN
     assert opened.opened_at is not None
 
 
 def test_open_poll_from_closed_is_a_reopen_not_allowed(organization: Organization) -> None:
-    poll = poll_service.create_poll(_create_payload(organization))
+    poll = poll_service.create_poll(organization, _create_payload(organization))
     poll_service.open_poll(poll)
     poll_service.close_poll(poll)
     with pytest.raises(PollLifecycleError):
@@ -58,7 +61,7 @@ def test_open_poll_from_closed_is_a_reopen_not_allowed(organization: Organizatio
 
 
 def test_close_poll_sets_closed_at(organization: Organization) -> None:
-    poll = poll_service.create_poll(_create_payload(organization))
+    poll = poll_service.create_poll(organization, _create_payload(organization))
     poll_service.open_poll(poll)
     closed = poll_service.close_poll(poll)
     assert closed.status == Poll.PollStatus.CLOSED
@@ -66,13 +69,15 @@ def test_close_poll_sets_closed_at(organization: Organization) -> None:
 
 
 def test_close_poll_when_draft_raises(organization: Organization) -> None:
-    poll = poll_service.create_poll(_create_payload(organization))
+    poll = poll_service.create_poll(organization, _create_payload(organization))
     with pytest.raises(PollLifecycleError):
         poll_service.close_poll(poll)
 
 
 def test_reopen_requires_future_closes_at_or_explicit_clear(organization: Organization) -> None:
-    poll = poll_service.create_poll(_create_payload(organization, closes_at=(timezone.now() + timedelta(hours=1))))
+    poll = poll_service.create_poll(
+        organization, _create_payload(organization, closes_at=(timezone.now() + timedelta(hours=1)))
+    )
     poll_service.open_poll(poll)
     # Force the poll past its closes_at by mutating the DB row directly to simulate auto-close
     poll.refresh_from_db()
@@ -92,7 +97,7 @@ def test_reopen_requires_future_closes_at_or_explicit_clear(organization: Organi
 
 
 def test_reopen_with_clear_closes_at(organization: Organization) -> None:
-    poll = poll_service.create_poll(_create_payload(organization))
+    poll = poll_service.create_poll(organization, _create_payload(organization))
     poll_service.open_poll(poll)
     poll_service.close_poll(poll)
     reopened = poll_service.reopen_poll(poll, PollReopenSchema(clear_closes_at=True))
@@ -103,13 +108,14 @@ def test_reopen_with_clear_closes_at(organization: Organization) -> None:
 def test_update_poll_partial_update_only_changes_specified_fields(organization: Organization) -> None:
     """Patching only ``allow_vote_changes`` must leave the other fields untouched."""
     poll = poll_service.create_poll(
+        organization,
         _create_payload(
             organization,
             vote_visibility=ResourceVisibility.PUBLIC,
             result_visibility=ResourceVisibility.PUBLIC,
             result_timing=Poll.PollResultTiming.AFTER_VOTE,
             allow_vote_changes=False,
-        )
+        ),
     )
     original_vote_visibility = poll.vote_visibility
     original_result_visibility = poll.result_visibility
@@ -134,7 +140,7 @@ def test_update_poll_partial_update_only_changes_specified_fields(organization: 
 
 def test_update_poll_with_event_id_changes_fk(organization: Organization, event: Event) -> None:
     """Patching ``event_id`` must update the FK column."""
-    poll = poll_service.create_poll(_create_payload(organization))
+    poll = poll_service.create_poll(organization, _create_payload(organization))
     assert poll.event_id is None
 
     start = timezone.now() + timedelta(days=14)
@@ -163,7 +169,7 @@ def test_update_poll_membership_tiers_set_replaces_existing(organization: Organi
     tier_a = MembershipTier.objects.create(organization=organization, name="A")
     tier_b = MembershipTier.objects.create(organization=organization, name="B")
 
-    poll = poll_service.create_poll(_create_payload(organization, vote_membership_tier_ids=[tier_a.id]))
+    poll = poll_service.create_poll(organization, _create_payload(organization, vote_membership_tier_ids=[tier_a.id]))
     assert set(poll.vote_membership_tiers.values_list("id", flat=True)) == {tier_a.id}
 
     updated = poll_service.update_poll(poll, PollUpdateSchema(vote_membership_tier_ids=[tier_b.id]))
@@ -176,7 +182,9 @@ def test_update_poll_empty_membership_tier_list_clears_m2m(organization: Organiz
     tier_a = MembershipTier.objects.create(organization=organization, name="A")
     tier_b = MembershipTier.objects.create(organization=organization, name="B")
 
-    poll = poll_service.create_poll(_create_payload(organization, vote_membership_tier_ids=[tier_a.id, tier_b.id]))
+    poll = poll_service.create_poll(
+        organization, _create_payload(organization, vote_membership_tier_ids=[tier_a.id, tier_b.id])
+    )
     assert poll.vote_membership_tiers.count() == 2
 
     updated = poll_service.update_poll(poll, PollUpdateSchema(vote_membership_tier_ids=[]))
@@ -187,13 +195,14 @@ def test_update_poll_empty_membership_tier_list_clears_m2m(organization: Organiz
 def test_update_poll_no_op_when_payload_empty(organization: Organization) -> None:
     """An empty PATCH (all fields unset) must not mutate the poll."""
     poll = poll_service.create_poll(
+        organization,
         _create_payload(
             organization,
             vote_visibility=ResourceVisibility.PUBLIC,
             result_visibility=ResourceVisibility.MEMBERS_ONLY,
             result_timing=Poll.PollResultTiming.AFTER_CLOSE,
             allow_vote_changes=True,
-        )
+        ),
     )
     snapshot = {
         "vote_visibility": poll.vote_visibility,
@@ -223,7 +232,7 @@ def test_update_poll_no_op_when_payload_empty(organization: Organization) -> Non
 def test_reopen_with_future_closes_at_no_payload_succeeds(organization: Organization) -> None:
     """Reopening with an existing future ``closes_at`` and an empty payload must succeed."""
     future = timezone.now() + timedelta(hours=2)
-    poll = poll_service.create_poll(_create_payload(organization, closes_at=future))
+    poll = poll_service.create_poll(organization, _create_payload(organization, closes_at=future))
     poll_service.open_poll(poll)
     # Close the poll without mutating ``closes_at`` so the existing deadline is
     # still in the future when we reopen.
@@ -242,7 +251,7 @@ def test_delete_poll_cascades_to_questionnaire_and_submissions(
 ) -> None:
     from questionnaires.models import QuestionnaireSubmission
 
-    poll = poll_service.create_poll(_create_payload(organization))
+    poll = poll_service.create_poll(organization, _create_payload(organization))
     poll_service.open_poll(poll)
     user = revel_user_factory()
     QuestionnaireSubmission.objects.create(
@@ -269,6 +278,7 @@ def test_create_poll_with_unknown_tier_id_raises(organization: Organization) -> 
     bogus = uuid.uuid4()
     with pytest.raises(PollValidationError):
         poll_service.create_poll(
+            organization,
             _create_payload(organization, vote_membership_tier_ids=[bogus]),
         )
 
@@ -279,6 +289,7 @@ def test_create_poll_with_cross_org_tier_id_raises(organization: Organization, r
     foreign_tier = MembershipTier.objects.create(organization=other, name="FT")
     with pytest.raises(PollValidationError):
         poll_service.create_poll(
+            organization,
             _create_payload(organization, vote_membership_tier_ids=[foreign_tier.id]),
         )
 
@@ -287,7 +298,7 @@ def test_update_poll_with_unknown_tier_id_raises(organization: Organization) -> 
     """Update path must also reject unknown tier IDs."""
     import uuid
 
-    poll = poll_service.create_poll(_create_payload(organization))
+    poll = poll_service.create_poll(organization, _create_payload(organization))
     with pytest.raises(PollValidationError):
         poll_service.update_poll(
             poll,
