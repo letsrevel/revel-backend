@@ -1,12 +1,11 @@
 """Aggregate poll results for the API response.
 
-Reuses :func:`_aggregate_mc_distributions` from
-:mod:`events.service.event_questionnaire_service` to compute the
-multiple-choice statistics and adds poll-specific free-text aggregation
-that honours the anonymity contract (see :class:`polls.models.Poll`).
+Reuses :func:`events.service.event_questionnaire_service.aggregate_mc_distributions`
+to compute the multiple-choice statistics and adds poll-specific free-text
+aggregation that honours the anonymity contract (see :class:`polls.models.Poll`).
 """
 
-from events.service.event_questionnaire_service import _aggregate_mc_distributions
+from events.service.event_questionnaire_service import aggregate_mc_distributions
 from polls.models import Poll
 from polls.schema import PollFreeTextResponseSchema, PollResultsSchema
 from questionnaires.models import FreeTextAnswer, QuestionnaireSubmission
@@ -32,7 +31,7 @@ def compute_poll_results(poll: Poll, *, viewer_sees_identity: bool) -> PollResul
         submitted_at__isnull=False,
     )
     total_voters = base_qs.values("user_id").distinct().count()
-    mc_stats = _aggregate_mc_distributions(poll.questionnaire_id, base_qs)
+    mc_stats = aggregate_mc_distributions(poll.questionnaire_id, base_qs)
 
     ft_answers = (
         FreeTextAnswer.objects.filter(submission__in=base_qs)
