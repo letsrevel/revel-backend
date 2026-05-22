@@ -49,12 +49,7 @@ def _guard(instance: t.Any) -> None:
     if questionnaire_id is None:
         return
     with transaction.atomic():
-        poll = (
-            Poll.objects.select_for_update()
-            .filter(questionnaire_id=questionnaire_id)
-            .only("status")
-            .first()
-        )
+        poll = Poll.objects.select_for_update().filter(questionnaire_id=questionnaire_id).only("status").first()
         if poll is None:
             return
         if poll.status != Poll.PollStatus.DRAFT:

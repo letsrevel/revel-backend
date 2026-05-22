@@ -1,9 +1,13 @@
+import typing as t
+
+from django.apps.registry import Apps
 from django.db import migrations
+from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 
 
-def create_close_polls_periodic_task(apps, schema_editor):
-    IntervalSchedule = apps.get_model("django_celery_beat", "IntervalSchedule")
-    PeriodicTask = apps.get_model("django_celery_beat", "PeriodicTask")
+def create_close_polls_periodic_task(apps: Apps, schema_editor: BaseDatabaseSchemaEditor) -> None:
+    IntervalSchedule: t.Any = apps.get_model("django_celery_beat", "IntervalSchedule")
+    PeriodicTask: t.Any = apps.get_model("django_celery_beat", "PeriodicTask")
 
     schedule, _ = IntervalSchedule.objects.get_or_create(every=1, period="minutes")
     PeriodicTask.objects.update_or_create(
@@ -16,14 +20,11 @@ def create_close_polls_periodic_task(apps, schema_editor):
     )
 
 
-def delete_close_polls_periodic_task(apps, schema_editor):
-    PeriodicTask = apps.get_model("django_celery_beat", "PeriodicTask")
-
-    try:
-        task = PeriodicTask.objects.get(name="Close polls due")
-        task.delete()
-    except PeriodicTask.DoesNotExist:
-        pass  # Task already gone, nothing to do
+def delete_close_polls_periodic_task(apps: Apps, schema_editor: BaseDatabaseSchemaEditor) -> None:
+    PeriodicTask: t.Any = apps.get_model("django_celery_beat", "PeriodicTask")
+    # ``filter(...).delete()`` is idempotent and avoids swallowing unrelated
+    # DoesNotExist errors that would have hidden bugs in the old try/except.
+    PeriodicTask.objects.filter(name="Close polls due").delete()
 
 
 class Migration(migrations.Migration):

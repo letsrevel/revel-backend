@@ -44,7 +44,11 @@ class PollCreateSchema(questionnaires_schema.QuestionnaireCreateSchema):
 class PollUpdateSchema(Schema):
     """PATCH payload. Anonymity flags are forbidden after creation.
 
-    ``None`` values are treated as "do not update" — fields use exclude_unset semantics.
+    The controller calls ``model_dump(exclude_unset=True)``: fields not
+    present in the request body are ignored (unset semantics). An explicit
+    ``None`` in the request body CLEARS the field on the poll instead of
+    leaving it untouched. Validators below short-circuit on the ``"event_id"
+    in self.model_fields_set`` check to honour that distinction.
     """
 
     vote_visibility: ResourceVisibility | None = None

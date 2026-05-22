@@ -107,6 +107,17 @@ def create_poll(payload: PollCreateSchema) -> Poll:
 
     The Questionnaire is forced to ``evaluation_mode=MANUAL`` regardless of
     payload values — polls never invoke the evaluator pipeline.
+
+    Args:
+        payload: Validated create payload (poll + questionnaire fields).
+
+    Returns:
+        The freshly created ``Poll`` in ``DRAFT`` status.
+
+    Raises:
+        PollValidationError: when ``vote_membership_tier_ids`` or
+            ``result_membership_tier_ids`` reference unknown or
+            cross-organization tier rows.
     """
     organization = Organization.objects.get(pk=payload.organization_id)
     event = Event.objects.get(pk=payload.event_id) if payload.event_id else None
@@ -153,10 +164,26 @@ def create_poll(payload: PollCreateSchema) -> Poll:
 
 
 def update_poll(poll: Poll, payload: PollUpdateSchema) -> Poll:
-    """Apply a partial update.
+    """Apply a partial update under ``SELECT FOR UPDATE`` on the Poll row.
 
     Anonymity flags are not on ``PollUpdateSchema`` and the model itself
     raises ``PollAnonymityImmutableError`` if mutated post-create.
+
+    Args:
+        poll: The poll to update (instance used only for its primary key).
+        payload: PATCH schema with ``exclude_unset`` semantics — only the
+            fields actually sent by the client are touched.
+
+    Returns:
+        The locked, updated ``Poll`` instance.
+
+    Raises:
+        PollValidationError: when ``vote_membership_tier_ids`` or
+            ``result_membership_tier_ids`` reference unknown or
+            cross-organization tier rows.
+        django.core.exceptions.ValidationError: when the resulting row
+            violates a model-level ``CheckConstraint`` (e.g., PRIVATE
+            visibility with ``event_id=None``).
     """
     with transaction.atomic():
         locked = Poll.objects.select_for_update().get(pk=poll.pk)
@@ -192,6 +219,15 @@ def open_poll(poll: Poll) -> Poll:
     """Move a ``DRAFT`` poll to ``OPEN``.
 
     Use :func:`reopen_poll` to revive a ``CLOSED`` poll.
+
+    Args:
+        poll: The poll to open (instance used only for its primary key).
+
+    Returns:
+        The locked, opened ``Poll`` instance.
+
+    Raises:
+        PollLifecycleError: when the poll is not in ``DRAFT`` status.
     """
     with transaction.atomic():
         locked = Poll.objects.select_for_update().get(pk=poll.pk)
@@ -204,7 +240,17 @@ def open_poll(poll: Poll) -> Poll:
 
 
 def close_poll(poll: Poll) -> Poll:
-    """Move an ``OPEN`` poll to ``CLOSED``."""
+    """Move an ``OPEN`` poll to ``CLOSED``.
+
+    Args:
+        poll: The poll to close (instance used only for its primary key).
+
+    Returns:
+        The locked, closed ``Poll`` instance.
+
+    Raises:
+        PollLifecycleError: when the poll is not in ``OPEN`` status.
+    """
     with transaction.atomic():
         locked = Poll.objects.select_for_update().get(pk=poll.pk)
         if locked.status != Poll.PollStatus.OPEN:
@@ -222,6 +268,19 @@ def reopen_poll(poll: Poll, payload: PollReopenSchema) -> Poll:
     ``clear_closes_at=True`` to drop the deadline. Otherwise the existing
     ``closes_at`` must still be in the future — reopening with a past
     deadline would close the poll immediately on the next auto-close pass.
+
+    Args:
+        poll: The poll to reopen (instance used only for its primary key).
+        payload: Reopen schema with optional ``closes_at`` override or
+            ``clear_closes_at`` flag.
+
+    Returns:
+        The locked, reopened ``Poll`` instance back in ``OPEN`` status.
+
+    Raises:
+        PollLifecycleError: when the poll is not ``CLOSED``, when the
+            override ``closes_at`` is in the past, or when neither override
+            is supplied and the existing ``closes_at`` is missing/past.
     """
     with transaction.atomic():
         locked = Poll.objects.select_for_update().get(pk=poll.pk)
@@ -252,6 +311,14 @@ def delete_poll(poll: Poll) -> None:
     The ``Poll.questionnaire`` relation is ``OneToOneField(on_delete=CASCADE)``
     from poll to questionnaire — deleting the questionnaire cascades to the
     poll and to all ``QuestionnaireSubmission`` rows (votes).
+
+    Args:
+        poll: The poll to delete. The function reads ``questionnaire_id``
+            from the instance and deletes from the questionnaire side so the
+            cascade can take care of the rest.
+
+    Returns:
+        None.
     """
     with transaction.atomic():
         Questionnaire.objects.filter(pk=poll.questionnaire_id).delete()
@@ -271,6 +338,23 @@ def vote(
     Acquires ``SELECT FOR UPDATE`` on the Poll row so that close races resolve
     deterministically. Single submission per (user, questionnaire); replaced
     in place when ``allow_vote_changes`` is True.
+
+    Args:
+        user: Authenticated user casting the vote.
+        poll_id: Primary key of the target poll.
+        payload: Multiple-choice / free-text / file-upload answers.
+
+    Returns:
+        The ``QuestionnaireSubmission`` (newly created or replaced).
+
+    Raises:
+        PollNotOpenError: when the poll is not ``OPEN``.
+        PollNotEligibleError: when the user's audience doesn't include the
+            poll's vote audience.
+        PollVoteAlreadyCastError: when the user has already voted and
+            ``allow_vote_changes`` is False.
+        PollValidationError: when the payload references unknown or
+            other-user file_upload ids.
     """
     from polls.service import eligibility as _eligibility
 
@@ -308,6 +392,18 @@ def withdraw_vote(*, user: t.Any, poll_id: UUID) -> None:
     """Delete the user's submission for the poll.
 
     Only valid while the poll is OPEN AND ``allow_vote_changes=True``.
+
+    Args:
+        user: Authenticated user withdrawing their vote.
+        poll_id: Primary key of the target poll.
+
+    Returns:
+        None.
+
+    Raises:
+        PollNotOpenError: when the poll is not ``OPEN``.
+        PollVoteChangesNotAllowedError: when the poll has
+            ``allow_vote_changes=False``.
     """
     with transaction.atomic():
         poll = Poll.objects.select_for_update().get(pk=poll_id)

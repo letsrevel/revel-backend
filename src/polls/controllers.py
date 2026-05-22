@@ -6,8 +6,8 @@ from uuid import UUID
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.shortcuts import get_object_or_404
-from ninja.errors import HttpError
 from ninja import Query
+from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PaginatedResponseSchema
 

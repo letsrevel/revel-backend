@@ -273,13 +273,9 @@ def test_create_poll_with_unknown_tier_id_raises(organization: Organization) -> 
         )
 
 
-def test_create_poll_with_cross_org_tier_id_raises(
-    organization: Organization, revel_user_factory: t.Any
-) -> None:
+def test_create_poll_with_cross_org_tier_id_raises(organization: Organization, revel_user_factory: t.Any) -> None:
     """A tier from a different organization must raise."""
-    other = Organization.objects.create(
-        name="Other", slug="other-org-tiers", owner=revel_user_factory()
-    )
+    other = Organization.objects.create(name="Other", slug="other-org-tiers", owner=revel_user_factory())
     foreign_tier = MembershipTier.objects.create(organization=other, name="FT")
     with pytest.raises(PollValidationError):
         poll_service.create_poll(
