@@ -61,9 +61,6 @@ def build_bulk_context(user: UserLike, polls: list[Poll]) -> _BulkEligibilityCon
         # helpers short-circuit on this and skip queries.
         return _empty_context()
 
-    if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
-        return _BulkEligibilityContext(is_django_staff=True)
-
     from events.models.invitation import EventInvitation
     from events.models.organization import OrganizationMember, OrganizationStaff
     from events.models.rsvp import EventRSVP
@@ -74,6 +71,9 @@ def build_bulk_context(user: UserLike, polls: list[Poll]) -> _BulkEligibilityCon
     event_ids = {p.event_id for p in polls if p.event_id is not None}
     questionnaire_ids = {p.questionnaire_id for p in polls}
 
+    # ``voted_questionnaire_ids`` is needed even for Django-staff users so that
+    # AFTER_VOTE timing and ``user_has_voted`` flags resolve correctly in bulk
+    # mode — staff vote like everyone else.
     voted_questionnaire_ids = frozenset(
         QuestionnaireSubmission.objects.filter(
             user=user,
@@ -81,6 +81,12 @@ def build_bulk_context(user: UserLike, polls: list[Poll]) -> _BulkEligibilityCon
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
         ).values_list("questionnaire_id", flat=True)
     )
+
+    if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
+        return _BulkEligibilityContext(
+            is_django_staff=True,
+            voted_questionnaire_ids=voted_questionnaire_ids,
+        )
 
     owner_org_ids = frozenset({p.organization_id for p in polls if p.organization.owner_id == user.id})
     staff_org_ids = frozenset(
@@ -331,9 +337,13 @@ def can_vote(user: UserLike, poll: Poll) -> bool:
 def can_see_poll(user: UserLike, poll: Poll) -> bool:
     """Whether ``user`` can see that the poll exists (used for listing/detail).
 
-    A user passes if they could vote OR could see results OR has already voted on it.
+    A user passes if they fall inside the vote audience OR the result audience
+    OR has already voted on the poll. The vote-audience check uses
+    :func:`_passes_visibility` directly rather than :func:`can_vote` so that
+    anonymous users with a publicly-castable ``vote_visibility`` still see the
+    poll exists (they cannot cast a vote, but a public poll must be listable).
     """
-    if can_vote(user, poll):
+    if _passes_visibility(user, poll, poll.vote_visibility, poll.vote_membership_tiers.all()):
         return True
     if _passes_visibility(user, poll, poll.result_visibility, poll.result_membership_tiers.all()):
         return True
