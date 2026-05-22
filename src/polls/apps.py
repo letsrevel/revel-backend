@@ -6,5 +6,8 @@ class PollsConfig(AppConfig):
     name = "polls"
 
     def ready(self) -> None:
-        """Import signal receivers so they are registered with Django's dispatcher."""
+        """Import signal receivers and register the per-app exception handlers."""
         import polls.signals  # noqa: F401  (registers receivers)
+        from polls.exception_handlers import register as register_exception_handlers
+
+        register_exception_handlers()

@@ -9,12 +9,14 @@ on the poll row inside a ``transaction.atomic()`` block.
 import typing as t
 from uuid import UUID
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
 
 from events.models.event import Event
 from events.models.organization import MembershipTier, Organization
 from polls.exceptions import (
+    PollAnonymityImmutableError,
     PollLifecycleError,
     PollNotEligibleError,
     PollNotOpenError,
@@ -24,9 +26,22 @@ from polls.exceptions import (
 )
 from polls.models import Poll
 from polls.schema import PollCreateSchema, PollReopenSchema, PollUpdateSchema, PollVoteSchema
+from polls.utils import format_validation_error
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 from questionnaires.schema import QuestionnaireCreateSchema
 from questionnaires.service import QuestionnaireService
+
+
+def _translate_model_validation_error(exc: DjangoValidationError) -> t.NoReturn:
+    """Convert a model-side ``DjangoValidationError`` into ``PollValidationError``.
+
+    Our poll-specific exceptions inherit from :class:`DjangoValidationError`,
+    so callers MUST filter their own subclasses out before invoking this
+    helper — otherwise an immutability/lifecycle error would be silently
+    flattened into a 422 validation response.
+    """
+    raise PollValidationError(format_validation_error(exc)) from exc
+
 
 _POLL_ONLY_FIELDS: frozenset[str] = frozenset(
     {
@@ -134,18 +149,24 @@ def create_poll(organization: Organization, payload: PollCreateSchema) -> Poll:
         questionnaire.evaluation_mode = Questionnaire.QuestionnaireEvaluationMode.MANUAL
         questionnaire.save(update_fields=["evaluation_mode", "updated_at"])
 
-    poll = Poll.objects.create(
-        organization=organization,
-        event=event,
-        questionnaire=questionnaire,
-        vote_visibility=payload.vote_visibility,
-        result_visibility=payload.result_visibility,
-        result_timing=payload.result_timing,
-        staff_anonymous=payload.staff_anonymous,
-        public_anonymous=payload.public_anonymous,
-        allow_vote_changes=payload.allow_vote_changes,
-        closes_at=payload.closes_at,
-    )
+    try:
+        poll = Poll.objects.create(
+            organization=organization,
+            event=event,
+            questionnaire=questionnaire,
+            vote_visibility=payload.vote_visibility,
+            result_visibility=payload.result_visibility,
+            result_timing=payload.result_timing,
+            staff_anonymous=payload.staff_anonymous,
+            public_anonymous=payload.public_anonymous,
+            allow_vote_changes=payload.allow_vote_changes,
+            closes_at=payload.closes_at,
+        )
+    except PollAnonymityImmutableError:
+        # Subclass of DjangoValidationError; preserve specific handler dispatch.
+        raise
+    except DjangoValidationError as exc:
+        _translate_model_validation_error(exc)
 
     if payload.vote_membership_tier_ids:
         poll.vote_membership_tiers.set(
@@ -197,7 +218,12 @@ def update_poll(poll: Poll, payload: PollUpdateSchema) -> Poll:
         for field, value in update_data.items():
             setattr(locked, field, value)
         if update_data:
-            locked.save(update_fields=[*update_data.keys(), "updated_at"])
+            try:
+                locked.save(update_fields=[*update_data.keys(), "updated_at"])
+            except PollAnonymityImmutableError:
+                raise
+            except DjangoValidationError as exc:
+                _translate_model_validation_error(exc)
 
         if tier_ids_vote is not None:
             locked.vote_membership_tiers.set(

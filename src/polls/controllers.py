@@ -16,7 +16,6 @@ import typing as t
 from uuid import UUID
 
 from django.contrib.auth.models import AnonymousUser
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import QuerySet
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
@@ -29,12 +28,6 @@ from common.throttling import AnonDefaultThrottle, UserDefaultThrottle, WriteThr
 from events.controllers.permissions import OrganizationPermission
 from events.models.mixins import ResourceVisibility
 from events.models.organization import Organization
-from polls.exceptions import (
-    PollNotEligibleError,
-    PollNotOpenError,
-    PollVoteAlreadyCastError,
-    PollVoteChangesNotAllowedError,
-)
 from polls.models import Poll
 from polls.permissions import IsPollOrganizationOwner, PollPermission
 from polls.schema import (
@@ -50,16 +43,6 @@ from polls.service import eligibility, poll_service
 from polls.service.aggregation import compute_poll_results
 
 UserLike = RevelUser | AnonymousUser
-
-
-def _format_validation_error(exc: DjangoValidationError) -> str:
-    """Flatten a Django ``ValidationError`` into a single-line message for HTTP errors."""
-    if hasattr(exc, "message_dict"):
-        parts = [f"{field}: {'; '.join(msgs)}" for field, msgs in exc.message_dict.items()]
-        return " | ".join(parts)
-    if hasattr(exc, "messages"):
-        return "; ".join(exc.messages)
-    return str(exc)
 
 
 @api_controller(
@@ -172,10 +155,7 @@ class PollController(UserAwareController):
         organization = t.cast(
             Organization, self.get_object_or_exception(self._organization_queryset(), pk=organization_id)
         )
-        try:
-            poll = poll_service.create_poll(organization, payload)
-        except DjangoValidationError as exc:
-            raise HttpError(422, _format_validation_error(exc))
+        poll = poll_service.create_poll(organization, payload)
         return 201, self._to_detail(poll, self.user())
 
     @route.patch(
@@ -191,14 +171,12 @@ class PollController(UserAwareController):
 
         Cross-field constraint violations that can't be caught by the schema
         validator (e.g., clearing ``event_id`` on a poll that already has
-        PRIVATE visibility) surface as :class:`DjangoValidationError` from
-        the model's ``full_clean`` and are translated to HTTP 422.
+        PRIVATE visibility) surface from the model's ``full_clean`` as a
+        ``PollValidationError`` (translated by the service layer) and are
+        dispatched to HTTP 422 by the registered exception handler.
         """
         poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
-        try:
-            updated = poll_service.update_poll(poll, payload)
-        except DjangoValidationError as exc:
-            raise HttpError(422, _format_validation_error(exc))
+        updated = poll_service.update_poll(poll, payload)
         return self._to_detail(updated, self.user())
 
     @route.post(
@@ -269,23 +247,16 @@ class PollController(UserAwareController):
 
         Audience/visibility checks live inside the service so that the same
         rules apply to direct service callers; the controller stays thin and
-        translates service-layer exceptions into HTTP statuses:
+        the per-app exception handlers (see :mod:`polls.exception_handlers`)
+        translate service-layer exceptions into HTTP statuses:
 
         * :class:`PollNotOpenError` → ``423 Locked``
         * :class:`PollNotEligibleError` → ``403 Forbidden``
         * :class:`PollVoteAlreadyCastError` → ``409 Conflict``
+        * :class:`PollValidationError` → ``422 Unprocessable Entity``
         """
         user = self.user()
-        try:
-            poll_service.vote(user=user, poll_id=poll_id, payload=payload)
-        except PollNotOpenError as exc:
-            raise HttpError(423, str(exc))
-        except PollNotEligibleError as exc:
-            raise HttpError(403, str(exc))
-        except PollVoteAlreadyCastError as exc:
-            raise HttpError(409, str(exc))
-        except DjangoValidationError as exc:
-            raise HttpError(422, _format_validation_error(exc))
+        poll_service.vote(user=user, poll_id=poll_id, payload=payload)
         poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
         return self._to_detail(poll, user)
 
@@ -299,18 +270,14 @@ class PollController(UserAwareController):
     def withdraw_vote_action(self, poll_id: UUID) -> tuple[int, None]:
         """Withdraw the caller's vote when the poll is OPEN and allows changes.
 
-        Translates service-layer exceptions into HTTP statuses:
+        Service-layer exceptions are translated into HTTP statuses by the
+        per-app handlers registered in :mod:`polls.exception_handlers`:
 
         * :class:`PollNotOpenError` → ``423 Locked``
         * :class:`PollVoteChangesNotAllowedError` → ``403 Forbidden``
         """
         user = self.user()
-        try:
-            poll_service.withdraw_vote(user=user, poll_id=poll_id)
-        except PollNotOpenError as exc:
-            raise HttpError(423, str(exc))
-        except PollVoteChangesNotAllowedError as exc:
-            raise HttpError(403, str(exc))
+        poll_service.withdraw_vote(user=user, poll_id=poll_id)
         return 204, None
 
     # ------------------------------------------------------------------ helpers
