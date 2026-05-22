@@ -56,6 +56,27 @@ class PollUpdateSchema(Schema):
     closes_at: AwareDatetime | None = None
     event_id: UUID | None = None
 
+    @model_validator(mode="after")
+    def _validate_cross_field(self) -> t.Self:
+        """Reject combinations that would violate Poll CheckConstraints.
+
+        This catches the most obvious case where the SAME payload sets
+        ``event_id=None`` together with a restricted visibility. Stale-state
+        cases (e.g., poll already has PRIVATE visibility and the patch only
+        clears ``event_id``) cannot be detected here without the current
+        instance — the controller catches the resulting DB ``ValidationError``
+        and translates it to 422.
+        """
+        # event_id explicitly cleared in this payload?
+        event_id_cleared = "event_id" in self.model_fields_set and self.event_id is None
+        if event_id_cleared:
+            restricted = {ResourceVisibility.PRIVATE, ResourceVisibility.ATTENDEES_ONLY}
+            if self.vote_visibility in restricted or self.result_visibility in restricted:
+                raise ValueError(
+                    "Cannot clear event_id while setting vote/result visibility to PRIVATE or ATTENDEES_ONLY."
+                )
+        return self
+
 
 class PollReopenSchema(Schema):
     """Reopen a closed poll, optionally setting or clearing the ``closes_at`` deadline."""

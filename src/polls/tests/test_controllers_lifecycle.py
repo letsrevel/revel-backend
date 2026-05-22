@@ -7,6 +7,7 @@ import pytest
 from django.test.client import Client
 from django.utils import timezone
 
+from events.models.event import Event
 from events.models.mixins import ResourceVisibility
 from events.models.organization import Organization
 from polls.models import Poll
@@ -124,3 +125,75 @@ def test_delete_succeeds_for_owner(
     response = owner_client.delete(f"/api/polls/{poll.id}/", content_type="application/json")
     assert response.status_code == 204
     assert not Poll.objects.filter(pk=poll.id).exists()
+
+
+# --- Finding 1: PATCH-time cross-field constraint violations ---
+
+
+def test_patch_poll_event_id_null_with_private_visibility_returns_422(
+    owner_client: Client, organization: Organization, event: Event, questionnaire: Questionnaire
+) -> None:
+    """Schema validator rejects clearing event_id while setting PRIVATE visibility."""
+    poll = Poll.objects.create(
+        organization=organization,
+        event=event,
+        questionnaire=questionnaire,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.DRAFT,
+    )
+    response = owner_client.patch(
+        f"/api/polls/{poll.id}/",
+        data={"event_id": None, "vote_visibility": "private"},
+        content_type="application/json",
+    )
+    assert response.status_code == 422
+
+
+def test_patch_poll_event_id_null_breaks_existing_private_visibility_returns_422(
+    owner_client: Client, organization: Organization, event: Event, questionnaire: Questionnaire
+) -> None:
+    """Controller catches CheckConstraint ValidationError when payload alone looks valid.
+
+    Poll already has PRIVATE vote_visibility tied to an event; patch only clears
+    event_id. The schema validator can't see the existing visibility, so the
+    failure surfaces from ``Poll.save() -> full_clean -> validate_constraints``
+    and the controller translates it to 422.
+    """
+    poll = Poll.objects.create(
+        organization=organization,
+        event=event,
+        questionnaire=questionnaire,
+        vote_visibility=ResourceVisibility.PRIVATE,
+        status=Poll.PollStatus.DRAFT,
+    )
+    response = owner_client.patch(
+        f"/api/polls/{poll.id}/",
+        data={"event_id": None},
+        content_type="application/json",
+    )
+    assert response.status_code == 422
+
+
+def test_patch_poll_result_visibility_public_with_public_anonymous_false(
+    owner_client: Client, organization: Organization, questionnaire: Questionnaire
+) -> None:
+    """Setting result_visibility=PUBLIC on a poll with public_anonymous=False is rejected.
+
+    Anonymity flags are immutable post-create, so the only way out is to reject
+    the visibility change. The CheckConstraint
+    ``poll_public_results_must_be_anonymous`` fires; controller returns 422.
+    """
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        result_visibility=ResourceVisibility.STAFF_ONLY,
+        public_anonymous=False,
+        status=Poll.PollStatus.DRAFT,
+    )
+    response = owner_client.patch(
+        f"/api/polls/{poll.id}/",
+        data={"result_visibility": "public"},
+        content_type="application/json",
+    )
+    assert response.status_code == 422

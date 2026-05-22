@@ -4,6 +4,7 @@ import typing as t
 from uuid import UUID
 
 from django.contrib.auth.models import AnonymousUser
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.shortcuts import get_object_or_404
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
@@ -34,6 +35,16 @@ from polls.service import eligibility, poll_service
 from polls.service.aggregation import compute_poll_results
 
 UserLike = RevelUser | AnonymousUser
+
+
+def _format_validation_error(exc: DjangoValidationError) -> str:
+    """Flatten a Django ``ValidationError`` into a single-line message for HTTP errors."""
+    if hasattr(exc, "message_dict"):
+        parts = [f"{field}: {'; '.join(msgs)}" for field, msgs in exc.message_dict.items()]
+        return " | ".join(parts)
+    if hasattr(exc, "messages"):
+        return "; ".join(exc.messages)
+    return str(exc)
 
 
 @api_controller(
@@ -117,11 +128,20 @@ class PollController(UserAwareController):
         auth=I18nJWTAuth(),
     )
     def patch_poll(self, poll_id: UUID, payload: PollUpdateSchema) -> PollDetailSchema:
-        """Apply a partial update to a poll the caller can manage."""
+        """Apply a partial update to a poll the caller can manage.
+
+        Cross-field constraint violations that can't be caught by the schema
+        validator (e.g., clearing ``event_id`` on a poll that already has
+        PRIVATE visibility) surface as :class:`DjangoValidationError` from
+        the model's ``full_clean`` and are translated to HTTP 422.
+        """
         user = self.user()
         poll = get_object_or_404(Poll, pk=poll_id)
         self._require_manage_polls(poll, user)
-        updated = poll_service.update_poll(poll, payload)
+        try:
+            updated = poll_service.update_poll(poll, payload)
+        except DjangoValidationError as exc:
+            raise HttpError(422, _format_validation_error(exc))
         return self._to_detail(updated, user)
 
     @route.post(
