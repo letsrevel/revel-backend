@@ -102,7 +102,8 @@ class PollController(UserAwareController):
             .prefetch_related("vote_membership_tiers", "result_membership_tiers")
         )
 
-    def _organization_queryset(self) -> QuerySet[Organization]:
+    @staticmethod
+    def _organization_queryset() -> QuerySet[Organization]:
         """Queryset for resolving organizations on the create endpoint."""
         return Organization.objects.all()
 
@@ -343,8 +344,9 @@ class PollController(UserAwareController):
             results=results,
         )
 
-    def _viewer_sees_identity(self, poll: Poll, user: UserLike) -> bool:
-        if eligibility._is_staff_or_owner(user, poll):
+    @staticmethod
+    def _viewer_sees_identity(poll: Poll, user: UserLike) -> bool:
+        if eligibility.is_staff_or_owner(user, poll):
             return not poll.staff_anonymous
         return not poll.public_anonymous
 

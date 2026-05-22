@@ -29,7 +29,7 @@ if t.TYPE_CHECKING:
 UserLike = RevelUser | AnonymousUser
 
 
-def _is_staff_or_owner(user: UserLike, poll: Poll) -> bool:
+def is_staff_or_owner(user: UserLike, poll: Poll) -> bool:
     """Return True if ``user`` is a superuser, Django staff, the org owner, or org staff."""
     if user.is_anonymous:
         return False
@@ -105,7 +105,7 @@ def _passes_visibility(
             Only consulted when ``visibility == MEMBERS_ONLY``.
     """
     # Staff/owner always pass.
-    if _is_staff_or_owner(user, poll):
+    if is_staff_or_owner(user, poll):
         return True
 
     if visibility in ResourceVisibility.publicly_accessible():
@@ -167,7 +167,7 @@ def can_see_poll(user: UserLike, poll: Poll) -> bool:
 def can_see_results(user: UserLike, poll: Poll) -> bool:
     """Whether ``user`` can currently view aggregate results for ``poll``."""
     # Staff/owner always see results (anonymity governs identity exposure separately).
-    if _is_staff_or_owner(user, poll):
+    if is_staff_or_owner(user, poll):
         return True
 
     # Result audience check first.
@@ -201,7 +201,7 @@ def _annotated(poll: Poll, attr: str) -> bool:
 
 
 def _is_staff_or_owner_from_annotations(user: UserLike, poll: Poll) -> bool:
-    """Annotation counterpart to :func:`_is_staff_or_owner`."""
+    """Annotation counterpart to :func:`is_staff_or_owner`."""
     if user.is_anonymous:
         return False
     if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
