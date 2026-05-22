@@ -19,6 +19,7 @@ from polls.exceptions import (
     PollNotEligibleError,
     PollNotOpenError,
     PollVoteAlreadyCastError,
+    PollVoteChangesNotAllowedError,
 )
 from polls.models import Poll
 from polls.schema import PollCreateSchema, PollReopenSchema, PollUpdateSchema, PollVoteSchema
@@ -265,7 +266,7 @@ def withdraw_vote(*, user: t.Any, poll_id: UUID) -> None:
         if poll.status != Poll.PollStatus.OPEN:
             raise PollNotOpenError()
         if not poll.allow_vote_changes:
-            raise PollVoteAlreadyCastError("Vote changes are not allowed for this poll.")
+            raise PollVoteChangesNotAllowedError()
         QuestionnaireSubmission.objects.filter(user=user, questionnaire=poll.questionnaire).delete()
 
 

@@ -10,6 +10,7 @@ from polls.exceptions import (
     PollNotEligibleError,
     PollNotOpenError,
     PollVoteAlreadyCastError,
+    PollVoteChangesNotAllowedError,
 )
 from polls.models import Poll
 from polls.schema import (
@@ -165,5 +166,5 @@ def test_withdraw_vote_when_changes_disallowed_raises(
         poll_id=poll.id,
         payload=PollVoteSchema(mc_answers=[McAnswerInput(question_id=mcq.id, option_ids=[options[0].id])]),
     )
-    with pytest.raises(PollVoteAlreadyCastError):
+    with pytest.raises(PollVoteChangesNotAllowedError):
         poll_service.withdraw_vote(user=user, poll_id=poll.id)

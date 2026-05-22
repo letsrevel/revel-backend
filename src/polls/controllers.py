@@ -20,6 +20,7 @@ from polls.exceptions import (
     PollNotEligibleError,
     PollNotOpenError,
     PollVoteAlreadyCastError,
+    PollVoteChangesNotAllowedError,
 )
 from polls.models import Poll
 from polls.schema import (
@@ -235,14 +236,20 @@ class PollController(UserAwareController):
         auth=I18nJWTAuth(),
     )
     def withdraw_vote_action(self, poll_id: UUID) -> tuple[int, None]:
-        """Withdraw the caller's vote when the poll is OPEN and allows changes."""
+        """Withdraw the caller's vote when the poll is OPEN and allows changes.
+
+        Translates service-layer exceptions into HTTP statuses:
+
+        * :class:`PollNotOpenError` → ``423 Locked``
+        * :class:`PollVoteChangesNotAllowedError` → ``403 Forbidden``
+        """
         user = self.user()
         try:
             poll_service.withdraw_vote(user=user, poll_id=poll_id)
         except PollNotOpenError as exc:
             raise HttpError(423, str(exc))
-        except PollVoteAlreadyCastError as exc:
-            raise HttpError(409, str(exc))
+        except PollVoteChangesNotAllowedError as exc:
+            raise HttpError(403, str(exc))
         return 204, None
 
     # ------------------------------------------------------------------ helpers

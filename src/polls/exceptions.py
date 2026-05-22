@@ -37,6 +37,14 @@ class PollVoteAlreadyCastError(ValidationError):
         super().__init__(message or "You have already voted on this poll.", **kwargs)
 
 
+class PollVoteChangesNotAllowedError(ValidationError):
+    """Raised when a withdraw is attempted on a poll that does not allow vote changes."""
+
+    def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
+        """Initialise with the default changes-not-allowed message when no override is supplied."""
+        super().__init__(message or "Vote changes are not allowed for this poll.", **kwargs)
+
+
 class PollQuestionLockedError(ValidationError):
     """Raised when a question/section/option mutation is attempted on a poll past DRAFT."""
 

@@ -104,3 +104,29 @@ def test_withdraw_vote_when_allowed(
     assert cast.status_code == 200
     response = authenticated_client.delete(f"/api/polls/{poll.id}/vote", content_type="application/json")
     assert response.status_code == 204
+
+
+def test_withdraw_vote_when_changes_disallowed_returns_403(
+    authenticated_client: Client,
+    votable_poll: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+) -> None:
+    """Withdraw on a poll with ``allow_vote_changes=False`` returns 403, not 409.
+
+    The semantic is "this poll's policy forbids withdrawing" — a permission
+    issue, not a conflict.
+    """
+    poll, mcq, options = votable_poll
+    # Cast a vote first so there is something to withdraw.
+    cast = authenticated_client.post(
+        f"/api/polls/{poll.id}/vote",
+        data={
+            "mc_answers": [{"question_id": str(mcq.id), "option_ids": [str(options[0].id)]}],
+            "free_text_answers": [],
+            "file_upload_answers": [],
+        },
+        content_type="application/json",
+    )
+    assert cast.status_code == 200
+    # ``allow_vote_changes`` is False on this fixture.
+    response = authenticated_client.delete(f"/api/polls/{poll.id}/vote", content_type="application/json")
+    assert response.status_code == 403
