@@ -128,7 +128,10 @@ class PollController(UserAwareController):
         organization = get_object_or_404(Organization, pk=payload.organization_id)
         if not organization.has_org_permission(user.id, "manage_polls"):
             raise HttpError(403, "manage_polls permission required")
-        poll = poll_service.create_poll(payload)
+        try:
+            poll = poll_service.create_poll(payload)
+        except DjangoValidationError as exc:
+            raise HttpError(422, _format_validation_error(exc))
         return 201, self._to_detail(poll, user)
 
     @route.patch(
@@ -235,6 +238,10 @@ class PollController(UserAwareController):
             raise HttpError(403, str(exc))
         except PollVoteAlreadyCastError as exc:
             raise HttpError(409, str(exc))
+        except DjangoValidationError as exc:
+            # Covers PollValidationError raised when the payload references
+            # unknown / cross-user file_upload ids.
+            raise HttpError(422, _format_validation_error(exc))
         poll = get_object_or_404(Poll, pk=poll_id)
         return self._to_detail(poll, user)
 

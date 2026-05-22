@@ -59,3 +59,18 @@ class PollLifecycleError(ValidationError):
     def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
         """Initialise with the default lifecycle-error message when no override is supplied."""
         super().__init__(message or "Invalid poll lifecycle action.", **kwargs)
+
+
+class PollValidationError(ValidationError):
+    """Raised when a write payload references unknown / cross-tenant rows.
+
+    Used by ``create_poll`` / ``update_poll`` for membership-tier IDs and by
+    ``vote`` for file-upload IDs that don't resolve to actual rows the caller
+    owns. Distinct from :class:`PollLifecycleError` (which signals an invalid
+    status transition) so controllers can surface the right HTTP code if they
+    want to differentiate.
+    """
+
+    def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
+        """Initialise with the default validation message when no override is supplied."""
+        super().__init__(message or "Invalid references in poll payload.", **kwargs)

@@ -9,7 +9,7 @@ from django.utils import timezone
 from events.models.event import Event
 from events.models.mixins import ResourceVisibility
 from events.models.organization import MembershipTier, Organization
-from polls.exceptions import PollLifecycleError
+from polls.exceptions import PollLifecycleError, PollValidationError
 from polls.models import Poll
 from polls.schema import PollCreateSchema, PollReopenSchema, PollUpdateSchema
 from polls.service import poll_service
@@ -257,3 +257,43 @@ def test_delete_poll_cascades_to_questionnaire_and_submissions(
     assert not Poll.objects.filter(pk=poll.pk).exists()
     assert not Questionnaire.objects.filter(pk=qid).exists()
     assert not QuestionnaireSubmission.objects.filter(questionnaire_id=qid).exists()
+
+
+# --- membership-tier validation (B1) ---
+
+
+def test_create_poll_with_unknown_tier_id_raises(organization: Organization) -> None:
+    """A bogus tier UUID must raise rather than silently dropping the value."""
+    import uuid
+
+    bogus = uuid.uuid4()
+    with pytest.raises(PollValidationError):
+        poll_service.create_poll(
+            _create_payload(organization, vote_membership_tier_ids=[bogus]),
+        )
+
+
+def test_create_poll_with_cross_org_tier_id_raises(
+    organization: Organization, revel_user_factory: t.Any
+) -> None:
+    """A tier from a different organization must raise."""
+    other = Organization.objects.create(
+        name="Other", slug="other-org-tiers", owner=revel_user_factory()
+    )
+    foreign_tier = MembershipTier.objects.create(organization=other, name="FT")
+    with pytest.raises(PollValidationError):
+        poll_service.create_poll(
+            _create_payload(organization, vote_membership_tier_ids=[foreign_tier.id]),
+        )
+
+
+def test_update_poll_with_unknown_tier_id_raises(organization: Organization) -> None:
+    """Update path must also reject unknown tier IDs."""
+    import uuid
+
+    poll = poll_service.create_poll(_create_payload(organization))
+    with pytest.raises(PollValidationError):
+        poll_service.update_poll(
+            poll,
+            PollUpdateSchema(vote_membership_tier_ids=[uuid.uuid4()]),
+        )

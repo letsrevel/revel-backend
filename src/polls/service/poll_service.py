@@ -18,6 +18,7 @@ from polls.exceptions import (
     PollLifecycleError,
     PollNotEligibleError,
     PollNotOpenError,
+    PollValidationError,
     PollVoteAlreadyCastError,
     PollVoteChangesNotAllowedError,
 )
@@ -42,6 +43,41 @@ _POLL_ONLY_FIELDS: frozenset[str] = frozenset(
         "closes_at",
     }
 )
+
+
+def _resolve_membership_tiers_or_raise(
+    *,
+    organization: Organization,
+    tier_ids: t.Sequence[UUID],
+) -> list[MembershipTier]:
+    """Resolve ``tier_ids`` against ``organization`` or raise.
+
+    Filters ``MembershipTier`` by organization + id-in and verifies every
+    requested ID actually resolved. Catches both unknown IDs and cross-org
+    leakage that would otherwise be silently dropped by ``.set(...)``.
+
+    Args:
+        organization: Organization the tiers must belong to.
+        tier_ids: Tier IDs supplied by the caller. Duplicates are tolerated.
+
+    Returns:
+        The resolved ``MembershipTier`` rows.
+
+    Raises:
+        PollValidationError: when any requested ID does not resolve to a tier
+            owned by ``organization``.
+    """
+    unique_ids = set(tier_ids)
+    if not unique_ids:
+        return []
+    tiers = list(MembershipTier.objects.filter(organization=organization, id__in=unique_ids))
+    if len(tiers) != len(unique_ids):
+        resolved_ids = {tier.id for tier in tiers}
+        missing = sorted(str(tid) for tid in unique_ids - resolved_ids)
+        raise PollValidationError(
+            f"Unknown or cross-organization membership_tier ids: {', '.join(missing)}",
+        )
+    return tiers
 
 
 def _build_questionnaire_schema(payload: PollCreateSchema) -> QuestionnaireCreateSchema:
@@ -101,11 +137,17 @@ def create_poll(payload: PollCreateSchema) -> Poll:
 
     if payload.vote_membership_tier_ids:
         poll.vote_membership_tiers.set(
-            MembershipTier.objects.filter(organization=organization, id__in=payload.vote_membership_tier_ids)
+            _resolve_membership_tiers_or_raise(
+                organization=organization,
+                tier_ids=payload.vote_membership_tier_ids,
+            )
         )
     if payload.result_membership_tier_ids:
         poll.result_membership_tiers.set(
-            MembershipTier.objects.filter(organization=organization, id__in=payload.result_membership_tier_ids)
+            _resolve_membership_tiers_or_raise(
+                organization=organization,
+                tier_ids=payload.result_membership_tier_ids,
+            )
         )
     return poll
 
@@ -131,11 +173,17 @@ def update_poll(poll: Poll, payload: PollUpdateSchema) -> Poll:
 
         if tier_ids_vote is not None:
             locked.vote_membership_tiers.set(
-                MembershipTier.objects.filter(organization=locked.organization, id__in=tier_ids_vote)
+                _resolve_membership_tiers_or_raise(
+                    organization=locked.organization,
+                    tier_ids=tier_ids_vote,
+                )
             )
         if tier_ids_result is not None:
             locked.result_membership_tiers.set(
-                MembershipTier.objects.filter(organization=locked.organization, id__in=tier_ids_result)
+                _resolve_membership_tiers_or_raise(
+                    organization=locked.organization,
+                    tier_ids=tier_ids_result,
+                )
             )
         return locked
 
@@ -310,4 +358,14 @@ def _write_answers(submission: QuestionnaireSubmission, payload: PollVoteSchema)
     for fu in payload.file_upload_answers:
         fu_question = FileUploadQuestion.objects.get(id=fu.question_id, questionnaire=submission.questionnaire)
         ans = FileUploadAnswer.objects.create(submission=submission, question=fu_question)
-        ans.files.set(QuestionnaireFile.objects.filter(uploader=submission.user, id__in=fu.file_ids))
+        unique_file_ids = set(fu.file_ids)
+        if not unique_file_ids:
+            continue
+        files = list(QuestionnaireFile.objects.filter(uploader=submission.user, id__in=unique_file_ids))
+        if len(files) != len(unique_file_ids):
+            resolved = {f.id for f in files}
+            missing = sorted(str(fid) for fid in unique_file_ids - resolved)
+            raise PollValidationError(
+                f"Unknown or other-user file_upload ids: {', '.join(missing)}",
+            )
+        ans.files.set(files)

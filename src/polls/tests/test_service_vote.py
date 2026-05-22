@@ -9,6 +9,7 @@ from events.models.mixins import ResourceVisibility
 from polls.exceptions import (
     PollNotEligibleError,
     PollNotOpenError,
+    PollValidationError,
     PollVoteAlreadyCastError,
     PollVoteChangesNotAllowedError,
 )
@@ -168,3 +169,39 @@ def test_withdraw_vote_when_changes_disallowed_raises(
     )
     with pytest.raises(PollVoteChangesNotAllowedError):
         poll_service.withdraw_vote(user=user, poll_id=poll.id)
+
+
+def test_vote_with_unknown_file_id_raises(
+    organization: t.Any,
+    revel_user_factory: t.Any,
+) -> None:
+    """A bogus file UUID in a file_upload answer must raise (no silent drop)."""
+    import uuid
+
+    from polls.schema import FileUploadAnswerInput
+    from questionnaires.models import (
+        FileUploadQuestion,
+    )
+
+    q = Questionnaire.objects.create(name="Q-files")
+    fuq = FileUploadQuestion.objects.create(questionnaire=q, question="upload")
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=q,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.OPEN,
+        opened_at=timezone.now(),
+    )
+    user = revel_user_factory()
+    with pytest.raises(PollValidationError):
+        poll_service.vote(
+            user=user,
+            poll_id=poll.id,
+            payload=PollVoteSchema(
+                file_upload_answers=[
+                    FileUploadAnswerInput(question_id=fuq.id, file_ids=[uuid.uuid4()]),
+                ],
+            ),
+        )
+    # Roll-back: no submission persisted.
+    assert not QuestionnaireSubmission.objects.filter(user=user, questionnaire=q).exists()
