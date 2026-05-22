@@ -197,3 +197,47 @@ def test_patch_poll_result_visibility_public_with_public_anonymous_false(
         content_type="application/json",
     )
     assert response.status_code == 422
+
+
+# --- Staff (non-owner) positive write paths ---
+
+
+def test_staff_with_manage_polls_can_open(
+    staff_client: Client, organization: Organization, questionnaire: Questionnaire
+) -> None:
+    """Staff with ``manage_polls`` can transition a DRAFT poll to OPEN."""
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.DRAFT,
+    )
+    response = staff_client.post(f"/api/polls/{poll.id}/open", content_type="application/json")
+    assert response.status_code == 200
+    poll.refresh_from_db()
+    assert poll.status == Poll.PollStatus.OPEN
+
+
+def test_staff_with_manage_polls_can_close(
+    staff_client: Client, organization: Organization, questionnaire: Questionnaire
+) -> None:
+    """Staff with ``manage_polls`` can transition an OPEN poll to CLOSED."""
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.OPEN,
+        opened_at=timezone.now(),
+    )
+    response = staff_client.post(f"/api/polls/{poll.id}/close", content_type="application/json")
+    assert response.status_code == 200
+    poll.refresh_from_db()
+    assert poll.status == Poll.PollStatus.CLOSED
+
+
+def test_staff_with_manage_polls_can_create(staff_client: Client, organization: Organization) -> None:
+    """Staff with ``manage_polls`` can create a poll."""
+    response = staff_client.post("/api/polls/", data=_make_payload(organization), content_type="application/json")
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == Poll.PollStatus.DRAFT.value

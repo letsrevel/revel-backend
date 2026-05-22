@@ -82,9 +82,7 @@ def build_bulk_context(user: UserLike, polls: list[Poll]) -> _BulkEligibilityCon
         ).values_list("questionnaire_id", flat=True)
     )
 
-    owner_org_ids = frozenset(
-        {p.organization_id for p in polls if p.organization.owner_id == user.id}
-    )
+    owner_org_ids = frozenset({p.organization_id for p in polls if p.organization.owner_id == user.id})
     staff_org_ids = frozenset(
         OrganizationStaff.objects.filter(organization_id__in=org_ids, user=user).values_list(
             "organization_id", flat=True
@@ -106,14 +104,12 @@ def build_bulk_context(user: UserLike, polls: list[Poll]) -> _BulkEligibilityCon
             .values_list("event_id", flat=True)
         )
         rsvped_event_ids = frozenset(
-            EventRSVP.objects.filter(
-                user=user, event_id__in=event_ids, status=EventRSVP.RsvpStatus.YES
-            ).values_list("event_id", flat=True)
-        )
-        invited_event_ids = frozenset(
-            EventInvitation.objects.filter(user=user, event_id__in=event_ids).values_list(
+            EventRSVP.objects.filter(user=user, event_id__in=event_ids, status=EventRSVP.RsvpStatus.YES).values_list(
                 "event_id", flat=True
             )
+        )
+        invited_event_ids = frozenset(
+            EventInvitation.objects.filter(user=user, event_id__in=event_ids).values_list("event_id", flat=True)
         )
 
     return _BulkEligibilityContext(
@@ -189,9 +185,7 @@ def bulk_user_has_voted(user: UserLike, poll: Poll, ctx: _BulkEligibilityContext
     return poll.questionnaire_id in ctx.voted_questionnaire_ids
 
 
-def bulk_can_vote(
-    user: UserLike, poll: Poll, vote_tier_ids: t.Iterable[UUID], ctx: _BulkEligibilityContext
-) -> bool:
+def bulk_can_vote(user: UserLike, poll: Poll, vote_tier_ids: t.Iterable[UUID], ctx: _BulkEligibilityContext) -> bool:
     """Set-lookup counterpart to :func:`can_vote`."""
     if user.is_anonymous:
         return False

@@ -291,8 +291,7 @@ class PollController(UserAwareController):
             result_visibility=ResourceVisibility(poll.result_visibility),
             user_has_voted=eligibility.bulk_user_has_voted(user, poll, ctx),
             user_can_vote=(
-                poll.status == Poll.PollStatus.OPEN
-                and eligibility.bulk_can_vote(user, poll, vote_tier_ids, ctx)
+                poll.status == Poll.PollStatus.OPEN and eligibility.bulk_can_vote(user, poll, vote_tier_ids, ctx)
             ),
             user_can_see_results=eligibility.bulk_can_see_results(user, poll, result_tier_ids, ctx),
         )

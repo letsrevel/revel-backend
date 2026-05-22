@@ -130,3 +130,32 @@ def test_withdraw_vote_when_changes_disallowed_returns_403(
     # ``allow_vote_changes`` is False on this fixture.
     response = authenticated_client.delete(f"/api/polls/{poll.id}/vote", content_type="application/json")
     assert response.status_code == 403
+
+
+def test_vote_response_includes_results_when_after_vote(
+    authenticated_client: Client,
+    votable_poll: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+) -> None:
+    """When ``result_timing=AFTER_VOTE``, the vote response body must include results.
+
+    With PUBLIC result visibility the just-voted user can immediately see
+    aggregate results, and the controller's detail response embeds them.
+    """
+    poll, mcq, options = votable_poll
+    poll.result_visibility = ResourceVisibility.PUBLIC
+    poll.result_timing = Poll.PollResultTiming.AFTER_VOTE
+    poll.save(update_fields=["result_visibility", "result_timing"])
+
+    response = authenticated_client.post(
+        f"/api/polls/{poll.id}/vote",
+        data={
+            "mc_answers": [{"question_id": str(mcq.id), "option_ids": [str(options[0].id)]}],
+            "free_text_answers": [],
+            "file_upload_answers": [],
+        },
+        content_type="application/json",
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["results"] is not None
+    assert body["results"]["total_voters"] >= 1
