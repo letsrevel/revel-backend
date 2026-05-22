@@ -229,6 +229,61 @@ def test_update_poll_no_op_when_payload_empty(organization: Organization) -> Non
     assert updated.updated_at == snapshot["updated_at"]
 
 
+def test_update_poll_name_and_description_apply_to_questionnaire(organization: Organization) -> None:
+    """``name`` and ``description`` on PATCH update the wrapped Questionnaire."""
+    poll = poll_service.create_poll(
+        organization,
+        _create_payload(organization, name="Original name", description="Original description"),
+    )
+    assert poll.questionnaire.name == "Original name"
+    assert poll.questionnaire.description == "Original description"
+
+    poll_service.update_poll(
+        poll,
+        PollUpdateSchema(name="Updated name", description="Updated description"),
+    )
+
+    poll.refresh_from_db()
+    poll.questionnaire.refresh_from_db()
+    assert poll.questionnaire.name == "Updated name"
+    assert poll.questionnaire.description == "Updated description"
+
+
+def test_update_poll_can_clear_description_only(organization: Organization) -> None:
+    """An explicit ``description=None`` clears the field; ``name=None`` is rejected."""
+    poll = poll_service.create_poll(
+        organization,
+        _create_payload(organization, name="A name", description="Has text"),
+    )
+
+    poll_service.update_poll(poll, PollUpdateSchema(description=None))
+
+    poll.questionnaire.refresh_from_db()
+    assert poll.questionnaire.description is None
+    assert poll.questionnaire.name == "A name"  # untouched
+
+
+def test_update_poll_rejects_null_name() -> None:
+    """Clearing ``name`` is forbidden — ``Questionnaire.name`` is non-nullable."""
+    with pytest.raises(ValueError, match="Cannot clear the poll name"):
+        PollUpdateSchema(name=None)
+
+
+def test_update_poll_name_works_when_open(organization: Organization) -> None:
+    """Questionnaire metadata (name/description) is editable even past DRAFT.
+
+    The signal lockdown only blocks question/option/section mutations,
+    not the questionnaire's own metadata fields.
+    """
+    poll = poll_service.create_poll(organization, _create_payload(organization, name="Draft name"))
+    poll_service.open_poll(poll)
+
+    poll_service.update_poll(poll, PollUpdateSchema(name="Open name"))
+
+    poll.questionnaire.refresh_from_db()
+    assert poll.questionnaire.name == "Open name"
+
+
 def test_reopen_with_future_closes_at_no_payload_succeeds(organization: Organization) -> None:
     """Reopening with an existing future ``closes_at`` and an empty payload must succeed."""
     future = timezone.now() + timedelta(hours=2)

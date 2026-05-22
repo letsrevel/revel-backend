@@ -191,6 +191,10 @@ def update_poll(poll: Poll, payload: PollUpdateSchema) -> Poll:
     Anonymity flags are not on ``PollUpdateSchema`` and the model itself
     raises ``PollAnonymityImmutableError`` if mutated post-create.
 
+    ``name`` and ``description`` apply to the wrapped ``Questionnaire``
+    (not the ``Poll``). They are applied within the same transaction as the
+    poll-field updates so the two writes commit atomically.
+
     Args:
         poll: The poll to update (instance used only for its primary key).
         payload: PATCH schema with ``exclude_unset`` semantics — only the
@@ -212,6 +216,8 @@ def update_poll(poll: Poll, payload: PollUpdateSchema) -> Poll:
         update_data = payload.model_dump(exclude_unset=True)
         tier_ids_vote = update_data.pop("vote_membership_tier_ids", None)
         tier_ids_result = update_data.pop("result_membership_tier_ids", None)
+        # Pull questionnaire-owned fields out before applying poll-owned ones.
+        questionnaire_updates = {key: update_data.pop(key) for key in ("name", "description") if key in update_data}
 
         # ``event_id`` maps to the FK column directly; ``setattr`` on
         # ``event_id`` is fine because Django exposes the FK attname.
@@ -222,6 +228,15 @@ def update_poll(poll: Poll, payload: PollUpdateSchema) -> Poll:
                 locked.save(update_fields=[*update_data.keys(), "updated_at"])
             except PollAnonymityImmutableError:
                 raise
+            except DjangoValidationError as exc:
+                _translate_model_validation_error(exc)
+
+        if questionnaire_updates:
+            questionnaire = locked.questionnaire
+            for field, value in questionnaire_updates.items():
+                setattr(questionnaire, field, value)
+            try:
+                questionnaire.save(update_fields=[*questionnaire_updates.keys(), "updated_at"])
             except DjangoValidationError as exc:
                 _translate_model_validation_error(exc)
 

@@ -51,8 +51,16 @@ class PollUpdateSchema(Schema):
     ``None`` in the request body CLEARS the field on the poll instead of
     leaving it untouched. Validators below short-circuit on the ``"event_id"
     in self.model_fields_set`` check to honour that distinction.
+
+    ``name`` and ``description`` apply to the wrapped ``Questionnaire``,
+    not to the ``Poll`` itself. They're editable at any lifecycle stage
+    (DRAFT/OPEN/CLOSED) — the signal lockdown in :mod:`polls.signals`
+    only blocks question/option/section mutations, not questionnaire
+    metadata.
     """
 
+    name: str | None = None
+    description: str | None = None
     vote_visibility: ResourceVisibility | None = None
     result_visibility: ResourceVisibility | None = None
     result_timing: Poll.PollResultTiming | None = None
@@ -72,6 +80,9 @@ class PollUpdateSchema(Schema):
         clears ``event_id``) cannot be detected here without the current
         instance — the controller catches the resulting DB ``ValidationError``
         and translates it to 422.
+
+        Also rejects an explicit ``name=null`` since the wrapped
+        ``Questionnaire.name`` is non-nullable.
         """
         # event_id explicitly cleared in this payload?
         event_id_cleared = "event_id" in self.model_fields_set and self.event_id is None
@@ -81,6 +92,8 @@ class PollUpdateSchema(Schema):
                 raise ValueError(
                     "Cannot clear event_id while setting vote/result visibility to PRIVATE or ATTENDEES_ONLY."
                 )
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("Cannot clear the poll name; it is required.")
         return self
 
 
