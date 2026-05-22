@@ -117,3 +117,57 @@ def test_list_polls_query_count_constant(
         f"{one_poll_queries} queries for 1 poll, {five_poll_queries} for 5 "
         f"({additional_per_poll:.1f} per extra poll)."
     )
+
+
+def test_list_polls_query_count_does_not_grow_with_total_polls(
+    authenticated_client: Client,
+    organization: Organization,
+) -> None:
+    """Pagination is enforced at the DB level.
+
+    With ``page_size=2``, query count must NOT scale with the total number of
+    polls in the table: the bulk-eligibility precompute should only run over
+    the requested page slice, not the entire visible queryset.
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    for i in range(10):
+        Poll.objects.create(
+            organization=organization,
+            questionnaire=Questionnaire.objects.create(name=f"q-page-{i}"),
+            vote_visibility=ResourceVisibility.PUBLIC,
+            status=Poll.PollStatus.OPEN,
+        )
+
+    with CaptureQueriesContext(connection) as ctx_small:
+        small = authenticated_client.get("/api/polls/?page_size=2")
+    assert small.status_code == 200
+    small_body = small.json()
+    assert len(small_body["results"]) == 2
+    assert small_body["count"] == 10
+
+    # Add ten more polls and request the same page; query count must stay flat.
+    for i in range(10):
+        Poll.objects.create(
+            organization=organization,
+            questionnaire=Questionnaire.objects.create(name=f"q-extra-{i}"),
+            vote_visibility=ResourceVisibility.PUBLIC,
+            status=Poll.PollStatus.OPEN,
+        )
+    with CaptureQueriesContext(connection) as ctx_big:
+        big = authenticated_client.get("/api/polls/?page_size=2")
+    assert big.status_code == 200
+    big_body = big.json()
+    assert len(big_body["results"]) == 2
+    assert big_body["count"] == 20
+
+    # The page is the same size; allow at most one extra query (e.g., COUNT
+    # over a larger set; profiler bookkeeping). What we are guarding against
+    # is the previous behaviour where the bulk-eligibility precompute scaled
+    # with the total visible polls instead of the page slice.
+    assert len(ctx_big.captured_queries) <= len(ctx_small.captured_queries) + 1, (
+        f"Pagination did not bound the per-request workload: "
+        f"{len(ctx_small.captured_queries)} queries for 10 polls, "
+        f"{len(ctx_big.captured_queries)} for 20 — both at page_size=2."
+    )

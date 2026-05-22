@@ -7,8 +7,9 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.shortcuts import get_object_or_404
 from ninja.errors import HttpError
+from ninja import Query
 from ninja_extra import api_controller, route
-from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
+from ninja_extra.pagination import PaginatedResponseSchema
 
 from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth, OptionalAuth
@@ -62,26 +63,37 @@ class PollController(UserAwareController):
     """
 
     @route.get("/", response=PaginatedResponseSchema[PollListItemSchema])
-    @paginate(PageNumberPaginationExtra, page_size=20)
     def list_polls(
         self,
         organization_id: UUID | None = None,
         event_id: UUID | None = None,
         status: Poll.PollStatus | None = None,
-    ) -> list[PollListItemSchema]:
+        page: int = Query(1, ge=1),  # type: ignore[type-arg]
+        page_size: int = Query(20, ge=1, le=200),  # type: ignore[type-arg]
+    ) -> PaginatedResponseSchema[PollListItemSchema]:
         """List polls visible to the current user, optionally filtered.
 
-        Perf note: per-row eligibility flags (``user_has_voted``,
-        ``user_can_vote``, ``user_can_see_results``) are precomputed in bulk
-        by :func:`polls.service.eligibility.build_bulk_context` so the
-        per-row work is a handful of set lookups, not 1-3 ``.exists()``
-        queries per poll.
+        Perf notes:
+
+        * Pagination is performed at the DB level: ``Paginator`` slices the
+          queryset so only the requested page is loaded.
+        * Per-row eligibility flags (``user_has_voted``, ``user_can_vote``,
+          ``user_can_see_results``) are precomputed in bulk by
+          :func:`polls.service.eligibility.build_bulk_context` against the
+          page slice — not the full visible set — so the bulk-query workload
+          is bounded by ``page_size``.
         """
+        from django.core.paginator import Paginator
+
         user = self.maybe_user()
         qs = (
             Poll.objects.for_user(user)
             .select_related("organization", "event", "questionnaire")
             .prefetch_related("vote_membership_tiers", "result_membership_tiers")
+            # Stable ordering: ``for_user`` does not impose an ordering, but
+            # Django's ``Paginator`` requires deterministic slices to avoid
+            # split rows between pages.
+            .order_by("-created_at", "id")
         )
         if organization_id is not None:
             qs = qs.filter(organization_id=organization_id)
@@ -89,9 +101,27 @@ class PollController(UserAwareController):
             qs = qs.filter(event_id=event_id)
         if status is not None:
             qs = qs.filter(status=status)
-        polls = list(qs)
-        ctx = eligibility.build_bulk_context(user, polls)
-        return [self._to_list_item_bulk(poll, user, ctx) for poll in polls]
+
+        paginator = Paginator(qs, page_size)
+        # ``Paginator.page`` clamps invalid pages to a 404 via ``EmptyPage`` /
+        # ``PageNotAnInteger``; mirror :class:`PageNumberPaginationExtra` by
+        # returning an empty result set for an out-of-range page instead.
+        if page > paginator.num_pages and paginator.count > 0:
+            polls_page: list[Poll] = []
+        else:
+            polls_page = list(paginator.page(min(page, max(paginator.num_pages, 1))).object_list)
+
+        ctx = eligibility.build_bulk_context(user, polls_page)
+        results = [self._to_list_item_bulk(poll, user, ctx) for poll in polls_page]
+
+        next_url = self._page_url(page + 1) if page < paginator.num_pages else None
+        previous_url = self._page_url(page - 1) if page > 1 else None
+        return PaginatedResponseSchema[PollListItemSchema](
+            count=paginator.count,
+            next=next_url,
+            previous=previous_url,
+            results=results,
+        )
 
     @route.get("/{poll_id}/", response=PollDetailSchema)
     def get_poll(self, poll_id: UUID) -> PollDetailSchema:
@@ -269,6 +299,21 @@ class PollController(UserAwareController):
         return 204, None
 
     # ------------------------------------------------------------------ helpers
+
+    def _page_url(self, page: int) -> str | None:
+        """Build an absolute URL for a different page of the current list request.
+
+        Mirrors :class:`PageNumberPaginationExtra` semantics: when the target
+        page is 1 the ``page`` query param is removed rather than spelt out.
+        """
+        from ninja_extra.urls import remove_query_param, replace_query_param
+
+        request = self.context.request  # type: ignore[union-attr]
+        assert request is not None
+        base = request.build_absolute_uri()
+        if page <= 1:
+            return remove_query_param(base, "page")
+        return replace_query_param(base, "page", page)
 
     def _require_manage_polls(self, poll: Poll, user: t.Any) -> None:
         """Raise 403 unless ``user`` has ``manage_polls`` on ``poll.organization``."""
