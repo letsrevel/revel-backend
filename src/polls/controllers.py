@@ -69,7 +69,14 @@ class PollController(UserAwareController):
         event_id: UUID | None = None,
         status: Poll.PollStatus | None = None,
     ) -> list[PollListItemSchema]:
-        """List polls visible to the current user, optionally filtered."""
+        """List polls visible to the current user, optionally filtered.
+
+        Perf note: per-row eligibility flags (``user_has_voted``,
+        ``user_can_vote``, ``user_can_see_results``) are precomputed in bulk
+        by :func:`polls.service.eligibility.build_bulk_context` so the
+        per-row work is a handful of set lookups, not 1-3 ``.exists()``
+        queries per poll.
+        """
         user = self.maybe_user()
         qs = (
             Poll.objects.for_user(user)
@@ -82,7 +89,9 @@ class PollController(UserAwareController):
             qs = qs.filter(event_id=event_id)
         if status is not None:
             qs = qs.filter(status=status)
-        return [self._to_list_item(poll, user) for poll in qs]
+        polls = list(qs)
+        ctx = eligibility.build_bulk_context(user, polls)
+        return [self._to_list_item_bulk(poll, user, ctx) for poll in polls]
 
     @route.get("/{poll_id}/", response=PollDetailSchema)
     def get_poll(self, poll_id: UUID) -> PollDetailSchema:
@@ -259,7 +268,16 @@ class PollController(UserAwareController):
         if not poll.organization.has_org_permission(user.id, "manage_polls"):
             raise HttpError(403, "manage_polls permission required")
 
-    def _to_list_item(self, poll: Poll, user: UserLike) -> PollListItemSchema:
+    def _to_list_item_bulk(
+        self,
+        poll: Poll,
+        user: UserLike,
+        ctx: "eligibility._BulkEligibilityContext",
+    ) -> PollListItemSchema:
+        """Build a list item using pre-computed per-user sets (no extra DB round-trips)."""
+        # ``.all()`` hits the prefetch cache; ``values_list`` would bypass it.
+        vote_tier_ids = [tier.id for tier in poll.vote_membership_tiers.all()]
+        result_tier_ids = [tier.id for tier in poll.result_membership_tiers.all()]
         return PollListItemSchema(
             id=poll.id,
             organization_id=poll.organization_id,
@@ -271,9 +289,12 @@ class PollController(UserAwareController):
             closed_at=poll.closed_at,
             vote_visibility=ResourceVisibility(poll.vote_visibility),
             result_visibility=ResourceVisibility(poll.result_visibility),
-            user_has_voted=eligibility.user_has_voted(user, poll),
-            user_can_vote=(poll.status == Poll.PollStatus.OPEN and eligibility.can_vote(user, poll)),
-            user_can_see_results=eligibility.can_see_results(user, poll),
+            user_has_voted=eligibility.bulk_user_has_voted(user, poll, ctx),
+            user_can_vote=(
+                poll.status == Poll.PollStatus.OPEN
+                and eligibility.bulk_can_vote(user, poll, vote_tier_ids, ctx)
+            ),
+            user_can_see_results=eligibility.bulk_can_see_results(user, poll, result_tier_ids, ctx),
         )
 
     def _to_detail(self, poll: Poll, user: UserLike) -> PollDetailSchema:
