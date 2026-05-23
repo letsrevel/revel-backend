@@ -245,3 +245,36 @@ def test_staff_with_manage_polls_can_create(staff_client: Client, organization: 
     assert response.status_code == 201
     body = response.json()
     assert body["status"] == Poll.PollStatus.DRAFT.value
+
+
+# --- A1: event_id cross-org leak ---
+
+
+def test_create_poll_with_cross_org_event_id_returns_422(
+    owner_client: Client,
+    organization: Organization,
+    revel_user_factory: t.Any,
+) -> None:
+    """POSTing a foreign event_id under the URL-path organization returns 422."""
+    other = Organization.objects.create(name="Other", slug="other-cross-org-http", owner=revel_user_factory())
+    start = timezone.now() + timedelta(days=7)
+    foreign_event = Event.objects.create(
+        organization=other,
+        name="Foreign",
+        slug="foreign-event-http",
+        event_type=Event.EventType.PUBLIC,
+        visibility=Event.Visibility.PUBLIC,
+        max_attendees=10,
+        status="open",
+        start=start,
+        end=start + timedelta(hours=2),
+        requires_ticket=True,
+    )
+
+    response = owner_client.post(
+        _create_url(organization),
+        data=_make_payload(event_id=str(foreign_event.id)),
+        content_type="application/json",
+    )
+
+    assert response.status_code == 422

@@ -359,3 +359,62 @@ def test_update_poll_with_unknown_tier_id_raises(organization: Organization) -> 
             poll,
             PollUpdateSchema(vote_membership_tier_ids=[uuid.uuid4()]),
         )
+
+
+# --- event_id cross-org validation (A1) ---
+
+
+def _make_event(organization: Organization, slug: str) -> Event:
+    """Build a minimal Event owned by ``organization`` for cross-org tests."""
+    start = timezone.now() + timedelta(days=7)
+    return Event.objects.create(
+        organization=organization,
+        name="X",
+        slug=slug,
+        event_type=Event.EventType.PUBLIC,
+        visibility=Event.Visibility.PUBLIC,
+        max_attendees=10,
+        status="open",
+        start=start,
+        end=start + timedelta(hours=2),
+        requires_ticket=True,
+    )
+
+
+def test_create_poll_with_cross_org_event_id_raises(
+    organization: Organization, revel_user_factory: t.Any
+) -> None:
+    """Attaching a cross-org event to a new poll must raise (no silent leak)."""
+    other = Organization.objects.create(name="Other", slug="other-org-event-create", owner=revel_user_factory())
+    foreign_event = _make_event(other, slug="foreign-event-create")
+    with pytest.raises(PollValidationError):
+        poll_service.create_poll(
+            organization,
+            _create_payload(organization, event_id=foreign_event.id),
+        )
+
+
+def test_create_poll_with_unknown_event_id_raises(organization: Organization) -> None:
+    """A bogus event UUID must raise PollValidationError rather than 500ing."""
+    import uuid
+
+    with pytest.raises(PollValidationError):
+        poll_service.create_poll(
+            organization,
+            _create_payload(organization, event_id=uuid.uuid4()),
+        )
+
+
+def test_update_poll_with_cross_org_event_id_raises(
+    organization: Organization, revel_user_factory: t.Any
+) -> None:
+    """Moving a poll to a cross-org event via PATCH must raise."""
+    other = Organization.objects.create(name="Other", slug="other-org-event-update", owner=revel_user_factory())
+    foreign_event = _make_event(other, slug="foreign-event-update")
+
+    poll = poll_service.create_poll(organization, _create_payload(organization))
+    with pytest.raises(PollValidationError):
+        poll_service.update_poll(poll, PollUpdateSchema(event_id=foreign_event.id))
+
+    poll.refresh_from_db()
+    assert poll.event_id is None  # validation BEFORE save = no mutation

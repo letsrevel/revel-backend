@@ -59,6 +59,38 @@ _POLL_ONLY_FIELDS: frozenset[str] = frozenset(
 )
 
 
+def _resolve_event_or_raise(
+    *,
+    organization: Organization,
+    event_id: UUID | None,
+) -> Event | None:
+    """Validate that ``event_id`` belongs to ``organization`` or raise.
+
+    Mirrors :func:`_resolve_membership_tiers_or_raise` for event FK assignments:
+    silently dropping (or attaching) a cross-org event would let a caller with
+    ``manage_polls`` on org A move a poll to an event owned by org B.
+
+    Args:
+        organization: Organization the event must belong to.
+        event_id: Optional event UUID. ``None`` short-circuits to ``None``.
+
+    Returns:
+        The resolved ``Event`` row, or ``None`` when ``event_id`` is ``None``.
+
+    Raises:
+        PollValidationError: when ``event_id`` does not resolve to an event
+            owned by ``organization``.
+    """
+    if event_id is None:
+        return None
+    event = Event.objects.filter(pk=event_id, organization=organization).first()
+    if event is None:
+        raise PollValidationError(
+            f"Unknown event {event_id} or it does not belong to this organization.",
+        )
+    return event
+
+
 def _resolve_membership_tiers_or_raise(
     *,
     organization: Organization,
@@ -136,7 +168,7 @@ def create_poll(organization: Organization, payload: PollCreateSchema) -> Poll:
             ``result_membership_tier_ids`` reference unknown or
             cross-organization tier rows.
     """
-    event = Event.objects.get(pk=payload.event_id) if payload.event_id else None
+    event = _resolve_event_or_raise(organization=organization, event_id=payload.event_id)
 
     questionnaire_payload = _build_questionnaire_schema(payload)
     questionnaire = QuestionnaireService.create_questionnaire(questionnaire_payload)
@@ -218,6 +250,17 @@ def update_poll(poll: Poll, payload: PollUpdateSchema) -> Poll:
         tier_ids_result = update_data.pop("result_membership_tier_ids", None)
         # Pull questionnaire-owned fields out before applying poll-owned ones.
         questionnaire_updates = {key: update_data.pop(key) for key in ("name", "description") if key in update_data}
+
+        # ``event_id`` needs cross-org validation BEFORE the setattr loop so a
+        # caller can't move a poll to an event owned by a different org. We
+        # leave the (already-validated) ``event_id`` in ``update_data`` so the
+        # generic loop assigns the FK column and ``save(update_fields=...)``
+        # picks it up.
+        if "event_id" in update_data:
+            _resolve_event_or_raise(
+                organization=locked.organization,
+                event_id=update_data["event_id"],
+            )
 
         # ``event_id`` maps to the FK column directly; ``setattr`` on
         # ``event_id`` is fine because Django exposes the FK attname.
