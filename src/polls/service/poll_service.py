@@ -527,17 +527,31 @@ def _write_answers(submission: QuestionnaireSubmission, payload: PollVoteSchema)
     )
 
     for mc in payload.mc_answers:
-        mc_question = MultipleChoiceQuestion.objects.get(id=mc.question_id, questionnaire=submission.questionnaire)
+        try:
+            mc_question = MultipleChoiceQuestion.objects.get(
+                id=mc.question_id, questionnaire=submission.questionnaire
+            )
+        except MultipleChoiceQuestion.DoesNotExist as exc:
+            raise PollValidationError(f"Unknown multiple-choice question id: {mc.question_id}") from exc
         for opt_id in mc.option_ids:
-            option = MultipleChoiceOption.objects.get(id=opt_id, question=mc_question)
+            try:
+                option = MultipleChoiceOption.objects.get(id=opt_id, question=mc_question)
+            except MultipleChoiceOption.DoesNotExist as exc:
+                raise PollValidationError(f"Unknown multiple-choice option id: {opt_id}") from exc
             MultipleChoiceAnswer.objects.create(submission=submission, question=mc_question, option=option)
 
     for ft in payload.free_text_answers:
-        ft_question = FreeTextQuestion.objects.get(id=ft.question_id, questionnaire=submission.questionnaire)
+        try:
+            ft_question = FreeTextQuestion.objects.get(id=ft.question_id, questionnaire=submission.questionnaire)
+        except FreeTextQuestion.DoesNotExist as exc:
+            raise PollValidationError(f"Unknown free-text question id: {ft.question_id}") from exc
         FreeTextAnswer.objects.create(submission=submission, question=ft_question, answer=ft.answer)
 
     for fu in payload.file_upload_answers:
-        fu_question = FileUploadQuestion.objects.get(id=fu.question_id, questionnaire=submission.questionnaire)
+        try:
+            fu_question = FileUploadQuestion.objects.get(id=fu.question_id, questionnaire=submission.questionnaire)
+        except FileUploadQuestion.DoesNotExist as exc:
+            raise PollValidationError(f"Unknown file-upload question id: {fu.question_id}") from exc
         ans = FileUploadAnswer.objects.create(submission=submission, question=fu_question)
         unique_file_ids = set(fu.file_ids)
         if not unique_file_ids:

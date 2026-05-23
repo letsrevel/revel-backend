@@ -132,6 +132,26 @@ def test_withdraw_vote_when_changes_disallowed_returns_403(
     assert response.status_code == 403
 
 
+def test_vote_with_unknown_question_returns_422(
+    authenticated_client: Client,
+    votable_poll: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+) -> None:
+    """POSTing a bogus question_id returns 422, not 500 (DoesNotExist would 500)."""
+    import uuid
+
+    poll, _mcq, options = votable_poll
+    response = authenticated_client.post(
+        f"/api/polls/{poll.id}/vote",
+        data={
+            "mc_answers": [{"question_id": str(uuid.uuid4()), "option_ids": [str(options[0].id)]}],
+            "free_text_answers": [],
+            "file_upload_answers": [],
+        },
+        content_type="application/json",
+    )
+    assert response.status_code == 422
+
+
 def test_vote_response_includes_results_when_after_vote(
     authenticated_client: Client,
     votable_poll: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],

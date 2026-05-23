@@ -171,6 +171,76 @@ def test_withdraw_vote_when_changes_disallowed_raises(
         poll_service.withdraw_vote(user=user, poll_id=poll.id)
 
 
+def test_vote_with_unknown_mc_question_raises(
+    open_poll_with_mc: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+    revel_user_factory: t.Any,
+) -> None:
+    """A bogus mc question_id must raise PollValidationError, not DoesNotExist/500."""
+    import uuid
+
+    poll, _mcq, options = open_poll_with_mc
+    user = revel_user_factory()
+    with pytest.raises(PollValidationError):
+        poll_service.vote(
+            user=user,
+            poll_id=poll.id,
+            payload=PollVoteSchema(
+                mc_answers=[McAnswerInput(question_id=uuid.uuid4(), option_ids=[options[0].id])],
+            ),
+        )
+    # Roll-back: outer transaction.atomic ensures no submission persisted.
+    assert not QuestionnaireSubmission.objects.filter(user=user, questionnaire=poll.questionnaire).exists()
+
+
+def test_vote_with_unknown_mc_option_raises(
+    open_poll_with_mc: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+    revel_user_factory: t.Any,
+) -> None:
+    """A valid question_id paired with a bogus option_id must raise PollValidationError."""
+    import uuid
+
+    poll, mcq, _options = open_poll_with_mc
+    user = revel_user_factory()
+    with pytest.raises(PollValidationError):
+        poll_service.vote(
+            user=user,
+            poll_id=poll.id,
+            payload=PollVoteSchema(
+                mc_answers=[McAnswerInput(question_id=mcq.id, option_ids=[uuid.uuid4()])],
+            ),
+        )
+    assert not QuestionnaireSubmission.objects.filter(user=user, questionnaire=poll.questionnaire).exists()
+
+
+def test_vote_with_unknown_free_text_question_raises(
+    organization: t.Any,
+    revel_user_factory: t.Any,
+) -> None:
+    """A bogus free-text question_id must raise PollValidationError."""
+    import uuid
+
+    from polls.schema import FreeTextAnswerInput
+
+    q = Questionnaire.objects.create(name="Q-ft")
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=q,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.OPEN,
+        opened_at=timezone.now(),
+    )
+    user = revel_user_factory()
+    with pytest.raises(PollValidationError):
+        poll_service.vote(
+            user=user,
+            poll_id=poll.id,
+            payload=PollVoteSchema(
+                free_text_answers=[FreeTextAnswerInput(question_id=uuid.uuid4(), answer="hi")],
+            ),
+        )
+    assert not QuestionnaireSubmission.objects.filter(user=user, questionnaire=q).exists()
+
+
 def test_vote_with_unknown_file_id_raises(
     organization: t.Any,
     revel_user_factory: t.Any,
