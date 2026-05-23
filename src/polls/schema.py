@@ -228,10 +228,22 @@ class PollListItemSchema(Schema):
 
 
 class PollFreeTextResponseSchema(Schema):
+    """A single free-text response, optionally with the voter's identity attached.
+
+    ``user_id`` / ``user_display_name`` / ``user_email`` are populated together
+    (all non-null) only when the viewer is allowed to see voter identity:
+    staff on a poll with ``staff_anonymous=False``, or non-staff on a poll
+    with ``public_anonymous=False``. Otherwise all three are ``None`` —
+    consumers can branch on ``user_id`` to decide whether to render the
+    voter strip.
+    """
+
     question_id: UUID
     answer: str
     answered_at: AwareDatetime
-    user_id: UUID | None = None  # populated only when the viewer is allowed to see voter identity
+    user_id: UUID | None = None
+    user_display_name: str | None = None
+    user_email: str | None = None
 
 
 class PollResultsSchema(Schema):

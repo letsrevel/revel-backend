@@ -110,7 +110,7 @@ def test_free_text_responses_show_identity_when_viewer_sees_identity(
 ) -> None:
     poll, _, free_text_qs = poll_with_questions
     ftq = free_text_qs[0]
-    u = revel_user_factory()
+    u = revel_user_factory(preferred_name="Karen K.")
     sub = QuestionnaireSubmission.objects.create(
         user=u,
         questionnaire=poll.questionnaire,
@@ -120,4 +120,35 @@ def test_free_text_responses_show_identity_when_viewer_sees_identity(
     FreeTextAnswer.objects.create(submission=sub, question=ftq, answer="hi")
 
     result = compute_poll_results(poll, viewer_sees_identity=True)
-    assert result.free_text_responses[0].user_id == u.id
+    entry = result.free_text_responses[0]
+    assert entry.user_id == u.id
+    assert entry.user_display_name == "Karen K."
+    assert entry.user_email == u.email
+
+
+def test_free_text_responses_omit_display_fields_when_anonymous(
+    poll_with_questions: tuple[Poll, list[t.Any], list[t.Any]],
+    revel_user_factory: t.Any,
+) -> None:
+    """``user_display_name`` / ``user_email`` are gated on viewer_sees_identity.
+
+    Regression for #448: when staff_anonymous is True (or the viewer is a
+    non-staff voter on a public_anonymous poll), the response must not leak
+    the voter's display name or email through these new fields either.
+    """
+    poll, _, free_text_qs = poll_with_questions
+    ftq = free_text_qs[0]
+    u = revel_user_factory(preferred_name="Karen K.")
+    sub = QuestionnaireSubmission.objects.create(
+        user=u,
+        questionnaire=poll.questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        submitted_at=timezone.now(),
+    )
+    FreeTextAnswer.objects.create(submission=sub, question=ftq, answer="hi")
+
+    result = compute_poll_results(poll, viewer_sees_identity=False)
+    entry = result.free_text_responses[0]
+    assert entry.user_id is None
+    assert entry.user_display_name is None
+    assert entry.user_email is None

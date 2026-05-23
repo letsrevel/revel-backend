@@ -33,25 +33,39 @@ def compute_poll_results(poll: Poll, *, viewer_sees_identity: bool) -> PollResul
     total_voters = base_qs.values("user_id").distinct().count()
     mc_stats = aggregate_mc_distributions(poll.questionnaire_id, base_qs)
 
-    ft_answers = (
-        FreeTextAnswer.objects.filter(submission__in=base_qs)
-        .select_related("submission")
-        .order_by("submission__submitted_at", "id")
-    )
+    # ``submission__user`` is select_related only when the viewer is allowed
+    # to see identity, so we don't pay for the join in the anonymous path.
+    ft_answers = FreeTextAnswer.objects.filter(submission__in=base_qs).order_by("submission__submitted_at", "id")
+    if viewer_sees_identity:
+        ft_answers = ft_answers.select_related("submission__user")
+    else:
+        ft_answers = ft_answers.select_related("submission")
 
     free_text_responses: list[PollFreeTextResponseSchema] = []
     for ans in ft_answers:
         submitted_at = ans.submission.submitted_at
         if submitted_at is None:  # pragma: no cover - filtered out in base_qs above
             continue
-        free_text_responses.append(
-            PollFreeTextResponseSchema(
-                question_id=ans.question_id,
-                answer=ans.answer,
-                answered_at=submitted_at,
-                user_id=ans.submission.user_id if viewer_sees_identity else None,
+        if viewer_sees_identity:
+            voter = ans.submission.user
+            free_text_responses.append(
+                PollFreeTextResponseSchema(
+                    question_id=ans.question_id,
+                    answer=ans.answer,
+                    answered_at=submitted_at,
+                    user_id=voter.id,
+                    user_display_name=voter.get_display_name(),
+                    user_email=voter.email,
+                )
             )
-        )
+        else:
+            free_text_responses.append(
+                PollFreeTextResponseSchema(
+                    question_id=ans.question_id,
+                    answer=ans.answer,
+                    answered_at=submitted_at,
+                )
+            )
 
     return PollResultsSchema(
         total_voters=total_voters,
