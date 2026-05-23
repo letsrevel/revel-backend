@@ -15,7 +15,7 @@ Conventions (matching :mod:`events.controllers.questionnaire`):
 import typing as t
 from uuid import UUID
 
-from django.db.models import Prefetch, QuerySet
+from django.db.models import QuerySet
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
@@ -40,12 +40,6 @@ from polls.schema import (
 from polls.service import eligibility, poll_service
 from polls.service.aggregation import compute_poll_results
 from polls.types import UserLike
-from questionnaires.models import (
-    FileUploadQuestion,
-    FreeTextQuestion,
-    MultipleChoiceQuestion,
-    QuestionnaireSection,
-)
 
 
 @api_controller(
@@ -80,47 +74,34 @@ class PollController(UserAwareController):
             .order_by("-created_at", "id")
         )
 
-    def _detail_queryset(self) -> QuerySet[Poll]:
-        """Queryset used for single-poll lookups (detail/lifecycle).
+    @staticmethod
+    def _apply_detail_prefetches(qs: QuerySet[Poll]) -> QuerySet[Poll]:
+        """Attach the prefetches needed to render :class:`PollDetailSchema`.
 
-        Includes the deep prefetch of the wrapped questionnaire so
-        :class:`PollDetailSchema` can serialise the full question/section
-        structure without per-row queries. Mirrors
-        :meth:`events.controllers.questionnaire.QuestionnaireController.get_org_questionnaire`.
+        The wrapped questionnaire's question/section/option payload is built
+        lazily in :meth:`_to_detail` via
+        :class:`questionnaires.service.QuestionnaireService`, so only the
+        poll's direct relations need prefetching here.
         """
-        return (
-            Poll.objects.for_user(self.maybe_user())
-            .select_related("organization", "event", "questionnaire")
-            .prefetch_related(
-                "vote_membership_tiers",
-                "result_membership_tiers",
-                # Section-less questions (top-level)
-                Prefetch(
-                    "questionnaire__multiplechoicequestion_questions",
-                    queryset=MultipleChoiceQuestion.objects.filter(section__isnull=True).prefetch_related("options"),
-                ),
-                Prefetch(
-                    "questionnaire__freetextquestion_questions",
-                    queryset=FreeTextQuestion.objects.filter(section__isnull=True),
-                ),
-                Prefetch(
-                    "questionnaire__fileuploadquestion_questions",
-                    queryset=FileUploadQuestion.objects.filter(section__isnull=True),
-                ),
-                # Sections with their nested questions
-                Prefetch(
-                    "questionnaire__sections",
-                    queryset=QuestionnaireSection.objects.prefetch_related(
-                        Prefetch(
-                            "multiplechoicequestion_questions",
-                            queryset=MultipleChoiceQuestion.objects.prefetch_related("options"),
-                        ),
-                        "freetextquestion_questions",
-                        "fileuploadquestion_questions",
-                    ).order_by("order"),
-                ),
-            )
+        return qs.select_related("organization", "event", "questionnaire").prefetch_related(
+            "vote_membership_tiers",
+            "result_membership_tiers",
         )
+
+    def _detail_base_queryset(self) -> QuerySet[Poll]:
+        """Unfiltered single-poll queryset (no visibility filtering).
+
+        Used by the detail GET endpoint so it can distinguish "doesn't exist"
+        (404) from "exists but caller cannot see it" (403). Lifecycle/write
+        endpoints use :meth:`_detail_queryset` and rely on the visibility
+        filter for the 404 case; permission classes then enforce write
+        authority on top.
+        """
+        return self._apply_detail_prefetches(Poll.objects.all())
+
+    def _detail_queryset(self) -> QuerySet[Poll]:
+        """Visibility-filtered single-poll queryset (lifecycle/write endpoints)."""
+        return self._apply_detail_prefetches(Poll.objects.for_user(self.maybe_user()))
 
     def _refetch_for_detail(self, poll_id: UUID) -> Poll:
         """Refetch a poll with the deep prefetches used by :class:`PollDetailSchema`.
@@ -167,9 +148,17 @@ class PollController(UserAwareController):
 
     @route.get("/{poll_id}/", url_name="get_poll", response=PollDetailSchema)
     def get_poll(self, poll_id: UUID) -> dict[str, t.Any]:
-        """Retrieve a single poll, including user-specific flags and (when allowed) results."""
+        """Retrieve a single poll, including user-specific flags and (when allowed) results.
+
+        Returns ``404`` when the poll does not exist and ``403`` when it exists
+        but the caller is not in any audience that may see it. Frontends can
+        therefore distinguish "missing" from "forbidden" without inspecting
+        response bodies.
+        """
         user = self.maybe_user()
-        poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
+        poll = t.cast(Poll, self.get_object_or_exception(self._detail_base_queryset(), pk=poll_id))
+        if not eligibility.can_see_poll(user, poll):
+            raise HttpError(403, "You are not allowed to see this poll.")
         return self._to_detail(poll, user)
 
     @route.get("/{poll_id}/results", url_name="get_poll_results", response=PollResultsSchema)
@@ -334,23 +323,22 @@ class PollController(UserAwareController):
     def _to_detail(self, poll: Poll, user: UserLike) -> dict[str, t.Any]:
         """Build the response payload for :class:`PollDetailSchema` endpoints.
 
-        Returns a dict (not a constructed schema) so ninja's response-model
-        validator runs **once** against the ORM-shaped payload. Constructing
-        the schema manually would cause ninja to re-validate on response
-        shaping, at which point resolvers on the nested
-        :class:`questionnaires.schema.MultipleChoiceQuestionResponseSchema`
-        (which assume an ORM input via ``obj.options.all()``) break against
-        the already-constructed schema instance.
-
-        The ORM ``poll.questionnaire`` is passed through so the questionnaire
-        app's resolvers run on the model; this requires the queryset to deep-
-        prefetch sections/questions/options (see :meth:`_detail_queryset`).
+        The wrapped questionnaire is built via
+        :class:`questionnaires.service.QuestionnaireService` so the wire format
+        (``multiple_choice_questions`` / ``free_text_questions`` /
+        ``file_upload_questions``) matches
+        :meth:`events.controllers.event_public.attendance.PublicEventController.get_questionnaire`.
+        That service issues its own prefetch-aware fetch (one extra round-trip
+        per detail response, same shape as the canonical endpoint) — the poll
+        queryset deliberately does **not** duplicate those prefetches.
 
         Performance: :func:`eligibility.is_staff_or_owner` is computed once
         and threaded through every consumer helper (``can_see_results``,
         ``can_vote``, ``_viewer_sees_identity``) so the ``OrganizationStaff``
         lookup runs at most once per response, not six times.
         """
+        from questionnaires.service import QuestionnaireService
+
         is_staff = eligibility.is_staff_or_owner(user, poll)
         user_can_see_results = eligibility.can_see_results(user, poll, _is_staff=is_staff)
         results: PollResultsSchema | None = None
@@ -358,6 +346,7 @@ class PollController(UserAwareController):
             results = compute_poll_results(
                 poll, viewer_sees_identity=self._viewer_sees_identity(poll, user, _is_staff=is_staff)
             )
+        questionnaire_schema = QuestionnaireService(poll.questionnaire_id).build()
         return {
             "id": poll.id,
             "organization_id": poll.organization_id,
@@ -381,7 +370,7 @@ class PollController(UserAwareController):
             "user_can_vote": poll.status == Poll.PollStatus.OPEN
             and eligibility.can_vote(user, poll, _is_staff=is_staff),
             "user_can_see_results": user_can_see_results,
-            "questionnaire": poll.questionnaire,
+            "questionnaire": questionnaire_schema,
             "results": results,
         }
 

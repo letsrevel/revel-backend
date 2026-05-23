@@ -157,7 +157,7 @@ class PollDetailSchema(Schema):
     user_has_voted: bool
     user_can_vote: bool
     user_can_see_results: bool
-    questionnaire: questionnaires_schema.QuestionnaireResponseSchema | None = None
+    questionnaire: questionnaires_schema.QuestionnaireSchema | None = None
     results: "PollResultsSchema | None" = None
 
 

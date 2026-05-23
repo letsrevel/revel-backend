@@ -51,6 +51,34 @@ def test_list_members_only_hidden_from_non_member(
     assert len(items) == 0
 
 
+def test_detail_returns_403_for_invisible_poll(
+    authenticated_client: Client, organization: Organization, questionnaire: Questionnaire
+) -> None:
+    """GET /polls/{id}/ must distinguish "exists but you can't see it" from "missing".
+
+    The frontend voter URL relies on 404 meaning "no such poll" and 403 meaning
+    "you don't have access" to render the right state (page-not-found vs.
+    ineligible banner). Previously both surfaces collapsed to 404 because the
+    detail queryset was visibility-filtered.
+    """
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        vote_visibility=ResourceVisibility.MEMBERS_ONLY,
+        status=Poll.PollStatus.OPEN,
+    )
+    response = authenticated_client.get(f"/api/polls/{poll.id}/")
+    assert response.status_code == 403
+
+
+def test_detail_returns_404_for_missing_poll(authenticated_client: Client) -> None:
+    """Genuinely-missing polls still 404."""
+    from uuid import uuid4
+
+    response = authenticated_client.get(f"/api/polls/{uuid4()}/")
+    assert response.status_code == 404
+
+
 def test_detail_includes_user_flags(
     authenticated_client: Client, organization: Organization, questionnaire: Questionnaire
 ) -> None:
@@ -110,16 +138,16 @@ def test_detail_includes_questionnaire_structure(
     assert qresp["id"] == str(q.id)
     assert qresp["name"] == "poll Q"
     # Top-level question with options serialised
-    assert len(qresp["multiplechoicequestion_questions"]) == 1
-    top = qresp["multiplechoicequestion_questions"][0]
+    assert len(qresp["multiple_choice_questions"]) == 1
+    top = qresp["multiple_choice_questions"][0]
     assert top["question"] == "Top?"
     assert {opt["option"] for opt in top["options"]} == {"a", "b"}
     # Section with its nested question
     assert len(qresp["sections"]) == 1
     sec = qresp["sections"][0]
     assert sec["name"] == "Section A"
-    assert len(sec["multiplechoicequestion_questions"]) == 1
-    assert sec["multiplechoicequestion_questions"][0]["question"] == "Section question?"
+    assert len(sec["multiple_choice_questions"]) == 1
+    assert sec["multiple_choice_questions"][0]["question"] == "Section question?"
 
 
 def test_list_polls_query_count_constant(
