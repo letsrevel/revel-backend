@@ -35,7 +35,7 @@ from events.service.event_manager import UserIsIneligibleError
 from geo.controllers.cities import CityController
 from notifications.controllers.notification_controller import NotificationController
 from notifications.controllers.preference_controller import NotificationPreferenceController
-from polls.controllers import PollController
+from polls.controllers import POLL_CONTROLLERS
 from questionnaires.controllers import QuestionnaireFileController
 from questionnaires.exceptions import (
     CrossQuestionnaireSubmissionError,
@@ -158,7 +158,7 @@ api.register_controllers(
     NotificationController,
     NotificationPreferenceController,
     # Poll controllers
-    PollController,
+    *POLL_CONTROLLERS,
     # Telegram controllers
     TelegramController,
     # Wallet controllers
