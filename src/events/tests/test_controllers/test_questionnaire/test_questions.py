@@ -216,6 +216,33 @@ def test_create_mc_option_success(organization: Organization, organization_owner
     assert option.is_correct is True
 
 
+def test_create_mc_option_cross_questionnaire_404(
+    organization: Organization, organization_owner_client: Client
+) -> None:
+    """Posting an option to a question that belongs to a different questionnaire returns 404.
+
+    Without the questionnaire_id filter on the question lookup, a staff member
+    on org questionnaire A could attach options to a question from org
+    questionnaire B (caught downstream by QuestionIntegrityError, but failing
+    at the lookup is the cleaner pattern that mirrors every sibling endpoint).
+    """
+    questionnaire_a = Questionnaire.objects.create(name="A")
+    OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire_a)
+    org_questionnaire_a = OrganizationQuestionnaire.objects.get(questionnaire=questionnaire_a)
+
+    questionnaire_b = Questionnaire.objects.create(name="B")
+    OrganizationQuestionnaire.objects.create(organization=organization, questionnaire=questionnaire_b)
+    question_b = MultipleChoiceQuestion.objects.create(questionnaire=questionnaire_b, question="B?", order=1)
+
+    payload = MultipleChoiceOptionCreateSchema(option="x", is_correct=False, order=1)
+    url = reverse(
+        "api:create_mc_option",
+        kwargs={"org_questionnaire_id": org_questionnaire_a.id, "question_id": question_b.id},
+    )
+    response = organization_owner_client.post(url, data=payload.model_dump_json(), content_type="application/json")
+    assert response.status_code == 404
+
+
 def test_create_mc_option_permission_denied(organization: Organization, nonmember_client: Client) -> None:
     """Test that non-members cannot create multiple choice options."""
     questionnaire = Questionnaire.objects.create(name="Test Questionnaire")
