@@ -60,7 +60,9 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # Validation (422)
     PollValidationError: handle_poll_validation,
     PollAnonymityImmutableError: handle_poll_validation,
-    PollQuestionLockedError: handle_poll_validation,
+    # Question/section/option lockdown on non-DRAFT polls — semantically a
+    # state lock, not a payload validation error.
+    PollQuestionLockedError: _make_simple_handler(423),
 }
 
 
