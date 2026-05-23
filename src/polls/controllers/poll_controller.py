@@ -365,8 +365,10 @@ class PollController(UserAwareController):
             "result_timing": Poll.PollResultTiming(poll.result_timing),
             "staff_anonymous": poll.staff_anonymous,
             "public_anonymous": poll.public_anonymous,
-            "vote_membership_tier_ids": list(poll.vote_membership_tiers.values_list("id", flat=True)),
-            "result_membership_tier_ids": list(poll.result_membership_tiers.values_list("id", flat=True)),
+            # ``.values_list`` would bypass the prefetched cache populated by
+            # ``_detail_queryset``; iterate ``.all()`` to read the prefetched M2M.
+            "vote_membership_tier_ids": [tier.id for tier in poll.vote_membership_tiers.all()],
+            "result_membership_tier_ids": [tier.id for tier in poll.result_membership_tiers.all()],
             "user_has_voted": eligibility.user_has_voted(user, poll),
             "user_can_vote": poll.status == Poll.PollStatus.OPEN and eligibility.can_vote(user, poll),
             "user_can_see_results": user_can_see_results,
