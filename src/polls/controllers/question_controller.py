@@ -11,6 +11,21 @@ question/section/option on a non-DRAFT poll raises
 :class:`polls.exceptions.PollQuestionLockedError`, dispatched to HTTP
 **423 Locked** by :mod:`polls.exception_handlers`. The controller therefore
 needs no explicit status check.
+
+.. note::
+
+   **Canonical reference**: :class:`events.controllers.questionnaire.QuestionnaireController`.
+   Both controllers expose the same 15 question/section/option CRUD endpoints,
+   differing only in URL prefix (``/polls/{poll_id}/...`` vs
+   ``/questionnaires/{org_questionnaire_id}/...``), permission class
+   (``PollPermission`` vs ``QuestionnairePermission``), and parent-lookup
+   queryset. Request/response schemas and underlying service calls are
+   identical — both delegate to :class:`questionnaires.service.QuestionnaireService`.
+
+   When editing routes here, mirror the change in ``QuestionnaireController``
+   (and vice versa). The drift-detection test
+   :func:`polls.tests.test_controller_drift.test_polls_and_org_questionnaire_question_crud_in_sync`
+   fails CI if the two sets diverge in URL shape or HTTP method.
 """
 
 import typing as t
