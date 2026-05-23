@@ -381,9 +381,7 @@ def _make_event(organization: Organization, slug: str) -> Event:
     )
 
 
-def test_create_poll_with_cross_org_event_id_raises(
-    organization: Organization, revel_user_factory: t.Any
-) -> None:
+def test_create_poll_with_cross_org_event_id_raises(organization: Organization, revel_user_factory: t.Any) -> None:
     """Attaching a cross-org event to a new poll must raise (no silent leak)."""
     other = Organization.objects.create(name="Other", slug="other-org-event-create", owner=revel_user_factory())
     foreign_event = _make_event(other, slug="foreign-event-create")
@@ -405,9 +403,7 @@ def test_create_poll_with_unknown_event_id_raises(organization: Organization) ->
         )
 
 
-def test_update_poll_with_cross_org_event_id_raises(
-    organization: Organization, revel_user_factory: t.Any
-) -> None:
+def test_update_poll_with_cross_org_event_id_raises(organization: Organization, revel_user_factory: t.Any) -> None:
     """Moving a poll to a cross-org event via PATCH must raise."""
     other = Organization.objects.create(name="Other", slug="other-org-event-update", owner=revel_user_factory())
     foreign_event = _make_event(other, slug="foreign-event-update")

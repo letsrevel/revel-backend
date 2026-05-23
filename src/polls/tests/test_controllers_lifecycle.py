@@ -178,14 +178,16 @@ def test_patch_poll_event_id_null_breaks_existing_private_visibility_returns_422
     assert response.status_code == 422
 
 
-def test_patch_poll_result_visibility_public_with_public_anonymous_false(
+def test_patch_poll_result_visibility_public_with_public_anonymous_false_rolls_back(
     owner_client: Client, organization: Organization, questionnaire: Questionnaire
 ) -> None:
     """Setting result_visibility=PUBLIC on a poll with public_anonymous=False is rejected.
 
     Anonymity flags are immutable post-create, so the only way out is to reject
     the visibility change. The CheckConstraint
-    ``poll_public_results_must_be_anonymous`` fires; controller returns 422.
+    ``poll_public_results_must_be_anonymous`` fires; controller returns 422
+    AND the row is not mutated (validation happens at save time inside the
+    transaction.atomic block, so the failed save rolls back cleanly).
     """
     poll = Poll.objects.create(
         organization=organization,
@@ -198,6 +200,26 @@ def test_patch_poll_result_visibility_public_with_public_anonymous_false(
     response = owner_client.patch(
         f"/api/polls/{poll.id}/",
         data={"result_visibility": "public"},
+        content_type="application/json",
+    )
+    assert response.status_code == 422
+    poll.refresh_from_db()
+    assert poll.result_visibility == ResourceVisibility.STAFF_ONLY
+
+
+def test_patch_poll_with_null_name_returns_422(
+    owner_client: Client, organization: Organization, questionnaire: Questionnaire
+) -> None:
+    """Schema-level rejection of ``name=null`` surfaces as 422 at the HTTP boundary."""
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.DRAFT,
+    )
+    response = owner_client.patch(
+        f"/api/polls/{poll.id}/",
+        data={"name": None},
         content_type="application/json",
     )
     assert response.status_code == 422

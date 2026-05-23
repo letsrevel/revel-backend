@@ -252,52 +252,68 @@ def update_poll(poll: Poll, payload: PollUpdateSchema) -> Poll:
         questionnaire_updates = {key: update_data.pop(key) for key in ("name", "description") if key in update_data}
 
         # ``event_id`` needs cross-org validation BEFORE the setattr loop so a
-        # caller can't move a poll to an event owned by a different org. We
-        # leave the (already-validated) ``event_id`` in ``update_data`` so the
-        # generic loop assigns the FK column and ``save(update_fields=...)``
-        # picks it up.
+        # caller can't move a poll to an event owned by a different org.
         if "event_id" in update_data:
             _resolve_event_or_raise(
                 organization=locked.organization,
                 event_id=update_data["event_id"],
             )
 
-        # ``event_id`` maps to the FK column directly; ``setattr`` on
-        # ``event_id`` is fine because Django exposes the FK attname.
-        for field, value in update_data.items():
-            setattr(locked, field, value)
-        if update_data:
-            try:
-                locked.save(update_fields=[*update_data.keys(), "updated_at"])
-            except PollAnonymityImmutableError:
-                raise
-            except DjangoValidationError as exc:
-                _translate_model_validation_error(exc)
-
-        if questionnaire_updates:
-            questionnaire = locked.questionnaire
-            for field, value in questionnaire_updates.items():
-                setattr(questionnaire, field, value)
-            try:
-                questionnaire.save(update_fields=[*questionnaire_updates.keys(), "updated_at"])
-            except DjangoValidationError as exc:
-                _translate_model_validation_error(exc)
-
-        if tier_ids_vote is not None:
-            locked.vote_membership_tiers.set(
-                _resolve_membership_tiers_or_raise(
-                    organization=locked.organization,
-                    tier_ids=tier_ids_vote,
-                )
-            )
-        if tier_ids_result is not None:
-            locked.result_membership_tiers.set(
-                _resolve_membership_tiers_or_raise(
-                    organization=locked.organization,
-                    tier_ids=tier_ids_result,
-                )
-            )
+        _apply_poll_fields(locked, update_data)
+        _apply_questionnaire_fields(locked, questionnaire_updates)
+        _apply_tier_updates(locked, tier_ids_vote, tier_ids_result)
         return locked
+
+
+def _apply_poll_fields(locked: Poll, update_data: dict[str, t.Any]) -> None:
+    """Set + save poll-owned columns under the active SELECT FOR UPDATE."""
+    if not update_data:
+        return
+    # ``event_id`` maps to the FK column directly; ``setattr`` on ``event_id``
+    # is fine because Django exposes the FK attname.
+    for field, value in update_data.items():
+        setattr(locked, field, value)
+    try:
+        locked.save(update_fields=[*update_data.keys(), "updated_at"])
+    except PollAnonymityImmutableError:
+        raise
+    except DjangoValidationError as exc:
+        _translate_model_validation_error(exc)
+
+
+def _apply_questionnaire_fields(locked: Poll, questionnaire_updates: dict[str, t.Any]) -> None:
+    """Set + save wrapped-questionnaire columns under the active transaction."""
+    if not questionnaire_updates:
+        return
+    questionnaire = locked.questionnaire
+    for field, value in questionnaire_updates.items():
+        setattr(questionnaire, field, value)
+    try:
+        questionnaire.save(update_fields=[*questionnaire_updates.keys(), "updated_at"])
+    except DjangoValidationError as exc:
+        _translate_model_validation_error(exc)
+
+
+def _apply_tier_updates(
+    locked: Poll,
+    tier_ids_vote: t.Sequence[UUID] | None,
+    tier_ids_result: t.Sequence[UUID] | None,
+) -> None:
+    """Apply explicit ``set(...)`` calls for membership-tier M2Ms when sent."""
+    if tier_ids_vote is not None:
+        locked.vote_membership_tiers.set(
+            _resolve_membership_tiers_or_raise(
+                organization=locked.organization,
+                tier_ids=tier_ids_vote,
+            )
+        )
+    if tier_ids_result is not None:
+        locked.result_membership_tiers.set(
+            _resolve_membership_tiers_or_raise(
+                organization=locked.organization,
+                tier_ids=tier_ids_result,
+            )
+        )
 
 
 def open_poll(poll: Poll) -> Poll:
@@ -513,54 +529,61 @@ def _write_answers(submission: QuestionnaireSubmission, payload: PollVoteSchema)
 
     Validates that referenced questions belong to the submission's questionnaire
     (and options to their question) via scoped lookups — bogus IDs raise
-    ``DoesNotExist`` inside the outer ``transaction.atomic`` and roll back.
+    :class:`PollValidationError` (mapped to 422 by the per-app exception
+    handler) inside the outer ``transaction.atomic`` and roll back.
     """
-    from questionnaires.models import (
-        FileUploadAnswer,
-        FileUploadQuestion,
-        FreeTextAnswer,
-        FreeTextQuestion,
-        MultipleChoiceAnswer,
-        MultipleChoiceOption,
-        MultipleChoiceQuestion,
-        QuestionnaireFile,
-    )
-
     for mc in payload.mc_answers:
-        try:
-            mc_question = MultipleChoiceQuestion.objects.get(
-                id=mc.question_id, questionnaire=submission.questionnaire
-            )
-        except MultipleChoiceQuestion.DoesNotExist as exc:
-            raise PollValidationError(f"Unknown multiple-choice question id: {mc.question_id}") from exc
-        for opt_id in mc.option_ids:
-            try:
-                option = MultipleChoiceOption.objects.get(id=opt_id, question=mc_question)
-            except MultipleChoiceOption.DoesNotExist as exc:
-                raise PollValidationError(f"Unknown multiple-choice option id: {opt_id}") from exc
-            MultipleChoiceAnswer.objects.create(submission=submission, question=mc_question, option=option)
-
+        _write_mc_answer(submission, mc)
     for ft in payload.free_text_answers:
-        try:
-            ft_question = FreeTextQuestion.objects.get(id=ft.question_id, questionnaire=submission.questionnaire)
-        except FreeTextQuestion.DoesNotExist as exc:
-            raise PollValidationError(f"Unknown free-text question id: {ft.question_id}") from exc
-        FreeTextAnswer.objects.create(submission=submission, question=ft_question, answer=ft.answer)
-
+        _write_free_text_answer(submission, ft)
     for fu in payload.file_upload_answers:
+        _write_file_upload_answer(submission, fu)
+
+
+def _write_mc_answer(submission: QuestionnaireSubmission, mc: t.Any) -> None:
+    """Persist a single multiple-choice answer row (or raise on unknown ids)."""
+    from questionnaires.models import MultipleChoiceAnswer, MultipleChoiceOption, MultipleChoiceQuestion
+
+    try:
+        mc_question = MultipleChoiceQuestion.objects.get(id=mc.question_id, questionnaire=submission.questionnaire)
+    except MultipleChoiceQuestion.DoesNotExist as exc:
+        raise PollValidationError(f"Unknown multiple-choice question id: {mc.question_id}") from exc
+    for opt_id in mc.option_ids:
         try:
-            fu_question = FileUploadQuestion.objects.get(id=fu.question_id, questionnaire=submission.questionnaire)
-        except FileUploadQuestion.DoesNotExist as exc:
-            raise PollValidationError(f"Unknown file-upload question id: {fu.question_id}") from exc
-        ans = FileUploadAnswer.objects.create(submission=submission, question=fu_question)
-        unique_file_ids = set(fu.file_ids)
-        if not unique_file_ids:
-            continue
-        files = list(QuestionnaireFile.objects.filter(uploader=submission.user, id__in=unique_file_ids))
-        if len(files) != len(unique_file_ids):
-            resolved = {f.id for f in files}
-            missing = sorted(str(fid) for fid in unique_file_ids - resolved)
-            raise PollValidationError(
-                f"Unknown or other-user file_upload ids: {', '.join(missing)}",
-            )
-        ans.files.set(files)
+            option = MultipleChoiceOption.objects.get(id=opt_id, question=mc_question)
+        except MultipleChoiceOption.DoesNotExist as exc:
+            raise PollValidationError(f"Unknown multiple-choice option id: {opt_id}") from exc
+        MultipleChoiceAnswer.objects.create(submission=submission, question=mc_question, option=option)
+
+
+def _write_free_text_answer(submission: QuestionnaireSubmission, ft: t.Any) -> None:
+    """Persist a single free-text answer row (or raise on unknown id)."""
+    from questionnaires.models import FreeTextAnswer, FreeTextQuestion
+
+    try:
+        ft_question = FreeTextQuestion.objects.get(id=ft.question_id, questionnaire=submission.questionnaire)
+    except FreeTextQuestion.DoesNotExist as exc:
+        raise PollValidationError(f"Unknown free-text question id: {ft.question_id}") from exc
+    FreeTextAnswer.objects.create(submission=submission, question=ft_question, answer=ft.answer)
+
+
+def _write_file_upload_answer(submission: QuestionnaireSubmission, fu: t.Any) -> None:
+    """Persist a single file-upload answer row + attach uploaded files."""
+    from questionnaires.models import FileUploadAnswer, FileUploadQuestion, QuestionnaireFile
+
+    try:
+        fu_question = FileUploadQuestion.objects.get(id=fu.question_id, questionnaire=submission.questionnaire)
+    except FileUploadQuestion.DoesNotExist as exc:
+        raise PollValidationError(f"Unknown file-upload question id: {fu.question_id}") from exc
+    ans = FileUploadAnswer.objects.create(submission=submission, question=fu_question)
+    unique_file_ids = set(fu.file_ids)
+    if not unique_file_ids:
+        return
+    files = list(QuestionnaireFile.objects.filter(uploader=submission.user, id__in=unique_file_ids))
+    if len(files) != len(unique_file_ids):
+        resolved = {f.id for f in files}
+        missing = sorted(str(fid) for fid in unique_file_ids - resolved)
+        raise PollValidationError(
+            f"Unknown or other-user file_upload ids: {', '.join(missing)}",
+        )
+    ans.files.set(files)

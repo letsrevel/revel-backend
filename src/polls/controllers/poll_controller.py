@@ -15,13 +15,11 @@ Conventions (matching :mod:`events.controllers.questionnaire`):
 import typing as t
 from uuid import UUID
 
-from django.contrib.auth.models import AnonymousUser
 from django.db.models import Prefetch, QuerySet
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 
-from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth, OptionalAuth
 from common.controllers import UserAwareController
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle, WriteThrottle
@@ -41,14 +39,13 @@ from polls.schema import (
 )
 from polls.service import eligibility, poll_service
 from polls.service.aggregation import compute_poll_results
+from polls.types import UserLike
 from questionnaires.models import (
     FileUploadQuestion,
     FreeTextQuestion,
     MultipleChoiceQuestion,
     QuestionnaireSection,
 )
-
-UserLike = RevelUser | AnonymousUser
 
 
 @api_controller(
@@ -180,9 +177,12 @@ class PollController(UserAwareController):
         """Return aggregated poll results, honouring visibility and timing rules."""
         user = self.maybe_user()
         poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
-        if not eligibility.can_see_results(user, poll):
+        is_staff = eligibility.is_staff_or_owner(user, poll)
+        if not eligibility.can_see_results(user, poll, _is_staff=is_staff):
             raise HttpError(403, "You are not allowed to see the results for this poll.")
-        return compute_poll_results(poll, viewer_sees_identity=self._viewer_sees_identity(poll, user))
+        return compute_poll_results(
+            poll, viewer_sees_identity=self._viewer_sees_identity(poll, user, _is_staff=is_staff)
+        )
 
     # ------------------------------------------------------------------ writes
 
@@ -345,11 +345,19 @@ class PollController(UserAwareController):
         The ORM ``poll.questionnaire`` is passed through so the questionnaire
         app's resolvers run on the model; this requires the queryset to deep-
         prefetch sections/questions/options (see :meth:`_detail_queryset`).
+
+        Performance: :func:`eligibility.is_staff_or_owner` is computed once
+        and threaded through every consumer helper (``can_see_results``,
+        ``can_vote``, ``_viewer_sees_identity``) so the ``OrganizationStaff``
+        lookup runs at most once per response, not six times.
         """
-        user_can_see_results = eligibility.can_see_results(user, poll)
+        is_staff = eligibility.is_staff_or_owner(user, poll)
+        user_can_see_results = eligibility.can_see_results(user, poll, _is_staff=is_staff)
         results: PollResultsSchema | None = None
         if user_can_see_results:
-            results = compute_poll_results(poll, viewer_sees_identity=self._viewer_sees_identity(poll, user))
+            results = compute_poll_results(
+                poll, viewer_sees_identity=self._viewer_sees_identity(poll, user, _is_staff=is_staff)
+            )
         return {
             "id": poll.id,
             "organization_id": poll.organization_id,
@@ -370,15 +378,23 @@ class PollController(UserAwareController):
             "vote_membership_tier_ids": [tier.id for tier in poll.vote_membership_tiers.all()],
             "result_membership_tier_ids": [tier.id for tier in poll.result_membership_tiers.all()],
             "user_has_voted": eligibility.user_has_voted(user, poll),
-            "user_can_vote": poll.status == Poll.PollStatus.OPEN and eligibility.can_vote(user, poll),
+            "user_can_vote": poll.status == Poll.PollStatus.OPEN
+            and eligibility.can_vote(user, poll, _is_staff=is_staff),
             "user_can_see_results": user_can_see_results,
             "questionnaire": poll.questionnaire,
             "results": results,
         }
 
     @staticmethod
-    def _viewer_sees_identity(poll: Poll, user: UserLike) -> bool:
-        if eligibility.is_staff_or_owner(user, poll):
+    def _viewer_sees_identity(poll: Poll, user: UserLike, *, _is_staff: bool | None = None) -> bool:
+        """Whether the viewer sees voter identities in the aggregated results.
+
+        ``_is_staff`` is the pre-computed :func:`eligibility.is_staff_or_owner`
+        result threaded through from :meth:`_to_detail` so the
+        ``OrganizationStaff`` lookup is not repeated.
+        """
+        is_staff = _is_staff if _is_staff is not None else eligibility.is_staff_or_owner(user, poll)
+        if is_staff:
             return not poll.staff_anonymous
         return not poll.public_anonymous
 

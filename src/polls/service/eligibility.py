@@ -16,21 +16,26 @@ listing endpoint compatible with ninja_extra's ``@paginate`` decorator.
 import typing as t
 from uuid import UUID
 
-from django.contrib.auth.models import AnonymousUser
 from django.db.models import QuerySet
 
 from accounts.models import RevelUser
 from events.models.mixins import ResourceVisibility
 from polls.models import Poll
+from polls.types import UserLike
 
 if t.TYPE_CHECKING:
     from events.models.organization import MembershipTier
 
-UserLike = RevelUser | AnonymousUser
-
 
 def is_staff_or_owner(user: UserLike, poll: Poll) -> bool:
-    """Return True if ``user`` is a superuser, Django staff, the org owner, or org staff."""
+    """Return True if ``user`` is a superuser, Django staff, the org owner, or org staff.
+
+    Callers that already know the answer (e.g. controllers that compute it
+    once per detail response) should pass it through ``_is_staff`` on the
+    consumer helpers (:func:`can_see_results`, :func:`can_vote`,
+    :func:`user_has_voted`) so the ``OrganizationStaff`` lookup isn't
+    repeated.
+    """
     if user.is_anonymous:
         return False
     if user.is_superuser or user.is_staff:
@@ -93,6 +98,8 @@ def _passes_visibility(
     poll: Poll,
     visibility: str,
     membership_tiers: QuerySet["MembershipTier"] | None,
+    *,
+    _is_staff: bool | None = None,
 ) -> bool:
     """Apply :class:`ResourceVisibility` semantics for a poll, with optional tier restriction.
 
@@ -103,9 +110,13 @@ def _passes_visibility(
         membership_tiers: Queryset of ``MembershipTier`` rows (typically
             ``poll.vote_membership_tiers.all()`` or ``poll.result_membership_tiers.all()``).
             Only consulted when ``visibility == MEMBERS_ONLY``.
+        _is_staff: Optional pre-computed :func:`is_staff_or_owner` result.
+            Pass this when the caller has already resolved it for the same
+            ``(user, poll)`` pair to skip the redundant ``OrganizationStaff``
+            query.
     """
     # Staff/owner always pass.
-    if is_staff_or_owner(user, poll):
+    if _is_staff if _is_staff is not None else is_staff_or_owner(user, poll):
         return True
 
     if visibility in ResourceVisibility.publicly_accessible():
@@ -137,15 +148,18 @@ def user_has_voted(user: UserLike, poll: Poll) -> bool:
     ).exists()
 
 
-def can_vote(user: UserLike, poll: Poll) -> bool:
+def can_vote(user: UserLike, poll: Poll, *, _is_staff: bool | None = None) -> bool:
     """Whether ``user`` is currently eligible to cast a vote on ``poll``.
 
     Anonymous users are never eligible (poll voting requires authentication).
     Status (``poll.status == OPEN``) is NOT checked here — callers verify it separately.
+
+    ``_is_staff`` is an optional pre-computed :func:`is_staff_or_owner` result
+    threaded through to :func:`_passes_visibility` (see its docstring).
     """
     if user.is_anonymous:
         return False
-    return _passes_visibility(user, poll, poll.vote_visibility, poll.vote_membership_tiers.all())
+    return _passes_visibility(user, poll, poll.vote_visibility, poll.vote_membership_tiers.all(), _is_staff=_is_staff)
 
 
 def can_see_poll(user: UserLike, poll: Poll) -> bool:
@@ -164,14 +178,23 @@ def can_see_poll(user: UserLike, poll: Poll) -> bool:
     return user_has_voted(user, poll)
 
 
-def can_see_results(user: UserLike, poll: Poll) -> bool:
-    """Whether ``user`` can currently view aggregate results for ``poll``."""
+def can_see_results(user: UserLike, poll: Poll, *, _is_staff: bool | None = None) -> bool:
+    """Whether ``user`` can currently view aggregate results for ``poll``.
+
+    ``_is_staff`` is an optional pre-computed :func:`is_staff_or_owner` result
+    threaded through to :func:`_passes_visibility` and used to short-circuit
+    the staff/owner check (see :func:`_passes_visibility` for details).
+    """
+    is_staff = _is_staff if _is_staff is not None else is_staff_or_owner(user, poll)
+
     # Staff/owner always see results (anonymity governs identity exposure separately).
-    if is_staff_or_owner(user, poll):
+    if is_staff:
         return True
 
     # Result audience check first.
-    if not _passes_visibility(user, poll, poll.result_visibility, poll.result_membership_tiers.all()):
+    if not _passes_visibility(
+        user, poll, poll.result_visibility, poll.result_membership_tiers.all(), _is_staff=is_staff
+    ):
         return False
 
     # Then timing.

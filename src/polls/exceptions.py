@@ -3,6 +3,7 @@
 import typing as t
 
 from django.core.exceptions import ValidationError
+from django.utils.translation import gettext_lazy as _
 
 
 class PollAnonymityImmutableError(ValidationError):
@@ -10,7 +11,7 @@ class PollAnonymityImmutableError(ValidationError):
 
     def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
         """Initialise with the default anonymity-lock message when no override is supplied."""
-        super().__init__(message or "Anonymity flags are immutable after a poll is created.", **kwargs)
+        super().__init__(message or _("Anonymity flags are immutable after a poll is created."), **kwargs)
 
 
 class PollNotOpenError(ValidationError):
@@ -18,7 +19,7 @@ class PollNotOpenError(ValidationError):
 
     def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
         """Initialise with the default not-open message when no override is supplied."""
-        super().__init__(message or "This poll is not open for voting.", **kwargs)
+        super().__init__(message or _("This poll is not open for voting."), **kwargs)
 
 
 class PollNotEligibleError(ValidationError):
@@ -26,7 +27,7 @@ class PollNotEligibleError(ValidationError):
 
     def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
         """Initialise with the default not-eligible message when no override is supplied."""
-        super().__init__(message or "You are not eligible to vote on this poll.", **kwargs)
+        super().__init__(message or _("You are not eligible to vote on this poll."), **kwargs)
 
 
 class PollVoteAlreadyCastError(ValidationError):
@@ -34,7 +35,7 @@ class PollVoteAlreadyCastError(ValidationError):
 
     def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
         """Initialise with the default already-voted message when no override is supplied."""
-        super().__init__(message or "You have already voted on this poll.", **kwargs)
+        super().__init__(message or _("You have already voted on this poll."), **kwargs)
 
 
 class PollVoteChangesNotAllowedError(ValidationError):
@@ -42,7 +43,7 @@ class PollVoteChangesNotAllowedError(ValidationError):
 
     def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
         """Initialise with the default changes-not-allowed message when no override is supplied."""
-        super().__init__(message or "Vote changes are not allowed for this poll.", **kwargs)
+        super().__init__(message or _("Vote changes are not allowed for this poll."), **kwargs)
 
 
 class PollQuestionLockedError(ValidationError):
@@ -50,7 +51,7 @@ class PollQuestionLockedError(ValidationError):
 
     def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
         """Initialise with the default question-locked message when no override is supplied."""
-        super().__init__(message or "Questions cannot be modified once the poll leaves DRAFT.", **kwargs)
+        super().__init__(message or _("Questions cannot be modified once the poll leaves DRAFT."), **kwargs)
 
 
 class PollLifecycleError(ValidationError):
@@ -58,7 +59,7 @@ class PollLifecycleError(ValidationError):
 
     def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
         """Initialise with the default lifecycle-error message when no override is supplied."""
-        super().__init__(message or "Invalid poll lifecycle action.", **kwargs)
+        super().__init__(message or _("Invalid poll lifecycle action."), **kwargs)
 
 
 class PollValidationError(ValidationError):
@@ -73,4 +74,4 @@ class PollValidationError(ValidationError):
 
     def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
         """Initialise with the default validation message when no override is supplied."""
-        super().__init__(message or "Invalid references in poll payload.", **kwargs)
+        super().__init__(message or _("Invalid references in poll payload."), **kwargs)
