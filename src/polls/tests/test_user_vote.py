@@ -25,16 +25,37 @@ from questionnaires.models import (
 pytestmark = pytest.mark.django_db
 
 
+class PollSetup(t.NamedTuple):
+    """A poll plus the questions on its (locked) questionnaire."""
+
+    poll: Poll
+    mcq: MultipleChoiceQuestion
+    mc_options: list[MultipleChoiceOption]
+    ftq: FreeTextQuestion
+    fuq: FileUploadQuestion
+
+
 @pytest.fixture
-def poll(organization: t.Any) -> Poll:
-    """A public OPEN poll backing a fresh questionnaire."""
+def poll_setup(organization: t.Any) -> PollSetup:
+    """A public OPEN poll whose questionnaire has one multi-select MC, one
+    free-text, and one file-upload question.
+
+    All questions are created BEFORE the poll: the ``polls.signals`` lockdown
+    forbids structural mutations to a poll's questionnaire once the poll exists
+    (it is created OPEN here), so question creation must precede the poll.
+    """
     q = Questionnaire.objects.create(name="vote-readback Q")
-    return Poll.objects.create(
+    mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, question="Pick some", allow_multiple_answers=True)
+    mc_options = [MultipleChoiceOption.objects.create(question=mcq, option=f"opt-{i}") for i in range(3)]
+    ftq = FreeTextQuestion.objects.create(questionnaire=q, question="Why?")
+    fuq = FileUploadQuestion.objects.create(questionnaire=q, question="Upload", max_files=2)
+    poll = Poll.objects.create(
         organization=organization,
         questionnaire=q,
         vote_visibility="public",
         status=Poll.PollStatus.OPEN,
     )
+    return PollSetup(poll=poll, mcq=mcq, mc_options=mc_options, ftq=ftq, fuq=fuq)
 
 
 def _ready_submission(poll: Poll, user: t.Any) -> QuestionnaireSubmission:
@@ -46,31 +67,28 @@ def _ready_submission(poll: Poll, user: t.Any) -> QuestionnaireSubmission:
     )
 
 
-def test_returns_none_for_anonymous_user(poll: Poll) -> None:
-    assert build_user_vote(AnonymousUser(), poll) is None
+def test_returns_none_for_anonymous_user(poll_setup: PollSetup) -> None:
+    assert build_user_vote(AnonymousUser(), poll_setup.poll) is None
 
 
-def test_returns_none_when_user_has_not_voted(poll: Poll, revel_user_factory: t.Any) -> None:
-    assert build_user_vote(revel_user_factory(), poll) is None
+def test_returns_none_when_user_has_not_voted(poll_setup: PollSetup, revel_user_factory: t.Any) -> None:
+    assert build_user_vote(revel_user_factory(), poll_setup.poll) is None
 
 
-def test_returns_none_for_draft_submission(poll: Poll, revel_user_factory: t.Any) -> None:
+def test_returns_none_for_draft_submission(poll_setup: PollSetup, revel_user_factory: t.Any) -> None:
     """A DRAFT (un-submitted) submission is not a cast vote and must not pre-fill."""
     user = revel_user_factory()
     QuestionnaireSubmission.objects.create(
         user=user,
-        questionnaire=poll.questionnaire,
+        questionnaire=poll_setup.poll.questionnaire,
         status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.DRAFT,
     )
-    assert build_user_vote(user, poll) is None
+    assert build_user_vote(user, poll_setup.poll) is None
 
 
-def test_groups_multiple_choice_options_by_question(poll: Poll, revel_user_factory: t.Any) -> None:
+def test_groups_multiple_choice_options_by_question(poll_setup: PollSetup, revel_user_factory: t.Any) -> None:
     """Two selected options on one multi-select question collapse to one entry."""
-    mcq = MultipleChoiceQuestion.objects.create(
-        questionnaire=poll.questionnaire, question="Pick some", allow_multiple_answers=True
-    )
-    opts = [MultipleChoiceOption.objects.create(question=mcq, option=f"opt-{i}") for i in range(3)]
+    poll, mcq, opts = poll_setup.poll, poll_setup.mcq, poll_setup.mc_options
     user = revel_user_factory()
     sub = _ready_submission(poll, user)
     MultipleChoiceAnswer.objects.create(submission=sub, question=mcq, option=opts[0])
@@ -87,8 +105,8 @@ def test_groups_multiple_choice_options_by_question(poll: Poll, revel_user_facto
     assert vote.file_upload_answers == []
 
 
-def test_reads_free_text_answer(poll: Poll, revel_user_factory: t.Any) -> None:
-    ftq = FreeTextQuestion.objects.create(questionnaire=poll.questionnaire, question="Why?")
+def test_reads_free_text_answer(poll_setup: PollSetup, revel_user_factory: t.Any) -> None:
+    poll, ftq = poll_setup.poll, poll_setup.ftq
     user = revel_user_factory()
     sub = _ready_submission(poll, user)
     FreeTextAnswer.objects.create(submission=sub, question=ftq, answer="because")
@@ -101,8 +119,8 @@ def test_reads_free_text_answer(poll: Poll, revel_user_factory: t.Any) -> None:
     assert vote.free_text_answers[0].answer == "because"
 
 
-def test_reads_file_upload_answer(poll: Poll, revel_user_factory: t.Any) -> None:
-    fuq = FileUploadQuestion.objects.create(questionnaire=poll.questionnaire, question="Upload", max_files=2)
+def test_reads_file_upload_answer(poll_setup: PollSetup, revel_user_factory: t.Any) -> None:
+    poll, fuq = poll_setup.poll, poll_setup.fuq
     user = revel_user_factory()
     qfile = QuestionnaireFile.objects.create(
         uploader=user,
