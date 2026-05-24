@@ -8,7 +8,6 @@ from ninja import Schema
 from pydantic import AwareDatetime, Field, model_validator
 
 from events.models.mixins import ResourceVisibility
-from events.schema.questionnaire import McQuestionStatSchema
 from polls.models import Poll
 from questionnaires import schema as questionnaires_schema
 from questionnaires.models import Questionnaire
@@ -256,9 +255,44 @@ class PollFreeTextResponseSchema(Schema):
     user_email: str | None = None
 
 
+class PollVoterSchema(Schema):
+    """A single voter's identity, attached to an MC option when the viewer may see it."""
+
+    user_id: UUID
+    user_display_name: str | None = None
+    user_email: str | None = None
+
+
+class PollMcOptionStatSchema(Schema):
+    """Per-option MC tally for poll results, optionally carrying the voter list.
+
+    Mirrors ``events.schema.questionnaire.McOptionStatSchema`` (the aggregate
+    shape) but adds ``voters``: who selected this option. ``voters`` is
+    populated (possibly ``[]`` when nobody picked the option) only when the
+    viewer is allowed to see voter identity — staff on a poll with
+    ``staff_anonymous=False``, or non-staff on a poll with
+    ``public_anonymous=False``. It is ``None`` (not ``[]``) otherwise, so the
+    FE can distinguish "anonymous poll" from "nobody picked this option".
+    """
+
+    option_id: UUID
+    option_text: str
+    is_correct: bool
+    count: int
+    voters: list[PollVoterSchema] | None = None
+
+
+class PollMcQuestionStatSchema(Schema):
+    """Per-question MC tally for poll results (poll-specific, voter-aware)."""
+
+    question_id: UUID
+    question_text: str
+    options: list[PollMcOptionStatSchema]
+
+
 class PollResultsSchema(Schema):
     total_voters: int
-    mc_question_stats: list[McQuestionStatSchema] = Field(default_factory=list)
+    mc_question_stats: list[PollMcQuestionStatSchema] = Field(default_factory=list)
     free_text_responses: list[PollFreeTextResponseSchema] = Field(default_factory=list)
 
 

@@ -83,6 +83,56 @@ def test_mc_distribution_uses_existing_aggregation(
     assert counts["opt-2"] == 0
 
 
+def test_mc_voters_hidden_when_viewer_anonymous(
+    poll_with_questions: tuple[Poll, list[t.Any], list[t.Any]],
+    revel_user_factory: t.Any,
+) -> None:
+    """``voters`` is None (not []) on every option when identity is hidden (#450)."""
+    poll, options, _ = poll_with_questions
+    u = revel_user_factory()
+    sub = QuestionnaireSubmission.objects.create(
+        user=u,
+        questionnaire=poll.questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        submitted_at=timezone.now(),
+    )
+    MultipleChoiceAnswer.objects.create(submission=sub, question=options[0].question, option=options[0])
+
+    result = compute_poll_results(poll, viewer_sees_identity=False)
+    stat = result.mc_question_stats[0]
+    assert all(o.voters is None for o in stat.options)
+
+
+def test_mc_voters_exposed_when_viewer_sees_identity(
+    poll_with_questions: tuple[Poll, list[t.Any], list[t.Any]],
+    revel_user_factory: t.Any,
+) -> None:
+    """When identity is visible, picked options list voters and unpicked ones get [] (#450)."""
+    poll, options, _ = poll_with_questions
+    voter = revel_user_factory(preferred_name="Diana D.")
+    sub = QuestionnaireSubmission.objects.create(
+        user=voter,
+        questionnaire=poll.questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        submitted_at=timezone.now(),
+    )
+    MultipleChoiceAnswer.objects.create(submission=sub, question=options[0].question, option=options[0])
+
+    result = compute_poll_results(poll, viewer_sees_identity=True)
+    by_text = {o.option_text: o for o in result.mc_question_stats[0].options}
+
+    picked = by_text["opt-0"]
+    assert picked.voters is not None
+    assert len(picked.voters) == 1
+    assert picked.voters[0].user_id == voter.id
+    assert picked.voters[0].user_display_name == "Diana D."
+    assert picked.voters[0].user_email == voter.email
+
+    # Unpicked options: identity visible, so [] (someone could see who, nobody did) — not None.
+    assert by_text["opt-1"].voters == []
+    assert by_text["opt-2"].voters == []
+
+
 def test_free_text_responses_hide_identity_when_viewer_anonymous(
     poll_with_questions: tuple[Poll, list[t.Any], list[t.Any]],
     revel_user_factory: t.Any,
