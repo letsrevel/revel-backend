@@ -38,6 +38,7 @@ from polls.schema import (
     PollVoteSchema,
 )
 from polls.service import eligibility, poll_service
+from polls.service import user_vote as user_vote_service
 from polls.service.aggregation import compute_poll_results
 from polls.types import UserLike
 
@@ -346,6 +347,10 @@ class PollController(UserAwareController):
             results = compute_poll_results(
                 poll, viewer_sees_identity=self._viewer_sees_identity(poll, user, _is_staff=is_staff)
             )
+        # ``build_user_vote`` returns non-None iff the caller has a READY
+        # submission — the same condition as ``eligibility.user_has_voted`` —
+        # so derive the flag from it instead of issuing a redundant exists().
+        user_vote = user_vote_service.build_user_vote(user, poll)
         questionnaire_schema = QuestionnaireService(poll.questionnaire_id).build()
         return {
             "id": poll.id,
@@ -366,12 +371,13 @@ class PollController(UserAwareController):
             # ``_detail_queryset``; iterate ``.all()`` to read the prefetched M2M.
             "vote_membership_tier_ids": [tier.id for tier in poll.vote_membership_tiers.all()],
             "result_membership_tier_ids": [tier.id for tier in poll.result_membership_tiers.all()],
-            "user_has_voted": eligibility.user_has_voted(user, poll),
+            "user_has_voted": user_vote is not None,
             "user_can_vote": poll.status == Poll.PollStatus.OPEN
             and eligibility.can_vote(user, poll, _is_staff=is_staff),
             "user_can_see_results": user_can_see_results,
             "questionnaire": questionnaire_schema,
             "results": results,
+            "user_vote": user_vote,
         }
 
     @staticmethod

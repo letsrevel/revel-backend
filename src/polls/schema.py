@@ -159,6 +159,16 @@ class PollDetailSchema(Schema):
     user_can_see_results: bool
     questionnaire: questionnaires_schema.QuestionnaireSchema | None = None
     results: "PollResultsSchema | None" = None
+    user_vote: PollVoteSchema | None = None
+    """The caller's own current ballot, populated iff ``user_has_voted`` is True.
+
+    Reuses :class:`PollVoteSchema` (the vote request body) so the frontend can
+    read ``user_vote``, edit it, and POST it straight back to
+    ``/polls/{id}/vote`` — same wire shape both directions. This is always the
+    requesting user's OWN answers; anonymity flags (``staff_anonymous`` /
+    ``public_anonymous``) only govern whether OTHER viewers see a voter's
+    identity in aggregated ``results``, so they don't apply here.
+    """
 
 
 class PollListItemSchema(Schema):

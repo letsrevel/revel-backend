@@ -96,6 +96,76 @@ def test_detail_includes_user_flags(
     assert "user_has_voted" in body
 
 
+def test_detail_user_vote_null_before_voting(
+    authenticated_client: Client, organization: Organization, questionnaire: Questionnaire
+) -> None:
+    """``user_vote`` is null until the caller casts a vote (issue #449)."""
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.OPEN,
+    )
+    body = authenticated_client.get(f"/api/polls/{poll.id}/").json()
+    assert body["user_has_voted"] is False
+    assert body["user_vote"] is None
+
+
+def test_detail_user_vote_prefills_after_voting(
+    authenticated_client: Client,
+    organization: Organization,
+) -> None:
+    """After voting, ``user_vote`` echoes the caller's ballot in vote-request shape.
+
+    This is the pre-fill payload for the frontend "Change my vote" form
+    (issue #449): read ``user_vote``, edit, POST it back to ``/vote``.
+    """
+    from questionnaires.models import MultipleChoiceOption, MultipleChoiceQuestion
+
+    q = Questionnaire.objects.create(name="prefill Q")
+    mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, question="Pick?")
+    options = [MultipleChoiceOption.objects.create(question=mcq, option=f"o-{i}") for i in range(2)]
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=q,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.OPEN,
+        allow_vote_changes=True,
+    )
+
+    vote_payload = {
+        "mc_answers": [{"question_id": str(mcq.id), "option_ids": [str(options[1].id)]}],
+        "free_text_answers": [],
+        "file_upload_answers": [],
+    }
+    cast = authenticated_client.post(f"/api/polls/{poll.id}/vote", data=vote_payload, content_type="application/json")
+    assert cast.status_code == 200
+    # The vote response is itself a PollDetailSchema, so it already carries user_vote.
+    cast_body = cast.json()
+    assert cast_body["user_has_voted"] is True
+    assert cast_body["user_vote"]["mc_answers"] == [{"question_id": str(mcq.id), "option_ids": [str(options[1].id)]}]
+
+    detail = authenticated_client.get(f"/api/polls/{poll.id}/").json()
+    assert detail["user_vote"]["mc_answers"] == [{"question_id": str(mcq.id), "option_ids": [str(options[1].id)]}]
+    assert detail["user_vote"]["free_text_answers"] == []
+    assert detail["user_vote"]["file_upload_answers"] == []
+
+
+def test_detail_user_vote_null_for_anonymous(
+    anonymous_client: Client, organization: Organization, questionnaire: Questionnaire
+) -> None:
+    """Anonymous viewers of a public poll never get a ``user_vote``."""
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=questionnaire,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.OPEN,
+    )
+    body = anonymous_client.get(f"/api/polls/{poll.id}/").json()
+    assert body["user_has_voted"] is False
+    assert body["user_vote"] is None
+
+
 def test_detail_includes_questionnaire_structure(
     authenticated_client: Client,
     organization: Organization,
