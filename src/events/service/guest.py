@@ -216,7 +216,7 @@ def handle_guest_rsvp(
     token = create_guest_rsvp_token(user, event.id, answer_str)
 
     # Send confirmation email
-    send_guest_rsvp_confirmation.delay(user.email, token, event.name)
+    transaction.on_commit(lambda: send_guest_rsvp_confirmation.delay(user.email, token, event.name))
 
     return schema.GuestActionResponseSchema(message=str(_("Please check your email to confirm your RSVP")))
 
@@ -303,7 +303,7 @@ def handle_guest_ticket_checkout(
         # Non-online payment: require email confirmation
         # Store ticket info in JWT token for later creation
         token = create_guest_ticket_token(user, event.id, tier.id, tickets, pwyc_amount, discount_code)
-        send_guest_ticket_confirmation.delay(user.email, token, event.name, tier.name)
+        transaction.on_commit(lambda: send_guest_ticket_confirmation.delay(user.email, token, event.name, tier.name))
         return schema.GuestCheckoutResponseSchema(
             message=str(_("Please check your email to confirm your ticket purchase")),
             checkout_url=None,

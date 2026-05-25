@@ -8,6 +8,7 @@ import typing as t
 from uuid import UUID
 
 import structlog
+from django.db import transaction
 
 from accounts.models import RevelUser
 from common.models import SiteSettings
@@ -319,7 +320,7 @@ def notify_series_events_generated(series: EventSeries, events: list[Event]) -> 
 
     created_notifications = bulk_create_notifications(notifications_data)
     notification_ids = [str(n.id) for n in created_notifications]
-    dispatch_notifications_batch.delay(notification_ids)
+    transaction.on_commit(lambda: dispatch_notifications_batch.delay(notification_ids))
 
     logger.info(
         "series_events_generated_notifications_sent",

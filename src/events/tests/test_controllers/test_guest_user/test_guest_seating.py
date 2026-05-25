@@ -92,8 +92,15 @@ def random_seat_tier(
     return tier
 
 
+@pytest.mark.django_db(transaction=True)
 class TestGuestCheckoutReservedSeating:
-    """Test reserved seating functionality for guest ticket checkout endpoints."""
+    """Test reserved seating functionality for guest ticket checkout endpoints.
+
+    Uses ``transaction=True`` because the non-online checkout flow schedules
+    ``send_guest_ticket_confirmation`` via ``transaction.on_commit``. In default
+    pytest-django mode the wrapping transaction is rolled back and the callback
+    never fires, breaking the ``mock_send_email`` assertions.
+    """
 
     @patch("events.tasks.send_guest_ticket_confirmation.delay")
     def test_guest_checkout_user_choice_seating_success(

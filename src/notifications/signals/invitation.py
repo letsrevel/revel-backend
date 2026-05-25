@@ -22,7 +22,7 @@ def handle_invitation_save(
     sender: type[EventInvitation], instance: EventInvitation, created: bool, **kwargs: t.Any
 ) -> None:
     """Send notifications after invitation is created."""
-    build_attendee_visibility_flags.delay(str(instance.event_id))
+    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(str(instance.event_id)))
     if not created:
         return
 

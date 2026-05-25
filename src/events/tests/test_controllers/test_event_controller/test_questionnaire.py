@@ -62,6 +62,7 @@ def test_get_nonexistent_questionnaire_fails(nonmember_client: Client, public_ev
     assert response.status_code == 404
 
 
+@pytest.mark.django_db(transaction=True)
 @patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
 def test_submit_questionnaire_success_no_auto_eval(
     mock_evaluate_task: MagicMock,
@@ -69,7 +70,13 @@ def test_submit_questionnaire_success_no_auto_eval(
     public_event: Event,
     event_questionnaire: Questionnaire,
 ) -> None:
-    """Test a successful submission that does not trigger immediate evaluation."""
+    """Test a successful submission that does not trigger immediate evaluation.
+
+    Uses ``transaction=True`` because ``submit_questionnaire`` schedules
+    ``evaluate_questionnaire_submission`` via ``transaction.on_commit``. In
+    default pytest-django mode the wrapping transaction is rolled back and the
+    callback never fires, breaking the ``mock_evaluate_task`` assertion.
+    """
     mcq = event_questionnaire.multiplechoicequestion_questions.first()
     option = mcq.options.first()  # type: ignore[union-attr]
     url = reverse(
@@ -93,6 +100,7 @@ def test_submit_questionnaire_success_no_auto_eval(
     mock_evaluate_task.assert_called_once_with(str(submission.pk))  # type: ignore[union-attr]
 
 
+@pytest.mark.django_db(transaction=True)
 @patch("events.controllers.event_public.attendance.evaluate_questionnaire_submission.delay")
 def test_submit_questionnaire_success_with_auto_eval(
     mock_evaluate_task: MagicMock,
@@ -100,7 +108,13 @@ def test_submit_questionnaire_success_with_auto_eval(
     public_event: Event,
     auto_eval_questionnaire: Questionnaire,
 ) -> None:
-    """Test a successful submission that triggers immediate evaluation."""
+    """Test a successful submission that triggers immediate evaluation.
+
+    Uses ``transaction=True`` because ``submit_questionnaire`` schedules
+    ``evaluate_questionnaire_submission`` via ``transaction.on_commit``. In
+    default pytest-django mode the wrapping transaction is rolled back and the
+    callback never fires, breaking the ``mock_evaluate_task`` assertion.
+    """
     mcq = auto_eval_questionnaire.multiplechoicequestion_questions.first()
     option = mcq.options.first()  # type: ignore[union-attr]
     url = reverse(

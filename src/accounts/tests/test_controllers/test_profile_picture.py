@@ -5,6 +5,7 @@ This module tests the AccountController endpoints:
 - DELETE /account/me/delete-profile-picture
 """
 
+import typing as t
 from io import BytesIO
 
 import pytest
@@ -226,12 +227,15 @@ class TestUploadProfilePicture:
         auth_client: Client,
         user: RevelUser,
         png_bytes: bytes,
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         """Test that uploading creates a FileUploadAudit record for malware scanning.
 
         The system should create an audit record to track uploaded files and
         schedule a malware scan via the ClamAV integration.
         Note: In tests, Celery runs eagerly so the status will be CLEAN after the scan completes.
+        The upload schedules the scan via ``transaction.on_commit``; the capture
+        fixture executes that callback so the eager scan runs and sets the status.
         """
         # Arrange
         png_file = SimpleUploadedFile(
@@ -243,7 +247,8 @@ class TestUploadProfilePicture:
         initial_audit_count = FileUploadAudit.objects.count()
 
         # Act
-        response = auth_client.post(url, data={"profile_picture": png_file}, format="multipart")
+        with django_capture_on_commit_callbacks(execute=True):
+            response = auth_client.post(url, data={"profile_picture": png_file}, format="multipart")
 
         # Assert
         assert response.status_code == 200

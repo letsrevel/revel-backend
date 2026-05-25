@@ -196,6 +196,7 @@ class TestUploadFile:
         # Assert
         assert response.status_code == 401
 
+    @pytest.mark.django_db(transaction=True)
     @mock.patch("common.utils.tasks.scan_for_malware")
     def test_upload_file_triggers_malware_scan(
         self, mock_scan: mock.MagicMock, user_client: Client, user: RevelUser, png_bytes: bytes
@@ -203,6 +204,10 @@ class TestUploadFile:
         """Test that file upload triggers malware scan task.
 
         Verifies that scan_for_malware.delay() is called with correct parameters.
+
+        Uses ``transaction=True`` because the upload path schedules the scan via
+        ``transaction.on_commit``; in default pytest-django mode the rolled-back
+        transaction suppresses the callback, so ``.delay`` would never be called.
         """
         # Arrange
         url = reverse("api:upload_questionnaire_file")

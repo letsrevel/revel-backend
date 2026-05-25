@@ -17,8 +17,15 @@ from events.models import Event, Ticket, TicketTier
 pytestmark = pytest.mark.django_db
 
 
+@pytest.mark.django_db(transaction=True)
 class TestGuestTicketCheckout:
-    """Test guest ticket checkout endpoint for fixed-price tiers."""
+    """Test guest ticket checkout endpoint for fixed-price tiers.
+
+    Uses ``transaction=True`` because the non-online checkout flow schedules
+    ``send_guest_ticket_confirmation`` via ``transaction.on_commit``. In default
+    pytest-django mode the wrapping transaction is rolled back and the callback
+    never fires, breaking the ``mock_send_email`` assertions.
+    """
 
     @patch("events.tasks.send_guest_ticket_confirmation.delay")
     def test_guest_checkout_free_ticket_sends_confirmation(
@@ -204,8 +211,15 @@ class TestGuestTicketCheckout:
         assert "pwyc" in data["detail"].lower()
 
 
+@pytest.mark.django_db(transaction=True)
 class TestGuestPWYCCheckout:
-    """Test guest PWYC ticket checkout endpoint."""
+    """Test guest PWYC ticket checkout endpoint.
+
+    Uses ``transaction=True`` because the non-online PWYC checkout flow schedules
+    ``send_guest_ticket_confirmation`` via ``transaction.on_commit``. In default
+    pytest-django mode the wrapping transaction is rolled back and the callback
+    never fires, breaking the ``mock_send_email`` assertions.
+    """
 
     @patch("events.tasks.send_guest_ticket_confirmation.delay")
     def test_guest_pwyc_checkout_offline_success(

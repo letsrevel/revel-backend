@@ -36,6 +36,12 @@ def _send_activation_email_for_guest(user: RevelUser) -> None:
     guest-to-full-user conversion when the link is clicked.
     """
     token = create_password_reset_token(user)
+    # Bare dispatch (no on_commit): this helper is only invoked on the
+    # duplicate-registration anti-enumeration path, which dispatches the
+    # activation email and then raises HttpError(400), rolling the request
+    # transaction back. The target guest already exists (committed), so there
+    # is no read-after-commit race and the email must be sent despite the
+    # rollback. See register_user.
     tasks.send_account_activation_link.delay(user.email, token)
     logger.info("account_activation_email_sent", user_id=str(user.id), email=user.email)
 
@@ -68,7 +74,7 @@ def register_user(payload: schema.RegisterUserSchema) -> tuple[RevelUser, str]:
             _send_activation_email_for_guest(existing_user)
         elif not existing_user.email_verified:
             logger.info("user_registration_duplicate_unverified", email=payload.email)
-            send_verification_email_for_user(existing_user)
+            send_verification_email_for_user(existing_user, defer=False)
         logger.warning("user_registration_duplicate", email=payload.email)
         raise HttpError(400, str(_("A user with this email already exists.")))
 
@@ -161,11 +167,25 @@ def create_deletion_token(user: RevelUser) -> str:
     return token
 
 
-def send_verification_email_for_user(user: RevelUser) -> tuple[RevelUser, str]:
-    """Send a verification email for a user."""
+def send_verification_email_for_user(user: RevelUser, *, defer: bool = True) -> tuple[RevelUser, str]:
+    """Send a verification email for a user.
+
+    Args:
+        user: The user to email.
+        defer: When True (default), the dispatch is deferred until the
+            surrounding transaction commits, so a freshly-created user row is
+            visible to the worker (avoids a read-after-commit race). Pass
+            ``defer=False`` on the duplicate-registration anti-enumeration path
+            that dispatches and then rolls the request transaction back: there
+            the target user already exists, so the email must be sent
+            regardless of the rollback.
+    """
     logger.info("verification_email_requested", user_id=str(user.id), email=user.email)
     token = create_verification_token(user)
-    tasks.send_verification_email.delay(user.email, token)
+    if defer:
+        transaction.on_commit(lambda: tasks.send_verification_email.delay(user.email, token))
+    else:
+        tasks.send_verification_email.delay(user.email, token)
     return user, token
 
 
@@ -265,7 +285,7 @@ def request_password_reset(email: str) -> str | None:
         logger.info("password_reset_blocked_google_sso", user_id=str(user.id), email=email)
         return None
     token = create_password_reset_token(user)
-    tasks.send_password_reset_link.delay(user.email, token)
+    transaction.on_commit(lambda: tasks.send_password_reset_link.delay(user.email, token))
     logger.info("password_reset_email_sent", user_id=str(user.id), email=email)
     return token
 
@@ -281,7 +301,7 @@ def request_account_deletion(user: RevelUser) -> str:
     """
     logger.info("account_deletion_requested", user_id=str(user.id), email=user.email)
     token = create_deletion_token(user)
-    tasks.send_account_deletion_link.delay(user.email, token)
+    transaction.on_commit(lambda: tasks.send_account_deletion_link.delay(user.email, token))
     return token
 
 
@@ -389,8 +409,8 @@ def request_email_change(user: RevelUser, new_email: str, password: str) -> str:
         raise HttpError(400, str(_("This email is already in use.")))
 
     token = create_email_change_token(user, new_email)
-    tasks.send_email_change_confirmation.delay(new_email, token)
-    tasks.send_email_change_notice.delay(user.email, _mask_email(new_email))
+    transaction.on_commit(lambda: tasks.send_email_change_confirmation.delay(new_email, token))
+    transaction.on_commit(lambda: tasks.send_email_change_notice.delay(user.email, _mask_email(new_email)))
     logger.info("email_change_email_sent", user_id=str(user.id), new_email=new_email)
     return token
 
@@ -449,8 +469,8 @@ def confirm_email_change(token: str) -> RevelUser:
         logger.warning("email_change_confirm_race_loss", user_id=str(user.id), new_email=new_email)
         raise HttpError(400, str(_("This email is already in use.")))
 
-    tasks.send_email_change_completed_old.delay(old_email, new_email)
-    tasks.send_email_change_completed_new.delay(new_email, old_email)
+    transaction.on_commit(lambda: tasks.send_email_change_completed_old.delay(old_email, new_email))
+    transaction.on_commit(lambda: tasks.send_email_change_completed_new.delay(new_email, old_email))
     logger.info(
         "email_change_confirmed",
         user_id=str(user.id),
@@ -497,7 +517,7 @@ def confirm_account_deletion(token: str) -> None:
     logger.info("account_deletion_confirmed", user_id=str(user.id), email=user.email)
     blacklist_token(token)
     # Enqueue the deletion as a background task to handle heavy operations
-    tasks.delete_user_account.delay(str(user.id))
+    transaction.on_commit(lambda: tasks.delete_user_account.delay(str(user.id)))
 
 
 def update_profile(user: RevelUser, payload: schema.ProfileUpdateSchema) -> RevelUser:

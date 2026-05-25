@@ -4,6 +4,7 @@ import typing as t
 from dataclasses import dataclass, field
 from uuid import UUID
 
+from django.db import transaction
 from django.utils import timezone
 from pydantic import BaseModel
 
@@ -136,8 +137,13 @@ def trigger_visibility_flags_for_user(user_id: UUID) -> None:
             ).values_list("event_id", flat=True)
         )
     )
-    for event_id in event_ids:
-        build_attendee_visibility_flags.delay(str(event_id))
+    event_id_strs = [str(event_id) for event_id in event_ids]
+
+    def _dispatch_visibility_flags() -> None:
+        for event_id in event_id_strs:
+            build_attendee_visibility_flags.delay(event_id)
+
+    transaction.on_commit(_dispatch_visibility_flags)
 
 
 def resolve_visibility_fast(

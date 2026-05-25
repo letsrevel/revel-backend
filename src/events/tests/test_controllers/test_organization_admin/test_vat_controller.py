@@ -463,6 +463,7 @@ class TestSetVatId:
 
         assert response.status_code == 400
 
+    @pytest.mark.django_db(transaction=True)
     @patch("events.tasks.revalidate_single_vat_id_task.delay")
     @patch("common.service.vies_service.validate_and_update_vat_entity")
     def test_vies_unavailable_returns_503(
@@ -476,6 +477,12 @@ class TestSetVatId:
 
         The VAT ID should be persisted in the database with vat_id_validated=False
         so it can be retried later. A background revalidation task is queued.
+
+        Uses ``transaction=True`` because ``set_org_vat_id`` schedules
+        ``revalidate_single_vat_id_task`` via ``transaction.on_commit`` when VIES
+        is unavailable. In default pytest-django mode the wrapping transaction is
+        rolled back and the callback never fires, breaking the
+        ``mock_revalidate_task`` assertion.
         """
         mock_validate.side_effect = VIESUnavailableError("VIES is down")
 

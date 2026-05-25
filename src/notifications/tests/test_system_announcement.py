@@ -233,8 +233,16 @@ def _use_simple_staticfiles(settings: t.Any) -> None:
     }
 
 
+@pytest.mark.django_db(transaction=True)
 class TestSendSystemAnnouncementAdminView:
-    """Tests for the admin Send System Announcement view."""
+    """Tests for the admin Send System Announcement view.
+
+    Uses ``transaction=True`` because the admin view schedules
+    ``dispatch_notifications_batch.delay`` via ``transaction.on_commit``; in
+    default pytest-django mode the rolled-back transaction suppresses the
+    callback, so ``mock_dispatch.delay`` assertions (called/not-called) would
+    never reflect the real commit-time behaviour.
+    """
 
     def test_get_renders_form(self, admin_client: Client) -> None:
         """GET should render the announcement form for a superuser."""
