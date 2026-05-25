@@ -198,6 +198,43 @@
             </div>
         </div>
 
+        {# Top Organizations by Traction #}
+        <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-800 rounded-lg shadow p-6 mb-8">
+            <h2 class="text-lg font-semibold mb-1 text-gray-800 dark:text-gray-200">Top Organizations by Traction</h2>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Distinct users reached in the last 12 months (RSVP yes/maybe, or an active, checked-in or pending ticket)
+            </p>
+            {% if dashboard.top_organizations.rows %}
+                <div class="h-80 mb-6">
+                    <canvas id="orgTractionChart"></canvas>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left text-gray-600 dark:text-gray-400 border-b border-base-200 dark:border-base-700">
+                                <th class="py-2 pr-4 font-semibold">#</th>
+                                <th class="py-2 pr-4 font-semibold">Organization</th>
+                                <th class="py-2 font-semibold text-right">Distinct users</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for org in dashboard.top_organizations.rows %}
+                                <tr class="border-b border-base-100 dark:border-base-800">
+                                    <td class="py-2 pr-4 text-gray-500 dark:text-gray-400">{{ org.rank }}</td>
+                                    <td class="py-2 pr-4">
+                                        <a href="{{ org.change_url }}" class="text-primary-600 dark:text-primary-500 hover:underline">{{ org.name }}</a>
+                                    </td>
+                                    <td class="py-2 text-right font-semibold text-gray-900 dark:text-gray-100">{{ org.distinct_users }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-gray-600 dark:text-gray-400">No organization traction data available</p>
+            {% endif %}
+        </div>
+
         {# System Health #}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             {# Failed Tasks #}
@@ -292,6 +329,7 @@
     {# Safe JSON serialization for chart data #}
     {{ dashboard.user_growth|json_script:"user-growth-data" }}
     {{ dashboard.pronoun_distribution|json_script:"pronoun-distribution-data" }}
+    {{ dashboard.top_organizations|json_script:"org-traction-data" }}
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // User Growth Line Chart
@@ -372,6 +410,39 @@
                                         return `${context.label}: ${context.raw} (${percentage}%)`;
                                     }
                                 }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // Top Organizations by Traction Horizontal Bar Chart
+            const orgTractionCtx = document.getElementById('orgTractionChart');
+            if (orgTractionCtx) {
+                const orgTractionData = JSON.parse(document.getElementById('org-traction-data').textContent);
+                new Chart(orgTractionCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: orgTractionData.labels,
+                        datasets: [{
+                            label: 'Distinct users',
+                            data: orgTractionData.data,
+                            backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                            borderColor: '#3b82f6',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                ticks: { stepSize: 1 }
                             }
                         }
                     }

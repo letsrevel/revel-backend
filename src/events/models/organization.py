@@ -1,5 +1,7 @@
 import typing as t
 import uuid
+from collections import Counter
+from datetime import datetime
 from uuid import UUID
 
 from django.conf import settings
@@ -31,6 +33,14 @@ ALLOWED_MEMBERSHIP_REQUEST_METHODS = ["telegram", "email", "webform"]  # kept fo
 
 def _validate_membership_request_methods(value: list[str]) -> None:
     pass  # kept for backwards compatibility
+
+
+class OrgTractionRow(t.NamedTuple):
+    """A single ranked row in the 'top organizations by traction' leaderboard."""
+
+    organization_id: UUID
+    name: str
+    distinct_users: int
 
 
 class OrganizationQuerySet(models.QuerySet["Organization"]):
@@ -137,6 +147,80 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
         is_owner_or_staff = Q(owner=user) | Q(staff_members=user)
         return qs.exclude(Q(visibility=Organization.Visibility.UNLISTED) & ~is_owner_or_staff)
 
+    def top_by_traction(self, since: datetime, limit: int = 10) -> list[OrgTractionRow]:
+        """Rank organizations by the number of distinct users they reached since ``since``.
+
+        Traction is the count of distinct users who, with an RSVP/ticket
+        ``created_at`` on or after ``since``, engaged with any event belonging to
+        the organization, where "engaged" means either:
+
+        - an :class:`EventRSVP` with status ``yes`` or ``maybe``, **or**
+        - a :class:`Ticket` with status ``active``, ``checked_in`` or ``pending``.
+
+        A user is counted **once per organization** even if they both RSVP'd and
+        bought a ticket: the two ``(organization, user)`` pair sets are combined with
+        a DB-side ``UNION`` (not ``UNION ALL``), so identical pairs are deduplicated
+        in PostgreSQL before they reach Python.
+
+        Name resolution is scoped to ``self``, so calling this on a filtered queryset
+        (e.g. ``Organization.objects.for_user(user)``) restricts the leaderboard to
+        the organizations in that queryset. Note that the engagement scan itself is
+        global: ``self`` only filters the final org set, so the result is correctly
+        scoped even though the RSVP/ticket pair counts are computed across all
+        organizations (this keeps the all-orgs dashboard path free of a redundant
+        ``organization_id__in`` subquery).
+
+        Performance: the ``UNION`` is deduplicated in the DB, but the per-organization
+        count is done in Python via :class:`collections.Counter`. The Counter consumes
+        the cursor lazily, so peak app memory is bounded by the number of distinct
+        organizations (small); the cost that scales with engagement volume is the
+        DB→app transfer of the deduplicated pairs, not memory. This is acceptable for
+        a low-frequency admin dashboard. If the transfer ever becomes a bottleneck,
+        swap the body for a single raw-SQL ``GROUP BY`` over the ``UNION`` subquery —
+        the ``(since, limit)`` signature is the seam, so callers, the dashboard helper,
+        the template and the tests stay unchanged.
+
+        Args:
+            since: Inclusive lower bound on the RSVP/ticket ``created_at``.
+            limit: Maximum number of organizations to return.
+
+        Returns:
+            Up to ``limit`` rows, ranked by ``distinct_users`` descending, ties broken
+            alphabetically (case-insensitive) by organization name. Organizations with
+            zero qualifying users are omitted.
+        """
+        from events.models import EventRSVP, Ticket
+
+        rsvp_pairs = EventRSVP.objects.filter(
+            status__in=[EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.MAYBE],
+            created_at__gte=since,
+        ).values_list("event__organization_id", "user_id")
+        ticket_pairs = Ticket.objects.filter(
+            status__in=[
+                Ticket.TicketStatus.ACTIVE,
+                Ticket.TicketStatus.CHECKED_IN,
+                Ticket.TicketStatus.PENDING,
+            ],
+            created_at__gte=since,
+        ).values_list("event__organization_id", "user_id")
+
+        # UNION (the default, not UNION ALL) deduplicates identical (org, user) rows in
+        # the DB, so a user who both RSVP'd and bought a ticket for the same org is
+        # counted once. Counting per org happens here because Django cannot apply a
+        # GROUP BY on top of a .union() queryset.
+        counts: Counter[UUID] = Counter(org_id for org_id, _user_id in rsvp_pairs.union(ticket_pairs))
+        if not counts:
+            return []
+
+        names: dict[UUID, str] = dict(self.filter(id__in=list(counts)).values_list("id", "name"))
+        rows = [
+            OrgTractionRow(organization_id=org_id, name=names[org_id], distinct_users=count)
+            for org_id, count in counts.items()
+            if org_id in names
+        ]
+        rows.sort(key=lambda row: (-row.distinct_users, row.name.casefold()))
+        return rows[:limit]
+
 
 class OrganizationManager(models.Manager["Organization"]):
     def get_queryset(self) -> OrganizationQuerySet:
@@ -164,6 +248,10 @@ class OrganizationManager(models.Manager["Organization"]):
     def full(self) -> OrganizationQuerySet:
         """Returns a queryset prefetching the full organizations."""
         return self.get_queryset().with_city().with_tags()
+
+    def top_by_traction(self, since: datetime, limit: int = 10) -> list[OrgTractionRow]:
+        """Rank organizations by distinct users reached since ``since`` (see queryset method)."""
+        return self.get_queryset().top_by_traction(since=since, limit=limit)
 
 
 class Organization(

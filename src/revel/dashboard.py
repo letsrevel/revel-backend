@@ -1,8 +1,9 @@
 """Dashboard callback for Django Unfold admin interface."""
 
 import typing as t
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
+from dateutil.relativedelta import relativedelta
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count
 from django.http import HttpRequest
@@ -17,7 +18,85 @@ from notifications.models import NotificationDelivery
 from telegram.models import TelegramUser
 
 
-def _get_pronoun_distribution() -> dict[str, t.Any]:
+class PronounDistribution(t.TypedDict):
+    """Pie-chart data for the pronoun distribution card."""
+
+    labels: list[str]
+    data: list[int]
+    total: int
+
+
+class UserGrowthData(t.TypedDict):
+    """Line-chart data for the user-growth card."""
+
+    labels: list[str]
+    data: list[int]
+
+
+class RecentTaskFailure(t.TypedDict):
+    """A single recent Celery task failure rendered in the task-health card."""
+
+    task_name: str | None
+    date_done: datetime | None
+    task_id: str
+
+
+class TaskHealth(t.TypedDict):
+    """Celery task-health summary."""
+
+    failed_count: int
+    recent_failures: list[RecentTaskFailure]
+    days: int
+
+
+class RecentNotificationFailure(t.TypedDict):
+    """A single recent notification-delivery failure rendered in the notification-health card."""
+
+    notification_type: str
+    channel: str
+    created_at: datetime
+    error_message: str
+
+
+class NotificationHealth(t.TypedDict):
+    """Notification-delivery health summary."""
+
+    failed_count: int
+    channel_breakdown: dict[str, int]
+    recent_failures: list[RecentNotificationFailure]
+    days: int
+
+
+class MaintenanceBanner(t.TypedDict):
+    """Active maintenance-banner data for the dashboard."""
+
+    message: str
+    severity: SiteSettings.BannerSeverity
+    scheduled_at: datetime | None
+    ends_at: datetime | None
+    accent: str
+    label: str
+    icon: str
+
+
+class TopOrganizationRow(t.TypedDict):
+    """A single ranked row in the top-organizations-by-traction table."""
+
+    rank: int
+    name: str
+    distinct_users: int
+    change_url: str
+
+
+class TopOrganizationsPayload(t.TypedDict):
+    """Chart series and ranked table rows for the top-organizations-by-traction card."""
+
+    labels: list[str]
+    data: list[int]
+    rows: list[TopOrganizationRow]
+
+
+def _get_pronoun_distribution() -> PronounDistribution:
     """Calculate pronoun distribution among users.
 
     Returns:
@@ -46,7 +125,7 @@ def _get_pronoun_distribution() -> dict[str, t.Any]:
     }
 
 
-def _get_user_growth_data(days: int = 30) -> dict[str, t.Any]:
+def _get_user_growth_data(days: int = 30) -> UserGrowthData:
     """Calculate user growth statistics over the specified period.
 
     Args:
@@ -127,7 +206,7 @@ def _get_event_analytics() -> dict[str, t.Any]:
     }
 
 
-def _get_task_health(days: int = 7) -> dict[str, t.Any]:
+def _get_task_health(days: int = 7) -> TaskHealth:
     """Get Celery task health statistics.
 
     Args:
@@ -144,7 +223,7 @@ def _get_task_health(days: int = 7) -> dict[str, t.Any]:
     failed_tasks = TaskResult.objects.filter(status="FAILURE", date_done__gte=cutoff_date).order_by("-date_done")
 
     failed_count = failed_tasks.count()
-    recent_failures = [
+    recent_failures: list[RecentTaskFailure] = [
         {
             "task_name": task.task_name,
             "date_done": task.date_done,
@@ -160,7 +239,7 @@ def _get_task_health(days: int = 7) -> dict[str, t.Any]:
     }
 
 
-def _get_notification_health(days: int = 7) -> dict[str, t.Any]:
+def _get_notification_health(days: int = 7) -> NotificationHealth:
     """Get notification delivery health statistics.
 
     Args:
@@ -183,7 +262,7 @@ def _get_notification_health(days: int = 7) -> dict[str, t.Any]:
     channel_breakdown = {stat["channel"]: stat["count"] for stat in channel_stats}
 
     # Recent failures
-    recent_failures = [
+    recent_failures: list[RecentNotificationFailure] = [
         {
             "notification_type": delivery.notification.notification_type,
             "channel": delivery.channel,
@@ -198,6 +277,41 @@ def _get_notification_health(days: int = 7) -> dict[str, t.Any]:
         "channel_breakdown": channel_breakdown,
         "recent_failures": recent_failures,
         "days": days,
+    }
+
+
+def _get_top_organizations_by_traction(months: int = 12, limit: int = 10) -> TopOrganizationsPayload:
+    """Get the top organizations by user traction over a trailing window.
+
+    Traction is the number of distinct users an organization reached via event
+    RSVPs (yes/maybe) or tickets (active/checked_in/pending) — see
+    ``OrganizationQuerySet.top_by_traction`` for the exact metric.
+
+    Args:
+        months: Size of the trailing window in months (default: 12).
+        limit: Maximum number of organizations to include (default: 10).
+
+    Returns:
+        Dictionary with ``labels`` and ``data`` for the bar chart and ``rows``
+        (rank, name, distinct_users, change_url) for the ranked table.
+    """
+    since = timezone.now() - relativedelta(months=months)
+    rows = Organization.objects.top_by_traction(since=since, limit=limit)
+
+    table_rows: list[TopOrganizationRow] = [
+        {
+            "rank": rank,
+            "name": row.name,
+            "distinct_users": row.distinct_users,
+            "change_url": reverse("admin:events_organization_change", args=[row.organization_id]),
+        }
+        for rank, row in enumerate(rows, start=1)
+    ]
+
+    return {
+        "labels": [row.name for row in rows],
+        "data": [row.distinct_users for row in rows],
+        "rows": table_rows,
     }
 
 
@@ -230,7 +344,7 @@ _BANNER_SEVERITY_STYLES: dict[SiteSettings.BannerSeverity, dict[str, str]] = {
 }
 
 
-def _get_maintenance_banner(site_settings: SiteSettings) -> dict[str, t.Any] | None:
+def _get_maintenance_banner(site_settings: SiteSettings) -> MaintenanceBanner | None:
     """Return maintenance banner data if a banner is currently active.
 
     A banner is active when maintenance_message is non-empty and
@@ -253,7 +367,9 @@ def _get_maintenance_banner(site_settings: SiteSettings) -> dict[str, t.Any] | N
         "severity": severity,
         "scheduled_at": site_settings.maintenance_scheduled_at,
         "ends_at": site_settings.maintenance_ends_at,
-        **styles,
+        "accent": styles["accent"],
+        "label": styles["label"],
+        "icon": styles["icon"],
     }
 
 
@@ -293,6 +409,9 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
 
     # Event analytics
     event_analytics = _get_event_analytics()
+
+    # Top organizations by user traction (last 12 months)
+    top_organizations = _get_top_organizations_by_traction(months=12, limit=10)
 
     # Task health
     task_health = _get_task_health(days=7)
@@ -342,6 +461,7 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
                 "user_growth": user_growth,
                 "pronoun_distribution": pronoun_distribution,
                 "event_analytics": event_analytics,
+                "top_organizations": top_organizations,
                 "task_health": task_health,
                 "notification_health": notification_health,
             }
