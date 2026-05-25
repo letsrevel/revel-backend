@@ -373,6 +373,7 @@ class PermissionMap(BaseModel):
     evaluate_questionnaire: bool = True
     send_announcements: bool = False
     manage_subscriptions: bool = True
+    manage_polls: bool = False
 
 
 class PermissionsSchema(BaseModel):

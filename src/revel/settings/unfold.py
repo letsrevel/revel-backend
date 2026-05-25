@@ -360,6 +360,18 @@ UNFOLD = {
                 ],
             },
             {
+                "title": _("Polls"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Polls"),
+                        "icon": "ballot",
+                        "link": reverse_lazy("admin:polls_poll_changelist"),
+                    },
+                ],
+            },
+            {
                 "title": _("Notifications"),
                 "separator": True,
                 "collapsible": True,

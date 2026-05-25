@@ -1,0 +1,277 @@
+"""Tests for poll_service.vote and poll_service.withdraw_vote."""
+
+import typing as t
+
+import pytest
+from django.utils import timezone
+
+from events.models.mixins import ResourceVisibility
+from polls.exceptions import (
+    PollNotEligibleError,
+    PollNotOpenError,
+    PollValidationError,
+    PollVoteAlreadyCastError,
+    PollVoteChangesNotAllowedError,
+)
+from polls.models import Poll
+from polls.schema import (
+    McAnswerInput,
+    PollVoteSchema,
+)
+from polls.service import poll_service
+from questionnaires.models import (
+    MultipleChoiceAnswer,
+    MultipleChoiceOption,
+    MultipleChoiceQuestion,
+    Questionnaire,
+    QuestionnaireSubmission,
+)
+
+pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture
+def open_poll_with_mc(
+    organization: t.Any,
+) -> tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]]:
+    """Build an OPEN poll with a single MC question and two options."""
+    q = Questionnaire.objects.create(name="Q")
+    # Build questions BEFORE the poll so the question-lockdown signal allows mutations.
+    mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, question="pick")
+    options = [MultipleChoiceOption.objects.create(question=mcq, option=f"o-{i}") for i in range(2)]
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=q,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.OPEN,
+        opened_at=timezone.now(),
+    )
+    return poll, mcq, options
+
+
+def test_vote_creates_submission_and_answer(
+    open_poll_with_mc: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+    revel_user_factory: t.Any,
+) -> None:
+    poll, mcq, options = open_poll_with_mc
+    user = revel_user_factory()
+    poll_service.vote(
+        user=user,
+        poll_id=poll.id,
+        payload=PollVoteSchema(
+            mc_answers=[McAnswerInput(question_id=mcq.id, option_ids=[options[0].id])],
+        ),
+    )
+    sub = QuestionnaireSubmission.objects.get(user=user, questionnaire=poll.questionnaire)
+    assert sub.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
+    assert sub.submitted_at is not None
+    assert MultipleChoiceAnswer.objects.filter(submission=sub).count() == 1
+
+
+def test_vote_on_closed_poll_raises(
+    open_poll_with_mc: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+    revel_user_factory: t.Any,
+) -> None:
+    poll, mcq, options = open_poll_with_mc
+    poll.status = Poll.PollStatus.CLOSED
+    poll.closed_at = timezone.now()
+    poll.save(update_fields=["status", "closed_at"])
+    with pytest.raises(PollNotOpenError):
+        poll_service.vote(
+            user=revel_user_factory(),
+            poll_id=poll.id,
+            payload=PollVoteSchema(
+                mc_answers=[McAnswerInput(question_id=mcq.id, option_ids=[options[0].id])],
+            ),
+        )
+
+
+def test_vote_when_not_eligible_raises(
+    open_poll_with_mc: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+    revel_user_factory: t.Any,
+) -> None:
+    poll, mcq, options = open_poll_with_mc
+    poll.vote_visibility = ResourceVisibility.MEMBERS_ONLY
+    poll.save(update_fields=["vote_visibility"])
+    with pytest.raises(PollNotEligibleError):
+        poll_service.vote(
+            user=revel_user_factory(),
+            poll_id=poll.id,
+            payload=PollVoteSchema(
+                mc_answers=[McAnswerInput(question_id=mcq.id, option_ids=[options[0].id])],
+            ),
+        )
+
+
+def test_double_vote_blocked_when_changes_disallowed(
+    open_poll_with_mc: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+    revel_user_factory: t.Any,
+) -> None:
+    poll, mcq, options = open_poll_with_mc
+    user = revel_user_factory()
+    payload = PollVoteSchema(mc_answers=[McAnswerInput(question_id=mcq.id, option_ids=[options[0].id])])
+    poll_service.vote(user=user, poll_id=poll.id, payload=payload)
+    with pytest.raises(PollVoteAlreadyCastError):
+        poll_service.vote(user=user, poll_id=poll.id, payload=payload)
+
+
+def test_vote_change_replaces_answers(
+    open_poll_with_mc: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+    revel_user_factory: t.Any,
+) -> None:
+    poll, mcq, options = open_poll_with_mc
+    poll.allow_vote_changes = True
+    poll.save(update_fields=["allow_vote_changes"])
+    user = revel_user_factory()
+    poll_service.vote(
+        user=user,
+        poll_id=poll.id,
+        payload=PollVoteSchema(mc_answers=[McAnswerInput(question_id=mcq.id, option_ids=[options[0].id])]),
+    )
+    poll_service.vote(
+        user=user,
+        poll_id=poll.id,
+        payload=PollVoteSchema(mc_answers=[McAnswerInput(question_id=mcq.id, option_ids=[options[1].id])]),
+    )
+    sub = QuestionnaireSubmission.objects.get(user=user, questionnaire=poll.questionnaire)
+    answers = list(MultipleChoiceAnswer.objects.filter(submission=sub))
+    assert len(answers) == 1
+    assert answers[0].option_id == options[1].id
+
+
+def test_withdraw_vote_deletes_submission(
+    open_poll_with_mc: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+    revel_user_factory: t.Any,
+) -> None:
+    poll, mcq, options = open_poll_with_mc
+    poll.allow_vote_changes = True
+    poll.save(update_fields=["allow_vote_changes"])
+    user = revel_user_factory()
+    poll_service.vote(
+        user=user,
+        poll_id=poll.id,
+        payload=PollVoteSchema(mc_answers=[McAnswerInput(question_id=mcq.id, option_ids=[options[0].id])]),
+    )
+    poll_service.withdraw_vote(user=user, poll_id=poll.id)
+    assert not QuestionnaireSubmission.objects.filter(user=user, questionnaire=poll.questionnaire).exists()
+
+
+def test_withdraw_vote_when_changes_disallowed_raises(
+    open_poll_with_mc: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+    revel_user_factory: t.Any,
+) -> None:
+    poll, mcq, options = open_poll_with_mc
+    user = revel_user_factory()
+    poll_service.vote(
+        user=user,
+        poll_id=poll.id,
+        payload=PollVoteSchema(mc_answers=[McAnswerInput(question_id=mcq.id, option_ids=[options[0].id])]),
+    )
+    with pytest.raises(PollVoteChangesNotAllowedError):
+        poll_service.withdraw_vote(user=user, poll_id=poll.id)
+
+
+def test_vote_with_unknown_mc_question_raises(
+    open_poll_with_mc: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+    revel_user_factory: t.Any,
+) -> None:
+    """A bogus mc question_id must raise PollValidationError, not DoesNotExist/500."""
+    import uuid
+
+    poll, _mcq, options = open_poll_with_mc
+    user = revel_user_factory()
+    with pytest.raises(PollValidationError):
+        poll_service.vote(
+            user=user,
+            poll_id=poll.id,
+            payload=PollVoteSchema(
+                mc_answers=[McAnswerInput(question_id=uuid.uuid4(), option_ids=[options[0].id])],
+            ),
+        )
+    # Roll-back: outer transaction.atomic ensures no submission persisted.
+    assert not QuestionnaireSubmission.objects.filter(user=user, questionnaire=poll.questionnaire).exists()
+
+
+def test_vote_with_unknown_mc_option_raises(
+    open_poll_with_mc: tuple[Poll, MultipleChoiceQuestion, list[MultipleChoiceOption]],
+    revel_user_factory: t.Any,
+) -> None:
+    """A valid question_id paired with a bogus option_id must raise PollValidationError."""
+    import uuid
+
+    poll, mcq, _options = open_poll_with_mc
+    user = revel_user_factory()
+    with pytest.raises(PollValidationError):
+        poll_service.vote(
+            user=user,
+            poll_id=poll.id,
+            payload=PollVoteSchema(
+                mc_answers=[McAnswerInput(question_id=mcq.id, option_ids=[uuid.uuid4()])],
+            ),
+        )
+    assert not QuestionnaireSubmission.objects.filter(user=user, questionnaire=poll.questionnaire).exists()
+
+
+def test_vote_with_unknown_free_text_question_raises(
+    organization: t.Any,
+    revel_user_factory: t.Any,
+) -> None:
+    """A bogus free-text question_id must raise PollValidationError."""
+    import uuid
+
+    from polls.schema import FreeTextAnswerInput
+
+    q = Questionnaire.objects.create(name="Q-ft")
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=q,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.OPEN,
+        opened_at=timezone.now(),
+    )
+    user = revel_user_factory()
+    with pytest.raises(PollValidationError):
+        poll_service.vote(
+            user=user,
+            poll_id=poll.id,
+            payload=PollVoteSchema(
+                free_text_answers=[FreeTextAnswerInput(question_id=uuid.uuid4(), answer="hi")],
+            ),
+        )
+    assert not QuestionnaireSubmission.objects.filter(user=user, questionnaire=q).exists()
+
+
+def test_vote_with_unknown_file_id_raises(
+    organization: t.Any,
+    revel_user_factory: t.Any,
+) -> None:
+    """A bogus file UUID in a file_upload answer must raise (no silent drop)."""
+    import uuid
+
+    from polls.schema import FileUploadAnswerInput
+    from questionnaires.models import (
+        FileUploadQuestion,
+    )
+
+    q = Questionnaire.objects.create(name="Q-files")
+    fuq = FileUploadQuestion.objects.create(questionnaire=q, question="upload")
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=q,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        status=Poll.PollStatus.OPEN,
+        opened_at=timezone.now(),
+    )
+    user = revel_user_factory()
+    with pytest.raises(PollValidationError):
+        poll_service.vote(
+            user=user,
+            poll_id=poll.id,
+            payload=PollVoteSchema(
+                file_upload_answers=[
+                    FileUploadAnswerInput(question_id=fuq.id, file_ids=[uuid.uuid4()]),
+                ],
+            ),
+        )
+    # Roll-back: no submission persisted.
+    assert not QuestionnaireSubmission.objects.filter(user=user, questionnaire=q).exists()

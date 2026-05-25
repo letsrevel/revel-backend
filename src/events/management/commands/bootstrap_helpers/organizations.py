@@ -44,10 +44,24 @@ that bring communities together.
     )
     org_alpha.staff_members.add(state.users["org_alpha_staff"])
 
-    # Add members with default tier
+    # Add a second tier so audience checks scoped to a specific tier (e.g. polls
+    # restricted to MEMBERS_ONLY with a tier whitelist) can be exercised against
+    # demo data: one member is on the default tier only, another is on a tier
+    # that does NOT include the default.
     default_tier_alpha = events_models.MembershipTier.objects.get(organization=org_alpha, name="General membership")
-    for user in [state.users["org_alpha_member"], state.users["multi_org_user"]]:
-        events_models.OrganizationMember.objects.create(organization=org_alpha, user=user, tier=default_tier_alpha)
+    founders_tier_alpha = events_models.MembershipTier.objects.create(
+        organization=org_alpha,
+        name="Founders",
+        description="Founding members of the collective.",
+    )
+    # Charlie (org_alpha_member) → General membership only.
+    events_models.OrganizationMember.objects.create(
+        organization=org_alpha, user=state.users["org_alpha_member"], tier=default_tier_alpha
+    )
+    # Karen (multi_org_user) → Founders tier (does NOT have General membership).
+    events_models.OrganizationMember.objects.create(
+        organization=org_alpha, user=state.users["multi_org_user"], tier=founders_tier_alpha
+    )
 
     org_alpha.add_tags("community", "music", "arts")
 

@@ -290,7 +290,11 @@ class QuestionnaireController(UserAwareController):
             event_models.OrganizationQuestionnaire, pk=org_questionnaire_id
         )
         service = QuestionnaireService(org_questionnaire.questionnaire_id)
-        question = get_object_or_404(questionnaires_models.MultipleChoiceQuestion, id=question_id)
+        question = get_object_or_404(
+            questionnaires_models.MultipleChoiceQuestion,
+            id=question_id,
+            questionnaire_id=org_questionnaire.questionnaire_id,
+        )
         return service.create_mc_option(question, payload)
 
     @route.put(

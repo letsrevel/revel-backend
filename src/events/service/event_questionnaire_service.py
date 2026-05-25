@@ -216,11 +216,25 @@ def _build_scoped_submission_qs(
     return base_qs
 
 
-def _aggregate_mc_distributions(
+def aggregate_mc_distributions(
     questionnaire_id: UUID,
     base_qs: QuerySet[QuestionnaireSubmission],
 ) -> list[McQuestionStatSchema]:
-    """Compute multiple-choice answer distributions for a questionnaire."""
+    """Compute multiple-choice answer distributions for a questionnaire.
+
+    Public reusable helper — also called from :mod:`polls.service.aggregation`
+    to compute MC stats for poll results.
+
+    Args:
+        questionnaire_id: Questionnaire whose MC questions should be
+            tallied.
+        base_qs: Submission queryset that scopes the counts (e.g. only
+            READY submissions for a given poll/event).
+
+    Returns:
+        One ``McQuestionStatSchema`` per MC question, with per-option
+        counts ordered by ``question.order`` then ``option.order``.
+    """
     submission_ids = base_qs.values("id")
     mc_options = (
         MultipleChoiceOption.objects.filter(question__questionnaire_id=questionnaire_id)
@@ -362,7 +376,7 @@ def get_questionnaire_summary(
             min=stats["min_score"],
             max=stats["max_score"],
         ),
-        mc_question_stats=_aggregate_mc_distributions(questionnaire_id, base_qs),
+        mc_question_stats=aggregate_mc_distributions(questionnaire_id, base_qs),
         pronoun_distribution=_aggregate_pronoun_distribution(base_qs),
     )
 
