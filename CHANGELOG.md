@@ -7,15 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.59.0] - 2026-05-25
+
 ### Added
+- **Polls**: a new `polls/` app wrapping the questionnaire pipeline with poll-specific concerns (audience, lifecycle, anonymity, result visibility). A `Poll` is 1:1 with a `Questionnaire` and votes are stored as `QuestionnaireSubmission` rows
+  - New `/api/polls/` endpoint group: list, detail, results, create, patch, open, close, reopen, delete, vote, withdraw
+  - New `manage_polls` permission (JSONField-backed, no migration)
+  - `polls.close_polls_due` Celery beat task auto-closes due polls every minute (row-locked to serialize close-vs-vote races)
+- **Top Organizations by Traction**: admin-dashboard leaderboard of the 10 organizations that reached the most distinct users in the last 12 months (an RSVP of yes/maybe **or** an active/checked-in/pending ticket counts; a user is counted once per organization), shown as a horizontal bar chart plus a ranked table linking to each organization's admin page
+
+### Changed
+- Several API errors now return more accurate HTTP statuses: cancelling an already-cancelled ticket returns **409** (was 400), missing billing info returns **422** (was 400), and file-validation errors return **422** (was 400)
+- Contact-form notifications delivered over **Telegram** no longer include the message subject or preview (Telegram chats are not end-to-end encrypted); recipients are prompted to open Revel for the full message. Email and in-app notifications are unchanged
+
+### Fixed
+- Celery tasks dispatched while handling an HTTP request are now deferred to `transaction.on_commit`, eliminating intermittent `DoesNotExist` errors when a worker picked up a task before the request's transaction had committed
+- The nightly `expire_subscriptions_past_grace` task no longer crashes with `InvalidCursorName` under PgBouncer transaction pooling; server-side cursors are disabled when running behind PgBouncer
+
+## [1.58.0] - 2026-05-21
+
+### Added
+- **Advanced Waitlist Management**: configurable, batched, time-limited waitlist offers, opt-in per event via `Event.waitlist_time_window`. When capacity opens, a batch of waitlisted users (FIFO or lottery) is offered spots with an expiry deadline, and those spots are reserved during the window so non-waitlist users can't take them
+  - New `Event` fields: `waitlist_time_window`, `waitlist_batch_size`, `waitlist_cutoff_date`, `waitlist_cutoff_window`, `waitlist_lottery_mode`
+  - New `WaitlistOffer` model with a partial-unique constraint on `(event, user)` for pending offers, plus admin offer-management endpoints
 - `EventUserEligibility.reason_code` — stable machine-readable `ReasonCode` enum mirroring the human-readable `reason` string; clients should switch on `reason_code` instead of matching localized prose
-- `WaitlistOfferSchema.user` now serializes as a nested `MinimalRevelUserSchema` (id, name, email, …) instead of a bare UUID, so admin UIs can render organizers' offers without a follow-up lookup
+- `WaitlistOfferSchema.user` serializes as a nested `MinimalRevelUserSchema` (id, name, email, …) instead of a bare UUID, so admin UIs can render organizers' offers without a follow-up lookup
 
 ### Changed
 - Admin manual-create and reactivate waitlist-offer endpoints accept a payload-provided `expires_at` even when `event.waitlist_time_window` is not configured globally. Previously both endpoints unconditionally returned 400 in that case; they now only 400 when neither the event nor the payload defines an expiry. The endpoints still default to `now + event.waitlist_time_window` when the global window is set and the payload omits `expires_at`.
 
 ### Fixed
 - Waitlist processing no longer cascades into auto-reoffering a user whose offer was just revoked. The processor now excludes users with REVOKED offers in addition to PENDING; admin revoke is a soft-skip until the offer is reactivated or a manual offer is issued. EXPIRED users stay eligible (normal batch-timeout lifecycle).
+
+## [1.57.0] - 2026-05-19
+
+### Added
+- **Reserved slug tokens**: `Organization` creation is rejected when the name slugifies to a reserved token — a hardcoded set of platform-critical entries (`admin`, `api`, `www`, `revel`, …) unioned with a DB-managed `ReservedSlugToken` soft list (seeded with abuse patterns like `demo`, `test`, `foo`) editable from the Django admin. Enforced in `create_organization`; messages localized in EN/IT/DE
 
 ## [1.56.0] - 2026-05-18
 
