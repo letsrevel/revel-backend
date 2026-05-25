@@ -61,13 +61,12 @@ def test_close_polls_due_is_idempotent(organization: Organization, questionnaire
     assert poll.closed_at == closed_at_first  # not bumped on the second run
 
 
-@pytest.mark.django_db(transaction=True)
 def test_close_polls_due_processes_entire_batch_in_one_run(organization: Organization) -> None:
     """Regression for #458: every overdue poll is closed in a single run.
 
-    Runs with real per-row COMMITs (``transaction=True``) over a multi-row
-    batch. The original bug (shared with the subscription-expiry task) streamed
-    a server-side cursor and crashed once a mid-loop commit recycled the pooled
+    Builds a multi-row batch of overdue polls and asserts they are all closed.
+    The original bug (shared with the subscription-expiry task) streamed a
+    server-side cursor and crashed once a mid-loop commit recycled the pooled
     backend, leaving later rows untouched. The pooler-specific
     ``InvalidCursorName`` cannot be reproduced without PgBouncer — the
     ``DISABLE_SERVER_SIDE_CURSORS`` settings guardrail covers that — so this

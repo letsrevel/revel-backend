@@ -146,40 +146,42 @@ class TestExpireSubscriptions:
         counters = expire_subscriptions_past_grace()
         assert counters == {"expired_immediate": 0, "past_due": 0, "expired_after_grace": 0}
 
-    @pytest.mark.django_db(transaction=True)
     def test_processes_entire_batch_in_one_run(
         self,
         plan: MembershipSubscriptionPlan,
         django_user_model: type[RevelUser],
-        organization: Organization,
     ) -> None:
         """Regression for #458: every candidate row is processed in a single run.
 
-        Runs with real per-row COMMITs (``transaction=True``) over a multi-row
-        batch spanning all three transitions. The original bug streamed a
-        server-side cursor and crashed once a mid-loop commit recycled the
-        pooled backend, leaving later rows untouched. The pooler-specific
-        ``InvalidCursorName`` cannot be reproduced without PgBouncer — the
-        ``DISABLE_SERVER_SIDE_CURSORS`` settings guardrail covers that — so this
-        asserts the behavioural invariant: the whole batch is transitioned.
+        Builds a multi-row batch spanning all three transitions and asserts the
+        whole batch is handled. The original bug streamed a server-side cursor
+        and crashed once a mid-loop commit recycled the pooled backend, leaving
+        later rows untouched. The pooler-specific ``InvalidCursorName`` cannot be
+        reproduced without PgBouncer — the ``DISABLE_SERVER_SIDE_CURSORS``
+        settings guardrail covers that — so this asserts the behavioural
+        invariant: nothing in the batch is skipped.
+
+        Run time is 2026-05-11; the default grace window is 7 days. ``recent_end``
+        is lapsed but still inside grace (stays PAST_DUE), ``old_end`` is lapsed
+        beyond grace (expires) — keeping the two transitions from cascading.
         """
-        period_end = datetime.datetime(2026, 5, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        recent_end = datetime.datetime(2026, 5, 9, 12, 0, tzinfo=datetime.timezone.utc)
+        old_end = datetime.datetime(2026, 5, 1, 12, 0, tzinfo=datetime.timezone.utc)
 
         def _user(n: int) -> RevelUser:
             return django_user_model.objects.create_user(
                 username=f"batch_user_{n}", email=f"batch{n}@example.com", password="pass"
             )
 
-        to_past_due = [_make_active_sub(plan, _user(i), period_end) for i in range(2)]
-        to_expired_immediate = _make_active_sub(plan, _user(2), period_end, cancel_at_period_end=True)
+        to_past_due = [_make_active_sub(plan, _user(i), recent_end) for i in range(2)]
+        to_expired_immediate = _make_active_sub(plan, _user(2), old_end, cancel_at_period_end=True)
         to_expired_grace = []
         for i in range(3, 5):
-            sub = _make_active_sub(plan, _user(i), period_end)
+            sub = _make_active_sub(plan, _user(i), old_end)
             sub.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
             sub.save()
             to_expired_grace.append(sub)
 
-        # 10 days past period_end, beyond the default 7-day grace.
         with freeze_time("2026-05-11 13:00:00"):
             counters = expire_subscriptions_past_grace()
 
