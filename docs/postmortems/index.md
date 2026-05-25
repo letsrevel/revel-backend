@@ -55,6 +55,7 @@ Links to issues, PRs, and related resources.
 | PM | Title | Date | Severity |
 |---|---|---|---|
 | [PM-0001](0001-guest-user-verification-bypass.md) | Guest User Verification Bypass | 2026-02-19 | High |
+| [PM-0002](0002-server-side-cursor-pgbouncer.md) | Server-Side Cursors Orphaned Under PgBouncer Transaction Pooling | 2026-05-25 | Medium |
 
 ---
 

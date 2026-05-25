@@ -823,11 +823,13 @@ def expire_subscriptions_past_grace() -> SubscriptionExpiryCounters:
     counters: SubscriptionExpiryCounters = {"expired_immediate": 0, "past_due": 0, "expired_after_grace": 0}
 
     # 1 + 2: lapsed ACTIVE → EXPIRED (if cancel_at_period_end) else PAST_DUE.
+    # list(), not .iterator(): a server-side cursor can't survive the per-row
+    # commits below under PgBouncer transaction pooling (see #458).
     active_lapsed_ids = MembershipSubscription.objects.filter(
         status=MembershipSubscription.SubscriptionStatus.ACTIVE,
         current_period_end__lt=now,
     ).values_list("id", flat=True)
-    for sub_id in active_lapsed_ids.iterator():
+    for sub_id in list(active_lapsed_ids):
         with transaction.atomic():
             sub = (
                 MembershipSubscription.objects.select_for_update()
@@ -853,12 +855,12 @@ def expire_subscriptions_past_grace() -> SubscriptionExpiryCounters:
                 sub.save(update_fields=["status", "updated_at"])
                 counters["past_due"] += 1
 
-    # 3: PAST_DUE past grace → EXPIRED.
+    # 3: PAST_DUE past grace → EXPIRED (list() not .iterator(), see #458).
     past_due_ids = MembershipSubscription.objects.filter(
         status=MembershipSubscription.SubscriptionStatus.PAST_DUE,
         current_period_end__isnull=False,
     ).values_list("id", flat=True)
-    for sub_id in past_due_ids.iterator():
+    for sub_id in list(past_due_ids):
         with transaction.atomic():
             sub = (
                 MembershipSubscription.objects.select_for_update()

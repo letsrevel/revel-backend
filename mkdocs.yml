@@ -103,6 +103,7 @@ nav:
   - Post-Mortems:
       - postmortems/index.md
       - postmortems/0001-guest-user-verification-bypass.md
+      - postmortems/0002-server-side-cursor-pgbouncer.md
 
 plugins:
   - search
