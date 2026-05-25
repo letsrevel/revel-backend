@@ -71,6 +71,14 @@ def test_telegram_body_renders_sender_org_and_admin_link(contact_notification: N
     assert "https://example.test/org/acme/admin/contact-messages/abc" in body
 
 
+def test_telegram_body_omits_subject_and_message_content(contact_notification: Notification) -> None:
+    """Telegram bot chats are not E2E encrypted, so the subject and message body must never appear."""
+    body = OrgContactMessageReceivedTemplate().get_telegram_body(contact_notification)
+    assert "Question about events" not in body
+    assert "Hi, can you tell me more" not in body
+    assert "Subject:" not in body
+
+
 def test_email_text_body_renders_sender_org_and_admin_link(contact_notification: Notification) -> None:
     """Email text body must include the same details (used when a user opts EMAIL in)."""
     body = OrgContactMessageReceivedTemplate().get_email_text_body(contact_notification)

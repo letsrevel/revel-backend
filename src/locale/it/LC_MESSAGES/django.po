@@ -2578,6 +2578,9 @@ msgstr "Vai all'evento:"
 msgid "New Contact Message"
 msgstr "Nuovo messaggio di contatto"
 
+msgid "Open Revel to read the full message."
+msgstr "Apri Revel per leggere il messaggio completo."
+
 #, python-format
 msgid "<strong>%(sender)s</strong> sent a message to <strong>%(org)s</strong>."
 msgstr ""
