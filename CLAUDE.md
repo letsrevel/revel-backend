@@ -410,6 +410,35 @@ that transaction. If a worker picks the task up before the request commits, any
   the `django_capture_on_commit_callbacks(execute=True)` fixture or be marked
   `@pytest.mark.django_db(transaction=True)` with a docstring explaining why.
 
+### Server-Side Cursors & Connection Pooling (`.iterator()`)
+
+Production runs **PgBouncer in transaction-pooling mode**, so `DATABASES["default"]`
+sets `DISABLE_SERVER_SIDE_CURSORS = True` whenever `USE_PGBOUNCER` is on (Django's
+documented requirement for that mode). Keep this in mind when iterating querysets:
+
+- **Never combine `QuerySet.iterator()` with a per-row `transaction.atomic()` commit
+  inside the loop.** `.iterator()` opens a PostgreSQL **server-side cursor**; transaction
+  pooling recycles the backend connection at every `COMMIT`, orphaning that cursor, so the
+  next `fetchmany()`/`close()` raises `psycopg.errors.InvalidCursorName`. This is
+  load-/data-dependent (only fires when the loop body runs ≥1 commit) and **cannot be
+  reproduced in tests** (plain Postgres, no pooler, and psycopg3's `WITH HOLD` cursor
+  survives commits on a single backend). It bit `expire_subscriptions_past_grace` and
+  `close_polls_due` — see #458 and `docs/postmortems/0002-server-side-cursor-pgbouncer.md`.
+- **Correct pattern for "snapshot a candidate set, then process each under its own lock":**
+  materialize the IDs with `list(...)`, then loop and re-fetch each row with
+  `select_for_update()` in its own `transaction.atomic()`:
+  ```python
+  ids = list(Model.objects.filter(...).values_list("id", flat=True))
+  for pk in ids:
+      with transaction.atomic():
+          obj = Model.objects.select_for_update().get(pk=pk)
+          ...  # re-check preconditions inside the lock, then save
+  ```
+  IDs are tiny, so `.iterator()` buys no real memory savings here anyway.
+- **`.iterator()` is still fine** for read-only streaming with no mid-loop DB commits
+  (e.g. dispatching Celery tasks per row). Note that with `DISABLE_SERVER_SIDE_CURSORS`
+  it degrades to a client-side fetch-all — for genuinely large streams, batch explicitly.
+
 ### Query Optimization
 - **Prefetch relationships**: Use `select_related()` for foreign keys, `prefetch_related()` for reverse/M2M
 - **Avoid N+1 in schemas**: When ModelSchema includes nested relationships, ensure the queryset prefetches them

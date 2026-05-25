@@ -156,6 +156,11 @@ _postgres_db = {
     "HOST": config("DB_HOST", "localhost"),
     "PORT": config("DB_PORT", "5432"),
     "CONN_MAX_AGE": 0 if USE_PGBOUNCER else config("DB_CONN_MAX_AGE", cast=int, default=60),
+    # PgBouncer transaction-pooling mode recycles the backend connection at every
+    # COMMIT, which orphans PostgreSQL server-side cursors (Django's QuerySet.iterator()).
+    # Django's docs require disabling them in this mode; otherwise a FETCH/CLOSE after a
+    # commit raises InvalidCursorName. See docs/postmortems/0002 and #458.
+    "DISABLE_SERVER_SIDE_CURSORS": USE_PGBOUNCER,
     "ATOMIC_REQUESTS": True,
     "OPTIONS": {
         "connect_timeout": 5,
