@@ -354,8 +354,15 @@ class TestThumbnailIntegration:
 # =============================================================================
 
 
+@pytest.mark.django_db(transaction=True)
 class TestSafeSaveUploadedFileIntegration:
-    """Integration tests for safe_save_uploaded_file with thumbnail generation."""
+    """Integration tests for safe_save_uploaded_file with thumbnail generation.
+
+    Uses ``transaction=True`` because ``safe_save_uploaded_file`` schedules the
+    thumbnail-generation and orphan-deletion tasks via ``transaction.on_commit``;
+    in default pytest-django mode the rolled-back transaction suppresses the
+    callbacks, so the mocked ``.delay`` would never be called.
+    """
 
     def test_safe_save_schedules_thumbnail_generation(
         self,

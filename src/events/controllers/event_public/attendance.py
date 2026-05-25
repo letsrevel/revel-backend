@@ -304,6 +304,6 @@ class EventPublicAttendanceController(EventPublicBaseController):
                 Questionnaire.QuestionnaireEvaluationMode.AUTOMATIC,
                 Questionnaire.QuestionnaireEvaluationMode.HYBRID,
             ):
-                evaluate_questionnaire_submission.delay(str(db_submission.pk))
+                transaction.on_commit(lambda: evaluate_questionnaire_submission.delay(str(db_submission.pk)))
 
         return QuestionnaireSubmissionResponseSchema.from_orm(db_submission)

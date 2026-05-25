@@ -12,8 +12,15 @@ from events.models import Event, EventRSVP
 pytestmark = pytest.mark.django_db
 
 
+@pytest.mark.django_db(transaction=True)
 class TestGuestRSVP:
-    """Test guest RSVP endpoint."""
+    """Test guest RSVP endpoint.
+
+    Uses ``transaction=True`` because the guest RSVP flow schedules
+    ``send_guest_rsvp_confirmation`` via ``transaction.on_commit``. In default
+    pytest-django mode the wrapping transaction is rolled back and the callback
+    never fires, breaking the ``mock_send_email`` assertions.
+    """
 
     @patch("events.tasks.send_guest_rsvp_confirmation.delay")
     def test_guest_rsvp_success(self, mock_send_email: Mock, guest_event: Event) -> None:

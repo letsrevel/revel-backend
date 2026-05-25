@@ -112,11 +112,13 @@ def upload_questionnaire_file(user: RevelUser, file: UploadedFile) -> Questionna
     if detected_mime_type in IMAGE_MIME_TYPES:
         from common.thumbnails.tasks import generate_thumbnails_task
 
-        generate_thumbnails_task.delay(
-            app="questionnaires",
-            model="questionnairefile",
-            pk=str(questionnaire_file.pk),
-            field="file",
+        transaction.on_commit(
+            lambda: generate_thumbnails_task.delay(
+                app="questionnaires",
+                model="questionnairefile",
+                pk=str(questionnaire_file.pk),
+                field="file",
+            )
         )
 
     return questionnaire_file

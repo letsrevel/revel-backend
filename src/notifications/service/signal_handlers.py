@@ -3,6 +3,7 @@
 import typing as t
 
 import structlog
+from django.db import transaction
 from django.dispatch import receiver
 
 from notifications.service.dispatcher import create_notification
@@ -54,7 +55,7 @@ def handle_notification_request(sender: t.Any, **kwargs: t.Any) -> None:
         # Dispatch async
         from notifications.tasks import dispatch_notification
 
-        dispatch_notification.delay(str(notification.id))
+        transaction.on_commit(lambda: dispatch_notification.delay(str(notification.id)))
 
         logger.info(
             "notification_request_handled",

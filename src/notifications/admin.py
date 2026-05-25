@@ -1,9 +1,11 @@
 """Django admin for notification models."""
 
+import functools
 import typing as t
 
 from django import forms
 from django.contrib import admin, messages
+from django.db import transaction
 from django.http import HttpRequest, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
@@ -206,7 +208,10 @@ class NotificationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
                 ]
                 created = bulk_create_notifications(notifications_data)
                 batch_ids = [str(n.id) for n in created]
-                dispatch_notifications_batch.delay(batch_ids)
+                # functools.partial binds batch_ids eagerly so each deferred dispatch
+                # gets its own batch (a lambda would capture the loop variable and fire
+                # the last batch repeatedly once the request transaction commits).
+                transaction.on_commit(functools.partial(dispatch_notifications_batch.delay, batch_ids))
                 total_created += len(batch_ids)
 
             messages.success(

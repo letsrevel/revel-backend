@@ -14,8 +14,13 @@ from events.models import AdditionalResource, Organization
 pytestmark = pytest.mark.django_db
 
 
+@pytest.mark.django_db(transaction=True)
 @mock.patch("common.tasks.pyclamd.ClamdNetworkSocket")
 def test_scan_for_malware(mock_clamd: MagicMock, revel_user_factory: RevelUserFactory) -> None:
+    """Uses ``transaction=True`` because ``safe_save_uploaded_file`` schedules the
+    malware scan via ``transaction.on_commit``; in default pytest-django mode the
+    rolled-back transaction suppresses the callback and the scan never runs.
+    """
     eicar_payload = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
     uploader = revel_user_factory()
     org = Organization.objects.create(name="Test Organization", owner=uploader)

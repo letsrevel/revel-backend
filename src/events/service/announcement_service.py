@@ -386,7 +386,7 @@ def send_announcement(announcement: Announcement) -> int:
 
     # Dispatch all notifications in a batch task
     notification_ids = [str(n.id) for n in created_notifications]
-    dispatch_notifications_batch.delay(notification_ids)
+    transaction.on_commit(lambda: dispatch_notifications_batch.delay(notification_ids))
 
     logger.info(
         "announcement_sent",

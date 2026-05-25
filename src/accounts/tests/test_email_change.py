@@ -48,6 +48,10 @@ class TestEmailChangeRequestSchema:
 
 
 class TestRequestEmailChange:
+    # transaction=True: request_email_change dispatches the confirmation/notice emails via
+    # transaction.on_commit. In default pytest-django mode the wrapping transaction is rolled
+    # back and the callbacks never fire, breaking the delay_mock assertions.
+    @pytest.mark.django_db(transaction=True)
     @patch("accounts.tasks.send_email_change_notice.delay")
     @patch("accounts.tasks.send_email_change_confirmation.delay")
     def test_success(
@@ -151,6 +155,10 @@ def _make_change_token(user: RevelUser, new_email: str, *, expired: bool = False
 
 
 class TestConfirmEmailChange:
+    # transaction=True: confirm_email_change dispatches the completed-old/new emails via
+    # transaction.on_commit. In default pytest-django mode the wrapping transaction is rolled
+    # back and the callbacks never fire, breaking the delay_mock assertions.
+    @pytest.mark.django_db(transaction=True)
     @patch("accounts.tasks.send_email_change_completed_new.delay")
     @patch("accounts.tasks.send_email_change_completed_old.delay")
     def test_success(
@@ -247,6 +255,10 @@ class TestConfirmEmailChange:
 # ===== Controller tests =====
 
 
+# transaction=True: request_email_change dispatches the confirmation/notice emails via
+# transaction.on_commit. In default pytest-django mode the wrapping transaction is rolled back
+# and the callbacks never fire, breaking the delay_mock assertions.
+@pytest.mark.django_db(transaction=True)
 @patch("accounts.tasks.send_email_change_notice.delay")
 @patch("accounts.tasks.send_email_change_confirmation.delay")
 def test_email_change_request_endpoint(

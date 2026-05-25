@@ -6,6 +6,7 @@
 """
 
 import re
+import typing as t
 from unittest.mock import Mock, patch
 
 import pytest
@@ -20,9 +21,17 @@ pytestmark = pytest.mark.django_db
 
 
 class TestGuestFlowIntegration:
-    """Test complete guest user flows from start to finish."""
+    """Test complete guest user flows from start to finish.
 
-    def test_complete_rsvp_flow_end_to_end(self, guest_event: Event) -> None:
+    The guest RSVP / non-online ticket flows schedule the confirmation email via
+    ``transaction.on_commit``. These tests wrap the initiating request in
+    ``django_capture_on_commit_callbacks(execute=True)`` so that callback fires
+    (sending the email) while keeping the default rolled-back transaction — using
+    ``transaction=True`` instead would also commit the ``guest_event`` fixture's
+    event-open notification, polluting ``mail.outbox``.
+    """
+
+    def test_complete_rsvp_flow_end_to_end(self, guest_event: Event, django_capture_on_commit_callbacks: t.Any) -> None:
         """Test complete RSVP flow: initiate -> receive email -> confirm -> verify RSVP."""
         from django.core import mail
 
@@ -34,7 +43,8 @@ class TestGuestFlowIntegration:
             "first_name": "End",
             "last_name": "ToEnd",
         }
-        response = client.post(url, data=payload, content_type="application/json")
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(url, data=payload, content_type="application/json")
         assert response.status_code == 200
 
         # Step 2: Verify email was sent and extract token
@@ -55,7 +65,9 @@ class TestGuestFlowIntegration:
         rsvp = EventRSVP.objects.get(user=user, event=guest_event)
         assert rsvp.status == EventRSVP.RsvpStatus.YES
 
-    def test_complete_ticket_flow_end_to_end(self, guest_event_with_tickets: Event, free_tier: TicketTier) -> None:
+    def test_complete_ticket_flow_end_to_end(
+        self, guest_event_with_tickets: Event, free_tier: TicketTier, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
         """Test complete ticket flow: initiate -> receive email -> confirm -> verify ticket."""
         from django.core import mail
 
@@ -71,7 +83,8 @@ class TestGuestFlowIntegration:
             "last_name": "Flow",
             "tickets": [{"guest_name": "Ticket Flow"}],
         }
-        response = client.post(url, data=payload, content_type="application/json")
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(url, data=payload, content_type="application/json")
         assert response.status_code == 200
 
         # Step 2: Verify email was sent and extract token
@@ -126,7 +139,9 @@ class TestGuestFlowIntegration:
         user = RevelUser.objects.get(email="stripe@example.com")
         assert user.guest is True
 
-    def test_guest_creates_rsvp_then_converts_to_full_user(self, guest_event: Event) -> None:
+    def test_guest_creates_rsvp_then_converts_to_full_user(
+        self, guest_event: Event, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
         """Test guest creates RSVP, then converts to full user via password reset."""
         from django.core import mail
 
@@ -138,7 +153,8 @@ class TestGuestFlowIntegration:
             "first_name": "Convert",
             "last_name": "User",
         }
-        response = client.post(url, data=payload, content_type="application/json")
+        with django_capture_on_commit_callbacks(execute=True):
+            response = client.post(url, data=payload, content_type="application/json")
         assert response.status_code == 200
 
         # Extract token and confirm RSVP
@@ -162,11 +178,19 @@ class TestGuestFlowIntegration:
 
 
 class TestGuestDuplicateActions:
-    """Test handling of duplicate guest actions."""
+    """Test handling of duplicate guest actions.
+
+    The guest RSVP / non-online ticket flows schedule the confirmation email via
+    ``transaction.on_commit``. Tests that assert the dispatch wrap the initiating
+    request in ``django_capture_on_commit_callbacks(execute=True)`` so the
+    callback fires under the default rolled-back transaction (avoiding the
+    ``mail.outbox`` pollution that ``transaction=True`` would cause by also
+    committing the ``guest_event`` fixture's event-open notification).
+    """
 
     @patch("events.tasks.send_guest_rsvp_confirmation.delay")
     def test_guest_initiates_rsvp_twice_preserves_original_name(
-        self, mock_send_email: Mock, guest_event: Event
+        self, mock_send_email: Mock, guest_event: Event, django_capture_on_commit_callbacks: t.Any
     ) -> None:
         """Test that initiating RSVP twice does not overwrite the guest user's name."""
         # First RSVP
@@ -177,7 +201,8 @@ class TestGuestDuplicateActions:
             "first_name": "First",
             "last_name": "Name",
         }
-        response1 = client.post(url, data=payload1, content_type="application/json")
+        with django_capture_on_commit_callbacks(execute=True):
+            response1 = client.post(url, data=payload1, content_type="application/json")
         assert response1.status_code == 200
 
         # Second RSVP with same email, different name
@@ -186,7 +211,8 @@ class TestGuestDuplicateActions:
             "first_name": "Second",
             "last_name": "Name",
         }
-        response2 = client.post(url, data=payload2, content_type="application/json")
+        with django_capture_on_commit_callbacks(execute=True):
+            response2 = client.post(url, data=payload2, content_type="application/json")
         assert response2.status_code == 200
 
         # Assert: User's name was NOT updated (preserves original)
@@ -199,7 +225,11 @@ class TestGuestDuplicateActions:
 
     @patch("events.tasks.send_guest_ticket_confirmation.delay")
     def test_guest_initiates_ticket_purchase_twice(
-        self, mock_send_email: Mock, guest_event_with_tickets: Event, free_tier: TicketTier
+        self,
+        mock_send_email: Mock,
+        guest_event_with_tickets: Event,
+        free_tier: TicketTier,
+        django_capture_on_commit_callbacks: t.Any,
     ) -> None:
         """Test that initiating ticket purchase twice before confirming works."""
         # First attempt
@@ -214,11 +244,13 @@ class TestGuestDuplicateActions:
             "last_name": "Ticket",
             "tickets": [{"guest_name": "Dup Ticket"}],
         }
-        response1 = client.post(url, data=payload, content_type="application/json")
+        with django_capture_on_commit_callbacks(execute=True):
+            response1 = client.post(url, data=payload, content_type="application/json")
         assert response1.status_code == 200
 
         # Second attempt
-        response2 = client.post(url, data=payload, content_type="application/json")
+        with django_capture_on_commit_callbacks(execute=True):
+            response2 = client.post(url, data=payload, content_type="application/json")
         assert response2.status_code == 200
 
         # Assert: Both attempts succeeded (new tokens generated)
@@ -243,7 +275,9 @@ class TestGuestDuplicateActions:
         data = response2.json()
         assert "blacklist" in data["detail"].lower()
 
-    def test_guest_changes_rsvp_answer(self, guest_event: Event, existing_guest_user: RevelUser) -> None:
+    def test_guest_changes_rsvp_answer(
+        self, guest_event: Event, existing_guest_user: RevelUser, django_capture_on_commit_callbacks: t.Any
+    ) -> None:
         """Test that guest can change RSVP answer by initiating new RSVP."""
         from django.core import mail
 
@@ -255,7 +289,8 @@ class TestGuestDuplicateActions:
             "first_name": existing_guest_user.first_name,
             "last_name": existing_guest_user.last_name,
         }
-        response1 = client.post(url, data=payload, content_type="application/json")
+        with django_capture_on_commit_callbacks(execute=True):
+            response1 = client.post(url, data=payload, content_type="application/json")
         assert response1.status_code == 200
 
         # Extract and confirm first token
@@ -273,7 +308,8 @@ class TestGuestDuplicateActions:
         # Second RSVP: MAYBE (different answer)
         mail.outbox.clear()
         url2 = reverse("api:guest_rsvp", kwargs={"event_id": guest_event.pk, "answer": "maybe"})
-        response2 = client.post(url2, data=payload, content_type="application/json")
+        with django_capture_on_commit_callbacks(execute=True):
+            response2 = client.post(url2, data=payload, content_type="application/json")
         assert response2.status_code == 200
 
         # Extract and confirm second token

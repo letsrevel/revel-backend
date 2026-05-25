@@ -5,6 +5,8 @@ Thin wrappers around the generic billing operations in ``common.service.vies_ser
 
 import typing as t
 
+from django.db import transaction
+
 from common.service.vies_service import VIESValidationResult, validate_and_update_vat_entity
 from common.service.vies_service import clear_vat_fields as _clear_vat_fields
 from common.service.vies_service import set_vat_id as _set_vat_id
@@ -25,7 +27,12 @@ def set_org_vat_id(org: "Organization", vat_id: str) -> None:
     def _queue_retry() -> None:
         from events.tasks import revalidate_single_vat_id_task
 
-        revalidate_single_vat_id_task.delay(str(org.id))
+        # _queue_retry runs right before set_vat_id raises HttpError(503). There
+        # is no inner atomic block, and Django Ninja turns the HttpError into a
+        # 503 *response* (no exception reaches the ATOMIC_REQUESTS wrapper), so
+        # the request transaction commits and on_commit fires — deferring avoids
+        # the retry task racing the commit of the org's freshly-set vat_id.
+        transaction.on_commit(lambda: revalidate_single_vat_id_task.delay(str(org.id)))
 
     _set_vat_id(
         org,

@@ -132,7 +132,7 @@ def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, created
     Sends notifications to:
     - Organization staff and owners (NOT the user who RSVPed)
     """
-    build_attendee_visibility_flags.delay(str(instance.event_id))
+    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(str(instance.event_id)))
 
     def send_notifications() -> None:
         if created:
@@ -150,7 +150,7 @@ def handle_event_rsvp_delete(sender: type[EventRSVP], instance: EventRSVP, **kwa
     Sends notifications to:
     - Organization staff and owners (the user already knows they cancelled)
     """
-    build_attendee_visibility_flags.delay(str(instance.event_id))
+    transaction.on_commit(lambda: build_attendee_visibility_flags.delay(str(instance.event_id)))
 
     # Send notifications after transaction commits
     def send_notifications() -> None:

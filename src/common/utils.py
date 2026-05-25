@@ -152,7 +152,7 @@ def create_file_audit_and_scan(
         file_hash=file_hash,
         uploader=uploader_email,
     )
-    tasks.scan_for_malware.delay(app=app, model=model, pk=str(instance_pk), field=field)
+    transaction.on_commit(lambda: tasks.scan_for_malware.delay(app=app, model=model, pk=str(instance_pk), field=field))
 
 
 def _validate_file_field(instance: models.Model, field_name: str, file: File) -> None:  # type: ignore[type-arg]
@@ -235,7 +235,7 @@ def safe_save_uploaded_file(
 
     # Schedule deletion of old thumbnails
     if old_thumbnail_paths:
-        delete_orphaned_thumbnails_task.delay(thumbnail_paths=old_thumbnail_paths)
+        transaction.on_commit(lambda: delete_orphaned_thumbnails_task.delay(thumbnail_paths=old_thumbnail_paths))
 
     setattr(instance, field, file)
 
@@ -266,11 +266,13 @@ def safe_save_uploaded_file(
 
     # Schedule thumbnail generation if configured for this model/field
     if config:
-        generate_thumbnails_task.delay(
-            app=app,
-            model=model,
-            pk=str(instance.pk),
-            field=field,
+        transaction.on_commit(
+            lambda: generate_thumbnails_task.delay(
+                app=app,
+                model=model,
+                pk=str(instance.pk),
+                field=field,
+            )
         )
 
     return instance

@@ -20,8 +20,16 @@ from events.service.event_manager import UserIsIneligibleError
 pytestmark = pytest.mark.django_db
 
 
+@pytest.mark.django_db(transaction=True)
 class TestGuestServiceLayer:
-    """Test guest service layer functions."""
+    """Test guest service layer functions.
+
+    Uses ``transaction=True`` because ``handle_guest_rsvp`` and the non-online
+    branch of ``handle_guest_ticket_checkout`` schedule the confirmation email
+    via ``transaction.on_commit``. In default pytest-django mode the wrapping
+    transaction is rolled back and the callback never fires, breaking the
+    ``mock_send_email`` assertions.
+    """
 
     def test_get_or_create_guest_user_creates_new(self) -> None:
         """Test creating a new guest user."""
