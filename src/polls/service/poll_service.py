@@ -13,6 +13,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from common.exception_handlers import format_validation_error
 from events.models.event import Event
 from events.models.organization import MembershipTier, Organization
 from polls.exceptions import (
@@ -35,7 +36,6 @@ from polls.schema import (
     PollVoteSchema,
 )
 from polls.signals import suppress_question_lock
-from polls.utils import format_validation_error
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 from questionnaires.schema import QuestionnaireCreateSchema
 from questionnaires.service import QuestionnaireService

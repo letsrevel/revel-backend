@@ -12,6 +12,7 @@ from accounts.controllers.referral import ReferralController
 from accounts.controllers.referral_payouts import ReferralPayoutController
 from accounts.controllers.referral_stripe import ReferralStripeController
 from common.controllers import MediaValidationController, TagController
+from common.exception_handlers import ExceptionHandler, register_handlers
 from common.models import Legal, SiteSettings
 from common.schema import BannerSchema, LegalSchema, ResponseOk, VersionResponse
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle
@@ -30,36 +31,15 @@ from events.controllers.potluck import PotluckController
 from events.controllers.questionnaire import QuestionnaireController
 from events.controllers.stripe_webhook import StripeWebhookController
 from events.controllers.user_preferences import UserPreferencesController
-from events.exceptions import AlreadyMemberError, PendingMembershipRequestExistsError, TooManyItemsError
-from events.service.event_manager import UserIsIneligibleError
 from geo.controllers.cities import CityController
 from notifications.controllers.notification_controller import NotificationController
 from notifications.controllers.preference_controller import NotificationPreferenceController
 from polls.controllers import POLL_CONTROLLERS
 from questionnaires.controllers import QuestionnaireFileController
-from questionnaires.exceptions import (
-    CrossQuestionnaireSubmissionError,
-    FileValidationError,
-    MissingMandatoryAnswerError,
-    QuestionIntegrityError,
-    SectionIntegrityError,
-)
 from telegram.controllers import TelegramController
 from wallet.controllers import TicketWalletController
 
-from .exception_handlers import (
-    handle_already_member_error,
-    handle_cross_questionnaire_submission_error,
-    handle_django_validation_error,
-    handle_file_validation_error,
-    handle_general_exception,
-    handle_missing_mandatory_answers_submission_error,
-    handle_pending_membership_request_exists_error,
-    handle_question_integrity_error,
-    handle_section_integrity_error,
-    handle_too_many_items_error,
-    handle_user_is_ineligible_error,
-)
+from .exception_handlers import handle_django_validation_error, handle_general_exception
 
 api = NinjaExtraAPI(
     title="REVEL Backend API",
@@ -165,19 +145,12 @@ api.register_controllers(
     TicketWalletController,
 )
 
-EXCEPTION_HANDLERS = {
+# Only truly global handlers live here. App-specific exceptions self-register
+# from each app's ``exception_handlers.py`` via its ``AppConfig.ready`` hook, and
+# take precedence over the generic ``ValidationError`` fallback by MRO.
+EXCEPTION_HANDLERS: dict[type[Exception], ExceptionHandler] = {
     Exception: handle_general_exception,
     ValidationError: handle_django_validation_error,
-    UserIsIneligibleError: handle_user_is_ineligible_error,
-    CrossQuestionnaireSubmissionError: handle_cross_questionnaire_submission_error,
-    MissingMandatoryAnswerError: handle_missing_mandatory_answers_submission_error,
-    SectionIntegrityError: handle_section_integrity_error,
-    QuestionIntegrityError: handle_question_integrity_error,
-    FileValidationError: handle_file_validation_error,
-    TooManyItemsError: handle_too_many_items_error,
-    AlreadyMemberError: handle_already_member_error,
-    PendingMembershipRequestExistsError: handle_pending_membership_request_exists_error,
 }
 
-for exc, handler in EXCEPTION_HANDLERS.items():
-    api.add_exception_handler(exc, handler)
+register_handlers(api, EXCEPTION_HANDLERS)
