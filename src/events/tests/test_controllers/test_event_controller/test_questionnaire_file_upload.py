@@ -283,7 +283,7 @@ class TestSubmitQuestionnaireWithFileUpload:
         response = nonmember_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
         # Assert
-        assert response.status_code == 400
+        assert response.status_code == 422
         # The exception handler returns a specific message for InvalidFileMimeTypeError
         assert "has type" in response.json()["detail"]
         assert "which is not allowed" in response.json()["detail"]
@@ -375,7 +375,7 @@ class TestSubmitQuestionnaireWithFileUpload:
         response = nonmember_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
         # Assert
-        assert response.status_code == 400
+        assert response.status_code == 422
         # The exception handler returns a specific message for FileOwnershipError
         assert response.json()["detail"] == "Some files do not exist or do not belong to you."
 

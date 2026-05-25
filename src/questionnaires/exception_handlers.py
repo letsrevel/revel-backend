@@ -20,7 +20,10 @@ from common.exception_handlers import (
     register_handlers,
 )
 from questionnaires.exceptions import (
+    CrossQuestionnaireOptionDependencyError,
+    CrossQuestionnaireSectionError,
     CrossQuestionnaireSubmissionError,
+    DisallowedMultipleAnswersError,
     FileValidationError,
     MissingMandatoryAnswerError,
     QuestionIntegrityError,
@@ -37,7 +40,18 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     QuestionIntegrityError: make_simple_handler(400),
     # Parent class — MRO also covers FileOwnershipError, FileLimitExceededError,
     # InvalidFileMimeTypeError, FileSizeExceededError and DisallowedMimeTypeError.
-    FileValidationError: make_simple_handler(400),
+    FileValidationError: make_simple_handler(422),
+    # Model ``clean()`` invariants. Two reasons these don't surface as their own
+    # type over HTTP today: (1) the service shadows them (``_resolve_question_dependencies``
+    # raises Section/QuestionIntegrityError first, and answers are persisted via
+    # ``bulk_create`` which bypasses ``full_clean``); (2) even when reached,
+    # ``Model.full_clean()`` re-wraps a ``clean()`` ValidationError as a *generic*
+    # ``ValidationError`` (subclass identity lost), so the global handler answers.
+    # Registered for future-proofing — they only win if raised directly. They carry
+    # ``ValidationError`` content, so render it.
+    CrossQuestionnaireSectionError: make_simple_handler(400),
+    CrossQuestionnaireOptionDependencyError: make_simple_handler(400),
+    DisallowedMultipleAnswersError: make_simple_handler(409),
 }
 
 

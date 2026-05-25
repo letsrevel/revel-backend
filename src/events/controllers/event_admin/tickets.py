@@ -4,7 +4,6 @@ from uuid import UUID
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from ninja import Body, Query
-from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
@@ -14,11 +13,6 @@ from common.schema import ValidationErrorResponse
 from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
-from events.exceptions import (
-    BillingInfoRequiredError,
-    StripeNotConnectedError,
-    TicketAlreadyCancelledError,
-)
 from events.service import ticket_service
 
 from .base import EventAdminBaseController
@@ -65,12 +59,7 @@ class EventAdminTicketsController(EventAdminBaseController):
     def create_ticket_tier(self, event_id: UUID, payload: schema.TicketTierCreateSchema) -> models.TicketTier:
         """Create a new ticket tier for an event."""
         event = self.get_one(event_id)
-        try:
-            return ticket_service.create_ticket_tier(event, payload)
-        except StripeNotConnectedError as exc:
-            raise HttpError(400, str(ticket_service.STRIPE_NOT_CONNECTED_MESSAGE)) from exc
-        except BillingInfoRequiredError as exc:
-            raise HttpError(400, str(ticket_service.BILLING_INFO_REQUIRED_MESSAGE)) from exc
+        return ticket_service.create_ticket_tier(event, payload)
 
     @route.put(
         "/ticket-tier/{tier_id}",
@@ -84,12 +73,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         """Update a ticket tier."""
         event = self.get_one(event_id)
         tier = get_object_or_404(models.TicketTier, pk=tier_id, event=event)
-        try:
-            return ticket_service.update_ticket_tier(tier, payload)
-        except StripeNotConnectedError as exc:
-            raise HttpError(400, str(ticket_service.STRIPE_NOT_CONNECTED_MESSAGE)) from exc
-        except BillingInfoRequiredError as exc:
-            raise HttpError(400, str(ticket_service.BILLING_INFO_REQUIRED_MESSAGE)) from exc
+        return ticket_service.update_ticket_tier(tier, payload)
 
     @route.delete(
         "/ticket-tier/{tier_id}",
@@ -237,14 +221,11 @@ class EventAdminTicketsController(EventAdminBaseController):
                 models.TicketTier.PaymentMethod.AT_THE_DOOR,
             ],
         )
-        try:
-            return ticket_service.mark_offline_ticket_refunded(
-                ticket,
-                cancelled_by=self.user(),
-                reason=payload.cancellation_reason if payload else None,
-            )
-        except TicketAlreadyCancelledError as exc:
-            raise HttpError(400, str(ticket_service.TICKET_ALREADY_CANCELLED_MESSAGE)) from exc
+        return ticket_service.mark_offline_ticket_refunded(
+            ticket,
+            cancelled_by=self.user(),
+            reason=payload.cancellation_reason if payload else None,
+        )
 
     @route.post(
         "/tickets/{ticket_id}/cancel",
@@ -273,14 +254,11 @@ class EventAdminTicketsController(EventAdminBaseController):
                 models.TicketTier.PaymentMethod.AT_THE_DOOR,
             ],
         )
-        try:
-            return ticket_service.cancel_offline_ticket(
-                ticket,
-                cancelled_by=self.user(),
-                reason=payload.cancellation_reason if payload else None,
-            )
-        except TicketAlreadyCancelledError as exc:
-            raise HttpError(400, str(ticket_service.TICKET_ALREADY_CANCELLED_MESSAGE)) from exc
+        return ticket_service.cancel_offline_ticket(
+            ticket,
+            cancelled_by=self.user(),
+            reason=payload.cancellation_reason if payload else None,
+        )
 
     @route.post(
         "/tickets/{ticket_id}/check-in",

@@ -162,6 +162,16 @@ UNFOLD = {
                         "icon": "check_circle",
                         "link": reverse_lazy("admin:events_whitelistrequest_changelist"),
                     },
+                    {
+                        "title": _("Contact Messages"),
+                        "icon": "contact_mail",
+                        "link": reverse_lazy("admin:events_organizationcontactmessage_changelist"),
+                    },
+                    {
+                        "title": _("Followers"),
+                        "icon": "person_add",
+                        "link": reverse_lazy("admin:events_organizationfollow_changelist"),
+                    },
                 ],
             },
             {
@@ -266,6 +276,16 @@ UNFOLD = {
                         "icon": "campaign",
                         "link": reverse_lazy("admin:events_announcement_changelist"),
                     },
+                    {
+                        "title": _("Recurrence Rules"),
+                        "icon": "repeat",
+                        "link": reverse_lazy("admin:events_recurrencerule_changelist"),
+                    },
+                    {
+                        "title": _("Series Followers"),
+                        "icon": "person_add",
+                        "link": reverse_lazy("admin:events_eventseriesfollow_changelist"),
+                    },
                 ],
             },
             {
@@ -287,6 +307,38 @@ UNFOLD = {
                         "title": _("Attendee Credit Notes"),
                         "icon": "undo",
                         "link": reverse_lazy("admin:events_attendeeinvoicecreditnote_changelist"),
+                    },
+                    {
+                        "title": _("Platform Fee Invoices"),
+                        "icon": "request_quote",
+                        "link": reverse_lazy("admin:events_platformfeeinvoice_changelist"),
+                    },
+                    {
+                        "title": _("Platform Fee Credit Notes"),
+                        "icon": "undo",
+                        "link": reverse_lazy("admin:events_platformfeecreditnote_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": _("Subscriptions"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Subscription Plans"),
+                        "icon": "subscriptions",
+                        "link": reverse_lazy("admin:events_membershipsubscriptionplan_changelist"),
+                    },
+                    {
+                        "title": _("Subscriptions"),
+                        "icon": "card_membership",
+                        "link": reverse_lazy("admin:events_membershipsubscription_changelist"),
+                    },
+                    {
+                        "title": _("Subscription Payments"),
+                        "icon": "payments",
+                        "link": reverse_lazy("admin:events_membershippayment_changelist"),
                     },
                 ],
             },
@@ -326,6 +378,11 @@ UNFOLD = {
                         "title": _("Submissions"),
                         "icon": "assignment_turned_in",
                         "link": reverse_lazy("admin:questionnaires_questionnairesubmission_changelist"),
+                    },
+                    {
+                        "title": _("Event Questionnaire Submissions"),
+                        "icon": "fact_check",
+                        "link": reverse_lazy("admin:events_eventquestionnairesubmission_changelist"),
                     },
                     {
                         "title": _("Evaluations"),

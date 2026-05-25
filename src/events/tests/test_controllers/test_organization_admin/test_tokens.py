@@ -350,6 +350,32 @@ def test_update_token_disable_membership_when_staff_already_false_returns_422(
     assert organization_token.grants_membership is True
 
 
+def test_update_token_grant_membership_without_tier_returns_422(
+    organization_owner_client: Client,
+    organization: Organization,
+    organization_owner_user: RevelUser,
+) -> None:
+    """Enabling grants_membership on a token with no membership tier is rejected (422).
+
+    Exercises ``OrganizationTokenMembershipTierRequiredError`` end-to-end now that the
+    mapping lives in the events exception handlers (was a controller try/except → 422).
+    """
+    staff_token = OrganizationToken.objects.create(
+        organization=organization,
+        name="Staff Only",
+        issuer=organization_owner_user,
+        grants_staff_status=True,
+        grants_membership=False,
+    )
+    url = reverse("api:edit_organization_token", kwargs={"slug": organization.slug, "token_id": staff_token.id})
+    payload = {"grants_membership": True}  # no membership_tier_id provided
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+    assert response.status_code == 422
+    assert "detail" in response.json()
+    staff_token.refresh_from_db()
+    assert staff_token.grants_membership is False
+
+
 def test_update_token_disable_staff_when_membership_true_succeeds(
     organization_owner_client: Client,
     organization: Organization,

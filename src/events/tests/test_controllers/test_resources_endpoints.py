@@ -423,6 +423,35 @@ class TestAdminResourceEndpoints:
         assert public_resource.name == "Updated by Admin"
         assert public_resource.events.count() == 0
 
+    def test_update_resource_invalid_type_combination_returns_400_validation_error(
+        self,
+        organization_owner_client: Client,
+        organization: models.Organization,
+        public_resource: models.AdditionalResource,
+    ) -> None:
+        """Setting a ``link`` on a TEXT resource via update returns 400 ``{errors}``.
+
+        The update schema (unlike create) does not re-validate the type/content
+        combination, so the violation reaches ``AdditionalResource.clean()`` via
+        ``full_clean()`` on save. ``Model.full_clean()`` catches the
+        ``InvalidResourceStateError`` and re-raises a *generic* Django
+        ``ValidationError(error_dict)`` — the subclass identity is lost — so the
+        global ``ValidationError`` handler answers (400 ``{errors}``) rather than
+        the per-app ``InvalidResourceStateError`` handler. The 422 mapping is kept
+        for future-proofing (covered by the handler unit test) in case the error
+        is ever raised directly outside ``full_clean``.
+        """
+        url = reverse(
+            "api:update_organization_resource",
+            kwargs={"slug": organization.slug, "resource_id": public_resource.id},
+        )
+        payload = {"link": "https://example.com"}  # invalid for a TEXT resource
+        response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 400
+        # Global Django ValidationError handler shape: {"errors": {field: [...]}}.
+        assert "link" in response.json()["errors"]
+
     def test_delete_resource_admin(
         self,
         organization_owner_client: Client,
