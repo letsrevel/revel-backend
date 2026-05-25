@@ -164,7 +164,11 @@ class OrganizationQuerySet(models.QuerySet["Organization"]):
 
         Name resolution is scoped to ``self``, so calling this on a filtered queryset
         (e.g. ``Organization.objects.for_user(user)``) restricts the leaderboard to
-        the organizations in that queryset.
+        the organizations in that queryset. Note that the engagement scan itself is
+        global: ``self`` only filters the final org set, so the result is correctly
+        scoped even though the RSVP/ticket pair counts are computed across all
+        organizations (this keeps the all-orgs dashboard path free of a redundant
+        ``organization_id__in`` subquery).
 
         Performance: the ``UNION`` is deduplicated in the DB, but the per-organization
         count is done in Python via :class:`collections.Counter`. The Counter consumes
