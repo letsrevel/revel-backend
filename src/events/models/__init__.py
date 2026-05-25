@@ -24,6 +24,7 @@ from .organization import (
     MembershipTier,
     Organization,
     OrganizationContactMessage,
+    OrgTractionRow,
     OrganizationMember,
     OrganizationMembershipRequest,
     OrganizationStaff,
@@ -78,6 +79,7 @@ __all__ = [
     "OrganizationMembershipRequest",
     "OrganizationStaff",
     "OrganizationToken",
+    "OrgTractionRow",
     "PermissionMap",
     "PermissionsSchema",
     # Event Series

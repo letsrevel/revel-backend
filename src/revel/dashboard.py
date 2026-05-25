@@ -3,6 +3,7 @@
 import typing as t
 from datetime import date, timedelta
 
+from dateutil.relativedelta import relativedelta
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Count
 from django.http import HttpRequest
@@ -201,6 +202,39 @@ def _get_notification_health(days: int = 7) -> dict[str, t.Any]:
     }
 
 
+def _get_top_organizations_by_traction(months: int = 12, limit: int = 10) -> dict[str, t.Any]:
+    """Get the top organizations by user traction over a trailing window.
+
+    Traction is the number of distinct users an organization reached via event
+    RSVPs (yes/maybe) or tickets (active/checked_in/pending) — see
+    ``OrganizationQuerySet.top_by_traction`` for the exact metric.
+
+    Args:
+        months: Size of the trailing window in months (default: 12).
+        limit: Maximum number of organizations to include (default: 10).
+
+    Returns:
+        Dictionary with ``labels`` and ``data`` for the bar chart and ``rows``
+        (rank, name, distinct_users, change_url) for the ranked table.
+    """
+    since = timezone.now() - relativedelta(months=months)
+    rows = Organization.objects.top_by_traction(since=since, limit=limit)
+
+    return {
+        "labels": [row.name for row in rows],
+        "data": [row.distinct_users for row in rows],
+        "rows": [
+            {
+                "rank": rank,
+                "name": row.name,
+                "distinct_users": row.distinct_users,
+                "change_url": reverse("admin:events_organization_change", args=[row.organization_id]),
+            }
+            for rank, row in enumerate(rows, start=1)
+        ],
+    }
+
+
 _BANNER_SEVERITY_STYLES: dict[SiteSettings.BannerSeverity, dict[str, str]] = {
     SiteSettings.BannerSeverity.DEBUG: {
         "accent": "bg-gray-400",
@@ -294,6 +328,9 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
     # Event analytics
     event_analytics = _get_event_analytics()
 
+    # Top organizations by user traction (last 12 months)
+    top_organizations = _get_top_organizations_by_traction(months=12, limit=10)
+
     # Task health
     task_health = _get_task_health(days=7)
 
@@ -342,6 +379,7 @@ def dashboard_callback(request: HttpRequest, context: dict[str, t.Any]) -> dict[
                 "user_growth": user_growth,
                 "pronoun_distribution": pronoun_distribution,
                 "event_analytics": event_analytics,
+                "top_organizations": top_organizations,
                 "task_health": task_health,
                 "notification_health": notification_health,
             }
