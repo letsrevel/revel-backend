@@ -318,6 +318,41 @@ When working on issues or new features, follow this collaborative workflow:
           return item
   ```
 
+### Exception Handling (per-app handlers)
+
+Ninja Extra has **no per-controller exception hook**, so we keep controllers free of
+try/except by mapping exception types to HTTP status codes once per app. Each app
+**self-registers** its handlers on the global `NinjaExtraAPI` from its `AppConfig.ready`.
+
+- **Reusable building blocks** live in `common/exception_handlers.py`:
+  - `format_validation_error(exc)` — flatten a Django `ValidationError` (or any exception) to one line
+  - `make_simple_handler(status)` — render `str(exc)` as `{"detail": ...}` (use when the exception is raised *with* a message or `ValidationError` content)
+  - `make_static_handler(status, message)` — render a fixed, translatable message (use for bare-raised exceptions where `str(exc)` is empty)
+  - `register_handlers(api, HANDLERS)` — install a mapping on the API
+- **Each app** declares a `HANDLERS: dict[type[Exception], ExceptionHandler]` table in `<app>/exception_handlers.py` and a `register()` that imports the global `api` lazily, then calls `register_handlers(api, HANDLERS)` from `AppConfig.ready`.
+- **`api/api.py` stays app-agnostic** — only truly global handlers (`Exception → 500`, `ValidationError → 400`) live there. App-specific handlers take precedence by MRO (most specific registered class wins), so they run before the generic `ValidationError` fallback.
+- **New app with custom exceptions?** Add `<app>/exception_handlers.py` + wire `register()` into `AppConfig.ready` (see `polls`, `events`, `questionnaires` for reference). Do **not** add per-app handlers to `api/api.py`.
+
+```python
+# <app>/exception_handlers.py
+from common.exception_handlers import ExceptionHandler, make_simple_handler, register_handlers
+from <app>.exceptions import FooNotOpenError
+
+HANDLERS: dict[type[Exception], ExceptionHandler] = {
+    FooNotOpenError: make_simple_handler(423),
+}
+
+def register() -> None:
+    from api.api import api
+    register_handlers(api, HANDLERS)
+
+# <app>/apps.py
+class FooConfig(AppConfig):
+    def ready(self) -> None:
+        from <app>.exception_handlers import register as register_exception_handlers
+        register_exception_handlers()
+```
+
 ### Race Condition Protection
 - **Use helper function**: For create operations with uniqueness constraints, use `get_or_create_with_race_protection()` from `common.utils`
 - **No manual try-except**: Avoid wrapping IntegrityError manually in views
