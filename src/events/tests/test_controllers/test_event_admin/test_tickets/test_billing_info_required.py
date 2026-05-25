@@ -42,6 +42,26 @@ def _set_billing_info(
 class TestCreateOnlineTierBillingRequired:
     """Test billing info requirement when creating online ticket tiers."""
 
+    def test_create_online_tier_rejected_without_stripe_connection(
+        self,
+        organization_owner_client: Client,
+        event: Event,
+        organization: Organization,
+    ) -> None:
+        """Online tier is rejected with 400 when the org has no Stripe Connect.
+
+        Covers ``StripeNotConnectedError`` end-to-end now that the mapping lives in
+        the events exception handlers (was a controller try/except → 400).
+        """
+        # organization is intentionally NOT stripe-connected here
+        url = reverse("api:create_ticket_tier", kwargs={"event_id": event.pk})
+        payload = {"name": "Online Tier", "price": "25.00", "payment_method": "online"}
+
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 400
+        assert "stripe" in response.json()["detail"].lower()
+
     def test_create_online_tier_rejected_without_billing_info(
         self,
         organization_owner_client: Client,
@@ -57,7 +77,7 @@ class TestCreateOnlineTierBillingRequired:
 
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
-        assert response.status_code == 400
+        assert response.status_code == 422
         assert "billing" in response.json()["detail"].lower()
 
     def test_create_online_tier_rejected_without_country(
@@ -76,7 +96,7 @@ class TestCreateOnlineTierBillingRequired:
 
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
-        assert response.status_code == 400
+        assert response.status_code == 422
 
     def test_create_online_tier_rejected_without_billing_name(
         self,
@@ -95,7 +115,7 @@ class TestCreateOnlineTierBillingRequired:
 
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
-        assert response.status_code == 400
+        assert response.status_code == 422
         assert "billing" in response.json()["detail"].lower()
 
     def test_create_online_tier_rejected_without_address(
@@ -114,7 +134,7 @@ class TestCreateOnlineTierBillingRequired:
 
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
-        assert response.status_code == 400
+        assert response.status_code == 422
 
     def test_create_online_tier_allowed_with_billing_info(
         self,
@@ -206,7 +226,7 @@ class TestUpdateTierBillingRequired:
 
         response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
-        assert response.status_code == 400
+        assert response.status_code == 422
         assert "billing" in response.json()["detail"].lower()
 
     def test_update_to_online_allowed_with_billing_info(
@@ -246,7 +266,7 @@ class TestUpdateTierBillingRequired:
 
         response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
-        assert response.status_code == 400
+        assert response.status_code == 422
         assert "billing" in response.json()["detail"].lower()
 
     def test_update_non_payment_fields_allowed_without_billing_info(

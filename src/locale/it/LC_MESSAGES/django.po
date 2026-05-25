@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-19 16:29+0200\n"
+"POT-Creation-Date: 2026-05-25 18:45+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -748,21 +748,6 @@ msgstr "Il formato del numero non è corretto."
 msgid "Internal Server Error."
 msgstr "Errore interno del server."
 
-msgid "You submitted answers refer to a different questionnaire."
-msgstr "Le risposte che hai inviato si riferiscono a un questionario diverso."
-
-msgid "You are missing mandatory answers."
-msgstr "Mancano risposte obbligatorie."
-
-msgid "You have created too many items."
-msgstr "Hai creato troppi elementi."
-
-msgid "You are already a member of this organization."
-msgstr "Sei già membro di questa organizzazione."
-
-msgid "You have a pending membership request for this organization."
-msgstr "Hai una richiesta di iscrizione in sospeso per questa organizzazione."
-
 msgid "Permission denied"
 msgstr ""
 
@@ -893,34 +878,16 @@ msgstr ""
 msgid "The Revel Team"
 msgstr "Il Team di Revel"
 
+msgid "Already a member."
+msgstr ""
+
 #, fuzzy
 #| msgid "Invoice PDF not yet generated."
 msgid "Invoice PDF not available."
 msgstr "Il PDF della fattura non è ancora stato generato."
 
-#, fuzzy
-#| msgid "A user with this email already exists."
-msgid "An event with this slug already exists in your organization."
-msgstr "Esiste già un utente con questa email."
-
 msgid "Invitation not found."
 msgstr "Invito non trovato."
-
-msgid "You must connect to Stripe first."
-msgstr "Devi prima connetterti a Stripe."
-
-msgid ""
-"Billing information is required for online ticket sales with platform fees. "
-"Please set your billing name, country and billing address in your "
-"organization's billing settings."
-msgstr ""
-"Le informazioni di fatturazione sono necessarie per la vendita di biglietti "
-"online con commissioni di piattaforma. Imposta il nome di fatturazione, il "
-"paese e l'indirizzo di fatturazione nelle impostazioni di fatturazione della "
-"tua organizzazione."
-
-msgid "Ticket already cancelled"
-msgstr "Biglietto già annullato"
 
 #, fuzzy
 #| msgid "This event does not accept invitation requests."
@@ -931,6 +898,14 @@ msgstr "Questo evento non accetta richieste di invito."
 #| msgid "You are already invited to this event."
 msgid "You are already on the waitlist for this event."
 msgstr "Sei già invitato a questo evento."
+
+msgid "Event has available capacity. Please refresh and register directly."
+msgstr ""
+
+#, fuzzy
+#| msgid "You are not eligible."
+msgid "You are not eligible to join the waitlist."
+msgstr "Non sei idoneo."
 
 msgid "Successfully joined the waitlist."
 msgstr ""
@@ -1010,15 +985,6 @@ msgstr ""
 "Solo il proprietario dell'organizzazione può modificare i permessi dello "
 "staff."
 
-msgid "Only the organization owner can manage staff-granting tokens."
-msgstr ""
-"Solo il proprietario dell'organizzazione può gestire i token che concedono "
-"accesso allo staff."
-
-msgid "At least one of grants_membership or grants_staff_status must be True."
-msgstr ""
-"Almeno uno tra grants_membership o grants_staff_status deve essere True."
-
 msgid "Invoice PDF not yet generated."
 msgstr "Il PDF della fattura non è ancora stato generato."
 
@@ -1027,21 +993,17 @@ msgstr "Il PDF della fattura non è ancora stato generato."
 msgid "Invoice PDF could not be generated."
 msgstr "Il PDF della fattura non è ancora stato generato."
 
-msgid "Cannot filter by both event_id and event_series_id."
-msgstr ""
-"Non è possibile filtrare per event_id e event_series_id contemporaneamente."
-
-msgid "One or more events do not exist or belong to this organization."
-msgstr ""
-"Uno o più eventi non esistono o non appartengono a questa organizzazione."
-
-msgid "One or more event series do not exist or belong to this organization."
-msgstr ""
-"Una o più serie di eventi non esistono o non appartengono a questa "
-"organizzazione."
-
 msgid "Invalid Stripe signature"
 msgstr "Firma Stripe non valida"
+
+msgid "You have created too many items."
+msgstr "Hai creato troppi elementi."
+
+msgid "You are already a member of this organization."
+msgstr "Sei già membro di questa organizzazione."
+
+msgid "You have a pending membership request for this organization."
+msgstr "Hai una richiesta di iscrizione in sospeso per questa organizzazione."
 
 msgid "Draft"
 msgstr "Bozza"
@@ -1273,6 +1235,14 @@ msgstr "Richiede un profilo completo."
 msgid "Event is full."
 msgstr "L'evento è al completo."
 
+msgid "Spots are currently reserved for waitlist members."
+msgstr ""
+
+#, fuzzy
+#| msgid "You are already invited to this event."
+msgid "You are on the waitlist. Waiting for your turn."
+msgstr "Sei già invitato a questo evento."
+
 msgid "Sold out"
 msgstr "Esaurito"
 
@@ -1365,10 +1335,28 @@ msgstr "Hai creato troppi elementi."
 msgid "You can retry after %(retry_on)s."
 msgstr ""
 
+msgid "Cannot filter by both event_id and event_series_id."
+msgstr ""
+"Non è possibile filtrare per event_id e event_series_id contemporaneamente."
+
 #, fuzzy
 #| msgid "Waiting for questionnaire evaluation."
 msgid "Feedback questionnaires cannot require evaluation."
 msgstr "In attesa della valutazione del questionario."
+
+msgid "One or more events do not exist or belong to this organization."
+msgstr ""
+"Uno o più eventi non esistono o non appartengono a questa organizzazione."
+
+msgid "One or more event series do not exist or belong to this organization."
+msgstr ""
+"Una o più serie di eventi non esistono o non appartengono a questa "
+"organizzazione."
+
+#, fuzzy
+#| msgid "A user with this email already exists."
+msgid "An event with this slug already exists in your organization."
+msgstr "Esiste già un utente con questa email."
 
 msgid "Feedback questionnaire is only available after the event ends."
 msgstr ""
@@ -1432,6 +1420,18 @@ msgstr "Sei già invitato a questo evento."
 
 msgid "You have already requested an invitation to this event."
 msgstr "Hai già richiesto un invito per questo evento."
+
+msgid "Only the organization owner can manage staff-granting tokens."
+msgstr "Solo il proprietario dell'organizzazione può gestire i token che concedono lo status di staff."
+"Solo il proprietario dell'organizzazione può gestire i token che concedono "
+"accesso allo staff."
+
+msgid "At least one of grants_membership or grants_staff_status must be True."
+msgstr "Almeno uno tra grants_membership o grants_staff_status deve essere True."
+"Almeno uno tra grants_membership o grants_staff_status deve essere True."
+
+msgid "membership_tier_id is required when grants_membership is True."
+msgstr "membership_tier_id è obbligatorio quando grants_membership è True."
 
 #, python-format
 msgid ""
@@ -1570,6 +1570,22 @@ msgstr ""
 msgid "Only paused subscriptions can be resumed."
 msgstr ""
 
+msgid "Ticket already cancelled"
+msgstr "Biglietto già annullato"
+
+msgid "You must connect to Stripe first."
+msgstr "Devi prima connetterti a Stripe."
+
+msgid ""
+"Billing information is required for online ticket sales with platform fees. "
+"Please set your billing name, country and billing address in your "
+"organization's billing settings."
+msgstr ""
+"Le informazioni di fatturazione sono necessarie per la vendita di biglietti "
+"online con commissioni di piattaforma. Imposta il nome di fatturazione, il "
+"paese e l'indirizzo di fatturazione nelle impostazioni di fatturazione della "
+"tua organizzazione."
+
 msgid "Price paid is not allowed for fixed-price tiers."
 msgstr ""
 
@@ -1610,6 +1626,9 @@ msgid ""
 "payment."
 msgstr ""
 
+msgid "Tier IDs must match all tiers for this event exactly."
+msgstr ""
+
 #, fuzzy
 #| msgid "One or more events do not exist or belong to this organization."
 msgid ""
@@ -1617,9 +1636,6 @@ msgid ""
 "organization."
 msgstr ""
 "Uno o più eventi non esistono o non appartengono a questa organizzazione."
-
-msgid "Tier IDs must match all tiers for this event exactly."
-msgstr ""
 
 msgid "Seat '{}' position is outside the sector shape."
 msgstr ""
@@ -2578,9 +2594,6 @@ msgstr "Vai all'evento:"
 msgid "New Contact Message"
 msgstr "Nuovo messaggio di contatto"
 
-msgid "Open Revel to read the full message."
-msgstr "Apri Revel per leggere il messaggio completo."
-
 #, python-format
 msgid "<strong>%(sender)s</strong> sent a message to <strong>%(org)s</strong>."
 msgstr ""
@@ -3424,28 +3437,21 @@ msgstr "Informazioni biglietto"
 msgid "Spot Available!"
 msgstr "Elemento di nuovo disponibile"
 
-msgid "Great news!"
-msgstr "Ottime notizie!"
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid "A spot just opened up for <strong>%(event)s</strong>!"
+msgstr "Un nuovo biglietto è stato emesso per <strong>%(event_name)s</strong>."
 
-#, python-format
-msgid ""
-"<strong>%(count)s spot</strong> is now available for <strong>%(event)s</"
-"strong>!"
+msgid "This is the final call — the waitlist has opened to everyone."
 msgstr ""
 
-#, python-format
-msgid ""
-"<strong>%(count)s spots</strong> are now available for <strong>%(event)s</"
-"strong>!"
+msgid "You've been selected from the waitlist."
 msgstr ""
 
-msgid "Act fast!"
+msgid "Claim your spot before"
 msgstr ""
 
-msgid "Spots are limited and available on a first-come, first-served basis."
-msgstr ""
-
-msgid "Claim Your Spot Now"
+msgid "Claim Your Spot"
 msgstr ""
 
 #, fuzzy
@@ -3455,15 +3461,10 @@ msgid "You're receiving this because you're on the waitlist for this event."
 msgstr ""
 "Stai ricevendo questa email perché hai acquistato un biglietto su Revel."
 
-#, python-format
-msgid "%(count)s spot is now available for %(event)s!"
+msgid "A spot just opened up for"
 msgstr ""
 
-#, python-format
-msgid "%(count)s spots are now available for %(event)s!"
-msgstr ""
-
-msgid "Claim your spot now:"
+msgid "Claim your spot:"
 msgstr ""
 
 #, fuzzy
@@ -3562,6 +3563,44 @@ msgstr "Notifica per lo staff"
 msgid "View all notifications:"
 msgstr "Notifica per lo staff"
 
+msgid "Anonymity flags are immutable after a poll is created."
+msgstr ""
+
+msgid "This poll is not open for voting."
+msgstr ""
+
+#, fuzzy
+#| msgid "You are not eligible."
+msgid "You are not eligible to vote on this poll."
+msgstr "Non sei idoneo."
+
+#, fuzzy
+#| msgid "You are already invited to this event."
+msgid "You have already voted on this poll."
+msgstr "Sei già invitato a questo evento."
+
+#, fuzzy
+#| msgid "You are not allowed to participate in this organization's events."
+msgid "Vote changes are not allowed for this poll."
+msgstr "Non ti è consentito partecipare agli eventi di questa organizzazione."
+
+msgid "Questions cannot be modified once the poll leaves DRAFT."
+msgstr ""
+
+msgid "Invalid poll lifecycle action."
+msgstr ""
+
+#, fuzzy
+#| msgid "Invalid token: {error}"
+msgid "Invalid references in poll payload."
+msgstr "Token non valido: {error}"
+
+msgid "You submitted answers refer to a different questionnaire."
+msgstr "Le risposte che hai inviato si riferiscono a un questionario diverso."
+
+msgid "You are missing mandatory answers."
+msgstr "Mancano risposte obbligatorie."
+
 msgid "Dashboard"
 msgstr ""
 
@@ -3637,6 +3676,16 @@ msgstr ""
 msgid "Whitelist Requests"
 msgstr "Invito non trovato."
 
+#, fuzzy
+#| msgid "New Contact Message"
+msgid "Contact Messages"
+msgstr "Nuovo messaggio di contatto"
+
+#, fuzzy
+#| msgid "New Follower"
+msgid "Followers"
+msgstr "Nuovo follower"
+
 msgid "Venues & Seating"
 msgstr ""
 
@@ -3693,6 +3742,11 @@ msgid "Waitlists"
 msgstr ""
 
 #, fuzzy
+#| msgid "Invitation not found."
+msgid "Waitlist Offers"
+msgstr "Invito non trovato."
+
+#, fuzzy
 #| msgid "Payment Instructions"
 msgid "Pending Invitations"
 msgstr "Istruzioni per il pagamento"
@@ -3713,6 +3767,14 @@ msgstr ""
 msgid "Announcements"
 msgstr ""
 
+msgid "Recurrence Rules"
+msgstr "Regole di ricorrenza"
+
+#, fuzzy
+#| msgid "New Follower"
+msgid "Series Followers"
+msgstr "Nuovo follower"
+
 #, fuzzy
 #| msgid "Payment ID:"
 msgid "Payments"
@@ -3723,6 +3785,25 @@ msgstr ""
 
 msgid "Attendee Credit Notes"
 msgstr ""
+
+msgid "Platform Fee Invoices"
+msgstr "Fatture commissioni piattaforma"
+
+msgid "Platform Fee Credit Notes"
+msgstr "Note di credito commissioni piattaforma"
+
+#, fuzzy
+#| msgid "Description:"
+msgid "Subscriptions"
+msgstr "Descrizione:"
+
+#, fuzzy
+#| msgid "Description:"
+msgid "Subscription Plans"
+msgstr "Descrizione:"
+
+msgid "Subscription Payments"
+msgstr "Pagamenti abbonamento"
 
 msgid "Preferences"
 msgstr ""
@@ -3744,6 +3825,11 @@ msgstr "Questionario:"
 #| msgid "Submission Details"
 msgid "Submissions"
 msgstr "Dettagli invio"
+
+#, fuzzy
+#| msgid "New Questionnaire Submission"
+msgid "Event Questionnaire Submissions"
+msgstr "Nuovo questionario ricevuto"
 
 #, fuzzy
 #| msgid "Evaluation Date:"
@@ -3768,6 +3854,9 @@ msgstr ""
 #| msgid "Uploader"
 msgid "Uploaded Files"
 msgstr "Caricato da"
+
+msgid "Polls"
+msgstr ""
 
 msgid "Notification Deliveries"
 msgstr ""

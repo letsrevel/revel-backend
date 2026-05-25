@@ -39,6 +39,13 @@ from events.utils.reserved_slug_tokens import find_reserved_token
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
 
+# Canned messages for the organization-token guard exceptions. Co-located with
+# the service that raises them so the per-app exception handlers (and any caller)
+# render an identical, translatable ``{"detail": ...}`` body.
+STAFF_GRANT_FORBIDDEN_MESSAGE = _("Only the organization owner can manage staff-granting tokens.")
+GRANT_INVARIANT_MESSAGE = _("At least one of grants_membership or grants_staff_status must be True.")
+MEMBERSHIP_TIER_REQUIRED_MESSAGE = _("membership_tier_id is required when grants_membership is True.")
+
 
 def _create_and_send_contact_email_verification(
     organization: Organization,

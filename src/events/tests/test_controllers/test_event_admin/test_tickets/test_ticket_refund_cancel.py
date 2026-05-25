@@ -343,6 +343,48 @@ def test_cancel_ticket_wrong_event(
     assert response.status_code == 404
 
 
+def test_cancel_ticket_already_cancelled_returns_409(
+    organization_owner_client: Client,
+    event: Event,
+    pending_offline_ticket: Ticket,
+) -> None:
+    """Cancelling an already-cancelled ticket returns 409 with a detail message.
+
+    The first cancel succeeds (200); the second hits ``TicketAlreadyCancelledError``,
+    now mapped to 409 by the events exception handlers (was a controller try/except → 400).
+    """
+    url = reverse(
+        "api:cancel_ticket",
+        kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
+    )
+
+    first = organization_owner_client.post(url, data={}, content_type="application/json")
+    assert first.status_code == 200
+
+    second = organization_owner_client.post(url, data={}, content_type="application/json")
+    assert second.status_code == 409
+    assert "detail" in second.json()
+
+
+def test_mark_refunded_already_cancelled_returns_409(
+    organization_owner_client: Client,
+    event: Event,
+    pending_offline_ticket: Ticket,
+) -> None:
+    """Refunding an already-cancelled ticket returns 409 with a detail message."""
+    url = reverse(
+        "api:mark_ticket_refunded",
+        kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk},
+    )
+
+    first = organization_owner_client.post(url, data={}, content_type="application/json")
+    assert first.status_code == 200
+
+    second = organization_owner_client.post(url, data={}, content_type="application/json")
+    assert second.status_code == 409
+    assert "detail" in second.json()
+
+
 # --- Tests for membership field in list endpoints ---
 
 

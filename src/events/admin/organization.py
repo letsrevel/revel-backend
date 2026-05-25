@@ -160,6 +160,41 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         return format_html("{} {}", icon, obj.vat_id)
 
 
+@admin.register(models.OrganizationContactMessage)
+class OrganizationContactMessageAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+    """Admin for OrganizationContactMessage (public contact-form submissions).
+
+    Read-only: messages are user-submitted records kept for support/moderation,
+    never edited from the admin.
+    """
+
+    list_display = ["__str__", "organization_link", "sender_link", "sender_email_snapshot", "subject", "created_at"]
+    list_filter = ["created_at", "organization__name"]
+    list_select_related = ["organization", "sender"]
+    search_fields = ["organization__name", "sender_email_snapshot", "subject", "message", "sender__username"]
+    readonly_fields = [
+        "organization",
+        "sender",
+        "sender_email_snapshot",
+        "subject",
+        "message",
+        "created_at",
+        "updated_at",
+    ]
+    date_hierarchy = "created_at"
+
+    @admin.display(description="Sender")
+    def sender_link(self, obj: models.OrganizationContactMessage) -> str:
+        if not obj.sender:
+            return "—"
+        url = reverse("admin:accounts_reveluser_change", args=[obj.sender.id])
+        return format_html('<a href="{}">{}</a>', url, obj.sender.username)
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        """Contact messages are created via the public API, never in the admin."""
+        return False
+
+
 @admin.register(models.OrganizationQuestionnaire)
 class OrganizationQuestionnaireAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     list_display = ["__str__", "organization_link", "questionnaire_link"]
