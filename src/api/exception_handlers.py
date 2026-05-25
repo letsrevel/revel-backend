@@ -7,7 +7,7 @@ from copy import deepcopy
 import orjson
 import structlog
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 from ninja.responses import Response
@@ -83,7 +83,13 @@ def handle_django_validation_error(request: HttpRequest, exc: Exception | t.Type
         exc: The exception.
     """
     validation_error = t.cast(ValidationError, exc)
-    error_dict = {k: [ee for e in v for ee in e] for k, v in validation_error.error_dict.items()}
+    if hasattr(validation_error, "error_dict"):
+        error_dict = {k: [ee for e in v for ee in e] for k, v in validation_error.error_dict.items()}
+    else:
+        # String/list-form ValidationErrors carry only ``error_list`` (no
+        # ``error_dict``); group their messages under the non-field key so this
+        # last-resort handler never raises on a valid ValidationError shape.
+        error_dict = {NON_FIELD_ERRORS: list(validation_error.messages)}
     logger.warning(
         "validation_error",
         method=request.method,
