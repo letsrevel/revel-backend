@@ -159,7 +159,7 @@ _postgres_db = {
     # PgBouncer transaction-pooling mode recycles the backend connection at every
     # COMMIT, which orphans PostgreSQL server-side cursors (Django's QuerySet.iterator()).
     # Django's docs require disabling them in this mode; otherwise a FETCH/CLOSE after a
-    # commit raises InvalidCursorName. See docs/postmortems/0002 and #458.
+    # commit raises InvalidCursorName. See docs/postmortems/0002-server-side-cursor-pgbouncer.md and #458.
     "DISABLE_SERVER_SIDE_CURSORS": USE_PGBOUNCER,
     "ATOMIC_REQUESTS": True,
     "OPTIONS": {
