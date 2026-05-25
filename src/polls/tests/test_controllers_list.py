@@ -326,3 +326,73 @@ def test_list_polls_query_count_does_not_grow_with_total_polls(
         f"{len(ctx_small.captured_queries)} queries for 10 polls, "
         f"{len(ctx_big.captured_queries)} for 20 (delta={delta}) — both at page_size=2."
     )
+
+
+def test_detail_query_count_does_not_grow_with_voters(
+    owner_client: Client,
+    organization: Organization,
+    revel_user_factory: t.Any,
+) -> None:
+    """The detail GET (results + voter identities visible) must not N+1 on voters.
+
+    ``_to_detail`` fans out to ``build_user_vote`` (#449), free-text voter
+    resolution (#448) and ``_mc_voters_by_option`` (#450). Those voter lookups
+    are single ``select_related`` queries, so the response cost must stay flat
+    as the voter count grows. Guard against a regression to per-voter queries.
+    """
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+    from django.utils import timezone
+
+    from questionnaires.models import (
+        FreeTextAnswer,
+        FreeTextQuestion,
+        MultipleChoiceAnswer,
+        MultipleChoiceOption,
+        MultipleChoiceQuestion,
+        QuestionnaireSubmission,
+    )
+
+    # Questions before the poll (the DRAFT lockdown forbids edits once it exists).
+    q = Questionnaire.objects.create(name="detail-qcount Q")
+    mcq = MultipleChoiceQuestion.objects.create(questionnaire=q, question="Pick?")
+    opt = MultipleChoiceOption.objects.create(question=mcq, option="a")
+    ftq = FreeTextQuestion.objects.create(questionnaire=q, question="Why?")
+    poll = Poll.objects.create(
+        organization=organization,
+        questionnaire=q,
+        vote_visibility=ResourceVisibility.PUBLIC,
+        result_visibility=ResourceVisibility.PUBLIC,
+        result_timing=Poll.PollResultTiming.AFTER_VOTE,
+        status=Poll.PollStatus.OPEN,
+        # Owner sees results regardless of timing, and staff_anonymous=False makes
+        # viewer_sees_identity True so the per-voter (MC + free-text) queries fire.
+        staff_anonymous=False,
+    )
+
+    def _add_voters(n: int) -> None:
+        for _ in range(n):
+            sub = QuestionnaireSubmission.objects.create(
+                user=revel_user_factory(),
+                questionnaire=q,
+                status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+                submitted_at=timezone.now(),
+            )
+            MultipleChoiceAnswer.objects.create(submission=sub, question=mcq, option=opt)
+            FreeTextAnswer.objects.create(submission=sub, question=ftq, answer="x")
+
+    _add_voters(2)
+    with CaptureQueriesContext(connection) as ctx_few:
+        few = owner_client.get(f"/api/polls/{poll.id}/")
+    assert few.status_code == 200
+
+    _add_voters(8)  # 10 voters total
+    with CaptureQueriesContext(connection) as ctx_many:
+        many = owner_client.get(f"/api/polls/{poll.id}/")
+    assert many.status_code == 200
+
+    delta = len(ctx_many.captured_queries) - len(ctx_few.captured_queries)
+    assert delta < 5, (
+        f"Detail GET scaled with voter count: {len(ctx_few.captured_queries)} queries "
+        f"for 2 voters, {len(ctx_many.captured_queries)} for 10 (delta={delta})."
+    )

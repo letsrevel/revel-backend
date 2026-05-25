@@ -158,9 +158,10 @@ class PollController(UserAwareController):
         """
         user = self.maybe_user()
         poll = t.cast(Poll, self.get_object_or_exception(self._detail_base_queryset(), pk=poll_id))
-        if not eligibility.can_see_poll(user, poll):
+        is_staff = eligibility.is_staff_or_owner(user, poll)
+        if not eligibility.can_see_poll(user, poll, _is_staff=is_staff):
             raise HttpError(403, "You are not allowed to see this poll.")
-        return self._to_detail(poll, user)
+        return self._to_detail(poll, user, _is_staff=is_staff)
 
     @route.get("/{poll_id}/results", url_name="get_poll_results", response=PollResultsSchema)
     def get_poll_results(self, poll_id: UUID) -> PollResultsSchema:
@@ -321,7 +322,7 @@ class PollController(UserAwareController):
 
     # ------------------------------------------------------------------ helpers
 
-    def _to_detail(self, poll: Poll, user: UserLike) -> dict[str, t.Any]:
+    def _to_detail(self, poll: Poll, user: UserLike, *, _is_staff: bool | None = None) -> dict[str, t.Any]:
         """Build the response payload for :class:`PollDetailSchema` endpoints.
 
         The wrapped questionnaire is built via
@@ -336,11 +337,13 @@ class PollController(UserAwareController):
         Performance: :func:`eligibility.is_staff_or_owner` is computed once
         and threaded through every consumer helper (``can_see_results``,
         ``can_vote``, ``_viewer_sees_identity``) so the ``OrganizationStaff``
-        lookup runs at most once per response, not six times.
+        lookup runs at most once per response, not six times. ``_is_staff`` lets
+        the caller pass a value it already resolved (e.g. ``get_poll``, which
+        also threads it into ``can_see_poll``) so it is not recomputed here.
         """
         from questionnaires.service import QuestionnaireService
 
-        is_staff = eligibility.is_staff_or_owner(user, poll)
+        is_staff = _is_staff if _is_staff is not None else eligibility.is_staff_or_owner(user, poll)
         user_can_see_results = eligibility.can_see_results(user, poll, _is_staff=is_staff)
         results: PollResultsSchema | None = None
         if user_can_see_results:

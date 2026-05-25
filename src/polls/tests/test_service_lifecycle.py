@@ -323,6 +323,72 @@ def test_delete_poll_cascades_to_questionnaire_and_submissions(
     assert not QuestionnaireSubmission.objects.filter(questionnaire_id=qid).exists()
 
 
+@pytest.mark.parametrize("reach_status", [Poll.PollStatus.OPEN, Poll.PollStatus.CLOSED])
+def test_delete_non_draft_poll_with_questions_cascades(
+    organization: Organization,
+    revel_user_factory: t.Any,
+    reach_status: Poll.PollStatus,
+) -> None:
+    """Regression for B1: deleting a non-DRAFT poll carrying questions must not
+    trip the question-lockdown signal during the cascade delete.
+
+    The lockdown (``polls.signals``) blocks question/option/section EDITS on a
+    live poll, but a teardown is legitimate at any lifecycle stage. Previously
+    the cascade fired ``pre_delete`` -> ``_guard`` on each question/option/
+    section and rolled the whole delete back (the only prior delete test used an
+    empty questionnaire, so the guard never fired).
+    """
+    from questionnaires.models import (
+        FileUploadAnswer,
+        FileUploadQuestion,
+        FreeTextAnswer,
+        FreeTextQuestion,
+        MultipleChoiceAnswer,
+        MultipleChoiceOption,
+        MultipleChoiceQuestion,
+        QuestionnaireSection,
+        QuestionnaireSubmission,
+    )
+
+    poll = poll_service.create_poll(organization, _create_payload(organization))
+    # Build the structure while still DRAFT (the guard permits DRAFT mutations).
+    mcq = MultipleChoiceQuestion.objects.create(questionnaire=poll.questionnaire, question="Pick?")
+    opt = MultipleChoiceOption.objects.create(question=mcq, option="a")
+    ftq = FreeTextQuestion.objects.create(questionnaire=poll.questionnaire, question="Why?")
+    fuq = FileUploadQuestion.objects.create(questionnaire=poll.questionnaire, question="Upload")
+    QuestionnaireSection.objects.create(questionnaire=poll.questionnaire, name="S", order=0)
+
+    poll_service.open_poll(poll)
+    if reach_status == Poll.PollStatus.CLOSED:
+        poll_service.close_poll(poll)
+
+    # A submitted vote with answers, to exercise the submission/answer cascade too.
+    user = revel_user_factory()
+    sub = QuestionnaireSubmission.objects.create(
+        user=user,
+        questionnaire=poll.questionnaire,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        submitted_at=timezone.now(),
+    )
+    sub_id = sub.id
+    MultipleChoiceAnswer.objects.create(submission=sub, question=mcq, option=opt)
+    FreeTextAnswer.objects.create(submission=sub, question=ftq, answer="because")
+    FileUploadAnswer.objects.create(submission=sub, question=fuq)
+
+    qid = poll.questionnaire_id
+    poll_service.delete_poll(poll)  # must NOT raise PollQuestionLockedError
+
+    assert not Poll.objects.filter(pk=poll.pk).exists()
+    assert not Questionnaire.objects.filter(pk=qid).exists()
+    assert not MultipleChoiceQuestion.objects.filter(questionnaire_id=qid).exists()
+    assert not MultipleChoiceOption.objects.filter(question__questionnaire_id=qid).exists()
+    assert not QuestionnaireSection.objects.filter(questionnaire_id=qid).exists()
+    assert not QuestionnaireSubmission.objects.filter(pk=sub_id).exists()
+    assert not MultipleChoiceAnswer.objects.filter(submission_id=sub_id).exists()
+    assert not FreeTextAnswer.objects.filter(submission_id=sub_id).exists()
+    assert not FileUploadAnswer.objects.filter(submission_id=sub_id).exists()
+
+
 # --- membership-tier validation (B1) ---
 
 

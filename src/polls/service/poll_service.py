@@ -25,7 +25,16 @@ from polls.exceptions import (
     PollVoteChangesNotAllowedError,
 )
 from polls.models import Poll
-from polls.schema import PollCreateSchema, PollReopenSchema, PollUpdateSchema, PollVoteSchema
+from polls.schema import (
+    FileUploadAnswerInput,
+    FreeTextAnswerInput,
+    McAnswerInput,
+    PollCreateSchema,
+    PollReopenSchema,
+    PollUpdateSchema,
+    PollVoteSchema,
+)
+from polls.signals import suppress_question_lock
 from polls.utils import format_validation_error
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 from questionnaires.schema import QuestionnaireCreateSchema
@@ -413,6 +422,13 @@ def delete_poll(poll: Poll) -> None:
     from poll to questionnaire — deleting the questionnaire cascades to the
     poll and to all ``QuestionnaireSubmission`` rows (votes).
 
+    The cascade also deletes the questionnaire's questions/options/sections,
+    which would trip the DRAFT lockdown guard (:mod:`polls.signals`) for a
+    non-DRAFT poll and roll the whole delete back. We therefore suppress the
+    guard for the cascade — tearing a poll down is a legitimate operation at
+    any lifecycle stage; the lockdown only exists to block *edits* to a live
+    poll's questions.
+
     Args:
         poll: The poll to delete. The function reads ``questionnaire_id``
             from the instance and deletes from the questionnaire side so the
@@ -421,7 +437,7 @@ def delete_poll(poll: Poll) -> None:
     Returns:
         None.
     """
-    with transaction.atomic():
+    with transaction.atomic(), suppress_question_lock():
         Questionnaire.objects.filter(pk=poll.questionnaire_id).delete()
 
 
@@ -540,7 +556,7 @@ def _write_answers(submission: QuestionnaireSubmission, payload: PollVoteSchema)
         _write_file_upload_answer(submission, fu)
 
 
-def _write_mc_answer(submission: QuestionnaireSubmission, mc: t.Any) -> None:
+def _write_mc_answer(submission: QuestionnaireSubmission, mc: McAnswerInput) -> None:
     """Persist a single multiple-choice answer row (or raise on unknown ids)."""
     from questionnaires.models import MultipleChoiceAnswer, MultipleChoiceOption, MultipleChoiceQuestion
 
@@ -556,7 +572,7 @@ def _write_mc_answer(submission: QuestionnaireSubmission, mc: t.Any) -> None:
         MultipleChoiceAnswer.objects.create(submission=submission, question=mc_question, option=option)
 
 
-def _write_free_text_answer(submission: QuestionnaireSubmission, ft: t.Any) -> None:
+def _write_free_text_answer(submission: QuestionnaireSubmission, ft: FreeTextAnswerInput) -> None:
     """Persist a single free-text answer row (or raise on unknown id)."""
     from questionnaires.models import FreeTextAnswer, FreeTextQuestion
 
@@ -567,7 +583,7 @@ def _write_free_text_answer(submission: QuestionnaireSubmission, ft: t.Any) -> N
     FreeTextAnswer.objects.create(submission=submission, question=ft_question, answer=ft.answer)
 
 
-def _write_file_upload_answer(submission: QuestionnaireSubmission, fu: t.Any) -> None:
+def _write_file_upload_answer(submission: QuestionnaireSubmission, fu: FileUploadAnswerInput) -> None:
     """Persist a single file-upload answer row + attach uploaded files."""
     from questionnaires.models import FileUploadAnswer, FileUploadQuestion, QuestionnaireFile
 

@@ -1,5 +1,16 @@
-"""Block question/option/section mutations when the questionnaire belongs to a non-DRAFT poll."""
+"""Block question/option/section mutations when the questionnaire belongs to a non-DRAFT poll.
 
+These receivers fire on **every** ``MultipleChoiceQuestion`` / ``FreeTextQuestion`` /
+``FileUploadQuestion`` / ``MultipleChoiceOption`` / ``QuestionnaireSection`` write across
+the whole platform — including event admission/feedback questionnaires that have no
+poll. Each write therefore pays one ``SELECT ... FOR UPDATE`` against ``polls_poll``
+(an indexed OneToOne lookup that returns at most one row). The locking lookup is
+deliberate: a cheaper ``EXISTS`` would reintroduce the check-then-act race documented
+on :func:`_guard`. Questionnaire authoring is not a hot path, so the cost is accepted.
+"""
+
+import contextlib
+import contextvars
 import typing as t
 import uuid
 
@@ -15,6 +26,29 @@ from questionnaires.models import (
     MultipleChoiceQuestion,
     QuestionnaireSection,
 )
+
+# When set, :func:`_guard` is a no-op. Used by ``poll_service.delete_poll`` to let the
+# questionnaire-cascade delete tear down a non-DRAFT poll's questions/options/sections
+# without the lockdown rejecting the (legitimate) teardown.
+_suppress_lock: contextvars.ContextVar[bool] = contextvars.ContextVar("polls_suppress_question_lock", default=False)
+
+
+@contextlib.contextmanager
+def suppress_question_lock() -> t.Iterator[None]:
+    """Disable the DRAFT question-lockdown guard for the duration of the block.
+
+    Deleting a poll deletes its questionnaire, whose cascade deletes the
+    questions/options/sections — which would otherwise trip :func:`_guard`
+    (the poll is non-DRAFT) and roll the whole delete back. Suppressing the
+    guard for the cascade lets a legitimate delete through. Scope it as tightly
+    as possible: only wrap the delete, never broader work, so concurrent
+    question edits on OTHER polls keep their protection.
+    """
+    token = _suppress_lock.set(True)
+    try:
+        yield
+    finally:
+        _suppress_lock.reset(token)
 
 
 def _questionnaire_id_from_instance(instance: t.Any) -> uuid.UUID | None:
@@ -43,6 +77,9 @@ def _guard(instance: t.Any) -> None:
     nested ``atomic()`` calls (savepoints), so this is safe even when the
     caller already opened its own transaction.
     """
+    if _suppress_lock.get():
+        return
+
     from polls.models import Poll
 
     questionnaire_id = _questionnaire_id_from_instance(instance)

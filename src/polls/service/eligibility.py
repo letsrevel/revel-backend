@@ -162,7 +162,7 @@ def can_vote(user: UserLike, poll: Poll, *, _is_staff: bool | None = None) -> bo
     return _passes_visibility(user, poll, poll.vote_visibility, poll.vote_membership_tiers.all(), _is_staff=_is_staff)
 
 
-def can_see_poll(user: UserLike, poll: Poll) -> bool:
+def can_see_poll(user: UserLike, poll: Poll, *, _is_staff: bool | None = None) -> bool:
     """Whether ``user`` can see that the poll exists (used for listing/detail).
 
     A user passes if they fall inside the vote audience OR the result audience
@@ -170,10 +170,15 @@ def can_see_poll(user: UserLike, poll: Poll) -> bool:
     :func:`_passes_visibility` directly rather than :func:`can_vote` so that
     anonymous users with a publicly-castable ``vote_visibility`` still see the
     poll exists (they cannot cast a vote, but a public poll must be listable).
+
+    ``_is_staff`` is an optional pre-computed :func:`is_staff_or_owner` result
+    threaded through to both :func:`_passes_visibility` calls so the detail GET
+    (which also resolves staffness in ``_to_detail``) doesn't repeat the
+    ``OrganizationStaff`` lookup. See :func:`_passes_visibility` for details.
     """
-    if _passes_visibility(user, poll, poll.vote_visibility, poll.vote_membership_tiers.all()):
+    if _passes_visibility(user, poll, poll.vote_visibility, poll.vote_membership_tiers.all(), _is_staff=_is_staff):
         return True
-    if _passes_visibility(user, poll, poll.result_visibility, poll.result_membership_tiers.all()):
+    if _passes_visibility(user, poll, poll.result_visibility, poll.result_membership_tiers.all(), _is_staff=_is_staff):
         return True
     return user_has_voted(user, poll)
 
