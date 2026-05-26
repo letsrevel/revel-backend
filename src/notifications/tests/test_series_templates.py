@@ -5,12 +5,10 @@ materialized had Django body templates but no registered ``NotificationTemplate`
 subclass, so email/Telegram delivery raised ``ValueError`` at ``get_template``.
 """
 
-import typing as t
-
 import pytest
 
 from accounts.models import RevelUser
-from notifications.context_schemas import NOTIFICATION_CONTEXT_SCHEMAS
+from notifications.context_schemas import NOTIFICATION_CONTEXT_SCHEMAS, SeriesEventsGeneratedContext
 from notifications.enums import NotificationType
 from notifications.models import Notification
 from notifications.service.templates.registry import (
@@ -36,7 +34,7 @@ def digest_user(django_user_model: type[RevelUser]) -> RevelUser:
 
 def _make_notification(user: RevelUser, *, events_count: int) -> Notification:
     """Build a SERIES_EVENTS_GENERATED notification with a valid context."""
-    context: dict[str, t.Any] = {
+    context: SeriesEventsGeneratedContext = {
         "organization_id": "org-id",
         "organization_name": "Acme Org",
         "event_series_id": "series-id",
