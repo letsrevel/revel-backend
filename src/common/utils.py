@@ -68,8 +68,12 @@ def get_or_create_with_race_protection(
     """Get or create a model instance with protection against race conditions.
 
     Attempts to retrieve an instance matching the lookup filter. If not found,
-    creates one using the defaults. Handles IntegrityError from race conditions
-    by retrying the lookup.
+    creates one using the defaults. A concurrent create that wins the race is
+    handled by retrying the lookup. The race surfaces as either ``IntegrityError``
+    (unique violation at INSERT) or ``ValidationError`` (``TimeStampedModel.save``
+    runs ``full_clean``, so ``validate_constraints`` raises when the racing row was
+    already committed before our insert); both are caught. A ``ValidationError``
+    that is *not* a uniqueness race (no matching row appears) is re-raised.
 
     Args:
         model: The Django model class
@@ -93,11 +97,14 @@ def get_or_create_with_race_protection(
 
     try:
         return manager.create(**defaults), True
-    except IntegrityError:
-        # Race condition: another request created it between our check and create
+    except (IntegrityError, ValidationError):
+        # Race condition: another request created the row between our check and
+        # create. Depending on timing this raises IntegrityError (INSERT) or
+        # ValidationError (full_clean's validate_constraints, when the racing row
+        # is already committed). Re-fetch to return the winner.
         instance = manager.filter(lookup_filter).first()
         if not instance:
-            # Should never happen, but if it does, re-raise the original error
+            # Not a uniqueness race (e.g. a genuine validation error): re-raise.
             raise
         return instance, False
 

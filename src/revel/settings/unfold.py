@@ -232,6 +232,11 @@ UNFOLD = {
                         "link": reverse_lazy("admin:events_eventrsvp_changelist"),
                     },
                     {
+                        "title": _("Bookmarks"),
+                        "icon": "bookmark",
+                        "link": reverse_lazy("admin:events_eventbookmark_changelist"),
+                    },
+                    {
                         "title": _("Invitations"),
                         "icon": "mail",
                         "link": reverse_lazy("admin:events_eventinvitation_changelist"),

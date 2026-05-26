@@ -29,7 +29,7 @@ def get_user_related_events(
 
     1. Events the user has visibility permission on.
     2. Events matching the dashboard relationship filters
-       (owner / staff / member / rsvp / tickets / invitations).
+       (owner / staff / member / rsvp / tickets / invitations / bookmarks).
 
     IDs are materialised in Python to keep the final ``WHERE id IN (...)``
     pagination-friendly. Optionally narrows further by ``requires_ticket``.
@@ -48,7 +48,7 @@ def get_user_related_events(
     relationship_event_ids = set(params.get_events_queryset(user.id).values_list("id", flat=True))
     final_event_ids = authorized_event_ids & relationship_event_ids
 
-    qs = models.Event.objects.full().filter(id__in=list(final_event_ids))
+    qs = models.Event.objects.full().filter(id__in=list(final_event_ids)).with_user_bookmark(user)
     if params.requires_ticket is not None:
         qs = qs.filter(requires_ticket=params.requires_ticket)
     return qs

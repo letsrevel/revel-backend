@@ -13,7 +13,13 @@ from common.authentication import I18nJWTAuth, OptionalAuth
 from common.schema import ResponseMessage
 from common.throttling import QuestionnaireSubmissionThrottle, WriteThrottle
 from events import models, schema
-from events.service import event_questionnaire_service, event_service, feedback_service, ticket_service
+from events.service import (
+    bookmark_service,
+    event_questionnaire_service,
+    event_service,
+    feedback_service,
+    ticket_service,
+)
 from events.service.event_manager import (
     EligibilityService,
     EventManager,
@@ -125,6 +131,42 @@ class EventPublicAttendanceController(EventPublicBaseController):
         event = self.get_one(event_id)
         manager = EventManager(self.user(), event)
         return manager.rsvp(answer)
+
+    @route.post(
+        "/{uuid:event_id}/bookmark",
+        url_name="bookmark_event",
+        response={201: schema.EventBookmarkSchema, 200: schema.EventBookmarkSchema},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def bookmark_event(self, event_id: UUID) -> tuple[int, models.EventBookmark]:
+        """Bookmark an event to find it again later.
+
+        Saving an event is a private "save for later" action: it does not grant access,
+        notify anyone, or change your eligibility. You can only bookmark events you can
+        currently see (this includes unlisted events, which are reachable by anyone who
+        has the link/ID). Idempotent: returns 201 with the new bookmark, or 200 with the
+        existing one if you had already bookmarked it.
+        """
+        event = self.get_one(event_id)
+        bookmark, created = bookmark_service.bookmark_event(self.user(), event)
+        return (201 if created else 200), bookmark
+
+    @route.delete(
+        "/{uuid:event_id}/bookmark",
+        url_name="unbookmark_event",
+        response={204: None},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def unbookmark_event(self, event_id: UUID) -> tuple[int, None]:
+        """Remove your bookmark for an event.
+
+        Idempotent — succeeds with 204 whether or not a bookmark existed. Works even if the
+        event is no longer visible to you, so a stale bookmark can always be cleared.
+        """
+        bookmark_service.unbookmark_event(self.user(), event_id)
+        return 204, None
 
     @route.post(
         "/{uuid:event_id}/waitlist/join",

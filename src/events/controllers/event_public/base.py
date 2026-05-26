@@ -34,11 +34,17 @@ class EventPublicBaseController(UserAwareController):
         if et := self.get_event_token():
             allowed_ids = [et.event_id]
         base = models.Event.objects.full() if full else models.Event.objects
-        return base.for_user(self.maybe_user(), include_past=include_past, allowed_ids=allowed_ids)
+        return base.for_user(self.maybe_user(), include_past=include_past, allowed_ids=allowed_ids).with_user_bookmark(
+            self.maybe_user()
+        )
 
     def get_discovery_queryset(self, include_past: bool = False) -> models.event.EventQuerySet:
         """Get the queryset for discovery listings (hides UNLISTED from non-owner/non-staff users)."""
-        return models.Event.objects.full().discoverable_for_user(self.maybe_user(), include_past=include_past)
+        return (
+            models.Event.objects.full()
+            .discoverable_for_user(self.maybe_user(), include_past=include_past)
+            .with_user_bookmark(self.maybe_user())
+        )
 
     def _raise_if_token_gone(self, event_id: UUID | None = None) -> None:
         """Raise 410 if the request carried a token that was rejected.

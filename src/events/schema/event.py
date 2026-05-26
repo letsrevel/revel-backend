@@ -109,6 +109,24 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     updated_at: AwareDatetime | None = None
     created_at: AwareDatetime | None = None
     seats_held: int = 0
+    is_bookmarked: bool = False
+
+    @staticmethod
+    def resolve_is_bookmarked(obj: "Event", context: t.Any) -> bool:
+        """Whether the current user has bookmarked this event.
+
+        Reads the ``user_has_bookmarked`` annotation when present (set by
+        ``EventQuerySet.with_user_bookmark`` on list/detail querysets). Falls
+        back to a direct lookup for callers that haven't annotated.
+        """
+        annotated = getattr(obj, "user_has_bookmarked", None)
+        if annotated is not None:
+            return bool(annotated)
+
+        from events.models import EventBookmark
+
+        user = context["request"].user
+        return user.is_authenticated and EventBookmark.objects.filter(user=user, event=obj).exists()
 
     @staticmethod
     def resolve_seats_held(obj: "Event") -> int:

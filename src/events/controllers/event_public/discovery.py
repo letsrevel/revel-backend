@@ -70,7 +70,7 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         event_ids = list(filtered_qs.values_list("id", flat=True).distinct())
 
         # Build simple queryset with IN clause - pagination COUNT is now fast
-        qs = models.Event.objects.full().filter(id__in=event_ids)
+        qs = models.Event.objects.full().filter(id__in=event_ids).with_user_bookmark(self.maybe_user())
 
         if order_by == "distance":
             return event_service.order_by_distance(self.user_location(), qs)

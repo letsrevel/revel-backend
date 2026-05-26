@@ -1,6 +1,7 @@
 from .announcement import Announcement
 from .attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote
 from .blacklist import Blacklist, WhitelistRequest
+from .bookmark import EventBookmark
 from .discount_code import DiscountCode
 from .event import (
     AttendeeVisibilityFlag,
@@ -64,6 +65,7 @@ __all__ = [
     "EventRSVP",
     "EventToken",
     "EventWaitList",
+    "EventBookmark",
     "WaitlistOffer",
     "Payment",
     "PendingEventInvitation",

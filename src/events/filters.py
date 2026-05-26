@@ -244,6 +244,7 @@ class DashboardEventsFiltersSchema(Schema):
     rsvp_maybe: bool = True
     got_ticket: bool = True
     got_invitation: bool = True
+    bookmarked: bool = True
     requires_ticket: bool | None = None
 
     def get_events_queryset(self, user_id: UUID) -> models.QuerySet[Event]:
@@ -252,48 +253,29 @@ class DashboardEventsFiltersSchema(Schema):
         It gathers IDs from different sources using UNION and then filters.
         This will avoid expensive JOIN queries.
         """
-        # A list to hold the querysets that will be UNIONed.
-        event_id_querysets = []
-
-        # Each condition generates a simple, fast query that only fetches event IDs.
-        # All branches exclude recurring-series templates: templates belong to an
-        # organization but are internal blueprints, not real events that users
-        # should see on a dashboard. Today templates are forced to DRAFT status
-        # by a CheckConstraint and can't have RSVPs/tickets/invitations, so the
-        # rsvp_*/got_* branches are belt-and-suspenders — but they make the
-        # invariant explicit instead of relying on a constraint two layers away.
-        if self.owner:
-            owner_events = Event.objects.exclude_templates().filter(organization__owner_id=user_id).values("id")
-            event_id_querysets.append(owner_events)
-        if self.staff:
-            staff_events = (
-                Event.objects.exclude_templates().filter(organization__staff_members__id=user_id).values("id")
-            )
-            event_id_querysets.append(staff_events)
-        if self.member:
-            member_events = Event.objects.exclude_templates().filter(organization__members__id=user_id).values("id")
-            event_id_querysets.append(member_events)
-        if self.rsvp_yes:
-            rsvp_yes_events = (
-                Event.objects.exclude_templates().filter(rsvps__user_id=user_id, rsvps__status="yes").values("id")
-            )
-            event_id_querysets.append(rsvp_yes_events)
-        if self.rsvp_no:
-            rsvp_no_events = (
-                Event.objects.exclude_templates().filter(rsvps__user_id=user_id, rsvps__status="no").values("id")
-            )
-            event_id_querysets.append(rsvp_no_events)
-        if self.rsvp_maybe:
-            rsvp_maybe_events = (
-                Event.objects.exclude_templates().filter(rsvps__user_id=user_id, rsvps__status="maybe").values("id")
-            )
-            event_id_querysets.append(rsvp_maybe_events)
-        if self.got_ticket:
-            ticket_events = Event.objects.exclude_templates().filter(tickets__user_id=user_id).values("id")
-            event_id_querysets.append(ticket_events)
-        if self.got_invitation:
-            invitation_events = Event.objects.exclude_templates().filter(invitations__user_id=user_id).values("id")
-            event_id_querysets.append(invitation_events)
+        # Each enabled relationship generates a simple, fast query that only fetches
+        # event IDs. All branches exclude recurring-series templates: templates belong
+        # to an organization but are internal blueprints, not real events that users
+        # should see on a dashboard. Templates are forced to DRAFT status by a
+        # CheckConstraint and are never user-visible, so in practice they never
+        # accumulate any of these relationships; exclude_templates() is defense-in-depth
+        # that keeps a stray template out of the dashboard regardless.
+        relationship_filters: list[tuple[bool, Q]] = [
+            (self.owner, Q(organization__owner_id=user_id)),
+            (self.staff, Q(organization__staff_members__id=user_id)),
+            (self.member, Q(organization__members__id=user_id)),
+            (self.rsvp_yes, Q(rsvps__user_id=user_id, rsvps__status="yes")),
+            (self.rsvp_no, Q(rsvps__user_id=user_id, rsvps__status="no")),
+            (self.rsvp_maybe, Q(rsvps__user_id=user_id, rsvps__status="maybe")),
+            (self.got_ticket, Q(tickets__user_id=user_id)),
+            (self.got_invitation, Q(invitations__user_id=user_id)),
+            (self.bookmarked, Q(bookmarks__user_id=user_id)),
+        ]
+        event_id_querysets = [
+            Event.objects.exclude_templates().filter(condition).values("id")
+            for enabled, condition in relationship_filters
+            if enabled
+        ]
 
         if not event_id_querysets:
             return Event.objects.none()
