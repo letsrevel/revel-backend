@@ -34,18 +34,21 @@ class TestBookmarkService:
     """Tests for bookmark_service."""
 
     def test_bookmark_event_creates_row(self, public_event: Event, nonmember_user: RevelUser) -> None:
-        """bookmark_event creates a bookmark for the user."""
-        bookmark = bookmark_service.bookmark_event(nonmember_user, public_event)
+        """bookmark_event creates a bookmark for the user and reports created=True."""
+        bookmark, created = bookmark_service.bookmark_event(nonmember_user, public_event)
 
+        assert created is True
         assert bookmark.user == nonmember_user
         assert bookmark.event == public_event
         assert EventBookmark.objects.filter(user=nonmember_user, event=public_event).count() == 1
 
     def test_bookmark_event_is_idempotent(self, public_event: Event, nonmember_user: RevelUser) -> None:
-        """Bookmarking twice returns the same row and does not duplicate."""
-        first = bookmark_service.bookmark_event(nonmember_user, public_event)
-        second = bookmark_service.bookmark_event(nonmember_user, public_event)
+        """Bookmarking twice returns the same row, created=False the second time."""
+        first, first_created = bookmark_service.bookmark_event(nonmember_user, public_event)
+        second, second_created = bookmark_service.bookmark_event(nonmember_user, public_event)
 
+        assert first_created is True
+        assert second_created is False
         assert first.pk == second.pk
         assert EventBookmark.objects.filter(user=nonmember_user, event=public_event).count() == 1
 

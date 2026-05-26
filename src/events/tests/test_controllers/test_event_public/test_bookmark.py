@@ -56,15 +56,16 @@ class TestBookmarkEndpoint:
         assert EventBookmark.objects.filter(user=user, event=public_event).exists()
 
     def test_bookmark_is_idempotent(self, user_client: tuple[Client, RevelUser], public_event: Event) -> None:
-        """Bookmarking twice succeeds without duplicating the row."""
+        """Bookmarking twice succeeds without duplicating: 201 then 200."""
         client, user = user_client
         url = reverse("api:bookmark_event", kwargs={"event_id": str(public_event.id)})
 
         first = client.post(url, content_type="application/json")
         second = client.post(url, content_type="application/json")
 
-        assert first.status_code == 201
-        assert second.status_code == 201
+        assert first.status_code == 201  # created
+        assert second.status_code == 200  # already existed
+        assert second.json()["id"] == first.json()["id"]
         assert EventBookmark.objects.filter(user=user, event=public_event).count() == 1
 
     def test_unbookmark_removes_row(self, user_client: tuple[Client, RevelUser], public_event: Event) -> None:
@@ -92,6 +93,14 @@ class TestBookmarkEndpoint:
         url = reverse("api:bookmark_event", kwargs={"event_id": str(public_event.id)})
 
         response = Client().post(url, content_type="application/json")
+
+        assert response.status_code == 401
+
+    def test_unbookmark_requires_authentication(self, public_event: Event) -> None:
+        """Anonymous users cannot unbookmark (DELETE is a mutating endpoint too)."""
+        url = reverse("api:unbookmark_event", kwargs={"event_id": str(public_event.id)})
+
+        response = Client().delete(url)
 
         assert response.status_code == 401
 

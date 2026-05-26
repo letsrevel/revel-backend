@@ -29,7 +29,7 @@ def get_user_related_events(
 
     1. Events the user has visibility permission on.
     2. Events matching the dashboard relationship filters
-       (owner / staff / member / rsvp / tickets / invitations).
+       (owner / staff / member / rsvp / tickets / invitations / bookmarks).
 
     IDs are materialised in Python to keep the final ``WHERE id IN (...)``
     pagination-friendly. Optionally narrows further by ``requires_ticket``.

@@ -9,7 +9,7 @@ from common.utils import get_or_create_with_race_protection
 from events.models import Event, EventBookmark
 
 
-def bookmark_event(user: RevelUser, event: Event) -> EventBookmark:
+def bookmark_event(user: RevelUser, event: Event) -> tuple[EventBookmark, bool]:
     """Bookmark an event for a user (idempotent).
 
     Args:
@@ -19,14 +19,14 @@ def bookmark_event(user: RevelUser, event: Event) -> EventBookmark:
             can only bookmark events they are allowed to see.
 
     Returns:
-        The existing or newly created bookmark.
+        A ``(bookmark, created)`` tuple where ``created`` is ``True`` only when a
+        new bookmark was inserted (used by the endpoint to return 201 vs 200).
     """
-    bookmark, _ = get_or_create_with_race_protection(
+    return get_or_create_with_race_protection(
         EventBookmark,
         Q(user=user, event=event),
         {"user": user, "event": event},
     )
-    return bookmark
 
 
 def unbookmark_event(user: RevelUser, event_id: UUID) -> None:

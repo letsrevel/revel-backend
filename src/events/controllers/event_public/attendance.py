@@ -135,7 +135,7 @@ class EventPublicAttendanceController(EventPublicBaseController):
     @route.post(
         "/{uuid:event_id}/bookmark",
         url_name="bookmark_event",
-        response={201: schema.EventBookmarkSchema},
+        response={201: schema.EventBookmarkSchema, 200: schema.EventBookmarkSchema},
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
@@ -144,11 +144,13 @@ class EventPublicAttendanceController(EventPublicBaseController):
 
         Saving an event is a private "save for later" action: it does not grant access,
         notify anyone, or change your eligibility. You can only bookmark events you can
-        currently see (including unlisted events reached via a direct link). Idempotent —
-        bookmarking an already-bookmarked event returns the existing bookmark.
+        currently see (this includes unlisted events, which are reachable by anyone who
+        has the link/ID). Idempotent: returns 201 with the new bookmark, or 200 with the
+        existing one if you had already bookmarked it.
         """
         event = self.get_one(event_id)
-        return 201, bookmark_service.bookmark_event(self.user(), event)
+        bookmark, created = bookmark_service.bookmark_event(self.user(), event)
+        return (201 if created else 200), bookmark
 
     @route.delete(
         "/{uuid:event_id}/bookmark",
