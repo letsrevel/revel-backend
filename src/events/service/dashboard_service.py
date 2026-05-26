@@ -48,7 +48,7 @@ def get_user_related_events(
     relationship_event_ids = set(params.get_events_queryset(user.id).values_list("id", flat=True))
     final_event_ids = authorized_event_ids & relationship_event_ids
 
-    qs = models.Event.objects.full().filter(id__in=list(final_event_ids))
+    qs = models.Event.objects.full().filter(id__in=list(final_event_ids)).with_user_bookmark(user)
     if params.requires_ticket is not None:
         qs = qs.filter(requires_ticket=params.requires_ticket)
     return qs

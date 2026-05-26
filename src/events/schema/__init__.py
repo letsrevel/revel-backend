@@ -227,6 +227,8 @@ from .pronouns import (
     PronounCountSchema,
 )
 
+from .bookmark import EventBookmarkSchema
+
 # Follow schemas
 from .follow import (
     EventSeriesFollowCreateSchema,
@@ -497,6 +499,8 @@ __all__ = [
     # Pronouns
     "EventPronounDistributionSchema",
     "PronounCountSchema",
+    # Bookmark
+    "EventBookmarkSchema",
     # Follow
     "EventSeriesFollowCreateSchema",
     "EventSeriesFollowSchema",

@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Prefetch, Q
+from django.db.models import BooleanField, Exists, OuterRef, Prefetch, Q, Value
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -58,6 +58,19 @@ class EventQuerySet(models.QuerySet["Event"]):
     def with_venue(self) -> t.Self:
         """Select the venue (without sectors/seats) to avoid N+1."""
         return self.select_related("venue")
+
+    def with_user_bookmark(self, user: RevelUser | AnonymousUser) -> t.Self:
+        """Annotate ``user_has_bookmarked`` for the given user.
+
+        Read by ``EventBaseSchema.resolve_is_bookmarked`` to render the
+        per-event bookmark state without an N+1 query. Anonymous users never
+        have bookmarks, so the annotation is a constant ``False``.
+        """
+        if user.is_anonymous:
+            return self.annotate(user_has_bookmarked=Value(False, output_field=BooleanField()))
+        from .bookmark import EventBookmark
+
+        return self.annotate(user_has_bookmarked=Exists(EventBookmark.objects.filter(event=OuterRef("pk"), user=user)))
 
     def for_user(
         self, user: RevelUser | AnonymousUser, include_past: bool = False, allowed_ids: list[UUID] | None = None
@@ -193,6 +206,10 @@ class EventManager(models.Manager["Event"]):
     def with_venue(self) -> EventQuerySet:
         """Returns a queryset selecting the related venue (without sectors/seats)."""
         return self.get_queryset().with_venue()
+
+    def with_user_bookmark(self, user: RevelUser | AnonymousUser) -> EventQuerySet:
+        """Returns a queryset annotating the user's bookmark state per event."""
+        return self.get_queryset().with_user_bookmark(user)
 
     def full(self) -> EventQuerySet:
         """Returns a queryset prefetching the full events."""
