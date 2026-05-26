@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.60.0] - 2026-05-26
+
+### Added
+- **Event Bookmarks**: users can privately bookmark events to find them again later, without signing up or affecting eligibility
+  - New `POST`/`DELETE /api/events/{event_id}/bookmark` endpoints — bookmarking returns `201` for a new bookmark or `200` if it already existed; unbookmarking is idempotent and works even for events you can no longer see
+  - New `is_bookmarked` field on event list and detail responses
+  - New `bookmarked` facet on `GET /api/dashboard/events`; bookmarked **unlisted** events surface here even though they stay hidden from discovery listings
+  - Searchable **Bookmarks** section in the admin
+
+### Fixed
+- Concurrent identical "get-or-create" requests (e.g. rapidly clicking bookmark, or racing tag / food-item / billing-profile creation) no longer risk a 500: the shared race-protection helper now also recovers from the `ValidationError` that `full_clean()` raises when a competing row was committed first, not just `IntegrityError`
+
 ## [1.59.0] - 2026-05-25
 
 ### Added
