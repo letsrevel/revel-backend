@@ -96,6 +96,20 @@ class PollUpdateSchema(Schema):
         return self
 
 
+class PollDuplicateSchema(Schema):
+    """Payload for duplicating an existing poll.
+
+    ``name`` becomes the name of the newly created underlying questionnaire.
+    ``staff_anonymous`` and ``public_anonymous`` optionally override the
+    corresponding fields from the template poll; when ``None`` (the default)
+    the template's values are copied verbatim.
+    """
+
+    name: str
+    staff_anonymous: bool | None = None
+    public_anonymous: bool | None = None
+
+
 class PollReopenSchema(Schema):
     """Reopen a closed poll, optionally setting or clearing the ``closes_at`` deadline."""
 
