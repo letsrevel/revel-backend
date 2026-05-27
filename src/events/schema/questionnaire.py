@@ -133,6 +133,13 @@ class OrganizationQuestionnaireUpdateSchema(Schema):
     requires_evaluation: bool | None = None
 
 
+class QuestionnaireDuplicateSchema(Schema):
+    """Request body for duplicating an OrganizationQuestionnaire."""
+
+    name: str
+    copy_associations: bool = False
+
+
 class EventAssignmentSchema(Schema):
     event_ids: list[UUID]
 

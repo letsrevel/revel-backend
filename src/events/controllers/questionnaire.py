@@ -20,7 +20,7 @@ from events import filters
 from events import models as event_models
 from events import schema as event_schema
 from events.service import event_questionnaire_service, feedback_service, update_organization_questionnaire
-from events.service.event_questionnaire_service import get_questionnaire_summary
+from events.service.event_questionnaire_service import duplicate_organization_questionnaire, get_questionnaire_summary
 from questionnaires import models as questionnaires_models
 from questionnaires import schema as questionnaire_schema
 from questionnaires.service import QuestionnaireService
@@ -584,6 +584,35 @@ class QuestionnaireController(UserAwareController):
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
         org_questionnaire.delete()
         return 204, None
+
+    @route.post(
+        "/{org_questionnaire_id}/duplicate",
+        url_name="duplicate_org_questionnaire",
+        response=event_schema.OrganizationQuestionnaireSchema,
+        permissions=[QuestionnairePermission("create_questionnaire")],
+        throttle=WriteThrottle(),
+    )
+    def duplicate_org_questionnaire(
+        self, org_questionnaire_id: UUID, payload: event_schema.QuestionnaireDuplicateSchema
+    ) -> event_models.OrganizationQuestionnaire:
+        """Create a deep copy of a questionnaire within the same organization (admin only).
+
+        Duplicates the questionnaire structure (sections, questions, options) into a new
+        DRAFT questionnaire.  By default the copy is unattached to any events or event
+        series; pass ``copy_associations: true`` to replicate the template's event/series
+        links.
+
+        Requires 'create_questionnaire' permission on the questionnaire's organization.
+        """
+        org_questionnaire = t.cast(
+            event_models.OrganizationQuestionnaire,
+            self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id),
+        )
+        return duplicate_organization_questionnaire(
+            org_questionnaire,
+            payload.name,
+            copy_associations=payload.copy_associations,
+        )
 
     @route.delete(
         "/{org_questionnaire_id}/sections/{section_id}",
