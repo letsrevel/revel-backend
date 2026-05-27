@@ -45,6 +45,21 @@ if t.TYPE_CHECKING:
 
     from common.models import FileExport
 
+# Fields that are NOT copied from an OrganizationQuestionnaire wrapper when
+# duplicating. Everything else in ``_meta.concrete_fields`` is copied so that
+# new wrapper fields propagate automatically without touching this constant.
+_OQ_EXCLUDED: frozenset[str] = frozenset(
+    {
+        "id",
+        "created_at",
+        "updated_at",
+        "organization",
+        "organization_id",
+        "questionnaire",
+        "questionnaire_id",
+    }
+)
+
 
 def _validate_admission_resubmission(
     *,
@@ -613,17 +628,6 @@ def duplicate_organization_questionnaire(
 
     # Collect OrganizationQuestionnaire wrapper fields (everything except
     # id/timestamps, organization, questionnaire, and M2M).
-    _OQ_EXCLUDED: frozenset[str] = frozenset(
-        {
-            "id",
-            "created_at",
-            "updated_at",
-            "organization",
-            "organization_id",
-            "questionnaire",
-            "questionnaire_id",
-        }
-    )
     oq_kwargs: dict[str, t.Any] = {}
     for field in template._meta.concrete_fields:
         if field.name in _OQ_EXCLUDED or field.attname in _OQ_EXCLUDED:

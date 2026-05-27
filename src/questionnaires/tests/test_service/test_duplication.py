@@ -347,6 +347,90 @@ def test_duplicate_remaps_fu_question_depends_on_option() -> None:
     assert new_fu.depends_on_option.question.questionnaire_id == new_q.pk
 
 
+def test_duplicate_dependency_chain_fully_remapped() -> None:
+    """Full dependency chain (MC question → option → section → question) is remapped.
+
+    Builds a template with:
+    - A top-level MC question Q1 with option O1.
+    - A section S1 whose ``depends_on_option`` is O1.
+    - A FreeText question Q2 inside S1 whose ``depends_on_option`` is also O1.
+
+    After duplication every reference in the copy must point at the NEW objects
+    (copy of O1, copy of Q1, copy of S1, copy of Q2) — none must point at any
+    template object.  This regression test locks in the six-pass ordering
+    against future refactors.
+    """
+    # ---- build template structure ----
+    template = Questionnaire.objects.create(
+        name="Chain Template",
+        status=Questionnaire.QuestionnaireStatus.PUBLISHED,
+    )
+
+    # Pass 3 creates this: MC question Q1 with option O1
+    q1 = MultipleChoiceQuestion.objects.create(
+        questionnaire=template,
+        question="Q1: Gate question",
+        order=1,
+    )
+    o1 = MultipleChoiceOption.objects.create(question=q1, option="Yes", is_correct=True, order=1)
+    MultipleChoiceOption.objects.create(question=q1, option="No", is_correct=False, order=2)
+
+    # Pass 2 creates this: section S1 conditionally shown on O1
+    s1 = QuestionnaireSection.objects.create(questionnaire=template, name="S1: Conditional Section", order=1)
+    s1.depends_on_option = o1
+    s1.save(update_fields=["depends_on_option", "updated_at"])
+
+    # Pass 4 creates this: FreeText question Q2 in S1, also gated on O1
+    q2 = FreeTextQuestion.objects.create(
+        questionnaire=template,
+        section=s1,
+        question="Q2: Follow-up inside S1",
+        order=1,
+    )
+    q2.depends_on_option = o1
+    q2.save(update_fields=["depends_on_option", "updated_at"])
+
+    # ---- duplicate ----
+    copy = duplicate_questionnaire_content(template, new_name="Chain Copy")
+
+    # ---- locate new objects ----
+    new_s1 = copy.sections.get(name="S1: Conditional Section")
+    new_q2 = copy.freetextquestion_questions.get(question="Q2: Follow-up inside S1")
+    new_q1_qs = copy.multiplechoicequestion_questions.filter(question="Q1: Gate question")
+    assert new_q1_qs.count() == 1
+    new_q1 = new_q1_qs.get()
+    new_o1 = new_q1.options.get(option="Yes")
+
+    # ---- section dependency chain ----
+    # S1 on the copy must point at the NEW option, not the template option.
+    assert new_s1.depends_on_option is not None, "S1 copy must have depends_on_option set"
+    assert new_s1.depends_on_option.pk != o1.pk, "S1 copy must NOT reference the template option"
+    assert new_s1.depends_on_option.pk == new_o1.pk, "S1 copy must reference the copy of O1"
+
+    # The option the section depends on must belong to the new questionnaire.
+    assert new_s1.depends_on_option.question.questionnaire_id == copy.pk
+
+    # ---- question dependency chain ----
+    # Q2 on the copy must point at the NEW option.
+    assert new_q2.depends_on_option is not None, "Q2 copy must have depends_on_option set"
+    assert new_q2.depends_on_option.pk != o1.pk, "Q2 copy must NOT reference the template option"
+    assert new_q2.depends_on_option.pk == new_o1.pk, "Q2 copy must reference the copy of O1"
+
+    # The option Q2 depends on must belong to the new questionnaire.
+    assert new_q2.depends_on_option.question.questionnaire_id == copy.pk
+
+    # ---- section membership ----
+    assert new_s1.questionnaire_id == copy.pk, "New section must belong to the copy"
+    assert new_q2.section_id == new_s1.pk, "Q2 copy must be in the new section, not the template section"
+
+    # ---- no template objects referenced from the copy ----
+    template_pks = {template.pk, q1.pk, o1.pk, s1.pk, q2.pk}
+    assert new_s1.pk not in template_pks
+    assert new_q1.pk not in template_pks
+    assert new_o1.pk not in template_pks
+    assert new_q2.pk not in template_pks
+
+
 # ---------------------------------------------------------------------------
 # NOT copied: submissions, answers, evaluations
 # ---------------------------------------------------------------------------
