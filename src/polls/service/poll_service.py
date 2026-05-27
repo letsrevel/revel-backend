@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from common.exception_handlers import format_validation_error
 from events.models.event import Event
+from events.models.mixins import ResourceVisibility
 from events.models.organization import MembershipTier, Organization
 from polls.exceptions import (
     PollAnonymityImmutableError,
@@ -66,6 +67,10 @@ _POLL_ONLY_FIELDS: frozenset[str] = frozenset(
         "allow_vote_changes",
         "closes_at",
     }
+)
+
+_PUBLIC_RESULT_VISIBILITIES: frozenset[ResourceVisibility] = frozenset(
+    {ResourceVisibility.PUBLIC, ResourceVisibility.UNLISTED}
 )
 
 
@@ -283,9 +288,6 @@ def duplicate_poll(
 
     # Validate the public-results-must-be-anonymous constraint BEFORE hitting
     # the DB so callers receive a clean 422 rather than an IntegrityError.
-    from events.models.mixins import ResourceVisibility
-
-    _PUBLIC_RESULT_VISIBILITIES = {ResourceVisibility.PUBLIC, ResourceVisibility.UNLISTED}
     if not resolved_public_anonymous and ResourceVisibility(template.result_visibility) in _PUBLIC_RESULT_VISIBILITIES:
         raise PollResultsMustBeAnonymousError()
 
