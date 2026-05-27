@@ -33,5 +33,11 @@ NINJA_EXTRA = {
         "user": "1000/day",
         "anon": "250/day",
     },
-    "NUM_PROXIES": None,
+    # Exactly one trusted reverse-proxy hop (Caddy) sits in front of the app in
+    # production. With NUM_PROXIES=1, ninja_extra's throttle get_ident() trusts only
+    # the last X-Forwarded-For entry (the IP Caddy appends) and discards any
+    # client-forged prefix, so anonymous throttle buckets cannot be evaded by sending
+    # a random X-Forwarded-For header. NUM_PROXIES=None would key throttling on the
+    # full client-controlled header, defeating brute-force/DoS protection.
+    "NUM_PROXIES": config("NUM_PROXIES", default=1, cast=int),
 }

@@ -8,9 +8,9 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from common.authentication import I18nJWTAuth
-from common.throttling import WriteThrottle
+from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
-from events.controllers.permissions import OrganizationPermission
+from events.controllers.permissions import IsOrganizationStaff, OrganizationPermission
 from events.service import resource_service
 
 from .base import OrganizationAdminBaseController
@@ -24,6 +24,8 @@ class OrganizationAdminResourcesController(OrganizationAdminBaseController):
         "/resources",
         url_name="list_organization_resources_admin",
         response=PaginatedResponseSchema[schema.AdditionalResourceSchema],
+        permissions=[IsOrganizationStaff()],
+        throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["name", "description"])
@@ -62,6 +64,8 @@ class OrganizationAdminResourcesController(OrganizationAdminBaseController):
         "/resources/{resource_id}",
         url_name="get_organization_resource",
         response=schema.AdditionalResourceSchema,
+        permissions=[IsOrganizationStaff()],
+        throttle=UserDefaultThrottle(),
     )
     def get_resource(self, slug: str, resource_id: UUID) -> models.AdditionalResource:
         """Retrieve a specific resource for the organization."""

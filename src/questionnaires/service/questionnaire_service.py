@@ -309,6 +309,19 @@ class QuestionnaireService:
         if not submitted_question_ids.issubset(all_question_ids):
             raise CrossQuestionnaireSubmissionError("Some answers do not belong to this questionnaire.")
 
+        # Each selected option must belong to the multiple-choice question it is paired with.
+        # Without this, a submitter could pair a legitimate question with an arbitrary option id
+        # from another question/questionnaire — the answer is bulk-created (clean() skipped) and
+        # the evaluator credits the paired question's weight for that foreign option's is_correct
+        # flag, inflating the score and (in AUTOMATIC mode) auto-approving an admission gate.
+        valid_options_by_question: dict[UUID, set[UUID]] = {
+            qid: {opt.id for opt in q.options.all()} for qid, q in mc_questions.items()
+        }
+        for mc_answer in submission_schema.multiple_choice_answers:
+            allowed_option_ids = valid_options_by_question.get(mc_answer.question_id, set())
+            if not set(mc_answer.options_id).issubset(allowed_option_ids):
+                raise CrossQuestionnaireSubmissionError("Some selected options do not belong to their question.")
+
         selected_option_ids: set[UUID] = set()
         for mc_answer in submission_schema.multiple_choice_answers:
             selected_option_ids.update(mc_answer.options_id)

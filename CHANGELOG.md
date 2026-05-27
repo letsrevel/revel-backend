@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Organization-admin resource reads (`GET /organization-admin/{slug}/resources` and the by-id endpoint) now require organization staff; previously any authenticated user could read another organization's private/staff-only resources and their signed file URLs
+- Questionnaire submissions now reject multiple-choice options that don't belong to the question they're paired with, closing an admission-gate bypass that let crafted option IDs inflate the evaluation score into an auto-approval
+- Anonymous rate limiting now trusts only the proxy-supplied client IP (`NUM_PROXIES`, default `1`), so a forged `X-Forwarded-For` header can no longer evade login, registration, and other anonymous throttles
+- Hard-blacklisted users can no longer reclaim a staff-granting organization invitation token to regain access after being banned
+- Quarantined (malware-flagged) uploads are now stored behind the protected, signed-URL media path instead of being publicly downloadable from `/media/`; staff download them via a signed link in the admin
+- Event-update notifications no longer disclose a changed venue address (old or new value) to recipients not permitted to see the event's address
+- The Telegram "Join Waitlist" action now applies the same event-visibility scoping and full eligibility check as the web API, so users can no longer waitlist (and reserve capacity on) events they aren't eligible for or can't see
+
 ## [1.60.0] - 2026-05-26
 
 ### Added

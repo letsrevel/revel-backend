@@ -24,6 +24,10 @@ logger = structlog.get_logger(__name__)
 # Store previous event state for detecting changes
 _event_previous_state: dict[UUID, dict[str, t.Any]] = {}
 
+# Change-diff display names whose values are gated by the event's address_visibility.
+# These must be redacted per-user when the recipient cannot see the address.
+_ADDRESS_SENSITIVE_FIELDS = {"address", "city"}
+
 
 def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
     """Handle EVENT_CANCELLED notification."""
@@ -99,21 +103,32 @@ def _handle_event_updated(
         event_start_formatted = format_event_datetime(instance.start, instance)
         event_end_formatted = format_event_datetime(instance.end, instance) or None
 
-        # Build human-readable summary and message
-        changes_summary = ", ".join(changed_fields)
-
-        # Build a detailed update message
-        update_parts = []
-        for field in changed_fields:
-            old_val = old_values.get(field, "Not set")
-            new_val = new_values.get(field, "Not set")
-            update_parts.append(f"{field.capitalize()}: {old_val} → {new_val}")
-
-        update_message = "; ".join(update_parts) if update_parts else _("Event details have been updated.")
-
         for user in eligible_users:
             # Check address visibility per user
             event_location, address_url = _get_event_location_for_user(instance, user)
+
+            # Redact address/city from the change diff for users who cannot see the address,
+            # mirroring the per-user gating already applied to event_location. address_visibility
+            # is independent of event visibility, so the EVENT_UPDATED recipient set can be broader
+            # than the set allowed to see the venue — building the diff once outside this loop would
+            # leak the (old and new) address to recipients who are not permitted to see it.
+            if instance.can_user_see_address(user):
+                user_changed_fields = changed_fields
+                user_old_values = old_values
+                user_new_values = new_values
+            else:
+                user_changed_fields = [f for f in changed_fields if f not in _ADDRESS_SENSITIVE_FIELDS]
+                user_old_values = {k: v for k, v in old_values.items() if k not in _ADDRESS_SENSITIVE_FIELDS}
+                user_new_values = {k: v for k, v in new_values.items() if k not in _ADDRESS_SENSITIVE_FIELDS}
+
+            # Build the human-readable summary/message from the per-user (redacted) field set.
+            changes_summary = ", ".join(user_changed_fields)
+            update_parts = [
+                f"{field.capitalize()}: {user_old_values.get(field, 'Not set')} → "
+                f"{user_new_values.get(field, 'Not set')}"
+                for field in user_changed_fields
+            ]
+            update_message = "; ".join(update_parts) if update_parts else _("Event details have been updated.")
 
             context = {
                 "event_id": str(instance.id),
@@ -121,9 +136,9 @@ def _handle_event_updated(
                 "event_start_formatted": event_start_formatted,
                 "event_location": event_location,
                 "event_url": f"{frontend_base_url}/events/{instance.id}",
-                "changed_fields": changed_fields,
-                "old_values": old_values,
-                "new_values": new_values,
+                "changed_fields": user_changed_fields,
+                "old_values": user_old_values,
+                "new_values": user_new_values,
                 "changes_summary": changes_summary,
                 "update_message": update_message,
             }
