@@ -151,9 +151,11 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
 
     try:
         # Resolve within the user's visibility scope so the bot never acts on (or reveals)
-        # an event the user cannot see — mirrors the HTTP endpoint's get_one().
+        # an event the user cannot see — mirrors the HTTP endpoint's get_one(). for_user()
+        # runs synchronous ORM queries while building the queryset, so it must run via
+        # sync_to_async rather than being awaited as a lazy queryset.
         try:
-            event = await Event.objects.for_user(user).aget(id=event_id)
+            event = await sync_to_async(lambda: Event.objects.for_user(user).get(id=event_id))()
         except Event.DoesNotExist:
             await callback.message.answer("❌ This event is not available.", parse_mode="HTML")
             await callback.answer()

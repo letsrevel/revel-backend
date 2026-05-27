@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from accounts.models import RevelUser
-from events.models import Event, EventInvitationRequest, EventWaitList, Organization, WhitelistRequest
+from events.models import Event, EventInvitationRequest, EventRSVP, EventWaitList, Organization, WhitelistRequest
 from events.service.event_manager import EventUserEligibility, NextStep, UserIsIneligibleError
 from telegram.models import TelegramUser
 from telegram.routers.events import (
@@ -26,6 +26,25 @@ pytestmark = pytest.mark.django_db
 
 async def _get_tg_user(user: RevelUser) -> TelegramUser:
     return await TelegramUser.objects.select_related("user").aget(user=user)
+
+
+async def _make_event_visible(event: Event, *, waitlist_open: bool) -> None:
+    """Make the event publicly visible (PUBLIC + OPEN) so a plain user can resolve it."""
+    event.visibility = Event.Visibility.PUBLIC
+    event.status = Event.EventStatus.OPEN
+    event.waitlist_open = waitlist_open
+    await event.asave(update_fields=["visibility", "status", "waitlist_open"])
+
+
+async def _make_event_visible_and_full(event: Event, filler: RevelUser) -> None:
+    """Make the event visible, RSVP-based, and at capacity so eligibility yields JOIN_WAITLIST."""
+    event.visibility = Event.Visibility.PUBLIC
+    event.status = Event.EventStatus.OPEN
+    event.requires_ticket = False
+    event.waitlist_open = True
+    event.max_attendees = 1
+    await event.asave(update_fields=["visibility", "status", "requires_ticket", "waitlist_open", "max_attendees"])
+    await EventRSVP.objects.acreate(event=event, user=filler, status=EventRSVP.RsvpStatus.YES)
 
 
 # ── cb_handle_rsvp ──────────────────────────────────────────────────
@@ -257,14 +276,15 @@ class TestHandleJoinWaitlist:
         django_user: RevelUser,
         private_event: Event,
     ) -> None:
+        """A user eligible-except-for-capacity on a visible, full event joins the waitlist."""
         tg_user = await _get_tg_user(django_user)
-        # Open the waitlist
-        private_event.waitlist_open = True
-        await private_event.asave(update_fields=["waitlist_open"])
+        filler = await RevelUser.objects.acreate(username="wl_filler", password="<PASSWORD>")
+        await _make_event_visible_and_full(private_event, filler)
 
         mock_callback_query.data = f"join_waitlist:{private_event.id}"
 
-        await cb_handle_join_waitlist(mock_callback_query, user=django_user, tg_user=tg_user)
+        with patch("telegram.routers.events.enqueue_waitlist_processing"):
+            await cb_handle_join_waitlist(mock_callback_query, user=django_user, tg_user=tg_user)
 
         text = mock_callback_query.message.answer.call_args.args[0]
         assert "on the waitlist" in text.lower()
@@ -279,8 +299,7 @@ class TestHandleJoinWaitlist:
         private_event: Event,
     ) -> None:
         tg_user = await _get_tg_user(django_user)
-        private_event.waitlist_open = True
-        await private_event.asave(update_fields=["waitlist_open"])
+        await _make_event_visible(private_event, waitlist_open=True)
         await EventWaitList.objects.acreate(event=private_event, user=django_user)
 
         mock_callback_query.data = f"join_waitlist:{private_event.id}"
@@ -299,13 +318,41 @@ class TestHandleJoinWaitlist:
         private_event: Event,
     ) -> None:
         tg_user = await _get_tg_user(django_user)
-        # waitlist_open defaults to False
+        await _make_event_visible(private_event, waitlist_open=False)
+
         mock_callback_query.data = f"join_waitlist:{private_event.id}"
 
         await cb_handle_join_waitlist(mock_callback_query, user=django_user, tg_user=tg_user)
 
         text = mock_callback_query.message.answer.call_args.args[0]
         assert "not currently open" in text.lower()
+        mock_callback_query.answer.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_invisible_event_is_not_joinable(
+        self,
+        mock_callback_query: AsyncMock,
+        django_user: RevelUser,
+        private_event: Event,
+    ) -> None:
+        """A user who cannot see the event must not be able to waitlist it by ID.
+
+        Guards the security fix: the bot resolves via Event.objects.for_user(), so a
+        PRIVATE event the user is neither invited to nor a member/staff of is rejected
+        before any waitlist row is created (no seat-squatting on hidden events).
+        """
+        tg_user = await _get_tg_user(django_user)
+        # private_event stays PRIVATE/DRAFT; django_user has no invitation/membership.
+        private_event.waitlist_open = True
+        await private_event.asave(update_fields=["waitlist_open"])
+
+        mock_callback_query.data = f"join_waitlist:{private_event.id}"
+
+        await cb_handle_join_waitlist(mock_callback_query, user=django_user, tg_user=tg_user)
+
+        text = mock_callback_query.message.answer.call_args.args[0]
+        assert "not available" in text.lower()
+        assert not await EventWaitList.objects.filter(event=private_event, user=django_user).aexists()
         mock_callback_query.answer.assert_awaited_once()
 
 

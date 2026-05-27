@@ -314,13 +314,15 @@ class QuestionnaireService:
         # from another question/questionnaire — the answer is bulk-created (clean() skipped) and
         # the evaluator credits the paired question's weight for that foreign option's is_correct
         # flag, inflating the score and (in AUTOMATIC mode) auto-approving an admission gate.
-        valid_options_by_question: dict[UUID, set[UUID]] = {
-            qid: {opt.id for opt in q.options.all()} for qid, q in mc_questions.items()
-        }
+        # Query (question, option) pairs fresh rather than reading question.options.all(): the
+        # questionnaire is prefetched at service construction, so its options cache can be stale.
+        allowed_option_pairs = set(
+            MultipleChoiceOption.objects.filter(question_id__in=mc_questions.keys()).values_list("question_id", "id")
+        )
         for mc_answer in submission_schema.multiple_choice_answers:
-            allowed_option_ids = valid_options_by_question.get(mc_answer.question_id, set())
-            if not set(mc_answer.options_id).issubset(allowed_option_ids):
-                raise CrossQuestionnaireSubmissionError("Some selected options do not belong to their question.")
+            for option_id in mc_answer.options_id:
+                if (mc_answer.question_id, option_id) not in allowed_option_pairs:
+                    raise CrossQuestionnaireSubmissionError("Some selected options do not belong to their question.")
 
         selected_option_ids: set[UUID] = set()
         for mc_answer in submission_schema.multiple_choice_answers:
