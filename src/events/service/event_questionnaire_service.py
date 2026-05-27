@@ -621,18 +621,14 @@ def duplicate_organization_questionnaire(
     Returns:
         The newly created ``OrganizationQuestionnaire`` (DRAFT status).
     """
-    from questionnaires.service.duplication import duplicate_questionnaire_content
+    from questionnaires.service import collect_concrete_field_values, duplicate_questionnaire_content
 
     # Deep-copy the questionnaire content (DRAFT status, new name).
     new_questionnaire = duplicate_questionnaire_content(template.questionnaire, new_name=new_name)
 
     # Collect OrganizationQuestionnaire wrapper fields (everything except
     # id/timestamps, organization, questionnaire, and M2M).
-    oq_kwargs: dict[str, t.Any] = {}
-    for field in template._meta.concrete_fields:
-        if field.name in _OQ_EXCLUDED or field.attname in _OQ_EXCLUDED:
-            continue
-        oq_kwargs[field.attname] = getattr(template, field.attname)
+    oq_kwargs = collect_concrete_field_values(template, _OQ_EXCLUDED)
 
     new_oq = OrganizationQuestionnaire.objects.create(
         organization=template.organization,

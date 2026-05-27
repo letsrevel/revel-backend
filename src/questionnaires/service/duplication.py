@@ -8,7 +8,7 @@ lives in ``events.service.event_questionnaire_service``.
 
 import typing as t
 
-from django.db import transaction
+from django.db import models, transaction
 
 from questionnaires.models import (
     FileUploadQuestion,
@@ -80,20 +80,31 @@ _OPTION_EXCLUDED: frozenset[str] = frozenset(
 )
 
 
-def _collect_fields(instance: t.Any, excluded: frozenset[str]) -> dict[str, t.Any]:
+def collect_concrete_field_values(
+    instance: models.Model,
+    excluded: t.Container[str],
+) -> dict[str, t.Any]:
     """Collect copyable concrete field values from a model instance.
 
-    Uses ``_meta.concrete_fields`` with an explicit exclusion set so that new
-    fields on the model are copied automatically without changes here.  FK
-    fields are collected via ``field.attname`` (e.g. ``section_id``) to avoid
+    Iterates ``instance._meta.concrete_fields`` and skips any field whose
+    ``field.name`` **or** ``field.attname`` appears in *excluded*.  This
+    means callers may list either the logical name (``"section"``) or the DB
+    column name (``"section_id"``), whichever is more readable.  FK fields
+    are collected via ``field.attname`` (e.g. ``section_id``) to avoid
     triggering extra DB queries.
 
+    New fields added to the model propagate automatically without changes to
+    this helper or the exclusion sets — only intentionally excluded fields
+    need to be listed.
+
     Args:
-        instance: The model instance to collect field values from.
-        excluded: A set of field *names* (not attnames) to skip.
+        instance: The Django model instance to collect field values from.
+        excluded: Any container of field names / attnames to skip (e.g. a
+            ``frozenset``, ``set``, or ``list``).
 
     Returns:
-        A dict of ``{attname: value}`` ready to splat into ``Model.objects.create``.
+        A ``dict`` of ``{attname: value}`` ready to splat into
+        ``Model.objects.create(**kwargs)``.
     """
     values: dict[str, t.Any] = {}
     for field in instance._meta.concrete_fields:
@@ -121,7 +132,7 @@ def _duplicate_sections(
     """
     section_map: dict[t.Any, QuestionnaireSection] = {}
     for old_section in template.sections.all():
-        s_kwargs = _collect_fields(old_section, _SECTION_EXCLUDED)
+        s_kwargs = collect_concrete_field_values(old_section, _SECTION_EXCLUDED)
         s_kwargs["questionnaire"] = new_questionnaire
         new_section = QuestionnaireSection.objects.create(**s_kwargs)
         section_map[old_section.pk] = new_section
@@ -153,7 +164,7 @@ def _duplicate_mc_questions(
     option_map: dict[t.Any, MultipleChoiceOption] = {}
 
     for old_q in template.multiplechoicequestion_questions.prefetch_related("options"):
-        q_kwargs = _collect_fields(old_q, _QUESTION_EXCLUDED)
+        q_kwargs = collect_concrete_field_values(old_q, _QUESTION_EXCLUDED)
         q_kwargs["questionnaire"] = new_questionnaire
         if old_q.section_id is not None:
             q_kwargs["section"] = section_map[old_q.section_id]
@@ -161,7 +172,7 @@ def _duplicate_mc_questions(
         mc_question_map[old_q.pk] = new_q
 
         for old_opt in old_q.options.all():
-            opt_kwargs = _collect_fields(old_opt, _OPTION_EXCLUDED)
+            opt_kwargs = collect_concrete_field_values(old_opt, _OPTION_EXCLUDED)
             opt_kwargs["question"] = new_q
             new_opt = MultipleChoiceOption.objects.create(**opt_kwargs)
             option_map[old_opt.pk] = new_opt
@@ -188,7 +199,7 @@ def _duplicate_ft_questions(
     """
     ft_question_map: dict[t.Any, FreeTextQuestion] = {}
     for old_q in template.freetextquestion_questions.all():
-        q_kwargs = _collect_fields(old_q, _QUESTION_EXCLUDED)
+        q_kwargs = collect_concrete_field_values(old_q, _QUESTION_EXCLUDED)
         q_kwargs["questionnaire"] = new_questionnaire
         if old_q.section_id is not None:
             q_kwargs["section"] = section_map[old_q.section_id]
@@ -216,7 +227,7 @@ def _duplicate_fu_questions(
     """
     fu_question_map: dict[t.Any, FileUploadQuestion] = {}
     for old_q in template.fileuploadquestion_questions.all():
-        q_kwargs = _collect_fields(old_q, _QUESTION_EXCLUDED)
+        q_kwargs = collect_concrete_field_values(old_q, _QUESTION_EXCLUDED)
         q_kwargs["questionnaire"] = new_questionnaire
         if old_q.section_id is not None:
             q_kwargs["section"] = section_map[old_q.section_id]
@@ -314,7 +325,7 @@ def duplicate_questionnaire_content(
         The newly created ``Questionnaire`` in DRAFT status.
     """
     # Pass 1: Create the new Questionnaire
-    q_kwargs = _collect_fields(template, _QUESTIONNAIRE_EXCLUDED)
+    q_kwargs = collect_concrete_field_values(template, _QUESTIONNAIRE_EXCLUDED)
     q_kwargs["name"] = new_name if new_name is not None else template.name
     q_kwargs["status"] = Questionnaire.QuestionnaireStatus.DRAFT
     new_questionnaire = Questionnaire.objects.create(**q_kwargs)
