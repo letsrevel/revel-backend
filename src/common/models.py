@@ -451,7 +451,11 @@ class FileUploadAudit(TimeStampedModel):
 
 class QuarantinedFile(TimeStampedModel):
     audit = models.OneToOneField(FileUploadAudit, on_delete=models.CASCADE)
-    file = models.FileField(upload_to="quarantined_files")
+    # ProtectedFileField stores under protected/ so the file is only reachable via a
+    # signed, authorized URL (Caddy forward_auth) — never from the public /media/* path.
+    # Quarantined files hold the original (malicious / possibly PII-bearing) bytes and must
+    # not be world-readable like the previous plain FileField allowed.
+    file = ProtectedFileField(upload_to="quarantined_files")
     findings = models.JSONField()
 
     def __str__(self) -> str:

@@ -6,6 +6,7 @@ from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 
 from . import models
+from .signing import get_file_url
 
 
 class UploaderLinkMixin:
@@ -156,18 +157,36 @@ class QuarantinedFileAdmin(ModelAdmin, UploaderLinkMixin):  # type: ignore[misc]
     list_display = [
         "audit_link",
         "uploader_link",
-        "file",
+        "file_link",
         "findings_summary",
         "created_at",
     ]
     list_filter = ["created_at"]
     search_fields = ["audit__uploader", "audit__file_hash"]
-    readonly_fields = ["id", "created_at", "updated_at", "findings"]
+    readonly_fields = ["id", "created_at", "updated_at", "findings", "file_link"]
+    # Quarantined files live under protected/ and are not publicly served. Hide the raw
+    # FileField (its direct URL would 403) and expose a signed download link instead.
+    exclude = ["file"]
     date_hierarchy = "created_at"
     ordering = ["-created_at"]
 
     def get_queryset(self, request: t.Any) -> t.Any:
         return super().get_queryset(request).select_related("audit")
+
+    def file_link(self, obj: models.QuarantinedFile) -> str:
+        """Render a signed, authorized download link for the quarantined file.
+
+        Quarantined files are stored under protected/ (ProtectedFileField), so their
+        direct media URL is not publicly accessible. get_file_url() mints a short-lived
+        signed URL that Caddy's forward_auth validates, letting staff download the
+        original bytes for forensics without exposing them to the world.
+        """
+        url = get_file_url(obj.file)
+        if not url:
+            return "—"
+        return format_html('<a href="{}" rel="noopener noreferrer">{}</a>', url, obj.file.name)
+
+    file_link.short_description = "File"  # type: ignore[attr-defined]
 
     def audit_link(self, obj: models.QuarantinedFile) -> str:
         url = reverse("admin:common_fileuploadaudit_change", args=[obj.audit.id])

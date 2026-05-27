@@ -486,6 +486,14 @@ def claim_invitation(user: RevelUser, token: str) -> Organization | None:
     if organization_token.max_uses and organization_token.uses >= organization_token.max_uses:
         return None
 
+    # A hard-blacklisted (banned) user must not be able to claim their way back in.
+    # The membership path is blocked implicitly by colliding with the BANNED member row,
+    # but OrganizationStaff has no status field, so a banned ex-staffer could otherwise
+    # re-claim a grants_staff_status token and regain staff (bypassing BlacklistGate).
+    # Guard both grant paths explicitly, mirroring request_membership.
+    if blacklist_service.check_user_hard_blacklisted(user, organization_token.organization):
+        return None
+
     if organization_token.grants_staff_status:
         _, created = OrganizationStaff.objects.get_or_create(organization=organization_token.organization, user=user)
     elif organization_token.grants_membership:

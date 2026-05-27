@@ -17,7 +17,8 @@ from events.models import (
     WhitelistRequest,
 )
 from events.service import event_service, organization_service, whitelist_service
-from events.service.event_manager import EventManager, NextStep, UserIsIneligibleError
+from events.service.event_manager import EligibilityService, EventManager, NextStep, UserIsIneligibleError
+from events.service.waitlist_service import enqueue_waitlist_processing
 from telegram.keyboards import get_event_eligible_keyboard
 from telegram.middleware import AuthorizationMiddleware
 from telegram.models import TelegramUser
@@ -149,9 +150,17 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
     event_id = uuid.UUID(event_id_str)
 
     try:
-        event = await Event.objects.aget(id=event_id)
+        # Resolve within the user's visibility scope so the bot never acts on (or reveals)
+        # an event the user cannot see — mirrors the HTTP endpoint's get_one(). for_user()
+        # runs synchronous ORM queries while building the queryset, so it must run via
+        # sync_to_async rather than being awaited as a lazy queryset.
+        try:
+            event = await sync_to_async(lambda: Event.objects.for_user(user).get(id=event_id))()
+        except Event.DoesNotExist:
+            await callback.message.answer("❌ This event is not available.", parse_mode="HTML")
+            await callback.answer()
+            return
 
-        # Check if waitlist is open (mirror validation from /waitlist/join endpoint)
         if not event.waitlist_open:
             await callback.message.answer(
                 f"❌ The waitlist for <b>{event.name}</b> is not currently open.",
@@ -160,7 +169,38 @@ async def cb_handle_join_waitlist(callback: CallbackQuery, user: RevelUser, tg_u
             await callback.answer()
             return
 
-        _, created = await EventWaitList.objects.aget_or_create(event_id=event_id, user=user)
+        # Idempotency: already on the waitlist.
+        if await EventWaitList.objects.filter(event=event, user=user).aexists():
+            await callback.message.answer(
+                f"ℹ️ You are already on the waitlist for <b>{event.name}</b>!", parse_mode="HTML"
+            )
+            await callback.answer()
+            return
+
+        # Run the full eligibility pipeline and only join when capacity is the *sole* obstacle,
+        # exactly like the HTTP /waitlist/join endpoint. Without this, an ineligible user could
+        # join the waitlist and squat scarce capacity via PENDING offers (and waitlist invisible
+        # events), since waitlist selection trusts membership without re-checking eligibility.
+        eligibility = await sync_to_async(lambda: EligibilityService(user, event).check_eligibility())()
+        if eligibility.allowed:
+            await callback.message.answer(
+                f"✅ <b>{event.name}</b> has spots available — you can register directly!",
+                parse_mode="HTML",
+            )
+            await callback.answer()
+            return
+
+        if eligibility.next_step not in {NextStep.JOIN_WAITLIST, NextStep.WAIT_FOR_OPEN_SPOT}:
+            await callback.message.answer(
+                f"❌ Sorry, you are not eligible to join the waitlist for <b>{event.name}</b>.\n\n"
+                f"Reason: {eligibility.reason}",
+                parse_mode="HTML",
+            )
+            await callback.answer()
+            return
+
+        _, created = await EventWaitList.objects.aget_or_create(event=event, user=user)
+        await sync_to_async(enqueue_waitlist_processing)(event.id)
 
         if created:
             await callback.message.answer(f"✅ You are on the waitlist for <b>{event.name}</b>!", parse_mode="HTML")
