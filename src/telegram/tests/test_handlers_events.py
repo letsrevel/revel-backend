@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from accounts.models import RevelUser
-from events.models import Event, EventInvitationRequest, EventRSVP, EventWaitList, Organization, WhitelistRequest
+from events.models import Event, EventInvitationRequest, EventWaitList, Organization, WhitelistRequest
 from events.service.event_manager import EventUserEligibility, NextStep, UserIsIneligibleError
+from events.suppression import suppress_event_notifications
 from telegram.models import TelegramUser
 from telegram.routers.events import (
     cb_handle_become_member,
@@ -29,22 +30,17 @@ async def _get_tg_user(user: RevelUser) -> TelegramUser:
 
 
 async def _make_event_visible(event: Event, *, waitlist_open: bool) -> None:
-    """Make the event publicly visible (PUBLIC + OPEN) so a plain user can resolve it."""
+    """Make the event publicly visible (PUBLIC + OPEN) so a plain user can resolve it.
+
+    Suppress event notifications: flipping DRAFT -> OPEN fires the EVENT_OPEN signal, whose
+    on_commit task dispatch runs immediately under async ORM (no test transaction to roll
+    back) and would try to reach the Celery broker.
+    """
     event.visibility = Event.Visibility.PUBLIC
     event.status = Event.EventStatus.OPEN
     event.waitlist_open = waitlist_open
-    await event.asave(update_fields=["visibility", "status", "waitlist_open"])
-
-
-async def _make_event_visible_and_full(event: Event, filler: RevelUser) -> None:
-    """Make the event visible, RSVP-based, and at capacity so eligibility yields JOIN_WAITLIST."""
-    event.visibility = Event.Visibility.PUBLIC
-    event.status = Event.EventStatus.OPEN
-    event.requires_ticket = False
-    event.waitlist_open = True
-    event.max_attendees = 1
-    await event.asave(update_fields=["visibility", "status", "requires_ticket", "waitlist_open", "max_attendees"])
-    await EventRSVP.objects.acreate(event=event, user=filler, status=EventRSVP.RsvpStatus.YES)
+    with suppress_event_notifications():
+        await event.asave(update_fields=["visibility", "status", "waitlist_open"])
 
 
 # ── cb_handle_rsvp ──────────────────────────────────────────────────
@@ -276,19 +272,62 @@ class TestHandleJoinWaitlist:
         django_user: RevelUser,
         private_event: Event,
     ) -> None:
-        """A user eligible-except-for-capacity on a visible, full event joins the waitlist."""
+        """A user eligible-except-for-capacity on a visible event joins the waitlist."""
         tg_user = await _get_tg_user(django_user)
-        filler = await RevelUser.objects.acreate(username="wl_filler", password="<PASSWORD>")
-        await _make_event_visible_and_full(private_event, filler)
+        await _make_event_visible(private_event, waitlist_open=True)
+
+        eligibility = EventUserEligibility(
+            allowed=False,
+            event_id=private_event.id,
+            reason="Event is full",
+            next_step=NextStep.JOIN_WAITLIST,
+        )
 
         mock_callback_query.data = f"join_waitlist:{private_event.id}"
 
-        with patch("telegram.routers.events.enqueue_waitlist_processing"):
+        with (
+            patch("telegram.routers.events.EligibilityService") as mock_eligibility_service,
+            patch("telegram.routers.events.enqueue_waitlist_processing"),
+        ):
+            mock_eligibility_service.return_value.check_eligibility.return_value = eligibility
             await cb_handle_join_waitlist(mock_callback_query, user=django_user, tg_user=tg_user)
 
         text = mock_callback_query.message.answer.call_args.args[0]
         assert "on the waitlist" in text.lower()
         assert await EventWaitList.objects.filter(event=private_event, user=django_user).aexists()
+        mock_callback_query.answer.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_ineligible_user_not_added_to_waitlist(
+        self,
+        mock_callback_query: AsyncMock,
+        django_user: RevelUser,
+        private_event: Event,
+    ) -> None:
+        """A user blocked by a non-capacity gate cannot join the waitlist (no seat-squatting).
+
+        Guards the security fix: even on a visible event, the bot runs the full eligibility
+        pipeline and only joins when capacity is the sole obstacle.
+        """
+        tg_user = await _get_tg_user(django_user)
+        await _make_event_visible(private_event, waitlist_open=True)
+
+        eligibility = EventUserEligibility(
+            allowed=False,
+            event_id=private_event.id,
+            reason="You must be a member",
+            next_step=NextStep.BECOME_MEMBER,
+        )
+
+        mock_callback_query.data = f"join_waitlist:{private_event.id}"
+
+        with patch("telegram.routers.events.EligibilityService") as mock_eligibility_service:
+            mock_eligibility_service.return_value.check_eligibility.return_value = eligibility
+            await cb_handle_join_waitlist(mock_callback_query, user=django_user, tg_user=tg_user)
+
+        text = mock_callback_query.message.answer.call_args.args[0]
+        assert "not eligible" in text.lower()
+        assert not await EventWaitList.objects.filter(event=private_event, user=django_user).aexists()
         mock_callback_query.answer.assert_awaited_once()
 
     @pytest.mark.asyncio
