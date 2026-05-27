@@ -2,6 +2,7 @@
 
 import pytest
 
+from accounts.models import RevelUser
 from events.models import Event, EventSeries, Organization, OrganizationQuestionnaire
 from events.service.event_questionnaire_service import duplicate_organization_questionnaire
 from questionnaires.models import (
@@ -185,14 +186,11 @@ def test_duplicate_org_questionnaire_copies_sections_and_questions(organization:
 # ---------------------------------------------------------------------------
 
 
-def test_duplicate_org_questionnaire_no_submissions_copied(organization: Organization, member_user: "object") -> None:
+def test_duplicate_org_questionnaire_no_submissions_copied(organization: Organization, member_user: RevelUser) -> None:
     """Submissions on the template questionnaire are not carried over."""
     oq = _make_org_questionnaire(organization)
-    from accounts.models import RevelUser
-
-    user = RevelUser.objects.create_user(username="subuser", email="sub@example.com", password="pass")
     QuestionnaireSubmission.objects.create(
-        user=user,
+        user=member_user,
         questionnaire=oq.questionnaire,
         status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
     )

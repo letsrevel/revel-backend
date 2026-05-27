@@ -298,21 +298,27 @@ def duplicate_poll(
         new_questionnaire.evaluation_mode = Questionnaire.QuestionnaireEvaluationMode.MANUAL
         new_questionnaire.save(update_fields=["evaluation_mode", "updated_at"])
 
-    poll = Poll.objects.create(
-        organization=template.organization,
-        event=template.event,
-        questionnaire=new_questionnaire,
-        status=Poll.PollStatus.DRAFT,
-        opened_at=None,
-        closed_at=None,
-        closes_at=None,
-        vote_visibility=template.vote_visibility,
-        result_visibility=template.result_visibility,
-        result_timing=template.result_timing,
-        allow_vote_changes=template.allow_vote_changes,
-        staff_anonymous=resolved_staff_anonymous,
-        public_anonymous=resolved_public_anonymous,
-    )
+    try:
+        poll = Poll.objects.create(
+            organization=template.organization,
+            event=template.event,
+            questionnaire=new_questionnaire,
+            status=Poll.PollStatus.DRAFT,
+            opened_at=None,
+            closed_at=None,
+            closes_at=None,
+            vote_visibility=template.vote_visibility,
+            result_visibility=template.result_visibility,
+            result_timing=template.result_timing,
+            allow_vote_changes=template.allow_vote_changes,
+            staff_anonymous=resolved_staff_anonymous,
+            public_anonymous=resolved_public_anonymous,
+        )
+    except PollAnonymityImmutableError:
+        # Subclass of DjangoValidationError; preserve specific handler dispatch.
+        raise
+    except DjangoValidationError as exc:
+        _translate_model_validation_error(exc)
 
     # Copy M2M membership tiers (direct set from prefetched template values).
     vote_tiers = list(template.vote_membership_tiers.all())
