@@ -3,13 +3,20 @@
 import typing as t
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
 
+from accounts.models import RevelUser
 from questionnaires.models import (
+    FileUploadAnswer,
     FileUploadQuestion,
+    FreeTextAnswer,
     FreeTextQuestion,
+    MultipleChoiceAnswer,
     MultipleChoiceOption,
     MultipleChoiceQuestion,
     Questionnaire,
+    QuestionnaireEvaluation,
+    QuestionnaireFile,
     QuestionnaireSection,
     QuestionnaireSubmission,
 )
@@ -358,6 +365,119 @@ def test_duplicate_does_not_copy_submissions(user: t.Any) -> None:
 
     assert orig.questionnaire_submissions.count() == 1
     assert new_q.questionnaire_submissions.count() == 0
+
+
+def test_duplicate_does_not_copy_answers_evaluations_or_files(user: RevelUser) -> None:
+    """Answers, evaluations, and QuestionnaireFile uploads are NOT copied.
+
+    Builds a template questionnaire with one MC, one FreeText, and one
+    FileUpload question, then creates a submission with answers of each type,
+    an evaluation, and a QuestionnaireFile.  After duplication the new
+    questionnaire must have no submissions, no answers of any type, no
+    evaluations, and the QuestionnaireFile must not be referenced by any
+    question on the new questionnaire.  The template must remain intact
+    (duplication is non-destructive).
+    """
+    # ---- build template structure ----
+    template = Questionnaire.objects.create(
+        name="Template",
+        status=Questionnaire.QuestionnaireStatus.PUBLISHED,
+    )
+    mc_q = MultipleChoiceQuestion.objects.create(
+        questionnaire=template,
+        question="MC question?",
+        order=1,
+        allow_multiple_answers=False,
+    )
+    opt_correct = MultipleChoiceOption.objects.create(question=mc_q, option="Correct", is_correct=True, order=1)
+    MultipleChoiceOption.objects.create(question=mc_q, option="Wrong", is_correct=False, order=2)
+    ft_q = FreeTextQuestion.objects.create(
+        questionnaire=template,
+        question="FT question?",
+        order=2,
+    )
+    fu_q = FileUploadQuestion.objects.create(
+        questionnaire=template,
+        question="Upload something",
+        order=3,
+        max_files=1,
+        allowed_mime_types=["application/pdf"],
+    )
+
+    # ---- create user data on the template ----
+    submission = QuestionnaireSubmission.objects.create(
+        user=user,
+        questionnaire=template,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+    )
+    mc_answer = MultipleChoiceAnswer.objects.create(
+        submission=submission,
+        question=mc_q,
+        option=opt_correct,
+    )
+    ft_answer = FreeTextAnswer.objects.create(
+        submission=submission,
+        question=ft_q,
+        answer="Some text answer",
+    )
+    uploaded_file = SimpleUploadedFile(
+        name="doc.pdf",
+        content=b"pdf content",
+        content_type="application/pdf",
+    )
+    qfile = QuestionnaireFile.objects.create(
+        uploader=user,
+        file=uploaded_file,
+        original_filename="doc.pdf",
+        file_hash="duplication_test_hash_001",
+        mime_type="application/pdf",
+        file_size=len(b"pdf content"),
+    )
+    fu_answer = FileUploadAnswer.objects.create(
+        submission=submission,
+        question=fu_q,
+    )
+    fu_answer.files.add(qfile)
+
+    evaluation = QuestionnaireEvaluation.objects.create(
+        submission=submission,
+        status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        score=90,
+    )
+
+    # ---- duplicate ----
+    new_q = duplicate_questionnaire_content(template, new_name="Copy")
+
+    # ---- new questionnaire has no user data ----
+    assert new_q.questionnaire_submissions.count() == 0, "No submissions should be copied"
+
+    new_mc_pks = list(new_q.multiplechoicequestion_questions.values_list("pk", flat=True))
+    new_ft_pks = list(new_q.freetextquestion_questions.values_list("pk", flat=True))
+    new_fu_pks = list(new_q.fileuploadquestion_questions.values_list("pk", flat=True))
+
+    assert MultipleChoiceAnswer.objects.filter(question__in=new_mc_pks).count() == 0, "No MC answers should be copied"
+    assert FreeTextAnswer.objects.filter(question__in=new_ft_pks).count() == 0, "No FreeText answers should be copied"
+    assert FileUploadAnswer.objects.filter(question__in=new_fu_pks).count() == 0, (
+        "No FileUpload answers should be copied"
+    )
+    assert QuestionnaireEvaluation.objects.filter(submission__questionnaire=new_q).count() == 0, (
+        "No evaluations should be copied"
+    )
+
+    # QuestionnaireFile objects are user-owned and not linked to questionnaire
+    # questions directly — they are attached via FileUploadAnswer.files (M2M).
+    # We verify the file is not referenced by any answer on the new questionnaire.
+    assert not qfile.file_upload_answers.filter(question__in=new_fu_pks).exists(), (
+        "QuestionnaireFile should not be referenced by any answer on the new questionnaire"
+    )
+
+    # ---- template is unchanged (duplication is non-destructive) ----
+    assert template.questionnaire_submissions.count() == 1, "Template submission must survive"
+    assert MultipleChoiceAnswer.objects.filter(pk=mc_answer.pk).exists(), "Template MC answer must survive"
+    assert FreeTextAnswer.objects.filter(pk=ft_answer.pk).exists(), "Template FreeText answer must survive"
+    assert FileUploadAnswer.objects.filter(pk=fu_answer.pk).exists(), "Template FileUpload answer must survive"
+    assert QuestionnaireEvaluation.objects.filter(pk=evaluation.pk).exists(), "Template evaluation must survive"
+    assert QuestionnaireFile.objects.filter(pk=qfile.pk).exists(), "QuestionnaireFile must survive"
 
 
 # ---------------------------------------------------------------------------

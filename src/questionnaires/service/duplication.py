@@ -322,16 +322,16 @@ def duplicate_questionnaire_content(
     # Pass 2: Sections (no depends_on_option yet)
     section_map = _duplicate_sections(template, new_questionnaire)
 
-    # Passes 3 & 4: MC questions + options
+    # Pass 3: MC questions + options
     mc_question_map, option_map = _duplicate_mc_questions(template, new_questionnaire, section_map)
 
-    # Pass 5: FreeText questions
+    # Pass 4: FreeText questions
     ft_question_map = _duplicate_ft_questions(template, new_questionnaire, section_map)
 
-    # Pass 6: FileUpload questions
+    # Pass 5: FileUpload questions
     fu_question_map = _duplicate_fu_questions(template, new_questionnaire, section_map)
 
-    # Pass 7: Wire depends_on_option (second pass)
+    # Pass 6: Wire depends_on_option (second pass)
     _wire_depends_on_option(template, section_map, mc_question_map, ft_question_map, fu_question_map, option_map)
 
     return new_questionnaire
