@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.61.0] - 2026-05-28
+
+### Added
+- **Questionnaire & Poll Duplication**: organizers can deep-copy a questionnaire or a poll as a starting point instead of rebuilding every question by hand
+  - `POST /api/questionnaires/{org_questionnaire_id}/duplicate` clones an organization questionnaire — all sections, questions, options, and their intra-questionnaire dependencies — into a new **DRAFT** questionnaire in the same organization; pass `copy_associations: true` to also link the copy to the template's events and event series (unattached by default). Requires `create_questionnaire` on the organization
+  - `POST /api/polls/{poll_id}/duplicate` clones a poll and its wrapped questionnaire into a new **DRAFT** poll, copying visibility, result timing, anonymity, vote-change policy, and membership-tier restrictions while resetting the lifecycle (status and open/close timestamps). `staff_anonymous`/`public_anonymous` — normally immutable after creation — may be overridden on the copy. Requires `manage_polls` on the organization
+  - Votes, submissions, answers, evaluations, and uploaded files are never copied
+
 ### Security
 - Organization-admin resource reads (`GET /organization-admin/{slug}/resources` and the by-id endpoint) now require organization staff; previously any authenticated user could read another organization's private/staff-only resources and their signed file URLs
 - Questionnaire submissions now reject multiple-choice options that don't belong to the question they're paired with, closing an admission-gate bypass that let crafted option IDs inflate the evaluation score into an auto-approval
