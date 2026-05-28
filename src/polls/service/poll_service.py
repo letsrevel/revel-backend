@@ -15,12 +15,14 @@ from django.utils import timezone
 
 from common.exception_handlers import format_validation_error
 from events.models.event import Event
+from events.models.mixins import ResourceVisibility
 from events.models.organization import MembershipTier, Organization
 from polls.exceptions import (
     PollAnonymityImmutableError,
     PollLifecycleError,
     PollNotEligibleError,
     PollNotOpenError,
+    PollResultsMustBeAnonymousError,
     PollValidationError,
     PollVoteAlreadyCastError,
     PollVoteChangesNotAllowedError,
@@ -38,7 +40,7 @@ from polls.schema import (
 from polls.signals import suppress_question_lock
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 from questionnaires.schema import QuestionnaireCreateSchema
-from questionnaires.service import QuestionnaireService
+from questionnaires.service import QuestionnaireService, duplicate_questionnaire_content
 
 
 def _translate_model_validation_error(exc: DjangoValidationError) -> t.NoReturn:
@@ -65,6 +67,10 @@ _POLL_ONLY_FIELDS: frozenset[str] = frozenset(
         "allow_vote_changes",
         "closes_at",
     }
+)
+
+_PUBLIC_RESULT_VISIBILITIES: frozenset[ResourceVisibility] = frozenset(
+    {ResourceVisibility.PUBLIC, ResourceVisibility.UNLISTED}
 )
 
 
@@ -223,6 +229,105 @@ def create_poll(organization: Organization, payload: PollCreateSchema) -> Poll:
                 tier_ids=payload.result_membership_tier_ids,
             )
         )
+    return poll
+
+
+@transaction.atomic
+def duplicate_poll(
+    template: Poll,
+    new_name: str,
+    *,
+    staff_anonymous: bool | None = None,
+    public_anonymous: bool | None = None,
+) -> Poll:
+    """Create a deep copy of a Poll in DRAFT status.
+
+    Deep-copies the wrapped Questionnaire via
+    :func:`questionnaires.service.duplicate_questionnaire_content`, then
+    creates a new :class:`Poll` with the same config but a reset lifecycle.
+
+    Specifically:
+
+    * The wrapped ``Questionnaire`` is deep-copied (sections / questions /
+      options / intra-questionnaire dependency remapping).  ``evaluation_mode``
+      is forced to ``MANUAL`` after duplication (defence-in-depth, mirroring
+      :func:`create_poll`).
+    * Poll config fields copied: ``organization``, ``event``, ``vote_visibility``,
+      ``result_visibility``, ``result_timing``, ``allow_vote_changes``,
+      ``staff_anonymous``, ``public_anonymous``, ``vote_membership_tiers`` (M2M),
+      ``result_membership_tiers`` (M2M).
+    * Lifecycle fields reset: ``status=DRAFT``, ``opened_at=None``,
+      ``closed_at=None``, ``closes_at=None``.
+    * Votes (``QuestionnaireSubmission`` rows) are NOT copied.
+
+    The ``staff_anonymous`` / ``public_anonymous`` kwargs are the only fields
+    that are immutable after initial poll creation.  Because duplication creates
+    a *fresh* poll row, the caller may override them here.  When ``None``
+    (the default), the template's value is copied verbatim.
+
+    Args:
+        template: The source ``Poll`` to copy.
+        new_name: Name for the new underlying ``Questionnaire`` (the poll's
+            display name lives on the questionnaire).
+        staff_anonymous: Override for ``staff_anonymous``; copies template when
+            ``None``.
+        public_anonymous: Override for ``public_anonymous``; copies template
+            when ``None``.
+
+    Returns:
+        The freshly created ``Poll`` in ``DRAFT`` status.
+
+    Raises:
+        PollResultsMustBeAnonymousError: when the resolved ``public_anonymous``
+            value is ``False`` while the template's ``result_visibility`` is
+            PUBLIC or UNLISTED (would violate the
+            ``poll_public_results_must_be_anonymous`` CheckConstraint).
+    """
+    resolved_public_anonymous = public_anonymous if public_anonymous is not None else template.public_anonymous
+    resolved_staff_anonymous = staff_anonymous if staff_anonymous is not None else template.staff_anonymous
+
+    # Validate the public-results-must-be-anonymous constraint BEFORE hitting
+    # the DB so callers receive a clean 422 rather than an IntegrityError.
+    if not resolved_public_anonymous and ResourceVisibility(template.result_visibility) in _PUBLIC_RESULT_VISIBILITIES:
+        raise PollResultsMustBeAnonymousError()
+
+    new_questionnaire = duplicate_questionnaire_content(template.questionnaire, new_name=new_name)
+
+    # Defence-in-depth: force MANUAL regardless of what the helper produced.
+    if new_questionnaire.evaluation_mode != Questionnaire.QuestionnaireEvaluationMode.MANUAL:
+        new_questionnaire.evaluation_mode = Questionnaire.QuestionnaireEvaluationMode.MANUAL
+        new_questionnaire.save(update_fields=["evaluation_mode", "updated_at"])
+
+    try:
+        poll = Poll.objects.create(
+            organization=template.organization,
+            event=template.event,
+            questionnaire=new_questionnaire,
+            status=Poll.PollStatus.DRAFT,
+            opened_at=None,
+            closed_at=None,
+            closes_at=None,
+            vote_visibility=template.vote_visibility,
+            result_visibility=template.result_visibility,
+            result_timing=template.result_timing,
+            allow_vote_changes=template.allow_vote_changes,
+            staff_anonymous=resolved_staff_anonymous,
+            public_anonymous=resolved_public_anonymous,
+        )
+    except PollAnonymityImmutableError:
+        # Subclass of DjangoValidationError; preserve specific handler dispatch.
+        raise
+    except DjangoValidationError as exc:
+        _translate_model_validation_error(exc)
+
+    # Copy M2M membership tiers (direct set from prefetched template values).
+    vote_tiers = list(template.vote_membership_tiers.all())
+    if vote_tiers:
+        poll.vote_membership_tiers.set(vote_tiers)
+    result_tiers = list(template.result_membership_tiers.all())
+    if result_tiers:
+        poll.result_membership_tiers.set(result_tiers)
+
     return poll
 
 

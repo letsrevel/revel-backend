@@ -75,3 +75,21 @@ class PollValidationError(ValidationError):
     def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
         """Initialise with the default validation message when no override is supplied."""
         super().__init__(message or _("Invalid references in poll payload."), **kwargs)
+
+
+class PollResultsMustBeAnonymousError(ValidationError):
+    """Raised when a duplication override would violate the public-results-must-be-anonymous constraint.
+
+    The ``poll_public_results_must_be_anonymous`` CheckConstraint requires that
+    when ``result_visibility`` is PUBLIC or UNLISTED, ``public_anonymous`` must
+    be True. If a caller passes ``public_anonymous=False`` as an override while
+    the template's ``result_visibility`` is PUBLIC or UNLISTED, this exception
+    is raised before any DB write.
+    """
+
+    def __init__(self, message: str | None = None, **kwargs: t.Any) -> None:
+        """Initialise with the default message when no override is supplied."""
+        super().__init__(
+            message or _("public_anonymous must be True when result_visibility is PUBLIC or UNLISTED."),
+            **kwargs,
+        )

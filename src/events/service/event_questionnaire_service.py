@@ -45,6 +45,21 @@ if t.TYPE_CHECKING:
 
     from common.models import FileExport
 
+# Fields that are NOT copied from an OrganizationQuestionnaire wrapper when
+# duplicating. Everything else in ``_meta.concrete_fields`` is copied so that
+# new wrapper fields propagate automatically without touching this constant.
+_OQ_EXCLUDED: frozenset[str] = frozenset(
+    {
+        "id",
+        "created_at",
+        "updated_at",
+        "organization",
+        "organization_id",
+        "questionnaire",
+        "questionnaire_id",
+    }
+)
+
 
 def _validate_admission_resubmission(
     *,
@@ -581,6 +596,51 @@ def replace_event_series(
 
     org_questionnaire.event_series.set(series)
     return org_questionnaire
+
+
+@transaction.atomic
+def duplicate_organization_questionnaire(
+    template: OrganizationQuestionnaire,
+    new_name: str,
+    *,
+    copy_associations: bool = False,
+) -> OrganizationQuestionnaire:
+    """Duplicate an ``OrganizationQuestionnaire`` within the same organization.
+
+    Creates a deep copy of the underlying ``Questionnaire`` (via
+    ``duplicate_questionnaire_content``) and wraps it in a new
+    ``OrganizationQuestionnaire`` belonging to the same organization.
+
+    Args:
+        template: The ``OrganizationQuestionnaire`` to copy from.
+        new_name: Name for the new questionnaire.
+        copy_associations: When ``True``, the new wrapper is linked to the same
+            events and event_series as the template.  When ``False`` (the
+            default), the new wrapper starts unattached.
+
+    Returns:
+        The newly created ``OrganizationQuestionnaire`` (DRAFT status).
+    """
+    from questionnaires.service import collect_concrete_field_values, duplicate_questionnaire_content
+
+    # Deep-copy the questionnaire content (DRAFT status, new name).
+    new_questionnaire = duplicate_questionnaire_content(template.questionnaire, new_name=new_name)
+
+    # Collect OrganizationQuestionnaire wrapper fields (everything except
+    # id/timestamps, organization, questionnaire, and M2M).
+    oq_kwargs = collect_concrete_field_values(template, _OQ_EXCLUDED)
+
+    new_oq = OrganizationQuestionnaire.objects.create(
+        organization=template.organization,
+        questionnaire=new_questionnaire,
+        **oq_kwargs,
+    )
+
+    if copy_associations:
+        new_oq.events.set(template.events.all())
+        new_oq.event_series.set(template.event_series.all())
+
+    return new_oq
 
 
 def start_submissions_export(

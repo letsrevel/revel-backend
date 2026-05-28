@@ -20,6 +20,7 @@ from polls.exceptions import (
     PollNotEligibleError,
     PollNotOpenError,
     PollQuestionLockedError,
+    PollResultsMustBeAnonymousError,
     PollValidationError,
     PollVoteAlreadyCastError,
     PollVoteChangesNotAllowedError,
@@ -38,6 +39,7 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # Validation (422)
     PollValidationError: make_simple_handler(422),
     PollAnonymityImmutableError: make_simple_handler(422),
+    PollResultsMustBeAnonymousError: make_simple_handler(422),
     # Question/section/option lockdown on non-DRAFT polls — semantically a
     # state lock, not a payload validation error.
     PollQuestionLockedError: make_simple_handler(423),

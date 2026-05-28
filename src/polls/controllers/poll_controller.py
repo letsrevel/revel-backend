@@ -31,6 +31,7 @@ from polls.permissions import IsPollOrganizationOwner, PollPermission
 from polls.schema import (
     PollCreateSchema,
     PollDetailSchema,
+    PollDuplicateSchema,
     PollListItemSchema,
     PollReopenSchema,
     PollResultsSchema,
@@ -260,6 +261,35 @@ class PollController(UserAwareController):
         poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
         poll_service.reopen_poll(poll, payload)
         return self._to_detail(self._refetch_for_detail(poll_id), self.user())
+
+    @route.post(
+        "/{poll_id}/duplicate",
+        url_name="duplicate_poll",
+        response={201: PollDetailSchema},
+        throttle=WriteThrottle(),
+        auth=I18nJWTAuth(),
+        permissions=[PollPermission("manage_polls")],
+    )
+    def duplicate_poll_action(self, poll_id: UUID, payload: PollDuplicateSchema) -> tuple[int, dict[str, t.Any]]:
+        """Deep-copy a poll (and its underlying questionnaire) in DRAFT status.
+
+        The new poll inherits the template's config (visibility, result timing,
+        anonymity, membership tiers) with lifecycle reset (status=DRAFT,
+        timestamps cleared).  ``staff_anonymous`` / ``public_anonymous`` may
+        optionally be overridden in the payload; when omitted the template
+        values are copied verbatim.
+
+        Returns ``201 Created`` with the new poll rendered as
+        :class:`PollDetailSchema`.
+        """
+        poll = t.cast(Poll, self.get_object_or_exception(self._detail_queryset(), pk=poll_id))
+        new_poll = poll_service.duplicate_poll(
+            poll,
+            payload.name,
+            staff_anonymous=payload.staff_anonymous,
+            public_anonymous=payload.public_anonymous,
+        )
+        return 201, self._to_detail(self._refetch_for_detail(new_poll.pk), self.user())
 
     @route.delete(
         "/{poll_id}/",
