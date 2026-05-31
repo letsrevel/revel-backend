@@ -49,7 +49,7 @@ msgid "Ban selected users (global ban by email)"
 msgstr "Ausgewählte Anwender:innen sperren (globale Sperre per E-Mail)"
 
 msgid "Violation of terms of service"
-msgstr ""
+msgstr "Verstoß gegen die Nutzungsbedingungen"
 
 #, python-format
 msgid "Banned %d user."
@@ -78,7 +78,7 @@ msgid "Request Information"
 msgstr "Anfrage-Informationen"
 
 msgid "Admin"
-msgstr ""
+msgstr "Admin"
 
 msgid "Target User"
 msgstr "Ziel-Anwender:in"
@@ -88,7 +88,7 @@ msgid "Status"
 msgstr "Status"
 
 msgid "Redeemed"
-msgstr ""
+msgstr "Eingelöst"
 
 #| msgid "Findings"
 msgid "Pending"
@@ -114,7 +114,7 @@ msgid "Password reset successfully."
 msgstr "Passwort erfolgreich zurückgesetzt."
 
 msgid "A confirmation link has been sent to the new email address."
-msgstr ""
+msgstr "Ein Bestätigungslink wurde an die neue E-Mail-Adresse gesendet."
 
 msgid "Login via SSO."
 msgstr "Anmeldung über SSO."
@@ -139,14 +139,14 @@ msgid "Invalid or inactive referral code."
 msgstr "Ungültiger oder inaktiver Empfehlungs-Code."
 
 msgid "Statement not yet generated for this payout."
-msgstr ""
+msgstr "Für diese Auszahlung wurde noch keine Abrechnung erstellt."
 
 #| msgid "Invoice PDF not yet generated."
 msgid "Statement PDF not yet generated."
 msgstr "Kontoauszugs-PDF wurde noch nicht erstellt."
 
 msgid "Only active referrers can connect a Stripe account."
-msgstr ""
+msgstr "Nur aktive Referrers können ein Stripe-Konto verbinden."
 
 msgid "Global Ban"
 msgstr "Globale Sperre"
@@ -197,7 +197,7 @@ msgid "Incorrect password."
 msgstr "Falsches Passwort."
 
 msgid "The new email is the same as the current one."
-msgstr ""
+msgstr "Die neue E-Mail-Adresse ist dieselbe wie die aktuelle."
 
 #| msgid "This ticket has already been checked in."
 msgid "This email is already in use."
@@ -228,16 +228,16 @@ msgid "Registration is not available."
 msgstr "Die Registrierung ist nicht verfügbar."
 
 msgid "Only superusers can impersonate users."
-msgstr "Nur Superuser:innen können sich als andere Anwender:innen anmelden."
+msgstr "Nur Superusers können sich als andere Anwender:innen anmelden."
 
 msgid "Cannot impersonate yourself."
 msgstr "Du kannst dich nicht als du selbst anmelden."
 
 msgid "Cannot impersonate other superusers."
-msgstr "Du kannst dich nicht als andere:r Superuser:in anmelden."
+msgstr "Du kannst dich nicht als andere:r Superuser anmelden."
 
 msgid "Cannot impersonate staff members."
-msgstr "Du kannst dich nicht als Staff-Mitglieder:in anmelden."
+msgstr "Du kannst dich nicht als Staff-Mitglied anmelden."
 
 msgid "Cannot impersonate inactive users."
 msgstr "Du kannst dich nicht als inaktive:r Anwender:in anmelden."
@@ -288,16 +288,14 @@ msgid "Activate your account"
 msgstr "Konto aktivieren"
 
 msgid "Account Deactivated"
-msgstr ""
+msgstr "Konto deaktiviert"
 
 #| msgid "Your data export has been initiated."
 msgid "Your account has been deactivated"
 msgstr "Dein Konto wurde deaktiviert."
 
-msgid ""
-"Your Revel account has been deactivated because your email address was not "
-"verified."
-msgstr ""
+msgid "Your Revel account has been deactivated because your email address was not verified."
+msgstr "Dein Revel-Konto wurde deaktiviert, da deine E-Mail-Adresse nicht verifiziert wurde."
 
 #| msgid "Please verify your email and finish setting up your account."
 msgid "You can still verify your email to reactivate your account:"
@@ -307,23 +305,18 @@ msgstr "Du kannst deine E-Mail immer noch verifizieren, um dein Konto zu reaktiv
 msgid "Verify Email & Reactivate"
 msgstr "E-Mail verifizieren & reaktivieren"
 
-msgid ""
-"If you don't verify within 60 days, your account and all associated data "
-"will be permanently deleted."
-msgstr ""
+msgid "If you don't verify within 60 days, your account and all associated data will be permanently deleted."
+msgstr "Wenn du dich nicht innerhalb von 60 Tagen verifizierst, werden dein Konto und alle damit verbundenen Daten dauerhaft gelöscht."
 
 #, python-format
-msgid ""
-"If you didn't sign up for Revel, you can <a href=\"%(link)s\">delete your "
-"account immediately</a>."
-msgstr ""
+msgid "If you didn't sign up for Revel, you can <a href=\"%(link)s\">delete your account immediately</a>."
+msgstr "Wenn du dich nicht bei Revel registriert hast, kannst du <a href=\"%(link)s\">dein Konto sofort löschen</a>."
 
 msgid "Hi,"
-msgstr ""
+msgstr "Hallo,"
 
-msgid ""
-"If you didn't sign up for Revel, you can delete your account immediately:"
-msgstr ""
+msgid "If you didn't sign up for Revel, you can delete your account immediately:"
+msgstr "Wenn du dich nicht bei Revel registriert hast, kannst du dein Konto sofort löschen:"
 
 #| msgid "Your data export has been initiated."
 msgid "Your Revel account has been deactivated"
@@ -455,14 +448,11 @@ msgid "Your Revel email address has been changed"
 msgstr "Deine Revel-E-Mail-Adresse wurde geändert"
 
 #, python-format
-msgid ""
-"This address (<strong>%(new_email)s</strong>) is now the primary email on "
-"your Revel account. The previous address (<strong>%(old_email)s</strong>) "
-"has been removed and can no longer be used to sign in."
-msgstr ""
+msgid "This address (<strong>%(new_email)s</strong>) is now the primary email on your Revel account. The previous address (<strong>%(old_email)s</strong>) has been removed and can no longer be used to sign in."
+msgstr "Diese Adresse (<strong>%(new_email)s</strong>) ist jetzt die primäre E-Mail-Adresse deines Revel-Kontos. Die vorherige Adresse (<strong>%(old_email)s</strong>) wurde entfernt und kann nicht mehr zur Anmeldung verwendet werden."
 
 msgid "For security, every other session has been signed out."
-msgstr ""
+msgstr "Aus Sicherheitsgründen wurden alle anderen Sitzungen abgemeldet."
 
 #| msgid "If you believe this is a mistake, please contact our support team."
 msgid "If you did not authorise this change, contact support immediately."
@@ -473,98 +463,68 @@ msgid "Your Revel email address has been changed."
 msgstr "Deine Revel-E-Mail-Adresse wurde geändert."
 
 #, python-format
-msgid ""
-"This address (%(new_email)s) is now the primary email on your Revel account. "
-"The previous address (%(old_email)s) has been removed and can no longer be "
-"used to sign in."
-msgstr ""
+msgid "This address (%(new_email)s) is now the primary email on your Revel account. The previous address (%(old_email)s) has been removed and can no longer be used to sign in."
+msgstr "Diese Adresse (%(new_email)s) ist jetzt die primäre E-Mail-Adresse deines Revel-Kontos. Die vorherige Adresse (%(old_email)s) wurde entfernt und kann nicht mehr zur Anmeldung verwendet werden."
 
 #, python-format
-msgid ""
-"This is a confirmation that the email address on your Revel account has been "
-"changed from <strong>%(old_email)s</strong> to <strong>%(new_email)s</"
-"strong>."
-msgstr ""
+msgid "This is a confirmation that the email address on your Revel account has been changed from <strong>%(old_email)s</strong> to <strong>%(new_email)s</strong>."
+msgstr "Dies ist eine Bestätigung, dass die E-Mail-Adresse deines Revel-Kontos von <strong>%(old_email)s</strong> in <strong>%(new_email)s</strong> geändert wurde."
 
-msgid ""
-"All other sessions have been signed out as a security precaution. From now "
-"on, sign in using your new address."
-msgstr ""
+msgid "All other sessions have been signed out as a security precaution. From now on, sign in using your new address."
+msgstr "Als Sicherheitsmaßnahme wurden alle anderen Sitzungen abgemeldet. Melde dich von nun an mit deiner neuen E-Mail-Adresse an."
 
 #, python-format
-msgid ""
-"This is a confirmation that the email address on your Revel account has been "
-"changed from %(old_email)s to %(new_email)s."
-msgstr ""
+msgid "This is a confirmation that the email address on your Revel account has been changed from %(old_email)s to %(new_email)s."
+msgstr "Dies ist eine Bestätigung, dass die E-Mail-Adresse deines Revel-Kontos von %(old_email)s in %(new_email)s geändert wurde."
 
 msgid "Confirm your new email address"
-msgstr ""
+msgstr "Bestätige deine neue E-Mail-Adresse"
 
-msgid ""
-"You (or someone using your account) asked to change the email address on "
-"your Revel account to this one. To confirm the change, click the button "
-"below:"
-msgstr ""
+msgid "You (or someone using your account) asked to change the email address on your Revel account to this one. To confirm the change, click the button below:"
+msgstr "Du (oder jemand, der dein Konto verwendet) hast darum gebeten, die E-Mail-Adresse deines Revel-Kontos in diese zu ändern. Um die Änderung zu bestätigen, klicke auf die Schaltfläche unten:"
 
 msgid "Confirm new email"
-msgstr ""
+msgstr "Neue E-Mail-Adresse bestätigen"
 
-msgid ""
-"Important: after you confirm, you will be signed out of every other device "
-"and you will need to sign in again using this new email address."
-msgstr ""
+msgid "Important: after you confirm, you will be signed out of every other device and you will need to sign in again using this new email address."
+msgstr "Wichtig: Nach der Bestätigung wirst du von allen anderen Geräten abgemeldet und musst dich mit dieser neuen E-Mail-Adresse erneut anmelden."
 
-msgid ""
-"If you weren't expecting this email, you can safely ignore it — nothing will "
-"change until the link is clicked."
-msgstr ""
+msgid "If you weren't expecting this email, you can safely ignore it — nothing will change until the link is clicked."
+msgstr "Wenn du diese E-Mail nicht erwartet hast, kannst du sie ignorieren – es wird sich nichts ändern, bis der Link angeklickt wird."
 
 msgid "Confirm your new email address."
-msgstr ""
+msgstr "Bestätige deine neue E-Mail-Adresse."
 
-msgid ""
-"You (or someone using your account) asked to change the email address on "
-"your Revel account to this one. To confirm the change, click the link below:"
-msgstr ""
+msgid "You (or someone using your account) asked to change the email address on your Revel account to this one. To confirm the change, click the link below:"
+msgstr "Du (oder jemand, der dein Konto verwendet) hast darum gebeten, die E-Mail-Adresse deines Revel-Kontos in diese zu ändern. Um die Änderung zu bestätigen, klicke auf den Link unten:"
 
 msgid "An email change was requested on your account"
-msgstr ""
+msgstr "Eine Änderung der E-Mail-Adresse wurde für dein Konto beantragt"
 
 #, python-format
-msgid ""
-"Someone asked to change the email address on your Revel account to "
-"<strong>%(masked_new_email)s</strong>. The change is not active yet — it "
-"will only take effect when the new address is confirmed."
-msgstr ""
+msgid "Someone asked to change the email address on your Revel account to <strong>%(masked_new_email)s</strong>. The change is not active yet — it will only take effect when the new address is confirmed."
+msgstr "Jemand hat darum gebeten, die E-Mail-Adresse deines Revel-Kontos in <strong>%(masked_new_email)s</strong> zu ändern. Die Änderung ist noch nicht aktiv – sie wird erst wirksam, wenn die neue E-Mail-Adresse bestätigt wird."
 
-msgid ""
-"If this wasn't you, change your password immediately and contact support:"
-msgstr ""
+msgid "If this wasn't you, change your password immediately and contact support:"
+msgstr "Wenn du das nicht warst, ändere bitte sofort dein Passwort und kontaktiere den Support:"
 
 #| msgid "Reset Password"
 msgid "Reset my password"
 msgstr "Mein Passwort zurücksetzen"
 
-msgid ""
-"If it was you, no action is needed — finish the confirmation from the email "
-"we just sent to your new address."
-msgstr ""
+msgid "If it was you, no action is needed — finish the confirmation from the email we just sent to your new address."
+msgstr "Wenn du das warst, ist keine weitere Aktion erforderlich – schließe die Bestätigung über die E-Mail ab, die wir gerade an deine neue E-Mail-Adresse gesendet haben."
 
 msgid "An email change was requested on your account."
-msgstr ""
+msgstr "Eine Änderung der E-Mail-Adresse wurde für dein Konto beantragt."
 
 #, python-format
-msgid ""
-"Someone asked to change the email address on your Revel account to "
-"%(masked_new_email)s. The change is not active yet — it will only take "
-"effect when the new address is confirmed."
-msgstr ""
+msgid "Someone asked to change the email address on your Revel account to %(masked_new_email)s. The change is not active yet — it will only take effect when the new address is confirmed."
+msgstr "Jemand hat darum gebeten, die E-Mail-Adresse deines Revel-Kontos in %(masked_new_email)s zu ändern. Die Änderung ist noch nicht aktiv – sie wird erst wirksam, wenn die neue E-Mail-Adresse bestätigt wird."
 
 #, python-format
-msgid ""
-"If this wasn't you, change your password immediately at "
-"%(frontend_base_url)s/account/password-reset and contact support."
-msgstr ""
+msgid "If this wasn't you, change your password immediately at %(frontend_base_url)s/account/password-reset and contact support."
+msgstr "Wenn du das nicht warst, ändere dein Passwort bitte sofort unter %(frontend_base_url)s/account/password-reset und kontaktiere den Support."
 
 msgid "Verify Your Email"
 msgstr "Verifiziere deine E-Mail"
@@ -587,12 +547,10 @@ msgid "Urgent: Verify Your Email"
 msgstr "Dringend: Verifiziere deine E-Mail"
 
 msgid "URGENT: Your account will be deactivated soon"
-msgstr ""
+msgstr "DRINGEND: Dein Konto wird bald deaktiviert"
 
-msgid ""
-"Your Revel account has not been verified and will be deactivated shortly if "
-"you don't verify your email address."
-msgstr ""
+msgid "Your Revel account has not been verified and will be deactivated shortly if you don't verify your email address."
+msgstr "Dein Revel-Konto wurde noch nicht verifiziert und wird in Kürze deaktiviert, wenn du deine E-Mail-Adresse nicht verifizierst."
 
 #| msgid "Please verify your email and finish setting up your account."
 msgid "Please verify your email now to keep your account active:"
@@ -603,32 +561,28 @@ msgid "Verify Email Now"
 msgstr "Jetzt E-Mail verifizieren"
 
 #, python-format
-msgid ""
-"If you didn't sign up for Revel, you can <a href=\"%(link)s\">delete your "
-"account</a>."
-msgstr ""
+msgid "If you didn't sign up for Revel, you can <a href=\"%(link)s\">delete your account</a>."
+msgstr "Wenn du dich nicht bei Revel registriert hast, kannst du <a href=\"%(link)s\">dein Konto löschen</a>."
 
 msgid "If you didn't sign up for Revel, you can delete your account:"
-msgstr ""
+msgstr "Wenn du dich nicht bei Revel registriert hast, kannst du dein Konto löschen:"
 
 msgid "Your Revel account will be deactivated soon"
-msgstr ""
+msgstr "Dein Revel-Konto wird bald deaktiviert"
 
 #| msgid "Verify your email"
 msgid "Reminder: Verify your email"
 msgstr "Erinnerung: Verifiziere deine E-Mail"
 
-msgid ""
-"You haven't verified your email address yet. Please verify your email to "
-"fully activate your Revel account."
-msgstr ""
+msgid "You haven't verified your email address yet. Please verify your email to fully activate your Revel account."
+msgstr "Du hast deine E-Mail-Adresse noch nicht verifiziert. Bitte verifiziere deine E-Mail-Adresse, um dein Revel-Konto vollständig zu aktivieren."
 
 #| msgid "Verify your email"
 msgid "Verify your email:"
 msgstr "Verifiziere deine E-Mail:"
 
 msgid "Reminder: Verify your Revel account"
-msgstr ""
+msgstr "Erinnerung: Verifiziere dein Revel-Konto"
 
 msgid "Password Reset Request"
 msgstr "Passwort-Zurücksetzungsanfrage"
@@ -647,7 +601,7 @@ msgid "Password reset request"
 msgstr "Passwort-Zurücksetzungsanfrage"
 
 msgid "Home"
-msgstr ""
+msgstr "Startseite"
 
 #| msgid "Amount Paid:"
 msgid "Accounts"
@@ -670,16 +624,16 @@ msgid "Email"
 msgstr "E-Mail"
 
 msgid "Display Name"
-msgstr ""
+msgstr "Anzeigename"
 
 msgid "Active"
-msgstr ""
+msgstr "Aktiv"
 
 msgid "Yes"
-msgstr ""
+msgstr "Ja"
 
 msgid "No"
-msgstr ""
+msgstr "Nein"
 
 #| msgid "Email already verified."
 msgid "Email Verified"
@@ -693,7 +647,7 @@ msgid "This action will be logged for audit purposes. The impersonation session 
 msgstr "Diese Aktion wird zu Audit-Zwecken protokolliert. Die Sitzung der Identitätsübernahme läuft nach 15 Minuten ab. Es wird kein Refresh-Token ausgestellt."
 
 msgid "Cancel"
-msgstr ""
+msgstr "Abbrechen"
 
 #| msgid "Confirm Account Deletion"
 msgid "Confirm Impersonation"
@@ -712,23 +666,23 @@ msgid "Internal Server Error."
 msgstr "Interner Serverfehler."
 
 msgid "Permission denied"
-msgstr ""
+msgstr "Zugriff verweigert"
 
 #| msgid "Verification email sent."
 msgid "Email verification required."
 msgstr "E-Mail-Verifizierung erforderlich."
 
 msgid "Staff access required."
-msgstr ""
+msgstr "Staff-Zugang erforderlich."
 
 msgid "Superuser access required."
-msgstr ""
+msgstr "Superuser-Zugang erforderlich."
 
 msgid "You cannot use this endpoint while authenticated."
-msgstr ""
+msgstr "Du kannst diesen Endpunkt nicht verwenden, während du angemeldet bist."
 
 msgid "File is not a valid image."
-msgstr ""
+msgstr "Die Datei ist kein gültiges Bild."
 
 msgid "You must connect your Stripe account first."
 msgstr "Du musst zuerst dein Stripe-Konto verbinden."
@@ -752,14 +706,14 @@ msgid "Malware Detected - Admin Alert"
 msgstr "Malware erkannt - Administrator:innen-Warnung"
 
 msgid "Dear Administrator,"
-msgstr ""
+msgstr "Sehr geehrte:r Administrator:in,"
 
 #| msgid "Malware has been detected in a file upload."
 msgid "Malware has been detected in a file upload:"
 msgstr "Malware wurde in einer hochgeladenen Datei erkannt:"
 
 msgid "App:"
-msgstr ""
+msgstr "App:"
 
 #| msgid "Model"
 msgid "Model:"
@@ -786,10 +740,10 @@ msgid "View quarantined file"
 msgstr "Unter Quarantäne gestellte Datei anzeigen"
 
 msgid "Please review and take appropriate action."
-msgstr ""
+msgstr "Bitte überprüfe dies und ergreife die entsprechenden Maßnahmen."
 
 msgid "Best regards,"
-msgstr ""
+msgstr "Mit freundlichen Grüßen"
 
 #| msgid "Revel Event Management System"
 msgid "Revel Security System"
@@ -804,7 +758,7 @@ msgid "Malware Detected"
 msgstr "Malware erkannt"
 
 msgid "Dear"
-msgstr ""
+msgstr "Liebe:r"
 
 #| msgid ""
 #| "We have detected malware in a file you recently uploaded. The file has "
@@ -813,13 +767,13 @@ msgid "We detected malware in a file you recently uploaded. For security reasons
 msgstr "Wir haben in einer von dir kürzlich hochgeladenen Datei Malware erkannt. Aus Sicherheitsgründen wurde die Datei unter Quarantäne gestellt und aus dem System entfernt."
 
 msgid "If you believe this is an error, please contact support."
-msgstr ""
+msgstr "Wenn du glaubst, dass dies ein Fehler ist, wende dich bitte an den Support."
 
 msgid "The Revel Team"
 msgstr "Das Revel-Team"
 
 msgid "Already a member."
-msgstr ""
+msgstr "Bereits Mitglied."
 
 #| msgid "Invoice PDF not yet generated."
 msgid "Invoice PDF not available."
@@ -837,20 +791,20 @@ msgid "You are already on the waitlist for this event."
 msgstr "Du stehst bereits auf der Warteliste für dieses Event."
 
 msgid "Event has available capacity. Please refresh and register directly."
-msgstr ""
+msgstr "Das Event hat noch freie Kapazitäten. Bitte lade die Seite neu und registriere dich direkt."
 
 #| msgid "You are not eligible."
 msgid "You are not eligible to join the waitlist."
 msgstr "Du bist nicht berechtigt, dich auf die Warteliste zu setzen."
 
 msgid "Successfully joined the waitlist."
-msgstr ""
+msgstr "Erfolgreich in die Warteliste eingetragen."
 
 msgid "Successfully left the waitlist."
-msgstr ""
+msgstr "Die Warteliste wurde erfolgreich verlassen."
 
 msgid "Authentication required to access feedback questionnaire."
-msgstr ""
+msgstr "Eine Anmeldung ist erforderlich, um auf den Feedback-Fragebogen zuzugreifen."
 
 msgid "The application deadline has passed."
 msgstr "Die Anmeldefrist ist abgelaufen."
@@ -903,13 +857,13 @@ msgstr ""
 "Die Rückerstattung ist fehlgeschlagen. Bitte versuche es später erneut."
 
 msgid "Message sent."
-msgstr ""
+msgstr "Nachricht gesendet."
 
 msgid "Token does not match this organization."
 msgstr "Dieses Token gehört nicht zu dieser Organisation."
 
 msgid "Only the organization owner can create staff members."
-msgstr "Nur der:die Organisationsinhaber:in kann Staff-Mitglieder:innen erstellen."
+msgstr "Nur der:die Organisationsinhaber:in kann Staff-Mitglieder erstellen."
 
 msgid "Only the organization owner can change staff permissions."
 msgstr "Nur der:die Organisationsinhaber:in kann Staff-Berechtigungen ändern."
@@ -947,109 +901,107 @@ msgid "Target members of specific membership tiers"
 msgstr "Mitglieder bestimmter Mitgliedschaftsstufen als Zielgruppe"
 
 msgid "Target only organization staff members"
-msgstr "Nur Staff-Mitglieder:innen der Organisation als Zielgruppe"
+msgstr "Nur Staff-Mitglieder der Organisation als Zielgruppe"
 
 msgid "Allow new attendees/members to see this announcement after it was sent"
 msgstr "Neuen Teilnehmer:innen oder Mitgliedern erlauben, diese Ankündigung nach dem Versand zu sehen"
 
 msgid "Days a PAST_DUE subscription stays valid before expiring."
-msgstr ""
+msgstr "Anzahl der Tage, die ein Abonnement mit dem Status PAST_DUE gültig bleibt, bevor es abläuft."
 
-msgid ""
-"A verified contact email is required to enable a contact method other than "
-"NONE."
-msgstr ""
+msgid "A verified contact email is required to enable a contact method other than NONE."
+msgstr "Eine verifizierte Kontakt-E-Mail-Adresse ist erforderlich, um eine andere Kontaktmethode als NONE zu aktivieren."
 
 msgid "Membership tier is required when granting membership."
-msgstr ""
+msgstr "Die Mitgliedschaftsstufe ist erforderlich, wenn eine Mitgliedschaft gewährt wird."
 
 msgid "Membership tier must belong to the same organization as the token."
-msgstr ""
+msgstr "Die Mitgliedschaftsstufe muss zu derselben Organisation gehören wie das Token."
 
 msgid "Token must be a single non-empty slug segment."
 msgstr "Token muss ein einzelnes, nicht leeres Slug-Segment sein."
 
 msgid "Month"
-msgstr ""
+msgstr "Monat"
 
 msgid "Year"
-msgstr ""
+msgstr "Jahr"
 
 msgid "e.g. \"Monthly\", \"Annual\""
-msgstr ""
+msgstr "z. B. „Monatlich“, „Jährlich“"
 
 msgid "ISO 4217 currency code"
-msgstr ""
+msgstr "ISO-4217-Währungscode"
 
 msgid "Paused"
-msgstr ""
+msgstr "Pausiert"
 
 msgid "Past Due"
-msgstr ""
+msgstr "Überfällig"
 
 #| msgid "RSVP Cancelled"
 msgid "Cancelled"
 msgstr "Storniert"
 
 msgid "Expired"
-msgstr ""
+msgstr "Abgelaufen"
 
 msgid "Subscription organization must match the plan's tier organization."
-msgstr ""
+msgstr "Die Organisation des Abonnements muss mit der Organisation der Planstufe übereinstimmen."
 
 msgid "Succeeded"
-msgstr ""
+msgstr "Erfolgreich"
 
 msgid "Failed"
-msgstr ""
+msgstr "Fehlgeschlagen"
 
 msgid "Refunded"
-msgstr ""
+msgstr "Erstattet"
 
 msgid "Address visible to invited guests only"
-msgstr ""
+msgstr "Adresse nur für eingeladene Gäste sichtbar"
 
 msgid "Address visible to organization members only"
-msgstr ""
+msgstr "Adresse nur für Organisationsmitglieder sichtbar"
 
 msgid "Address visible to staff only"
-msgstr ""
+msgstr "Adresse nur für Staff-Mitglieder sichtbar"
 
 msgid "Address visible to attendees only"
-msgstr ""
+msgstr "Adresse nur für Teilnehmer:innen sichtbar"
 
 msgid "Only draft invoices can be edited."
-msgstr ""
+msgstr "Nur Rechnungsentwürfe können bearbeitet werden."
 
 msgid "Cancelled invoices cannot be issued."
-msgstr ""
+msgstr "Stornierte Rechnungen können nicht ausgestellt werden."
 
 msgid "Only draft invoices can be deleted."
-msgstr ""
+msgstr "Nur Rechnungsentwürfe können gelöscht werden."
 
 #| msgid "You are not allowed to participate in this organization's events."
 msgid "You are not allowed to purchase from this tier."
 msgstr "Du darfst Tickets dieser Kategorie nicht kaufen."
 
 msgid "You have reached the maximum number of tickets for this tier."
-msgstr ""
+msgstr "Du hast die maximale Anzahl an Tickets für diese Kategorie erreicht."
 
 #, python-brace-format
 msgid "You can only purchase {remaining} more ticket(s) for this tier."
-msgstr ""
+msgstr "Du kannst nur noch {remaining} weitere Tickets für diese Kategorie erwerben."
 
 #, python-brace-format
 msgid "Not enough seats available. Only {available} seat(s) remaining."
-msgstr ""
+msgstr "Nicht genügend Sitzplätze verfügbar. Nur noch {available} Sitzplätze verbleibend."
 
 msgid "Seat selection is required for this ticket tier."
-msgstr ""
+msgstr "Für diese Ticketkategorie ist eine Sitzplatzauswahl erforderlich."
 
 msgid "One or more selected seats are invalid or not in the correct sector."
-msgstr ""
+msgstr "Ein oder mehrere ausgewählte Sitzplätze sind ungültig oder befinden sich nicht im richtigen Sektor."
 
 msgid "One or more selected seats are no longer available."
-msgstr ""
+msgstr "Ein oder mehrere ausgewählte Sitzplätze sind nicht mehr verfügbar."
 
 #| msgid "Unknown payment method."
 msgid "Unknown seat assignment mode."
@@ -1060,7 +1012,7 @@ msgstr "Diese Ticket-Kategorie ist ausverkauft."
 
 #, python-brace-format
 msgid "Only {available} ticket(s) remaining for this tier."
-msgstr ""
+msgstr "Es sind nur noch {available} Tickets für diese Kategorie verbleibend."
 
 #| msgid "This ticket tier is sold out."
 msgid "This event is sold out."
@@ -1068,7 +1020,7 @@ msgstr "Dieses Event ist ausverkauft."
 
 #, python-brace-format
 msgid "Only {available} spot(s) remaining for this event."
-msgstr ""
+msgstr "Es sind nur noch {available} Plätze für dieses Event verbleibend."
 
 #| msgid "Event is full."
 msgid "This sector is full."
@@ -1076,13 +1028,13 @@ msgstr "Dieser Sektor ist voll."
 
 #, python-brace-format
 msgid "Only {available} spot(s) remaining in this sector."
-msgstr ""
+msgstr "Es sind nur noch {available} Plätze in diesem Sektor verbleibend."
 
 msgid "Unknown payment method."
 msgstr "Unbekannte Zahlungsmethode."
 
 msgid "At least one identifier (email, telegram, phone) or name is required."
-msgstr ""
+msgstr "Mindestens eine Kennung (E-Mail, Telegram, Telefon) oder ein Name ist erforderlich."
 
 #| msgid "This ticket has already been checked in."
 msgid "This user is already blacklisted."
@@ -1101,35 +1053,35 @@ msgid "One or more referenced objects are invalid or do not belong to this organ
 msgstr "Ein oder mehrere referenzierte Objekte sind ungültig oder gehören nicht zu dieser Organisation."
 
 msgid "This discount code is not valid for this ticket tier."
-msgstr ""
+msgstr "Dieser Rabattcode ist für diese Ticketkategorie nicht gültig."
 
 #| msgid "Invalid token type."
 msgid "Invalid discount code."
 msgstr "Ungültiger Rabattcode."
 
 msgid "This discount code is not yet active."
-msgstr ""
+msgstr "Dieser Rabattcode ist noch nicht aktiv."
 
 #| msgid "Token has expired."
 msgid "This discount code has expired."
 msgstr "Dieser Rabattcode ist abgelaufen."
 
 msgid "This discount code has reached its usage limit."
-msgstr ""
+msgstr "Dieser Rabattcode hat sein Nutzungslimit erreicht."
 
 msgid "Discount codes cannot be applied to free tickets."
-msgstr ""
+msgstr "Rabattcodes können nicht auf kostenlose Tickets angewendet werden."
 
 #| msgid "This endpoint is only for pay-what-you-can tickets"
 msgid "Discount codes cannot be applied to pay-what-you-can tickets."
 msgstr "Rabattcodes können nicht auf \"Zahl-was-du-kannst\"-Tickets angewendet werden."
 
 msgid "This discount code is not valid for this currency."
-msgstr ""
+msgstr "Dieser Rabattcode ist für diese Währung nicht gültig."
 
 #, python-brace-format
 msgid "Minimum purchase amount of {amount} required to use this discount code."
-msgstr ""
+msgstr "Mindestens ein Kaufbetrag von {amount} ist erforderlich, um diesen Rabattcode zu verwenden."
 
 #| msgid "You have created too many items."
 msgid "You have already used this discount code the maximum number of times."
@@ -1148,7 +1100,7 @@ msgid "Event is full."
 msgstr "Das Event ist ausgebucht."
 
 msgid "Spots are currently reserved for waitlist members."
-msgstr ""
+msgstr "Plätze sind derzeit für Wartelistenmitglieder reserviert."
 
 #| msgid "You are already invited to this event."
 msgid "You are on the waitlist. Waiting for your turn."
@@ -1229,7 +1181,7 @@ msgid "You have already submitted this questionnaire."
 msgstr "Du hast diesen Fragebogen bereits ausgefüllt."
 
 msgid "You have a submission pending evaluation."
-msgstr ""
+msgstr "Du hast eine Einreichung, deren Bewertung noch aussteht."
 
 #| msgid "Your questionnaire %(questionnaire)s has been approved!"
 msgid "Your questionnaire has already been approved."
@@ -1241,7 +1193,7 @@ msgstr "Du hast die maximale Anzahl an Versuchen erreicht."
 
 #, python-format
 msgid "You can retry after %(retry_on)s."
-msgstr ""
+msgstr "Du kannst es nach %(retry_on)s erneut versuchen."
 
 msgid "Cannot filter by both event_id and event_series_id."
 msgstr ""
@@ -1267,17 +1219,17 @@ msgid "An event with this slug already exists in your organization."
 msgstr "Ein Event mit diesem Slug existiert bereits in deiner Organisation."
 
 msgid "Feedback questionnaire is only available after the event ends."
-msgstr ""
+msgstr "Der Feedback-Fragebogen ist erst nach Ende des Events verfügbar."
 
 msgid "You can only submit feedback for events you attended."
-msgstr ""
+msgstr "Du kannst Feedback nur für Events abgeben, an denen du teilgenommen hast."
 
 #| msgid "You are already invited to this event."
 msgid "You have already submitted feedback for this event."
 msgstr "Du hast bereits Feedback für dieses Event abgegeben."
 
 msgid "Feedback questionnaires cannot be evaluated."
-msgstr ""
+msgstr "Feedback-Fragebögen können nicht bewertet werden."
 
 #| msgid "A user with this email already exists."
 msgid "An account with this email already exists. Please log in."
@@ -1292,23 +1244,23 @@ msgid "Invalid token payload."
 msgstr "Ungültiger Token-Payload."
 
 msgid "This event requires login to RSVP."
-msgstr ""
+msgstr "Dieses Event erfordert eine Anmeldung zur RSVP."
 
 msgid "Please check your email to confirm your RSVP"
-msgstr ""
+msgstr "Bitte überprüfe deine E-Mails, um deine RSVP zu bestätigen"
 
 #| msgid "This endpoint is only for pay-what-you-can tickets"
 msgid "This event requires login to purchase tickets."
 msgstr "Dieses Event erfordert eine Anmeldung, um Tickets zu kaufen."
 
 msgid "Internal server error: Unexpected ticket result for online payment."
-msgstr ""
+msgstr "Interner Serverfehler: Unerwartetes Ticket-Ergebnis für Online-Zahlung."
 
 msgid "Please check your email to confirm your ticket purchase"
-msgstr ""
+msgstr "Bitte überprüfe deine E-Mails, um deinen Ticketkauf zu bestätigen"
 
 msgid "Unexpected response from ticket creation"
-msgstr ""
+msgstr "Unerwartete Antwort bei der Ticketerstellung"
 
 #| msgid "Invalid token type."
 msgid "Invalid token type"
@@ -1328,8 +1280,6 @@ msgstr "Nur der:die Organisationsinhaber:in kann Token verwalten, die Staff-Mitg
 
 msgid "At least one of grants_membership or grants_staff_status must be True."
 msgstr "Mindestens eines von grants_membership oder grants_staff_status muss True sein."
-"Mindestens eines von grants_membership oder grants_staff_status muss True "
-"sein."
 
 msgid "membership_tier_id is required when grants_membership is True."
 msgstr "membership_tier_id ist erforderlich, wenn grants_membership True ist."
@@ -1356,7 +1306,7 @@ msgid "User is already a member of this organization."
 msgstr "Anwender:in ist bereits Mitglied dieser Organisation."
 
 msgid "User is already a staff member of this organization."
-msgstr "Anwender:in ist bereits Staff-Mitglieder:in dieser Organisation."
+msgstr "Anwender:in ist bereits Staff-Mitglied dieser Organisation."
 
 #| msgid "User is already a member of this organization."
 msgid "This is already the contact email for this organization."
@@ -1371,7 +1321,7 @@ msgid "Organization not found."
 msgstr "Organisation nicht gefunden."
 
 msgid "This verification link is for a different email address."
-msgstr ""
+msgstr "Dieser Verifizierungslink ist für eine andere E-Mail-Adresse."
 
 msgid "A file must be provided when resource_type is 'file'."
 msgstr "Eine Datei muss bereitgestellt werden, wenn resource_type 'file' ist."
@@ -1398,10 +1348,10 @@ msgid "No pending payment found."
 msgstr "Keine ausstehende Zahlung gefunden."
 
 msgid "Checkout session has expired. Please start a new purchase."
-msgstr ""
+msgstr "Die Checkout-Sitzung ist abgelaufen. Bitte starte einen neuen Kauf."
 
 msgid "Checkout session is no longer valid."
-msgstr ""
+msgstr "Die Checkout-Sitzung ist nicht mehr gültig."
 
 #| msgid "Invitation not found."
 msgid "Checkout session not found."
@@ -1412,13 +1362,13 @@ msgid "Payment not found."
 msgstr "Zahlung nicht gefunden."
 
 msgid "Only pending payments can be cancelled."
-msgstr ""
+msgstr "Nur ausstehende Zahlungen können storniert werden."
 
 msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
-msgstr ""
+msgstr "Ein Plan mit bestehenden Abonnements kann nicht gelöscht werden. Archiviere ihn stattdessen."
 
 msgid "This plan is archived and no longer accepts new subscriptions."
-msgstr ""
+msgstr "Dieser Plan ist archiviert und akzeptiert keine neuen Abonnements mehr."
 
 #| msgid "User is already a member of this organization."
 msgid "This user is banned from the organization."
@@ -1428,38 +1378,32 @@ msgstr "Diese:r Anwender:in ist aus der Organisation gesperrt."
 msgid "This user already has an active subscription in this organization."
 msgstr "Diese:r Anwender:in hat bereits ein aktives Abonnement in dieser Organisation."
 
-msgid ""
-"Cannot record a payment against a cancelled or expired subscription. Create "
-"a new subscription instead."
-msgstr ""
+msgid "Cannot record a payment against a cancelled or expired subscription. Create a new subscription instead."
+msgstr "Es kann keine Zahlung für ein storniertes oder abgelaufenes Abonnement erfasst werden. Erstelle stattdessen ein neues Abonnement."
 
 msgid "occurred_at cannot be in the future."
-msgstr ""
+msgstr "occurred_at darf nicht in der Zukunft liegen."
 
 msgid "occurred_at cannot predate the subscription."
-msgstr ""
+msgstr "occurred_at darf nicht vor dem Abonnement liegen."
 
 msgid "occurred_at cannot predate the start of the current billing period."
-msgstr ""
+msgstr "occurred_at darf nicht vor dem Beginn des aktuellen Abrechnungszeitraums liegen."
 
 msgid "occurred_at cannot predate the lapsed period end of the subscription."
-msgstr ""
+msgstr "occurred_at darf nicht vor dem abgelaufenen Zeitraumende des Abonnements liegen."
 
-msgid ""
-"Backfilled payment would produce an already-lapsed billing period; use a "
-"more recent occurred_at."
-msgstr ""
+msgid "Backfilled payment would produce an already-lapsed billing period; use a more recent occurred_at."
+msgstr "Eine nachgetragene Zahlung würde einen bereits abgelaufenen Abrechnungszeitraum erzeugen; verwende ein neueres occurred_at."
 
-msgid ""
-"Cannot schedule cancellation for a paused subscription. Resume it first, or "
-"cancel immediately."
-msgstr ""
+msgid "Cannot schedule cancellation for a paused subscription. Resume it first, or cancel immediately."
+msgstr "Die Kündigung eines pausierten Abonnements kann nicht geplant werden. Setze es zuerst fort oder kündige es sofort."
 
 msgid "Cannot pause a terminal subscription."
-msgstr ""
+msgstr "Ein beendetes Abonnement kann nicht pausiert werden."
 
 msgid "Only paused subscriptions can be resumed."
-msgstr ""
+msgstr "Nur pausierte Abonnements können fortgesetzt werden."
 
 msgid "Ticket already cancelled"
 msgstr "Ticket bereits storniert"
@@ -1478,7 +1422,7 @@ msgstr ""
 "fest."
 
 msgid "Price paid is not allowed for fixed-price tiers."
-msgstr ""
+msgstr "Der gezahlte Preis ist für Festpreisstufen nicht zulässig."
 
 #| msgid "ticket_tier_id is required for events that require tickets."
 msgid "Price paid is required for Pay What You Can tiers."
@@ -1510,43 +1454,38 @@ msgid "Invalid ticket status: {status}"
 msgstr "Ungültiger Ticket-Status: {status}"
 
 msgid "Price paid is not allowed for this ticket."
-msgstr ""
+msgstr "Der gezahlte Preis ist für dieses Ticket nicht zulässig."
 
-msgid ""
-"Price paid is required for Pay What You Can tickets without a recorded "
-"payment."
-msgstr ""
+msgid "Price paid is required for Pay What You Can tickets without a recorded payment."
+msgstr "Der gezahlte Preis ist für „Pay What You Can“-Tickets ohne erfasste Zahlung erforderlich."
 
 msgid "Tier IDs must match all tiers for this event exactly."
-msgstr ""
+msgstr "Die Stufen-IDs müssen genau mit allen Stufen für dieses Event übereinstimmen."
 
 #| msgid "One or more events do not exist or belong to this organization."
 msgid "One or more membership tier IDs are invalid or don't belong to the event's organization."
 msgstr "Eine oder mehrere Mitgliedsstufen-IDs sind ungültig oder gehören nicht zur Organisation des Events."
 
 msgid "Seat '{}' position is outside the sector shape."
-msgstr ""
+msgstr "Die Position des Sitzplatzes '{}' liegt außerhalb der Sektorform."
 
 msgid "Seat with label '{}' not found in this sector."
-msgstr ""
+msgstr "Sitzplatz mit der Bezeichnung '{}' wurde in diesem Sektor nicht gefunden."
 
 msgid "Seat position is outside the sector shape."
-msgstr ""
+msgstr "Die Sitzposition liegt außerhalb der Sektorform."
 
-msgid ""
-"Cannot delete seat '{}' because it has active or pending tickets for future "
-"events."
-msgstr ""
+msgid "Cannot delete seat '{}' because it has active or pending tickets for future events."
+msgstr "Der Sitzplatz '{}' kann nicht gelöscht werden, da er aktive oder ausstehende Tickets für zukünftige Events hat."
 
 msgid "Seats not found in this sector: {}"
-msgstr ""
+msgstr "Sitzplätze in diesem Sektor nicht gefunden: {}"
 
-msgid ""
-"Cannot delete seats with active or pending tickets for future events: {}"
-msgstr ""
+msgid "Cannot delete seats with active or pending tickets for future events: {}"
+msgstr "Sitzplätze mit aktiven oder ausstehenden Tickets für zukünftige Events können nicht gelöscht werden: {}"
 
 msgid "This tier does not have seat assignment."
-msgstr ""
+msgstr "Diese Kategorie hat keine Sitzplatzzuweisung."
 
 #| msgid "This event does not accept invitation requests."
 msgid "This tier does not have an assigned sector."
@@ -1561,14 +1500,14 @@ msgid "You already have a pending whitelist request."
 msgstr "Du hast bereits eine ausstehende Whitelist-Anfrage."
 
 msgid "This request is not pending."
-msgstr ""
+msgstr "Diese Anfrage ist nicht ausstehend."
 
 msgid "Only approved requests can be removed from whitelist."
-msgstr ""
+msgstr "Nur genehmigte Anfragen können von der Whitelist entfernt werden."
 
 #, python-format
 msgid "Confirm your RSVP to %(event_name)s"
-msgstr ""
+msgstr "Bestätige deine RSVP für %(event_name)s"
 
 #, python-format
 #| msgid "Ticket Update: %(event_name)s"
@@ -1589,24 +1528,24 @@ msgstr ""
 
 #, python-format
 msgid "Verify contact email for %(organization_name)s"
-msgstr ""
+msgstr "Verifiziere die Kontakt-E-Mail-Adresse für %(organization_name)s"
 
 msgid "New contact message"
-msgstr ""
+msgstr "Neue Kontaktnachricht"
 
 msgid "Confirm your RSVP"
-msgstr ""
+msgstr "Bestätige deine RSVP"
 
 #, python-format
 msgid "You've indicated your interest in attending %(event_name)s."
-msgstr ""
+msgstr "Du hast dein Interesse an der Teilnahme an %(event_name)s bekundet."
 
 #| msgid "To confirm the deletion of your account, click the link below:"
 msgid "To confirm your RSVP, please click the link below:"
 msgstr "Um deine Zusage (RSVP) zu bestätigen, klicke bitte auf den folgenden Link:"
 
 msgid "This link will expire in 24 hours."
-msgstr ""
+msgstr "Dieser Link läuft in 24 Stunden ab."
 
 #| msgid "If you did not request this, please ignore this email."
 msgid "If you didn't make this request, you can safely ignore this email."
@@ -1618,45 +1557,45 @@ msgstr "Bestätige deinen Ticketkauf"
 
 #, python-format
 msgid "You've requested a ticket for %(event_name)s (%(tier_name)s)."
-msgstr ""
+msgstr "Du hast ein Ticket für %(event_name)s (%(tier_name)s) angefragt."
 
 #| msgid "To confirm the deletion of your account, click the link below:"
 msgid "To confirm your ticket purchase, please click the link below:"
 msgstr "Um deinen Ticketkauf zu bestätigen, klicke bitte auf den folgenden Link:"
 
 msgid "Immediate"
-msgstr ""
+msgstr "Sofort"
 
 msgid "Hourly digest"
-msgstr ""
+msgstr "Stündliche Zusammenfassung"
 
 msgid "Daily digest"
-msgstr ""
+msgstr "Tägliche Zusammenfassung"
 
 msgid "Weekly digest"
-msgstr ""
+msgstr "Wöchentliche Zusammenfassung"
 
 msgid "Always display"
-msgstr ""
+msgstr "Immer anzeigen"
 
 msgid "Never display"
-msgstr ""
+msgstr "Nie anzeigen"
 
 msgid "Visible to other organization members"
-msgstr ""
+msgstr "Sichtbar für andere Organisationsmitglieder"
 
 msgid "Visible to other invitees at the same event"
-msgstr ""
+msgstr "Sichtbar für andere Eingeladene desselben Events"
 
 msgid "Visible to both"
-msgstr ""
+msgstr "Sichtbar für beide"
 
 msgid "Read more..."
-msgstr ""
+msgstr "Weiterlesen..."
 
 #, python-format
 msgid "%(count)d new notification%(plural)s"
-msgstr ""
+msgstr "%(count)d neue Benachrichtigung%(plural)s"
 
 msgid "Account Suspended"
 msgstr "Konto gesperrt"
@@ -1671,19 +1610,19 @@ msgstr "Neues Event: %(event)s"
 
 #, python-format
 msgid "%(org)s has published a new event"
-msgstr ""
+msgstr "%(org)s hat ein neues Event veröffentlicht"
 
 #, python-format
 msgid "Reminder: %(event)s is tomorrow!"
-msgstr ""
+msgstr "Erinnerung: %(event)s ist morgen!"
 
 #, python-format
 msgid "Reminder: %(event)s in %(days)d days"
-msgstr ""
+msgstr "Erinnerung: %(event)s in %(days)d Tagen"
 
 #, python-format
 msgid "Tomorrow: %(event)s"
-msgstr ""
+msgstr "Morgen: %(event)s"
 
 #, python-format
 #| msgid "Ticket Update: %(event_name)s"
@@ -1702,7 +1641,7 @@ msgstr "Event abgesagt: %(event)s"
 
 #, python-format
 msgid "%(follower)s started following %(org)s"
-msgstr ""
+msgstr "%(follower)s folgt jetzt %(org)s"
 
 #, python-format
 msgid "New follower - %(org)s"
@@ -1756,31 +1695,31 @@ msgstr "Neues Event: %(event_name)s"
 
 #, python-format
 msgid "You're now a %(role)s of %(org)s"
-msgstr ""
+msgstr "Du bist jetzt %(role)s von %(org)s"
 
 #, python-format
 msgid "Welcome to %(org)s"
-msgstr ""
+msgstr "Willkommen bei %(org)s"
 
 #, python-format
 msgid "You've been promoted to %(role)s in %(org)s"
-msgstr ""
+msgstr "Du wurdest in %(org)s zu %(role)s befördert"
 
 #, python-format
 msgid "Role Updated: %(role)s - %(org)s"
-msgstr ""
+msgstr "Rolle aktualisiert: %(role)s - %(org)s"
 
 #, python-format
 msgid "Membership Removed: %(org)s"
-msgstr ""
+msgstr "Mitgliedschaft entfernt: %(org)s"
 
 #, python-format
 msgid "Membership Request Approved: %(org)s"
-msgstr ""
+msgstr "Mitgliedschaftsantrag genehmigt: %(org)s"
 
 #, python-format
 msgid "Welcome to %(org)s - Request Approved"
-msgstr ""
+msgstr "Willkommen bei %(org)s – Antrag genehmigt"
 
 #, python-format
 msgid "%(user)s requested to join %(org)s"
@@ -1788,27 +1727,27 @@ msgstr "Anfrage von %(user)s, %(org)s beizutreten"
 
 #, python-format
 msgid "New membership request: %(org)s"
-msgstr ""
+msgstr "Neuer Mitgliedschaftsantrag: %(org)s"
 
 #, python-format
 msgid "Membership Request Declined: %(org)s"
-msgstr ""
+msgstr "Mitgliedschaftsantrag abgelehnt: %(org)s"
 
 #, python-format
 msgid "Membership Request Update: %(org)s"
-msgstr ""
+msgstr "Mitgliedschaftsantrag-Update: %(org)s"
 
 #, python-format
 msgid "%(org)s: %(title)s"
-msgstr ""
+msgstr "%(org)s: %(title)s"
 
 #, python-format
 msgid "%(org)s - %(title)s"
-msgstr ""
+msgstr "%(org)s - %(title)s"
 
 #, python-format
 msgid "New contact message for %(org)s from %(sender)s"
-msgstr ""
+msgstr "Neue Kontaktnachricht für %(org)s von %(sender)s"
 
 #, fuzzy, python-format
 #| msgid "New Event: %(event_name)s"
@@ -1817,49 +1756,49 @@ msgstr "Neues Event: %(event_name)s"
 
 #, python-format
 msgid "%(actor)s added %(item)s"
-msgstr ""
+msgstr "%(actor)s hat %(item)s hinzugefügt"
 
 #, python-format
 msgid "%(actor)s added and claimed %(item)s"
-msgstr ""
+msgstr "%(actor)s hat %(item)s hinzugefügt und beansprucht"
 
 #, python-format
 msgid "%(actor)s claimed %(item)s"
-msgstr ""
+msgstr "%(actor)s hat %(item)s beansprucht"
 
 #, python-format
 #| msgid "Potluck Update: %(event_name)s"
 msgid "New Potluck Item: %(item)s"
-msgstr "Neuer Potluck-Beitrag: %(item)s"
+msgstr "Neuer Mitbringsel: %(item)s"
 
 #, python-format
 #| msgid "Potluck Update: %(event_name)s"
 msgid "New Potluck Item Claimed: %(item)s"
-msgstr "Neuer Potluck-Beitrag beansprucht: %(item)s"
+msgstr "Neuer Mitbringsel beansprucht: %(item)s"
 
 #, python-format
 #| msgid "Potluck Update: %(event_name)s"
 msgid "Potluck Item Claimed: %(item)s"
-msgstr "Potluck-Beitrag beansprucht: %(item)s"
+msgstr "Mitbringsel beansprucht: %(item)s"
 
 #, python-format
 #| msgid "Item Available Again"
 msgid "Potluck Item Available: %(item)s"
-msgstr "Potluck-Beitrag verfügbar: %(item)s"
+msgstr "Mitbringsel verfügbar: %(item)s"
 
 #, python-format
 #| msgid "Potluck Update: %(event_name)s"
 msgid "Potluck Item Removed: %(item)s"
-msgstr "Potluck-Beitrag entfernt: %(item)s"
+msgstr "Mitbringsel entfernt: %(item)s"
 
 #, python-format
 #| msgid "Potluck Update: %(event_name)s"
 msgid "Potluck Update: %(item)s"
-msgstr "Potluck-Update: %(item)s"
+msgstr "Aktualisierung der Mitbringliste: %(item)s"
 
 #, python-format
 msgid "%(actor)s added %(item)s - %(event)s"
-msgstr ""
+msgstr "%(actor)s hat %(item)s hinzugefügt – %(event)s"
 
 #, python-format
 #| msgid "New Event: %(event_name)s"
@@ -1868,17 +1807,17 @@ msgstr "%(actor)s hat %(item)s hinzugefügt und beansprucht - %(event)s"
 
 #, python-format
 msgid "%(actor)s claimed %(item)s - %(event)s"
-msgstr ""
+msgstr "%(actor)s hat %(item)s beansprucht – %(event)s"
 
 #, python-format
 #| msgid "Potluck Update: %(event_name)s"
 msgid "Potluck Item Removed - %(event)s"
-msgstr "Potluck-Beitrag entfernt - %(event)s"
+msgstr "Mitbringsel entfernt - %(event)s"
 
 #, python-format
 #| msgid "Potluck Update: %(event_name)s"
 msgid "Potluck Update - %(event)s"
-msgstr "Potluck-Update - %(event)s"
+msgstr "Aktualisierung der Mitbringliste - %(event)s"
 
 #, python-format
 msgid "New Questionnaire Submission: %(name)s"
@@ -1910,7 +1849,7 @@ msgstr "RSVP bestätigt: %(event)s (%(user)s: %(response)s)"
 
 #, python-format
 msgid "RSVP Confirmed: %(event)s (%(response)s)"
-msgstr ""
+msgstr "RSVP bestätigt: %(event)s (%(response)s)"
 
 #, python-format
 msgid "RSVP Confirmed: %(event)s (%(user)s)"
@@ -1918,25 +1857,25 @@ msgstr "RSVP bestätigt: %(event)s (%(user)s)"
 
 #, python-format
 msgid "RSVP Confirmed: %(event)s"
-msgstr ""
+msgstr "RSVP bestätigt: %(event)s"
 
 #, python-format
 msgid "RSVP Updated: %(event)s (%(user)s: %(response)s)"
 msgstr "RSVP aktualisiert: %(event)s (%(user)s: %(response)s)"
 
-#, fuzzy, python-format
+#, python-format
 #| msgid "Potluck Update: %(event_name)s"
 msgid "RSVP Updated: %(event)s (%(response)s)"
-msgstr "Potluck-Update: %(event_name)s"
+msgstr "RSVP aktualisiert: %(event)s (%(response)s)"
 
 #, python-format
 msgid "RSVP Updated: %(event)s (%(user)s: %(new_response)s)"
 msgstr "RSVP aktualisiert: %(event)s (%(user)s: %(new_response)s)"
 
-#, fuzzy, python-format
+#, python-format
 #| msgid "Potluck Update: %(event_name)s"
 msgid "RSVP Updated: %(event)s"
-msgstr "Potluck-Update: %(event_name)s"
+msgstr "RSVP aktualisiert: %(event)s"
 
 #, python-format
 msgid "RSVP Cancelled: %(event)s (%(user)s)"
@@ -1947,11 +1886,11 @@ msgid "RSVP Cancelled: %(event)s"
 msgstr "RSVP storniert: %(event)s"
 
 msgid "System Announcement"
-msgstr ""
+msgstr "Systemankündigung"
 
 #, python-format
 msgid "Revel - %(title)s"
-msgstr ""
+msgstr "Revel - %(title)s"
 
 #, fuzzy, python-format
 #| msgid "New Ticket Issued: %(event_name)s"
@@ -1980,7 +1919,7 @@ msgstr "Ticket bestätigt"
 
 #, python-format
 msgid "Ticket %(action)s: %(holder)s - %(event)s"
-msgstr ""
+msgstr "Ticket %(action)s: %(holder)s - %(event)s"
 
 #, fuzzy, python-format
 #| msgid "Ticket Update: %(event_name)s"
@@ -2002,25 +1941,25 @@ msgstr "Zahlungsbestätigung"
 
 #, python-format
 msgid "Checked in for %(event)s"
-msgstr ""
+msgstr "Eingecheckt für %(event)s"
 
 #, python-format
 msgid "Checked in - %(event)s"
-msgstr ""
+msgstr "Eingecheckt - %(event)s"
 
 #, python-format
 msgid "Spot available for %(event)s!"
-msgstr ""
+msgstr "Freier Platz für %(event)s!"
 
 #, python-format
 msgid "%d spot available for %s!"
 msgid_plural "%d spots available for %s!"
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "%d freier Platz für %s!"
+msgstr[1] "%d freie Plätze für %s!"
 
 #, python-format
 msgid "Spot Available: %(event)s"
-msgstr ""
+msgstr "Freier Platz: %(event)s"
 
 #, python-format
 #| msgid "You have already requested an invitation to this event."
@@ -2039,7 +1978,7 @@ msgstr "Verifizierung genehmigt: %(org)s"
 
 #, python-format
 msgid "Verification Approved - %(org)s"
-msgstr ""
+msgstr "Verifizierung genehmigt - %(org)s"
 
 #, python-format
 #| msgid "Verification email sent."
@@ -2066,39 +2005,37 @@ msgid "Notifications"
 msgstr "Benachrichtigungen"
 
 msgid "Send Announcement"
-msgstr ""
+msgstr "Ankündigung senden"
 
 msgid "Send System Announcement"
-msgstr ""
+msgstr "Systemankündigung senden"
 
 msgid "Please correct the errors below."
-msgstr ""
+msgstr "Bitte korrigiere die unten stehenden Fehler."
 
 msgid "Title"
-msgstr ""
+msgstr "Titel"
 
 msgid "Body"
-msgstr ""
+msgstr "Inhalt"
 
 msgid "URL"
-msgstr ""
+msgstr "URL"
 
 msgid "Include guest users"
-msgstr ""
+msgstr "Gast-Anwender:innen einbeziehen"
 
 msgid "Warning"
-msgstr ""
+msgstr "Warnung"
 
-msgid ""
-"This will send a notification to all matching active users via all enabled "
-"channels (in-app, email, Telegram). This action cannot be undone."
-msgstr ""
+msgid "This will send a notification to all matching active users via all enabled channels (in-app, email, Telegram). This action cannot be undone."
+msgstr "Dies sendet eine Benachrichtigung an alle übereinstimmenden aktiven Anwender:innen über alle aktivierten Kanäle (In-App, E-Mail, Telegram). Diese Aktion kann nicht rückgängig gemacht werden."
 
 msgid "Unsubscribe or manage notification preferences"
-msgstr ""
+msgstr "Abbestellen oder Benachrichtigungseinstellungen verwalten"
 
 msgid "Unsubscribe or manage notification preferences:"
-msgstr ""
+msgstr "Abbestellen oder Benachrichtigungseinstellungen verwalten:"
 
 msgid "Your account has been suspended for violating our Terms of Service."
 msgstr ""
@@ -2118,12 +2055,11 @@ msgid "Event Cancelled"
 msgstr "Event abgesagt"
 
 msgid "Hello"
-msgstr ""
+msgstr "Hallo"
 
 #, python-format
-msgid ""
-"We regret to inform you that <strong>%(event)s</strong> has been cancelled."
-msgstr ""
+msgid "We regret to inform you that <strong>%(event)s</strong> has been cancelled."
+msgstr "Wir bedauern, dir mitteilen zu müssen, dass <strong>%(event)s</strong> abgesagt wurde."
 
 msgid "Event Details"
 msgstr "Event-Details"
@@ -2133,7 +2069,7 @@ msgid "Refund Information"
 msgstr "Erstattungsinformationen"
 
 msgid "View Alternative Event"
-msgstr ""
+msgstr "Alternatives Event ansehen"
 
 #| msgid "We apologize for any inconvenience."
 msgid "We apologize for any inconvenience this may cause."
@@ -2141,39 +2077,37 @@ msgstr "Wir entschuldigen uns für eventuelle Unannehmlichkeiten."
 
 #, python-format
 msgid "We regret to inform you that %(event)s has been cancelled."
-msgstr ""
+msgstr "Wir bedauern, dir mitteilen zu müssen, dass %(event)s abgesagt wurde."
 
 #| msgid "Event Details"
 msgid "Event Details:"
 msgstr "Event-Details:"
 
 msgid "Reason:"
-msgstr ""
+msgstr "Grund:"
 
 #| msgid "Event Information"
 msgid "Refund Information:"
 msgstr "Erstattungsinformationen:"
 
 msgid "Alternative event:"
-msgstr ""
+msgstr "Alternatives Event:"
 
 msgid "New Event Published"
-msgstr ""
+msgstr "Neues Event veröffentlicht"
 
 #, python-format
-msgid ""
-"<strong>%(org)s</strong> has published a new event: <strong>%(event)s</"
-"strong>!"
-msgstr ""
+msgid "<strong>%(org)s</strong> has published a new event: <strong>%(event)s</strong>!"
+msgstr "<strong>%(org)s</strong> hat ein neues Event veröffentlicht: <strong>%(event)s</strong>!"
 
 msgid "Until:"
-msgstr ""
+msgstr "Bis:"
 
 msgid "Registration opens:"
-msgstr ""
+msgstr "Registrierung öffnet:"
 
 msgid "Registration is now open!"
-msgstr ""
+msgstr "Die Registrierung ist ab sofort geöffnet!"
 
 #| msgid "View Event Details"
 msgid "View Event & Register"
@@ -2181,23 +2115,22 @@ msgstr "Event anzeigen & registrieren"
 
 #, python-format
 msgid "%(org)s has published a new event: %(event)s!"
-msgstr ""
+msgstr "%(org)s hat ein neues Event veröffentlicht: %(event)s!"
 
 #| msgid "View Event Details"
 msgid "View event details and register:"
 msgstr "Event-Details anzeigen und registrieren:"
 
 msgid "Event Reminder"
-msgstr ""
+msgstr "Event-Erinnerung"
 
 #, python-format
 msgid "Reminder: <strong>%(event)s</strong> is tomorrow!"
-msgstr ""
+msgstr "Erinnerung: <strong>%(event)s</strong> ist morgen!"
 
 #, python-format
-msgid ""
-"Reminder: <strong>%(event)s</strong> is in <strong>%(days)s days</strong>"
-msgstr ""
+msgid "Reminder: <strong>%(event)s</strong> is in <strong>%(days)s days</strong>"
+msgstr "Erinnerung: <strong>%(event)s</strong> ist in <strong>%(days)s Tagen</strong>"
 
 #| msgid "Get Your Ticket"
 msgid "Your Ticket"
@@ -2208,17 +2141,17 @@ msgid "Ticket ID:"
 msgstr "Ticket-ID:"
 
 msgid "Tier:"
-msgstr ""
+msgstr "Kategorie:"
 
 msgid "View Event Details"
 msgstr "Event-Details ansehen"
 
 msgid "See you there!"
-msgstr ""
+msgstr "Wir sehen uns dort!"
 
 #, python-format
 msgid "Reminder: %(event)s is in %(days)s days"
-msgstr ""
+msgstr "Erinnerung: %(event)s ist in %(days)s Tagen"
 
 #| msgid "Get Your Ticket"
 msgid "Your Ticket:"
@@ -2265,23 +2198,23 @@ msgid "Important update about <strong>%(event)s</strong>"
 msgstr "Ein neues Ticket wurde für <strong>%(event_name)s</strong> aktiviert."
 
 msgid "What Changed"
-msgstr ""
+msgstr "Was sich geändert hat"
 
 msgid "Message from Organizers"
-msgstr ""
+msgstr "Nachricht von den Veranstalter:innen"
 
 msgid "View Updated Event"
-msgstr ""
+msgstr "Aktualisiertes Event ansehen"
 
 #, python-format
 msgid "Important update about %(event)s"
-msgstr ""
+msgstr "Wichtiges Update zu %(event)s"
 
 msgid "What Changed:"
-msgstr ""
+msgstr "Was sich geändert hat:"
 
 msgid "Message from organizers:"
-msgstr ""
+msgstr "Nachricht von den Veranstalter:innen:"
 
 #, fuzzy
 #| msgid "View Event Details"
@@ -2297,7 +2230,7 @@ msgid "View details:"
 msgstr "Details anzeigen:"
 
 msgid "New Invitation Request"
-msgstr ""
+msgstr "Neue Einladungsanfrage"
 
 #, fuzzy, python-format
 #| msgid "A new ticket has been activated for <strong>%(event_name)s</strong>."
@@ -2312,13 +2245,13 @@ msgid "Request Details:"
 msgstr "Event-Details"
 
 msgid "Message:"
-msgstr ""
+msgstr "Nachricht:"
 
 msgid "View Request"
-msgstr ""
+msgstr "Anfrage ansehen"
 
 msgid "This is an automated notification from your event management system."
-msgstr ""
+msgstr "Dies ist eine automatische Benachrichtigung deines Event-Management-Systems."
 
 #, fuzzy, python-format
 #| msgid "You have already requested an invitation to this event."
@@ -2326,10 +2259,10 @@ msgid "%(email)s has requested an invitation to %(event)s."
 msgstr "Du hast bereits eine Einladung zu diesem Event angefragt."
 
 msgid "View and manage this request:"
-msgstr ""
+msgstr "Diese Anfrage ansehen und verwalten:"
 
 msgid "Membership Granted"
-msgstr ""
+msgstr "Mitgliedschaft gewährt"
 
 #, fuzzy, python-format
 #| msgid ""
@@ -2341,10 +2274,10 @@ msgstr ""
 "strong> wurde nicht genehmigt."
 
 msgid "As a member, you can:"
-msgstr ""
+msgstr "Als Mitglied kannst du:"
 
 msgid "Access members-only events"
-msgstr ""
+msgstr "Auf Events nur für Mitglieder zugreifen"
 
 #, fuzzy
 #| msgid "Organization:"
@@ -2352,49 +2285,47 @@ msgid "Receive organization announcements"
 msgstr "Organisation:"
 
 msgid "Connect with other members"
-msgstr ""
+msgstr "Dich mit anderen Mitgliedern vernetzen"
 
 msgid "View Organization"
 msgstr "Organisation ansehen"
 
 #, python-format
 msgid "You are now a %(role)s of %(org)s!"
-msgstr ""
+msgstr "Du bist jetzt %(role)s von %(org)s!"
 
 msgid "View organization:"
 msgstr "Organisation ansehen:"
 
 msgid "Role Updated"
-msgstr ""
+msgstr "Rolle aktualisiert"
 
 msgid "Please check the details of this notification."
-msgstr ""
+msgstr "Bitte überprüfe die Details dieser Benachrichtigung."
 
 #| msgid "Item Removed"
 msgid "Membership Removed"
 msgstr "Mitgliedschaft entfernt"
 
 msgid "Request Approved"
-msgstr ""
+msgstr "Antrag genehmigt"
 
 msgid "New Membership Request"
-msgstr ""
+msgstr "Neuer Mitgliedschaftsantrag"
 
 #, python-format
-msgid ""
-"<strong>%(name)s</strong> has requested to join <strong>%(org)s</strong>."
-msgstr ""
+msgid "<strong>%(name)s</strong> has requested to join <strong>%(org)s</strong>."
+msgstr "<strong>%(name)s</strong> hat beantragt, <strong>%(org)s</strong> beizutreten."
 
-msgid ""
-"This is an automated notification from your organization management system."
-msgstr ""
+msgid "This is an automated notification from your organization management system."
+msgstr "Dies ist eine automatische Benachrichtigung deines Organisations-Management-Systems."
 
 #, python-format
 msgid "%(name)s has requested to join %(org)s."
-msgstr ""
+msgstr "%(name)s hat beantragt, %(org)s beizutreten."
 
 msgid "Request Declined"
-msgstr ""
+msgstr "Antrag abgelehnt"
 
 #| msgid "View Event"
 msgid "New Event"
@@ -2477,7 +2408,7 @@ msgstr "<strong>%(follower)s</strong> folgt jetzt <strong>%(org)s</strong>."
 
 #, python-format
 msgid "%(follower)s started following %(org)s."
-msgstr ""
+msgstr "%(follower)s folgt jetzt %(org)s."
 
 #| msgid "Payment Confirmation"
 msgid "Payment Confirmed"
@@ -2519,7 +2450,7 @@ msgstr "📎 Dein Ticket ist als PDF an diese E-Mail angehängt."
 
 #, python-format
 msgid "Thank you! Your payment for %(event)s has been confirmed. 🎉"
-msgstr ""
+msgstr "Vielen Dank! Deine Zahlung für %(event)s wurde bestätigt. 🎉"
 
 #| msgid "Event Details"
 msgid "Payment Details:"
@@ -2530,10 +2461,10 @@ msgid "Ticket Information:"
 msgstr "Ticket-Informationen:"
 
 msgid "Sign up to accept this invitation and join the event:"
-msgstr ""
+msgstr "Registriere dich, um diese Einladung anzunehmen und am Event teilzunehmen:"
 
 msgid "Sign Up & Accept"
-msgstr ""
+msgstr "Registrieren & Annehmen"
 
 #, fuzzy
 #| msgid ""
@@ -2545,17 +2476,15 @@ msgstr ""
 "(frontend_base_url)s angefordert hast."
 
 msgid "Sign up to accept this invitation:"
-msgstr ""
+msgstr "Registriere dich, um diese Einladung anzunehmen:"
 
 #| msgid "Claimed by:"
 msgid "Claimed"
 msgstr "Beansprucht"
 
 #, python-format
-msgid ""
-"<strong>%(actor)s</strong> claimed <strong>\"%(item)s\"</strong> for "
-"<strong>%(event)s</strong>."
-msgstr ""
+msgid "<strong>%(actor)s</strong> claimed <strong>\"%(item)s\"</strong> for <strong>%(event)s</strong>."
+msgstr "<strong>%(actor)s</strong> hat <strong>\"%(item)s\"</strong> für <strong>%(event)s</strong> beansprucht."
 
 #, fuzzy, python-format
 #| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
@@ -2571,10 +2500,10 @@ msgid "Item Details"
 msgstr "Details"
 
 msgid "Item:"
-msgstr ""
+msgstr "Gegenstand:"
 
 msgid "Category:"
-msgstr ""
+msgstr "Kategorie:"
 
 msgid "Quantity:"
 msgstr "Menge:"
@@ -2583,15 +2512,15 @@ msgid "Claimed by:"
 msgstr "Beansprucht von:"
 
 msgid "View Potluck List"
-msgstr ""
+msgstr "Mitbringliste ansehen"
 
 #, python-format
 msgid "%(actor)s claimed \"%(item)s\" for %(event)s."
-msgstr ""
+msgstr "%(actor)s hat \"%(item)s\" für %(event)s beansprucht."
 
 #, python-format
 msgid "\"%(item)s\" has been claimed for %(event)s."
-msgstr ""
+msgstr "\"%(item)s\" wurde für %(event)s beansprucht."
 
 #, fuzzy
 #| msgid "Details"
@@ -2599,17 +2528,15 @@ msgid "Item Details:"
 msgstr "Details"
 
 msgid "View potluck list:"
-msgstr ""
+msgstr "Mitbringliste ansehen:"
 
 #| msgid "🥘 Potluck Update"
 msgid "New Potluck Item"
-msgstr "Neuer Potluck-Beitrag"
+msgstr "Neuer Mitbringsel"
 
 #, python-format
-msgid ""
-"<strong>%(actor)s</strong> added <strong>\"%(item)s\"</strong> to the "
-"potluck for <strong>%(event)s</strong>."
-msgstr ""
+msgid "<strong>%(actor)s</strong> added <strong>\"%(item)s\"</strong> to the potluck for <strong>%(event)s</strong>."
+msgstr "<strong>%(actor)s</strong> hat <strong>\"%(item)s\"</strong> zur Mitbringliste für <strong>%(event)s</strong> hinzugefügt."
 
 #, fuzzy, python-format
 #| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
@@ -2624,21 +2551,21 @@ msgid "Added by:"
 msgstr "Hinzugefügt von:"
 
 msgid "Claim Item"
-msgstr ""
+msgstr "Mitbringsel beanspruchen"
 
 #, python-format
 msgid "%(actor)s added \"%(item)s\" to the potluck for %(event)s."
-msgstr ""
+msgstr "%(actor)s hat \"%(item)s\" zur Mitbringliste für %(event)s hinzugefügt."
 
 #, python-format
 msgid "A new potluck item \"%(item)s\" has been added to %(event)s."
-msgstr ""
+msgstr "Ein neues Mitbringsel \"%(item)s\" wurde zu %(event)s hinzugefügt."
 
 msgid "Claim this item or view the potluck list:"
-msgstr ""
+msgstr "Beanspruche dieses Mitbringsel oder sieh dir die Mitbringliste an:"
 
 msgid "New Item Added & Claimed"
-msgstr ""
+msgstr "Neues Mitbringsel hinzugefügt & beansprucht"
 
 #, fuzzy, python-format
 #| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
@@ -2685,7 +2612,7 @@ msgstr "Ein neues Ticket wurde für <strong>%(event_name)s</strong> aktiviert."
 
 #, python-format
 msgid "\"%(item)s\" has been removed from the potluck for %(event)s."
-msgstr ""
+msgstr "\"%(item)s\" wurde von der Mitbringliste für %(event)s entfernt."
 
 #| msgid "Item Available Again"
 msgid "Available"
@@ -2700,13 +2627,13 @@ msgstr "Ein neues Ticket wurde für <strong>%(event_name)s</strong> aktiviert."
 
 #, python-format
 msgid "\"%(item)s\" is now available for %(event)s."
-msgstr ""
+msgstr "\"%(item)s\" ist jetzt für %(event)s verfügbar."
 
 msgid "Claim this item:"
-msgstr ""
+msgstr "Dieses Mitbringsel beanspruchen:"
 
 msgid "Updated"
-msgstr ""
+msgstr "Aktualisiert"
 
 #, fuzzy, python-format
 #| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
@@ -2718,7 +2645,7 @@ msgstr ""
 
 #, python-format
 msgid "\"%(item)s\" has been updated for %(event)s."
-msgstr ""
+msgstr "\"%(item)s\" wurde für %(event)s aktualisiert."
 
 msgid "Questionnaire Approved"
 msgstr "Fragebogen genehmigt"
@@ -2892,19 +2819,17 @@ msgid "RSVP Details"
 msgstr "Zusagedetails (RSVP)"
 
 msgid "Response:"
-msgstr ""
+msgstr "Antwort:"
 
 #, python-format
-msgid ""
-"Your RSVP (<strong>%(response)s</strong>) for <strong>%(event)s</strong> has "
-"been confirmed! ✅"
-msgstr ""
+msgid "Your RSVP (<strong>%(response)s</strong>) for <strong>%(event)s</strong> has been confirmed! ✅"
+msgstr "Deine RSVP (<strong>%(response)s</strong>) für <strong>%(event)s</strong> wurde bestätigt! ✅"
 
 msgid "Your Response"
-msgstr ""
+msgstr "Deine Antwort"
 
 msgid "Guests:"
-msgstr ""
+msgstr "Gäste:"
 
 #| msgid "Description:"
 msgid "Dietary restrictions:"
@@ -2920,49 +2845,47 @@ msgstr "Zusagedetails (RSVP):"
 
 #, python-format
 msgid "Your RSVP (%(response)s) for %(event)s has been confirmed! ✅"
-msgstr ""
+msgstr "Deine RSVP (%(response)s) für %(event)s wurde bestätigt! ✅"
 
 msgid "Your Response:"
-msgstr ""
+msgstr "Deine Antwort:"
 
 msgid "RSVP Updated"
-msgstr ""
+msgstr "RSVP aktualisiert"
 
 #, python-format
 msgid "<strong>%(user)s</strong> has changed their RSVP from <strong>%(old)s</strong> to <strong>%(new)s</strong> for <strong>%(event)s</strong>."
 msgstr "<strong>%(user)s</strong> hat die RSVP von <strong>%(old)s</strong> auf <strong>%(new)s</strong> für <strong>%(event)s</strong> geändert."
 
 msgid "Updated RSVP Details"
-msgstr ""
+msgstr "Zusagedetails (RSVP) aktualisiert"
 
 msgid "Previous Response:"
-msgstr ""
+msgstr "Vorherige Antwort:"
 
 msgid "New Response:"
-msgstr ""
+msgstr "Neue Antwort:"
 
 #, python-format
-msgid ""
-"Your RSVP for <strong>%(event)s</strong> has been updated from "
-"<strong>%(old)s</strong> to <strong>%(new)s</strong>."
-msgstr ""
+msgid "Your RSVP for <strong>%(event)s</strong> has been updated from <strong>%(old)s</strong> to <strong>%(new)s</strong>."
+msgstr "Deine RSVP für <strong>%(event)s</strong> wurde von <strong>%(old)s</strong> auf <strong>%(new)s</strong> geändert."
 
 msgid "Updated Response"
-msgstr ""
+msgstr "Aktualisierte Antwort"
 
 #, python-format
 msgid "%(user)s has changed their RSVP from %(old)s to %(new)s for %(event)s."
 msgstr "RSVP von %(user)s wurde von %(old)s auf %(new)s für %(event)s geändert."
 
 msgid "Updated RSVP Details:"
-msgstr ""
+msgstr "Zusagedetails (RSVP) aktualisiert:"
 
 #, python-format
 msgid "Your RSVP for %(event)s has been updated from %(old)s to %(new)s."
-msgstr ""
+msgstr "Deine RSVP für %(event)s wurde von %(old)s auf %(new)s geändert."
 
 msgid "Updated Response:"
-msgstr ""
+msgstr "Aktualisierte Antwort:"
 
 msgid "New Events Scheduled"
 msgstr "Neue Events geplant"
@@ -2997,10 +2920,10 @@ msgid "View the series:"
 msgstr "Zur Serie:"
 
 msgid "Read More"
-msgstr ""
+msgstr "Mehr lesen"
 
 msgid "Read more:"
-msgstr ""
+msgstr "Mehr lesen:"
 
 msgid "Ticket Cancelled"
 msgstr "Ticket storniert"
@@ -3047,7 +2970,7 @@ msgid "Ticket Holder"
 msgstr "Ticketinhaber"
 
 msgid "Cancelled Ticket"
-msgstr ""
+msgstr "Storniertes Ticket"
 
 #, python-format
 msgid ""
@@ -3058,10 +2981,8 @@ msgstr ""
 "den Ticketinhaber ausgestellt."
 
 #, python-format
-msgid ""
-"A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
-"your original payment method within 5-10 business days."
-msgstr ""
+msgid "A refund of <strong>%(amount)s %(currency)s</strong> will be processed to your original payment method within 5-10 business days."
+msgstr "Eine Rückerstattung von <strong>%(amount)s %(currency)s</strong> wird innerhalb von 5–10 Werktagen über deine ursprüngliche Zahlungsmethode abgewickelt."
 
 #, python-format
 msgid "%(holder)s cancelled their ticket for %(event)s."
@@ -3094,7 +3015,7 @@ msgid "Your ticket for %(event)s has been cancelled."
 msgstr "Dein Ticket für %(event)s wurde storniert."
 
 msgid "Cancelled Ticket:"
-msgstr ""
+msgstr "Storniertes Ticket:"
 
 #, python-format
 msgid ""
@@ -3104,13 +3025,11 @@ msgstr ""
 "ausgestellt."
 
 #, python-format
-msgid ""
-"A refund of %(amount)s %(currency)s will be processed to your original "
-"payment method within 5-10 business days."
-msgstr ""
+msgid "A refund of %(amount)s %(currency)s will be processed to your original payment method within 5-10 business days."
+msgstr "Eine Rückerstattung von %(amount)s %(currency)s wird innerhalb von 5–10 Werktagen über deine ursprüngliche Zahlungsmethode abgewickelt."
 
 msgid "Checked In!"
-msgstr ""
+msgstr "Eingecheckt!"
 
 #, fuzzy, python-format
 #| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
@@ -3124,7 +3043,7 @@ msgstr "Viel Spaß beim Event!"
 
 #, python-format
 msgid "You have been checked in for %(event)s!"
-msgstr ""
+msgstr "Du wurdest für %(event)s eingecheckt!"
 
 #| msgid "🎫 New Ticket Issued"
 msgid "New Ticket Registered"
@@ -3168,7 +3087,7 @@ msgstr "Deine Ticket-Reservierung ist bestätigt"
 
 #, python-format
 msgid "%(holder)s has registered for %(event)s."
-msgstr ""
+msgstr "%(holder)s hat sich für %(event)s registriert."
 
 #| msgid "Event Details"
 msgid "Ticket Details:"
@@ -3189,7 +3108,7 @@ msgid "Your ticket for %(event)s is confirmed! 🎉"
 msgstr "Deine Ticket-Reservierung ist bestätigt"
 
 msgid "Refund Processed"
-msgstr ""
+msgstr "Rückerstattung verarbeitet"
 
 #, fuzzy, python-format
 #| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
@@ -3197,35 +3116,27 @@ msgid "Your ticket refund for <strong>%(event)s</strong> has been processed."
 msgstr ""
 "Ein neues Ticket wurde für <strong>%(event_name)s</strong> ausgestellt."
 
-msgid ""
-"The refund will appear in your original payment method within <strong>5-10 "
-"business days</strong>, depending on your bank or card issuer."
-msgstr ""
+msgid "The refund will appear in your original payment method within <strong>5-10 business days</strong>, depending on your bank or card issuer."
+msgstr "Die Rückerstattung wird innerhalb von <strong>5–10 Werktagen</strong> über deine ursprüngliche Zahlungsmethode angezeigt, abhängig von deiner Bank oder deinem Kartenanbieter."
 
 #, python-format
 msgid "Your ticket refund for %(event)s has been processed."
-msgstr ""
+msgstr "Die Rückerstattung deines Tickets für %(event)s wurde verarbeitet."
 
-msgid ""
-"The refund will appear in your original payment method within 5-10 business "
-"days, depending on your bank or card issuer."
-msgstr ""
+msgid "The refund will appear in your original payment method within 5-10 business days, depending on your bank or card issuer."
+msgstr "Die Rückerstattung wird innerhalb von 5–10 Werktagen über deine ursprüngliche Zahlungsmethode angezeigt, abhängig von deiner Bank oder deinem Kartenanbieter."
 
 #| msgid "Ticket Type:"
 msgid "Ticket Updated"
 msgstr "Ticket aktualisiert"
 
 #, python-format
-msgid ""
-"<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has been "
-"<strong>%(action)s</strong>."
-msgstr ""
+msgid "<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has been <strong>%(action)s</strong>."
+msgstr "Das Ticket von <strong>%(holder)s</strong> für <strong>%(event)s</strong> wurde <strong>%(action)s</strong>."
 
 #, python-format
-msgid ""
-"Your ticket for <strong>%(event)s</strong> has been <strong>%(action)s</"
-"strong>."
-msgstr ""
+msgid "Your ticket for <strong>%(event)s</strong> has been <strong>%(action)s</strong>."
+msgstr "Dein Ticket für <strong>%(event)s</strong> wurde <strong>%(action)s</strong>."
 
 #| msgid "Ticket Information"
 msgid "Updated Ticket Information"
@@ -3233,7 +3144,7 @@ msgstr "Aktualisierte Ticket-Informationen"
 
 #, python-format
 msgid "%(holder)s's ticket for %(event)s has been %(action)s."
-msgstr ""
+msgstr "Das Ticket von %(holder)s für %(event)s wurde %(action)s."
 
 #, fuzzy, python-format
 #| msgid "Your ticket reservation is confirmed"
@@ -3269,16 +3180,16 @@ msgstr ""
 "Ein neues Ticket wurde für <strong>%(event_name)s</strong> ausgestellt."
 
 msgid "This is the final call — the waitlist has opened to everyone."
-msgstr ""
+msgstr "Dies ist der letzte Aufruf – die Warteliste wurde für alle geöffnet."
 
 msgid "You've been selected from the waitlist."
-msgstr ""
+msgstr "Du wurdest auf der Warteliste ausgewählt."
 
 msgid "Claim your spot before"
-msgstr ""
+msgstr "Beanspruche deinen Platz vor"
 
 msgid "Claim Your Spot"
-msgstr ""
+msgstr "Sichere dir deinen Platz"
 
 #, fuzzy
 #| msgid ""
@@ -3287,26 +3198,22 @@ msgid "You're receiving this because you're on the waitlist for this event."
 msgstr "Du erhältst diese E-Mail, weil du ein Ticket auf Revel gekauft hast."
 
 msgid "A spot just opened up for"
-msgstr ""
+msgstr "Ein Platz ist frei geworden für"
 
 msgid "Claim your spot:"
-msgstr ""
+msgstr "Beanspruche deinen Platz:"
 
 #| msgid "Questionnaire Approved"
 msgid "Verification Approved"
 msgstr "Verifizierung genehmigt"
 
 #, python-format
-msgid ""
-"Your verification request for <strong>%(org)s</strong> has been approved. "
-"You now have full access to view and participate in their events."
-msgstr ""
+msgid "Your verification request for <strong>%(org)s</strong> has been approved. You now have full access to view and participate in their events."
+msgstr "Deine Verifizierungsanfrage für <strong>%(org)s</strong> wurde genehmigt. Du hast nun vollen Zugriff auf deren Events."
 
 #, python-format
-msgid ""
-"Your verification request for %(org)s has been approved. You now have full "
-"access to view and participate in their events."
-msgstr ""
+msgid "Your verification request for %(org)s has been approved. You now have full access to view and participate in their events."
+msgstr "Deine Verifizierungsanfrage für %(org)s wurde genehmigt. Du hast nun vollen Zugriff auf deren Events."
 
 #| msgid "Verification email sent."
 msgid "New Verification Request"
@@ -3320,7 +3227,7 @@ msgid ""
 msgstr "Ein neues Ticket wurde für <strong>%(event_name)s</strong> aktiviert."
 
 msgid "Matched Entries:"
-msgstr ""
+msgstr "Übereinstimmende Einträge:"
 
 #| msgid "Password Reset Request"
 msgid "Review Request"
@@ -3353,9 +3260,8 @@ msgstr ""
 "Dein Fragebogen <strong>%(questionnaire)s</strong> für <strong>%(org)s</"
 "strong> wurde nicht genehmigt."
 
-msgid ""
-"If you believe this is an error, please contact the organization directly."
-msgstr ""
+msgid "If you believe this is an error, please contact the organization directly."
+msgstr "Wenn du glaubst, dass dies ein Fehler ist, wende dich bitte direkt an die Organisation."
 
 #, fuzzy, python-format
 #| msgid "Your questionnaire %(questionnaire)s was not approved."
@@ -3367,7 +3273,7 @@ msgid "Notification Digest"
 msgstr "Benachrichtigungs-Digest"
 
 msgid "Here's a summary of your recent notifications:"
-msgstr ""
+msgstr "Hier ist eine Zusammenfassung deiner letzten Benachrichtigungen:"
 
 #| msgid "Staff Notification"
 msgid "View all notifications"
@@ -3378,10 +3284,10 @@ msgid "View all notifications:"
 msgstr "Alle Benachrichtigungen anzeigen:"
 
 msgid "Anonymity flags are immutable after a poll is created."
-msgstr ""
+msgstr "Anonymitäts-Flags können nach der Erstellung einer Umfrage nicht mehr geändert werden."
 
 msgid "This poll is not open for voting."
-msgstr ""
+msgstr "Diese Umfrage ist nicht zur Abstimmung geöffnet."
 
 #, fuzzy
 #| msgid "You are not eligible."
@@ -3399,10 +3305,10 @@ msgid "Vote changes are not allowed for this poll."
 msgstr "Du darfst nicht an den Events dieser Organisation teilnehmen."
 
 msgid "Questions cannot be modified once the poll leaves DRAFT."
-msgstr ""
+msgstr "Fragen können nicht mehr geändert werden, sobald die Umfrage den Status DRAFT verlässt."
 
 msgid "Invalid poll lifecycle action."
-msgstr ""
+msgstr "Ungültige Aktion für den Lebenszyklus der Umfrage."
 
 #, fuzzy
 #| msgid "Invalid token: {error}"
@@ -3417,23 +3323,23 @@ msgid "You are missing mandatory answers."
 msgstr "Dir fehlen Pflichtantworten."
 
 msgid "Dashboard"
-msgstr ""
+msgstr "Dashboard"
 
 msgid "Users & Accounts"
-msgstr ""
+msgstr "Anwender:innen & Konten"
 
 #| msgid "User Data Export Failed"
 msgid "User Data Exports"
 msgstr "Anwender:innen-Datenexporte"
 
 msgid "Referral Codes"
-msgstr ""
+msgstr "Empfehlungscodes"
 
 msgid "Referrals"
-msgstr ""
+msgstr "Empfehlungen"
 
 msgid "Referral Payouts"
-msgstr ""
+msgstr "Empfehlungsauszahlungen"
 
 #, fuzzy
 #| msgid "Payment ID:"
@@ -3444,43 +3350,43 @@ msgid "User Billing Profiles"
 msgstr "Anwender:innen-Rechnungsprofile"
 
 msgid "Dietary Management"
-msgstr ""
+msgstr "Ernährungsmanagement"
 
 #| msgid "Payment Instructions"
 msgid "Dietary Restrictions"
 msgstr "Ernährungseinschränkungen"
 
 msgid "Dietary Preferences"
-msgstr ""
+msgstr "Ernährungspräferenzen"
 
 msgid "User Preferences"
 msgstr "Anwender:innen-Präferenzen"
 
 msgid "Food Items"
-msgstr ""
+msgstr "Speisen"
 
 #| msgid "Organization:"
 msgid "Organizations"
 msgstr "Organisationen"
 
 msgid "Members"
-msgstr ""
+msgstr "Mitglieder"
 
 msgid "Staff"
-msgstr ""
+msgstr "Staff"
 
 msgid "Membership Tiers"
-msgstr ""
+msgstr "Mitgliedschaftsstufen"
 
 msgid "Membership Requests"
-msgstr ""
+msgstr "Mitgliedschaftsanträge"
 
 #| msgid "Organization:"
 msgid "Organization Tokens"
 msgstr "Organisations-Token"
 
 msgid "Blacklist"
-msgstr ""
+msgstr "Blacklist"
 
 #| msgid "Invitation not found."
 msgid "Whitelist Requests"
@@ -3496,16 +3402,16 @@ msgid "Followers"
 msgstr "Follower:innen"
 
 msgid "Venues & Seating"
-msgstr ""
+msgstr "Veranstaltungsorte & Sitzplätze"
 
 msgid "Venues"
-msgstr ""
+msgstr "Veranstaltungsorte"
 
 msgid "Venue Sectors"
-msgstr ""
+msgstr "Sitzplanbereiche"
 
 msgid "Venue Seats"
-msgstr ""
+msgstr "Sitzplätze"
 
 #| msgid "Event:"
 msgid "Events"
@@ -3541,7 +3447,7 @@ msgid "Invitation Requests"
 msgstr "Einladungsanfragen"
 
 msgid "Waitlists"
-msgstr ""
+msgstr "Wartelisten"
 
 #, fuzzy
 #| msgid "Invitation not found."
@@ -3558,13 +3464,13 @@ msgstr "Event-Token"
 
 #| msgid "🥘 Potluck Update"
 msgid "Potluck Items"
-msgstr "Potluck-Beiträge"
+msgstr "Mitbringsel"
 
 msgid "Additional Resources"
-msgstr ""
+msgstr "Zusätzliche Ressourcen"
 
 msgid "Announcements"
-msgstr ""
+msgstr "Ankündigungen"
 
 msgid "Recurrence Rules"
 msgstr "Wiederholungsregeln"
@@ -3578,10 +3484,10 @@ msgid "Payments"
 msgstr "Zahlungen"
 
 msgid "Attendee Invoices"
-msgstr ""
+msgstr "Rechnungen für Teilnehmer:innen"
 
 msgid "Attendee Credit Notes"
-msgstr ""
+msgstr "Gutschriften für Teilnehmer:innen"
 
 msgid "Platform Fee Invoices"
 msgstr "Plattformgebühren-Rechnungen"
@@ -3603,10 +3509,10 @@ msgid "Subscription Payments"
 msgstr "Abonnementzahlungen"
 
 msgid "Preferences"
-msgstr ""
+msgstr "Einstellungen"
 
 msgid "Attendee Visibility"
-msgstr ""
+msgstr "Sichtbarkeit der Teilnehmer:innen"
 
 #| msgid "Questionnaire:"
 msgid "Questionnaires"
@@ -3634,92 +3540,92 @@ msgid "Sections"
 msgstr "Abschnitte"
 
 msgid "Multiple Choice Questions"
-msgstr ""
+msgstr "Multiple-Choice-Fragen"
 
 msgid "Free Text Questions"
-msgstr ""
+msgstr "Freitextfragen"
 
 msgid "File Upload Questions"
-msgstr ""
+msgstr "Dateiupload-Fragen"
 
 #| msgid "Uploader"
 msgid "Uploaded Files"
 msgstr "Hochgeladene Dateien"
 
 msgid "Polls"
-msgstr ""
+msgstr "Umfragen"
 
 msgid "Notification Deliveries"
-msgstr ""
+msgstr "Zustellung von Benachrichtigungen"
 
 msgid "Notification Preferences"
-msgstr ""
+msgstr "Benachrichtigungseinstellungen"
 
 msgid "Geography"
-msgstr ""
+msgstr "Geografie"
 
 msgid "Cities"
-msgstr ""
+msgstr "Städte"
 
 msgid "Telegram"
-msgstr ""
+msgstr "Telegram"
 
 msgid "Telegram Users"
-msgstr ""
+msgstr "Telegram-Anwender:innen"
 
 msgid "System"
-msgstr ""
+msgstr "System"
 
 msgid "Site Settings"
-msgstr ""
+msgstr "Website-Einstellungen"
 
 #| msgid "Event Details"
 msgid "Impersonation Logs"
 msgstr "Protokolle der Identitätsübernahme"
 
 msgid "Legal Documents"
-msgstr ""
+msgstr "Rechtsdokumente"
 
 #| msgid "Email:"
 msgid "Email Logs"
 msgstr "E-Mail-Protokolle"
 
 msgid "Tags"
-msgstr ""
+msgstr "Tags"
 
 msgid "Tag Assignments"
-msgstr ""
+msgstr "Tag-Zuweisungen"
 
 msgid "File Upload Audits"
-msgstr ""
+msgstr "Dateiupload-Audits"
 
 #| msgid "Quarantined file"
 msgid "Quarantined Files"
 msgstr "Dateien unter Quarantäne"
 
 msgid "Exchange Rates"
-msgstr ""
+msgstr "Wechselkurse"
 
 msgid "Reserved Slug Tokens"
 msgstr "Reservierte Slug-Tokens"
 
 msgid "Celery Tasks"
-msgstr ""
+msgstr "Celery-Aufgaben"
 
 msgid "Periodic Tasks"
-msgstr ""
+msgstr "Periodische Aufgaben"
 
 msgid "Task Results"
-msgstr ""
+msgstr "Aufgaben-Ergebnisse"
 
 msgid "Authentication"
-msgstr ""
+msgstr "Authentifizierung"
 
 msgid "Groups"
-msgstr ""
+msgstr "Gruppen"
 
 msgid "Connected banned Telegram account"
 msgstr "Gesperrtes Telegram-Konto verbunden"
 
 msgid "Django site admin"
-msgstr ""
+msgstr "Django-Website-Admin"
