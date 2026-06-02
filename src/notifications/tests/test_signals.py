@@ -10,7 +10,7 @@ from django.db import transaction
 from accounts.models import RevelUser
 from events.models import Payment, Ticket, TicketTier
 from notifications.enums import DeliveryChannel, NotificationType
-from notifications.models import NotificationPreference
+from notifications.models import Notification, NotificationPreference
 from telegram.models import TelegramUser
 from telegram.signals import telegram_account_linked, telegram_account_unlinked
 
@@ -310,3 +310,37 @@ class TestEventCancelledNotificationReason:
         contexts = [call.kwargs["context"] for call in send_mock.call_args_list]
         assert contexts, "expected at least one cancellation notification"
         assert all("cancellation_reason" not in c for c in contexts), contexts
+
+    def test_built_context_satisfies_schema_and_creates_notification(
+        self,
+        public_event: t.Any,
+        user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Regression: the cancellation context must satisfy EventCancelledContext.
+
+        ``refund_available`` is a required key on the schema. The signal previously
+        omitted it, so every cancellation notification failed validation inside
+        ``create_notification`` and was silently swallowed by the request handler.
+        This drives the real ``notification_requested`` -> ``create_notification``
+        -> ``validate_notification_context`` path and asserts a row is created.
+        """
+        from notifications.signals import event as event_signals
+
+        public_event.requires_ticket = True
+        public_event.cancellation_reason = "Venue flooded"
+
+        with (
+            patch.object(
+                event_signals, "get_eligible_users_for_event_notification", return_value=self._build_eligible(user)
+            ),
+            patch.object(event_signals, "_get_event_location_for_user", return_value=("Somewhere", None)),
+            # Avoid actually dispatching; we only care that the row validates + persists.
+            patch("notifications.tasks.dispatch_notification.delay"),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            event_signals._handle_event_cancelled(type(public_event), public_event)
+
+        notifications = Notification.objects.filter(user=user, notification_type=NotificationType.EVENT_CANCELLED)
+        assert notifications.count() == 1, "context failed schema validation and was swallowed"
+        assert notifications.get().context["refund_available"] is True

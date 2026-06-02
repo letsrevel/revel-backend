@@ -803,3 +803,94 @@ class TestCanUserSeeAddress:
             event_with_address.address_visibility = visibility
             event_with_address.save()
             assert event_with_address.can_user_see_address(organization_staff_user) is True, f"Failed for {visibility}"
+
+
+# --- Tests for Event.can_user_see_cancellation_reason ---
+
+
+class TestCanUserSeeCancellationReason:
+    """Tests for the Event.can_user_see_cancellation_reason() method."""
+
+    @pytest.fixture
+    def cancelled_event(self, organization: Organization) -> Event:
+        """A cancelled event carrying a reason."""
+        return Event.objects.create(
+            organization=organization,
+            name="Cancelled Event",
+            start=timezone.now(),
+            status=Event.EventStatus.CANCELLED,
+            cancellation_reason="Venue flooded",
+        )
+
+    @pytest.fixture
+    def ticket_tier(self, cancelled_event: Event) -> TicketTier:
+        return TicketTier.objects.create(event=cancelled_event, name="General")
+
+    @pytest.mark.django_db
+    def test_anonymous_cannot_see(self, cancelled_event: Event) -> None:
+        from django.contrib.auth.models import AnonymousUser
+
+        assert cancelled_event.can_user_see_cancellation_reason(AnonymousUser()) is False
+
+    @pytest.mark.django_db
+    def test_unrelated_user_cannot_see(self, cancelled_event: Event, nonmember_user: RevelUser) -> None:
+        assert cancelled_event.can_user_see_cancellation_reason(nonmember_user) is False
+
+    @pytest.mark.django_db
+    def test_invited_only_user_cannot_see(
+        self, cancelled_event: Event, nonmember_user: RevelUser, ticket_tier: TicketTier
+    ) -> None:
+        """A merely-invited user (no ticket/RSVP) does NOT qualify — unlike PRIVATE address."""
+        invitation = EventInvitation.objects.create(user=nonmember_user, event=cancelled_event)
+        invitation.tiers.add(ticket_tier)
+
+        assert cancelled_event.can_user_see_cancellation_reason(nonmember_user) is False
+
+    @pytest.mark.django_db
+    def test_ticket_holder_can_see(
+        self, cancelled_event: Event, nonmember_user: RevelUser, ticket_tier: TicketTier
+    ) -> None:
+        Ticket.objects.create(guest_name="Guest", user=nonmember_user, event=cancelled_event, tier=ticket_tier)
+
+        assert cancelled_event.can_user_see_cancellation_reason(nonmember_user) is True
+
+    @pytest.mark.django_db
+    def test_cancelled_ticket_holder_cannot_see(
+        self, cancelled_event: Event, nonmember_user: RevelUser, ticket_tier: TicketTier
+    ) -> None:
+        Ticket.objects.create(
+            guest_name="Guest",
+            user=nonmember_user,
+            event=cancelled_event,
+            tier=ticket_tier,
+            status=Ticket.TicketStatus.CANCELLED,
+        )
+
+        assert cancelled_event.can_user_see_cancellation_reason(nonmember_user) is False
+
+    @pytest.mark.django_db
+    def test_rsvp_yes_can_see(self, cancelled_event: Event, nonmember_user: RevelUser) -> None:
+        EventRSVP.objects.create(user=nonmember_user, event=cancelled_event, status=EventRSVP.RsvpStatus.YES)
+
+        assert cancelled_event.can_user_see_cancellation_reason(nonmember_user) is True
+
+    @pytest.mark.django_db
+    def test_rsvp_no_cannot_see(self, cancelled_event: Event, nonmember_user: RevelUser) -> None:
+        EventRSVP.objects.create(user=nonmember_user, event=cancelled_event, status=EventRSVP.RsvpStatus.NO)
+
+        assert cancelled_event.can_user_see_cancellation_reason(nonmember_user) is False
+
+    @pytest.mark.django_db
+    def test_owner_can_see(self, cancelled_event: Event, organization_owner_user: RevelUser) -> None:
+        assert cancelled_event.can_user_see_cancellation_reason(organization_owner_user) is True
+
+    @pytest.mark.django_db
+    def test_staff_member_can_see(
+        self, cancelled_event: Event, organization_staff_user: RevelUser, staff_member: OrganizationStaff
+    ) -> None:
+        assert cancelled_event.can_user_see_cancellation_reason(organization_staff_user) is True
+
+    @pytest.mark.django_db
+    def test_superuser_can_see(self, cancelled_event: Event, nonmember_user: RevelUser) -> None:
+        nonmember_user.is_superuser = True
+        assert cancelled_event.can_user_see_cancellation_reason(nonmember_user) is True
