@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from ninja import Body, File
+from ninja import File
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
 from ninja_extra import api_controller, route
@@ -115,7 +115,7 @@ class EventAdminCoreController(EventAdminBaseController):
         self,
         event_id: UUID,
         status: models.Event.EventStatus,
-        payload: schema.EventStatusUpdatePayload | None = Body(None),  # type: ignore[type-arg]
+        payload: schema.EventStatusUpdatePayload | None = None,
     ) -> models.Event:
         """Update event status to the specified value.
 
