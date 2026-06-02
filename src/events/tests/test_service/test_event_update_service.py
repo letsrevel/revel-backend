@@ -171,6 +171,59 @@ def test_update_status_open_to_open_is_noop_for_side_effects(event: Event) -> No
 
 
 # ---------------------------------------------------------------------------
+# update_status — cancellation reason
+# ---------------------------------------------------------------------------
+
+
+def test_update_status_cancelled_persists_reason(event: Event) -> None:
+    """Cancelling with a reason persists it on the event."""
+    event.status = Event.EventStatus.OPEN
+    event.save(update_fields=["status"])
+
+    with mock.patch("events.service.event_update_service.revoke_all_pending_offers"):
+        updated = event_service.update_status(event, Event.EventStatus.CANCELLED, cancellation_reason="Venue flooded")
+
+    updated.refresh_from_db()
+    assert updated.cancellation_reason == "Venue flooded"
+
+
+def test_update_status_cancelled_without_reason_writes_empty(event: Event) -> None:
+    """Cancelling without a reason stores an empty string, not None."""
+    event.status = Event.EventStatus.OPEN
+    event.save(update_fields=["status"])
+
+    with mock.patch("events.service.event_update_service.revoke_all_pending_offers"):
+        updated = event_service.update_status(event, Event.EventStatus.CANCELLED)
+
+    updated.refresh_from_db()
+    assert updated.cancellation_reason == ""
+
+
+def test_update_status_reason_ignored_for_non_cancel(event: Event) -> None:
+    """A reason supplied for a non-CANCELLED transition is ignored."""
+    event.status = Event.EventStatus.DRAFT
+    event.save(update_fields=["status"])
+
+    updated = event_service.update_status(event, Event.EventStatus.OPEN, cancellation_reason="should be ignored")
+
+    updated.refresh_from_db()
+    assert updated.cancellation_reason == ""
+
+
+def test_update_status_uncancel_clears_reason(event: Event) -> None:
+    """Transitioning away from CANCELLED clears a stale reason."""
+    event.status = Event.EventStatus.CANCELLED
+    event.cancellation_reason = "Old reason"
+    event.save(update_fields=["status", "cancellation_reason"])
+
+    with mock.patch("events.service.event_update_service.enqueue_waitlist_processing"):
+        updated = event_service.update_status(event, Event.EventStatus.OPEN)
+
+    updated.refresh_from_db()
+    assert updated.cancellation_reason == ""
+
+
+# ---------------------------------------------------------------------------
 # update_slug — uniqueness
 # ---------------------------------------------------------------------------
 

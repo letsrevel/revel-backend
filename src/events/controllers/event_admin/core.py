@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from ninja import File
+from ninja import Body, File
 from ninja.errors import HttpError
 from ninja.files import UploadedFile
 from ninja_extra import api_controller, route
@@ -111,14 +111,25 @@ class EventAdminCoreController(EventAdminBaseController):
         permissions=[EventPermission("manage_event")],
         response=schema.EventDetailSchema,
     )
-    def update_event_status(self, event_id: UUID, status: models.Event.EventStatus) -> models.Event:
+    def update_event_status(
+        self,
+        event_id: UUID,
+        status: models.Event.EventStatus,
+        payload: schema.EventStatusUpdatePayload | None = Body(None),  # type: ignore[type-arg]
+    ) -> models.Event:
         """Update event status to the specified value.
+
+        When ``status`` is ``cancelled``, an optional ``cancellation_reason`` in
+        the request body is persisted on the event and surfaced in the
+        EVENT_CANCELLED notification. The reason is ignored for every other
+        target status.
 
         Note: Event opening notifications are handled automatically by the post_save signal
         in events/signals.py which triggers when status field is updated.
         """
         event = self.get_one(event_id)
-        return event_service.update_status(event, status)
+        cancellation_reason = payload.cancellation_reason if payload else None
+        return event_service.update_status(event, status, cancellation_reason=cancellation_reason)
 
     @route.post(
         "/upload-logo",

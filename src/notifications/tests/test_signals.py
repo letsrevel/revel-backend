@@ -2,7 +2,7 @@
 
 import typing as t
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.db import transaction
@@ -250,3 +250,63 @@ class TestPaymentRefundNotificationAmount:
         contexts = [call.kwargs["context"] for call in send_mock.call_args_list]
         assert any("20.00" in c["refund_amount"] for c in contexts), contexts
         assert all("40.00" not in c["refund_amount"] for c in contexts), contexts
+
+
+class TestEventCancelledNotificationReason:
+    """Tests that EVENT_CANCELLED notifications carry the persisted cancellation reason."""
+
+    def _build_eligible(self, recipient: RevelUser) -> t.Any:
+        eligible = MagicMock()
+        eligible.__iter__.return_value = iter([recipient])
+        eligible.count.return_value = 1
+        return eligible
+
+    def test_reason_included_in_context_when_set(
+        self,
+        public_event: t.Any,
+        user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """A non-empty cancellation_reason is surfaced in the notification context."""
+        from notifications.signals import event as event_signals
+
+        public_event.cancellation_reason = "Venue flooded"
+
+        with (
+            patch.object(
+                event_signals, "get_eligible_users_for_event_notification", return_value=self._build_eligible(user)
+            ),
+            patch.object(event_signals, "_get_event_location_for_user", return_value=("Somewhere", None)),
+            patch("notifications.signals.event.notification_requested.send") as send_mock,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            event_signals._handle_event_cancelled(type(public_event), public_event)
+
+        contexts = [call.kwargs["context"] for call in send_mock.call_args_list]
+        assert contexts, "expected at least one cancellation notification"
+        assert all(c.get("cancellation_reason") == "Venue flooded" for c in contexts), contexts
+
+    def test_reason_omitted_from_context_when_blank(
+        self,
+        public_event: t.Any,
+        user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """An empty cancellation_reason leaves the key out of the context entirely."""
+        from notifications.signals import event as event_signals
+
+        public_event.cancellation_reason = ""
+
+        with (
+            patch.object(
+                event_signals, "get_eligible_users_for_event_notification", return_value=self._build_eligible(user)
+            ),
+            patch.object(event_signals, "_get_event_location_for_user", return_value=("Somewhere", None)),
+            patch("notifications.signals.event.notification_requested.send") as send_mock,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            event_signals._handle_event_cancelled(type(public_event), public_event)
+
+        contexts = [call.kwargs["context"] for call in send_mock.call_args_list]
+        assert contexts, "expected at least one cancellation notification"
+        assert all("cancellation_reason" not in c for c in contexts), contexts

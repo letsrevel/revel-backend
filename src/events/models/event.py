@@ -249,6 +249,7 @@ class Event(
 
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="events")
     status = models.CharField(choices=EventStatus.choices, max_length=10, default=EventStatus.DRAFT)
+    cancellation_reason = models.CharField(max_length=1000, blank=True, default="")
     name = models.CharField(max_length=255, db_index=True)
     slug = models.SlugField(max_length=255, db_index=True)
     description = MarkdownField(blank=True, null=True)
