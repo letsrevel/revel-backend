@@ -39,22 +39,25 @@ def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
         # Format event details in event's timezone
         event_start_formatted = format_event_datetime(instance.start, instance)
 
-        # Prepare refund info if tickets are required
-        refund_info = None
-        if instance.requires_ticket:
-            refund_info = "Refunds will be processed according to the organizer's refund policy."
+        # Prepare refund info if tickets are required. ``refund_available`` is a
+        # required key on EventCancelledContext, so it must always be present.
+        refund_available = instance.requires_ticket
+        refund_info = (
+            "Refunds will be processed according to the organizer's refund policy." if refund_available else None
+        )
 
         for user in eligible_users:
             # Check address visibility per user
             event_location, address_url = _get_event_location_for_user(instance, user)
 
-            context = {
+            context: dict[str, t.Any] = {
                 "event_id": str(instance.id),
                 "event_name": instance.name,
                 "event_start": instance.start.isoformat() if instance.start else "",
                 "event_start_formatted": event_start_formatted,
                 "event_location": event_location,
                 "event_url": f"{frontend_base_url}/events/{instance.id}",
+                "refund_available": refund_available,
             }
 
             # Add optional fields
