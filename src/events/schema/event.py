@@ -123,13 +123,22 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     cancellation_reason: str | None = None
 
     @staticmethod
-    def resolve_cancellation_reason(obj: "Event") -> str | None:
-        """Surface the organizer's cancellation reason, normalizing empty to None.
+    def resolve_cancellation_reason(obj: "Event", context: t.Any) -> str | None:
+        """Surface the organizer's cancellation reason to attendees only.
 
         The DB stores an empty string by default; the API contract prefers
-        ``null`` so the frontend only renders the reason when one was set.
+        ``null`` so the frontend only renders the reason when one was set. The
+        reason is only disclosed to users who were actually attending (ticket or
+        confirmed RSVP) plus the event's staff/owners — mirroring address
+        visibility. Empty reasons short-circuit before any access query, so the
+        common non-cancelled list case incurs no extra lookups.
         """
-        return obj.cancellation_reason or None
+        if not obj.cancellation_reason:
+            return None
+        user = context["request"].user
+        if obj.can_user_see_cancellation_reason(user):
+            return obj.cancellation_reason
+        return None
 
     @staticmethod
     def resolve_is_bookmarked(obj: "Event", context: t.Any) -> bool:

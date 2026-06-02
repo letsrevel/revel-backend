@@ -510,6 +510,38 @@ class Event(
 
         return False
 
+    def can_user_see_cancellation_reason(self, user: RevelUser | AnonymousUser) -> bool:
+        """Whether the user may see this event's cancellation reason.
+
+        The reason is addressed to people who were actually going to attend, so
+        it is limited to ticket holders and confirmed RSVPs — plus the event's
+        own staff/owners and superusers. This mirrors the ATTENDEES_ONLY tier of
+        :meth:`can_user_see_address`; a merely-invited or anonymous user does not
+        qualify.
+
+        Args:
+            user: The user to check access for.
+
+        Returns:
+            True if the user may see the cancellation reason, False otherwise.
+        """
+        from .rsvp import EventRSVP
+        from .ticket import Ticket
+
+        if user.is_superuser or user.is_staff:
+            return True
+        if user.is_anonymous:
+            return False
+        if self.organization.owner_id == user.id:
+            return True
+        # Use .all() to leverage prefetched data when available (from with_organization()).
+        if any(m.id == user.id for m in self.organization.staff_members.all()):
+            return True
+
+        has_ticket = Ticket.objects.filter(user=user, event=self).exclude(status=Ticket.TicketStatus.CANCELLED).exists()
+        has_rsvp = EventRSVP.objects.filter(user=user, event=self, status=EventRSVP.RsvpStatus.YES).exists()
+        return has_ticket or has_rsvp
+
     def attendees(self, viewer: RevelUser) -> models.QuerySet[RevelUser]:
         """Return attendees based on who wants to see them."""
         from .rsvp import EventRSVP
