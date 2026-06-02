@@ -6,7 +6,7 @@
 
 {% if context.cancellation_reason %}
 <b>{% trans "Reason:" %}</b>
-{{ context.cancellation_reason }}
+{{ context.cancellation_reason|escape }}
 {% endif %}
 
 {% if context.refund_info %}

@@ -69,6 +69,16 @@ class EventEditSlugSchema(Schema):
     slug: SlugString
 
 
+class EventStatusUpdatePayload(Schema):
+    """Optional body for the update-status endpoint.
+
+    ``cancellation_reason`` is honored only when transitioning to CANCELLED;
+    it is ignored for every other target status.
+    """
+
+    cancellation_reason: StrippedString | None = Field(default=None, max_length=1000)
+
+
 class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     id: UUID
     event_type: Event.EventType
@@ -110,6 +120,16 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     created_at: AwareDatetime | None = None
     seats_held: int = 0
     is_bookmarked: bool = False
+    cancellation_reason: str | None = None
+
+    @staticmethod
+    def resolve_cancellation_reason(obj: "Event") -> str | None:
+        """Surface the organizer's cancellation reason, normalizing empty to None.
+
+        The DB stores an empty string by default; the API contract prefers
+        ``null`` so the frontend only renders the reason when one was set.
+        """
+        return obj.cancellation_reason or None
 
     @staticmethod
     def resolve_is_bookmarked(obj: "Event", context: t.Any) -> bool:

@@ -319,7 +319,7 @@ def test_update_event_status_to_open_by_owner(organization_owner_client: Client,
     event.save()
 
     url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.OPEN})
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     data = response.json()
@@ -335,7 +335,7 @@ def test_update_event_status_to_closed_by_owner(organization_owner_client: Clien
     event.save()
 
     url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.CLOSED})
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     data = response.json()
@@ -351,7 +351,7 @@ def test_update_event_status_to_draft_by_owner(organization_owner_client: Client
     event.save()
 
     url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.DRAFT})
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     data = response.json()
@@ -367,7 +367,7 @@ def test_update_event_status_to_deleted_by_owner(organization_owner_client: Clie
     event.save()
 
     url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.CANCELLED})
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     data = response.json()
@@ -377,6 +377,59 @@ def test_update_event_status_to_deleted_by_owner(organization_owner_client: Clie
     assert event.status == Event.EventStatus.CANCELLED
     # Verify event still exists in database (soft delete)
     assert Event.objects.filter(pk=event.pk).exists()
+    # No reason supplied -> stored empty, surfaced as null
+    assert event.cancellation_reason == ""
+    assert data["cancellation_reason"] is None
+
+
+def test_update_event_status_cancel_persists_reason(organization_owner_client: Client, event: Event) -> None:
+    """Cancelling with a reason persists it and surfaces it in the response."""
+    event.status = Event.EventStatus.OPEN
+    event.save()
+
+    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.CANCELLED})
+    response = organization_owner_client.post(
+        url, data={"cancellation_reason": "Venue flooded"}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["cancellation_reason"] == "Venue flooded"
+
+    event.refresh_from_db()
+    assert event.cancellation_reason == "Venue flooded"
+
+
+def test_update_event_status_reason_ignored_for_non_cancel(organization_owner_client: Client, event: Event) -> None:
+    """A reason sent with a non-cancel transition is ignored."""
+    event.status = Event.EventStatus.DRAFT
+    event.save()
+
+    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.OPEN})
+    response = organization_owner_client.post(
+        url, data={"cancellation_reason": "should be ignored"}, content_type="application/json"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["cancellation_reason"] is None
+
+    event.refresh_from_db()
+    assert event.cancellation_reason == ""
+
+
+def test_update_event_status_uncancel_clears_reason(organization_owner_client: Client, event: Event) -> None:
+    """Transitioning away from cancelled clears a previously set reason."""
+    event.status = Event.EventStatus.CANCELLED
+    event.cancellation_reason = "Old reason"
+    event.save()
+
+    url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.OPEN})
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
+
+    assert response.status_code == 200
+    assert response.json()["cancellation_reason"] is None
+
+    event.refresh_from_db()
+    assert event.cancellation_reason == ""
 
 
 def test_update_event_status_by_staff_with_permission(
@@ -393,7 +446,7 @@ def test_update_event_status_by_staff_with_permission(
     event.save()
 
     url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.OPEN})
-    response = organization_staff_client.post(url)
+    response = organization_staff_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 200
     event.refresh_from_db()
@@ -413,7 +466,7 @@ def test_update_event_status_by_staff_without_permission(
     original_status = event.status
 
     url = reverse("api:update_event_status", kwargs={"event_id": event.pk, "status": Event.EventStatus.CANCELLED})
-    response = organization_staff_client.post(url)
+    response = organization_staff_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 403
     event.refresh_from_db()
@@ -426,7 +479,7 @@ def test_update_event_status_nonexistent_event(organization_owner_client: Client
 
     fake_event_id = uuid4()
     url = reverse("api:update_event_status", kwargs={"event_id": fake_event_id, "status": Event.EventStatus.OPEN})
-    response = organization_owner_client.post(url)
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
 

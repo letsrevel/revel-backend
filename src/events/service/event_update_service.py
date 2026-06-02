@@ -118,30 +118,49 @@ def update_event(
 
 
 @transaction.atomic
-def update_status(event: models.Event, new_status: models.Event.EventStatus) -> models.Event:
+def update_status(
+    event: models.Event,
+    new_status: models.Event.EventStatus,
+    *,
+    cancellation_reason: str | None = None,
+) -> models.Event:
     """Transition an event's status and fire matching waitlist side effects.
 
     Behavior:
-      * Persists ``status = new_status`` via ``update_fields=["status"]``.
+      * Persists ``status = new_status`` via ``update_fields``.
         Event-opening notifications are emitted by the ``post_save`` signal
         in ``events/signals.py``; we do not call them directly.
-      * On transition to CANCELLED, revokes all PENDING ``WaitlistOffer``s
-        for this event — outstanding offers are meaningless once the
-        event is gone.
-      * On transition AWAY from CANCELLED (un-cancel), enqueues a waitlist
-        processing pass so the freshly real seats can be taken by
-        waitlisted users.
+      * On transition to CANCELLED, persists ``cancellation_reason`` (an
+        empty string when none is supplied) and revokes all PENDING
+        ``WaitlistOffer``s for this event — outstanding offers are
+        meaningless once the event is gone.
+      * On transition AWAY from CANCELLED (un-cancel), clears any stale
+        ``cancellation_reason`` (it describes a specific cancellation) and
+        enqueues a waitlist processing pass so the freshly real seats can be
+        taken by waitlisted users.
 
     Args:
         event: The event to mutate.
         new_status: The target status.
+        cancellation_reason: Optional organizer-supplied reason, honored only
+            when ``new_status`` is CANCELLED; ignored for other transitions.
 
     Returns:
         The updated ``Event`` (same instance).
     """
     old_status = event.status
+    update_fields = ["status"]
     event.status = new_status
-    event.save(update_fields=["status"])
+
+    if new_status == models.Event.EventStatus.CANCELLED:
+        event.cancellation_reason = cancellation_reason or ""
+        update_fields.append("cancellation_reason")
+    elif old_status == models.Event.EventStatus.CANCELLED:
+        # The reason described the prior cancellation; don't let it resurrect.
+        event.cancellation_reason = ""
+        update_fields.append("cancellation_reason")
+
+    event.save(update_fields=update_fields)
 
     if new_status == models.Event.EventStatus.CANCELLED:
         revoke_all_pending_offers(event.id)
