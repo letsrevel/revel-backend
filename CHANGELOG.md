@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.62.1] - 2026-06-08
+
+### Added
+- Referral admin now supports full create / edit / delete, so staff can manually record a referral win when the referred user never used the referrer's link. `referrer` stays auto-derived from the referral code; double-referrals and referrals that already have payouts remain protected.
+
+### Security
+- Patched dependency CVEs: Django `5.2.14` → `5.2.15` (stays on the 5.2 LTS line), PyJWT `2.12.1` → `2.13.0`, and pip `26.1.1` → `26.1.2`.
+
+## [1.62.0] - 2026-06-02
+
+### Added
+- **Event Cancellation Reason**: organizers can attach an optional reason when cancelling an event
+  - Accepted on `POST /actions/update-status/{status}` (up to 1000 chars) only when transitioning to `cancelled`; automatically cleared when un-cancelling so a stale reason can't resurface on a later re-cancel
+  - Included in the `EVENT_CANCELLED` notification (in-app / email / Telegram) and returned on event list + detail responses
+  - Readable only by attendees — ticket holders, confirmed `YES` RSVPs, and event staff/owners; merely-invited or anonymous users receive `null`
+
+### Changed
+- German (`de`) translations refreshed — standardized colon gendering and harmonized terminology
+
+### Fixed
+- Event-cancellation notifications were never delivered: a missing `refund_available` context key caused the validator to silently reject every `EVENT_CANCELLED` notification (in-app / email / Telegram). They now send correctly, including refund availability.
+
 ## [1.61.0] - 2026-05-28
 
 ### Added
