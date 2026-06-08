@@ -8,7 +8,7 @@ This document provides guidelines for contributing to the project to ensure a sm
 
 There are several ways you can contribute to the project:
 
-*   **Reporting Bugs:** If you find a bug, please check our [GitHub Issues](https://github.com/biagiodistefano/revel/issues) to see if it has already been reported. If not, please open a new issue.
+*   **Reporting Bugs:** If you find a bug, please check our [GitHub Issues](https://github.com/biagiodistefano/revel/issues) to see if it has already been reported. If not, please open a new issue. **Found a security vulnerability? Do not open a public issue** — see [Reporting Security Vulnerabilities](#reporting-security-vulnerabilities) below.
 *   **Suggesting Enhancements:** If you have an idea for a new feature or an improvement to an existing one, open an issue to start a discussion.
 *   **Writing Code:** If you're ready to contribute code, you can pick an existing issue or propose a new one.
 
@@ -62,6 +62,17 @@ Consistency is key. We follow these standards to maintain a clean and readable c
     *   Use string forward references for type hints where necessary (e.g., `-> 'MyModel'`).
 *   **Docstrings:** Use Google-style docstrings for all public modules, classes, functions, and methods.
 *   **Internationalization (i18n):** All user-facing strings must be wrapped with Django's translation utilities. See [i18n.md](i18n.md) for detailed guidelines on adding translatable strings and supporting new languages.
+
+## Reporting Security Vulnerabilities
+
+Please **do not** report security issues through public GitHub issues or pull
+requests. Instead, use GitHub's private vulnerability reporting via the
+repository's **Security** tab →
+**[Report a vulnerability](https://github.com/letsrevel/revel-backend/security/advisories/new)**.
+
+For our full security posture — CI controls, scheduled audits, the CVE
+suppression policy, and what to include in a report — see
+**[SECURITY.md](SECURITY.md)**.
 
 ## Issue Tracking
 
