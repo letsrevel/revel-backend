@@ -53,7 +53,11 @@ class ReferralCodeAdmin(ModelAdmin):  # type: ignore[misc]
 
 @admin.register(Referral)
 class ReferralAdmin(ModelAdmin):  # type: ignore[misc]
-    """Admin for Referral model (system-created only, fully readonly)."""
+    """Admin for Referral model (full CRUD for manual sales-rep attribution).
+
+    ``referrer`` is auto-derived from ``referral_code.user`` in ``Referral.save()``,
+    so the form only exposes ``referral_code``, ``referred_user`` and the share %.
+    """
 
     list_display = ["referrer", "referred_user", "revenue_share_percent", "created_at"]
     list_filter = ["created_at"]
@@ -64,11 +68,9 @@ class ReferralAdmin(ModelAdmin):  # type: ignore[misc]
         "referred_user__email",
         "referral_code__code",
     ]
+    autocomplete_fields = ["referral_code", "referred_user"]
     readonly_fields = [
-        "referral_code",
         "referrer",
-        "referred_user",
-        "revenue_share_percent",
         "created_at",
         "updated_at",
     ]
@@ -97,18 +99,6 @@ class ReferralAdmin(ModelAdmin):  # type: ignore[misc]
             },
         ),
     ]
-
-    def has_add_permission(self, request: t.Any) -> bool:
-        """Referrals are created by the system during registration."""
-        return False
-
-    def has_change_permission(self, request: t.Any, obj: t.Any = None) -> bool:
-        """Referrals are immutable."""
-        return False
-
-    def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
-        """Referrals must not be deleted to preserve the audit trail."""
-        return False
 
 
 @admin.register(ReferralPayout)

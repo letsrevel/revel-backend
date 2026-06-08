@@ -434,6 +434,19 @@ This is currently heavily WIP.
 
 ---
 
+## 🔒 Security
+
+We run layered, mostly-automated security controls — SAST (bandit), dependency
+CVE scanning (`pip-audit`) and license checks, strict typing, a 90%
+branch-coverage gate, a nightly dependency audit, and periodic OWASP ZAP scans.
+See **[SECURITY.md](SECURITY.md)** for the full posture.
+
+**Found a vulnerability?** Please report it privately via
+**[Report a vulnerability](https://github.com/letsrevel/revel-backend/security/advisories/new)** —
+do not open a public issue.
+
+---
+
 ## 📜 License
 
 This project is licensed under the MIT license. See [LICENSE](LICENSE).

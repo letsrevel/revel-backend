@@ -71,21 +71,24 @@ licensecheck:
 #       (LLM client lib). Attack requires write access to the local cache
 #       directory; if an attacker already has that level of filesystem access
 #       on our backend host, they have much larger problems. Revisit when a
-#       diskcache release ships a fix.
-#   CVE-2026-3219 (pip): no fix published as of pip 26.0.1. pip handles
-#       polyglot tar+ZIP archives as ZIP regardless of filename, which could
-#       install "incorrect" files. Not exploitable here: production runs
-#       `uv sync` against `uv.lock` with hash-verified PyPI artefacts, and
-#       pip is only present in the locked graph as a transitive dep of
-#       `pip-audit` itself (via `pip-api`) — self-referential audit failure.
-#       We never run `pip install` against attacker-controlled archives.
-#       Revisit when a fixed pip release ships.
+#       diskcache release ships a fix. Tracked privately: GHSA-mcv5-9q6c-vg2g.
+#   CVE-2026-34993 / CVE-2026-47265 (aiohttp): fixed in 3.14.0, but unreachable
+#       — `aiogram` pins `aiohttp<3.14` (still true on the latest aiogram
+#       3.28.2), so the resolver caps us at 3.13.x. aiohttp is transitive only
+#       (via `aiogram` → Telegram Bot API, and `instructor` → LLM APIs), used
+#       purely as an HTTP client; we run no aiohttp server. Both advisories are
+#       client-side: 34993 needs `CookieJar.load()` on an attacker-controlled
+#       file (local vector, we never call it); 47265 leaks per-request `cookies=`
+#       across a cross-origin redirect (we set no per-request cookies and only
+#       call fixed, trusted endpoints). Drop when aiogram relaxes the cap.
+#       Tracked privately: GHSA-326c-3pr9-53pf (34993), GHSA-68j9-fg24-qc3g (47265).
 .PHONY: audit
 audit:
 	@uv export --quiet --locked --format requirements-txt --no-emit-project --no-hashes --group dev -o .audit-reqs.txt
 	@trap 'rm -f .audit-reqs.txt' EXIT; uv run pip-audit --strict --no-deps --disable-pip -r .audit-reqs.txt \
 		--ignore-vuln CVE-2025-69872 \
-		--ignore-vuln CVE-2026-3219
+		--ignore-vuln CVE-2026-34993 \
+		--ignore-vuln CVE-2026-47265
 
 .PHONY: deps-check
 deps-check: licensecheck audit
