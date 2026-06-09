@@ -292,7 +292,7 @@ def notify_series_events_generated(series: EventSeries, events: list[Event]) -> 
     visibility = template.visibility
     organization = series.organization
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
-    series_url = f"{frontend_base_url}/org/{organization.slug}/series/{series.slug}"
+    series_url = f"{frontend_base_url}/events/{organization.slug}/series/{series.slug}"
 
     context: dict[str, t.Any] = {
         "organization_id": str(organization.id),
