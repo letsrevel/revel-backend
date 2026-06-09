@@ -1,5 +1,6 @@
 """Exception handlers for the API."""
 
+import sys
 import traceback
 import typing as t
 from copy import deepcopy
@@ -8,6 +9,8 @@ import orjson
 import structlog
 from django.conf import settings
 from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
+from django.core.signals import got_request_exception
+from django.dispatch import receiver
 from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
 from ninja.responses import Response
@@ -110,3 +113,33 @@ def obfuscate(data: dict[str, t.Any]) -> dict[str, t.Any]:
         if key.lower() in SENSITIVE_KEYS:
             new_data[key] = "********"
     return new_data
+
+
+@receiver(got_request_exception)
+def log_unhandled_request_exception(sender: t.Any, request: HttpRequest | None = None, **kwargs: t.Any) -> None:
+    """Emit a structured traceback for unhandled non-API request exceptions (e.g. admin 500s).
+
+    Ninja swallows exceptions inside its own dispatch and routes them through
+    :func:`handle_general_exception`, so this signal only fires for requests that bypass the
+    API — primarily the Django admin and other plain Django views. Without this, those 500s
+    reach Loki as a bare ``django.request`` "Internal Server Error" one-liner with no stack
+    trace and no request context, making them un-debuggable (see #480). We mirror the API
+    handler: an explicit structlog ``error`` with ``exc_info`` so structlog's
+    ``format_exc_info`` processor renders the traceback as a serializable ``exception`` field.
+
+    ``sys.exc_info()`` is populated because Django sends this signal from inside the
+    ``except`` block of its uncaught-exception handler.
+    """
+    exc = sys.exc_info()[1]
+    user = getattr(request, "user", None) if request is not None else None
+    logger.error(
+        "unhandled_request_exception",
+        exc_info=exc,
+        method=getattr(request, "method", None),
+        path=getattr(request, "path", None),
+        user=str(user) if user else None,
+        user_id=str(user.id) if user is not None and hasattr(user, "id") else None,
+        query_params=obfuscate(request.GET.dict()) if request is not None else None,
+        exception_type=type(exc).__name__ if exc else None,
+        exception_message=str(exc) if exc else None,
+    )
