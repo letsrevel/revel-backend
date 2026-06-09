@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.62.2] - 2026-06-09
+
+### Fixed
+- Event-series notification links pointed at the admin route (`/org/{slug}/series/{slug}`) instead of the public page (`/events/{slug}/series/{slug}`), producing dead links in the "series followed" (staff) and "series events generated" (follower) notifications. They now resolve to the correct public series URL.
+
 ## [1.62.1] - 2026-06-08
 
 ### Added

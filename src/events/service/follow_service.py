@@ -286,7 +286,7 @@ def _send_series_follow_notification(user: RevelUser, event_series: EventSeries)
                     "follower_id": str(user.id),
                     "follower_name": user.display_name,
                     "follower_email": user.email,
-                    "frontend_url": f"{frontend_base_url}/org/{organization.slug}/series/{event_series.slug}",
+                    "frontend_url": f"{frontend_base_url}/events/{organization.slug}/series/{event_series.slug}",
                 },
             )
 

@@ -40,7 +40,7 @@ def _make_notification(user: RevelUser, *, events_count: int) -> Notification:
         "event_series_id": "series-id",
         "event_series_name": "Weekly Standup",
         "events_count": events_count,
-        "series_url": "https://example.com/org/acme/series/weekly-standup",
+        "series_url": "https://example.com/events/acme/series/weekly-standup",
     }
     return Notification.objects.create(
         user=user,
