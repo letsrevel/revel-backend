@@ -6,6 +6,22 @@ thumbnail generation. Configuration is centralized here for easy maintenance.
 
 from dataclasses import dataclass
 
+# MIME types that Pillow can actually rasterize into a thumbnail.
+# Used to skip non-image files (audio/video/documents) that may live in the
+# same model/field as images (e.g. QuestionnaireFile.file). Mirrors the image
+# subset of questionnaires.schema; SVG is intentionally excluded (Pillow can't
+# rasterize it and it carries an XSS risk).
+THUMBNAILABLE_MIME_TYPES: frozenset[str] = frozenset(
+    {
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "image/bmp",
+        "image/tiff",
+    }
+)
+
 
 @dataclass(frozen=True)
 class ThumbnailSpec:
@@ -31,12 +47,21 @@ class ModelThumbnailConfig:
         model_name: Model name in lowercase (e.g., "organization", "reveluser").
         source_field: Name of the source image field (e.g., "logo", "profile_picture").
         specs: Tuple of ThumbnailSpec defining sizes to generate.
+        mime_type_field: Name of a model field holding the file's MIME type. Set
+            only for mixed-content fields (e.g. QuestionnaireFile.file, which can
+            hold audio/video/documents). When set, batch processing skips rows
+            whose MIME type is not in mime_type_allowlist. None for dedicated
+            ImageFields, which are always images.
+        mime_type_allowlist: MIME types eligible for thumbnailing. Required when
+            mime_type_field is set; ignored otherwise.
     """
 
     app_label: str
     model_name: str
     source_field: str
     specs: tuple[ThumbnailSpec, ...]
+    mime_type_field: str | None = None
+    mime_type_allowlist: frozenset[str] | None = None
 
 
 # Centralized configuration for all thumbnail-enabled fields
@@ -51,6 +76,10 @@ THUMBNAIL_CONFIGS: dict[tuple[str, str, str], ModelThumbnailConfig] = {
             ThumbnailSpec("thumbnail", 150, 150),
             ThumbnailSpec("preview", 800, 800),
         ),
+        # QuestionnaireFile.file holds arbitrary uploads (audio/video/docs as
+        # well as images). Only thumbnail the image ones during batch backfill.
+        mime_type_field="mime_type",
+        mime_type_allowlist=THUMBNAILABLE_MIME_TYPES,
     ),
     # RevelUser.profile_picture
     ("accounts", "reveluser", "profile_picture"): ModelThumbnailConfig(
