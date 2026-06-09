@@ -180,6 +180,12 @@ class Command(BaseCommand):
         # Filter instances that have a source file (ImageField uses isnull and empty string check)
         queryset = manager.exclude(**{f"{field_name}__isnull": True}).exclude(**{field_name: ""})
 
+        # For mixed-content fields (e.g. QuestionnaireFile.file), skip non-image
+        # files up front so we don't enqueue tasks that can only ever fail with
+        # "cannot identify image file".
+        if config.mime_type_field and config.mime_type_allowlist is not None:
+            queryset = queryset.filter(**{f"{config.mime_type_field}__in": config.mime_type_allowlist})
+
         if not force:
             thumbnail_field_names = get_thumbnail_field_names(config)
             if thumbnail_field_names:
