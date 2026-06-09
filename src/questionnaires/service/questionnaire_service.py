@@ -329,9 +329,16 @@ class QuestionnaireService:
         # is the only other guard, but answers are bulk-created (clean() skipped), so without this
         # a submitter could pair a single-answer question with *every* option — guaranteeing the
         # correct one is selected and (in AUTOMATIC mode) auto-approving an admission gate.
+        # Aggregate options per question across ALL answer entries (de-duplicated): the schema
+        # accepts a list of answers, so a client could otherwise split selections into several
+        # entries for the same single-answer question (one option each), slipping past a
+        # per-entry length check while ``_create_answers`` still persists one row per option.
+        options_by_question: dict[UUID, set[UUID]] = {}
         for mc_answer in submission_schema.multiple_choice_answers:
-            question = mc_questions.get(mc_answer.question_id)
-            if question is not None and question.allow_multiple_answers is False and len(mc_answer.options_id) > 1:
+            options_by_question.setdefault(mc_answer.question_id, set()).update(mc_answer.options_id)
+        for question_id, option_ids in options_by_question.items():
+            question = mc_questions.get(question_id)
+            if question is not None and question.allow_multiple_answers is False and len(option_ids) > 1:
                 raise DisallowedMultipleAnswersError(
                     {"question": "Multiple answers are not allowed for this question."}
                 )
