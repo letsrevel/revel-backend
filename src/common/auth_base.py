@@ -2,6 +2,8 @@
 
 import typing as t
 
+import structlog
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.http import HttpRequest
 from django.utils.translation import gettext_lazy as _
@@ -71,5 +73,13 @@ class BaseJWTAuth(JWTAuth):
             # Check superuser status
             if self.is_superuser and not getattr(user, "is_superuser", False):
                 raise PermissionDenied(str(_("Superuser access required.")))
+
+            # Bind the user to the structlog request context. JWT auth runs at
+            # the view layer, *after* StructlogContextMiddleware has bound the
+            # request context (where request.user is still anonymous), so this
+            # is the earliest point the user is known for API requests. The
+            # middleware clears contextvars at the end of every request.
+            if settings.ENABLE_OBSERVABILITY:
+                structlog.contextvars.bind_contextvars(user_id=str(user.pk))
 
         return user

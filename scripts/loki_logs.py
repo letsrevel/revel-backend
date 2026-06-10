@@ -59,14 +59,10 @@ KNOWN_SERVICES = ("web", "celery_default", "beat", "telegram")
 METADATA_FIELDS = ("trace_id", "request_id", "method", "path", "status_code", "user_id")
 # Order in which metadata is shown beneath each log line (most useful first).
 META_DISPLAY_ORDER = ("status_code", "method", "path", "user_id", "request_id", "trace_id")
-# Fields the live pipeline promotes to stream labels → queryable as ``| field="x"``.
-LABEL_METADATA = ("trace_id", "request_id", "method", "path")
-# Fields that exist only in the structlog JSON body → matched via a line filter.
-# (renderers reproduce json.dumps' ``"key": value`` spacing, hence the templates.)
-JSON_METADATA: dict[str, t.Callable[[str], str]] = {
-    "status_code": lambda v: f'"status_code": {v}',
-    "user_id": lambda v: f'"user_id": "{v}"',
-}
+# Fields the live pipeline promotes to structured metadata → queryable as
+# ``| field="x"`` (since the single-render structlog fix, v1.62.4, all six are
+# promoted — including status_code and user_id).
+LABEL_METADATA = ("trace_id", "request_id", "method", "path", "status_code", "user_id")
 DURATION_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
 
@@ -194,16 +190,11 @@ def build_query(args: argparse.Namespace) -> str:  # noqa: C901
     for pattern in args.regex or []:
         query += f" |~ {_logql_string(pattern)}"
 
-    # trace_id/request_id/method/path are promoted to stream labels → label filters.
+    # All request-metadata fields are promoted to structured metadata → label filters.
     for field in LABEL_METADATA:
         val = getattr(args, field)
         if val is not None:
             query += f" | {field}={_logql_string(val)}"
-    # status_code/user_id live only in the structlog JSON body → line filters.
-    for field, render in JSON_METADATA.items():
-        val = getattr(args, field)
-        if val is not None:
-            query += f" |= {_logql_string(render(val))}"
     return query
 
 
