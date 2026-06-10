@@ -38,7 +38,10 @@ def resolve_ip_to_point(ip: str) -> Point | None:
             return None
         return Point(float(record.longitude), float(record.latitude), srid=4326)
     except Exception:
-        logger.debug("ip_resolution_failed", ip=ip)
+        # warning, not debug: a broken database otherwise fails every lookup
+        # invisibly (a corrupt .BIN disabled nearest-first sorting in
+        # production for months — the downloader saved the ZIP as the .BIN).
+        logger.warning("ip_resolution_failed", ip=ip, exc_info=True)
         return None
 
 
