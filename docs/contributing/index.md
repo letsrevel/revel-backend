@@ -32,5 +32,5 @@ We welcome contributions! Whether you're reporting a bug, suggesting a feature, 
 
 ## Community
 
-- **Discord**: [Join us](https://discord.gg/zy8nTDqQ) for questions and discussion
+- **Discord**: [Join us](https://discord.gg/Rnwbzuvxvn) for questions and discussion
 - **Issues**: [GitHub Issues](https://github.com/letsrevel/revel-backend/issues) for bugs and features
