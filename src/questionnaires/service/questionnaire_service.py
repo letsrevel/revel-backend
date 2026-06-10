@@ -26,6 +26,7 @@ from questionnaires.models import (
 
 from ..exceptions import (
     CrossQuestionnaireSubmissionError,
+    DisallowedMultipleAnswersError,
     FileLimitExceededError,
     FileOwnershipError,
     FileSizeExceededError,
@@ -323,6 +324,24 @@ class QuestionnaireService:
             for option_id in mc_answer.options_id:
                 if (mc_answer.question_id, option_id) not in allowed_option_pairs:
                     raise CrossQuestionnaireSubmissionError("Some selected options do not belong to their question.")
+
+        # Enforce the single-answer invariant on the write path. ``MultipleChoiceAnswer.clean()``
+        # is the only other guard, but answers are bulk-created (clean() skipped), so without this
+        # a submitter could pair a single-answer question with *every* option — guaranteeing the
+        # correct one is selected and (in AUTOMATIC mode) auto-approving an admission gate.
+        # Aggregate options per question across ALL answer entries (de-duplicated): the schema
+        # accepts a list of answers, so a client could otherwise split selections into several
+        # entries for the same single-answer question (one option each), slipping past a
+        # per-entry length check while ``_create_answers`` still persists one row per option.
+        options_by_question: dict[UUID, set[UUID]] = {}
+        for mc_answer in submission_schema.multiple_choice_answers:
+            options_by_question.setdefault(mc_answer.question_id, set()).update(mc_answer.options_id)
+        for question_id, option_ids in options_by_question.items():
+            question = mc_questions.get(question_id)
+            if question is not None and question.allow_multiple_answers is False and len(option_ids) > 1:
+                raise DisallowedMultipleAnswersError(
+                    {"question": "Multiple answers are not allowed for this question."}
+                )
 
         selected_option_ids: set[UUID] = set()
         for mc_answer in submission_schema.multiple_choice_answers:

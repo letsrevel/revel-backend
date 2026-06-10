@@ -50,6 +50,24 @@ class OrganizationQuestionnaireQueryset(models.QuerySet["OrganizationQuestionnai
         visible_org_ids = Organization.objects.for_user(user).values("id")
         return self.get_queryset().filter(organization_id__in=visible_org_ids)
 
+    def for_admin(self, user: RevelUser | AnonymousUser) -> t.Self:
+        """Return OrganizationQuestionnaires the user administers (owns or staffs).
+
+        Unlike :meth:`for_user` — a *visibility* filter that also returns every PUBLIC/UNLISTED
+        organization — this restricts to organizations where the user is the owner or a staff
+        member, so it is safe for admin-only listings that expose management metadata (e.g. the
+        pending-evaluations backlog).
+
+        Note: there is deliberately **no** Django superuser/staff fast-path here. Platform
+        admins manage questionnaires through the Django admin panel; on this API surface they
+        are treated like any other user (an org they neither own nor staff is not theirs to
+        list), so their experience matches a regular org admin's.
+        """
+        if user.is_anonymous:
+            return self.none()
+        admin_org_ids = Organization.objects.filter(models.Q(owner=user) | models.Q(staff_members=user)).values("id")
+        return self.get_queryset().filter(organization_id__in=admin_org_ids)
+
 
 class OrganizationQuestionnaireManager(models.Manager["OrganizationQuestionnaire"]):
     def get_queryset(self) -> OrganizationQuestionnaireQueryset:
@@ -59,6 +77,10 @@ class OrganizationQuestionnaireManager(models.Manager["OrganizationQuestionnaire
     def for_user(self, user: RevelUser | AnonymousUser) -> OrganizationQuestionnaireQueryset:
         """Return only OrganizationQuestionnaires whose organizations are visible to the given user."""
         return self.get_queryset().for_user(user)
+
+    def for_admin(self, user: RevelUser | AnonymousUser) -> OrganizationQuestionnaireQueryset:
+        """Return OrganizationQuestionnaires the user administers (owns or staffs)."""
+        return self.get_queryset().for_admin(user)
 
 
 class OrganizationQuestionnaire(TimeStampedModel):

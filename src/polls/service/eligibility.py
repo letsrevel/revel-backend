@@ -176,9 +176,18 @@ def can_see_poll(user: UserLike, poll: Poll, *, _is_staff: bool | None = None) -
     (which also resolves staffness in ``_to_detail``) doesn't repeat the
     ``OrganizationStaff`` lookup. See :func:`_passes_visibility` for details.
     """
-    if _passes_visibility(user, poll, poll.vote_visibility, poll.vote_membership_tiers.all(), _is_staff=_is_staff):
+    is_staff = _is_staff if _is_staff is not None else is_staff_or_owner(user, poll)
+    if is_staff:
         return True
-    if _passes_visibility(user, poll, poll.result_visibility, poll.result_membership_tiers.all(), _is_staff=_is_staff):
+    # DRAFT polls are visible only to staff/owner, mirroring ``PollQuerySet.for_user``.
+    # Without this, the detail GET (which fetches from an unfiltered queryset) would expose
+    # an unpublished poll's questions/options to anyone knowing its UUID when its vote/result
+    # visibility is PUBLIC/UNLISTED.
+    if poll.status == Poll.PollStatus.DRAFT:
+        return False
+    if _passes_visibility(user, poll, poll.vote_visibility, poll.vote_membership_tiers.all(), _is_staff=is_staff):
+        return True
+    if _passes_visibility(user, poll, poll.result_visibility, poll.result_membership_tiers.all(), _is_staff=is_staff):
         return True
     return user_has_voted(user, poll)
 

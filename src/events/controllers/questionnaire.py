@@ -37,6 +37,10 @@ class QuestionnaireController(UserAwareController):
         """Get the queryset based on the user."""
         return event_models.OrganizationQuestionnaire.objects.for_user(self.user())
 
+    def get_admin_queryset(self) -> QuerySet[event_models.OrganizationQuestionnaire]:
+        """Get the queryset scoped to organizations the user administers (owns or staffs)."""
+        return event_models.OrganizationQuestionnaire.objects.for_admin(self.user())
+
     def get_organization_queryset(self) -> QuerySet[event_models.Organization]:
         """Get the queryset for the organization."""
         return event_models.Organization.objects.for_user(self.user())
@@ -66,7 +70,7 @@ class QuestionnaireController(UserAwareController):
         Each questionnaire includes a count of pending evaluations (submissions with no evaluation
         or evaluations with "pending review" status).
         """
-        qs = self.get_queryset()
+        qs = self.get_admin_queryset()
 
         # Annotate with pending evaluations count
         # Pending = no evaluation OR evaluation status is "pending review"
@@ -114,6 +118,7 @@ class QuestionnaireController(UserAwareController):
         "/{org_questionnaire_id}",
         url_name="get_org_questionnaire",
         response=event_schema.OrganizationQuestionnaireSchema,
+        permissions=[QuestionnairePermission("evaluate_questionnaire")],
         throttle=UserDefaultThrottle(),
     )
     def get_org_questionnaire(self, org_questionnaire_id: UUID) -> event_models.OrganizationQuestionnaire:
