@@ -1,5 +1,7 @@
 """Tests for location caching service."""
 
+import typing as t
+
 import pytest
 from django.contrib.gis.geos import Point
 from django.core.cache import cache
@@ -165,22 +167,48 @@ class TestGetCachedUserLocation:
         assert location.x == fallback.x
         assert location.y == fallback.y
 
-    def test_caches_fallback_location(self, revel_user_factory: RevelUserFactory) -> None:
-        """Test that fallback location is also cached."""
+    def test_does_not_cache_fallback_location(self, revel_user_factory: RevelUserFactory) -> None:
+        """The IP-derived fallback must never be cached.
+
+        Regression test: caching the fallback froze a user's location to
+        whatever IP they happened to have (VPN, proxy, or — in the original
+        incident — the server's own egress IP) for the full TTL.
+        """
         user = revel_user_factory()
-        fallback = Point(50.0, 60.0)
         cache_key = get_user_location_cache_key(user.id)
         cache.delete(cache_key)
 
-        # First call with fallback
-        location1 = get_cached_user_location(user, fallback_location=fallback)
-        assert location1 == fallback
+        # First call with one fallback
+        location1 = get_cached_user_location(user, fallback_location=Point(50.0, 60.0))
+        assert location1 is not None
+        assert (location1.x, location1.y) == (50.0, 60.0)
 
-        # Second call without fallback should still return cached fallback
-        location2 = get_cached_user_location(user, fallback_location=None)
+        # A later call with a different fallback (user's IP changed) must
+        # reflect the new fallback, not the first one.
+        location2 = get_cached_user_location(user, fallback_location=Point(70.0, 80.0))
         assert location2 is not None
-        assert location2.x == fallback.x
-        assert location2.y == fallback.y
+        assert (location2.x, location2.y) == (70.0, 80.0)
+
+        # And no fallback means no location — nothing lingers in the cache.
+        assert get_cached_user_location(user, fallback_location=None) is None
+
+    def test_no_preference_lookup_is_cached(
+        self, revel_user_factory: RevelUserFactory, django_assert_num_queries: t.Any
+    ) -> None:
+        """The absence of a city preference is cached (as a sentinel), so
+        repeat calls skip the preferences query while still using the fresh
+        per-request fallback."""
+        user = revel_user_factory()
+        cache_key = get_user_location_cache_key(user.id)
+        cache.delete(cache_key)
+
+        get_cached_user_location(user, fallback_location=None)
+        assert cache.get(cache_key) == "NO_PREFERENCE"
+
+        with django_assert_num_queries(0):
+            location = get_cached_user_location(user, fallback_location=Point(1.0, 2.0))
+        assert location is not None
+        assert (location.x, location.y) == (1.0, 2.0)
 
     def test_returns_none_when_no_preference_and_no_fallback(self, revel_user_factory: RevelUserFactory) -> None:
         """Test that None is returned when there's no preference and no fallback."""
