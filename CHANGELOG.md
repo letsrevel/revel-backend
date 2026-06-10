@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.62.7] - 2026-06-10
+
+### Fixed
+- `get_cached_user_location` no longer caches the volatile IP-derived location fallback; only the stable city-preference lookup is cached. Previously, a volatile IP (VPN, mobile, hotel) could pin "Nearest First" event sorting to the wrong city for up to one hour.
+
+## [1.62.6] - 2026-06-10
+
+### Fixed
+- `download_ip2location` now correctly extracts the `.BIN` database from the ZIP archive delivered by ip2location.com; the file was previously saved as raw ZIP bytes, causing every IP lookup to raise `struct.error` (silently swallowed), so "Nearest First" event sorting never worked in production.
+
+## [1.62.5] - 2026-06-10
+
+### Fixed
+- `loki_logs.py` `--status-code` and `--user-id` flags now use structured metadata label filters, matching the single-render JSON format introduced in 1.62.4; they previously line-grepped the old double-rendered blob and returned no results.
+- `user_id` is now bound to the structlog context on successful JWT authentication (`I18nJWTAuth`, `OptionalAuth`), so all log lines emitted during an authenticated API request — including `request_finished` and unhandled-exception logs — are attributable to the user and filterable in Loki via `--user-id`.
+
+## [1.62.4] - 2026-06-10
+
+### Fixed
+- Client IP is now resolved from `X-Real-IP` (set by Caddy from the Cloudflare-resolved visitor IP) across request logging, geolocation middleware, and impersonation audit; the previous `X-Forwarded-For`-first derivation was incorrect for this reverse-proxy stack.
+- Structlog JSON was double-rendered: the outer wrapper's `event` field contained the real log as an escaped JSON string, so `status_code` and `user_id` were never filterable in Loki. Logs are now single-render JSON.
+
+## [1.62.3] - 2026-06-10
+
+### Added
+- `scripts/loki_logs.py` — operator CLI for querying production logs from Loki via Grafana's datasource-proxy API; supports filtering by service, log level, status code, user ID, request/trace ID, and grep patterns without exposing Loki publicly.
+
+### Fixed
+- Celery worker logs are now single-line structlog JSON (`CELERY_WORKER_HIJACK_ROOT_LOGGER = False`); previously Celery's text banner wrapped each log line, breaking JSON parsing and mislabelling stream levels in Loki.
+- `generate_thumbnails` management command no longer enqueues thumbnail tasks for non-image uploads (audio, video, documents), eliminating a persistent flood of `ThumbnailGenerationError` failures in the Celery results backend.
+
+### Security
+- `GET /api/questionnaires/{id}` had no permission check, allowing any authenticated user to read the full admission answer key (`is_correct`, weights, `min_score`, `reviewer_notes`, `llm_guidelines`) for any public or unlisted organization's questionnaire. Now requires org admin permission, matching sibling routes.
+- `GET /api/questionnaires/` was similarly unscoped; results are now limited to organizations the caller administers.
+- Multiple-choice admission-gate bypass: selecting every option for a single-answer question scored full marks and auto-approved `AUTOMATIC` gates, because `allow_multiple_answers=False` was enforced only in `clean()` which `bulk_create` skips. Submissions now reject more than one option on single-answer questions at the service layer.
+- DRAFT poll detail endpoint no longer leaks unpublished questions and options to any user knowing the UUID when visibility was `PUBLIC` or `UNLISTED`; hidden from non-staff until the poll is published.
+
 ## [1.62.2] - 2026-06-09
 
 ### Fixed
