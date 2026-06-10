@@ -15,10 +15,16 @@ FAKE_BIN_CONTENT = b"fake-ip2location-binary-database-content"
 
 
 class FakeResponse:
-    """Minimal stand-in for a streaming requests.Response."""
+    """Minimal stand-in for a streaming requests.Response used as a context manager."""
 
     def __init__(self, payload: bytes) -> None:
         self.payload = payload
+
+    def __enter__(self) -> "FakeResponse":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
 
     def raise_for_status(self) -> None:
         return None

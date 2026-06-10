@@ -32,19 +32,19 @@ def download_ip2location() -> None:
     zip_tmp = IP2LOCATION_DB_PATH.with_suffix(".zip.tmp")
     bin_tmp = IP2LOCATION_DB_PATH.with_suffix(".bin.tmp")
 
-    response = requests.get(
-        "https://www.ip2location.com/download/",
-        params={"token": IP2LOCATION_TOKEN, "file": DB_CODE},
-        stream=True,
-        timeout=300,
-    )
-    response.raise_for_status()
-
     try:
-        # Stream download to avoid loading the archive in memory
-        with zip_tmp.open("wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+        # Stream download to avoid loading the archive in memory; the context
+        # manager releases the connection even if streaming fails midway.
+        with requests.get(
+            "https://www.ip2location.com/download/",
+            params={"token": IP2LOCATION_TOKEN, "file": DB_CODE},
+            stream=True,
+            timeout=300,
+        ) as response:
+            response.raise_for_status()
+            with zip_tmp.open("wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
 
         with zipfile.ZipFile(zip_tmp) as archive:
             bin_members = [name for name in archive.namelist() if name.upper().endswith(".BIN")]
