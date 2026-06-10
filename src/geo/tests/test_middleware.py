@@ -6,13 +6,14 @@ from geo.ip2 import LazyGeoPoint
 from geo.middleware import GeoPointMiddleware
 
 
-def test_geo_point_middleware_x_forwarded_for() -> None:
+def test_geo_point_middleware_x_real_ip() -> None:
     """
     Tests that the middleware correctly extracts the IP from the
-    HTTP_X_FORWARDED_FOR header and attaches a LazyGeoPoint to the request.
+    HTTP_X_REAL_IP header (set by Caddy from the Cloudflare-resolved
+    client IP) and attaches a LazyGeoPoint to the request.
     """
     factory = RequestFactory()
-    request: HttpRequest = factory.get("/", HTTP_X_FORWARDED_FOR="8.8.8.8, 1.1.1.1")
+    request: HttpRequest = factory.get("/", HTTP_X_REAL_IP="8.8.8.8")
 
     def get_response(req: HttpRequest) -> HttpResponse:
         return HttpResponse()
@@ -29,6 +30,26 @@ def test_geo_point_middleware_x_forwarded_for() -> None:
     assert isinstance(point, Point)
     assert point.x == 16.3738
     assert point.y == 48.2082
+
+
+def test_geo_point_middleware_ignores_x_forwarded_for() -> None:
+    """
+    Tests that the middleware does NOT trust X-Forwarded-For (its first
+    entry is client-controlled in generic setups) and falls back to
+    REMOTE_ADDR instead.
+    """
+    factory = RequestFactory()
+    request: HttpRequest = factory.get("/", HTTP_X_FORWARDED_FOR="8.8.8.8, 1.1.1.1", REMOTE_ADDR="8.8.4.4")
+
+    def get_response(req: HttpRequest) -> HttpResponse:
+        return HttpResponse()
+
+    middleware = GeoPointMiddleware(get_response)
+    middleware(request)
+
+    user_location = getattr(request, "user_location", None)
+    assert isinstance(user_location, LazyGeoPoint)
+    assert user_location.ip == "8.8.4.4"
 
 
 def test_geo_point_middleware_remote_addr() -> None:

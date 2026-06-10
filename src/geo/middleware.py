@@ -2,6 +2,7 @@ import typing as t
 
 from django.http import HttpRequest, HttpResponse
 
+from common.client_ip import get_client_ip
 from geo.ip2 import LazyGeoPoint
 
 
@@ -12,15 +13,6 @@ class GeoPointMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         """Add the user location to the request."""
-        ip = self._get_ip(request)
+        ip = get_client_ip(request)
         request.user_location = LazyGeoPoint(ip)  # type: ignore[attr-defined]
         return self.get_response(request)
-
-    @staticmethod
-    def _get_ip(request: HttpRequest) -> str:
-        # return "188.23.209.25"
-        # return "63.116.61.253"
-        xff = request.META.get("HTTP_X_FORWARDED_FOR")
-        if xff:
-            return t.cast(str, xff.split(",")[0].strip())
-        return t.cast(str, request.META.get("REMOTE_ADDR", ""))

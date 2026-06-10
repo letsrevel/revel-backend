@@ -95,7 +95,17 @@ def add_app_context(logger: t.Any, method_name: str, event_dict: dict[str, t.Any
     return event_dict
 
 
-# Structlog processors for direct use
+# Structlog processors for structlog-native loggers.
+#
+# The chain must NOT end with a renderer: these loggers hand their event dict to
+# the stdlib logging machinery, whose ``ProcessorFormatter`` (see LOGGING below)
+# does the one and only JSON rendering. Ending with ``JSONRenderer()`` here used
+# to double-render every structlog-native line: the formatter received an
+# already-serialized JSON string as the ``event``, re-applied the foreign chain
+# (second timestamp, contextvars duplicated at the top level) and wrapped it in
+# a second JSON object — so Loki stored ``{"event": "{\"status_code\": ...}"}``
+# and Alloy could neither promote ``status_code``/``user_id`` nor reduce the
+# line to the message. ``wrap_for_formatter`` passes the dict through intact.
 STRUCTLOG_PROCESSORS = [
     structlog.contextvars.merge_contextvars,  # Merge context variables
     structlog.stdlib.add_logger_name,  # Add logger name
@@ -107,7 +117,7 @@ STRUCTLOG_PROCESSORS = [
     structlog.processors.UnicodeDecoder(),  # Decode unicode
     add_app_context,  # Add service/version/environment
     scrub_pii,  # Scrub PII before serialization
-    structlog.processors.JSONRenderer(),  # Render as JSON for Loki
+    structlog.stdlib.ProcessorFormatter.wrap_for_formatter,  # Hand off to ProcessorFormatter (renders JSON once)
 ]
 
 # Processors for foreign loggers (Django, Celery, etc.)
