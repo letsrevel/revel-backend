@@ -2,7 +2,7 @@
 
 import pytest
 import structlog
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
@@ -11,6 +11,7 @@ from common.authentication import I18nJWTAuth
 pytestmark = pytest.mark.django_db
 
 
+@override_settings(ENABLE_OBSERVABILITY=True)
 def test_jwt_auth_binds_user_id_contextvar(user: RevelUser) -> None:
     """Successful JWT auth binds user_id into the structlog request context.
 
@@ -27,6 +28,22 @@ def test_jwt_auth_binds_user_id_contextvar(user: RevelUser) -> None:
 
         assert authenticated == user
         assert structlog.contextvars.get_contextvars().get("user_id") == str(user.pk)
+    finally:
+        structlog.contextvars.clear_contextvars()
+
+
+@override_settings(ENABLE_OBSERVABILITY=False)
+def test_jwt_auth_skips_binding_when_observability_disabled(user: RevelUser) -> None:
+    """With observability disabled, nothing is bound (contextvars are never cleared either)."""
+    token = str(RefreshToken.for_user(user).access_token)  # type: ignore[attr-defined]
+    request = RequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    structlog.contextvars.clear_contextvars()
+    try:
+        authenticated = I18nJWTAuth().authenticate(request, token)
+
+        assert authenticated == user
+        assert "user_id" not in structlog.contextvars.get_contextvars()
     finally:
         structlog.contextvars.clear_contextvars()
 
