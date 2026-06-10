@@ -10,6 +10,8 @@ from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from opentelemetry import trace
 
+from common.client_ip import get_client_ip
+
 logger = structlog.get_logger("common.middleware.observability")
 
 _SKIP_LOG_PATHS: frozenset[str] = frozenset({"/metrics", "/health", "/api/healthcheck"})
@@ -60,7 +62,7 @@ class StructlogContextMiddleware:
             "request_id": request_id,
             "method": request.method,
             "path": request.path,
-            "ip_address": self._get_client_ip(request),
+            "ip_address": get_client_ip(request) or "unknown",
         }
 
         # Add trace_id if available (for log-to-trace correlation)
@@ -121,21 +123,3 @@ class StructlogContextMiddleware:
         structlog.contextvars.clear_contextvars()
 
         return response
-
-    def _get_client_ip(self, request: HttpRequest) -> str:
-        """Extract client IP address from request.
-
-        Checks X-Forwarded-For header first (for proxied requests),
-        then falls back to REMOTE_ADDR.
-
-        Args:
-            request: Django HttpRequest
-
-        Returns:
-            str: Client IP address
-        """
-        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-        if x_forwarded_for:
-            # X-Forwarded-For can contain multiple IPs, take the first
-            return str(x_forwarded_for.split(",")[0].strip())
-        return str(request.META.get("REMOTE_ADDR", "unknown"))

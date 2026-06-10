@@ -35,6 +35,7 @@ from accounts.models import (
 from accounts.service.account import request_password_reset, send_verification_email_for_user
 from accounts.service.impersonation import can_impersonate, create_impersonation_request
 from accounts.utils.email_normalization import normalize_email_for_matching
+from common.client_ip import get_client_ip
 from common.models import SiteSettings
 from common.signing import get_file_url
 from events.models import GeneralUserPreferences
@@ -528,7 +529,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
 
         if request.method == "POST" and allowed:
             # Get client info for audit
-            ip_address = self._get_client_ip(request)
+            ip_address = get_client_ip(request) or None
             user_agent = request.META.get("HTTP_USER_AGENT", "")
 
             # Generate impersonation token
@@ -553,14 +554,6 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
             "error": error if not allowed else None,
         }
         return TemplateResponse(request, "admin/accounts/impersonate_confirm.html", context)
-
-    def _get_client_ip(self, request: HttpRequest) -> str | None:
-        """Extract client IP address from request."""
-        x_forwarded_for: str | None = request.META.get("HTTP_X_FORWARDED_FOR")
-        if x_forwarded_for:
-            return x_forwarded_for.split(",")[0].strip()
-        remote_addr: str | None = request.META.get("REMOTE_ADDR")
-        return remote_addr
 
 
 @admin.register(UserDataExport)
