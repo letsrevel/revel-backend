@@ -46,7 +46,11 @@ if t.TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# Pin both credentials and API version at import time. The pinned version
+# guards outbound response shapes against silent changes when the stripe SDK
+# (whose default version tracks its release) gets bumped by a `uv sync`.
 stripe.api_key = settings.STRIPE_SECRET_KEY
+stripe.api_version = settings.STRIPE_API_VERSION
 
 
 def create_connect_account(organization: Organization, stripe_account_email: EmailStr) -> str:

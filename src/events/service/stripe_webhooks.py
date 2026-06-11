@@ -347,7 +347,7 @@ class StripeEventHandler:
             logger.warning("stripe_refund_unknown_intent", payment_intent_id=payment_intent_id)
             return
 
-        refunds = charge_data.get("refunds", {}).get("data", []) or []
+        refunds = self._resolve_refunds(charge_data)
         if not refunds:
             logger.warning("stripe_refund_event_no_refund_data", payment_intent_id=payment_intent_id)
             return
@@ -403,6 +403,38 @@ class StripeEventHandler:
             refund_count=len(refunds),
             newly_refunded_payment_ids=newly_refunded_ids,
         )
+
+    def _resolve_refunds(self, charge_data: dict[str, t.Any]) -> list[dict[str, t.Any]]:
+        """Return the charge's refunds, from the payload or the Stripe API.
+
+        Payloads rendered at API versions >= 2022-11-15 don't embed the
+        charge's refunds list, so any *pinned* webhook endpoint delivers
+        ``charge.refunded`` without it — fetch it outbound in that case.
+        Embedded refunds (old unpinned endpoints) short-circuit without an
+        API call.
+
+        Connected-account events carry ``event.account``; the refunds then
+        live on that account, so the request needs the ``Stripe-Account``
+        header. A failed call raises, rolling the webhook transaction (and the
+        dedup row) back so the Stripe retry reprocesses the event.
+
+        Args:
+            charge_data: The Charge object from the webhook payload.
+
+        Returns:
+            The charge's refunds as dicts, newest first. Empty if the charge
+            has none (or the payload carries no charge id).
+        """
+        embedded = charge_data.get("refunds", {}).get("data", []) or []
+        if embedded:
+            return list(embedded)
+        charge_id = charge_data.get("id")
+        if not charge_id:
+            return []
+        params: dict[str, t.Any] = {"charge": charge_id, "limit": 100}
+        if account := getattr(self.event, "account", None):
+            params["stripe_account"] = account
+        return [dict(refund) for refund in stripe.Refund.list(**params).data]
 
     def _schedule_credit_note(
         self,

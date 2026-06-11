@@ -83,6 +83,12 @@ place is harmless.
 **Preconditions:** Phase 1 deployed and verified. Compat audit (clover → dahlia for
 Checkout Session, Charge, Refund, PaymentIntent, Account) recorded in PR 2.
 
+PR 2 also ships a `charge.refunded` compat fix: payloads rendered at any API version
+>= 2022-11-15 (so the basil-pinned endpoint today, and the dahlia endpoints from
+Phase 3) do **not** embed the charge's `refunds` list; the handler now fetches the
+refunds outbound (`stripe.Refund.list`) when the payload omits them. The dashboard
+refund in step 2 below is what verifies this path end-to-end.
+
 **Steps (demo, then prod):**
 
 1. Deploy PR 2. No env change needed (`STRIPE_API_VERSION` defaults to
