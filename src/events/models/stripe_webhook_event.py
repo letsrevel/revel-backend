@@ -10,9 +10,11 @@ class StripeWebhookEvent(TimeStampedModel):
 
     The unique ``event_id`` doubles as the idempotency token: ``handle_event``
     inserts the row *before* dispatching, so Stripe redeliveries trip the
-    unique constraint and no-op. If a handler raises, the surrounding request
-    transaction rolls this row back too, so the Stripe retry reprocesses the
-    event instead of being swallowed by the dedup gate.
+    unique constraint and skip the full handler (only the idempotent
+    post-commit task dispatches are replayed — see
+    ``StripeEventHandler.replay``). If a handler raises, the surrounding
+    request transaction rolls this row back too, so the Stripe retry
+    reprocesses the event instead of being swallowed by the dedup gate.
 
     Rows are pruned after ``settings.STRIPE_WEBHOOK_EVENT_RETENTION_DAYS``
     (Stripe retries deliveries for at most 3 days, so pruned ids can never be

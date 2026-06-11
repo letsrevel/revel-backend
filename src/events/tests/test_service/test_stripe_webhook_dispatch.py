@@ -11,7 +11,7 @@ from django.db import transaction
 from django.test import override_settings
 
 from events.exceptions import InvalidStripeWebhookSignatureError
-from events.models import StripeWebhookEvent
+from events.models import Payment, StripeWebhookEvent, Ticket
 from events.service import stripe_webhooks
 
 pytestmark = pytest.mark.django_db
@@ -113,12 +113,107 @@ def test_handle_event_unknown_type_marked_unhandled() -> None:
 
 
 def test_handle_event_duplicate_is_noop() -> None:
-    """A redelivered event id must not reach the handler a second time."""
+    """A redelivered event id must not reach the full handler a second time."""
     stripe_webhooks.handle_event(_make_event(event_id="evt_dup"))
     with patch.object(stripe_webhooks.StripeEventHandler, "handle") as spy:
         stripe_webhooks.handle_event(_make_event(event_id="evt_dup"))
     spy.assert_not_called()
     assert StripeWebhookEvent.objects.filter(event_id="evt_dup").count() == 1
+
+
+def _make_checkout_event(session_id: str, event_id: str = "evt_checkout_replay") -> stripe.Event:
+    return stripe.Event.construct_from(
+        {
+            "id": event_id,
+            "object": "event",
+            "type": "checkout.session.completed",
+            "livemode": False,
+            "data": {
+                "object": {
+                    "id": session_id,
+                    "object": "checkout.session",
+                    "payment_status": "paid",
+                    "payment_intent": "pi_replay_checkout",
+                }
+            },
+        },
+        "sk_test_x",
+    )
+
+
+def _make_refund_event(payment_intent_id: str, event_id: str = "evt_refund_replay") -> stripe.Event:
+    return stripe.Event.construct_from(
+        {
+            "id": event_id,
+            "object": "event",
+            "type": "charge.refunded",
+            "livemode": False,
+            "data": {
+                "object": {
+                    "id": "ch_replay",
+                    "object": "charge",
+                    "payment_intent": payment_intent_id,
+                    "refunds": {"data": []},
+                }
+            },
+        },
+        "sk_test_x",
+    )
+
+
+def test_duplicate_checkout_replay_reenqueues_invoice(
+    ticket: Ticket,
+    payment_factory: t.Callable[..., Payment],
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """A redelivered checkout completion retries the invoice dispatch.
+
+    The first delivery's on_commit ``.delay()`` runs after the dedup row has
+    committed and may fail (e.g. broker outage); the redelivery must
+    re-enqueue the idempotent invoice task instead of pure no-oping.
+    """
+    payment_factory(ticket, stripe_session_id="cs_replay_1")
+    stripe_webhooks.handle_event(_make_checkout_event("cs_replay_1"))
+    with (
+        patch("events.tasks.generate_attendee_invoice_task.delay") as delay_spy,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        stripe_webhooks.handle_event(_make_checkout_event("cs_replay_1"))
+    delay_spy.assert_called_once_with("cs_replay_1")
+
+
+def test_duplicate_checkout_replay_skips_unknown_session(
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """Replaying a checkout completion with no matching payments enqueues nothing."""
+    StripeWebhookEvent.objects.create(event_id="evt_checkout_orphan", event_type="checkout.session.completed")
+    with (
+        patch("events.tasks.generate_attendee_invoice_task.delay") as delay_spy,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        stripe_webhooks.handle_event(_make_checkout_event("cs_orphan", event_id="evt_checkout_orphan"))
+    delay_spy.assert_not_called()
+
+
+def test_duplicate_refund_replay_reenqueues_credit_note(
+    ticket: Ticket,
+    payment_factory: t.Callable[..., Payment],
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """A redelivered charge.refunded retries the credit-note dispatch for refunded payments."""
+    payment = payment_factory(
+        ticket,
+        stripe_session_id="cs_replay_refund",
+        stripe_payment_intent_id="pi_replay_refund",
+        refund_status=Payment.RefundStatus.SUCCEEDED,
+    )
+    StripeWebhookEvent.objects.create(event_id="evt_refund_replay", event_type="charge.refunded")
+    with (
+        patch("events.tasks.generate_attendee_credit_note_task.delay") as delay_spy,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        stripe_webhooks.handle_event(_make_refund_event("pi_replay_refund"))
+    delay_spy.assert_called_once_with("cs_replay_refund", [str(payment.id)])
 
 
 def test_handler_error_rolls_back_dedup_row() -> None:

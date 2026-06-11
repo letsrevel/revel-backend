@@ -49,7 +49,15 @@ from events.service.ticket_service import (
 
 
 def handle_user_is_ineligible_error(request: HttpRequest, exc: Exception | t.Type[Exception]) -> Response:
-    """Handle a user is-ineligible error by returning the eligibility payload."""
+    """Handle a user is-ineligible error by returning the eligibility payload.
+
+    Args:
+        request: The current HTTP request (unused; required by the handler signature).
+        exc: The raised ``UserIsIneligibleError`` carrying the eligibility report.
+
+    Returns:
+        Response: A 400 response whose body is the serialized eligibility payload.
+    """
     return Response(status=400, data=t.cast(UserIsIneligibleError, exc).eligibility.model_dump(mode="json"))
 
 

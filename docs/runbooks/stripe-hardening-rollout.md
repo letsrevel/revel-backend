@@ -27,7 +27,7 @@ host-as-org binding.
 
 | structlog key | Meaning |
 |---|---|
-| `stripe_webhook_duplicate` | Redelivered event id no-opped. **Expected noise during Phase 3 overlap.** |
+| `stripe_webhook_duplicate` | Redelivered event id: full handler skipped, idempotent invoice/credit-note dispatches replayed. **Expected noise during Phase 3 overlap.** |
 | `stripe_webhook_signature_failed` | No configured secret matched → 403. Investigate if persistent. |
 | `stripe_webhook_secret_missing` | Only placeholder secrets configured → everything 403s. Config error. |
 | `stripe_webhook_malformed_json` | Valid HMAC but unparseable body. Should never happen from Stripe. |
