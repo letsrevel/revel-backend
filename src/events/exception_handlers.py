@@ -26,6 +26,7 @@ from events.exceptions import (
     AlreadyMemberError,
     BillingInfoRequiredError,
     InvalidResourceStateError,
+    InvalidStripeWebhookSignatureError,
     OrganizationTokenGrantInvariantError,
     OrganizationTokenMembershipTierRequiredError,
     OrganizationTokenStaffGrantForbidden,
@@ -75,6 +76,8 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     TicketAlreadyCancelledError: make_static_handler(409, TICKET_ALREADY_CANCELLED_MESSAGE),
     StripeNotConnectedError: make_static_handler(400, STRIPE_NOT_CONNECTED_MESSAGE),
     BillingInfoRequiredError: make_static_handler(422, BILLING_INFO_REQUIRED_MESSAGE),
+    # Stripe webhook signature failures answer 403 — fail closed, no detail leak.
+    InvalidStripeWebhookSignatureError: make_static_handler(403, _("Invalid Stripe signature")),
 }
 
 
