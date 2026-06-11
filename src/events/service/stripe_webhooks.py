@@ -20,6 +20,12 @@ from events.utils.currency import from_stripe_amount, to_stripe_amount
 
 logger = structlog.get_logger(__name__)
 
+# Pin both credentials and API version at import time (mirrors stripe_service).
+# This module makes its own outbound call (Refund.list in _resolve_refunds), so
+# it must not rely on another module's import side effects to set the pin.
+stripe.api_key = settings.STRIPE_SECRET_KEY
+stripe.api_version = settings.STRIPE_API_VERSION
+
 # Placeholder values that must never be treated as real signing secrets.
 _PLACEHOLDER_SECRETS = frozenset({"whsec_...", "whsec_placeholder", ""})
 
@@ -330,6 +336,20 @@ class StripeEventHandler:
             logger.warning("stripe_refund_missing_intent", charge_id=charge_data.get("id"))
             return
 
+        # Cheap unlocked probe so unknown intents bail before any outbound call.
+        if not Payment.objects.filter(stripe_payment_intent_id=payment_intent_id).exists():
+            logger.warning("stripe_refund_unknown_intent", payment_intent_id=payment_intent_id)
+            return
+
+        # Resolve refunds BEFORE taking row locks: _resolve_refunds may make an
+        # outbound Stripe call, and holding select_for_update locks across that
+        # network round-trip would block concurrent user-initiated cancels
+        # (cancellation_service locks the same Payment rows) for its duration.
+        refunds = self._resolve_refunds(charge_data)
+        if not refunds:
+            logger.warning("stripe_refund_event_no_refund_data", payment_intent_id=payment_intent_id)
+            return
+
         # Lock Payment rows for the duration of this transaction. Stripe webhooks
         # are at-least-once, and a Stripe-Dashboard refund's webhook can also race
         # against an in-flight user-initiated cancel (which itself locks the same
@@ -347,12 +367,54 @@ class StripeEventHandler:
             logger.warning("stripe_refund_unknown_intent", payment_intent_id=payment_intent_id)
             return
 
-        refunds = self._resolve_refunds(charge_data)
-        if not refunds:
-            logger.warning("stripe_refund_event_no_refund_data", payment_intent_id=payment_intent_id)
-            return
+        newly_refunded_ids, touched_session_id, affected_event_ids = self._process_refunds(
+            refunds=refunds,
+            candidates=candidates,
+            raw_response=dict(event),
+            payment_intent_id=payment_intent_id,
+        )
 
-        raw_response = dict(event)
+        # One enqueue per event regardless of how many tickets cancelled inside it;
+        # the processor scans all freed seats in a single pass.
+        for event_id in affected_event_ids:
+            enqueue_waitlist_processing(event_id)
+
+        self._schedule_credit_note(
+            payment_intent_id=payment_intent_id,
+            candidates=candidates,
+            newly_refunded_ids=newly_refunded_ids,
+            touched_session_id=touched_session_id,
+        )
+
+        logger.info(
+            "stripe_refund_processed",
+            payment_intent_id=payment_intent_id,
+            refund_count=len(refunds),
+            newly_refunded_payment_ids=newly_refunded_ids,
+        )
+
+    def _process_refunds(
+        self,
+        *,
+        refunds: list[dict[str, t.Any]],
+        candidates: list[Payment],
+        raw_response: dict[str, t.Any],
+        payment_intent_id: str,
+    ) -> tuple[list[str], str | None, set[uuid.UUID]]:
+        """Match each refund to its Payment(s) and apply it.
+
+        Args:
+            refunds: The charge's refund object dicts (from _resolve_refunds).
+            candidates: All locked Payment rows for this intent.
+            raw_response: The full serialised webhook event (for audit).
+            payment_intent_id: Stripe payment intent id (logging only).
+
+        Returns:
+            A ``(newly_refunded_ids, touched_session_id, affected_event_ids)``
+            tuple: the Payment ids mutated in this call, the session id of the
+            last mutated Payment (or None), and the event ids whose capacity
+            was freed by a ticket cancellation.
+        """
         touched_session_id: str | None = None
         newly_refunded_ids: list[str] = []
         affected_event_ids: set[uuid.UUID] = set()
@@ -385,24 +447,7 @@ class StripeEventHandler:
                 if cancelled_event_id is not None:
                     affected_event_ids.add(cancelled_event_id)
 
-        # One enqueue per event regardless of how many tickets cancelled inside it;
-        # the processor scans all freed seats in a single pass.
-        for event_id in affected_event_ids:
-            enqueue_waitlist_processing(event_id)
-
-        self._schedule_credit_note(
-            payment_intent_id=payment_intent_id,
-            candidates=candidates,
-            newly_refunded_ids=newly_refunded_ids,
-            touched_session_id=touched_session_id,
-        )
-
-        logger.info(
-            "stripe_refund_processed",
-            payment_intent_id=payment_intent_id,
-            refund_count=len(refunds),
-            newly_refunded_payment_ids=newly_refunded_ids,
-        )
+        return newly_refunded_ids, touched_session_id, affected_event_ids
 
     def _resolve_refunds(self, charge_data: dict[str, t.Any]) -> list[dict[str, t.Any]]:
         """Return the charge's refunds, from the payload or the Stripe API.
@@ -422,8 +467,8 @@ class StripeEventHandler:
             charge_data: The Charge object from the webhook payload.
 
         Returns:
-            The charge's refunds as dicts, newest first. Empty if the charge
-            has none (or the payload carries no charge id).
+            The charge's refunds as dicts. Empty if the charge has none (or
+            the payload carries no charge id).
         """
         embedded = charge_data.get("refunds", {}).get("data", []) or []
         if embedded:
@@ -434,7 +479,9 @@ class StripeEventHandler:
         params: dict[str, t.Any] = {"charge": charge_id, "limit": 100}
         if account := getattr(self.event, "account", None):
             params["stripe_account"] = account
-        return [dict(refund) for refund in stripe.Refund.list(**params).data]
+        # auto_paging_iter walks past the first page (limit is just page size),
+        # so a charge with >100 refunds doesn't silently drop the tail.
+        return [dict(refund) for refund in stripe.Refund.list(**params).auto_paging_iter()]
 
     def _schedule_credit_note(
         self,

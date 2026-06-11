@@ -162,7 +162,7 @@ class TestRefundsFetchedOutbound:
         event = _charge_event("pi_pinned", refunds=None)
 
         with patch.object(stripe.Refund, "list") as list_mock:
-            list_mock.return_value.data = [refund]
+            list_mock.return_value.auto_paging_iter.return_value = [refund]
             StripeEventHandler(event).handle_charge_refunded(event)
 
         list_mock.assert_called_once_with(charge="ch_test", limit=100)
@@ -179,7 +179,7 @@ class TestRefundsFetchedOutbound:
         event = _charge_event("pi_pinned_conn", refunds=None, account="acct_conn_42")
 
         with patch.object(stripe.Refund, "list") as list_mock:
-            list_mock.return_value.data = [refund]
+            list_mock.return_value.auto_paging_iter.return_value = [refund]
             StripeEventHandler(event).handle_charge_refunded(event)
 
         list_mock.assert_called_once_with(charge="ch_test", limit=100, stripe_account="acct_conn_42")
@@ -193,10 +193,19 @@ class TestRefundsFetchedOutbound:
         event = _charge_event("pi_pinned_empty", refunds=None)
 
         with patch.object(stripe.Refund, "list") as list_mock:
-            list_mock.return_value.data = []
+            list_mock.return_value.auto_paging_iter.return_value = []
             StripeEventHandler(event).handle_charge_refunded(event)
 
         for payment in payments:
             payment.refresh_from_db()
             assert payment.refund_status is None
             assert payment.status == Payment.PaymentStatus.SUCCEEDED
+
+    def test_unknown_intent_skips_api_fetch(self) -> None:
+        """No Payment rows for the intent → bail before any outbound call."""
+        event = _charge_event("pi_nobody_knows", refunds=None)
+
+        with patch.object(stripe.Refund, "list") as list_mock:
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        list_mock.assert_not_called()
