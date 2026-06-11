@@ -2,7 +2,7 @@
 
 import typing as t
 from decimal import Decimal
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import stripe
@@ -14,15 +14,24 @@ from events.service.stripe_webhooks import StripeEventHandler
 pytestmark = pytest.mark.django_db
 
 
-def _charge_event(payment_intent_id: str, refunds: list[dict[str, t.Any]]) -> stripe.Event:
+def _charge_event(
+    payment_intent_id: str,
+    refunds: list[dict[str, t.Any]] | None,
+    account: str | None = None,
+) -> stripe.Event:
     ev = MagicMock(spec=stripe.Event)
     ev.type = "charge.refunded"
+    ev.account = account
     ev.data = MagicMock()
-    ev.data.object = {
+    obj: dict[str, t.Any] = {
         "id": "ch_test",
         "payment_intent": payment_intent_id,
-        "refunds": {"data": refunds},
     }
+    # refunds=None mimics a payload rendered at API >= 2022-11-15 (pinned
+    # endpoint): the refunds list is not embedded at all.
+    if refunds is not None:
+        obj["refunds"] = {"data": refunds}
+    ev.data.object = obj
     # Make dict(event) serializable — tests shouldn't care about exact shape,
     # so patch out raw_response assignment in the handler by providing __iter__.
     ev.__iter__.return_value = iter([])
@@ -139,3 +148,64 @@ class TestChargeRefundedMatching:
         StripeEventHandler(event).handle_charge_refunded(event)
         target.refresh_from_db()
         assert target.status == Payment.PaymentStatus.REFUNDED
+
+
+class TestRefundsFetchedOutbound:
+    """Pinned endpoints (API >= 2022-11-15) deliver charge.refunded without embedded refunds."""
+
+    def test_missing_refunds_list_is_fetched_from_api(self, batch_of_4_online_payments: list[Payment]) -> None:
+        """A payload with no refunds key falls back to stripe.Refund.list."""
+        payments = batch_of_4_online_payments
+        _batch(payments, "pi_pinned")
+        target = payments[1]
+        refund: dict[str, t.Any] = {"id": "re_api_1", "amount": 4000, "metadata": {"ticket_id": str(target.ticket_id)}}
+        event = _charge_event("pi_pinned", refunds=None)
+
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = [refund]
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        list_mock.assert_called_once_with(charge="ch_test", limit=100)
+        target.refresh_from_db()
+        assert target.refund_status == Payment.RefundStatus.SUCCEEDED
+        assert target.status == Payment.PaymentStatus.REFUNDED
+
+    def test_connected_account_event_forwards_stripe_account(self, batch_of_4_online_payments: list[Payment]) -> None:
+        """Connect events fetch the refunds with the Stripe-Account header."""
+        payments = batch_of_4_online_payments
+        _batch(payments, "pi_pinned_conn")
+        target = payments[0]
+        refund: dict[str, t.Any] = {"id": "re_api_2", "amount": 4000, "metadata": {"ticket_id": str(target.ticket_id)}}
+        event = _charge_event("pi_pinned_conn", refunds=None, account="acct_conn_42")
+
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = [refund]
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        list_mock.assert_called_once_with(charge="ch_test", limit=100, stripe_account="acct_conn_42")
+        target.refresh_from_db()
+        assert target.refund_status == Payment.RefundStatus.SUCCEEDED
+
+    def test_no_refunds_in_payload_or_api_is_a_noop(self, batch_of_4_online_payments: list[Payment]) -> None:
+        """If the API also returns no refunds, the handler warns and mutates nothing."""
+        payments = batch_of_4_online_payments
+        _batch(payments, "pi_pinned_empty")
+        event = _charge_event("pi_pinned_empty", refunds=None)
+
+        with patch.object(stripe.Refund, "list") as list_mock:
+            list_mock.return_value.auto_paging_iter.return_value = []
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        for payment in payments:
+            payment.refresh_from_db()
+            assert payment.refund_status is None
+            assert payment.status == Payment.PaymentStatus.SUCCEEDED
+
+    def test_unknown_intent_skips_api_fetch(self) -> None:
+        """No Payment rows for the intent → bail before any outbound call."""
+        event = _charge_event("pi_nobody_knows", refunds=None)
+
+        with patch.object(stripe.Refund, "list") as list_mock:
+            StripeEventHandler(event).handle_charge_refunded(event)
+
+        list_mock.assert_not_called()

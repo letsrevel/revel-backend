@@ -16,9 +16,11 @@ class StripeWebhookEvent(TimeStampedModel):
     request transaction rolls this row back too, so the Stripe retry
     reprocesses the event instead of being swallowed by the dedup gate.
 
-    Rows are pruned after ``settings.STRIPE_WEBHOOK_EVENT_RETENTION_DAYS``
-    (Stripe retries deliveries for at most 3 days, so pruned ids can never be
-    legitimately redelivered).
+    Rows are pruned after ``settings.STRIPE_WEBHOOK_EVENT_RETENTION_DAYS``.
+    Stripe auto-retries deliveries for at most 3 days, but operators can also
+    manually resend an event for as long as Stripe retains it (up to 30 days),
+    so the retention window must stay >= 30 days for pruned ids to never be
+    legitimately redelivered (default: 90).
     """
 
     class Outcome(models.TextChoices):

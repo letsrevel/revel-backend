@@ -16,6 +16,7 @@ from pydantic import EmailStr
 from common.models import StripeConnectMixin
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
+stripe.api_version = settings.STRIPE_API_VERSION
 
 
 def get_account_details(account_id: str) -> stripe.Account:
