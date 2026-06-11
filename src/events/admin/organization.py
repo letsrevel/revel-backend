@@ -62,7 +62,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     actions = ["bind_platform_stripe_account", "unbind_platform_stripe_account"]
 
     tabs = [
-        ("Settings", ["Settings"]),
+        ("Settings", ["Settings", "Social"]),
         ("Billing", ["Billing"]),
         ("People", ["Staff", "Members", "Tiers"]),
         ("Content", ["Series", "Questionnaires", "Venues"]),
@@ -82,6 +82,17 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
                     "accept_membership_requests",
                     "contact_email",
                     "contact_email_verified",
+                ],
+            },
+        ),
+        (
+            "Social",
+            {
+                "fields": [
+                    "instagram_url",
+                    "facebook_url",
+                    "bluesky_url",
+                    "telegram_url",
                 ],
             },
         ),
