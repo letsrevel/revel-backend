@@ -125,6 +125,15 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         if not request.user.is_superuser:
             self.message_user(request, "Superuser required.", level=messages.ERROR)
             return
+        # The settings default is a "test_..." placeholder; real Stripe account
+        # ids always start with acct_. Never bind a placeholder to an org.
+        if not settings.STRIPE_ACCOUNT.startswith("acct_"):
+            self.message_user(
+                request,
+                f"STRIPE_ACCOUNT is not configured ({settings.STRIPE_ACCOUNT!r} is a placeholder) — refusing to bind.",
+                level=messages.ERROR,
+            )
+            return
         if queryset.count() != 1:
             self.message_user(request, "Select exactly one organization.", level=messages.ERROR)
             return

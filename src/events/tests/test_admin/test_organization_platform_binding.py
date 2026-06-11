@@ -57,6 +57,20 @@ def test_bind_refuses_already_connected_org(
     assert organization.stripe_account_id == "acct_real_connect"  # unchanged
 
 
+def test_bind_refuses_placeholder_platform_account(
+    rf: t.Any, organization: Organization, superuser: RevelUser, settings: t.Any
+) -> None:
+    """The "test_..." settings default must never be bound to an org."""
+    settings.STRIPE_ACCOUNT = "test_..."
+    admin_instance = _admin()
+    request = _request_with_messages(rf, superuser)
+
+    admin_instance.bind_platform_stripe_account(request, Organization.objects.filter(pk=organization.pk))
+
+    organization.refresh_from_db()
+    assert organization.stripe_account_id is None
+
+
 def test_bind_requires_superuser(
     rf: t.Any, organization: Organization, organization_owner_user: RevelUser, settings: t.Any
 ) -> None:
