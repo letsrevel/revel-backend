@@ -42,6 +42,7 @@ from .questionnaire import EventQuestionnaireSubmission, OrganizationQuestionnai
 from .recurrence_rule import RecurrenceRule
 from .reserved_slug_token import ReservedSlugToken
 from .rsvp import EventRSVP
+from .stripe_webhook_event import StripeWebhookEvent
 from .subscription import (
     MembershipPayment,
     MembershipSubscription,
@@ -123,4 +124,6 @@ __all__ = [
     "AttendeeInvoiceCreditNote",
     "PlatformFeeCreditNote",
     "PlatformFeeInvoice",
+    # Stripe webhooks
+    "StripeWebhookEvent",
 ]

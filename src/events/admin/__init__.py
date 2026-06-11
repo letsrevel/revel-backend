@@ -47,6 +47,7 @@ from events.admin.preferences import (
 )
 from events.admin.questionnaire import EventQuestionnaireSubmissionAdmin
 from events.admin.reserved_slug_token import ReservedSlugTokenAdmin
+from events.admin.stripe_webhook_event import StripeWebhookEventAdmin
 from events.admin.subscription import (
     MembershipPaymentAdmin,
     MembershipSubscriptionAdmin,
@@ -121,4 +122,6 @@ __all__ = [
     "MembershipPaymentAdmin",
     "MembershipSubscriptionAdmin",
     "MembershipSubscriptionPlanAdmin",
+    # Stripe webhooks
+    "StripeWebhookEventAdmin",
 ]

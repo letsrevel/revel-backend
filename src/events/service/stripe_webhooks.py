@@ -6,16 +6,86 @@ from decimal import Decimal
 
 import stripe
 import structlog
-from django.db import transaction
+from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
 from django.db.models import F
 
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
-from events.models import Organization, Payment, Ticket, TicketTier
+from events.exceptions import InvalidStripeWebhookSignatureError
+from events.models import Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import from_stripe_amount, to_stripe_amount
 
 logger = structlog.get_logger(__name__)
+
+# Placeholder values that must never be treated as real signing secrets.
+_PLACEHOLDER_SECRETS = frozenset({"whsec_...", "whsec_placeholder", ""})
+
+
+def verify_webhook(payload: bytes, signature_header: str) -> stripe.Event:
+    """Validate the ``Stripe-Signature`` header and return the parsed event.
+
+    A two-endpoint Connect setup (platform "Your account" + "Connected
+    accounts") points both endpoints at the same URL, each with its own
+    ``whsec_*`` secret. We can't know up front which endpoint signed a given
+    delivery, so we try each entry of ``settings.STRIPE_WEBHOOK_SECRETS`` in
+    order; the first HMAC match wins. If none match — or no real secret is
+    configured — we fail closed with ``InvalidStripeWebhookSignatureError``
+    (rendered as 403 by the events exception handler).
+    """
+    secrets = [s for s in settings.STRIPE_WEBHOOK_SECRETS if s not in _PLACEHOLDER_SECRETS]
+    if not secrets:
+        logger.warning("stripe_webhook_secret_missing")
+        raise InvalidStripeWebhookSignatureError()
+    last_error: stripe.error.SignatureVerificationError | None = None
+    for secret in secrets:
+        try:
+            return stripe.Webhook.construct_event(payload, signature_header, secret)
+        except stripe.error.SignatureVerificationError as exc:
+            last_error = exc
+            continue
+        except ValueError as exc:
+            # construct_event parses JSON only AFTER the HMAC matched, so the
+            # signature is fine and the body is malformed — retrying other
+            # secrets can't change the verdict. Terminal.
+            logger.warning("stripe_webhook_malformed_json", error=str(exc))
+            raise InvalidStripeWebhookSignatureError() from exc
+    logger.warning("stripe_webhook_signature_failed", error=str(last_error))
+    raise InvalidStripeWebhookSignatureError()
+
+
+@transaction.atomic
+def handle_event(event: stripe.Event) -> None:
+    """Route a verified event to its handler, idempotent on Stripe's event id.
+
+    The ``StripeWebhookEvent`` INSERT is the idempotency token: Stripe
+    redeliveries trip the unique constraint and return silently. The insert
+    runs in a nested atomic block (savepoint) so a duplicate-key violation
+    doesn't poison the outer transaction. If the handler raises, the whole
+    request transaction (ATOMIC_REQUESTS) rolls back including this row, so
+    the next Stripe retry reprocesses the event.
+    """
+    try:
+        with transaction.atomic():
+            record = StripeWebhookEvent.objects.create(
+                event_id=event.id,
+                event_type=event.type,
+                account=getattr(event, "account", "") or "",
+                livemode=bool(getattr(event, "livemode", False)),
+                payload=dict(event),
+            )
+    except (IntegrityError, DjangoValidationError):
+        # IntegrityError = DB unique violation (race past full_clean);
+        # ValidationError = TimeStampedModel.save's full_clean caught the
+        # duplicate first. Either way: redelivery, no-op.
+        logger.info("stripe_webhook_duplicate", event_id=event.id, event_type=event.type)
+        return
+
+    handled = StripeEventHandler(event).handle()
+    record.outcome = StripeWebhookEvent.Outcome.HANDLED if handled else StripeWebhookEvent.Outcome.UNHANDLED
+    record.save(update_fields=["outcome", "updated_at"])
 
 
 class StripeEventHandler:
@@ -25,11 +95,20 @@ class StripeEventHandler:
         """Initialize the Stripe event handler."""
         self.event = event
 
-    def handle(self) -> None:
-        """Routes the event to the appropriate handler based on its type."""
-        event_type = self.event.type
-        handler_method = getattr(self, f"handle_{event_type.replace('.', '_')}", self.handle_unknown_event)
-        handler_method(self.event)
+    def handle(self) -> bool:
+        """Route the event to its handler. Returns True if the type is mapped."""
+        handlers: dict[str, t.Callable[[stripe.Event], None]] = {
+            "checkout.session.completed": self.handle_checkout_session_completed,
+            "account.updated": self.handle_account_updated,
+            "charge.refunded": self.handle_charge_refunded,
+            "payment_intent.canceled": self.handle_payment_intent_canceled,
+        }
+        handler = handlers.get(self.event.type)
+        if handler is None:
+            self.handle_unknown_event(self.event)
+            return False
+        handler(self.event)
+        return True
 
     def handle_unknown_event(self, event: stripe.Event) -> None:
         """Log unhandled event types for future development."""

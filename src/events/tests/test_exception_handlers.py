@@ -14,7 +14,7 @@ import typing as t
 from django.http import HttpRequest
 
 from events.exception_handlers import HANDLERS
-from events.exceptions import InvalidResourceStateError
+from events.exceptions import InvalidResourceStateError, InvalidStripeWebhookSignatureError
 
 # The handlers ignore the request, so a typed ``None`` keeps mypy happy.
 _REQUEST = t.cast(HttpRequest, None)
@@ -25,3 +25,10 @@ def test_invalid_resource_state_error_maps_to_422() -> None:
     response = HANDLERS[InvalidResourceStateError](_REQUEST, exc)
     assert response.status_code == 422
     assert json.loads(response.content) == {"detail": "link: Must not be set for resource type 'text'"}
+
+
+def test_invalid_stripe_webhook_signature_maps_to_403() -> None:
+    """InvalidStripeWebhookSignatureError maps to a 403 static handler (fail closed)."""
+    response = HANDLERS[InvalidStripeWebhookSignatureError](_REQUEST, InvalidStripeWebhookSignatureError())
+    assert response.status_code == 403
+    assert json.loads(response.content) == {"detail": "Invalid Stripe signature"}

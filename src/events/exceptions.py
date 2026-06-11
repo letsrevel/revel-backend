@@ -39,3 +39,7 @@ class StripeNotConnectedError(Exception):
 
 class BillingInfoRequiredError(Exception):
     """Raised when an online-payment tier with platform fees lacks the organization's billing info."""
+
+
+class InvalidStripeWebhookSignatureError(Exception):
+    """Raised when no configured webhook secret verifies the Stripe-Signature header."""
