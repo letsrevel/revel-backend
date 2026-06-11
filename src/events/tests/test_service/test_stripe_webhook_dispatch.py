@@ -105,6 +105,30 @@ def test_handle_event_records_and_marks_handled() -> None:
     assert row.payload["id"] == "evt_dedup_1"
 
 
+def test_handle_event_platform_shaped_event_records_empty_account() -> None:
+    """An event with no "account" key (platform endpoint delivery) processes fine.
+
+    Host-as-org checkouts arrive via the platform endpoint, whose events carry
+    no account attribute — the log row stores an empty string and dispatch
+    proceeds normally.
+    """
+    event = stripe.Event.construct_from(
+        {
+            "id": "evt_platform_shaped",
+            "object": "event",
+            "type": "payment_intent.canceled",
+            "livemode": False,
+            # No "account" key, unlike Connect-endpoint deliveries.
+            "data": {"object": {"id": "pi_none", "object": "payment_intent"}},
+        },
+        "sk_test_x",
+    )
+    stripe_webhooks.handle_event(event)
+    row = StripeWebhookEvent.objects.get(event_id="evt_platform_shaped")
+    assert row.account == ""
+    assert row.outcome == StripeWebhookEvent.Outcome.HANDLED
+
+
 def test_handle_event_unknown_type_marked_unhandled() -> None:
     """An unmapped event type is logged as UNHANDLED, not an error."""
     stripe_webhooks.handle_event(_make_event(event_id="evt_unknown", event_type="customer.created"))

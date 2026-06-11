@@ -27,8 +27,20 @@ flowchart TD
     end
 ```
 
-!!! danger "Stripe webhook: own events vs. connected accounts"
-    A Stripe webhook endpoint can listen to **either** events on the platform's own account **or** events on connected accounts — not both simultaneously. This means the platform host's Stripe account (`STRIPE_ACCOUNT`) **must not** also be used as a connected organization account. If the host also runs an organization that sells tickets, that organization must connect a **separate** Stripe account. Otherwise, checkout webhooks (e.g., `checkout.session.completed`) will not be delivered correctly. This is a Stripe-level limitation configured in the Stripe Dashboard under **Developers > Webhooks**.
+!!! info "Stripe webhooks: two endpoints, one URL"
+    A Stripe webhook endpoint listens to **either** the platform's own account events
+    **or** connected-account events — never both. Revel therefore provisions **two**
+    endpoints (via `python manage.py provision_stripe_webhooks`), both pointing at
+    `/api/stripe/webhook`: one for "Your account" (platform) deliveries and one for
+    "Connected accounts" deliveries. Each has its own signing secret; the webhook
+    handler tries every entry of `STRIPE_WEBHOOK_SECRETS` until one verifies.
+    This is what allows the platform host's own Stripe account (`STRIPE_ACCOUNT`) to be
+    bound to an organization (superuser admin action on Organization): that org's
+    checkout events arrive via the platform endpoint, while Connect orgs' events arrive
+    via the Connect endpoint. Application fees are not collected for the host org
+    (Stripe does not permit application fees on own-account charges).
+    See the [webhook endpoints runbook](../runbooks/stripe-webhook-endpoints.md) for the
+    steady-state reference.
 
 ## VAT Calculation
 

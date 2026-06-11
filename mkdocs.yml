@@ -101,6 +101,7 @@ nav:
       - runbooks/dependency-audit.md
       - runbooks/admin-groups.md
       - runbooks/stripe-hardening-rollout.md
+      - runbooks/stripe-webhook-endpoints.md
   - Post-Mortems:
       - postmortems/index.md
       - postmortems/0001-guest-user-verification-bypass.md

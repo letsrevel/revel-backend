@@ -3,7 +3,8 @@
 
 import typing as t
 
-from django.contrib import admin
+from django.conf import settings
+from django.contrib import admin, messages
 from django.db.models import Count, OuterRef, QuerySet, Subquery
 from django.http import HttpRequest
 from django.urls import reverse
@@ -58,6 +59,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     search_fields = ["name", "slug", "owner__username"]
     autocomplete_fields = ["owner", "city", "staff_members", "members"]
     prepopulated_fields = {"slug": ("name",)}
+    actions = ["bind_platform_stripe_account", "unbind_platform_stripe_account"]
 
     tabs = [
         ("Settings", ["Settings"]),
@@ -110,6 +112,59 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         OrganizationQuestionnaireInline,
         VenueInline,
     ]
+
+    @admin.action(description="Bind to platform Stripe account (superuser only)")
+    def bind_platform_stripe_account(self, request: HttpRequest, queryset: QuerySet[models.Organization]) -> None:
+        """Point ONE org at the platform's own Stripe account.
+
+        Connect onboarding always creates a NEW account, so the host operator
+        binds the platform account explicitly here. Webhook delivery for this
+        org rides the platform ("Your account") endpoint — see
+        docs/architecture/billing-and-vat.md.
+        """
+        if not request.user.is_superuser:
+            self.message_user(request, "Superuser required.", level=messages.ERROR)
+            return
+        if queryset.count() != 1:
+            self.message_user(request, "Select exactly one organization.", level=messages.ERROR)
+            return
+        org = queryset.get()
+        if org.stripe_account_id:
+            self.message_user(
+                request, f"{org.slug} already has a Stripe account ({org.stripe_account_id}).", level=messages.ERROR
+            )
+            return
+        org.stripe_account_id = settings.STRIPE_ACCOUNT
+        org.stripe_charges_enabled = True
+        org.stripe_details_submitted = True
+        org.save(
+            update_fields=org._stripe_update_fields(
+                "stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"
+            )
+        )
+        self.message_user(request, f"{org.slug} bound to platform Stripe account.", level=messages.SUCCESS)
+
+    @admin.action(description="Unbind platform Stripe account (superuser only)")
+    def unbind_platform_stripe_account(self, request: HttpRequest, queryset: QuerySet[models.Organization]) -> None:
+        """Clear a platform-account binding. Refuses to touch real Connect accounts."""
+        if not request.user.is_superuser:
+            self.message_user(request, "Superuser required.", level=messages.ERROR)
+            return
+        for org in queryset:
+            if org.stripe_account_id != settings.STRIPE_ACCOUNT:
+                self.message_user(
+                    request, f"{org.slug} is not bound to the platform account — skipped.", level=messages.WARNING
+                )
+                continue
+            org.stripe_account_id = None
+            org.stripe_charges_enabled = False
+            org.stripe_details_submitted = False
+            org.save(
+                update_fields=org._stripe_update_fields(
+                    "stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted"
+                )
+            )
+            self.message_user(request, f"{org.slug} unbound from platform Stripe account.", level=messages.SUCCESS)
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[models.Organization]:
         qs: QuerySet[models.Organization] = super().get_queryset(request)
