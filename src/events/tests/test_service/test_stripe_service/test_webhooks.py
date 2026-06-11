@@ -464,6 +464,7 @@ class TestStripeEventHandler:
         organization.stripe_account_id = "acct_org_test"
         organization.save(update_fields=["stripe_account_id"])
 
+        handler.event.account = "acct_org_test"
         handler.event.data.object = {
             "id": "acct_org_test",
             "charges_enabled": True,
@@ -485,6 +486,7 @@ class TestStripeEventHandler:
         organization_owner_user.stripe_account_id = "acct_user_test"
         organization_owner_user.save(update_fields=["stripe_account_id"])
 
+        handler.event.account = "acct_user_test"
         handler.event.data.object = {
             "id": "acct_user_test",
             "charges_enabled": True,
@@ -503,6 +505,7 @@ class TestStripeEventHandler:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test that an unknown account ID is logged and does not raise."""
+        handler.event.account = "acct_unknown_999"
         handler.event.data.object = {
             "id": "acct_unknown_999",
             "charges_enabled": True,
@@ -512,3 +515,28 @@ class TestStripeEventHandler:
         handler.handle_account_updated(handler.event)
 
         assert "stripe_account_updated_unknown" in caplog.text
+
+    def test_handle_account_updated_platform_self_is_skipped(
+        self,
+        organization: Organization,
+    ) -> None:
+        """An account.updated with no event.account (platform self) must not touch the DB."""
+        organization.stripe_account_id = "acct_platform"
+        organization.save(update_fields=["stripe_account_id"])
+
+        event = stripe.Event.construct_from(
+            {
+                "id": "evt_self",
+                "object": "event",
+                "type": "account.updated",
+                "livemode": False,
+                # No "account" key: the event concerns the platform's own account.
+                "data": {"object": {"id": "acct_platform", "charges_enabled": True, "details_submitted": True}},
+            },
+            "sk_test_x",
+        )
+
+        StripeEventHandler(event).handle()
+
+        organization.refresh_from_db()
+        assert organization.stripe_charges_enabled is False, "platform-self event must not sync flags"

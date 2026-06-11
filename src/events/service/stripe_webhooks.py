@@ -275,6 +275,16 @@ class StripeEventHandler:
         charges_enabled and details_submitted status change during onboarding.
         Syncs the status on whichever model owns the account (Organization or RevelUser).
         """
+        if not getattr(event, "account", None):
+            # account.updated for the platform's OWN account (only possible if
+            # the platform endpoint ever subscribes to it) — nothing to mirror;
+            # host-org binding is managed via the admin action.
+            # warning, not debug: reaching this branch means the platform
+            # endpoint is subscribed to account.updated, which the provisioning
+            # command never does — surface the misconfiguration in prod logs.
+            logger.warning("stripe_account_updated_platform_self_skipped", event_id=event.id)
+            return
+
         account_data = event.data.object
         account_id = account_data["id"]
 
