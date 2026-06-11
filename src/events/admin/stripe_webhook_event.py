@@ -31,6 +31,10 @@ class StripeWebhookEventAdmin(ModelAdmin):  # type: ignore[misc]
         """Rows are recorded by the webhook handler; humans don't add them."""
         return False
 
+    def has_change_permission(self, request: HttpRequest, obj: models.StripeWebhookEvent | None = None) -> bool:
+        """The log is an audit trail; rows are immutable once recorded."""
+        return False
+
     def has_delete_permission(self, request: HttpRequest, obj: models.StripeWebhookEvent | None = None) -> bool:
         """Deleting the idempotency log would invite double-processing."""
         return False

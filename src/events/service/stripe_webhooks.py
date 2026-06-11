@@ -61,11 +61,17 @@ def handle_event(event: stripe.Event) -> None:
     """Route a verified event to its handler, idempotent on Stripe's event id.
 
     The ``StripeWebhookEvent`` INSERT is the idempotency token: Stripe
-    redeliveries trip the unique constraint and return silently. The insert
-    runs in a nested atomic block (savepoint) so a duplicate-key violation
-    doesn't poison the outer transaction. If the handler raises, the whole
-    request transaction (ATOMIC_REQUESTS) rolls back including this row, so
-    the next Stripe retry reprocesses the event.
+    redeliveries trip the unique constraint and skip the full handler. The
+    insert runs in a nested atomic block (savepoint) so a duplicate-key
+    violation doesn't poison the outer transaction. If the handler raises, the
+    whole request transaction (ATOMIC_REQUESTS) rolls back including this row,
+    so the next Stripe retry reprocesses the event.
+
+    A duplicate is not a pure no-op: the first delivery's ``on_commit``
+    ``.delay()`` calls ran *after* its commit and may have failed (e.g. broker
+    outage) without rolling anything back, so redelivery is Stripe's retry
+    mechanism for exactly that window — :meth:`StripeEventHandler.replay`
+    re-enqueues the idempotent downstream tasks.
     """
     try:
         with transaction.atomic():
@@ -79,8 +85,10 @@ def handle_event(event: stripe.Event) -> None:
     except (IntegrityError, DjangoValidationError):
         # IntegrityError = DB unique violation (race past full_clean);
         # ValidationError = TimeStampedModel.save's full_clean caught the
-        # duplicate first. Either way: redelivery, no-op.
+        # duplicate first. Either way: redelivery — retry the post-commit
+        # task dispatches, then stop.
         logger.info("stripe_webhook_duplicate", event_id=event.id, event_type=event.type)
+        StripeEventHandler(event).replay()
         return
 
     handled = StripeEventHandler(event).handle()
@@ -113,6 +121,74 @@ class StripeEventHandler:
     def handle_unknown_event(self, event: stripe.Event) -> None:
         """Log unhandled event types for future development."""
         logger.info("stripe_webhook_unhandled_event", event_type=event.type, event_id=event.id)
+
+    def replay(self) -> None:
+        """Re-enqueue idempotent downstream tasks for a redelivered event.
+
+        The dedup gate in :func:`handle_event` stops the full handler from
+        re-running, but the first delivery's ``transaction.on_commit``
+        ``.delay()`` calls fired after that commit and may have failed (e.g.
+        broker outage) without rolling the dedup row back. Stripe redelivery
+        is the retry mechanism for that window, so re-enqueue the tasks here;
+        downstream is idempotent and skips work already done.
+        """
+        replayers: dict[str, t.Callable[[stripe.Event], None]] = {
+            "checkout.session.completed": self.replay_checkout_session_completed,
+            "charge.refunded": self.replay_charge_refunded,
+        }
+        replayer = replayers.get(self.event.type)
+        if replayer is not None:
+            replayer(self.event)
+
+    def replay_checkout_session_completed(self, event: stripe.Event) -> None:
+        """Re-enqueue invoice generation for a redelivered checkout completion.
+
+        Mirrors the unconditional enqueue (and its guards) in
+        :meth:`handle_checkout_session_completed` so a ``.delay()`` that
+        failed on the first delivery gets retried.
+        """
+        session = event.data.object
+        session_id = session["id"]
+        if session["payment_status"] not in {"paid", "no_payment_required"}:
+            return
+        if not Payment.objects.filter(stripe_session_id=session_id).exists():
+            return
+
+        def _trigger_invoice() -> None:
+            from events.tasks import generate_attendee_invoice_task
+
+            generate_attendee_invoice_task.delay(session_id)
+
+        transaction.on_commit(_trigger_invoice)
+
+    def replay_charge_refunded(self, event: stripe.Event) -> None:
+        """Re-enqueue credit-note generation for a redelivered refund.
+
+        Mirrors the "pure duplicate webhook" branch of
+        :meth:`_schedule_credit_note`: the payments the first delivery
+        refunded are ``refund_status=SUCCEEDED`` by now, so retry the credit
+        note for exactly those.
+        """
+        payment_intent_id = event.data.object.get("payment_intent")
+        if not payment_intent_id:
+            return
+        refunded = list(
+            Payment.objects.filter(
+                stripe_payment_intent_id=payment_intent_id,
+                refund_status=Payment.RefundStatus.SUCCEEDED,
+            )
+        )
+        if not refunded:
+            return
+        sid = refunded[0].stripe_session_id
+        ids = [str(p.id) for p in refunded]
+
+        def _retry_credit_note() -> None:
+            from events.tasks import generate_attendee_credit_note_task
+
+            generate_attendee_credit_note_task.delay(sid, ids)
+
+        transaction.on_commit(_retry_credit_note)
 
     @transaction.atomic
     def handle_checkout_session_completed(self, event: stripe.Event) -> None:
