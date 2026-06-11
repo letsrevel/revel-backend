@@ -1,15 +1,16 @@
 """Tests for the Stripe webhook controller."""
 
 import json
+import time
 from unittest.mock import Mock, patch
 
 import pytest
 import stripe
-from django.conf import settings
+from django.test import override_settings
 from django.test.client import Client
-from ninja.errors import HttpError
 
 from events.controllers.stripe_webhook import StripeWebhookController
+from events.exceptions import InvalidStripeWebhookSignatureError
 
 pytestmark = pytest.mark.django_db
 
@@ -37,33 +38,26 @@ class TestStripeWebhookController:
         event.type = "checkout.session.completed"
         return event
 
-    @patch("stripe.Webhook.construct_event")
-    @patch("events.controllers.stripe_webhook.StripeEventHandler")
+    @patch("events.controllers.stripe_webhook.stripe_webhooks.handle_event")
+    @patch("events.controllers.stripe_webhook.stripe_webhooks.verify_webhook")
     def test_handle_webhook_success(
         self,
-        mock_handler_class: Mock,
-        mock_construct_event: Mock,
+        mock_verify: Mock,
+        mock_handle_event: Mock,
         controller: StripeWebhookController,
         mock_request: Mock,
         mock_stripe_event: Mock,
     ) -> None:
         """Test successful webhook handling."""
         # Arrange
-        mock_construct_event.return_value = mock_stripe_event
-        mock_handler_instance = Mock()
-        mock_handler_class.return_value = mock_handler_instance
+        mock_verify.return_value = mock_stripe_event
 
         # Act
         status, response = controller.handle_webhook(mock_request)
 
         # Assert
-        mock_construct_event.assert_called_once_with(
-            mock_request.body,
-            "t=123,v1=signature",
-            settings.STRIPE_WEBHOOK_SECRET,  # from settings
-        )
-        mock_handler_class.assert_called_once_with(mock_stripe_event)
-        mock_handler_instance.handle.assert_called_once()
+        mock_verify.assert_called_once_with(mock_request.body, "t=123,v1=signature")
+        mock_handle_event.assert_called_once_with(mock_stripe_event)
         assert status == 200
         assert response is None
 
@@ -77,47 +71,40 @@ class TestStripeWebhookController:
         mock_request.META = {}  # No signature header
 
         # Act & Assert
-        with pytest.raises(HttpError) as exc_info:
+        with pytest.raises(InvalidStripeWebhookSignatureError):
             controller.handle_webhook(mock_request)
 
-        assert exc_info.value.status_code == 400
-        assert "Invalid Stripe signature" in str(exc_info.value.message)
-
-    @patch("stripe.Webhook.construct_event")
+    @patch("events.controllers.stripe_webhook.stripe_webhooks.verify_webhook")
     def test_handle_webhook_invalid_signature(
         self,
-        mock_construct_event: Mock,
+        mock_verify: Mock,
         controller: StripeWebhookController,
         mock_request: Mock,
     ) -> None:
         """Test webhook handling with invalid signature."""
         # Arrange
-        mock_construct_event.side_effect = stripe.error.SignatureVerificationError("Invalid signature", "sig_header")
+        mock_verify.side_effect = InvalidStripeWebhookSignatureError()
 
         # Act & Assert
-        with pytest.raises(stripe.error.SignatureVerificationError):
+        with pytest.raises(InvalidStripeWebhookSignatureError):
             controller.handle_webhook(mock_request)
 
-        mock_construct_event.assert_called_once_with(
-            mock_request.body, "t=123,v1=signature", settings.STRIPE_WEBHOOK_SECRET
-        )
+        mock_verify.assert_called_once_with(mock_request.body, "t=123,v1=signature")
 
-    @patch("stripe.Webhook.construct_event")
-    @patch("events.controllers.stripe_webhook.StripeEventHandler")
+    @patch("events.controllers.stripe_webhook.stripe_webhooks.handle_event")
+    @patch("events.controllers.stripe_webhook.stripe_webhooks.verify_webhook")
     def test_handle_webhook_handler_exception(
         self,
-        mock_handler_class: Mock,
-        mock_construct_event: Mock,
+        mock_verify: Mock,
+        mock_handle_event: Mock,
         controller: StripeWebhookController,
         mock_request: Mock,
         mock_stripe_event: Mock,
     ) -> None:
         """Test webhook handling when handler raises exception."""
         # Arrange
-        mock_construct_event.return_value = mock_stripe_event
-        mock_handler_instance = Mock()
-        mock_handler_instance.handle.side_effect = Exception("Handler error")
-        mock_handler_class.return_value = mock_handler_instance
+        mock_verify.return_value = mock_stripe_event
+        mock_handle_event.side_effect = Exception("Handler error")
 
         # Act & Assert
         with pytest.raises(Exception) as exc_info:
@@ -140,12 +127,12 @@ class TestStripeWebhookIntegration:
         }
         return json.dumps(payload).encode()
 
-    @patch("stripe.Webhook.construct_event")
-    @patch("events.controllers.stripe_webhook.StripeEventHandler")
+    @patch("events.controllers.stripe_webhook.stripe_webhooks.handle_event")
+    @patch("events.controllers.stripe_webhook.stripe_webhooks.verify_webhook")
     def test_webhook_endpoint_integration(
         self,
-        mock_handler_class: Mock,
-        mock_construct_event: Mock,
+        mock_verify: Mock,
+        mock_handle_event: Mock,
         client: Client,
         webhook_payload: bytes,
     ) -> None:
@@ -153,10 +140,7 @@ class TestStripeWebhookIntegration:
         # Arrange
         mock_event = Mock(spec=stripe.Event)
         mock_event.type = "checkout.session.completed"
-        mock_construct_event.return_value = mock_event
-
-        mock_handler_instance = Mock()
-        mock_handler_class.return_value = mock_handler_instance
+        mock_verify.return_value = mock_event
 
         # Act
         response = client.post(
@@ -168,9 +152,8 @@ class TestStripeWebhookIntegration:
 
         # Assert
         assert response.status_code == 200
-        mock_construct_event.assert_called_once()
-        mock_handler_class.assert_called_once_with(mock_event)
-        mock_handler_instance.handle.assert_called_once()
+        mock_verify.assert_called_once()
+        mock_handle_event.assert_called_once_with(mock_event)
 
     def test_webhook_endpoint_missing_signature_integration(
         self,
@@ -187,6 +170,28 @@ class TestStripeWebhookIntegration:
         )
 
         # Assert
-        assert response.status_code == 400
+        assert response.status_code == 403
         response_data = response.json()
         assert "Invalid Stripe signature" in response_data["detail"]
+
+    @override_settings(STRIPE_WEBHOOK_SECRETS=["whsec_configured"])
+    def test_webhook_endpoint_wrong_secret_returns_403(
+        self,
+        client: Client,
+        webhook_payload: bytes,
+    ) -> None:
+        """A delivery signed with a secret we don't hold answers 403, not 500."""
+        timestamp = int(time.time())
+        signature = stripe.WebhookSignature._compute_signature(  # noqa: SLF001
+            f"{timestamp}.{webhook_payload.decode()}", "whsec_attacker"
+        )
+
+        response = client.post(
+            "/api/stripe/webhook",
+            data=webhook_payload,
+            content_type="application/json",
+            HTTP_STRIPE_SIGNATURE=f"t={timestamp},v1={signature}",
+        )
+
+        assert response.status_code == 403
+        assert "Invalid Stripe signature" in response.json()["detail"]
