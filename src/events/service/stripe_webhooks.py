@@ -116,6 +116,14 @@ class StripeEventHandler:
             "account.updated": self.handle_account_updated,
             "charge.refunded": self.handle_charge_refunded,
             "payment_intent.canceled": self.handle_payment_intent_canceled,
+            # Membership subscriptions (Phases 2-4). Diff-based and idempotent:
+            # the dedup gate skips true redeliveries, these also tolerate the
+            # nightly reconciliation feeding them retrieved payloads.
+            "customer.subscription.created": self.handle_customer_subscription_created,
+            "customer.subscription.updated": self.handle_customer_subscription_updated,
+            "customer.subscription.deleted": self.handle_customer_subscription_deleted,
+            "invoice.paid": self.handle_invoice_paid,
+            "invoice.payment_failed": self.handle_invoice_payment_failed,
         }
         handler = handlers.get(self.event.type)
         if handler is None:

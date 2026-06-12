@@ -38,7 +38,11 @@ from events.utils.currency import from_stripe_amount, to_stripe_amount
 
 logger = structlog.get_logger(__name__)
 
+# Pin both credentials and API version at import time (mirrors stripe_service):
+# this module makes its own outbound calls and must not rely on another
+# module's import side effects to set the pin.
 stripe.api_key = settings.STRIPE_SECRET_KEY
+stripe.api_version = settings.STRIPE_API_VERSION
 
 
 # ---- Stripe-account helpers --------------------------------------------------
@@ -252,7 +256,7 @@ def start_online_subscription(
         "items": [{"price": plan.stripe_price_id}],
         "payment_behavior": "default_incomplete",
         "payment_settings": {"save_default_payment_method": "on_subscription"},
-        "expand": ["latest_invoice.payment_intent"],
+        "expand": ["latest_invoice.confirmation_secret"],
         "metadata": {
             "revel_subscription_id": str(subscription.pk),
             "revel_user_id": str(user.pk),
@@ -308,18 +312,30 @@ def start_online_subscription(
 
 
 def _extract_client_secret(stripe_sub: stripe.Subscription) -> str | None:
-    """Pull the PaymentIntent client_secret off an expanded Subscription."""
+    """Pull the payment client_secret off an expanded Subscription.
+
+    From API version 2025-03-31.basil (we pin dahlia) the confirmable secret
+    lives at ``latest_invoice.confirmation_secret.client_secret`` (expanded at
+    create time); ``invoice.payment_intent`` no longer exists. The legacy path
+    is kept as a fallback for old fixtures / unpinned tooling.
+    """
     invoice = getattr(stripe_sub, "latest_invoice", None)
     if not invoice:
         return None
-    payment_intent = (
-        invoice.get("payment_intent") if isinstance(invoice, dict) else getattr(invoice, "payment_intent", None)
-    )
+
+    def _get(obj: t.Any, key: str) -> t.Any:
+        return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+    confirmation_secret = _get(invoice, "confirmation_secret")
+    if confirmation_secret:
+        secret = _get(confirmation_secret, "client_secret")
+        if secret:
+            return t.cast(str, secret)
+
+    payment_intent = _get(invoice, "payment_intent")
     if not payment_intent:
         return None
-    if isinstance(payment_intent, dict):
-        return t.cast(str | None, payment_intent.get("client_secret"))
-    return t.cast(str | None, getattr(payment_intent, "client_secret", None))
+    return t.cast(str | None, _get(payment_intent, "client_secret"))
 
 
 def create_revival_subscription(subscription: MembershipSubscription) -> str:
@@ -358,7 +374,7 @@ def create_revival_subscription(subscription: MembershipSubscription) -> str:
         "items": [{"price": plan.stripe_price_id}],
         "payment_behavior": "default_incomplete",
         "payment_settings": {"save_default_payment_method": "on_subscription"},
-        "expand": ["latest_invoice.payment_intent"],
+        "expand": ["latest_invoice.confirmation_secret"],
         "metadata": {
             "revel_subscription_id": str(subscription.pk),
             "revel_user_id": str(subscription.user_id),
@@ -684,17 +700,34 @@ def _resolve_target_status(stripe_subscription: dict[str, t.Any]) -> str | None:
     return mapped
 
 
+def _subscription_period_epochs(stripe_subscription: dict[str, t.Any]) -> tuple[int | None, int | None]:
+    """Extract ``current_period_{start,end}`` from a Subscription payload.
+
+    API versions >= 2025-03-31.basil (we pin dahlia) moved the period from the
+    Subscription's top level onto each subscription item; single-item
+    subscriptions (our only shape) carry it on ``items.data[0]``. Older
+    payloads (tests, fixtures, any unpinned tooling) still have the top-level
+    fields, so fall back to those.
+    """
+    items_data = (stripe_subscription.get("items") or {}).get("data") or []
+    item = items_data[0] if items_data else {}
+    start = item.get("current_period_start") or stripe_subscription.get("current_period_start")
+    end = item.get("current_period_end") or stripe_subscription.get("current_period_end")
+    return start, end
+
+
 def _apply_period_dates(
     subscription: MembershipSubscription,
     stripe_subscription: dict[str, t.Any],
 ) -> list[str]:
     """Mirror Stripe's ``current_period_*`` epochs onto the local row in place."""
     changed: list[str] = []
-    new_start = _epoch_to_dt(stripe_subscription.get("current_period_start"))
+    start_epoch, end_epoch = _subscription_period_epochs(stripe_subscription)
+    new_start = _epoch_to_dt(start_epoch)
     if new_start and subscription.current_period_start != new_start:
         subscription.current_period_start = new_start
         changed.append("current_period_start")
-    new_end = _epoch_to_dt(stripe_subscription.get("current_period_end"))
+    new_end = _epoch_to_dt(end_epoch)
     if new_end and subscription.current_period_end != new_end:
         subscription.current_period_end = new_end
         changed.append("current_period_end")
@@ -792,6 +825,73 @@ def sync_subscription_from_stripe(
     return subscription
 
 
+def _as_stripe_id(value: t.Any) -> str:
+    """Normalize a possibly-expanded Stripe reference to its string id."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return t.cast(str, value.get("id") or "")
+    return t.cast(str, getattr(value, "id", "") or "")
+
+
+def _invoice_subscription_id(invoice: dict[str, t.Any]) -> str:
+    """Extract the Subscription id from an Invoice payload.
+
+    API versions >= 2025-03-31.basil (we pin dahlia) moved it from the
+    top-level ``subscription`` field to
+    ``parent.subscription_details.subscription``. Try the modern path first,
+    then the legacy field (old fixtures / unpinned tooling).
+    """
+    parent = invoice.get("parent") or {}
+    details = parent.get("subscription_details") or {}
+    modern = _as_stripe_id(details.get("subscription"))
+    if modern:
+        return modern
+    return _as_stripe_id(invoice.get("subscription"))
+
+
+def _invoice_payment_intent_id(invoice: dict[str, t.Any], organization: Organization) -> str:
+    """Extract the PaymentIntent id from an Invoice payload, fetching if needed.
+
+    Pre-basil payloads carry ``invoice.payment_intent``. From 2025-03-31.basil
+    an invoice can have multiple partial payments and the field moved to the
+    ``payments`` list (``payments.data[].payment.payment_intent``), which
+    webhook payloads do NOT embed — so fall back to an outbound
+    ``stripe.Invoice.retrieve(..., expand=["payments"])``. Best-effort: the id
+    feeds refund routing (charge.refunded → MembershipPayment matching) and
+    audit, so an empty string is tolerated rather than failing the webhook.
+    """
+    legacy = _as_stripe_id(invoice.get("payment_intent"))
+    if legacy:
+        return legacy
+
+    def _scan(payments_obj: t.Any) -> str:
+        data = (payments_obj or {}).get("data") or []
+        for entry in data:
+            intent = _as_stripe_id((entry.get("payment") or {}).get("payment_intent"))
+            if intent:
+                return intent
+        return ""
+
+    found = _scan(invoice.get("payments"))
+    if found:
+        return found
+
+    invoice_id = invoice.get("id")
+    if not invoice_id:
+        return ""
+    try:
+        retrieved = stripe.Invoice.retrieve(
+            invoice_id,
+            expand=["payments"],
+            **_stripe_account_kwargs(organization),
+        )
+    except stripe.error.StripeError:
+        logger.warning("subscription_invoice_payments_fetch_failed", stripe_invoice_id=invoice_id)
+        return ""
+    return _scan(dict(retrieved).get("payments"))
+
+
 @transaction.atomic
 def record_stripe_payment_from_invoice(
     invoice: dict[str, t.Any],
@@ -809,7 +909,7 @@ def record_stripe_payment_from_invoice(
         The created/updated :class:`MembershipPayment`, or ``None`` when the
         invoice belongs to a Stripe Subscription we don't know.
     """
-    stripe_sub_id = invoice.get("subscription")
+    stripe_sub_id = _invoice_subscription_id(invoice)
     invoice_id = invoice.get("id")
     if not stripe_sub_id or not invoice_id:
         return None
@@ -838,7 +938,7 @@ def record_stripe_payment_from_invoice(
     period_start = _epoch_to_dt(period.get("start")) or timezone.now()
     period_end = _epoch_to_dt(period.get("end")) or timezone.now()
 
-    payment_intent_id = invoice.get("payment_intent") or ""
+    payment_intent_id = _invoice_payment_intent_id(invoice, subscription.organization)
 
     payment, created = MembershipPayment.objects.update_or_create(
         stripe_invoice_id=invoice_id,

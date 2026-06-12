@@ -196,6 +196,7 @@ class TestStripeWebhookIntegration:
         assert response.status_code == 403
         assert "Invalid Stripe signature" in response.json()["detail"]
 
+
 class TestSubscriptionWebhookDispatch:
     """Phase 2 — the ``StripeEventHandler`` routes subscription/invoice events.
 

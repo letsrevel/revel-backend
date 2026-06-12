@@ -30,6 +30,14 @@ PLATFORM_EVENTS: tuple[str, ...] = (
     "checkout.session.completed",
     "charge.refunded",
     "payment_intent.canceled",
+    # Membership subscriptions live on connected accounts (direct charges,
+    # ADR-0012), but a host-as-org binding (#495) routes the same events
+    # through the platform endpoint — subscribe both.
+    "customer.subscription.created",
+    "customer.subscription.updated",
+    "customer.subscription.deleted",
+    "invoice.paid",
+    "invoice.payment_failed",
 )
 CONNECT_EVENTS: tuple[str, ...] = PLATFORM_EVENTS + ("account.updated",)
 
