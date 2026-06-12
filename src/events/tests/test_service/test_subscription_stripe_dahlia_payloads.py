@@ -131,7 +131,7 @@ def test_invoice_without_embedded_payments_fetches_outbound(
     """Webhook payloads don't embed ``payments`` — resolve via Invoice.retrieve."""
     retrieved = {"payments": {"data": [{"payment": {"type": "payment_intent", "payment_intent": "pi_fetched"}}]}}
     with mock.patch(
-        "events.service.subscription_stripe_service.stripe.Invoice.retrieve",
+        "events.service.subscription_stripe_payloads.stripe.Invoice.retrieve",
         return_value=retrieved,
     ) as mock_retrieve:
         payment = subscription_stripe_service.record_stripe_payment_from_invoice(
@@ -150,7 +150,7 @@ def test_invoice_payment_intent_fetch_failure_is_tolerated(
 ) -> None:
     """A failed payments lookup must not fail the webhook — the id is best-effort."""
     with mock.patch(
-        "events.service.subscription_stripe_service.stripe.Invoice.retrieve",
+        "events.service.subscription_stripe_payloads.stripe.Invoice.retrieve",
         side_effect=stripe.error.StripeError("boom"),
     ):
         payment = subscription_stripe_service.record_stripe_payment_from_invoice(

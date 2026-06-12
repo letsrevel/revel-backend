@@ -8,7 +8,6 @@ webhook handlers in :mod:`events.service.stripe_webhooks`.
 
 import typing as t
 from datetime import datetime
-from datetime import timezone as _utc
 from decimal import Decimal
 
 import stripe
@@ -34,6 +33,13 @@ from events.service.subscription_stripe_dispatch import (
     _dispatch_invoice_notifications,
     _dispatch_sync_notifications,
 )
+from events.service.subscription_stripe_payloads import (
+    _epoch_to_dt,
+    _invoice_payment_intent_id,
+    _invoice_subscription_id,
+    _stripe_account_kwargs,
+    _subscription_period_epochs,
+)
 from events.utils.currency import from_stripe_amount, to_stripe_amount
 
 logger = structlog.get_logger(__name__)
@@ -46,17 +52,6 @@ stripe.api_version = settings.STRIPE_API_VERSION
 
 
 # ---- Stripe-account helpers --------------------------------------------------
-
-
-def _stripe_account_kwargs(organization: Organization) -> dict[str, str]:
-    """Return ``stripe_account=...`` kwargs for a Connect API call.
-
-    When the organization happens to share the platform's own Stripe account,
-    omit the kwarg entirely (mirrors :mod:`events.service.stripe_service`).
-    """
-    if organization.stripe_account_id and organization.stripe_account_id != settings.STRIPE_ACCOUNT:
-        return {"stripe_account": organization.stripe_account_id}
-    return {}
 
 
 def _require_stripe_connected(organization: Organization) -> None:
@@ -338,6 +333,41 @@ def _extract_client_secret(stripe_sub: stripe.Subscription) -> str | None:
     return t.cast(str | None, _get(payment_intent, "client_secret"))
 
 
+def cancel_stripe_subscription_best_effort(subscription: MembershipSubscription, *, reason: str) -> bool:
+    """Best-effort ``stripe.Subscription.cancel`` for a locally-terminalized row.
+
+    Local terminalization (grace expiry, revival superseding an old sub) must
+    close the Stripe side too, or Smart Retries keep dunning a member who has
+    already lost access locally (C1/C2 in the 2026-06-10 reassessment). Errors
+    are logged, never raised: the local state machine stays authoritative and
+    the nightly reconciliation re-observes whatever Stripe ends up with.
+
+    Returns True when the cancel call succeeded (False on no-op or failure).
+    """
+    if not subscription.stripe_subscription_id:
+        return False
+    try:
+        stripe.Subscription.cancel(  # type: ignore[attr-defined]
+            subscription.stripe_subscription_id,
+            **_stripe_account_kwargs(subscription.organization),
+        )
+    except stripe.error.StripeError:
+        logger.exception(
+            "subscription_stripe_cancel_on_terminalize_failed",
+            subscription_id=str(subscription.pk),
+            stripe_subscription_id=subscription.stripe_subscription_id,
+            reason=reason,
+        )
+        return False
+    logger.info(
+        "subscription_stripe_cancelled_on_terminalize",
+        subscription_id=str(subscription.pk),
+        stripe_subscription_id=subscription.stripe_subscription_id,
+        reason=reason,
+    )
+    return True
+
+
 def create_revival_subscription(subscription: MembershipSubscription) -> str:
     """Provision a fresh Stripe Subscription for an EXPIRED local row.
 
@@ -354,6 +384,13 @@ def create_revival_subscription(subscription: MembershipSubscription) -> str:
     plan = subscription.plan
     org = subscription.organization
     _require_stripe_connected(org)
+
+    # The old Stripe sub may still be alive in past_due dunning when the local
+    # row expired first (grace clock beat Smart Retries). Close it before its
+    # id is overwritten below, or a late retry success would bill a sub whose
+    # events no longer match any local row (invisible double billing, C2).
+    cancel_stripe_subscription_best_effort(subscription, reason="revival_supersedes")
+
     if not plan.stripe_price_id:
         plan = ensure_stripe_price(plan)
         subscription.plan = plan
@@ -675,13 +712,6 @@ def map_stripe_status(stripe_status: str) -> str | None:
     return _STRIPE_STATUS_MAP.get(stripe_status)
 
 
-def _epoch_to_dt(epoch: int | None) -> datetime | None:
-    """Convert a Stripe Unix timestamp to a tz-aware datetime."""
-    if epoch is None:
-        return None
-    return datetime.fromtimestamp(epoch, tz=_utc.utc)
-
-
 def _resolve_target_status(stripe_subscription: dict[str, t.Any]) -> str | None:
     """Translate the Stripe payload to a local status, honoring ``pause_collection``.
 
@@ -698,22 +728,6 @@ def _resolve_target_status(stripe_subscription: dict[str, t.Any]) -> str | None:
     if stripe_subscription.get("pause_collection"):
         return MembershipSubscription.SubscriptionStatus.PAUSED.value
     return mapped
-
-
-def _subscription_period_epochs(stripe_subscription: dict[str, t.Any]) -> tuple[int | None, int | None]:
-    """Extract ``current_period_{start,end}`` from a Subscription payload.
-
-    API versions >= 2025-03-31.basil (we pin dahlia) moved the period from the
-    Subscription's top level onto each subscription item; single-item
-    subscriptions (our only shape) carry it on ``items.data[0]``. Older
-    payloads (tests, fixtures, any unpinned tooling) still have the top-level
-    fields, so fall back to those.
-    """
-    items_data = (stripe_subscription.get("items") or {}).get("data") or []
-    item = items_data[0] if items_data else {}
-    start = item.get("current_period_start") or stripe_subscription.get("current_period_start")
-    end = item.get("current_period_end") or stripe_subscription.get("current_period_end")
-    return start, end
 
 
 def _apply_period_dates(
@@ -791,6 +805,22 @@ def sync_subscription_from_stripe(
     if subscription is None:
         return None
 
+    if subscription.is_terminal:
+        # Terminal rows are frozen. A late/out-of-order event (e.g. a stale
+        # ``updated(active)`` racing a deletion, or Stripe dunning noise after
+        # a local grace expiry) must never un-terminalize: if the user has
+        # since re-subscribed, reviving this row would trip the partial unique
+        # index, 500 the webhook, and put Stripe's retry loop (and eventually
+        # the whole endpoint) at risk (C3 in the 2026-06-10 reassessment).
+        logger.info(
+            "subscription_sync_ignored_terminal_row",
+            subscription_id=str(subscription.pk),
+            stripe_subscription_id=stripe_id,
+            local_status=subscription.status,
+            stripe_status=stripe_subscription.get("status"),
+        )
+        return subscription
+
     prior_status = subscription.status  # captured before mutations for D3 dispatch gates
     prior_cap = subscription.cancel_at_period_end
 
@@ -825,71 +855,44 @@ def sync_subscription_from_stripe(
     return subscription
 
 
-def _as_stripe_id(value: t.Any) -> str:
-    """Normalize a possibly-expanded Stripe reference to its string id."""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, dict):
-        return t.cast(str, value.get("id") or "")
-    return t.cast(str, getattr(value, "id", "") or "")
-
-
-def _invoice_subscription_id(invoice: dict[str, t.Any]) -> str:
-    """Extract the Subscription id from an Invoice payload.
-
-    API versions >= 2025-03-31.basil (we pin dahlia) moved it from the
-    top-level ``subscription`` field to
-    ``parent.subscription_details.subscription``. Try the modern path first,
-    then the legacy field (old fixtures / unpinned tooling).
-    """
-    parent = invoice.get("parent") or {}
-    details = parent.get("subscription_details") or {}
-    modern = _as_stripe_id(details.get("subscription"))
-    if modern:
-        return modern
-    return _as_stripe_id(invoice.get("subscription"))
-
-
-def _invoice_payment_intent_id(invoice: dict[str, t.Any], organization: Organization) -> str:
-    """Extract the PaymentIntent id from an Invoice payload, fetching if needed.
-
-    Pre-basil payloads carry ``invoice.payment_intent``. From 2025-03-31.basil
-    an invoice can have multiple partial payments and the field moved to the
-    ``payments`` list (``payments.data[].payment.payment_intent``), which
-    webhook payloads do NOT embed — so fall back to an outbound
-    ``stripe.Invoice.retrieve(..., expand=["payments"])``. Best-effort: the id
-    feeds refund routing (charge.refunded → MembershipPayment matching) and
-    audit, so an empty string is tolerated rather than failing the webhook.
-    """
-    legacy = _as_stripe_id(invoice.get("payment_intent"))
-    if legacy:
-        return legacy
-
-    def _scan(payments_obj: t.Any) -> str:
-        data = (payments_obj or {}).get("data") or []
-        for entry in data:
-            intent = _as_stripe_id((entry.get("payment") or {}).get("payment_intent"))
-            if intent:
-                return intent
-        return ""
-
-    found = _scan(invoice.get("payments"))
-    if found:
-        return found
-
-    invoice_id = invoice.get("id")
-    if not invoice_id:
-        return ""
-    try:
-        retrieved = stripe.Invoice.retrieve(
-            invoice_id,
-            expand=["payments"],
-            **_stripe_account_kwargs(organization),
-        )
-    except stripe.error.StripeError:
-        logger.warning("subscription_invoice_payments_fetch_failed", stripe_invoice_id=invoice_id)
-        return ""
-    return _scan(dict(retrieved).get("payments"))
+def _apply_invoice_outcome(
+    subscription: MembershipSubscription,
+    *,
+    succeeded: bool,
+    period_start: datetime,
+    period_end: datetime,
+) -> None:
+    """Mirror an invoice outcome onto the subscription row (caller holds the lock)."""
+    if succeeded:
+        # Mirror the period from the invoice line and revive PENDING/PAST_DUE.
+        update_fields: list[str] = []
+        if subscription.current_period_start != period_start:
+            subscription.current_period_start = period_start
+            update_fields.append("current_period_start")
+        if subscription.current_period_end != period_end:
+            subscription.current_period_end = period_end
+            update_fields.append("current_period_end")
+        revivable = {
+            MembershipSubscription.SubscriptionStatus.PENDING.value,
+            MembershipSubscription.SubscriptionStatus.PAST_DUE.value,
+        }
+        if subscription.status in revivable:
+            subscription.status = MembershipSubscription.SubscriptionStatus.ACTIVE
+            update_fields.append("status")
+        if update_fields:
+            subscription.save(update_fields=[*update_fields, "updated_at"])
+        if subscription.status == MembershipSubscription.SubscriptionStatus.ACTIVE.value:
+            # Guarded: a payment recorded against a non-revivable (e.g.
+            # EXPIRED) row must not mint an ACTIVE OrganizationMember.
+            _ensure_active_member(subscription)
+        return
+    # Mirror PAST_DUE; the grace-expiry Celery task takes over from here.
+    if subscription.status in {
+        MembershipSubscription.SubscriptionStatus.ACTIVE.value,
+        MembershipSubscription.SubscriptionStatus.PENDING.value,
+    }:
+        subscription.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
+        subscription.save(update_fields=["status", "updated_at"])
 
 
 @transaction.atomic
@@ -956,33 +959,7 @@ def record_stripe_payment_from_invoice(
         },
     )
 
-    if succeeded:
-        # Mirror the period from the invoice line and revive PENDING/PAST_DUE.
-        update_fields: list[str] = []
-        if subscription.current_period_start != period_start:
-            subscription.current_period_start = period_start
-            update_fields.append("current_period_start")
-        if subscription.current_period_end != period_end:
-            subscription.current_period_end = period_end
-            update_fields.append("current_period_end")
-        revivable = {
-            MembershipSubscription.SubscriptionStatus.PENDING.value,
-            MembershipSubscription.SubscriptionStatus.PAST_DUE.value,
-        }
-        if subscription.status in revivable:
-            subscription.status = MembershipSubscription.SubscriptionStatus.ACTIVE
-            update_fields.append("status")
-        if update_fields:
-            subscription.save(update_fields=[*update_fields, "updated_at"])
-        _ensure_active_member(subscription)
-    else:
-        # Mirror PAST_DUE; the grace-expiry Celery task takes over from here.
-        if subscription.status in {
-            MembershipSubscription.SubscriptionStatus.ACTIVE.value,
-            MembershipSubscription.SubscriptionStatus.PENDING.value,
-        }:
-            subscription.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
-            subscription.save(update_fields=["status", "updated_at"])
+    _apply_invoice_outcome(subscription, succeeded=succeeded, period_start=period_start, period_end=period_end)
 
     _dispatch_invoice_notifications(
         subscription, prior_status=prior_status, succeeded=succeeded, payment_created=created

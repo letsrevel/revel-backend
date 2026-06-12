@@ -290,12 +290,20 @@ class TestOnlineRevivalSuccess:
             stripe_subscription_id="sub_old_dead",
         )
 
-        with patch("events.service.subscription_stripe_service.stripe.Subscription.create") as create_mock:
+        with (
+            patch("events.service.subscription_stripe_service.stripe.Subscription.create") as create_mock,
+            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel") as cancel_mock,
+        ):
             create_mock.return_value = MagicMock(
                 id="sub_new_alive",
                 latest_invoice={"payment_intent": {"client_secret": "pi_revival_secret"}},
             )
             result, client_secret = subscription_service.revive_subscription(sub)
+
+        # C2: the old (possibly still-dunning) Stripe sub is closed before its
+        # id is overwritten, so a late retry success can't double-bill.
+        cancel_mock.assert_called_once()
+        assert cancel_mock.call_args.args[0] == "sub_old_dead"
 
         result.refresh_from_db()
         assert result.stripe_subscription_id == "sub_new_alive"
@@ -345,7 +353,10 @@ class TestOnlineRevivalSuccess:
 
         import stripe as stripe_lib
 
-        with patch("events.service.subscription_stripe_service.stripe.Subscription.create") as create_mock:
+        with (
+            patch("events.service.subscription_stripe_service.stripe.Subscription.create") as create_mock,
+            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
+        ):
             create_mock.side_effect = stripe_lib.error.APIConnectionError("network failure")
             with pytest.raises(HttpError) as exc:
                 subscription_service.revive_subscription(sub)
@@ -387,7 +398,10 @@ class TestOnlineRevivalSuccess:
             expired_at=expired_at,
         )
 
-        with patch("events.service.subscription_stripe_service.stripe.Subscription.create") as create_mock:
+        with (
+            patch("events.service.subscription_stripe_service.stripe.Subscription.create") as create_mock,
+            patch("events.service.subscription_stripe_service.stripe.Subscription.cancel"),
+        ):
             create_mock.return_value = MagicMock(
                 id="sub_meta_new",
                 latest_invoice={"payment_intent": {"client_secret": "pi_meta_secret"}},
