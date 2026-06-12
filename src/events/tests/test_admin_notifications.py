@@ -39,7 +39,7 @@ def _make_response(status_code: int = 200) -> MagicMock:
 @pytest.mark.django_db
 @override_settings(PUSHOVER_USER_KEY="", PUSHOVER_APP_TOKEN="")
 def test_org_pushover_skipped_when_not_configured(organization: Organization) -> None:
-    with patch("events.tasks.httpx.post") as mock_post:
+    with patch("events.tasks.admin_alerts.httpx.post") as mock_post:
         result = notify_admin_new_organization_pushover(organization_id=str(organization.id))
     assert result == {"status": "skipped", "reason": "pushover_not_configured"}
     mock_post.assert_not_called()
@@ -50,7 +50,7 @@ def test_org_pushover_skipped_when_not_configured(organization: Organization) ->
 def test_org_pushover_includes_name_owner_and_count(
     organization: Organization, organization_owner_user: RevelUser
 ) -> None:
-    with patch("events.tasks.httpx.post", return_value=_make_response()) as mock_post:
+    with patch("events.tasks.admin_alerts.httpx.post", return_value=_make_response()) as mock_post:
         notify_admin_new_organization_pushover(organization_id=str(organization.id))
 
     message = mock_post.call_args.kwargs["data"]["message"]
@@ -63,7 +63,7 @@ def test_org_pushover_includes_name_owner_and_count(
 @pytest.mark.django_db
 @override_settings(DISCORD_ADMIN_WEBHOOK_URL="")
 def test_org_discord_skipped_when_not_configured(organization: Organization) -> None:
-    with patch("events.tasks.httpx.post") as mock_post:
+    with patch("events.tasks.admin_alerts.httpx.post") as mock_post:
         result = notify_admin_new_organization_discord(organization_id=str(organization.id))
     assert result == {"status": "skipped", "reason": "discord_webhook_not_configured"}
     mock_post.assert_not_called()
@@ -74,7 +74,7 @@ def test_org_discord_skipped_when_not_configured(organization: Organization) -> 
 def test_org_discord_includes_name_owner_email_and_count(
     organization: Organization, organization_owner_user: RevelUser
 ) -> None:
-    with patch("events.tasks.httpx.post", return_value=_make_response()) as mock_post:
+    with patch("events.tasks.admin_alerts.httpx.post", return_value=_make_response()) as mock_post:
         notify_admin_new_organization_discord(organization_id=str(organization.id))
 
     payload = mock_post.call_args.kwargs["json"]

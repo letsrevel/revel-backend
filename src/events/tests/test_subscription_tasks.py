@@ -194,3 +194,141 @@ class TestExpireSubscriptions:
         for sub in to_expired_grace:
             sub.refresh_from_db()
             assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+
+    def test_expired_at_set_on_cancel_at_period_end_expiry(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser
+    ) -> None:
+        """ACTIVE sub with cancel_at_period_end=True must have expired_at stamped on expiry."""
+        period_end = datetime.datetime(2026, 5, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        _make_active_sub(plan, subscriber, period_end, cancel_at_period_end=True)
+
+        with freeze_time("2026-05-02 13:00:00"):
+            expire_subscriptions_past_grace()
+
+        sub = MembershipSubscription.objects.get(user=subscriber)
+        assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+        assert sub.expired_at is not None
+
+    def test_expired_at_set_on_past_due_grace_expiry(
+        self, plan: MembershipSubscriptionPlan, subscriber: RevelUser
+    ) -> None:
+        """PAST_DUE sub that exceeds the grace window must have expired_at stamped on expiry."""
+        period_end = datetime.datetime(2026, 5, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        sub = _make_active_sub(plan, subscriber, period_end)
+        sub.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
+        sub.save()
+
+        # 10 days past period_end, default grace is 7.
+        with freeze_time("2026-05-11 13:00:00"):
+            expire_subscriptions_past_grace()
+
+        sub.refresh_from_db()
+        assert sub.status == MembershipSubscription.SubscriptionStatus.EXPIRED
+        assert sub.expired_at is not None
+
+    def test_offline_active_to_past_due_fires_payment_failed(
+        self,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization: Organization,
+    ) -> None:
+        """OFFLINE ACTIVE sub that lapses → PAST_DUE fires SUBSCRIPTION_PAYMENT_FAILED."""
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        period_end = datetime.datetime(2026, 5, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        _make_active_sub(plan, subscriber, period_end)
+
+        # 2 days past period_end, well within the default 7-day grace.
+        with freeze_time("2026-05-03 12:00:00"):
+            expire_subscriptions_past_grace()
+
+        assert Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
+        ).exists()
+
+    def test_offline_cancel_at_period_end_expiry_fires_subscription_expired(
+        self,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization: Organization,
+    ) -> None:
+        """OFFLINE ACTIVE sub with cancel_at_period_end=True → EXPIRED fires SUBSCRIPTION_EXPIRED."""
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        period_end = datetime.datetime(2026, 5, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        _make_active_sub(plan, subscriber, period_end, cancel_at_period_end=True)
+
+        with freeze_time("2026-05-02 13:00:00"):
+            expire_subscriptions_past_grace()
+
+        assert Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_EXPIRED,
+        ).exists()
+
+    def test_offline_past_due_beyond_grace_fires_subscription_expired(
+        self,
+        plan: MembershipSubscriptionPlan,
+        subscriber: RevelUser,
+        organization: Organization,
+    ) -> None:
+        """OFFLINE PAST_DUE sub beyond grace window → EXPIRED fires SUBSCRIPTION_EXPIRED."""
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        period_end = datetime.datetime(2026, 5, 1, 12, 0, tzinfo=datetime.timezone.utc)
+        sub = _make_active_sub(plan, subscriber, period_end)
+        sub.status = MembershipSubscription.SubscriptionStatus.PAST_DUE
+        sub.save()
+
+        # 10 days past period_end, grace is 7.
+        with freeze_time("2026-05-11 13:00:00"):
+            expire_subscriptions_past_grace()
+
+        assert Notification.objects.filter(
+            user=subscriber,
+            notification_type=NotificationType.SUBSCRIPTION_EXPIRED,
+        ).exists()
+
+    def test_online_lapsed_does_not_fire_notification(
+        self,
+        organization: Organization,
+        tier: MembershipTier,
+        subscriber: RevelUser,
+    ) -> None:
+        """ONLINE subs are dunned by Stripe (D3 webhook handlers); this celery
+        task must not fire any subscription notification for ONLINE rows."""
+        from notifications.enums import NotificationType
+        from notifications.models import Notification
+
+        online_plan = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Online",
+            price=Decimal("10"),
+            currency="EUR",
+            period_unit=MembershipSubscriptionPlan.PeriodUnit.MONTH,
+            payment_method=MembershipSubscriptionPlan.PaymentMethod.ONLINE,
+            stripe_price_id="price_y",
+            stripe_product_id="prod_y",
+        )
+        MembershipSubscription.objects.create(
+            user=subscriber,
+            plan=online_plan,
+            organization=organization,
+            status=MembershipSubscription.SubscriptionStatus.ACTIVE,
+            cancel_at_period_end=False,
+            current_period_start=timezone.now() - datetime.timedelta(days=35),
+            current_period_end=timezone.now() - datetime.timedelta(days=1),
+        )
+        expire_subscriptions_past_grace()
+        # ONLINE: zero notifications from this task (Stripe webhooks handle them in D3)
+        assert not Notification.objects.filter(
+            user=subscriber,
+            notification_type__in=[
+                NotificationType.SUBSCRIPTION_PAYMENT_FAILED,
+                NotificationType.SUBSCRIPTION_EXPIRED,
+            ],
+        ).exists()

@@ -1,0 +1,13 @@
+{%load i18n %}{%trans "Hello"%} {{user.display_name}},
+
+🔔 {%blocktranslate with plan=context.plan_name org=context.organization_name date=context.expired_at %}Your {{ plan }} membership at {{ org }} ended on {{ date }}.{%endblocktranslate%}
+
+{%trans "Plan:"%} {{context.plan_name}}
+{%trans "Ended on:"%} {{context.expired_at}}
+
+{%if context.revival_url and context.revival_window_end%}{%blocktranslate with date=context.revival_window_end %}You can reactivate your membership until {{ date }}.{%endblocktranslate%}
+
+{%trans "Reactivate:"%} {{context.revival_url}}
+{%else%}{%trans "If you'd like to continue, you can start a new subscription at any time."%}
+{%endif%}
+{% include "notifications/email/_footer.txt" %}

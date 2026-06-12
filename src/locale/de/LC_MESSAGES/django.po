@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-25 18:45+0200\n"
+"POT-Creation-Date: 2026-05-28 12:03+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -868,6 +868,15 @@ msgstr "Nur der:die Organisationsinhaber:in kann Staff-Mitglieder erstellen."
 msgid "Only the organization owner can change staff permissions."
 msgstr "Nur der:die Organisationsinhaber:in kann Staff-Berechtigungen ändern."
 
+msgid ""
+"ONLINE plans must be subscribed to by the member directly. Send them to the "
+"member-facing subscribe endpoint."
+msgstr ""
+
+msgid ""
+"ONLINE subscription payments are recorded automatically via Stripe webhooks."
+msgstr ""
+
 msgid "Invoice PDF not yet generated."
 msgstr "Das Rechnungs-PDF wurde noch nicht erstellt."
 
@@ -919,7 +928,7 @@ msgid "Membership tier must belong to the same organization as the token."
 msgstr "Die Mitgliedschaftsstufe muss zu derselben Organisation gehören wie das Token."
 
 msgid "Token must be a single non-empty slug segment."
-msgstr "Token muss ein einzelnes, nicht leeres Slug-Segment sein."
+msgstr ""
 
 msgid "Month"
 msgstr "Monat"
@@ -927,11 +936,22 @@ msgstr "Monat"
 msgid "Year"
 msgstr "Jahr"
 
+msgid "Online (Stripe)"
+msgstr ""
+
+msgid "Offline (staff-managed)"
+msgstr ""
+
 msgid "e.g. \"Monthly\", \"Annual\""
 msgstr "z. B. „Monatlich“, „Jährlich“"
 
 msgid "ISO 4217 currency code"
 msgstr "ISO-4217-Währungscode"
+
+msgid ""
+"ONLINE plans are billed via Stripe; OFFLINE plans are tracked manually by "
+"staff."
+msgstr ""
 
 msgid "Paused"
 msgstr "Pausiert"
@@ -946,8 +966,18 @@ msgstr "Storniert"
 msgid "Expired"
 msgstr "Abgelaufen"
 
+msgid "Plan that will replace ``plan`` at the next renewal (downgrade flow)."
+msgstr ""
+
+msgid ""
+"Set when status transitions to EXPIRED. Used for the revival window check."
+msgstr ""
+
 msgid "Subscription organization must match the plan's tier organization."
 msgstr "Die Organisation des Abonnements muss mit der Organisation der Planstufe übereinstimmen."
+
+msgid "Pending plan must belong to the same organization as the subscription."
+msgstr ""
 
 msgid "Succeeded"
 msgstr "Erfolgreich"
@@ -1282,15 +1312,13 @@ msgid "At least one of grants_membership or grants_staff_status must be True."
 msgstr "Mindestens eines von grants_membership oder grants_staff_status muss True sein."
 
 msgid "membership_tier_id is required when grants_membership is True."
-msgstr "membership_tier_id ist erforderlich, wenn grants_membership True ist."
+msgstr ""
 
 #, python-format
 msgid ""
 "The name contains a reserved word: \"%(token)s\". Please choose a different "
 "name."
 msgstr ""
-"Der Name enthält ein reserviertes Wort: \"%(token)s\". Bitte wählen Sie "
-"einen anderen Namen."
 
 msgid "You already own an organization. Only one organization per user as owner is allowed."
 msgstr "Du besitzt bereits eine Organisation. Es ist nur eine Organisation pro Anwender:in als Inhaber:in erlaubt."
@@ -1364,6 +1392,23 @@ msgstr "Zahlung nicht gefunden."
 msgid "Only pending payments can be cancelled."
 msgstr "Nur ausstehende Zahlungen können storniert werden."
 
+msgid "occurred_at cannot be in the future."
+msgstr ""
+
+msgid "occurred_at cannot predate the subscription."
+msgstr ""
+
+msgid "occurred_at cannot predate the start of the current billing period."
+msgstr ""
+
+msgid "occurred_at cannot predate the lapsed period end of the subscription."
+msgstr ""
+
+msgid ""
+"Cannot change currency when active subscriptions exist. Archive and create a "
+"new plan instead."
+msgstr ""
+
 msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
 msgstr "Ein Plan mit bestehenden Abonnements kann nicht gelöscht werden. Archiviere ihn stattdessen."
 
@@ -1402,8 +1447,89 @@ msgstr "Die Kündigung eines pausierten Abonnements kann nicht geplant werden. S
 msgid "Cannot pause a terminal subscription."
 msgstr "Ein beendetes Abonnement kann nicht pausiert werden."
 
+msgid "This subscription has no linked Stripe record yet."
+msgstr ""
+
 msgid "Only paused subscriptions can be resumed."
 msgstr "Nur pausierte Abonnements können fortgesetzt werden."
+
+msgid "Only expired subscriptions can be revived."
+msgstr ""
+
+#, fuzzy
+#| msgid "You are already a member of this organization."
+msgid "Revival is disabled for this organization."
+msgstr "Du bist bereits Mitglied dieser Organisation."
+
+msgid "Cannot revive a subscription without an expiry timestamp."
+msgstr ""
+
+msgid "The revival window has elapsed. Start a new subscription instead."
+msgstr ""
+
+msgid "Offline revival requires recording an initial payment."
+msgstr ""
+
+msgid "New plan must belong to the same organization as the subscription."
+msgstr ""
+
+msgid ""
+"Cannot switch between ONLINE and OFFLINE plans. Cancel and create a new "
+"subscription instead."
+msgstr ""
+
+msgid "New plan must use the same currency as the current plan."
+msgstr ""
+
+msgid "Cannot change the plan on a terminated subscription."
+msgstr ""
+
+msgid "Resume the subscription before changing its plan."
+msgstr ""
+
+#, fuzzy
+#| msgid "This ticket has already been checked in."
+msgid "This subscription is already on that plan."
+msgstr "Dieses Ticket wurde bereits eingecheckt."
+
+msgid "Stripe subscription has no items to update."
+msgstr ""
+
+msgid "Stripe did not return a schedule phase to extend."
+msgstr ""
+
+msgid "This subscription is scheduled to cancel; cannot change plan."
+msgstr ""
+
+msgid "A plan change is already pending on this subscription."
+msgstr ""
+
+msgid "Could not prepare the plan for checkout."
+msgstr ""
+
+msgid "This subscription is not managed by Stripe."
+msgstr ""
+
+#, fuzzy
+#| msgid "Refund failed. Please try again later."
+msgid "Could not sync the plan with Stripe. Please try again later."
+msgstr ""
+"Die Rückerstattung ist fehlgeschlagen. Bitte versuche es später erneut."
+
+#, fuzzy
+#| msgid "This organization is not configured to accept payments."
+msgid "This plan is not configured for online checkout."
+msgstr ""
+"Diese Organisation ist nicht für die Annahme von Zahlungen konfiguriert."
+
+#, fuzzy
+#| msgid "Refund failed. Please try again later."
+msgid "Could not initialize the payment. Please try again later."
+msgstr ""
+"Die Rückerstattung ist fehlgeschlagen. Bitte versuche es später erneut."
+
+msgid "No billing profile exists for this organization. Subscribe first."
+msgstr ""
 
 msgid "Ticket already cancelled"
 msgstr "Ticket bereits storniert"
@@ -1884,6 +2010,21 @@ msgstr "RSVP storniert: %(event)s (%(user)s)"
 #, python-format
 msgid "RSVP Cancelled: %(event)s"
 msgstr "RSVP storniert: %(event)s"
+
+#, fuzzy, python-format
+#| msgid "%(counter)s new event has been scheduled for %(series)s."
+#| msgid_plural "%(counter)s new events have been scheduled for %(series)s."
+msgid "%(count)d new event scheduled for %(series)s"
+msgid_plural "%(count)d new events scheduled for %(series)s"
+msgstr[0] "%(counter)s neues Event wurde für %(series)s geplant."
+msgstr[1] "%(counter)s neue Events wurden für %(series)s geplant."
+
+#, fuzzy, python-format
+#| msgid "New event in %(series)s"
+msgid "New event scheduled for %(series)s"
+msgid_plural "%(count)d new events scheduled for %(series)s"
+msgstr[0] "Neues Event in %(series)s"
+msgstr[1] "Neues Event in %(series)s"
 
 msgid "System Announcement"
 msgstr "Systemankündigung"
@@ -2919,6 +3060,258 @@ msgstr[1] "%(counter)s neue Events wurden für %(series)s geplant."
 msgid "View the series:"
 msgstr "Zur Serie:"
 
+#, fuzzy
+#| msgid "Ticket Cancelled"
+msgid "Subscription Cancelled"
+msgstr "Ticket storniert"
+
+#, fuzzy, python-format
+#| msgid ""
+#| "<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has "
+#| "been cancelled."
+msgid ""
+"Your <strong>%(plan)s</strong> subscription at <strong>%(org)s</strong> has "
+"been cancelled effective immediately."
+msgstr ""
+"Das Ticket von <strong>%(holder)s</strong> für <strong>%(event)s</strong> "
+"wurde storniert."
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been activated for <strong>%(event_name)s</strong>."
+msgid ""
+"Your <strong>%(plan)s</strong> subscription at <strong>%(org)s</strong> will "
+"end on %(date)s."
+msgstr "Ein neues Ticket wurde für <strong>%(event_name)s</strong> aktiviert."
+
+msgid "Plan:"
+msgstr ""
+
+msgid "Access ends:"
+msgstr ""
+
+msgid "We hope to see you again in the future."
+msgstr ""
+
+#, python-format
+msgid ""
+"Your %(plan)s subscription at %(org)s has been cancelled effective "
+"immediately."
+msgstr ""
+
+#, python-format
+msgid "Your %(plan)s subscription at %(org)s will end on %(date)s."
+msgstr ""
+
+#, fuzzy
+#| msgid "Item Removed"
+msgid "Membership Ended"
+msgstr "Element entfernt"
+
+#, fuzzy, python-format
+#| msgid ""
+#| "<strong>%(sender)s</strong> sent a message to <strong>%(org)s</strong>."
+msgid ""
+"Your <strong>%(plan)s</strong> membership at <strong>%(org)s</strong> ended "
+"on %(date)s."
+msgstr ""
+"<strong>%(sender)s</strong> hat eine Nachricht an <strong>%(org)s</strong> "
+"gesendet."
+
+msgid "Ended on:"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "You cancelled your ticket for <strong>%(event)s</strong>."
+msgid "You can reactivate your membership until <strong>%(date)s</strong>."
+msgstr "Du hast dein Ticket für <strong>%(event)s</strong> storniert."
+
+#, python-format
+msgid "Reactivate by %(date)s"
+msgstr ""
+
+msgid ""
+"If you'd like to continue, you can start a new subscription at any time."
+msgstr ""
+
+#, python-format
+msgid "Your %(plan)s membership at %(org)s ended on %(date)s."
+msgstr ""
+
+#, python-format
+msgid "You can reactivate your membership until %(date)s."
+msgstr ""
+
+msgid "Reactivate:"
+msgstr ""
+
+#, fuzzy
+#| msgid "Event Details"
+msgid "Payment Failed"
+msgstr "Event-Details"
+
+#, fuzzy, python-format
+#| msgid ""
+#| "Your questionnaire <strong>%(questionnaire)s</strong> for "
+#| "<strong>%(org)s</strong> was not approved."
+msgid ""
+"We couldn't collect the payment for your <strong>%(plan)s</strong> "
+"membership at <strong>%(org)s</strong>."
+msgstr ""
+"Dein Fragebogen <strong>%(questionnaire)s</strong> für <strong>%(org)s</"
+"strong> wurde nicht genehmigt."
+
+#, fuzzy
+#| msgid "Amount Paid:"
+msgid "Amount due:"
+msgstr "Bezahlter Betrag:"
+
+msgid "Grace period ends:"
+msgstr ""
+
+#, python-format
+msgid ""
+"Please resolve this before <strong>%(date)s</strong> to keep your membership "
+"active."
+msgstr ""
+
+#, fuzzy
+#| msgid "Unknown payment method."
+msgid "Update Payment Method"
+msgstr "Unbekannte Zahlungsmethode."
+
+#, python-format
+msgid ""
+"Please <a href=\"%(url)s\">contact %(org)s</a> to renew your membership."
+msgstr ""
+
+#, python-format
+msgid ""
+"We couldn't collect the payment for your %(plan)s membership at %(org)s."
+msgstr ""
+
+#, python-format
+msgid "Please resolve this before %(date)s to keep your membership active."
+msgstr ""
+
+#, fuzzy
+#| msgid "Unknown payment method."
+msgid "Update payment method:"
+msgstr "Unbekannte Zahlungsmethode."
+
+#, python-format
+msgid "Contact %(org)s to renew:"
+msgstr ""
+
+msgid "Subscription Price Update"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid ""
+#| "Your questionnaire <strong>%(questionnaire)s</strong> for "
+#| "<strong>%(org)s</strong> was not approved."
+msgid ""
+"The price for your <strong>%(plan)s</strong> subscription at "
+"<strong>%(org)s</strong> is changing."
+msgstr ""
+"Dein Fragebogen <strong>%(questionnaire)s</strong> für <strong>%(org)s</"
+"strong> wurde nicht genehmigt."
+
+#, fuzzy
+#| msgid "Event Details"
+msgid "Price Change Details"
+msgstr "Event-Details"
+
+msgid "Current price:"
+msgstr ""
+
+msgid "New price:"
+msgstr ""
+
+msgid "Effective from:"
+msgstr ""
+
+#, python-format
+msgid "Your subscription will move from %(old)s to %(new)s starting %(date)s."
+msgstr ""
+
+#, python-format
+msgid "The price for your %(plan)s subscription at %(org)s is changing."
+msgstr ""
+
+#, fuzzy
+#| msgid "Item Removed"
+msgid "Membership Renewing Soon"
+msgstr "Element entfernt"
+
+#, fuzzy, python-format
+#| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
+msgid ""
+"Heads up — your <strong>%(plan)s</strong> membership at <strong>%(org)s</"
+"strong> renews on %(date)s for <strong>%(amount)s</strong>."
+msgstr ""
+"Ein neues Ticket wurde für <strong>%(event_name)s</strong> ausgestellt."
+
+msgid "Renewal date:"
+msgstr ""
+
+msgid "We'll charge your card on file on the renewal date."
+msgstr ""
+
+msgid "Manage Billing"
+msgstr ""
+
+#, python-format
+msgid ""
+"If you don't want to renew, please <a href=\"%(url)s\">contact %(org)s</a> "
+"before the renewal date."
+msgstr ""
+
+#, python-format
+msgid ""
+"Heads up — your %(plan)s membership at %(org)s renews on %(date)s for "
+"%(amount)s."
+msgstr ""
+
+msgid "Manage billing:"
+msgstr ""
+
+#, python-format
+msgid "If you don't want to renew, please contact %(org)s:"
+msgstr ""
+
+#, fuzzy
+#| msgid "Item Removed"
+msgid "Membership Renewed"
+msgstr "Element entfernt"
+
+#, fuzzy, python-format
+#| msgid ""
+#| "<strong>%(holder)s</strong>'s ticket for <strong>%(event)s</strong> has "
+#| "been cancelled."
+msgid ""
+"Your <strong>%(plan)s</strong> membership at <strong>%(org)s</strong> has "
+"been successfully renewed."
+msgstr ""
+"Das Ticket von <strong>%(holder)s</strong> für <strong>%(event)s</strong> "
+"wurde storniert."
+
+#, fuzzy
+#| msgid "View Event Details"
+msgid "Renewal Details"
+msgstr "Event-Details ansehen"
+
+#, fuzzy
+#| msgid "Amount Paid:"
+msgid "Amount charged:"
+msgstr "Bezahlter Betrag:"
+
+msgid "Next renewal:"
+msgstr ""
+
+#, python-format
+msgid "Your %(plan)s membership at %(org)s has been successfully renewed."
+msgstr ""
+
 msgid "Read More"
 msgstr "Mehr lesen"
 
@@ -3286,6 +3679,8 @@ msgstr "Alle Benachrichtigungen anzeigen:"
 msgid "Anonymity flags are immutable after a poll is created."
 msgstr "Anonymitäts-Flags können nach der Erstellung einer Umfrage nicht mehr geändert werden."
 
+#, fuzzy
+#| msgid "This organization is not configured to accept payments."
 msgid "This poll is not open for voting."
 msgstr "Diese Umfrage ist nicht zur Abstimmung geöffnet."
 
@@ -3314,6 +3709,10 @@ msgstr "Ungültige Aktion für den Lebenszyklus der Umfrage."
 #| msgid "Invalid token: {error}"
 msgid "Invalid references in poll payload."
 msgstr "Ungültiger Token: {error}"
+
+msgid ""
+"public_anonymous must be True when result_visibility is PUBLIC or UNLISTED."
+msgstr ""
 
 msgid "You submitted answers refer to a different questionnaire."
 msgstr ""
@@ -3473,7 +3872,7 @@ msgid "Announcements"
 msgstr "Ankündigungen"
 
 msgid "Recurrence Rules"
-msgstr "Wiederholungsregeln"
+msgstr ""
 
 #| msgid "New Follower"
 msgid "Series Followers"
@@ -3490,10 +3889,10 @@ msgid "Attendee Credit Notes"
 msgstr "Gutschriften für Teilnehmer:innen"
 
 msgid "Platform Fee Invoices"
-msgstr "Plattformgebühren-Rechnungen"
+msgstr ""
 
 msgid "Platform Fee Credit Notes"
-msgstr "Plattformgebühren-Gutschriften"
+msgstr ""
 
 #, fuzzy
 #| msgid "Description:"
@@ -3501,12 +3900,14 @@ msgid "Subscriptions"
 msgstr "Beschreibung:"
 
 #, fuzzy
-#| msgid "Description:"
+#| msgid "Ticket Cancelled"
 msgid "Subscription Plans"
-msgstr "Beschreibung:"
+msgstr "Ticket storniert"
 
+#, fuzzy
+#| msgid "Ticket Cancelled"
 msgid "Subscription Payments"
-msgstr "Abonnementzahlungen"
+msgstr "Ticket storniert"
 
 msgid "Preferences"
 msgstr "Einstellungen"
@@ -3607,7 +4008,7 @@ msgid "Exchange Rates"
 msgstr "Wechselkurse"
 
 msgid "Reserved Slug Tokens"
-msgstr "Reservierte Slug-Tokens"
+msgstr ""
 
 msgid "Celery Tasks"
 msgstr "Celery-Aufgaben"

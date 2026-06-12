@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from django.test.client import Client
@@ -6,7 +7,14 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Organization, OrganizationMember, OrganizationMembershipRequest, OrganizationToken
+from events.models import (
+    MembershipSubscriptionPlan,
+    MembershipTier,
+    Organization,
+    OrganizationMember,
+    OrganizationMembershipRequest,
+    OrganizationToken,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -133,6 +141,55 @@ def test_get_organization_by_privileged_users(
     response = organization_staff_client.get(url)
     assert response.status_code == 200
     assert response.json()["name"] == organization.name
+
+
+class TestListMembershipPlans:
+    """Public listing of an organization's active subscription plans.
+
+    Visibility piggybacks on ``get_one`` so private orgs return 404 for
+    anonymous users (same rule as ``get_organization``).
+    """
+
+    def test_lists_active_plans_only(self, client: Client, organization: Organization) -> None:
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save(update_fields=["visibility"])
+        tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        active = MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Monthly",
+            price=Decimal("10.00"),
+            currency="EUR",
+            period_unit="month",
+        )
+        MembershipSubscriptionPlan.objects.create(
+            tier=tier,
+            name="Old Annual",
+            price=Decimal("100.00"),
+            currency="EUR",
+            period_unit="year",
+            is_active=False,
+        )
+
+        url = reverse("api:list_organization_membership_plans", kwargs={"slug": organization.slug})
+        response = client.get(url)
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body) == 1
+        assert body[0]["id"] == str(active.id)
+        assert body[0]["payment_method"] == "offline"
+
+    def test_anonymous_can_list_public_org_plans(self, client: Client, organization: Organization) -> None:
+        organization.visibility = Organization.Visibility.PUBLIC
+        organization.save(update_fields=["visibility"])
+        url = reverse("api:list_organization_membership_plans", kwargs={"slug": organization.slug})
+        response = client.get(url)
+        assert response.status_code == 200
+
+    def test_anonymous_blocked_on_private_org(self, client: Client, organization: Organization) -> None:
+        # Default visibility is private; the endpoint inherits get_one's visibility rule.
+        url = reverse("api:list_organization_membership_plans", kwargs={"slug": organization.slug})
+        response = client.get(url)
+        assert response.status_code == 404
 
 
 def test_get_organization_not_found(client: Client) -> None:

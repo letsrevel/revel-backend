@@ -14,7 +14,7 @@ from django.db.models import F
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
 from events.exceptions import InvalidStripeWebhookSignatureError
-from events.models import Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
+from events.models import MembershipPayment, Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import from_stripe_amount, to_stripe_amount
 
@@ -330,7 +330,30 @@ class StripeEventHandler:
 
     @transaction.atomic
     def handle_charge_refunded(self, event: stripe.Event) -> None:
-        """Match each refund object in the charge to its specific Payment row.
+        """Route a charge.refunded event to the subscription or ticket refund handler.
+
+        Stripe Payment Intents are per-purchase, so a matching MembershipPayment row
+        means the refund is for a subscription invoice; otherwise it is a ticket refund.
+        """
+        charge_data = event.data.object
+        payment_intent_id = charge_data.get("payment_intent")
+
+        if not payment_intent_id:
+            logger.warning("stripe_refund_missing_intent", charge_id=charge_data.get("id"))
+            return
+
+        # Phase 4: Subscription refunds — handled by subscription_service.
+        membership_payment = (
+            MembershipPayment.objects.select_for_update().filter(stripe_payment_intent_id=payment_intent_id).first()
+        )
+        if membership_payment is not None:
+            self._handle_subscription_refund(event, membership_payment)
+            return
+
+        self._handle_ticket_refunds(event, payment_intent_id)
+
+    def _handle_ticket_refunds(self, event: stripe.Event, payment_intent_id: str) -> None:
+        """Match each refund object in the charge to its specific ticket Payment row.
 
         Five-branch matching strategy (first match wins):
           1. existing stripe_refund_id on a Payment
@@ -340,11 +363,6 @@ class StripeEventHandler:
           5. ambiguous → logged, no mutation
         """
         charge_data = event.data.object
-        payment_intent_id = charge_data.get("payment_intent")
-
-        if not payment_intent_id:
-            logger.warning("stripe_refund_missing_intent", charge_id=charge_data.get("id"))
-            return
 
         # Cheap unlocked probe so unknown intents bail before any outbound call.
         if not Payment.objects.filter(stripe_payment_intent_id=payment_intent_id).exists():
@@ -643,6 +661,86 @@ class StripeEventHandler:
             )
             return ticket.event_id
         return None
+
+    def _handle_subscription_refund(
+        self,
+        event: stripe.Event,
+        membership_payment: MembershipPayment,
+    ) -> None:
+        """Apply a charge.refunded event to a MembershipPayment.
+
+        Delegates to subscription_service.refund_payment, which marks the row
+        REFUNDED and (if the refund fully covers the current period) cancels
+        the subscription immediately.
+
+        Idempotent on already-REFUNDED rows. Partial refunds are ignored —
+        ``charge.refunded`` fires for both partial and full refunds, but only
+        a fully refunded charge should flip the MembershipPayment to REFUNDED
+        and trigger the auto-cancel path.
+
+        Args:
+            event: The Stripe webhook event.
+            membership_payment: The MembershipPayment row matched by payment_intent_id.
+        """
+        from events.service import subscription_service
+
+        if membership_payment.status == MembershipPayment.PaymentStatus.REFUNDED:
+            # Idempotent: re-delivered webhook for an already-processed refund.
+            return
+
+        charge_data = event.data.object
+        amount = charge_data.get("amount")
+        amount_refunded = charge_data.get("amount_refunded")
+        if amount is None or amount_refunded is None or amount_refunded < amount:
+            logger.info(
+                "stripe_subscription_partial_refund_ignored",
+                payment_intent_id=charge_data.get("payment_intent"),
+                membership_payment_id=str(membership_payment.id),
+                amount=amount,
+                amount_refunded=amount_refunded,
+            )
+            return
+
+        subscription_service.refund_payment(membership_payment, recorded_by=None)
+
+        logger.info(
+            "stripe_subscription_refund_processed",
+            payment_intent_id=event.data.object.get("payment_intent"),
+            membership_payment_id=str(membership_payment.id),
+            subscription_id=str(membership_payment.subscription_id),
+        )
+
+    # ---- Membership subscription webhooks (Phase 2) ----
+
+    def handle_customer_subscription_created(self, event: stripe.Event) -> None:
+        """Mirror Stripe Subscription state when Stripe confirms creation."""
+        from events.service import subscription_stripe_service
+
+        subscription_stripe_service.sync_subscription_from_stripe(dict(event.data.object))
+
+    def handle_customer_subscription_updated(self, event: stripe.Event) -> None:
+        """Mirror status / period / cancel_at_period_end onto the local row."""
+        from events.service import subscription_stripe_service
+
+        subscription_stripe_service.sync_subscription_from_stripe(dict(event.data.object))
+
+    def handle_customer_subscription_deleted(self, event: stripe.Event) -> None:
+        """Stripe-side cancellation (immediate or end-of-period) — mark terminal."""
+        from events.service import subscription_stripe_service
+
+        subscription_stripe_service.sync_subscription_from_stripe(dict(event.data.object))
+
+    def handle_invoice_paid(self, event: stripe.Event) -> None:
+        """Record a SUCCEEDED MembershipPayment + revive PENDING/PAST_DUE → ACTIVE."""
+        from events.service import subscription_stripe_service
+
+        subscription_stripe_service.record_stripe_payment_from_invoice(dict(event.data.object), succeeded=True)
+
+    def handle_invoice_payment_failed(self, event: stripe.Event) -> None:
+        """Record a FAILED MembershipPayment + transition subscription to PAST_DUE."""
+        from events.service import subscription_stripe_service
+
+        subscription_stripe_service.record_stripe_payment_from_invoice(dict(event.data.object), succeeded=False)
 
     @transaction.atomic
     def handle_payment_intent_canceled(self, event: stripe.Event) -> None:

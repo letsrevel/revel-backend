@@ -80,6 +80,14 @@ class NotificationType(TextChoices):
     # Series notifications
     SERIES_EVENTS_GENERATED = "series_events_generated"  # Digest: N events generated for a series
 
+    # Subscription notifications
+    SUBSCRIPTION_RENEWAL_SUCCEEDED = "subscription_renewal_succeeded"
+    SUBSCRIPTION_PAYMENT_FAILED = "subscription_payment_failed"
+    SUBSCRIPTION_EXPIRED = "subscription_expired"
+    SUBSCRIPTION_CANCELLATION_CONFIRMED = "subscription_cancellation_confirmed"
+    SUBSCRIPTION_RENEWAL_REMINDER = "subscription_renewal_reminder"
+    SUBSCRIPTION_PRICE_MIGRATION_NOTICE = "subscription_price_migration_notice"
+
 
 class DeliveryChannel(TextChoices):
     """Notification delivery channels."""

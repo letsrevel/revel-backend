@@ -44,6 +44,7 @@ from .reserved_slug_token import ReservedSlugToken
 from .rsvp import EventRSVP
 from .stripe_webhook_event import StripeWebhookEvent
 from .subscription import (
+    CustomerProfile,
     MembershipPayment,
     MembershipSubscription,
     MembershipSubscriptionPlan,
@@ -88,6 +89,7 @@ __all__ = [
     # Event Series
     "EventSeries",
     # Subscriptions
+    "CustomerProfile",
     "MembershipPayment",
     "MembershipSubscription",
     "MembershipSubscriptionPlan",

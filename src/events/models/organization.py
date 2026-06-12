@@ -381,6 +381,13 @@ class Organization(
         default=7,
         help_text=_("Days a PAST_DUE subscription stays valid before expiring."),
     )
+    membership_subscription_revival_window_days = models.PositiveIntegerField(
+        default=30,
+        help_text=_(
+            "Days after subscription expiry during which a member can revive in place. "
+            "Set to 0 to disable revival entirely."
+        ),
+    )
     membership_refund_policy = MarkdownField(blank=True, default="")
 
     accept_membership_requests = models.BooleanField(default=False)

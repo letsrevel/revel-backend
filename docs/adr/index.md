@@ -50,6 +50,10 @@ What becomes easier or harder because of this change?
 | [ADR-0008](0008-environment-feature-flags.md) | Environment-Based Feature Flags | Accepted |
 | [ADR-0009](0009-referral-payout-bounded-contexts.md) | Referral Payout Bounded Contexts | Accepted |
 | [ADR-0010](0010-dependency-compliance.md) | Dependency License & Vulnerability Checks | Accepted |
+| [ADR-0011](0011-membership-subscriptions-offline-online-hybrid.md) | Hybrid OFFLINE/ONLINE Membership Subscriptions | Accepted |
+| [ADR-0012](0012-stripe-connect-direct-charges-subscriptions.md) | Stripe Connect Direct Charges for Subscriptions | Accepted |
+| [ADR-0013](0013-subscription-terminal-states-and-revival.md) | Terminal Subscription States with Bounded Revival | Accepted |
+| [ADR-0014](0014-reactive-dunning-and-simple-history-audit.md) | Reactive Dunning + simple-history Audit for Subscriptions | Accepted |
 
 ---
 
