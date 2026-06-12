@@ -7,9 +7,12 @@ import functools
 import typing as t
 import uuid
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
+from common.models import SiteSettings
 from events.models import (
     MembershipSubscription,
     MembershipSubscriptionPlan,
@@ -18,8 +21,11 @@ from events.models import (
     OrganizationMember,
     OrganizationMembershipRequest,
 )
+from notifications.enums import NotificationType
+from notifications.signals import notification_requested
 from questionnaires.models import QuestionnaireSubmission
 
+from .enums import ReasonCode
 from .gates import MEMBERSHIP_ELIGIBILITY_GATES, BaseMembershipEligibilityGate
 from .resolvers import resolve_membership_questionnaire
 from .types import MembershipEligibility
@@ -181,6 +187,40 @@ class MembershipEligibilityService:
         )
 
 
+#: Reasons that genuinely terminate an application — the user has no in-app
+#: recourse on THIS row (they can still re-apply; see ApplicationStatusGate).
+#: Everything else leaves the row PENDING.
+TERMINAL_REJECTION_CODES: t.Final[frozenset[ReasonCode]] = frozenset(
+    {
+        ReasonCode.MEMBERSHIP_QUESTIONNAIRE_FAILED,
+    }
+)
+
+
+def _notify_rejection(application: OrganizationMembershipRequest) -> None:
+    """Queue the user-facing rejection notification for an auto-rejected application.
+
+    Mirrors :func:`events.service.organization_service.reject_membership_request`
+    so a system-driven rejection (terminal questionnaire failure observed on
+    read) is not silent.
+    """
+
+    def send_rejection_notification() -> None:
+        frontend_base_url = SiteSettings.get_solo().frontend_base_url
+        notification_requested.send(
+            sender=OrganizationMembershipRequest,
+            user=application.user,
+            notification_type=NotificationType.MEMBERSHIP_REQUEST_REJECTED,
+            context={
+                "organization_id": str(application.organization_id),
+                "organization_name": application.organization.name,
+                "frontend_url": f"{frontend_base_url}/organizations",
+            },
+        )
+
+    transaction.on_commit(send_rejection_notification)
+
+
 def advance_application(
     application: OrganizationMembershipRequest,
 ) -> tuple[OrganizationMembershipRequest, MembershipEligibility]:
@@ -241,16 +281,19 @@ def advance_application(
             # else: tier-less, plan-less application → stays PENDING until staff approves
             # (legacy /membership-requests path).
 
-        # REJECTED triggered by exhausted questionnaire retake → mark REJECTED.
+        # Auto-reject only on the explicit terminal allowlist. A missing
+        # next_step is a UX hint ("nothing for you to do right now"), NOT a
+        # terminal signal: WHITELIST_PENDING, ORG_NOT_VISIBLE, MEMBERSHIP_PAUSED,
+        # DUPLICATE_ACTIVE_SUBSCRIPTION etc. are all recoverable upstream states
+        # and must leave the row PENDING so it can resume when they clear.
         if (
             application.status == OrganizationMembershipRequest.Status.PENDING
             and not eligibility.allowed
-            and eligibility.next_step is None
-            and eligibility.reason is not None
+            and eligibility.reason_code in TERMINAL_REJECTION_CODES
         ):
-            # next_step=None with a reason means terminal failure.
             application.status = OrganizationMembershipRequest.Status.REJECTED
             application.save(update_fields=["status", "updated_at"])
+            _notify_rejection(application)
 
         return application, eligibility
 
@@ -280,7 +323,18 @@ def apply_for_membership(
     Note: HTTP-shaped pre-gate hard-blocks (e.g. raising 403/404 to avoid org
     enumeration) live in the controller. By the time we reach this function we
     assume the user is permitted to materialize an OMR row.
+
+    Raises:
+        django.core.exceptions.ValidationError: When ``questionnaire_submission_id``
+            does not reference a READY submission owned by *user* for the
+            questionnaire that actually gates this (organization, tier).
     """
+    _validate_questionnaire_submission(
+        user=user,
+        organization=organization,
+        tier=tier,
+        questionnaire_submission_id=questionnaire_submission_id,
+    )
     with transaction.atomic():
         try:
             application, created = OrganizationMembershipRequest.objects.get_or_create(
@@ -309,6 +363,39 @@ def apply_for_membership(
             application.save(update_fields=["questionnaire_submission", "updated_at"])
 
     return advance_application(application)
+
+
+def _validate_questionnaire_submission(
+    *,
+    user: RevelUser,
+    organization: Organization,
+    tier: MembershipTier | None,
+    questionnaire_submission_id: uuid.UUID | None,
+) -> None:
+    """Reject a ``questionnaire_submission_id`` that cannot satisfy this application's gate.
+
+    The id is persisted onto the OMR row as audit evidence ("this submission
+    satisfied the questionnaire gate"), so it must reference a READY submission
+    that (a) belongs to the caller, (b) targets the questionnaire resolved for
+    this (organization, tier). The ownership filter doubles as an
+    anti-enumeration measure: a nonexistent id and another user's id fail
+    identically.
+    """
+    if questionnaire_submission_id is None:
+        return
+
+    questionnaire_oq = resolve_membership_questionnaire(organization, tier)
+    is_valid = (
+        questionnaire_oq is not None
+        and QuestionnaireSubmission.objects.filter(
+            pk=questionnaire_submission_id,
+            user=user,
+            questionnaire_id=questionnaire_oq.questionnaire_id,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        ).exists()
+    )
+    if not is_valid:
+        raise ValidationError(_("Invalid questionnaire submission."))
 
 
 def _complete_free_application(application: OrganizationMembershipRequest) -> None:

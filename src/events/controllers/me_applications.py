@@ -96,7 +96,9 @@ class MeMembershipApplicationsController(UserAwareController):
         # accepting requests, tier/plan unavailable, terminal questionnaire failure).
         # Recoverable blocks (questionnaire pending, manual approval, whitelist
         # pending) still create the OMR — it's the polling record that drives
-        # state-advance-on-read.
+        # state-advance-on-read. A latest-row REJECTED verdict carries
+        # next_step=REAPPLY and likewise passes: the fresh PENDING row created
+        # below supersedes the rejected one (see ApplicationStatusGate).
         if not Organization.objects.for_user(user).filter(pk=organization.pk).exists():
             # Treat invisible orgs as 404 to avoid org-existence enumeration.
             raise HttpError(404, _("Not found."))

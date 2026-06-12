@@ -7,6 +7,7 @@ from pydantic import UUID4, AwareDatetime, Field
 
 from events.models import OrganizationMembershipRequest
 from events.service.membership_manager import MembershipEligibility, MembershipNextStep
+from events.service.membership_manager.enums import ReasonCode
 
 
 class JoinEligibilityQuery(Schema):
@@ -33,6 +34,7 @@ class MembershipEligibilitySchema(Schema):
     tier_id: UUID4 | None = None
     plan_id: UUID4 | None = None
     reason: str | None = None
+    reason_code: ReasonCode | None = None
     next_step: MembershipNextStep | None = None
     questionnaire_id: UUID4 | None = None
     application_id: UUID4 | None = None

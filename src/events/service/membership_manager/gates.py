@@ -69,13 +69,16 @@ class BaseMembershipEligibilityGate(abc.ABC):
 
     def _block(
         self,
-        reason: str,
+        reason: Reasons,
         *,
         next_step: MembershipNextStep | None = None,
         **extra: t.Any,
     ) -> MembershipEligibility:
         """Build a blocking eligibility with this gate's (org, tier, plan) context preset.
 
+        Takes the :class:`Reasons` member and derives both the translated,
+        human-readable ``reason`` and the stable machine-readable
+        ``reason_code`` — state-machine decisions must switch on the latter.
         Extra kwargs are forwarded to MembershipEligibility (e.g. ``application_id=``).
         """
         return MembershipEligibility(
@@ -83,7 +86,8 @@ class BaseMembershipEligibilityGate(abc.ABC):
             organization_id=self.organization.pk,
             tier_id=self.tier.pk if self.tier else None,
             plan_id=self.plan.pk if self.plan else None,
-            reason=reason,
+            reason=_(reason),
+            reason_code=reason.code,
             next_step=next_step,
             **extra,
         )
@@ -106,7 +110,7 @@ class OrgVisibilityGate(BaseMembershipEligibilityGate):
         """Block when the organization is not visible to the user."""
         if Organization.objects.for_user(self.user).filter(pk=self.organization.pk).exists():
             return None
-        return self._block(_(Reasons.ORG_NOT_VISIBLE))
+        return self._block(Reasons.ORG_NOT_VISIBLE)
 
 
 class BlacklistGate(BaseMembershipEligibilityGate):
@@ -115,7 +119,7 @@ class BlacklistGate(BaseMembershipEligibilityGate):
     def check(self) -> MembershipEligibility | None:
         """Block hard-blacklisted users; route fuzzy matches through whitelist verification."""
         if self.handler.is_hard_blacklisted:
-            return self._block(_(Reasons.BLACKLISTED))
+            return self._block(Reasons.BLACKLISTED)
 
         if not self.handler.fuzzy_matched_blacklist_entries:
             return None
@@ -125,12 +129,18 @@ class BlacklistGate(BaseMembershipEligibilityGate):
         whitelist_request = self.handler.whitelist_request
         if whitelist_request:
             if whitelist_request.status == WhitelistRequest.Status.PENDING:
-                return self._block(_(Reasons.WHITELIST_PENDING))
+                # Recoverable: the user is waiting on a staff whitelist decision.
+                # The explicit next_step keeps advance-on-read from ever treating
+                # this as a terminal verdict and lets the FE render a wait state.
+                return self._block(
+                    Reasons.WHITELIST_PENDING,
+                    next_step=MembershipNextStep.WAIT_FOR_WHITELIST_APPROVAL,
+                )
             if whitelist_request.status == WhitelistRequest.Status.REJECTED:
-                return self._block(_(Reasons.WHITELIST_REJECTED))
+                return self._block(Reasons.WHITELIST_REJECTED)
 
         # No request yet: surface verification requirement; FE routes through existing whitelist endpoint.
-        return self._block(_(Reasons.REQUIRES_VERIFICATION), next_step=MembershipNextStep.REQUIRES_INVITATION)
+        return self._block(Reasons.REQUIRES_VERIFICATION, next_step=MembershipNextStep.REQUIRES_INVITATION)
 
 
 class AlreadyMemberGate(BaseMembershipEligibilityGate):
@@ -150,7 +160,7 @@ class AlreadyMemberGate(BaseMembershipEligibilityGate):
         # Free-apply bypass guard: a user with a non-terminal subscription must not
         # be able to clobber their paid membership via the free path.
         if self.plan is None and self.handler.has_non_terminal_subscription:
-            return self._block(_(Reasons.DUPLICATE_ACTIVE_SUBSCRIPTION))
+            return self._block(Reasons.DUPLICATE_ACTIVE_SUBSCRIPTION)
 
         if self.tier is None:
             return None
@@ -162,7 +172,7 @@ class AlreadyMemberGate(BaseMembershipEligibilityGate):
         if membership.status == OrganizationMember.MembershipStatus.PAUSED:
             # PAUSED is admin/Stripe-imposed; user has no in-app recourse so we
             # block with next_step=None.
-            return self._block(_(Reasons.MEMBERSHIP_PAUSED))
+            return self._block(Reasons.MEMBERSHIP_PAUSED)
         return None
 
 
@@ -173,7 +183,7 @@ class AcceptRequestsGate(BaseMembershipEligibilityGate):
         """Block when the org is not accepting new membership requests."""
         if self.organization.accept_membership_requests:
             return None
-        return self._block(_(Reasons.NOT_ACCEPTING_REQUESTS), next_step=MembershipNextStep.REQUIRES_INVITATION)
+        return self._block(Reasons.NOT_ACCEPTING_REQUESTS, next_step=MembershipNextStep.REQUIRES_INVITATION)
 
 
 class TierAvailabilityGate(BaseMembershipEligibilityGate):
@@ -182,12 +192,12 @@ class TierAvailabilityGate(BaseMembershipEligibilityGate):
     def check(self) -> MembershipEligibility | None:
         """Block when the target tier or plan is not available for this organization."""
         if self.tier is not None and self.tier.organization_id != self.organization.pk:
-            return self._block(_(Reasons.TIER_UNAVAILABLE))
+            return self._block(Reasons.TIER_UNAVAILABLE)
         if self.plan is not None:
             if not self.plan.is_active:
-                return self._block(_(Reasons.PLAN_UNAVAILABLE))
+                return self._block(Reasons.PLAN_UNAVAILABLE)
             if self.tier is not None and self.plan.tier_id != self.tier.pk:
-                return self._block(_(Reasons.PLAN_UNAVAILABLE))
+                return self._block(Reasons.PLAN_UNAVAILABLE)
         return None
 
 
@@ -216,7 +226,15 @@ class ApplicationStatusGate(BaseMembershipEligibilityGate):
         if app is None:
             return None
         if app.status == OrganizationMembershipRequest.Status.REJECTED:
-            return self._block(_(Reasons.APPLICATION_REJECTED), application_id=app.pk)
+            # REAPPLY tells the controller (and FE) that a fresh POST /apply is
+            # the recourse: the new PENDING row supersedes this REJECTED one.
+            # Without it the controller's hard-block set (next_step=None) made
+            # the documented re-apply path unreachable via the API.
+            return self._block(
+                Reasons.APPLICATION_REJECTED,
+                next_step=MembershipNextStep.REAPPLY,
+                application_id=app.pk,
+            )
         return None
 
 
@@ -291,7 +309,7 @@ class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
             retry_on = submission.submitted_at + questionnaire.can_retake_after
             if retry_on > timezone.now():
                 return self._block(
-                    _(Reasons.MEMBERSHIP_QUESTIONNAIRE_RETAKE_COOLDOWN),
+                    Reasons.MEMBERSHIP_QUESTIONNAIRE_RETAKE_COOLDOWN,
                     next_step=MembershipNextStep.WAIT_TO_RETAKE_QUESTIONNAIRE,
                     questionnaire_id=questionnaire.pk,
                     retry_on=retry_on,
@@ -300,14 +318,14 @@ class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
 
         # No retake → terminal failure.
         return self._block(
-            _(Reasons.MEMBERSHIP_QUESTIONNAIRE_FAILED),
+            Reasons.MEMBERSHIP_QUESTIONNAIRE_FAILED,
             questionnaire_id=questionnaire.pk,
         )
 
     def _block_submit(self, questionnaire_id: uuid.UUID) -> MembershipEligibility:
         """Build the SUBMIT_QUESTIONNAIRE blocking verdict."""
         return self._block(
-            _(Reasons.MEMBERSHIP_QUESTIONNAIRE_MISSING),
+            Reasons.MEMBERSHIP_QUESTIONNAIRE_MISSING,
             next_step=MembershipNextStep.SUBMIT_QUESTIONNAIRE,
             questionnaire_id=questionnaire_id,
         )
@@ -315,7 +333,7 @@ class MembershipQuestionnaireGate(BaseMembershipEligibilityGate):
     def _block_pending(self, questionnaire_id: uuid.UUID) -> MembershipEligibility:
         """Build the WAIT_FOR_QUESTIONNAIRE_EVALUATION blocking verdict."""
         return self._block(
-            _(Reasons.MEMBERSHIP_QUESTIONNAIRE_PENDING),
+            Reasons.MEMBERSHIP_QUESTIONNAIRE_PENDING,
             next_step=MembershipNextStep.WAIT_FOR_QUESTIONNAIRE_EVALUATION,
             questionnaire_id=questionnaire_id,
         )
@@ -332,7 +350,7 @@ class ManualApprovalGate(BaseMembershipEligibilityGate):
         if app and app.status == OrganizationMembershipRequest.Status.APPROVED:
             return None
         return self._block(
-            _(Reasons.REQUIRES_APPROVAL),
+            Reasons.REQUIRES_APPROVAL,
             next_step=MembershipNextStep.WAIT_FOR_APPROVAL,
             application_id=app.pk if app else None,
         )
@@ -352,7 +370,7 @@ class PaymentReadyGate(BaseMembershipEligibilityGate):
         """Block any plan-bearing application until online payments ship (Phase 2)."""
         if self.plan is None:
             return None
-        return self._block(_(Reasons.PLAN_NOT_ONLINE))
+        return self._block(Reasons.PLAN_NOT_ONLINE)
 
 
 MEMBERSHIP_ELIGIBILITY_GATES: list[type[BaseMembershipEligibilityGate]] = [

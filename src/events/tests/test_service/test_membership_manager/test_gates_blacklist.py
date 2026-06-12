@@ -7,7 +7,7 @@ import pytest
 from accounts.models import RevelUser
 from events.models import Organization
 from events.service.membership_manager import MembershipEligibilityService
-from events.service.membership_manager.enums import MembershipNextStep, Reasons
+from events.service.membership_manager.enums import MembershipNextStep, ReasonCode, Reasons
 
 pytestmark = pytest.mark.django_db
 
@@ -92,8 +92,10 @@ def test_fuzzy_match_with_pending_whitelist_request_blocks_with_pending_reason(
     # Assert
     assert result.allowed is False
     assert result.reason == str(Reasons.WHITELIST_PENDING)
-    # No next_step (None) — user has already requested; nothing for them to do.
-    assert result.next_step is None
+    assert result.reason_code == ReasonCode.WHITELIST_PENDING
+    # Recoverable wait state: the explicit next_step keeps advance-on-read from
+    # treating this as a terminal verdict (B2).
+    assert result.next_step == MembershipNextStep.WAIT_FOR_WHITELIST_APPROVAL
 
 
 def test_fuzzy_match_with_rejected_whitelist_request_blocks_with_rejected_reason(
