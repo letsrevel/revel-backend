@@ -29,7 +29,7 @@ If it errors with "GRAFANA_TOKEN is not set", it isn't configured yet — tell t
 |------|-------|-------|
 | Stream labels | `SERVICE`, `--level error` (repeatable), `--env production` | indexed, cheap |
 | Line content | `--grep TEXT`, `--exclude TEXT`, `--regex RE` (all repeatable) | substring / regex |
-| Request metadata | `--trace-id`, `--request-id`, `--user-id`, `--method`, `--path`, `--status-code` | structlog fields |
+| Request metadata | `--trace-id`, `--request-id`, `--user-id`, `--method`, `--path`, `--status-code`, `--ip`, `--user-agent` | structlog fields |
 | Raw escape hatch | `--query '{service_name="web"} \| status_code="500"'` | any LogQL |
 
 Logs are structlog JSON; the displayed line is the `event` message, with a
@@ -53,6 +53,9 @@ metadata line beneath it (suppress with `--no-meta`, get raw JSON with `--json`)
 # Everything a user triggered
 .venv/bin/python scripts/loki_logs.py --user-id <uuid> --since 12h
 
+# Everything from one client IP (e.g. chasing a scraper/429 burst)
+.venv/bin/python scripts/loki_logs.py web --ip <ip> --since 6h
+
 # Discover what labels/values exist
 .venv/bin/python scripts/loki_logs.py --labels
 .venv/bin/python scripts/loki_logs.py --label-values service_name
@@ -73,4 +76,6 @@ metadata line beneath it (suppress with `--no-meta`, get raw JSON with `--json`)
 - A query needs at least one matcher — with no `SERVICE`/`--level` the script
   defaults to `{service_name=~".+"}` (all app streams).
 - Hitting `--limit` prints a stderr hint; narrow `--since` or raise `-n`.
+- `--ip`/`--user-agent` only match lines ingested after the Alloy config that
+  promotes `ip_address`/`user_agent`; older lines won't match those filters.
 - Read-only. The token is Viewer-scoped; this cannot modify anything.

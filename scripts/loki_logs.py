@@ -13,7 +13,7 @@ Log shape (structlog JSON, parsed by Alloy before ingestion):
   * stream labels:        ``service_name`` (web|celery_default|beat|telegram),
                           ``level`` (info|warning|error|...), ``environment``
   * structured metadata:  ``trace_id``, ``request_id``, ``method``, ``path``,
-                          ``status_code``, ``user_id``
+                          ``status_code``, ``user_id``, ``ip_address``, ``user_agent``
 
 Run with the venv interpreter (imports ``python-decouple``). Examples::
 
@@ -56,13 +56,14 @@ DEFAULT_DATASOURCE_UID = "loki"
 USER_AGENT = "revel-loki-logs/1.0 (+scripts/loki_logs.py)"
 KNOWN_SERVICES = ("web", "celery_default", "beat", "telegram")
 # Per-record fields we extract for display beneath each log line.
-METADATA_FIELDS = ("trace_id", "request_id", "method", "path", "status_code", "user_id")
+METADATA_FIELDS = ("trace_id", "request_id", "method", "path", "status_code", "user_id", "ip_address", "user_agent")
 # Order in which metadata is shown beneath each log line (most useful first).
-META_DISPLAY_ORDER = ("status_code", "method", "path", "user_id", "request_id", "trace_id")
+META_DISPLAY_ORDER = ("status_code", "method", "path", "user_id", "ip_address", "user_agent", "request_id", "trace_id")
 # Fields the live pipeline promotes to structured metadata → queryable as
-# ``| field="x"`` (since the single-render structlog fix, v1.62.4, all six are
-# promoted — including status_code and user_id).
-LABEL_METADATA = ("trace_id", "request_id", "method", "path", "status_code", "user_id")
+# ``| field="x"`` (since the single-render structlog fix, v1.62.4, all are
+# promoted — ip_address/user_agent only on lines ingested after the matching
+# alloy-config update; older lines simply won't match those filters).
+LABEL_METADATA = ("trace_id", "request_id", "method", "path", "status_code", "user_id", "ip_address", "user_agent")
 DURATION_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
 
@@ -337,6 +338,8 @@ def build_parser() -> argparse.ArgumentParser:
     flt.add_argument("--method", help="HTTP method metadata, e.g. POST")
     flt.add_argument("--path", help="request path metadata (exact match)")
     flt.add_argument("--status-code", dest="status_code", help="HTTP status_code metadata, e.g. 500")
+    flt.add_argument("--ip", dest="ip_address", help="client ip_address metadata (exact match)")
+    flt.add_argument("--user-agent", dest="user_agent", help="user_agent metadata (exact match)")
 
     win = parser.add_argument_group("time & limit")
     win.add_argument("-s", "--since", default="1h", metavar="DUR", help="look back this far (default 1h): 30m,2h,1d,1w")
