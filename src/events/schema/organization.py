@@ -236,9 +236,13 @@ class OrganizationMembershipRequestRetrieve(ModelSchema):
 
 
 class ApproveMembershipRequestSchema(Schema):
-    """Schema for approving a membership request with required tier assignment."""
+    """Schema for approving a membership request.
 
-    tier_id: UUID4
+    ``tier_id`` is optional when the application already carries a tier (new flow).
+    Required for legacy tier-less applications.
+    """
+
+    tier_id: UUID4 | None = None
 
 
 class MembershipTierSchema(ModelSchema):

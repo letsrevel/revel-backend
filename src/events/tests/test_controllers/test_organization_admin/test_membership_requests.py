@@ -39,7 +39,7 @@ class TestManageMembershipRequests:
         response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
         assert response.status_code == 204
         organization_membership_request.refresh_from_db()
-        assert organization_membership_request.status == OrganizationMembershipRequest.Status.APPROVED
+        assert organization_membership_request.status == OrganizationMembershipRequest.Status.COMPLETED
 
         # Verify member was created with correct tier
         member = OrganizationMember.objects.get(

@@ -23,6 +23,7 @@ from events.controllers.event_series import EventSeriesController
 from events.controllers.event_series_admin import EventSeriesAdminController
 from events.controllers.exports import ExportController
 from events.controllers.following import FollowingController
+from events.controllers.me_applications import MeMembershipApplicationsController
 from events.controllers.me_subscriptions import MeSubscriptionsController
 from events.controllers.organization import OrganizationController
 from events.controllers.organization_admin import ORGANIZATION_ADMIN_CONTROLLERS
@@ -127,6 +128,7 @@ api.register_controllers(
     UserPreferencesController,
     FollowingController,
     MeSubscriptionsController,
+    MeMembershipApplicationsController,
     StripeWebhookController,
     ExportController,
     # Common controllers
