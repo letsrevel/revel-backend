@@ -203,6 +203,14 @@ This starts PostgreSQL, Redis, ClamAV, and **Mailpit**. All emails sent by the a
 
 ---
 
+## 🏠 Self-Hosting (Production)
+
+For a full production deployment — reverse proxy, TLS, the SvelteKit frontend, and the observability stack — use the **[infra](https://github.com/letsrevel/infra)** repository, which ships a turn-key Docker Compose setup and a documented `.env.example`.
+
+The published frontend image (`ghcr.io/letsrevel/revel-frontend`) is **environment-agnostic**: it reads its backend API URL from `PUBLIC_API_URL` at **runtime**, so a single prebuilt image can point at any backend. Set `PUBLIC_API_URL` (and `ORIGIN`) in your deployment environment — no rebuild required. See `letsrevel/infra`'s `.env.example` for the canonical configuration.
+
+---
+
 ## 📊 Observability
 
 Revel includes a comprehensive observability stack built on the LGTM (Loki, Grafana, Tempo, Mimir) framework.
