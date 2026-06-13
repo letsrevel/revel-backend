@@ -56,6 +56,7 @@ Links to issues, PRs, and related resources.
 |---|---|---|---|
 | [PM-0001](0001-guest-user-verification-bypass.md) | Guest User Verification Bypass | 2026-02-19 | High |
 | [PM-0002](0002-server-side-cursor-pgbouncer.md) | Server-Side Cursors Orphaned Under PgBouncer Transaction Pooling | 2026-05-25 | Medium |
+| [PM-0003](0003-ssr-post-body-loss-internal-api-path.md) | SSR POST Bodies Silently Dropped on the Internal API Path (Login Outage) | 2026-06-12 | Critical |
 
 ---
 
