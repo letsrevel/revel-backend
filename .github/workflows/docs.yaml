@@ -28,7 +28,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install MkDocs
         run: pip install mkdocs-material mkdocs-minify-plugin mkdocs-redirects

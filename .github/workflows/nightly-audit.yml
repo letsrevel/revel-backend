@@ -25,12 +25,12 @@ jobs:
     name: pip-audit (main)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: main
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           version: "0.6.10"
           enable-cache: true
@@ -45,7 +45,7 @@ jobs:
 
       - name: Open tracker issue on failure
         if: failure()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const title = `Nightly pip-audit failure (${new Date().toISOString().slice(0, 10)})`;
@@ -90,12 +90,12 @@ jobs:
     name: licensecheck (main)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           ref: main
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           version: "0.6.10"
           enable-cache: true
@@ -110,7 +110,7 @@ jobs:
 
       - name: Open tracker issue on failure
         if: failure()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const title = `Nightly license-check failure (${new Date().toISOString().slice(0, 10)})`;
