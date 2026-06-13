@@ -259,6 +259,16 @@ CACHES = {
     }
 }
 
+# django-solo: cache the singleton rows (SiteSettings, Legal) in Redis instead of
+# hitting the DB on every SingletonModel.get_solo() call. Without this, get_solo()
+# runs a get_or_create() per call — which fanned out into 100+ identical
+# SELECT common_sitesettings queries inside notification-dispatch loops.
+# django-solo refreshes the cache on .save() and clears it on .delete(), so admin
+# edits invalidate automatically; the timeout is only a backstop against rows
+# mutated directly in the DB (bypassing .save()).
+SOLO_CACHE = "default"
+SOLO_CACHE_TIMEOUT = 60 * 60  # 1 hour
+
 
 # GENERAL
 VERSION = version("revel")

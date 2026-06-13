@@ -70,18 +70,30 @@ def enable_celery_eager_mode(settings: t.Any) -> None:
 
 
 @pytest.fixture(autouse=True)
-def use_locmem_cache(settings: t.Any) -> None:
+def use_locmem_cache(settings: t.Any) -> t.Generator[None]:
     """Use in-memory cache for tests to avoid Redis sharing issues in parallel runs.
 
     This ensures each test worker has its own isolated cache, preventing race
     conditions when running tests in parallel with pytest-xdist.
+
+    The store is cleared around each test: LocMemCache keyed by ``"test-cache"``
+    is shared process-wide, so without an explicit clear, cached values survive
+    across sequential tests in the same worker. That matters in particular for
+    django-solo (``SOLO_CACHE``), which caches whole singleton model instances —
+    a cached SiteSettings/Legal row tied to a rolled-back DB row would otherwise
+    leak into the next test.
     """
+    from django.core.cache import cache
+
     settings.CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
             "LOCATION": "test-cache",
         }
     }
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture(autouse=True)
