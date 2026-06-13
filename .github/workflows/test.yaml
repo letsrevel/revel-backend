@@ -33,10 +33,10 @@ jobs:
     name: Lint, type & schema checks
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install a specific version of uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v8
         with:
           version: "0.6.10"
           enable-cache: true
@@ -72,7 +72,7 @@ jobs:
         run: cp geo/data/worldcities.mini.csv geo/data/worldcities.csv
 
       - name: Restore mypy cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .mypy_cache
           key: mypy-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ github.sha }}
@@ -113,10 +113,10 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install a specific version of uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v8
         with:
           version: "0.6.10"
           enable-cache: true
@@ -167,7 +167,7 @@ jobs:
             src
 
       - name: Upload coverage data
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-shard-${{ matrix.shard }}
           path: .coverage.shard-${{ matrix.shard }}
@@ -184,10 +184,10 @@ jobs:
     runs-on: ubuntu-24.04
     needs: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install a specific version of uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v8
         with:
           version: "0.6.10"
           enable-cache: true
@@ -196,7 +196,7 @@ jobs:
         run: uv sync
 
       - name: Download all coverage shards
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: coverage-shard-*
           merge-multiple: true
@@ -213,6 +213,6 @@ jobs:
 
       - name: Upload coverage reports to Codecov
         if: github.ref == 'refs/heads/main'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
