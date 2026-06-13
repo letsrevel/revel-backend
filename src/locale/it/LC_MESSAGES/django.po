@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-12 20:20+0200\n"
+"POT-Creation-Date: 2026-06-13 09:39+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2200,6 +2200,62 @@ msgid "New event scheduled for %(series)s"
 msgid_plural "%(count)d new events scheduled for %(series)s"
 msgstr[0] "Nuovo evento in %(series)s"
 msgstr[1] "Nuovo evento in %(series)s"
+
+#, fuzzy, python-format
+#| msgid "Item Removed"
+msgid "Membership renewed: %(org)s"
+msgstr "Elemento rimosso"
+
+#, fuzzy, python-format
+#| msgid "Your membership is not active."
+msgid "Your %(org)s membership was renewed"
+msgstr "La tua iscrizione non è attiva."
+
+#, python-format
+msgid "Payment failed: %(org)s membership"
+msgstr ""
+
+#, python-format
+msgid "Action needed: payment failed for %(org)s"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Item Removed"
+msgid "Membership expired: %(org)s"
+msgstr "Elemento rimosso"
+
+#, fuzzy, python-format
+#| msgid "Your membership is not active."
+msgid "Your %(org)s membership has expired"
+msgstr "La tua iscrizione non è attiva."
+
+#, fuzzy, python-format
+#| msgid "Verification email sent."
+msgid "Membership cancelled: %(org)s"
+msgstr "Email di verifica inviata."
+
+#, fuzzy, python-format
+#| msgid "Your RSVP for %(event)s has been cancelled."
+msgid "Your %(org)s membership has been cancelled"
+msgstr "La tua RSVP per %(event)s è stata annullata."
+
+#, fuzzy, python-format
+#| msgid "Item Removed"
+msgid "Membership renews soon: %(org)s"
+msgstr "Elemento rimosso"
+
+#, fuzzy, python-format
+#| msgid "Item Removed"
+msgid "Your %(org)s membership renews soon"
+msgstr "Elemento rimosso"
+
+#, python-format
+msgid "Price change: %(org)s membership"
+msgstr ""
+
+#, python-format
+msgid "Upcoming price change for your %(org)s membership"
+msgstr ""
 
 msgid "System Announcement"
 msgstr ""
