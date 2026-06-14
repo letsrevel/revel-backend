@@ -1,0 +1,3 @@
+{%load i18n %}🔔 {%blocktranslate with plan=context.plan_name org=context.organization_name date=context.period_end amount=context.amount %}Your <b>{{ plan }}</b> membership at <b>{{ org }}</b> renews on {{ date }} for {{ amount }}.{%endblocktranslate%}
+
+{%if context.is_online%}{%trans "We'll charge your card on file on the renewal date."%} {%if context.customer_portal_url%}<a href="{{context.customer_portal_url}}">{%trans "Manage Billing"%}</a>{%endif%}{%else%}{%blocktranslate with org=context.organization_name url=context.organization_contact_url %}Contact <a href="{{ url }}">{{ org }}</a> if you don't want to renew.{%endblocktranslate%}{%endif%}

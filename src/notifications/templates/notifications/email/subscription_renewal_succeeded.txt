@@ -1,0 +1,11 @@
+{%load i18n %}{%trans "Hello"%} {{user.display_name}},
+
+✅ {%blocktranslate with plan=context.plan_name org=context.organization_name %}Your {{ plan }} membership at {{ org }} has been successfully renewed.{%endblocktranslate%}
+
+{%trans "Plan:"%} {{context.plan_name}}
+{%trans "Amount charged:"%} {{context.amount}}
+{%trans "Next renewal:"%} {{context.period_end}}
+
+{%if context.customer_portal_url%}{%trans "Manage billing:"%} {{context.customer_portal_url}}
+
+{%endif%}{% include "notifications/email/_footer.txt" %}

@@ -249,7 +249,7 @@ class TestGenerateMonthlyInvoicesTask:
 class TestSendInvoiceEmailTask:
     """Tests for the send_invoice_email_task Celery task."""
 
-    @patch("events.tasks.send_email")
+    @patch("events.tasks.invoicing.send_email")
     def test_sends_email_to_correct_recipients(
         self,
         mock_send_email: MagicMock,
@@ -275,7 +275,7 @@ class TestSendInvoiceEmailTask:
         assert "2026-01-01" in call_kwargs["body"]
         assert "2026-01-31" in call_kwargs["body"]
 
-    @patch("events.tasks.send_email")
+    @patch("events.tasks.invoicing.send_email")
     def test_attaches_pdf_file(
         self,
         mock_send_email: MagicMock,
@@ -289,7 +289,7 @@ class TestSendInvoiceEmailTask:
         assert call_kwargs["attachment_storage_path"] == sample_invoice.pdf_file.name
         assert call_kwargs["attachment_filename"] == "RVL-2026-000001.pdf"
 
-    @patch("events.tasks.send_email")
+    @patch("events.tasks.invoicing.send_email")
     def test_includes_bcc_from_site_settings(
         self,
         mock_send_email: MagicMock,
@@ -302,7 +302,7 @@ class TestSendInvoiceEmailTask:
         call_kwargs = mock_send_email.call_args.kwargs
         assert call_kwargs["bcc"] == ["accounting@revel.test"]
 
-    @patch("events.tasks.send_email")
+    @patch("events.tasks.invoicing.send_email")
     def test_no_bcc_when_site_setting_is_empty(
         self,
         mock_send_email: MagicMock,
@@ -318,7 +318,7 @@ class TestSendInvoiceEmailTask:
         call_kwargs = mock_send_email.call_args.kwargs
         assert call_kwargs["bcc"] == []
 
-    @patch("events.tasks.send_email")
+    @patch("events.tasks.invoicing.send_email")
     def test_handles_deleted_organization_gracefully(
         self,
         mock_send_email: MagicMock,
@@ -333,7 +333,7 @@ class TestSendInvoiceEmailTask:
 
         mock_send_email.assert_not_called()
 
-    @patch("events.tasks.send_email")
+    @patch("events.tasks.invoicing.send_email")
     def test_handles_no_recipients_gracefully(
         self,
         mock_send_email: MagicMock,
@@ -379,7 +379,7 @@ class TestSendInvoiceEmailTask:
 
         mock_send_email.assert_not_called()
 
-    @patch("events.tasks.send_email")
+    @patch("events.tasks.invoicing.send_email")
     def test_falls_back_to_contact_email_when_no_billing_email(
         self,
         mock_send_email: MagicMock,
@@ -415,7 +415,7 @@ class TestSendInvoiceEmailTask:
         assert "contact@nobilling.com" in recipients
         assert "invoice_owner@example.com" in recipients
 
-    @patch("events.tasks.send_email")
+    @patch("events.tasks.invoicing.send_email")
     def test_does_not_duplicate_owner_email_in_recipients(
         self,
         mock_send_email: MagicMock,

@@ -162,6 +162,24 @@ class OrganizationController(UserAwareController):
         return self.get_one(slug)
 
     @route.get(
+        "/{slug}/membership-plans",
+        url_name="list_organization_membership_plans",
+        response=list[schema.PublicPlanSchema],
+    )
+    def list_membership_plans(self, slug: str) -> QuerySet[models.MembershipSubscriptionPlan]:
+        """List active subscription plans available on this organization.
+
+        Public endpoint used by the member-facing checkout. Archived (``is_active=False``)
+        plans are filtered out so they cannot be selected for new subscriptions.
+        """
+        organization = self.get_one(slug)
+        return (
+            models.MembershipSubscriptionPlan.objects.filter(tier__organization=organization, is_active=True)
+            .select_related("tier")
+            .order_by("tier__name", "price")
+        )
+
+    @route.get(
         "/{slug}/resources",
         url_name="list_organization_resources",
         response=PaginatedResponseSchema[schema.AdditionalResourceSchema],

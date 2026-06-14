@@ -1,8 +1,8 @@
 """Membership subscription models.
 
-Phase 1 (OFFLINE) of the membership-subscriptions roadmap. Stripe-specific
-fields (``stripe_price_id``, ``stripe_subscription_id``, etc.) are intentionally
-omitted here and will be introduced via an additive migration in Phase 2.
+Phase 1 introduced staff-managed (OFFLINE) subscriptions. Phase 2 adds
+Stripe-backed ONLINE subscriptions via additive fields and a per-(user, org)
+:class:`CustomerProfile`.
 """
 
 import typing as t
@@ -12,6 +12,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from simple_history.models import HistoricalRecords
 
 from common.fields import MarkdownField
 from common.models import TimeStampedModel
@@ -37,6 +38,10 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         MONTH = "month", _("Month")
         YEAR = "year", _("Year")
 
+    class PaymentMethod(models.TextChoices):
+        ONLINE = "online", _("Online (Stripe)")
+        OFFLINE = "offline", _("Offline (staff-managed)")
+
     tier = models.ForeignKey(
         MembershipTier,
         on_delete=models.CASCADE,
@@ -60,6 +65,16 @@ class MembershipSubscriptionPlan(TimeStampedModel):
         validators=[MinValueValidator(1)],
     )
     is_active = models.BooleanField(default=True, db_index=True)
+    payment_method = models.CharField(
+        max_length=10,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.OFFLINE,
+        help_text=_("ONLINE plans are billed via Stripe; OFFLINE plans are tracked manually by staff."),
+    )
+    stripe_product_id = models.CharField(max_length=255, blank=True, default="")
+    stripe_price_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["tier__name", "name"]
@@ -118,6 +133,23 @@ class MembershipSubscription(TimeStampedModel):
     current_period_end = models.DateTimeField(null=True, blank=True, db_index=True)
     cancel_at_period_end = models.BooleanField(default=False)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    stripe_subscription_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
+    pending_plan = models.ForeignKey(
+        MembershipSubscriptionPlan,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="pending_subscriptions",
+        help_text=_("Plan that will replace ``plan`` at the next renewal (downgrade flow)."),
+    )
+    stripe_schedule_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    expired_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=_("Set when status transitions to EXPIRED. Used for the revival window check."),
+    )
+
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["-created_at"]
@@ -142,6 +174,10 @@ class MembershipSubscription(TimeStampedModel):
         if self.plan_id and self.organization_id and self.plan.tier.organization_id != self.organization_id:
             raise DjangoValidationError(
                 {"organization": _("Subscription organization must match the plan's tier organization.")}
+            )
+        if self.pending_plan and self.pending_plan.tier.organization_id != self.organization_id:
+            raise DjangoValidationError(
+                {"pending_plan": _("Pending plan must belong to the same organization as the subscription.")}
             )
 
     @property
@@ -197,6 +233,10 @@ class MembershipPayment(TimeStampedModel):
     )
     notes = models.TextField(blank=True, default="")
     raw_response = models.JSONField(default=dict, blank=True)
+    stripe_invoice_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    stripe_payment_intent_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["-created_at"]
@@ -206,3 +246,39 @@ class MembershipPayment(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"Payment {self.id} for sub {self.subscription_id} ({self.status})"
+
+
+class CustomerProfile(TimeStampedModel):
+    """Per-(user, organization) Stripe Customer reference.
+
+    Stripe Connect uses one Customer namespace per connected account, so a
+    single platform-wide Customer doesn't work — each org's Stripe account
+    needs its own Customer for the user. This model is the join.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="customer_profiles",
+    )
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name="customer_profiles",
+    )
+    stripe_customer_id = models.CharField(max_length=255, db_index=True)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["user", "organization"], name="unique_customer_per_user_org"),
+            models.UniqueConstraint(
+                fields=["organization", "stripe_customer_id"],
+                name="unique_stripe_customer_per_org",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} @ {self.organization_id} ({self.stripe_customer_id})"

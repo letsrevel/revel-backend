@@ -292,7 +292,13 @@ from .recurring_event import (
 
 # Subscription schemas
 from .subscription import (
+    BillingPortalRequestSchema,
+    BillingPortalSessionSchema,
     CancelSubscriptionSchema,
+    ChangePlanRequestSchema,
+    MemberCancelSubscriptionSchema,
+    MigrationErrorSchema,
+    MigrationResultSchema,
     MyMembershipSchema,
     MySubscriptionSchema,
     PaymentRecordSchema,
@@ -300,9 +306,17 @@ from .subscription import (
     PlanCreateSchema,
     PlanSchema,
     PlanUpdateSchema,
+    PublicPlanSchema,
     RefundSchema,
+    RevivalRequestSchema,
+    RevivalResponseSchema,
+    StaffRevivalResponseSchema,
+    SubscribeRequestSchema,
+    SubscribeResponseSchema,
     SubscriptionCreateSchema,
+    SubscriptionMetricsSchema,
     SubscriptionSchema,
+    SubscriptionStatusBreakdownSchema,
 )
 
 # Announcement schemas
@@ -546,7 +560,13 @@ __all__ = [
     "RecurringEventCreateSchema",
     "TemplateEditSchema",
     # Subscriptions
+    "BillingPortalRequestSchema",
+    "BillingPortalSessionSchema",
     "CancelSubscriptionSchema",
+    "ChangePlanRequestSchema",
+    "MemberCancelSubscriptionSchema",
+    "MigrationErrorSchema",
+    "MigrationResultSchema",
     "MembershipPaymentSchema",
     "MyMembershipSchema",
     "MySubscriptionSchema",
@@ -554,9 +574,17 @@ __all__ = [
     "PlanCreateSchema",
     "PlanSchema",
     "PlanUpdateSchema",
+    "PublicPlanSchema",
     "RefundSchema",
+    "RevivalRequestSchema",
+    "RevivalResponseSchema",
+    "StaffRevivalResponseSchema",
+    "SubscribeRequestSchema",
+    "SubscribeResponseSchema",
     "SubscriptionCreateSchema",
+    "SubscriptionMetricsSchema",
     "SubscriptionSchema",
+    "SubscriptionStatusBreakdownSchema",
     # Announcement
     "AnnouncementCreateSchema",
     "AnnouncementListSchema",
