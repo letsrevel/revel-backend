@@ -18,8 +18,8 @@ pytestmark = pytest.mark.django_db
 
 def test_user_language_field_choices(user: RevelUser) -> None:
     """Test that user language field has correct language choices."""
-    # Language choices should be: en, de, it
-    valid_languages = ["en", "de", "it"]
+    # Language choices should be: en, de, it, fr
+    valid_languages = ["en", "de", "it", "fr"]
     assert user.language in valid_languages
 
 
@@ -45,6 +45,23 @@ def test_error_message_translation_italian(mock_send_email: object, user: RevelU
     """Test that error messages are translated to Italian."""
     with translation.override("it"):
         with pytest.raises(HttpError, match="Esiste già"):
+            register_user(
+                RegisterUserSchema(
+                    email=user.email,
+                    password1="TestPass123!",
+                    password2="TestPass123!",
+                    first_name="Test",
+                    last_name="User",
+                    accept_toc_and_privacy=True,
+                )
+            )
+
+
+@patch("accounts.tasks.send_verification_email.delay")
+def test_error_message_translation_french(mock_send_email: object, user: RevelUser) -> None:
+    """Test that error messages are translated to French."""
+    with translation.override("fr"):
+        with pytest.raises(HttpError, match="déjà"):
             register_user(
                 RegisterUserSchema(
                     email=user.email,
@@ -104,6 +121,21 @@ def test_token_expiry_error_translation_italian() -> None:
             token_to_payload(expired_token, VerifyEmailJWTPayloadSchema)
 
 
+def test_token_expiry_error_translation_french() -> None:
+    """Test that token expiry errors are translated to French."""
+    import jwt
+    from django.conf import settings
+
+    from accounts.schema import VerifyEmailJWTPayloadSchema
+
+    # Create an expired token
+    expired_token = jwt.encode({"exp": 0}, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+    with translation.override("fr"):
+        with pytest.raises(HttpError, match="expiré"):
+            token_to_payload(expired_token, VerifyEmailJWTPayloadSchema)
+
+
 @override_settings(LANGUAGE_CODE="de")
 def test_language_setting_affects_default() -> None:
     """Test that LANGUAGE_CODE setting affects the default language."""
@@ -130,6 +162,11 @@ def test_translation_override_context_manager() -> None:
         italian_message = str(message)
         assert "valido" in italian_message.lower()
 
+    # Test French
+    with translation.override("fr"):
+        french_message = str(message)
+        assert "invalide" in french_message.lower()
+
     # Test English
     with translation.override("en"):
         english_message = str(message)
@@ -153,10 +190,17 @@ def test_i18n_jwt_auth_activates_user_language(
         password="password",
         language="it",
     )
+    user_fr = django_user_model.objects.create_user(
+        username="french@test.com",
+        email="french@test.com",
+        password="password",
+        language="fr",
+    )
 
     # Generate JWT tokens for each user
     token_de = str(RefreshToken.for_user(user_de).access_token)  # type: ignore[attr-defined]
     token_it = str(RefreshToken.for_user(user_it).access_token)  # type: ignore[attr-defined]
+    token_fr = str(RefreshToken.for_user(user_fr).access_token)  # type: ignore[attr-defined]
 
     # Create mock requests
     factory = RequestFactory()
@@ -178,6 +222,14 @@ def test_i18n_jwt_auth_activates_user_language(
     assert translation.get_language() == "it"
     assert hasattr(request_it, "LANGUAGE_CODE") and request_it.LANGUAGE_CODE == "it"
 
+    # Test French user
+    request_fr = factory.get("/test")
+    auth.authenticate(request_fr, token_fr)
+
+    # Check that French language is activated
+    assert translation.get_language() == "fr"
+    assert hasattr(request_fr, "LANGUAGE_CODE") and request_fr.LANGUAGE_CODE == "fr"
+
 
 def test_i18n_jwt_auth_with_translated_response(
     django_user_model: type[RevelUser],
@@ -198,9 +250,16 @@ def test_i18n_jwt_auth_with_translated_response(
         password="password",
         language="it",
     )
+    user_fr = django_user_model.objects.create_user(
+        username="fr@test.com",
+        email="fr@test.com",
+        password="password",
+        language="fr",
+    )
 
     token_de = str(RefreshToken.for_user(user_de).access_token)  # type: ignore[attr-defined]
     token_it = str(RefreshToken.for_user(user_it).access_token)  # type: ignore[attr-defined]
+    token_fr = str(RefreshToken.for_user(user_fr).access_token)  # type: ignore[attr-defined]
 
     factory = RequestFactory()
     auth = I18nJWTAuth()
@@ -216,6 +275,12 @@ def test_i18n_jwt_auth_with_translated_response(
     auth.authenticate(request_it, token_it)
     message = str(_("Email already verified."))
     assert "verificat" in message.lower()
+
+    # Test with French user
+    request_fr = factory.get("/test")
+    auth.authenticate(request_fr, token_fr)
+    message = str(_("Email already verified."))
+    assert "déjà" in message.lower()
 
 
 def test_optional_auth_with_token_activates_language(

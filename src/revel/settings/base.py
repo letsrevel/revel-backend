@@ -206,6 +206,7 @@ LANGUAGES = [
     ("en", "English"),
     ("de", "Deutsch"),
     ("it", "Italiano"),
+    ("fr", "Français"),
 ]
 
 LOCALE_PATHS = [
