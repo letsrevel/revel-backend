@@ -2605,7 +2605,7 @@ msgstr "Verfügbar"
 msgid ""
 "<strong>\"%(item)s\"</strong> is now available for <strong>%(event)s</"
 "strong>."
-msgstr "<strong>\"%(item)s\"</strong> ist jetzt für %(event)s verfügbar."
+msgstr "<strong>\"%(item)s\"</strong> ist jetzt für <strong>%(event)s</strong> verfügbar."
 
 #, python-format
 msgid "\"%(item)s\" is now available for %(event)s."
