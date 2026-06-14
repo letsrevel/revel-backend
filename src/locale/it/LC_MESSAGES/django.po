@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-25 18:45+0200\n"
+"POT-Creation-Date: 2026-06-12 20:17+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -970,6 +970,17 @@ msgstr "Solo chi ha il biglietto può annullarlo."
 msgid "Refund failed. Please try again later."
 msgstr "Rimborso non riuscito. Per favore riprova più tardi."
 
+msgid "Paid applications are not supported in this release."
+msgstr ""
+
+#, fuzzy
+#| msgid "Payment Information"
+msgid "Not found."
+msgstr "Informazioni pagamento"
+
+msgid "Not allowed."
+msgstr ""
+
 msgid "Message sent."
 msgstr ""
 
@@ -993,9 +1004,6 @@ msgstr "Il PDF della fattura non è ancora stato generato."
 msgid "Invoice PDF could not be generated."
 msgstr "Il PDF della fattura non è ancora stato generato."
 
-msgid "Invalid Stripe signature"
-msgstr "Firma Stripe non valida"
-
 msgid "You have created too many items."
 msgstr "Hai creato troppi elementi."
 
@@ -1004,6 +1012,9 @@ msgstr "Sei già membro di questa organizzazione."
 
 msgid "You have a pending membership request for this organization."
 msgstr "Hai una richiesta di iscrizione in sospeso per questa organizzazione."
+
+msgid "Invalid Stripe signature"
+msgstr "Firma Stripe non valida"
 
 msgid "Draft"
 msgstr "Bozza"
@@ -1027,15 +1038,62 @@ msgstr ""
 msgid "Days a PAST_DUE subscription stays valid before expiring."
 msgstr ""
 
+#, fuzzy
+#| msgid "One or more events do not exist or belong to this organization."
+msgid ""
+"Default membership questionnaire applied to all tiers (overridable per tier)."
+msgstr ""
+"Uno o più eventi non esistono o non appartengono a questa organizzazione."
+
+#, fuzzy
+#| msgid "Your verification request is pending approval."
+msgid "When True, every membership application requires manual staff approval."
+msgstr "La tua richiesta di verifica è in attesa di approvazione."
+
 msgid ""
 "A verified contact email is required to enable a contact method other than "
 "NONE."
 msgstr ""
 
+#, fuzzy
+#| msgid "One or more events do not exist or belong to this organization."
+msgid "Default membership questionnaire must belong to this organization."
+msgstr ""
+"Uno o più eventi non esistono o non appartengono a questa organizzazione."
+
+msgid "Membership questionnaire must be of type MEMBERSHIP."
+msgstr ""
+
+msgid "Tier-specific membership questionnaire. NULL = inherit org default."
+msgstr ""
+
+msgid ""
+"Tier-specific manual-approval override. NULL = inherit "
+"org.default_requires_membership_approval."
+msgstr ""
+
+#, fuzzy
+#| msgid "One or more events do not exist or belong to this organization."
+msgid "Membership questionnaire must belong to the same organization."
+msgstr ""
+"Uno o più eventi non esistono o non appartengono a questa organizzazione."
+
 msgid "Membership tier is required when granting membership."
 msgstr ""
 
 msgid "Membership tier must belong to the same organization as the token."
+msgstr ""
+
+msgid ""
+"Target tier. NULL = tier-less legacy application; staff picks at approval."
+msgstr ""
+
+msgid ""
+"Target plan for paid path. NULL = free join. Phase 1 rejects non-null at /"
+"apply."
+msgstr ""
+
+msgid "Submission that satisfied the questionnaire gate, if applicable."
 msgstr ""
 
 msgid "Token must be a single non-empty slug segment."
@@ -1421,14 +1479,101 @@ msgstr "Sei già invitato a questo evento."
 msgid "You have already requested an invitation to this event."
 msgstr "Hai già richiesto un invito per questo evento."
 
+#, fuzzy
+#| msgid "Registration is not available."
+msgid "This organization is not available."
+msgstr "La registrazione non è disponibile."
+
+#, fuzzy
+#| msgid "You are not allowed to participate in this organization's events."
+msgid "You are not allowed to join this organization."
+msgstr "Non ti è consentito partecipare agli eventi di questa organizzazione."
+
+#, fuzzy
+#| msgid "You are already a member of this organization."
+msgid "You are already a member at this tier."
+msgstr "Sei già membro di questa organizzazione."
+
+#, fuzzy
+#| msgid "The organization does not accept new members."
+msgid "This organization is not accepting new members."
+msgstr "L'organizzazione non accetta nuovi membri."
+
+#, fuzzy
+#| msgid "Registration is not available."
+msgid "The requested tier is not available."
+msgstr "La registrazione non è disponibile."
+
+#, fuzzy
+#| msgid "Registration is not available."
+msgid "The requested plan is not available."
+msgstr "La registrazione non è disponibile."
+
+#, fuzzy
+#| msgid "Your verification request was rejected."
+msgid "Your application was rejected."
+msgstr "La tua richiesta di verifica è stata rifiutata."
+
+#, fuzzy
+#| msgid "Questionnaire has not been filled."
+msgid "Membership questionnaire has not been filled."
+msgstr "Il questionario non è stato compilato."
+
+#, fuzzy
+#| msgid "Questionnaire evaluation was insufficient."
+msgid "Membership questionnaire evaluation was insufficient."
+msgstr "La valutazione del questionario è stata insufficiente."
+
+#, fuzzy
+#| msgid ""
+#| "Questionnaire evaluation was insufficient. You can try again in "
+#| "{retry_on}."
+msgid ""
+"Membership questionnaire evaluation was insufficient. You can try again "
+"later."
+msgstr ""
+"La valutazione del questionario è stata insufficiente. Puoi riprovare tra "
+"{retry_on}."
+
+#, fuzzy
+#| msgid "Your verification request is pending approval."
+msgid "Your application is awaiting staff approval."
+msgstr "La tua richiesta di verifica è in attesa di approvazione."
+
+#, fuzzy
+#| msgid "This organization is not configured to accept payments."
+msgid "This plan is not configured for online checkout."
+msgstr "Questa organizzazione non è configurata per accettare pagamenti."
+
+#, fuzzy
+#| msgid "This organization is not configured to accept payments."
+msgid "This organization cannot accept online payments yet."
+msgstr "Questa organizzazione non è configurata per accettare pagamenti."
+
+#, fuzzy
+#| msgid "User is already a member of this organization."
+msgid "You already have an active subscription in this organization."
+msgstr "L'utente è già membro di questa organizzazione."
+
+msgid ""
+"Your membership at this tier is paused. Contact the organization to resume."
+msgstr ""
+
+#, fuzzy
+#| msgid "New Questionnaire Submission"
+msgid "Invalid questionnaire submission."
+msgstr "Nuovo questionario ricevuto"
+
 msgid "Only the organization owner can manage staff-granting tokens."
-msgstr "Solo il proprietario dell'organizzazione può gestire i token che concedono lo status di staff."
+msgstr ""
 "Solo il proprietario dell'organizzazione può gestire i token che concedono "
-"accesso allo staff."
+"lo status di staff.Solo il proprietario dell'organizzazione può gestire i "
+"token che concedono accesso allo staff."
 
 msgid "At least one of grants_membership or grants_staff_status must be True."
-msgstr "Almeno uno tra grants_membership o grants_staff_status deve essere True."
-"Almeno uno tra grants_membership o grants_staff_status deve essere True."
+msgstr ""
+"Almeno uno tra grants_membership o grants_staff_status deve essere "
+"True.Almeno uno tra grants_membership o grants_staff_status deve essere True."
 
 msgid "membership_tier_id is required when grants_membership is True."
 msgstr "membership_tier_id è obbligatorio quando grants_membership è True."
@@ -1452,6 +1597,14 @@ msgstr "L'organizzazione non accetta nuovi membri."
 #| msgid "You are already a member of this organization."
 msgid "You are not allowed to request membership for this organization."
 msgstr "Sei già membro di questa organizzazione."
+
+msgid "A tier must be specified to approve this application."
+msgstr ""
+
+#, fuzzy
+#| msgid "User is already a member of this organization."
+msgid "Tier must belong to the same organization."
+msgstr "L'utente è già membro di questa organizzazione."
 
 msgid "User is already a member of this organization."
 msgstr "L'utente è già membro di questa organizzazione."
@@ -2068,6 +2221,21 @@ msgstr "RSVP annullata: %(event)s (%(user)s)"
 #, python-format
 msgid "RSVP Cancelled: %(event)s"
 msgstr "RSVP annullata: %(event)s"
+
+#, fuzzy, python-format
+#| msgid "%(counter)s new event has been scheduled for %(series)s."
+#| msgid_plural "%(counter)s new events have been scheduled for %(series)s."
+msgid "%(count)d new event scheduled for %(series)s"
+msgid_plural "%(count)d new events scheduled for %(series)s"
+msgstr[0] "%(counter)s nuovo evento è stato programmato per %(series)s."
+msgstr[1] "%(counter)s nuovi eventi sono stati programmati per %(series)s."
+
+#, fuzzy, python-format
+#| msgid "New event in %(series)s"
+msgid "New event scheduled for %(series)s"
+msgid_plural "%(count)d new events scheduled for %(series)s"
+msgstr[0] "Nuovo evento in %(series)s"
+msgstr[1] "Nuovo evento in %(series)s"
 
 msgid "System Announcement"
 msgstr ""
@@ -3595,6 +3763,10 @@ msgstr ""
 msgid "Invalid references in poll payload."
 msgstr "Token non valido: {error}"
 
+msgid ""
+"public_anonymous must be True when result_visibility is PUBLIC or UNLISTED."
+msgstr ""
+
 msgid "You submitted answers refer to a different questionnaire."
 msgstr "Le risposte che hai inviato si riferiscono a un questionario diverso."
 
@@ -3727,6 +3899,9 @@ msgstr "Tipo di token non valido."
 #| msgid "RSVP Now"
 msgid "RSVPs"
 msgstr "Conferma ora"
+
+msgid "Bookmarks"
+msgstr ""
 
 #, fuzzy
 #| msgid "Invitation not found."

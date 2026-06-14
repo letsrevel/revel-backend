@@ -324,6 +324,15 @@ from .waitlist import (
     WaitlistSettingsUpdateSchema,
 )
 
+# Application schemas
+from .application import (
+    ApplyRequestSchema,
+    ApplyResponseSchema,
+    JoinEligibilityQuery,
+    MembershipApplicationSchema,
+    MembershipEligibilitySchema,
+)
+
 __all__ = [
     # Mixins and utilities
     "CityEditMixin",
@@ -570,4 +579,10 @@ __all__ = [
     "WaitlistOfferSchema",
     "WaitlistSettingsSchema",
     "WaitlistSettingsUpdateSchema",
+    # Application
+    "ApplyRequestSchema",
+    "ApplyResponseSchema",
+    "JoinEligibilityQuery",
+    "MembershipApplicationSchema",
+    "MembershipEligibilitySchema",
 ]

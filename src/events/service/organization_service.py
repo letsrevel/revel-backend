@@ -178,7 +178,10 @@ def create_membership_request(
         raise AlreadyMemberError
 
     if OrganizationMembershipRequest.objects.filter(
-        organization=organization, user=user, status=OrganizationMembershipRequest.Status.PENDING
+        organization=organization,
+        user=user,
+        tier__isnull=True,
+        status=OrganizationMembershipRequest.Status.PENDING,
     ).exists():
         raise PendingMembershipRequestExistsError
 
@@ -187,31 +190,54 @@ def create_membership_request(
 
 @transaction.atomic
 def approve_membership_request(
-    membership_request: models.OrganizationMembershipRequest, decided_by: RevelUser, tier: MembershipTier
+    membership_request: models.OrganizationMembershipRequest,
+    decided_by: RevelUser,
+    tier: MembershipTier | None = None,
 ) -> None:
-    """Approve a membership request and assign tier.
+    """Approve a membership application.
 
-    Args:
-        membership_request: The membership request to approve
-        decided_by: The user approving the request
-        tier: The membership tier to assign
+    Uses the application's pre-set ``tier`` when present; otherwise requires the
+    caller to pass ``tier`` explicitly.
+
+    Behavior:
+    - Application carries no plan → COMPLETED + OrganizationMember created at the chosen tier.
+    - Application carries a plan → APPROVED (Phase 2 will trigger Stripe sub creation
+      from a separate /pay endpoint). Phase 1 currently rejects plan-bearing applications
+      at /apply, so this branch will rarely fire until Phase 2.
     """
-    membership_request.status = models.OrganizationMembershipRequest.Status.APPROVED
+    effective_tier = membership_request.tier or tier
+    if effective_tier is None:
+        raise HttpError(400, str(_("A tier must be specified to approve this application.")))
+    if effective_tier.organization_id != membership_request.organization_id:
+        raise HttpError(400, str(_("Tier must belong to the same organization.")))
+
     membership_request.decided_by = decided_by
-    membership_request.save(update_fields=["status", "decided_by"])
 
-    # Create or update membership with tier (this will trigger MEMBERSHIP_GRANTED notification via signal)
-    # Use update_or_create to ensure clean() method is called for validation
-    member, created = models.OrganizationMember.objects.update_or_create(
-        organization=membership_request.organization,
-        user=membership_request.user,
-        defaults={"tier": tier, "status": OrganizationMember.MembershipStatus.ACTIVE},
-    )
+    if membership_request.plan_id is None:
+        # Free path: complete now.
+        membership_request.status = models.OrganizationMembershipRequest.Status.COMPLETED
+        update_fields = ["status", "decided_by"]
+        if membership_request.tier_id is None:
+            membership_request.tier = effective_tier
+            update_fields.append("tier")
+        membership_request.save(update_fields=update_fields)
 
-    # Explicitly call clean to validate tier belongs to same organization
-    member.full_clean()
+        member, created = models.OrganizationMember.objects.update_or_create(
+            organization=membership_request.organization,
+            user=membership_request.user,
+            defaults={"tier": effective_tier, "status": OrganizationMember.MembershipStatus.ACTIVE},
+        )
+        member.full_clean()
+    else:
+        # Paid path: mark APPROVED, awaiting member's /pay (Phase 2).
+        membership_request.status = models.OrganizationMembershipRequest.Status.APPROVED
+        update_fields = ["status", "decided_by"]
+        if membership_request.tier_id is None:
+            membership_request.tier = effective_tier
+            update_fields.append("tier")
+        membership_request.save(update_fields=update_fields)
+        created = False  # don't fire MEMBERSHIP_GRANTED on the paid branch yet
 
-    # Send approval notification
     def send_approval_notification() -> None:
         frontend_base_url = SiteSettings.get_solo().frontend_base_url
         notification_requested.send(
@@ -225,7 +251,7 @@ def approve_membership_request(
             },
         )
 
-    if created:
+    if created or membership_request.plan_id is None:
         transaction.on_commit(send_approval_notification)
 
 
