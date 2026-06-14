@@ -2590,7 +2590,7 @@ msgstr "Entfernt"
 msgid ""
 "<strong>\"%(item)s\"</strong> has been removed from the potluck for "
 "<strong>%(event)s</strong>."
-msgstr "<strong>\"%(item)s\"</strong> wurde von der Mitbringliste für %(event)s entfernt."
+msgstr "<strong>\"%(item)s\"</strong> wurde von der Mitbringliste für <strong>%(event)s</strong> entfernt."
 
 #, python-format
 msgid "\"%(item)s\" has been removed from the potluck for %(event)s."
