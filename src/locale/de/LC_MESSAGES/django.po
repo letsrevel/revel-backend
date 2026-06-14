@@ -2572,7 +2572,7 @@ msgstr "Hinzugefügt und beansprucht von:"
 #, fuzzy, python-format
 #| msgid "%(user)s has cancelled their RSVP for %(event)s."
 msgid "%(actor)s added and claimed \"%(item)s\" for %(event)s."
-msgstr "%(actor)s hat \"%(item)s\" %(event)s hinzugefügt und beansprucht."
+msgstr "%(actor)s hat \"%(item)s\" für %(event)s hinzugefügt und beansprucht."
 
 #, fuzzy, python-format
 #| msgid "A new ticket has been issued for <strong>%(event_name)s</strong>."
