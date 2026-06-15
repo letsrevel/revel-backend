@@ -17,6 +17,7 @@ from django.utils import timezone
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.exceptions import DuplicateDiscountCodeError
 from events.models import (
     Event,
     EventSeries,
@@ -153,6 +154,26 @@ class TestCreateDiscountCode:
         assert dc.max_uses_per_user == 1
         assert dc.times_used == 0
         assert dc.min_purchase_amount == Decimal("0")
+
+    def test_create_duplicate_code_raises_clear_error(self, dc_org: Organization) -> None:
+        """Creating a code that already exists (case-insensitive) raises DuplicateDiscountCodeError, not a 500."""
+        payload = DiscountCodeCreateSchema(  # type: ignore[call-arg]
+            code="DUPLICATE",
+            discount_type=DiscountCode.DiscountType.PERCENTAGE,
+            discount_value=Decimal("10.00"),
+        )
+        discount_code_service.create_discount_code(dc_org, payload)
+
+        # The code is upper-cased before persistence, so a lower-case re-submission still collides.
+        dupe_payload = DiscountCodeCreateSchema(  # type: ignore[call-arg]
+            code="duplicate",
+            discount_type=DiscountCode.DiscountType.PERCENTAGE,
+            discount_value=Decimal("5.00"),
+        )
+        with pytest.raises(DuplicateDiscountCodeError):
+            discount_code_service.create_discount_code(dc_org, dupe_payload)
+
+        assert DiscountCode.objects.filter(organization=dc_org, code="DUPLICATE").count() == 1
 
     def test_create_fixed_amount_code(self, dc_org: Organization) -> None:
         """Should create a fixed amount discount code with currency."""

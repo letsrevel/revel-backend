@@ -171,6 +171,9 @@ msgstr "Le mot de passe doit contenir au moins un caractère spécial (!@#$%^&*(
 msgid "contain at least one uppercase letter, one lowercase letter, one digit, and one special character (!@#$%^&*(),.?\":{}|<>)."
 msgstr "contenir au moins une lettre majuscule, une lettre minuscule, un chiffre et un caractère spécial (!@#$%^&*(),.?\":{}|<>)."
 
+msgid "A discount code with this name already exists."
+msgstr "Un code de réduction portant ce nom existe déjà."
+
 msgid "A user with this email already exists."
 msgstr "Un·e utilisateur·rice avec cette adresse e-mail existe déjà."
 

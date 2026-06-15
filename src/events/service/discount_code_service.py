@@ -12,6 +12,7 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.exceptions import DuplicateDiscountCodeError
 from events.models import Event, EventSeries, Organization, Ticket, TicketTier
 from events.models.discount_code import DiscountCode
 
@@ -74,9 +75,17 @@ def create_discount_code(
 
     Returns:
         The created DiscountCode instance.
+
+    Raises:
+        DuplicateDiscountCodeError: If a discount code with the same ``code`` already
+            exists for the organization.
     """
     data = payload.model_dump()
     data["code"] = data["code"].upper()
+    # Reject duplicates with a clear error instead of letting the unique constraint
+    # surface as an opaque 500 (see #520). The handler maps this to a 409.
+    if DiscountCode.objects.filter(organization=organization, code=data["code"]).exists():
+        raise DuplicateDiscountCodeError
     # Always pop M2M keys (they aren't model fields); keep only truthy values for .set()
     m2m_data = {key: val for key in _M2M_FIELDS if (val := data.pop(key, None))}
     dc = DiscountCode.objects.create(organization=organization, **data)
