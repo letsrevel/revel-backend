@@ -384,7 +384,10 @@ class PollController(UserAwareController):
         # submission — the same condition as ``eligibility.user_has_voted`` —
         # so derive the flag from it instead of issuing a redundant exists().
         user_vote = user_vote_service.build_user_vote(user, poll)
-        questionnaire_schema = QuestionnaireService(poll.questionnaire_id).build()
+        # Seed the shuffle per viewer so the order is stable across page loads (#509).
+        questionnaire_schema = QuestionnaireService(poll.questionnaire_id).build(
+            shuffle_seed=f"{poll.questionnaire_id}:{user.pk}"
+        )
         return {
             "id": poll.id,
             "organization_id": poll.organization_id,

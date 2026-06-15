@@ -292,7 +292,9 @@ class EventPublicAttendanceController(EventPublicBaseController):
             )
 
         questionnaire_service = self.get_questionnaire_service(questionnaire_id)
-        return questionnaire_service.build()
+        # Seed the shuffle per viewer so the order is stable across page loads (#509).
+        # AnonymousUser.pk is None, yielding a stable (shared) order for unauthenticated viewers.
+        return questionnaire_service.build(shuffle_seed=f"{questionnaire_id}:{self.maybe_user().pk}")
 
     @route.post(
         "/{uuid:event_id}/questionnaire/{questionnaire_id}/submit",
