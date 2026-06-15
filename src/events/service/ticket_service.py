@@ -526,9 +526,13 @@ def create_ticket_tier(event: Event, payload: "TicketTierCreateSchema") -> Ticke
     restricted_to_membership_tiers_ids = payload_dict.pop("restricted_to_membership_tiers_ids", None)
 
     # Append new tiers at the bottom of the list unless the caller pinned an explicit
-    # position. Model ordering is ["event", "display_order", "name"], so leaving the
-    # field at its default 0 would sort every new tier to the top (see #514).
-    if "display_order" not in payload_dict:
+    # position. Model ordering is ["event", "display_order", "name"], so a new tier left
+    # at order 0 would sort to the top (see #514). ``display_order`` is Optional: None or
+    # omitted means "append". We lock the event row first so concurrent creates for the
+    # same event serialize and cannot read the same max (CR3); ATOMIC_REQUESTS keeps the
+    # lock until the request commits, after the tier is persisted below.
+    if payload_dict.get("display_order") is None:
+        Event.objects.select_for_update().filter(pk=event.pk).first()
         current_max = TicketTier.objects.filter(event=event).aggregate(m=Max("display_order"))["m"]
         payload_dict["display_order"] = 0 if current_max is None else current_max + 1
 

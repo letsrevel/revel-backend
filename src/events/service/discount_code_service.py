@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import structlog
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -82,13 +82,18 @@ def create_discount_code(
     """
     data = payload.model_dump()
     data["code"] = data["code"].upper()
-    # Reject duplicates with a clear error instead of letting the unique constraint
-    # surface as an opaque 500 (see #520). The handler maps this to a 409.
-    if DiscountCode.objects.filter(organization=organization, code=data["code"]).exists():
-        raise DuplicateDiscountCodeError
     # Always pop M2M keys (they aren't model fields); keep only truthy values for .set()
     m2m_data = {key: val for key in _M2M_FIELDS if (val := data.pop(key, None))}
-    dc = DiscountCode.objects.create(organization=organization, **data)
+    # Reject duplicates race-safely: the unique constraint is the source of truth, so a
+    # bare create() would let a concurrent collision surface as an opaque 500 (see #520).
+    # We can't use get_or_create_with_race_protection here — it re-queries after the
+    # IntegrityError, which would poison this outer @transaction.atomic. A nested savepoint
+    # isolates the failed INSERT so we can map the collision to a clear 409.
+    try:
+        with transaction.atomic():
+            dc = DiscountCode.objects.create(organization=organization, **data)
+    except IntegrityError:
+        raise DuplicateDiscountCodeError
     _set_m2m_relations(dc, m2m_data)
     return dc
 

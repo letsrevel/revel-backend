@@ -333,7 +333,8 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     venue_id: UUID | None = None
     sector_id: UUID | None = None
 
-    display_order: int = 0
+    # None (or omitted) means "append at the bottom"; an explicit value pins the position (#514).
+    display_order: int | None = None
 
     allow_user_cancellation: bool = False
     cancellation_deadline_hours: int | None = Field(default=None, ge=0)

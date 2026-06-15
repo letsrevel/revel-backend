@@ -97,12 +97,17 @@ def test_build_shuffle_is_stable_for_same_seed(questionnaire: Questionnaire) -> 
         schema = QuestionnaireService(questionnaire.id).build(shuffle_seed=seed)
         return [opt.option for opt in schema.multiple_choice_questions[0].options]
 
+    identity = [f"Option {i}" for i in range(8)]
     first = option_order("viewer-42")
     second = option_order("viewer-42")
 
+    # Determinism: the same seed yields the same order on every build (the #509 fix).
     assert first == second
-    # Sanity: the options are actually shuffled away from their stored order, not just returned sorted.
-    assert sorted(first) == [f"Option {i}" for i in range(8)]
+    assert sorted(first) == identity
+    # Actually shuffled, not just returned in stored order. Asserting a single seed differs
+    # from identity could fail if that seed maps to the identity permutation (1/40320), so
+    # require that at least one of several seeds permutes — effectively flake-free.
+    assert any(option_order(f"viewer-{n}") != identity for n in range(5))
 
 
 def test_get_questionnaire_schema(complex_questionnaire: Questionnaire) -> None:

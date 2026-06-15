@@ -88,7 +88,7 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # Stripe webhook signature failures answer 403 — fail closed, no detail leak.
     InvalidStripeWebhookSignatureError: make_static_handler(403, _("Invalid Stripe signature")),
     # Duplicate discount code → 409 with a clear, translatable message instead of an opaque 500.
-    DuplicateDiscountCodeError: make_static_handler(409, _("A discount code with this name already exists.")),
+    DuplicateDiscountCodeError: make_static_handler(409, _("A discount code with this code already exists.")),
 }
 
 
