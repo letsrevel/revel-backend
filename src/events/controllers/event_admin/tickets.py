@@ -278,6 +278,27 @@ class EventAdminTicketsController(EventAdminBaseController):
             event, ticket_id, self.user(), price_paid=payload.price_paid if payload else None
         )
 
+    @route.get(
+        "/revenue",
+        url_name="event_revenue",
+        response=schema.EventRevenueSchema,
+        permissions=[EventPermission("manage_tickets")],
+        throttle=UserDefaultThrottle(),
+    )
+    def get_event_revenue(self, event_id: UUID) -> schema.EventRevenueSchema:
+        """Aggregate ticket revenue for an event, grouped by currency.
+
+        Sums online (Stripe) payments and offline/at-the-door amounts confirmed as
+        paid. Online refunds are reflected in ``refunded``/``net``; offline refunds
+        are not yet tracked (see #528). ``paid_ticket_count`` counts currently-held
+        paid tickets.
+        """
+        event = self.get_one(event_id)
+        revenue = ticket_service.get_event_revenue(event)
+        return schema.EventRevenueSchema(
+            by_currency=[schema.CurrencyRevenueSchema.model_validate(item) for item in revenue]
+        )
+
     # ---- Export ----
 
     @route.post(
