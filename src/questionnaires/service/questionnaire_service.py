@@ -889,13 +889,15 @@ class QuestionnaireService:
         """Get submissions queryset for this questionnaire."""
         return (
             QuestionnaireSubmission.objects.filter(questionnaire=self.questionnaire)
-            .select_related("user", "questionnaire")
+            .select_related("user", "questionnaire", "questionnaire__org_questionnaires")
             .prefetch_related("evaluation")
         )
 
     def get_submission_detail(self, submission_id: UUID) -> QuestionnaireSubmission:
         """Get detailed submission with answers."""
-        qs = QuestionnaireSubmission.objects.select_related("user", "questionnaire").prefetch_related(
+        qs = QuestionnaireSubmission.objects.select_related(
+            "user", "questionnaire", "questionnaire__org_questionnaires"
+        ).prefetch_related(
             "evaluation",
             "multiplechoiceanswer_answers__question",
             "multiplechoiceanswer_answers__option",

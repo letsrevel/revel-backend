@@ -68,6 +68,9 @@ def test_submit_no_eval_questionnaire_skips_evaluation_task(
     assert response.status_code == 200
     assert QuestionnaireSubmission.objects.count() == 1
     mock_evaluate_task.assert_not_called()
+    # The response must signal that no evaluation is needed, so the frontend does
+    # not render a misleading "pending" chip (#508).
+    assert response.json()["requires_evaluation"] is False
 
 
 # --- Create validation: feedback + requires_evaluation=True is rejected ---

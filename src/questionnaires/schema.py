@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
+from django.core.exceptions import ObjectDoesNotExist
 from ninja import ModelSchema, Schema
 from pydantic import Field, field_serializer, field_validator, model_validator
 from pydantic_core import PydanticCustomError
@@ -250,14 +251,47 @@ class QuestionnaireSubmissionSchema(Schema):
         return self
 
 
+def resolve_requires_evaluation(obj: QuestionnaireSubmission) -> bool:
+    """Whether the submission's questionnaire requires evaluation.
+
+    Derived from the wrapping ``OrganizationQuestionnaire``. When ``False`` the
+    submission grants access without any evaluation (LLM or human), so consumers
+    must not display it as "pending". Defaults to ``True`` (the historical
+    behaviour) when no organization wrapper exists.
+
+    Idempotent on re-validation: the ``submit_questionnaire`` endpoint returns a
+    pre-built schema instance against a union response model, so ninja validates a
+    second time and calls this resolver again with the schema instance (which has
+    no ``.questionnaire`` relation). In that case the value is already computed, so
+    reuse it instead of re-walking the ORM relations.
+
+    Catches the generic ``ObjectDoesNotExist`` rather than the concrete
+    ``OrganizationQuestionnaire.DoesNotExist`` to avoid importing ``events`` into
+    ``questionnaires`` (``events`` already depends on ``questionnaires``).
+    """
+    existing = getattr(obj, "requires_evaluation", None)
+    if isinstance(existing, bool):
+        return existing
+    try:
+        return bool(obj.questionnaire.org_questionnaires.requires_evaluation)
+    except (AttributeError, ObjectDoesNotExist):
+        return True
+
+
 class QuestionnaireSubmissionResponseSchema(ModelSchema):
     questionnaire_id: UUID
     status: QuestionnaireSubmission.QuestionnaireSubmissionStatus
     submitted_at: datetime
+    requires_evaluation: bool
 
     class Meta:
         model = QuestionnaireSubmission
         fields = ["status", "submitted_at"]
+
+    @staticmethod
+    def resolve_requires_evaluation(obj: QuestionnaireSubmission) -> bool:
+        """Resolve whether evaluation is required for this submission."""
+        return resolve_requires_evaluation(obj)
 
 
 class QuestionnaireEvaluationForUserSchema(ModelSchema):
@@ -284,11 +318,17 @@ class SubmissionListItemSchema(ModelSchema):
     questionnaire_name: str
     evaluation_status: QuestionnaireEvaluation.QuestionnaireEvaluationStatus | None = None
     evaluation_score: Decimal | None = None
+    requires_evaluation: bool
     metadata: dict[str, t.Any] | None = None
 
     class Meta:
         model = QuestionnaireSubmission
         fields = ["id", "status", "submitted_at", "created_at"]
+
+    @staticmethod
+    def resolve_requires_evaluation(obj: QuestionnaireSubmission) -> bool:
+        """Resolve whether evaluation is required for this submission."""
+        return resolve_requires_evaluation(obj)
 
     @staticmethod
     def resolve_user(obj: QuestionnaireSubmission) -> MinimalRevelUserSchema:
@@ -377,9 +417,15 @@ class SubmissionDetailSchema(Schema):
     status: QuestionnaireSubmission.QuestionnaireSubmissionStatus
     submitted_at: datetime | None
     evaluation: EvaluationResponseSchema | None = None
+    requires_evaluation: bool
     answers: list[QuestionAnswerDetailSchema]
     created_at: datetime
     metadata: dict[str, t.Any] | None = None
+
+    @staticmethod
+    def resolve_requires_evaluation(obj: QuestionnaireSubmission) -> bool:
+        """Resolve whether evaluation is required for this submission."""
+        return resolve_requires_evaluation(obj)
 
     @staticmethod
     def resolve_questionnaire(obj: QuestionnaireSubmission) -> "QuestionnaireInListSchema":
