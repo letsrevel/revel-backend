@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import structlog
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
@@ -84,16 +85,21 @@ def create_discount_code(
     data["code"] = data["code"].upper()
     # Always pop M2M keys (they aren't model fields); keep only truthy values for .set()
     m2m_data = {key: val for key in _M2M_FIELDS if (val := data.pop(key, None))}
-    # Reject duplicates race-safely: the unique constraint is the source of truth, so a
-    # bare create() would let a concurrent collision surface as an opaque 500 (see #520).
-    # We can't use get_or_create_with_race_protection here — it re-queries after the
-    # IntegrityError, which would poison this outer @transaction.atomic. A nested savepoint
-    # isolates the failed INSERT so we can map the collision to a clear 409.
+    # Reject duplicates race-safely (see #520). TimeStampedModel.save() runs full_clean(),
+    # so a sequential duplicate is caught by validate_constraints() and raised as a
+    # ValidationError (its SELECT sees the existing row), while a genuine concurrent race
+    # slips past full_clean and raises IntegrityError at INSERT. The nested savepoint
+    # isolates the failed INSERT (which would otherwise poison this outer @transaction.atomic);
+    # we then confirm the (organization, code) collision before mapping to a clear 409, and
+    # re-raise any unrelated validation error untouched. (get_or_create_with_race_protection
+    # can't be used here: it re-queries after the IntegrityError without its own savepoint.)
     try:
         with transaction.atomic():
             dc = DiscountCode.objects.create(organization=organization, **data)
-    except IntegrityError:
-        raise DuplicateDiscountCodeError
+    except (IntegrityError, ValidationError):
+        if DiscountCode.objects.filter(organization=organization, code=data["code"]).exists():
+            raise DuplicateDiscountCodeError
+        raise
     _set_m2m_relations(dc, m2m_data)
     return dc
 
