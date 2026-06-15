@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from accounts.models import RevelUser
+from events.models import OrganizationQuestionnaire
 from questionnaires.models import (
     Questionnaire,
     QuestionnaireEvaluation,
@@ -18,6 +19,7 @@ from questionnaires.schema import (
     QuestionAnswerDetailSchema,
     QuestionnaireCreateSchema,
     SubmissionListItemSchema,
+    resolve_requires_evaluation,
 )
 
 pytestmark = pytest.mark.django_db
@@ -116,6 +118,35 @@ def test_submission_list_item_schema_resolve_evaluation_score_without_evaluation
     evaluation_score = SubmissionListItemSchema.resolve_evaluation_score(submission)
 
     assert evaluation_score is None
+
+
+def test_resolve_requires_evaluation_true_when_no_org_wrapper(questionnaire: Questionnaire, user: RevelUser) -> None:
+    """A questionnaire with no OrganizationQuestionnaire wrapper defaults to True (#508)."""
+    submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=questionnaire)
+
+    assert resolve_requires_evaluation(submission) is True
+
+
+def test_resolve_requires_evaluation_true_when_org_requires_it(
+    org_questionnaire: OrganizationQuestionnaire, user: RevelUser
+) -> None:
+    """When the org wrapper requires evaluation (default), the resolver returns True (#508)."""
+    submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=org_questionnaire.questionnaire)
+
+    assert resolve_requires_evaluation(submission) is True
+
+
+def test_resolve_requires_evaluation_false_when_org_does_not_require_it(
+    org_questionnaire: OrganizationQuestionnaire, user: RevelUser
+) -> None:
+    """When the org wrapper has requires_evaluation=False, the resolver returns False (#508)."""
+    org_questionnaire.requires_evaluation = False
+    org_questionnaire.save(update_fields=["requires_evaluation"])
+    submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=org_questionnaire.questionnaire)
+
+    assert resolve_requires_evaluation(submission) is False
+    # The schema static resolver delegates to the shared helper.
+    assert SubmissionListItemSchema.resolve_requires_evaluation(submission) is False
 
 
 def test_question_answer_detail_schema_multiple_choice() -> None:
