@@ -81,6 +81,35 @@ def test_build_questionnaire_with_sorted_options(questionnaire: Questionnaire) -
     assert options[1].id == opt1.id
 
 
+def test_build_shuffle_is_stable_for_same_seed(questionnaire: Questionnaire) -> None:
+    """A given shuffle_seed yields the same option order on every build (#509).
+
+    Regression for re-randomization on every page load: with 8 options the odds of two
+    *unseeded* shuffles coinciding are ~1/40320, so this reliably fails if seeding regresses.
+    """
+    mcq = MultipleChoiceQuestion.objects.create(
+        questionnaire=questionnaire, question="Many options", shuffle_options=True
+    )
+    for i in range(8):
+        MultipleChoiceOption.objects.create(question=mcq, option=f"Option {i}", order=i)
+
+    def option_order(seed: str) -> list[str]:
+        schema = QuestionnaireService(questionnaire.id).build(shuffle_seed=seed)
+        return [opt.option for opt in schema.multiple_choice_questions[0].options]
+
+    identity = [f"Option {i}" for i in range(8)]
+    first = option_order("viewer-42")
+    second = option_order("viewer-42")
+
+    # Determinism: the same seed yields the same order on every build (the #509 fix).
+    assert first == second
+    assert sorted(first) == identity
+    # Actually shuffled, not just returned in stored order. Asserting a single seed differs
+    # from identity could fail if that seed maps to the identity permutation (1/40320), so
+    # require that at least one of several seeds permutes — effectively flake-free.
+    assert any(option_order(f"viewer-{n}") != identity for n in range(5))
+
+
 def test_get_questionnaire_schema(complex_questionnaire: Questionnaire) -> None:
     """Test that the questionnaire schema can be retrieved.
 

@@ -43,3 +43,7 @@ class BillingInfoRequiredError(Exception):
 
 class InvalidStripeWebhookSignatureError(Exception):
     """Raised when no configured webhook secret verifies the Stripe-Signature header."""
+
+
+class DuplicateDiscountCodeError(Exception):
+    """Raised when creating a discount code whose ``(organization, code)`` pair already exists."""

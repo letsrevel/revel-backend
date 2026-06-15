@@ -176,6 +176,9 @@ msgstr ""
 "mindestens einen Großbuchstaben, einen Kleinbuchstaben, eine Ziffer und ein "
 "Sonderzeichen enthalten (!@#$%^&*(),.?\":{}|<>)."
 
+msgid "A discount code with this code already exists."
+msgstr "Ein Rabattcode mit diesem Code existiert bereits."
+
 msgid "A user with this email already exists."
 msgstr "Ein:e Anwender:in mit dieser E-Mail existiert bereits."
 

@@ -99,14 +99,22 @@ class QuestionnaireService:
             Prefetch("sections", queryset=section_queryset),
         ).get(id=questionnaire_id)
 
-    def build(self) -> QuestionnaireSchema:
-        """Build questionnaire schema."""
+    def build(self, shuffle_seed: int | str | bytes | None = None) -> QuestionnaireSchema:
+        """Build questionnaire schema.
+
+        Args:
+            shuffle_seed: Optional deterministic seed for question/option/section shuffling.
+                When provided, the shuffle order is stable for the same seed (e.g. a per-user,
+                per-questionnaire seed) instead of re-randomizing on every page load (see #509).
+                When ``None`` the order is randomized on each call, preserving the legacy behaviour.
+        """
         q = self.questionnaire
+        rng = random.Random(shuffle_seed)
 
         def build_mc_question(mcq: MultipleChoiceQuestion) -> MultipleChoiceQuestionSchema:
             options = list(mcq.options.all())
             if mcq.shuffle_options:
-                random.shuffle(options)
+                rng.shuffle(options)
             else:
                 options.sort(key=lambda o: o.order)
 
@@ -150,7 +158,7 @@ class QuestionnaireService:
                 combined: list[tuple[int, t.Any]] = (
                     [(0, mcq) for mcq in _mcqs] + [(1, ftq) for ftq in _ftqs] + [(2, fuq) for fuq in _fuqs]
                 )
-                random.shuffle(combined)
+                rng.shuffle(combined)
                 _mcqs = [obj for kind, obj in combined if kind == 0]
                 _ftqs = [obj for kind, obj in combined if kind == 1]
                 _fuqs = [obj for kind, obj in combined if kind == 2]
@@ -168,7 +176,7 @@ class QuestionnaireService:
         # Build sections
         sections = list(q.sections.all())
         if q.shuffle_sections:
-            random.shuffle(sections)
+            rng.shuffle(sections)
         else:
             sections.sort(key=lambda s: s.order)
 

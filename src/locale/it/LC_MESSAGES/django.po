@@ -190,6 +190,9 @@ msgstr ""
 "contenere almeno una lettera maiuscola, una lettera minuscola, una cifra e "
 "un carattere speciale (!@#$%^&*(),.?\":{}|<>)."
 
+msgid "A discount code with this code already exists."
+msgstr "Esiste già un codice sconto con questo codice."
+
 msgid "A user with this email already exists."
 msgstr "Esiste già un utente con questa email."
 
