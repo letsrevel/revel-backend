@@ -58,6 +58,54 @@ def test_list_tickets_by_owner(
     assert "last_name" in first_ticket["user"]
 
 
+def test_list_tickets_exposes_discount_code(
+    organization_owner_client: Client,
+    event: Event,
+    pending_offline_ticket: Ticket,
+) -> None:
+    """The admin ticket list exposes the applied discount code and amount (#516)."""
+    from events.models import DiscountCode
+
+    discount_code = DiscountCode.objects.create(
+        code="SAVE20",
+        organization=event.organization,
+        discount_type=DiscountCode.DiscountType.PERCENTAGE,
+        discount_value=Decimal("20.00"),
+        is_active=True,
+    )
+    pending_offline_ticket.discount_code = discount_code
+    pending_offline_ticket.discount_amount = Decimal("5.00")
+    pending_offline_ticket.save(update_fields=["discount_code", "discount_amount"])
+
+    url = reverse("api:list_tickets", kwargs={"event_id": event.pk})
+    response = organization_owner_client.get(url)
+    assert response.status_code == 200
+
+    data = response.json()
+    discounted = next(t for t in data["results"] if t["id"] == str(pending_offline_ticket.id))
+    assert discounted["discount_amount"] == "5.00"
+    assert discounted["discount_code"] is not None
+    assert discounted["discount_code"]["code"] == "SAVE20"
+    assert discounted["discount_code"]["discount_type"] == DiscountCode.DiscountType.PERCENTAGE.value
+    assert discounted["discount_code"]["discount_value"] == "20.00"
+
+
+def test_list_tickets_without_discount_code(
+    organization_owner_client: Client,
+    event: Event,
+    pending_at_door_ticket: Ticket,
+) -> None:
+    """Tickets without a discount code report null discount fields (#516)."""
+    url = reverse("api:list_tickets", kwargs={"event_id": event.pk})
+    response = organization_owner_client.get(url)
+    assert response.status_code == 200
+
+    data = response.json()
+    plain = next(t for t in data["results"] if t["id"] == str(pending_at_door_ticket.id))
+    assert plain["discount_code"] is None
+    assert plain["discount_amount"] is None
+
+
 def test_list_tickets_by_staff_with_permission(
     organization_staff_client: Client,
     event: Event,

@@ -11,7 +11,7 @@ from accounts.schema import MemberUserSchema, MinimalRevelUserSchema, _BaseEmail
 from common.schema import OneToOneFiftyString, StrippedString, validate_country_code
 from common.signing import get_file_url
 from events import models
-from events.models import Payment, Ticket, TicketTier
+from events.models import DiscountCode, Payment, Ticket, TicketTier
 from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
 
 from .event import MinimalEventSchema
@@ -136,6 +136,16 @@ class MinimalPaymentSchema(ModelSchema):
         fields = ["id", "status"]
 
 
+class TicketDiscountCodeSchema(ModelSchema):
+    """Minimal discount-code info for inclusion in admin ticket views."""
+
+    discount_type: DiscountCode.DiscountType
+
+    class Meta:
+        model = DiscountCode
+        fields = ["id", "code", "discount_type", "discount_value", "currency"]
+
+
 class AdminTicketSchema(ModelSchema):
     """Schema for pending tickets in admin interface.
 
@@ -150,10 +160,21 @@ class AdminTicketSchema(ModelSchema):
     seat: MinimalSeatSchema | None = None
     membership: MinimalOrganizationMemberSchema | None = None
     price_paid: Decimal | None = None
+    discount_code: TicketDiscountCodeSchema | None = None
+    discount_amount: Decimal | None = None
 
     class Meta:
         model = Ticket
-        fields = ["id", "status", "tier", "created_at", "guest_name", "seat", "price_paid"]
+        fields = [
+            "id",
+            "status",
+            "tier",
+            "created_at",
+            "guest_name",
+            "seat",
+            "price_paid",
+            "discount_amount",
+        ]
 
     @staticmethod
     def resolve_membership(obj: Ticket) -> models.OrganizationMember | None:
