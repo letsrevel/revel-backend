@@ -259,13 +259,22 @@ def resolve_requires_evaluation(obj: QuestionnaireSubmission) -> bool:
     must not display it as "pending". Defaults to ``True`` (the historical
     behaviour) when no organization wrapper exists.
 
+    Idempotent on re-validation: the ``submit_questionnaire`` endpoint returns a
+    pre-built schema instance against a union response model, so ninja validates a
+    second time and calls this resolver again with the schema instance (which has
+    no ``.questionnaire`` relation). In that case the value is already computed, so
+    reuse it instead of re-walking the ORM relations.
+
     Catches the generic ``ObjectDoesNotExist`` rather than the concrete
     ``OrganizationQuestionnaire.DoesNotExist`` to avoid importing ``events`` into
     ``questionnaires`` (``events`` already depends on ``questionnaires``).
     """
+    existing = getattr(obj, "requires_evaluation", None)
+    if isinstance(existing, bool):
+        return existing
     try:
         return bool(obj.questionnaire.org_questionnaires.requires_evaluation)
-    except ObjectDoesNotExist:
+    except (AttributeError, ObjectDoesNotExist):
         return True
 
 
