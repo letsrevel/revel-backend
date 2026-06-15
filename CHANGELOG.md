@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
 - Per-event ticket revenue endpoint `GET /event-admin/{event_id}/revenue` (#515): organizers can now see total earned per event, grouped by currency, without cross-referencing Stripe manually. Sums online (Stripe) payments and offline/at-the-door amounts confirmed as paid (offline counts once `ACTIVE`, at-the-door once `CHECKED_IN`), reporting `gross`/`refunded`/`net` and a paid-ticket count. Online refunds are netted out; offline refunds are not yet tracked (#528).
 
 ## [1.62.7] - 2026-06-10

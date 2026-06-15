@@ -103,6 +103,14 @@ class CurrencyRevenue:
     paid_ticket_count: int
 
 
+class _RevenueTotals(t.TypedDict):
+    """Mutable per-currency accumulator used while merging the two revenue sources."""
+
+    gross: Decimal
+    refunded: Decimal
+    count: int
+
+
 def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
     """Get ticket tiers the user is eligible to purchase from.
 
@@ -855,8 +863,15 @@ def get_event_revenue(event: Event) -> list[CurrencyRevenue]:
     """
     zero = Decimal("0.00")
 
+    # Restrict to ONLINE-tier payments so the online and offline aggregates are
+    # provably disjoint. Today Payment rows are only created for ONLINE tiers, but
+    # this guards against double-counting if a Payment is ever attached to an
+    # offline ticket (e.g. an admin-created record).
     online = (
-        Payment.objects.filter(ticket__event=event)
+        Payment.objects.filter(
+            ticket__event=event,
+            ticket__tier__payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
         .values("currency")
         .annotate(
             gross=Coalesce(
@@ -888,14 +903,14 @@ def get_event_revenue(event: Event) -> list[CurrencyRevenue]:
         )
     )
 
-    totals: dict[str, dict[str, t.Any]] = {}
+    totals: dict[str, _RevenueTotals] = {}
     for row in online:
-        entry = totals.setdefault(row["currency"], {"gross": zero, "refunded": zero, "count": 0})
+        entry = totals.setdefault(row["currency"], _RevenueTotals(gross=zero, refunded=zero, count=0))
         entry["gross"] += row["gross"]
         entry["refunded"] += row["refunded"]
         entry["count"] += row["paid_count"]
     for row in offline:
-        entry = totals.setdefault(row["tier__currency"], {"gross": zero, "refunded": zero, "count": 0})
+        entry = totals.setdefault(row["tier__currency"], _RevenueTotals(gross=zero, refunded=zero, count=0))
         entry["gross"] += row["gross"]
         entry["count"] += row["paid_count"]
 
