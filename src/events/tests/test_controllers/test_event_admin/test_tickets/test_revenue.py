@@ -1,5 +1,6 @@
 """Tests for the per-event revenue aggregate endpoint (#515)."""
 
+import typing as t
 from decimal import Decimal
 
 import pytest
@@ -48,7 +49,7 @@ def _revenue_url(event: Event) -> str:
     return reverse("api:event_revenue", kwargs={"event_id": event.pk})
 
 
-def _by_currency(data: dict) -> dict[str, dict]:
+def _by_currency(data: dict[str, t.Any]) -> dict[str, dict[str, t.Any]]:
     return {row["currency"]: row for row in data["by_currency"]}
 
 
