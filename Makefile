@@ -220,7 +220,7 @@ migrate:
 
 .PHONY: makemessages
 makemessages:
-	cd src && uv run python manage.py makemessages -l de -l it --no-location --no-obsolete
+	cd src && uv run python manage.py makemessages -l de -l it -l fr --no-location --no-obsolete
 
 .PHONY: compilemessages
 compilemessages:
