@@ -34,6 +34,29 @@ def test_create_ticket_tier_persists_cancellation_fields(event: Event) -> None:
     assert tier.refund_policy["tiers"][0]["refund_percentage"] == "50"
 
 
+def test_create_ticket_tier_appends_at_bottom(event: Event) -> None:
+    """New tiers should append at the bottom of the list, not jump to the top (#514)."""
+    first = ticket_service.create_ticket_tier(
+        event=event, payload=TicketTierCreateSchema.model_validate({"name": "Append First", "price": Decimal("10")})
+    )
+    second = ticket_service.create_ticket_tier(
+        event=event, payload=TicketTierCreateSchema.model_validate({"name": "Append Second", "price": Decimal("20")})
+    )
+
+    assert second.display_order > first.display_order
+    ordered = list(TicketTier.objects.filter(event=event).values_list("name", flat=True))
+    assert ordered.index("Append First") < ordered.index("Append Second")
+
+
+def test_create_ticket_tier_respects_explicit_display_order(event: Event) -> None:
+    """An explicit display_order is honoured instead of being overwritten by the append default (#514)."""
+    tier = ticket_service.create_ticket_tier(
+        event=event,
+        payload=TicketTierCreateSchema.model_validate({"name": "Pinned", "price": Decimal("10"), "display_order": 0}),
+    )
+    assert tier.display_order == 0
+
+
 def test_update_ticket_tier_clears_refund_policy(tier_factory: t.Callable[..., TicketTier]) -> None:
     """update_ticket_tier should clear refund_policy when explicitly set to None."""
     tier = tier_factory(
