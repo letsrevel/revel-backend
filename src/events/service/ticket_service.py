@@ -9,7 +9,8 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Count, F, Max
+from django.db.models import Count, F, Max, Q, Sum
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from django.utils import formats, timezone
 from django.utils.translation import gettext_lazy as _
@@ -81,6 +82,33 @@ class UserEventStatus:
     rsvp: EventRSVP | None = None
     can_purchase_more: bool = True
     remaining_tickets: list[TierRemainingTickets] = dataclass_field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class CurrencyRevenue:
+    """Aggregated ticket revenue for a single currency.
+
+    Attributes:
+        currency: ISO 4217 currency code.
+        gross: Total ever successfully charged/collected before refunds.
+        refunded: Online (Stripe) refunds. Offline refunds are not tracked (#528).
+        net: ``gross - refunded``.
+        paid_ticket_count: Currently-held paid tickets (refunded/cancelled excluded).
+    """
+
+    currency: str
+    gross: Decimal
+    refunded: Decimal
+    net: Decimal
+    paid_ticket_count: int
+
+
+class _RevenueTotals(t.TypedDict):
+    """Mutable per-currency accumulator used while merging the two revenue sources."""
+
+    gross: Decimal
+    refunded: Decimal
+    count: int
 
 
 def get_eligible_tiers(event: Event, user: RevelUser) -> list[TicketTier]:
@@ -805,3 +833,95 @@ def start_attendee_export(event: Event, requested_by: RevelUser) -> "FileExport"
     # export pattern.
     transaction.on_commit(lambda: generate_attendee_export_task.delay(str(export.id)))
     return export
+
+
+def get_event_revenue(event: Event) -> list[CurrencyRevenue]:
+    """Aggregate ticket revenue for an event, grouped by currency.
+
+    Two sources are summed:
+
+    - **Online (Stripe)**: ``Payment`` rows for the event's tickets, grouped by
+      ``Payment.currency``. ``gross`` counts everything ever charged (``SUCCEEDED``
+      or later ``REFUNDED``); ``refunded`` sums successful refund amounts (partial
+      refunds supported); ``paid_ticket_count`` counts only currently-held
+      (``SUCCEEDED``) payments.
+    - **Offline / at-the-door**: confirmed-paid tickets, grouped by ``tier.currency``.
+      An ``OFFLINE`` ticket counts once ``ACTIVE`` or ``CHECKED_IN``; an
+      ``AT_THE_DOOR`` ticket counts only once ``CHECKED_IN`` (paid at the door).
+      The collected amount is ``price_paid`` (PWYC override) or the tier price.
+      Refunded offline tickets become ``CANCELLED`` and simply drop out — offline
+      refunds are not yet tracked (see #528), so ``net`` is best-effort for events
+      with offline refunds.
+
+    Currencies with no realised revenue (e.g. only pending payments) are omitted.
+
+    Args:
+        event: The event to aggregate revenue for.
+
+    Returns:
+        Per-currency revenue, sorted by currency code.
+    """
+    zero = Decimal("0.00")
+
+    # Restrict to ONLINE-tier payments so the online and offline aggregates are
+    # provably disjoint. Today Payment rows are only created for ONLINE tiers, but
+    # this guards against double-counting if a Payment is ever attached to an
+    # offline ticket (e.g. an admin-created record).
+    online = (
+        Payment.objects.filter(
+            ticket__event=event,
+            ticket__tier__payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        .values("currency")
+        .annotate(
+            gross=Coalesce(
+                Sum(
+                    "amount",
+                    filter=Q(status__in=[Payment.PaymentStatus.SUCCEEDED, Payment.PaymentStatus.REFUNDED]),
+                ),
+                zero,
+            ),
+            refunded=Coalesce(
+                Sum("refund_amount", filter=Q(refund_status=Payment.RefundStatus.SUCCEEDED)),
+                zero,
+            ),
+            paid_count=Count("id", filter=Q(status=Payment.PaymentStatus.SUCCEEDED)),
+        )
+    )
+
+    # OFFLINE is paid once ACTIVE/CHECKED_IN; AT_THE_DOOR is paid only once CHECKED_IN.
+    offline_paid = (
+        Q(tier__payment_method=TicketTier.PaymentMethod.OFFLINE)
+        & Q(status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN])
+    ) | (Q(tier__payment_method=TicketTier.PaymentMethod.AT_THE_DOOR) & Q(status=Ticket.TicketStatus.CHECKED_IN))
+    offline = (
+        Ticket.objects.filter(offline_paid, event=event)
+        .values("tier__currency")
+        .annotate(
+            gross=Coalesce(Sum(Coalesce(F("price_paid"), F("tier__price"))), zero),
+            paid_count=Count("id"),
+        )
+    )
+
+    totals: dict[str, _RevenueTotals] = {}
+    for row in online:
+        entry = totals.setdefault(row["currency"], _RevenueTotals(gross=zero, refunded=zero, count=0))
+        entry["gross"] += row["gross"]
+        entry["refunded"] += row["refunded"]
+        entry["count"] += row["paid_count"]
+    for row in offline:
+        entry = totals.setdefault(row["tier__currency"], _RevenueTotals(gross=zero, refunded=zero, count=0))
+        entry["gross"] += row["gross"]
+        entry["count"] += row["paid_count"]
+
+    return [
+        CurrencyRevenue(
+            currency=currency,
+            gross=entry["gross"],
+            refunded=entry["refunded"],
+            net=entry["gross"] - entry["refunded"],
+            paid_ticket_count=entry["count"],
+        )
+        for currency, entry in sorted(totals.items())
+        if entry["gross"] or entry["refunded"] or entry["count"]
+    ]
