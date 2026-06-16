@@ -1,6 +1,7 @@
 """Tests for ticket operations (list, confirm, check-in, unconfirm)."""
 
 import json
+import typing as t
 from decimal import Decimal
 
 import pytest
@@ -11,6 +12,7 @@ from accounts.models import RevelUser
 from events.models import (
     Event,
     OrganizationStaff,
+    Payment,
     Ticket,
     TicketTier,
 )
@@ -197,6 +199,88 @@ def test_list_tickets_filter_by_payment_method(
     data = response.json()
     assert data["count"] == 1
     assert data["results"][0]["id"] == str(active_online_ticket.id)
+
+
+def test_list_tickets_ordering(
+    organization_owner_client: Client,
+    event: Event,
+    pending_offline_ticket: Ticket,
+    pending_at_door_ticket: Ticket,
+    active_online_ticket: Ticket,
+) -> None:
+    """Tickets can be ordered by date, tier, status, and payment method (asc/desc)."""
+    url = reverse("api:list_tickets", kwargs={"event_id": event.pk})
+
+    def values(order_by: str | None, key: str) -> list[str]:
+        params = {"order_by": order_by} if order_by else {}
+        response = organization_owner_client.get(url, params)
+        assert response.status_code == 200
+        results = response.json()["results"]
+        return [r["tier"][key] if key in ("name", "payment_method", "price") else r[key] for r in results]
+
+    # Default ordering is newest first (-created_at).
+    default_dates = values(None, "created_at")
+    assert default_dates == sorted(default_dates, reverse=True)
+
+    # Date ascending.
+    assert (asc := values("created_at", "created_at")) == sorted(asc)
+
+    # Tier name, both directions — and reversing actually reorders.
+    tiers_asc = values("tier__name", "name")
+    tiers_desc = values("-tier__name", "name")
+    assert tiers_asc == sorted(tiers_asc)
+    assert tiers_desc == sorted(tiers_desc, reverse=True)
+    assert tiers_asc == list(reversed(tiers_desc))
+
+    # Status, both directions.
+    assert (st_asc := values("status", "status")) == sorted(st_asc)
+    assert (st_desc := values("-status", "status")) == sorted(st_desc, reverse=True)
+
+    # Payment method, both directions.
+    assert (pm_asc := values("tier__payment_method", "payment_method")) == sorted(pm_asc)
+    assert (pm_desc := values("-tier__payment_method", "payment_method")) == sorted(pm_desc, reverse=True)
+
+    # Tier list price, both directions (cast — JSON serializes Decimal as a string).
+    price_asc = [Decimal(p) for p in values("price", "price")]
+    price_desc = [Decimal(p) for p in values("-price", "price")]
+    assert price_asc == sorted(price_asc)
+    assert price_desc == sorted(price_desc, reverse=True)
+
+    # An unsupported ordering value is rejected.
+    assert organization_owner_client.get(url, {"order_by": "bogus"}).status_code == 422
+
+
+def test_list_tickets_ordering_by_price_paid(
+    organization_owner_client: Client,
+    event: Event,
+    active_online_ticket: Ticket,
+    pending_at_door_ticket: Ticket,
+    pending_pwyc_offline_ticket_with_price: Ticket,
+    payment_factory: t.Callable[..., Payment],
+) -> None:
+    """price_paid orders by effective amount: payment.amount, else price_paid, else tier.price.
+
+    Each fixture exercises a different COALESCE branch:
+    - active_online_ticket: online payment -> payment.amount (40.00)
+    - pending_at_door_ticket: no payment, no price_paid -> tier.price (30.00)
+    - pending_pwyc_offline_ticket_with_price: PWYC tier (price 0), price_paid set (10.00)
+    """
+    payment_factory(active_online_ticket, amount=Decimal("40.00"))
+    url = reverse("api:list_tickets", kwargs={"event_id": event.pk})
+
+    expected_asc = [
+        str(pending_pwyc_offline_ticket_with_price.id),  # 10.00
+        str(pending_at_door_ticket.id),  # 30.00
+        str(active_online_ticket.id),  # 40.00
+    ]
+
+    asc = organization_owner_client.get(url, {"order_by": "price_paid"})
+    assert asc.status_code == 200
+    assert [r["id"] for r in asc.json()["results"]] == expected_asc
+
+    desc = organization_owner_client.get(url, {"order_by": "-price_paid"})
+    assert desc.status_code == 200
+    assert [r["id"] for r in desc.json()["results"]] == list(reversed(expected_asc))
 
 
 def test_list_tickets_pagination(organization_owner_client: Client, event: Event, offline_tier: TicketTier) -> None:
