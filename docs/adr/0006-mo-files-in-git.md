@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR-0011](0011-mo-files-built-not-committed.md)
+
+> **Reverted.** `.mo` files are no longer committed. They are built in the Docker
+> image and before tests, and translation completeness is enforced statically on the
+> `.po` sources. See [ADR-0011](0011-mo-files-built-not-committed.md) for the
+> rationale.
 
 ## Context
 

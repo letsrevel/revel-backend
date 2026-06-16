@@ -32,7 +32,7 @@ These are the commands you will use most often during day-to-day development.
 | 2 | `make lint` | Lint with ruff and auto-fix issues |
 | 3 | `make mypy` | Run strict type checking with mypy |
 | 4 | `make migration-check` | Verify no migrations are missing (`makemigrations --check`) |
-| 5 | `make i18n-check` | Verify compiled `.mo` files are up-to-date |
+| 5 | `make i18n-check` | Verify the `.po` catalog is complete (keys extracted + translated) |
 | 6 | `make file-length` | Verify no source file exceeds 1,000 lines |
 
 !!! info "Why a custom file length check?"
@@ -45,13 +45,15 @@ These are the commands you will use most often during day-to-day development.
 
 | Command | Description |
 |---------|-------------|
-| `make makemessages` | Extract translatable strings from code and templates, updating `.po` files |
-| `make compilemessages` | Compile `.po` files into `.mo` binaries |
-| `make i18n-check` | Verify that `.mo` files are up-to-date with their `.po` sources |
+| `make makemessages` | Extract translatable strings from code and templates, updating `.po` files (deterministic — no `POT-Creation-Date` churn) |
+| `make compilemessages` | Compile `.po` files into `.mo` binaries (not committed; built here for local runs) |
+| `make i18n-check` | Verify the `.po` catalog is complete: every code string extracted, every entry translated (no empty/`fuzzy`) |
 
-!!! warning "Commit compiled translations"
-    After running `make compilemessages`, **commit the generated `.mo` files**.
-    The CI pipeline runs `make i18n-check` and will fail if compiled translations are out of date.
+!!! warning "Don't commit compiled translations"
+    `.mo` binaries are git-ignored and built during the Docker image build (and before
+    tests). Commit only the `.po` sources. The CI pipeline runs `make i18n-check`
+    (`scripts/check_translations.py`) and fails on missing keys or untranslated
+    entries. See [ADR-0011](../adr/0011-mo-files-built-not-committed.md).
 
 ## Database Management
 

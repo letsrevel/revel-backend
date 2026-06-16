@@ -96,14 +96,8 @@ jobs:
         working-directory: src
         run: uv run manage.py makemigrations --check --dry-run --no-input
 
-      - name: Check i18n compiled messages
-        run: |
-          uv run python src/manage.py compilemessages
-          if ! git diff --exit-code src/locale/ > /dev/null; then
-            echo "❌ Translation files (.mo) are out of sync with .po files. Run 'make compilemessages' and commit the updated .mo files."
-            git diff src/locale/
-            exit 1
-          fi
+      - name: Check i18n catalog (keys extracted + translated)
+        run: uv run python scripts/check_translations.py
 
   test:
     name: Tests (shard ${{ matrix.shard }}/4)
@@ -142,6 +136,10 @@ jobs:
       - name: Add worldcities.csv  # we need this so migrations can run
         working-directory: src
         run: cp geo/data/worldcities.mini.csv geo/data/worldcities.csv
+
+      - name: Compile translations  # .mo not committed (ADR-0011); i18n tests assert translated strings
+        working-directory: src
+        run: uv run python manage.py compilemessages
 
       - name: Spin up docker
         run: docker compose -f docker-compose-ci.yml up -d
