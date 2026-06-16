@@ -7,8 +7,10 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
-from events.models import Announcement, Event, Organization
+from events.models import Announcement, Event, EventRSVP, Organization, Ticket, TicketTier
 from events.service import announcement_service
+from notifications.enums import NotificationType
+from notifications.models import Notification
 
 pytestmark = pytest.mark.django_db
 
@@ -104,3 +106,57 @@ class TestUnscheduleAnnouncement:
     def test_unschedule_non_scheduled_rejected(self, draft: Announcement) -> None:
         with pytest.raises(ValueError):
             announcement_service.unschedule_announcement(draft)
+
+
+class TestResendToNewRecipients:
+    def _ticket(self, event: Event, user: RevelUser) -> Ticket:
+        tier = TicketTier.objects.create(event=event, name=f"GA-{user.username}", price=0)
+        return Ticket.objects.create(
+            event=event, tier=tier, user=user,
+            status=Ticket.TicketStatus.ACTIVE, guest_name=user.get_display_name(),
+        )
+
+    def test_only_new_signups_notified(
+        self, org: Organization, org_owner: RevelUser, event: Event, revel_user_factory: RevelUserFactory
+    ) -> None:
+        early = revel_user_factory(username="early")
+        self._ticket(event, early)
+        ann = Announcement.objects.create(
+            organization=org, event=event, title="loc", body="here",
+            created_by=org_owner, resend_to_new_signups=True, past_visibility=True,
+        )
+        announcement_service.send_announcement(ann)  # notifies `early`
+        ann.refresh_from_db()
+        assert ann.recipient_count == 1
+
+        late = revel_user_factory(username="late")
+        self._ticket(event, late)
+
+        sent = announcement_service.resend_to_new_recipients(ann)
+        assert sent == 1
+        assert Notification.objects.filter(
+            user=late, notification_type=NotificationType.ORG_ANNOUNCEMENT,
+            context__announcement_id=str(ann.id),
+        ).exists()
+        assert Notification.objects.filter(
+            user=early, notification_type=NotificationType.ORG_ANNOUNCEMENT,
+            context__announcement_id=str(ann.id),
+        ).count() == 1
+        ann.refresh_from_db()
+        assert ann.recipient_count == 2
+
+    def test_no_new_signups_is_noop(
+        self, org: Organization, org_owner: RevelUser, event: Event, revel_user_factory: RevelUserFactory
+    ) -> None:
+        u = revel_user_factory(username="only")
+        EventRSVP.objects.create(event=event, user=u, status=EventRSVP.RsvpStatus.YES)
+        ann = Announcement.objects.create(
+            organization=org, event=event, title="x", body="y",
+            created_by=org_owner, resend_to_new_signups=True, past_visibility=True,
+        )
+        announcement_service.send_announcement(ann)
+        assert announcement_service.resend_to_new_recipients(ann) == 0
+
+    def test_requires_sent_and_flag(self, draft: Announcement) -> None:
+        with pytest.raises(ValueError):
+            announcement_service.resend_to_new_recipients(draft)

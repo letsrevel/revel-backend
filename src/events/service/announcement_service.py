@@ -439,6 +439,52 @@ def send_announcement(announcement: Announcement) -> int:
     return recipient_count
 
 
+@transaction.atomic
+def resend_to_new_recipients(announcement: Announcement) -> int:
+    """Re-deliver a sent announcement to attendees who joined after it was sent.
+
+    Computes the delta = current recipients MINUS users who already hold an
+    ``ORG_ANNOUNCEMENT`` notification for this announcement (the dedup ledger),
+    then delivers to and counts only the new users. The caller (beat sweep) is
+    responsible for excluding announcements whose event has ended.
+
+    Args:
+        announcement: A SENT announcement configured for resending.
+
+    Returns:
+        Number of new recipients notified.
+
+    Raises:
+        ValueError: If the announcement is not SENT or not configured for resending.
+    """
+    from notifications.models import Notification
+
+    announcement = Announcement.objects.select_related("organization").select_for_update().get(pk=announcement.pk)
+    if announcement.status != Announcement.AnnouncementStatus.SENT:
+        raise ValueError("Only sent announcements can be resent")
+    if not announcement.resend_to_new_signups:
+        raise ValueError("Announcement is not configured for resending")
+
+    current_ids = set(get_recipients(announcement).values_list("id", flat=True))
+    notified_ids = set(
+        Notification.objects.filter(
+            notification_type=NotificationType.ORG_ANNOUNCEMENT,
+            context__announcement_id=str(announcement.id),
+        ).values_list("user_id", flat=True)
+    )
+    new_ids = current_ids - notified_ids
+    if not new_ids:
+        return 0
+
+    recipients = list(RevelUser.objects.filter(id__in=new_ids).select_related("notification_preferences"))
+    sent = _deliver_to_recipients(announcement, recipients)
+    if sent:
+        announcement.recipient_count = announcement.recipient_count + sent
+        announcement.save(update_fields=["recipient_count"])
+    logger.info("announcement_resent_to_new_signups", announcement_id=str(announcement.id), new_recipients=sent)
+    return sent
+
+
 def _deliver_to_recipients(announcement: Announcement, recipients: list[RevelUser]) -> int:
     """Create notifications for the given recipients and dispatch them.
 
