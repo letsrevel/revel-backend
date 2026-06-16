@@ -325,53 +325,61 @@ def get_recipient_count(announcement: Announcement) -> int:
 
 @transaction.atomic
 def send_announcement(announcement: Announcement) -> int:
-    """Send an announcement to all recipients.
+    """Send a draft or scheduled announcement to all recipients.
 
-    Creates notifications for all recipients and dispatches them.
-    Updates the announcement status to SENT.
-
-    Uses database-level locking to prevent race conditions where multiple
-    concurrent requests could send the same announcement twice.
+    Locks the row, snapshots recipients, marks the announcement SENT, and
+    dispatches notifications. Accepts DRAFT (manual send) or SCHEDULED (beat sweep).
 
     Args:
-        announcement: Announcement to send (must be in DRAFT status).
+        announcement: Announcement to send (must be DRAFT or SCHEDULED).
 
     Returns:
-        Number of notifications sent.
+        Number of notifications created.
 
     Raises:
-        ValueError: If announcement is not a draft.
+        ValueError: If the announcement is not DRAFT or SCHEDULED.
     """
-    from notifications.tasks import dispatch_notifications_batch
-
-    # Lock the announcement row to prevent concurrent sends
-    # Only select_related non-nullable FKs - PostgreSQL doesn't allow FOR UPDATE on outer joins
     announcement = Announcement.objects.select_related("organization").select_for_update().get(pk=announcement.pk)
 
-    if announcement.status != Announcement.AnnouncementStatus.DRAFT:
-        raise ValueError("Only draft announcements can be sent")
+    sendable = (Announcement.AnnouncementStatus.DRAFT, Announcement.AnnouncementStatus.SCHEDULED)
+    if announcement.status not in sendable:
+        raise ValueError("Only draft or scheduled announcements can be sent")
 
-    # Get all recipients with notification preferences prefetched
     recipients = list(get_recipients(announcement).select_related("notification_preferences"))
     recipient_count = len(recipients)
 
-    # Update announcement status even if no recipients
     announcement.status = Announcement.AnnouncementStatus.SENT
     announcement.sent_at = timezone.now()
     announcement.recipient_count = recipient_count
     announcement.save(update_fields=["status", "sent_at", "recipient_count"])
 
     if recipient_count == 0:
-        logger.info(
-            "announcement_sent_no_recipients",
-            announcement_id=str(announcement.id),
-        )
+        logger.info("announcement_sent_no_recipients", announcement_id=str(announcement.id))
         return 0
 
-    # Build notification context
-    context = _build_notification_context(announcement)
+    _deliver_to_recipients(announcement, recipients)
+    logger.info("announcement_sent", announcement_id=str(announcement.id), recipient_count=recipient_count)
+    return recipient_count
 
-    # Create notifications for all recipients
+
+def _deliver_to_recipients(announcement: Announcement, recipients: list[RevelUser]) -> int:
+    """Create notifications for the given recipients and dispatch them.
+
+    Shared by the initial send, the scheduled send, and the resend-to-new-signups flow.
+
+    Args:
+        announcement: Announcement providing the notification context.
+        recipients: Users to notify (already de-duplicated).
+
+    Returns:
+        Number of notifications created.
+    """
+    from notifications.tasks import dispatch_notifications_batch
+
+    if not recipients:
+        return 0
+
+    context = _build_notification_context(announcement)
     notifications_data: list[NotificationData] = [
         NotificationData(
             notification_type=NotificationType.ORG_ANNOUNCEMENT,
@@ -380,21 +388,10 @@ def send_announcement(announcement: Announcement) -> int:
         )
         for user in recipients
     ]
-
-    # Bulk create all notifications (single INSERT)
     created_notifications = bulk_create_notifications(notifications_data)
-
-    # Dispatch all notifications in a batch task
     notification_ids = [str(n.id) for n in created_notifications]
     transaction.on_commit(lambda: dispatch_notifications_batch.delay(notification_ids))
-
-    logger.info(
-        "announcement_sent",
-        announcement_id=str(announcement.id),
-        recipient_count=recipient_count,
-    )
-
-    return recipient_count
+    return len(created_notifications)
 
 
 def _build_notification_context(announcement: Announcement) -> dict[str, t.Any]:

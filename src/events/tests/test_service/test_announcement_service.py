@@ -621,7 +621,28 @@ class TestSendAnnouncement:
         with pytest.raises(ValueError) as exc_info:
             announcement_service.send_announcement(sent_announcement)
 
-        assert "Only draft announcements can be sent" in str(exc_info.value)
+        assert "Only draft or scheduled announcements can be sent" in str(exc_info.value)
+
+    def test_send_scheduled_announcement_succeeds(
+        self,
+        org: Organization,
+        org_owner: RevelUser,
+        revel_user_factory: RevelUserFactory,
+    ) -> None:
+        """A SCHEDULED announcement can be sent (not only DRAFT)."""
+        member = revel_user_factory(username="sched_member")
+        OrganizationMember.objects.create(
+            organization=org, user=member, status=OrganizationMember.MembershipStatus.ACTIVE,
+        )
+        ann = Announcement.objects.create(
+            organization=org, title="S", body="B", target_all_members=True,
+            created_by=org_owner, status=Announcement.AnnouncementStatus.SCHEDULED,
+            scheduled_at=timezone.now(),
+        )
+        count = announcement_service.send_announcement(ann)
+        ann.refresh_from_db()
+        assert count == 1
+        assert ann.status == Announcement.AnnouncementStatus.SENT
 
     def test_send_announcement_includes_event_context(
         self,
