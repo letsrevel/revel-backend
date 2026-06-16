@@ -160,3 +160,14 @@ class TestResendToNewRecipients:
     def test_requires_sent_and_flag(self, draft: Announcement) -> None:
         with pytest.raises(ValueError):
             announcement_service.resend_to_new_recipients(draft)
+
+    def test_sent_but_flag_off_raises(
+        self, org: Organization, org_owner: RevelUser, event: Event
+    ) -> None:
+        ann = Announcement.objects.create(
+            organization=org, event=event, title="x", body="y", created_by=org_owner,
+            status=Announcement.AnnouncementStatus.SENT, sent_at=timezone.now(),
+            resend_to_new_signups=False,
+        )
+        with pytest.raises(ValueError):
+            announcement_service.resend_to_new_recipients(ann)
