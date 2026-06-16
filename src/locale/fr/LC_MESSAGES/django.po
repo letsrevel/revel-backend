@@ -148,6 +148,10 @@ msgstr "Bannissement global"
 msgid "Global Bans"
 msgstr "Bannissements globaux"
 
+#, python-format
+msgid "Password must be at least %(min_length)d characters long."
+msgstr "Le mot de passe doit contenir au moins %(min_length)d caractères."
+
 msgid "Password must contain at least one uppercase letter."
 msgstr "Le mot de passe doit contenir au moins une lettre majuscule."
 
@@ -164,12 +168,15 @@ msgstr ""
 "Le mot de passe doit contenir au moins un caractère spécial (!@#$%^&*(),.?\":"
 "{}|<>)."
 
+#, python-format
 msgid ""
-"contain at least one uppercase letter, one lowercase letter, one digit, and "
-"one special character (!@#$%^&*(),.?\":{}|<>)."
+"Your password must be at least %(min_length)d characters long, contain at "
+"least one uppercase letter, one lowercase letter, one digit, and one special "
+"character (!@#$%%^&*(),.?\":{}|<>)."
 msgstr ""
-"contenir au moins une lettre majuscule, une lettre minuscule, un chiffre et "
-"un caractère spécial (!@#$%^&*(),.?\":{}|<>)."
+"Ton mot de passe doit contenir au moins %(min_length)d caractères et "
+"comporter au moins une lettre majuscule, une lettre minuscule, un chiffre et "
+"un caractère spécial (!@#$%%^&*(),.?\":{}|<>)."
 
 msgid "A user with this email already exists."
 msgstr "Un·e utilisateur·rice avec cette adresse e-mail existe déjà."

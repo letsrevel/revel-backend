@@ -143,6 +143,10 @@ msgstr "Globale Sperre"
 msgid "Global Bans"
 msgstr "Globale Sperren"
 
+#, python-format
+msgid "Password must be at least %(min_length)d characters long."
+msgstr "Das Passwort muss mindestens %(min_length)d Zeichen lang sein."
+
 msgid "Password must contain at least one uppercase letter."
 msgstr "Das Passwort muss mindestens einen Großbuchstaben enthalten."
 
@@ -159,12 +163,15 @@ msgstr ""
 "Das Passwort muss mindestens ein Sonderzeichen enthalten (!@#$%^&*(),.?\":{}|"
 "<>)[]=."
 
+#, python-format
 msgid ""
-"contain at least one uppercase letter, one lowercase letter, one digit, and "
-"one special character (!@#$%^&*(),.?\":{}|<>)."
+"Your password must be at least %(min_length)d characters long, contain at "
+"least one uppercase letter, one lowercase letter, one digit, and one special "
+"character (!@#$%%^&*(),.?\":{}|<>)."
 msgstr ""
-"mindestens einen Großbuchstaben, einen Kleinbuchstaben, eine Ziffer und ein "
-"Sonderzeichen enthalten (!@#$%^&*(),.?\":{}|<>)."
+"Dein Passwort muss mindestens %(min_length)d Zeichen lang sein und mindestens "
+"einen Großbuchstaben, einen Kleinbuchstaben, eine Ziffer und ein Sonderzeichen "
+"enthalten (!@#$%%^&*(),.?\":{}|<>)."
 
 msgid "A user with this email already exists."
 msgstr "Ein:e Anwender:in mit dieser E-Mail existiert bereits."

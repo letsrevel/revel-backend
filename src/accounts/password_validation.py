@@ -29,7 +29,7 @@ class ComplexPasswordValidator:
         """Validates the password against custom rules."""
         if len(password) < self.min_length:
             raise ValidationError(
-                _(f"Password must be at least {self.min_length} characters long."),
+                _("Password must be at least %(min_length)d characters long.") % {"min_length": self.min_length},
                 code="password_too_short",
             )
 
@@ -59,8 +59,10 @@ class ComplexPasswordValidator:
 
     def get_help_text(self) -> str:
         """Returns the help text for the password validator."""
+        # NB: %% escapes the literal percent in the special-character list so the
+        # %(min_length)d interpolation below doesn't choke on it.
         return _(
-            f"Your password must be at least {self.min_length} characters long, "
+            "Your password must be at least %(min_length)d characters long, "
             "contain at least one uppercase letter, one lowercase letter, one digit, "
-            'and one special character (!@#$%^&*(),.?":{}|<>).'
-        )
+            'and one special character (!@#$%%^&*(),.?":{}|<>).'
+        ) % {"min_length": self.min_length}
