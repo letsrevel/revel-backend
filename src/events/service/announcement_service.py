@@ -3,6 +3,7 @@
 This module handles announcement CRUD operations and notification delivery.
 """
 
+import datetime as dt
 import typing as t
 from uuid import UUID
 
@@ -134,8 +135,9 @@ def update_announcement(
     Raises:
         ValueError: If announcement is not a draft.
     """
-    if announcement.status != Announcement.AnnouncementStatus.DRAFT:
-        raise ValueError("Only draft announcements can be updated")
+    editable = (Announcement.AnnouncementStatus.DRAFT, Announcement.AnnouncementStatus.SCHEDULED)
+    if announcement.status not in editable:
+        raise ValueError("Only draft or scheduled announcements can be updated")
 
     update_data = payload.model_dump(exclude_unset=True)
 
@@ -175,6 +177,9 @@ def update_announcement(
         if value is not None:
             setattr(announcement, field, value)
 
+    if announcement.resend_to_new_signups and announcement.event_id is None:
+        raise ValueError("Re-sending to new sign-ups requires an event-targeted announcement")
+
     # Validate that at least one targeting option remains
     _validate_announcement_has_targeting(announcement)
 
@@ -185,6 +190,74 @@ def update_announcement(
         announcement_id=str(announcement.id),
     )
 
+    return announcement
+
+
+def schedule_announcement(
+    announcement: Announcement,
+    *,
+    scheduled_at: dt.datetime | None = None,
+    schedule_anchor: Announcement.ScheduleAnchor | None = None,
+    schedule_offset_minutes: int | None = None,
+) -> Announcement:
+    """Move a DRAFT announcement to SCHEDULED.
+
+    Provide either an absolute ``scheduled_at`` or a relative
+    (``schedule_anchor`` + ``schedule_offset_minutes``) schedule. The resolved
+    send time must be in the future.
+
+    Args:
+        announcement: Draft announcement to schedule.
+        scheduled_at: Absolute send time (mutually exclusive with relative scheduling).
+        schedule_anchor: Anchor for a relative schedule (event start or end).
+        schedule_offset_minutes: Signed minutes from the anchor.
+
+    Returns:
+        The scheduled announcement.
+
+    Raises:
+        ValueError: If not a draft, the schedule is unresolvable, or it is in the past.
+    """
+    if announcement.status != Announcement.AnnouncementStatus.DRAFT:
+        raise ValueError("Only draft announcements can be scheduled")
+
+    announcement.scheduled_at = scheduled_at
+    announcement.schedule_anchor = schedule_anchor
+    announcement.schedule_offset_minutes = schedule_offset_minutes
+
+    resolved = announcement.effective_send_at
+    if resolved is None:
+        raise ValueError("Could not resolve a scheduled time (relative scheduling requires an event)")
+    if resolved <= timezone.now():
+        raise ValueError("Scheduled time must be in the future")
+
+    announcement.status = Announcement.AnnouncementStatus.SCHEDULED
+    announcement.save()
+    logger.info("announcement_scheduled", announcement_id=str(announcement.id), send_at=resolved.isoformat())
+    return announcement
+
+
+def unschedule_announcement(announcement: Announcement) -> Announcement:
+    """Revert a SCHEDULED announcement to DRAFT and clear its schedule.
+
+    Args:
+        announcement: Scheduled announcement to revert.
+
+    Returns:
+        The reverted draft announcement.
+
+    Raises:
+        ValueError: If the announcement is not scheduled.
+    """
+    if announcement.status != Announcement.AnnouncementStatus.SCHEDULED:
+        raise ValueError("Only scheduled announcements can be unscheduled")
+
+    announcement.status = Announcement.AnnouncementStatus.DRAFT
+    announcement.scheduled_at = None
+    announcement.schedule_anchor = None
+    announcement.schedule_offset_minutes = None
+    announcement.save()
+    logger.info("announcement_unscheduled", announcement_id=str(announcement.id))
     return announcement
 
 

@@ -409,7 +409,7 @@ class TestUpdateAnnouncement:
         with pytest.raises(ValueError) as exc_info:
             announcement_service.update_announcement(sent_announcement, payload)
 
-        assert "Only draft announcements can be updated" in str(exc_info.value)
+        assert "Only draft or scheduled announcements can be updated" in str(exc_info.value)
 
     def test_update_announcement_with_invalid_event_raises_error(
         self,
