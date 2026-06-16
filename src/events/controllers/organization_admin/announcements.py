@@ -142,9 +142,10 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
         announcement_id: UUID4,
         payload: AnnouncementUpdateSchema,
     ) -> models.Announcement:
-        """Update a draft announcement.
+        """Update a draft or scheduled announcement.
 
-        Only draft announcements can be updated. Sent announcements are immutable.
+        Only DRAFT or SCHEDULED announcements can be updated. Sent announcements
+        remain immutable.
 
         All fields are optional - only provided fields will be updated.
         """
@@ -175,10 +176,10 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
         slug: str,
         announcement_id: UUID4,
     ) -> tuple[int, None]:
-        """Delete a draft announcement.
+        """Delete a draft or scheduled announcement.
 
-        Only draft announcements can be deleted. Sent announcements are preserved
-        for audit purposes.
+        Only DRAFT or SCHEDULED announcements can be deleted. Sent announcements
+        are preserved for audit purposes.
         """
         organization = self.get_one(slug)
         announcement = get_object_or_404(
@@ -283,7 +284,10 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
             organization=organization,
             status=models.Announcement.AnnouncementStatus.SCHEDULED,
         )
-        announcement_service.unschedule_announcement(announcement)
+        try:
+            announcement_service.unschedule_announcement(announcement)
+        except ValueError as e:
+            raise HttpError(422, str(e))
         return models.Announcement.objects.full().get(id=announcement.id)
 
     @route.get(

@@ -9,7 +9,7 @@ from uuid import UUID
 
 import structlog
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import F, QuerySet
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -97,6 +97,7 @@ def create_announcement(
         target_all_members=payload.target_all_members,
         target_staff_only=payload.target_staff_only,
         past_visibility=payload.past_visibility,
+        resend_to_new_signups=payload.resend_to_new_signups,
         created_by=user,
         status=Announcement.AnnouncementStatus.DRAFT,
     )
@@ -481,6 +482,10 @@ def resend_to_new_recipients(announcement: Announcement) -> int:
     if not announcement.resend_to_new_signups:
         raise ValueError("Announcement is not configured for resending")
 
+    now = timezone.now()
+    if announcement.event is not None and announcement.event.end <= now:
+        return 0
+
     current_ids = set(get_recipients(announcement).values_list("id", flat=True))
     notified_ids = set(
         Notification.objects.filter(
@@ -495,8 +500,8 @@ def resend_to_new_recipients(announcement: Announcement) -> int:
     recipients = list(RevelUser.objects.filter(id__in=new_ids).select_related("notification_preferences"))
     sent = _deliver_to_recipients(announcement, recipients)
     if sent:
-        announcement.recipient_count = announcement.recipient_count + sent
-        announcement.save(update_fields=["recipient_count"])
+        Announcement.objects.filter(pk=announcement.pk).update(recipient_count=F("recipient_count") + sent)
+        announcement.refresh_from_db(fields=["recipient_count"])
     logger.info("announcement_resent_to_new_signups", announcement_id=str(announcement.id), new_recipients=sent)
     return sent
 

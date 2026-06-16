@@ -42,7 +42,10 @@ def send_scheduled_announcements() -> ScheduledAnnouncementResult:
     sent = 0
     for ann_id in ids:
         with transaction.atomic():
-            ann = Announcement.objects.select_for_update().select_related("organization").get(pk=ann_id)
+            try:
+                ann = Announcement.objects.select_for_update().select_related("organization").get(pk=ann_id)
+            except Announcement.DoesNotExist:
+                continue
             if ann.status != Announcement.AnnouncementStatus.SCHEDULED:
                 continue
             effective = ann.effective_send_at
@@ -84,7 +87,10 @@ def resend_announcements_to_new_signups() -> ResendAnnouncementResult:
     recipients = 0
     for ann_id in ids:
         with transaction.atomic():
-            ann = Announcement.objects.select_for_update().select_related("organization").get(pk=ann_id)
+            try:
+                ann = Announcement.objects.select_for_update().select_related("organization").get(pk=ann_id)
+            except Announcement.DoesNotExist:
+                continue
             if ann.status != Announcement.AnnouncementStatus.SENT or not ann.resend_to_new_signups:
                 continue
             n = announcement_service.resend_to_new_recipients(ann)

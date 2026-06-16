@@ -223,6 +223,33 @@ class TestResendToNewRecipients:
         announcement_service.send_announcement(ann)
         assert announcement_service.resend_to_new_recipients(ann) == 0
 
+    def test_ended_event_resend_is_noop(
+        self, org: Organization, org_owner: RevelUser, revel_user_factory: RevelUserFactory
+    ) -> None:
+        ended = Event.objects.create(
+            organization=org,
+            name="Ended",
+            slug="ended-resend",
+            event_type=Event.EventType.PUBLIC,
+            visibility=Event.Visibility.PUBLIC,
+            status=Event.EventStatus.OPEN,
+            start=timezone.now() - dt.timedelta(days=2),
+            end=timezone.now() - dt.timedelta(days=1),
+        )
+        self._ticket(ended, revel_user_factory(username="post_end_joiner"))
+        ann = Announcement.objects.create(
+            organization=org,
+            event=ended,
+            title="x",
+            body="y",
+            created_by=org_owner,
+            status=Announcement.AnnouncementStatus.SENT,
+            sent_at=timezone.now() - dt.timedelta(days=2),
+            resend_to_new_signups=True,
+            past_visibility=True,
+        )
+        assert announcement_service.resend_to_new_recipients(ann) == 0
+
     def test_requires_sent_and_flag(self, draft: Announcement) -> None:
         with pytest.raises(ValueError):
             announcement_service.resend_to_new_recipients(draft)

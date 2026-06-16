@@ -96,6 +96,20 @@ class TestCreateAnnouncement:
         assert announcement.created_by == org_owner
         assert announcement.past_visibility is True
 
+    def test_create_persists_resend_to_new_signups(
+        self, org: Organization, org_owner: RevelUser, event: Event
+    ) -> None:
+        """resend_to_new_signups from the payload is persisted (regression)."""
+        payload = AnnouncementCreateSchema(
+            title="t",
+            body="b",
+            event_id=event.id,
+            resend_to_new_signups=True,
+        )
+        ann = announcement_service.create_announcement(org, org_owner, payload)
+        assert ann.resend_to_new_signups is True
+        assert ann.past_visibility is True  # schema forces it on
+
     def test_create_announcement_with_all_members_targeting(
         self,
         org: Organization,

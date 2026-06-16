@@ -2,6 +2,8 @@
 
 import datetime as dt
 import typing as t
+import uuid
+from unittest import mock
 
 import pytest
 from django.utils import timezone
@@ -81,6 +83,34 @@ class TestSendScheduledSweep:
         assert result["sent"] == 1
         assert due.status == Announcement.AnnouncementStatus.SENT
         assert future.status == Announcement.AnnouncementStatus.SCHEDULED
+
+    def test_sweep_skips_missing_row(
+        self,
+        org: Organization,
+        event: Event,
+        revel_user_factory: RevelUserFactory,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """A ghost id in the snapshot is skipped, not fatal, for the scheduled sweep."""
+        _ticket(event, revel_user_factory(username="ghost_test"))
+        due = Announcement.objects.create(
+            organization=org,
+            event=event,
+            title="due",
+            body="b",
+            created_by=org.owner,
+            status=Announcement.AnnouncementStatus.SCHEDULED,
+            scheduled_at=timezone.now() - dt.timedelta(minutes=1),
+        )
+        ghost = uuid.uuid4()
+        fake = mock.MagicMock()
+        fake.values_list.return_value = [ghost, due.id]  # ghost first -> would abort if unguarded
+        with mock.patch.object(Announcement.objects, "scheduled", return_value=fake):
+            with django_capture_on_commit_callbacks(execute=True):
+                result = send_scheduled_announcements()
+        due.refresh_from_db()
+        assert result["sent"] == 1
+        assert due.status == Announcement.AnnouncementStatus.SENT
 
     def test_relative_due_is_sent(
         self,
