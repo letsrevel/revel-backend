@@ -168,8 +168,8 @@ msgid ""
 "character (!@#$%%^&*(),.?\":{}|<>)."
 msgstr ""
 "La tua password deve contenere almeno %(min_length)d caratteri e includere "
-"almeno una lettera maiuscola, una lettera minuscola, una cifra e un carattere "
-"speciale (!@#$%%^&*(),.?\":{}|<>)."
+"almeno una lettera maiuscola, una lettera minuscola, una cifra e un "
+"carattere speciale (!@#$%%^&*(),.?\":{}|<>)."
 
 msgid "A user with this email already exists."
 msgstr "Esiste già un utente con questa email."
@@ -1541,6 +1541,15 @@ msgid ""
 msgstr ""
 "Uno o più ID di livello di iscrizione non sono validi o non appartengono "
 "all'organizzazione dell'evento."
+
+msgid "Cannot refund a ticket that was never paid."
+msgstr "Impossibile rimborsare un biglietto mai pagato."
+
+#, python-format
+msgid "Refund amount must be between 0 and the amount paid (%(amount)s)."
+msgstr ""
+"L'importo del rimborso deve essere compreso tra 0 e l'importo pagato "
+"(%(amount)s)."
 
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "La posizione del posto '{}' è al di fuori della forma del settore."

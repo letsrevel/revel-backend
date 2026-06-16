@@ -244,6 +244,69 @@ def test_revenue_pending_only_omitted(
     assert response.json() == {"by_currency": []}
 
 
+def test_revenue_offline_full_refund_nets_out(
+    organization_owner_client: Client,
+    event: Event,
+    offline_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """A fully-refunded offline ticket stays in gross and nets to zero (#528)."""
+    from events.service import ticket_service
+
+    ticket = Ticket.objects.create(
+        guest_name="g", user=public_user, event=event, tier=offline_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    # Default refund amount = collected (tier price 25.00).
+    ticket_service.mark_offline_ticket_refunded(ticket, cancelled_by=public_user)
+
+    eur = _by_currency(organization_owner_client.get(_revenue_url(event)).json())["EUR"]
+    assert Decimal(eur["gross"]) == Decimal("25.00")
+    assert Decimal(eur["refunded"]) == Decimal("25.00")
+    assert Decimal(eur["net"]) == Decimal("0.00")
+    # Refunded tickets are no longer currently-held.
+    assert eur["paid_ticket_count"] == 0
+
+
+def test_revenue_offline_partial_refund_keeps_remainder(
+    organization_owner_client: Client,
+    event: Event,
+    offline_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """An explicit partial offline refund leaves the kept remainder in net (#528)."""
+    from events.service import ticket_service
+
+    ticket = Ticket.objects.create(
+        guest_name="g", user=public_user, event=event, tier=offline_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    # Collected 25.00, refund only 10.00 -> kept 15.00.
+    ticket_service.mark_offline_ticket_refunded(ticket, cancelled_by=public_user, refund_amount=Decimal("10.00"))
+
+    eur = _by_currency(organization_owner_client.get(_revenue_url(event)).json())["EUR"]
+    assert Decimal(eur["gross"]) == Decimal("25.00")
+    assert Decimal(eur["refunded"]) == Decimal("10.00")
+    assert Decimal(eur["net"]) == Decimal("15.00")
+
+
+def test_revenue_offline_plain_cancel_is_invisible(
+    organization_owner_client: Client,
+    event: Event,
+    offline_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """A plain cancellation (no refund recorded) drops out of revenue entirely."""
+    from events.service import ticket_service
+
+    ticket = Ticket.objects.create(
+        guest_name="g", user=public_user, event=event, tier=offline_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    ticket_service.cancel_offline_ticket(ticket, cancelled_by=public_user)
+
+    ticket.refresh_from_db()
+    assert ticket.offline_refund_amount is None
+    assert organization_owner_client.get(_revenue_url(event)).json() == {"by_currency": []}
+
+
 def test_revenue_requires_manage_tickets(
     member_client: Client,
     event: Event,

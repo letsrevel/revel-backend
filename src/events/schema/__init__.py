@@ -96,6 +96,7 @@ from .event import (
 # Ticket and payment schemas
 from .ticket import (
     AdminCancelTicketSchema,
+    AdminRefundTicketSchema,
     AdminTicketSchema,
     BatchCheckoutPayload,
     BatchCheckoutPWYCPayload,
@@ -402,6 +403,7 @@ __all__ = [
     "TagUpdateSchema",
     # Ticket and payment
     "AdminCancelTicketSchema",
+    "AdminRefundTicketSchema",
     "AdminTicketSchema",
     "BatchCheckoutPayload",
     "BatchCheckoutPWYCPayload",

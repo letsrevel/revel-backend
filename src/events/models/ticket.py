@@ -692,6 +692,16 @@ class Ticket(TimeStampedModel):
         db_index=True,
     )
     cancellation_reason = models.CharField(max_length=500, blank=True, default="")
+    offline_refund_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="Amount refunded for a manually-collected offline/at-the-door ticket. "
+        "Null means the ticket was never refunded (a plain cancellation). "
+        "Online (Stripe) refunds are tracked on Payment.refund_amount instead.",
+    )
 
     # Cached ticket files (generated on-demand, cleaned up after event ends)
     pdf_file = ProtectedFileField(upload_to="tickets/pdf/", null=True, blank=True)

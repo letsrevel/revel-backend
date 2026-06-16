@@ -764,45 +764,102 @@ def cancel_offline_ticket(
     return Ticket.objects.full().get(pk=locked_ticket.pk)
 
 
+# Single source of truth for when an offline/at-the-door ticket counts as paid. The per-row
+# predicate and the revenue Q both derive from this so they cannot drift.
+OFFLINE_PAID_STATUSES: dict[str, tuple[Ticket.TicketStatus, ...]] = {
+    TicketTier.PaymentMethod.OFFLINE: (Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN),
+    TicketTier.PaymentMethod.AT_THE_DOOR: (Ticket.TicketStatus.CHECKED_IN,),
+}
+
+
+def _offline_paid_q() -> Q:
+    """Q matching offline/at-the-door tickets in a paid state (see ``OFFLINE_PAID_STATUSES``)."""
+    q = Q()
+    for method, statuses in OFFLINE_PAID_STATUSES.items():
+        q |= Q(tier__payment_method=method, status__in=statuses)
+    return q
+
+
+def _is_offline_paid(ticket: Ticket) -> bool:
+    """Whether an offline/at-the-door ticket is in a paid state (see ``OFFLINE_PAID_STATUSES``)."""
+    return ticket.status in OFFLINE_PAID_STATUSES.get(ticket.tier.payment_method, ())
+
+
+def _resolve_offline_refund_amount(ticket: Ticket, refund_amount: Decimal | None) -> Decimal | None:
+    """Resolve the amount to record as refunded for a manual offline/at-the-door refund.
+
+    A never-paid ticket has nothing to refund (omitted -> ``None``; explicit non-zero ->
+    rejected). A paid ticket defaults to the collected amount (``price_paid`` or tier price);
+    an explicit amount enables partial refunds and must be in [0, collected]. Call before
+    cancelling (reads pre-cancel status).
+
+    Raises:
+        HttpError 400: Explicit ``refund_amount`` out of range, or non-zero for a never-paid ticket.
+    """
+    if not _is_offline_paid(ticket):
+        # Nothing was ever collected — a refund of zero records nothing; a positive amount is invalid.
+        if refund_amount:
+            raise HttpError(400, str(_("Cannot refund a ticket that was never paid.")))
+        return None
+    collected = ticket.price_paid if ticket.price_paid is not None else ticket.tier.price
+    if refund_amount is None:
+        return collected
+    if refund_amount < Decimal("0") or refund_amount > collected:
+        raise HttpError(
+            400,
+            str(_("Refund amount must be between 0 and the amount paid (%(amount)s).")) % {"amount": collected},
+        )
+    return refund_amount
+
+
 @transaction.atomic
 def mark_offline_ticket_refunded(
     ticket: Ticket,
     *,
     cancelled_by: RevelUser,
     reason: str | None = None,
+    refund_amount: Decimal | None = None,
 ) -> Ticket:
     """Mark a manual offline/at-the-door ticket as refunded and cancel it.
 
     Layers a ``Payment`` refund mutation on top of the shared cancellation primitive.
-    Tickets without an associated ``Payment`` are still cancelled — no payment record
-    means there is nothing to refund, which is a valid manual flow.
-
-    The ticket and payment rows are re-fetched with ``select_for_update`` inside the
-    atomic block so concurrent cancel/refund requests serialize on the row locks and
-    cannot both pass the status check and double-apply side effects (tier decrement,
-    waitlist enqueue, payment refund).
+    Tickets without an associated ``Payment`` are still cancelled (nothing to refund) — a
+    valid manual flow. The refunded amount is recorded on ``Ticket.offline_refund_amount``
+    so it feeds ``get_event_revenue``. The ticket and payment rows are re-fetched with
+    ``select_for_update`` inside the atomic block so concurrent cancel/refund requests
+    serialize on the row locks and cannot double-apply side effects.
 
     Args:
         ticket: The ticket to refund.
         cancelled_by: The organizer performing the refund.
         reason: Optional free-text cancellation reason.
+        refund_amount: Explicit amount refunded (enables partial refunds). When omitted,
+            defaults to the amount paid (``price_paid`` or tier price) for paid tickets.
 
     Returns:
         The re-fetched ticket via ``full()`` for response serialization.
 
     Raises:
         TicketAlreadyCancelledError: If the ticket is already CANCELLED.
+        HttpError 400: If ``refund_amount`` is negative or exceeds the amount paid.
     """
     locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
     if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
         raise TicketAlreadyCancelledError
 
+    # Resolve before cancelling — it depends on the pre-cancellation (paid) status.
+    resolved_refund = _resolve_offline_refund_amount(locked_ticket, refund_amount)
+
     _cancel_offline_ticket_core(locked_ticket, cancelled_by=cancelled_by, reason=reason or "")
+
+    if resolved_refund is not None:
+        locked_ticket.offline_refund_amount = resolved_refund
+        locked_ticket.save(update_fields=["offline_refund_amount"])
 
     locked_payment = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
     if locked_payment is not None:
         locked_payment.status = Payment.PaymentStatus.REFUNDED
-        locked_payment.refund_amount = locked_payment.amount
+        locked_payment.refund_amount = resolved_refund if resolved_refund is not None else locked_payment.amount
         locked_payment.refund_status = Payment.RefundStatus.SUCCEEDED
         locked_payment.refunded_at = timezone.now()
         locked_payment.save(update_fields=["status", "refund_amount", "refund_status", "refunded_at"])
@@ -849,9 +906,9 @@ def get_event_revenue(event: Event) -> list[CurrencyRevenue]:
       An ``OFFLINE`` ticket counts once ``ACTIVE`` or ``CHECKED_IN``; an
       ``AT_THE_DOOR`` ticket counts only once ``CHECKED_IN`` (paid at the door).
       The collected amount is ``price_paid`` (PWYC override) or the tier price.
-      Refunded offline tickets become ``CANCELLED`` and simply drop out — offline
-      refunds are not yet tracked (see #528), so ``net`` is best-effort for events
-      with offline refunds.
+      Refunded offline tickets become ``CANCELLED`` but record the refunded amount on
+      ``Ticket.offline_refund_amount``; that amount is added to both ``gross`` and
+      ``refunded`` (mirroring the online path), so ``net`` nets out correctly.
 
     Currencies with no realised revenue (e.g. only pending payments) are omitted.
 
@@ -889,17 +946,28 @@ def get_event_revenue(event: Event) -> list[CurrencyRevenue]:
         )
     )
 
-    # OFFLINE is paid once ACTIVE/CHECKED_IN; AT_THE_DOOR is paid only once CHECKED_IN.
-    offline_paid = (
-        Q(tier__payment_method=TicketTier.PaymentMethod.OFFLINE)
-        & Q(status__in=[Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN])
-    ) | (Q(tier__payment_method=TicketTier.PaymentMethod.AT_THE_DOOR) & Q(status=Ticket.TicketStatus.CHECKED_IN))
     offline = (
-        Ticket.objects.filter(offline_paid, event=event)
+        Ticket.objects.filter(_offline_paid_q(), event=event)
         .values("tier__currency")
         .annotate(
             gross=Coalesce(Sum(Coalesce(F("price_paid"), F("tier__price"))), zero),
             paid_count=Count("id"),
+        )
+    )
+
+    # Refunded offline/at-the-door tickets are CANCELLED (excluded from `offline` above). Add their
+    # collected amount to gross and refund to refunded (as online keeps REFUNDED payments in gross).
+    offline_refunded = (
+        Ticket.objects.filter(
+            event=event,
+            status=Ticket.TicketStatus.CANCELLED,
+            offline_refund_amount__isnull=False,
+            tier__payment_method__in=[TicketTier.PaymentMethod.OFFLINE, TicketTier.PaymentMethod.AT_THE_DOOR],
+        )
+        .values("tier__currency")
+        .annotate(
+            gross=Coalesce(Sum(Coalesce(F("price_paid"), F("tier__price"))), zero),
+            refunded=Coalesce(Sum("offline_refund_amount"), zero),
         )
     )
 
@@ -913,6 +981,10 @@ def get_event_revenue(event: Event) -> list[CurrencyRevenue]:
         entry = totals.setdefault(row["tier__currency"], _RevenueTotals(gross=zero, refunded=zero, count=0))
         entry["gross"] += row["gross"]
         entry["count"] += row["paid_count"]
+    for row in offline_refunded:
+        entry = totals.setdefault(row["tier__currency"], _RevenueTotals(gross=zero, refunded=zero, count=0))
+        entry["gross"] += row["gross"]
+        entry["refunded"] += row["refunded"]
 
     return [
         CurrencyRevenue(
