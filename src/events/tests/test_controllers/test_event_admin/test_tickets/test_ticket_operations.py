@@ -199,6 +199,49 @@ def test_list_tickets_filter_by_payment_method(
     assert data["results"][0]["id"] == str(active_online_ticket.id)
 
 
+def test_list_tickets_ordering(
+    organization_owner_client: Client,
+    event: Event,
+    pending_offline_ticket: Ticket,
+    pending_at_door_ticket: Ticket,
+    active_online_ticket: Ticket,
+) -> None:
+    """Tickets can be ordered by date, tier, status, and payment method (asc/desc)."""
+    url = reverse("api:list_tickets", kwargs={"event_id": event.pk})
+
+    def values(order_by: str | None, key: str) -> list[str]:
+        params = {"order_by": order_by} if order_by else {}
+        response = organization_owner_client.get(url, params)
+        assert response.status_code == 200
+        results = response.json()["results"]
+        return [r["tier"][key] if key in ("name", "payment_method") else r[key] for r in results]
+
+    # Default ordering is newest first (-created_at).
+    default_dates = values(None, "created_at")
+    assert default_dates == sorted(default_dates, reverse=True)
+
+    # Date ascending.
+    assert (asc := values("created_at", "created_at")) == sorted(asc)
+
+    # Tier name, both directions — and reversing actually reorders.
+    tiers_asc = values("tier__name", "name")
+    tiers_desc = values("-tier__name", "name")
+    assert tiers_asc == sorted(tiers_asc)
+    assert tiers_desc == sorted(tiers_desc, reverse=True)
+    assert tiers_asc == list(reversed(tiers_desc))
+
+    # Status, both directions.
+    assert (st_asc := values("status", "status")) == sorted(st_asc)
+    assert (st_desc := values("-status", "status")) == sorted(st_desc, reverse=True)
+
+    # Payment method, both directions.
+    assert (pm_asc := values("tier__payment_method", "payment_method")) == sorted(pm_asc)
+    assert (pm_desc := values("-tier__payment_method", "payment_method")) == sorted(pm_desc, reverse=True)
+
+    # An unsupported ordering value is rejected.
+    assert organization_owner_client.get(url, {"order_by": "bogus"}).status_code == 422
+
+
 def test_list_tickets_pagination(organization_owner_client: Client, event: Event, offline_tier: TicketTier) -> None:
     """Test pagination of tickets."""
     # Create multiple pending tickets

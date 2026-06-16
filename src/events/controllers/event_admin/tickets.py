@@ -20,6 +20,17 @@ from .base import EventAdminBaseController
 if t.TYPE_CHECKING:
     from common.models import FileExport
 
+TicketOrdering = t.Literal[
+    "created_at",
+    "-created_at",
+    "tier__name",
+    "-tier__name",
+    "status",
+    "-status",
+    "tier__payment_method",
+    "-tier__payment_method",
+]
+
 
 @api_controller(
     "/event-admin/{event_id}",
@@ -121,18 +132,26 @@ class EventAdminTicketsController(EventAdminBaseController):
         self,
         event_id: UUID,
         params: filters.TicketFilterSchema = Query(...),  # type: ignore[type-arg]
+        order_by: TicketOrdering = "-created_at",
     ) -> QuerySet[models.Ticket]:
         """List tickets for an event with optional filters.
 
         Supports filtering by:
         - status: Filter by ticket status (PENDING, ACTIVE, CANCELLED, CHECKED_IN)
         - tier__payment_method: Filter by payment method (ONLINE, OFFLINE, AT_THE_DOOR, FREE)
+
+        Ordering (prefix with '-' for descending):
+        - created_at: Purchase date (default: -created_at, newest first)
+        - tier__name: Ticket tier, alphabetically
+        - status: Ticket status, by stored value
+        - tier__payment_method: Payment method, by stored value
         """
         event = self.get_one(event_id)
         # Use full() for AdminTicketSchema (includes user, tier, venue, sector, seat, payment)
         # with_org_membership() prefetches user's membership for "Make Member" feature
         qs = models.Ticket.objects.full().with_org_membership(event.organization_id).filter(event=event)
-        return params.filter(qs).distinct()
+        # "-id" is a stable tiebreaker so pagination stays deterministic across equal sort keys.
+        return params.filter(qs).distinct().order_by(order_by, "-id")
 
     @route.get(
         "/tickets/{ticket_id}",
