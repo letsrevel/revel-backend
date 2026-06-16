@@ -1,17 +1,16 @@
-{% load i18n %}{% trans "Notification Digest" %}
+{% load i18n %}{% trans "Your Notification Digest" %}
+{% blocktranslate count counter=total_count %}{{ counter }} new notification{% plural %}{{ counter }} new notifications{% endblocktranslate %}
 
-{% trans "Dear" %} {{ user.get_display_name }},
+{% trans "Hi" %} {{ user.get_display_name }},
 
-{% trans "Here's a summary of your recent notifications:" %}
-
-{% for notification_type, notifications in grouped_notifications.items %}
-
-{{ notification_type }}:
-{% for notification in notifications %}
-  - {{ notification.title }}
-{% endfor %}
-
-{% endfor %}
+{% trans "Here's what you missed since your last digest:" %}
+{% for group in notification_groups %}
+== {{ group.label }} ==
+{% for item in group.notifications %}
+* {{ item.title }} ({{ item.created_at|date:"M j, Y · g:i A" }})
+{% if item.body %}  {{ item.body }}
+{% endif %}{% if item.url %}  {{ item.url }}
+{% endif %}{% endfor %}{% endfor %}
 
 {% trans "View all notifications:" %} {{ frontend_url }}/notifications
 

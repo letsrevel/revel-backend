@@ -142,20 +142,6 @@ def _build_ticket_refunded_context(ticket: Ticket, refund_amount: str | None = N
     }
 
 
-def _build_ticket_checked_in_context(ticket: Ticket) -> dict[str, t.Any]:
-    """Build notification context for TICKET_CHECKED_IN."""
-    event = ticket.event
-    base_context = _build_base_event_context(event)
-
-    checked_in_at_formatted = format_event_datetime(ticket.checked_in_at, event)
-
-    return {
-        **base_context,
-        "ticket_id": str(ticket.id),
-        "checked_in_at": checked_in_at_formatted,
-    }
-
-
 def _send_ticket_created_notifications(ticket: Ticket) -> None:
     """Send notifications for newly created ticket.
 
@@ -383,22 +369,6 @@ def _send_ticket_refunded_notifications(ticket: Ticket) -> None:
             )
 
 
-def _send_ticket_checked_in_notification(ticket: Ticket) -> None:
-    """Send notification when ticket is checked in.
-
-    Args:
-        ticket: The ticket being checked in
-    """
-    context = _build_ticket_checked_in_context(ticket)
-
-    notification_requested.send(
-        sender=Ticket,
-        user=ticket.user,
-        notification_type=NotificationType.TICKET_CHECKED_IN,
-        context=context,
-    )
-
-
 def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None:
     """Handle notifications for ticket status changes."""
     if not old_status or old_status == ticket.status:
@@ -428,8 +398,6 @@ def _handle_ticket_status_change(ticket: Ticket, old_status: str | None) -> None
                         notification_type=NotificationType.TICKET_CREATED,
                         context=staff_context,
                     )
-    elif ticket.status == Ticket.TicketStatus.CHECKED_IN:
-        _send_ticket_checked_in_notification(ticket)
     elif ticket.status == Ticket.TicketStatus.CANCELLED:
         # TICKET_CANCELLED fires for every cancellation. When a Stripe refund is
         # involved, the cancellation_service / Stripe webhook handler set
