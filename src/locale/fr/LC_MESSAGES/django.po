@@ -973,8 +973,17 @@ msgstr "Un code de réduction avec ce code existe déjà."
 msgid "Draft"
 msgstr "Brouillon"
 
+msgid "Scheduled"
+msgstr "Programmé"
+
 msgid "Sent"
 msgstr "Envoyé"
+
+msgid "Event start"
+msgstr "Début de l'événement"
+
+msgid "Event end"
+msgstr "Fin de l'événement"
 
 msgid "Target all active organization members"
 msgstr "Cibler tout·e·s les membres actif·ve·s de l'organisation"
@@ -989,6 +998,43 @@ msgid "Allow new attendees/members to see this announcement after it was sent"
 msgstr ""
 "Permettre aux nouveaux·elles participant·e·s / membres de voir cette annonce "
 "après son envoi"
+
+msgid ""
+"Absolute time to send a scheduled announcement (mutually exclusive with "
+"relative scheduling)."
+msgstr ""
+"Heure absolue d'envoi d'une annonce programmée (incompatible avec la "
+"programmation relative)."
+
+msgid "Anchor a relative schedule to the event start or end."
+msgstr "Ancrer une programmation relative au début ou à la fin de l'événement."
+
+msgid "Signed minutes from the anchor (-1440 = 24h before, +1440 = 24h after)."
+msgstr ""
+"Minutes signées à partir de l'ancre (-1440 = 24 h avant, +1440 = 24 h après)."
+
+msgid ""
+"Re-deliver to attendees who join after this announcement was first sent "
+"(event announcements only)."
+msgstr ""
+"Renvoyer aux participant·e·s qui rejoignent après le premier envoi de cette "
+"annonce (annonces d'événement uniquement)."
+
+msgid "Relative scheduling requires both an anchor and an offset."
+msgstr "La programmation relative nécessite à la fois une ancre et un décalage."
+
+msgid "Provide either an absolute time or a relative schedule, not both."
+msgstr ""
+"Indiquez soit une heure absolue, soit une programmation relative, mais pas "
+"les deux."
+
+msgid "Relative scheduling requires an event-targeted announcement."
+msgstr "La programmation relative nécessite une annonce ciblant un événement."
+
+msgid "Re-sending to new sign-ups requires an event-targeted announcement."
+msgstr ""
+"Le renvoi aux nouvelles inscriptions nécessite une annonce ciblant un "
+"événement."
 
 msgid "Days a PAST_DUE subscription stays valid before expiring."
 msgstr ""
