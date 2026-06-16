@@ -172,7 +172,9 @@ class Announcement(TimeStampedModel):
     )
     resend_to_new_signups = models.BooleanField(
         default=False,
-        help_text=_("Re-deliver to attendees who join after this announcement was first sent (event announcements only)."),
+        help_text=_(
+            "Re-deliver to attendees who join after this announcement was first sent (event announcements only)."
+        ),
     )
 
     objects = AnnouncementManager()

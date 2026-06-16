@@ -632,11 +632,17 @@ class TestSendAnnouncement:
         """A SCHEDULED announcement can be sent (not only DRAFT)."""
         member = revel_user_factory(username="sched_member")
         OrganizationMember.objects.create(
-            organization=org, user=member, status=OrganizationMember.MembershipStatus.ACTIVE,
+            organization=org,
+            user=member,
+            status=OrganizationMember.MembershipStatus.ACTIVE,
         )
         ann = Announcement.objects.create(
-            organization=org, title="S", body="B", target_all_members=True,
-            created_by=org_owner, status=Announcement.AnnouncementStatus.SCHEDULED,
+            organization=org,
+            title="S",
+            body="B",
+            target_all_members=True,
+            created_by=org_owner,
+            status=Announcement.AnnouncementStatus.SCHEDULED,
             scheduled_at=timezone.now(),
         )
         count = announcement_service.send_announcement(ann)

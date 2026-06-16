@@ -33,8 +33,11 @@ def org(org_owner: RevelUser) -> Organization:
 @pytest.fixture
 def event(org: Organization) -> Event:
     return Event.objects.create(
-        organization=org, name="Sched Event", slug="sched-event",
-        event_type=Event.EventType.PUBLIC, visibility=Event.Visibility.PUBLIC,
+        organization=org,
+        name="Sched Event",
+        slug="sched-event",
+        event_type=Event.EventType.PUBLIC,
+        visibility=Event.Visibility.PUBLIC,
         status=Event.EventStatus.OPEN,
         start=timezone.now() + dt.timedelta(days=7),
         end=timezone.now() + dt.timedelta(days=7, hours=4),
@@ -44,8 +47,12 @@ def event(org: Organization) -> Event:
 @pytest.fixture
 def draft(org: Organization, org_owner: RevelUser, event: Event) -> Announcement:
     return Announcement.objects.create(
-        organization=org, event=event, title="D", body="B",
-        created_by=org_owner, status=Announcement.AnnouncementStatus.DRAFT,
+        organization=org,
+        event=event,
+        title="D",
+        body="B",
+        created_by=org_owner,
+        status=Announcement.AnnouncementStatus.DRAFT,
     )
 
 
@@ -57,30 +64,39 @@ class TestScheduleAnnouncement:
         assert draft.status == Announcement.AnnouncementStatus.SCHEDULED
         assert draft.scheduled_at == when
 
-    def test_relative_schedule_leaves_scheduled_at_null(self, draft: Announcement) -> None:
+    def test_relative_schedule_leaves_scheduled_at_null(self, draft: Announcement, event: Event) -> None:
         announcement_service.schedule_announcement(
-            draft, schedule_anchor=Announcement.ScheduleAnchor.EVENT_START, schedule_offset_minutes=-1440,
+            draft,
+            schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+            schedule_offset_minutes=-1440,
         )
         draft.refresh_from_db()
         assert draft.status == Announcement.AnnouncementStatus.SCHEDULED
         assert draft.scheduled_at is None
-        assert draft.effective_send_at == draft.event.start - dt.timedelta(minutes=1440)
+        assert draft.effective_send_at == event.start - dt.timedelta(minutes=1440)
 
     def test_past_time_rejected(self, draft: Announcement) -> None:
         with pytest.raises(ValueError):
             announcement_service.schedule_announcement(
-                draft, scheduled_at=timezone.now() - dt.timedelta(hours=1),
+                draft,
+                scheduled_at=timezone.now() - dt.timedelta(hours=1),
             )
 
     def test_unresolvable_relative_rejected(self, org: Organization, org_owner: RevelUser) -> None:
         # No event -> relative cannot resolve.
         ann = Announcement.objects.create(
-            organization=org, title="D", body="B", target_all_members=True,
-            created_by=org_owner, status=Announcement.AnnouncementStatus.DRAFT,
+            organization=org,
+            title="D",
+            body="B",
+            target_all_members=True,
+            created_by=org_owner,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
         with pytest.raises(ValueError):
             announcement_service.schedule_announcement(
-                ann, schedule_anchor=Announcement.ScheduleAnchor.EVENT_START, schedule_offset_minutes=-60,
+                ann,
+                schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+                schedule_offset_minutes=-60,
             )
 
     def test_non_draft_rejected(self, draft: Announcement) -> None:
@@ -92,14 +108,17 @@ class TestScheduleAnnouncement:
     def test_partial_relative_rejected(self, draft: Announcement) -> None:
         with pytest.raises(ValueError):
             announcement_service.schedule_announcement(
-                draft, schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+                draft,
+                schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
             )
 
 
 class TestUnscheduleAnnouncement:
     def test_unschedule_resets_to_draft(self, draft: Announcement) -> None:
         announcement_service.schedule_announcement(
-            draft, schedule_anchor=Announcement.ScheduleAnchor.EVENT_END, schedule_offset_minutes=60,
+            draft,
+            schedule_anchor=Announcement.ScheduleAnchor.EVENT_END,
+            schedule_offset_minutes=60,
         )
         announcement_service.unschedule_announcement(draft)
         draft.refresh_from_db()
@@ -118,15 +137,22 @@ class TestUpdateScheduledGuards:
         self, org: Organization, org_owner: RevelUser, event: Event
     ) -> None:
         ann = Announcement.objects.create(
-            organization=org, event=event, title="d", body="b",
-            created_by=org_owner, status=Announcement.AnnouncementStatus.DRAFT,
+            organization=org,
+            event=event,
+            title="d",
+            body="b",
+            created_by=org_owner,
+            status=Announcement.AnnouncementStatus.DRAFT,
         )
         announcement_service.schedule_announcement(
-            ann, schedule_anchor=Announcement.ScheduleAnchor.EVENT_START, schedule_offset_minutes=-1440,
+            ann,
+            schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+            schedule_offset_minutes=-1440,
         )
         with pytest.raises(ValueError):
             announcement_service.update_announcement(
-                ann, AnnouncementUpdateSchema(event_id=None, target_all_members=True),
+                ann,
+                AnnouncementUpdateSchema(event_id=None, target_all_members=True),
             )
 
 
@@ -134,8 +160,11 @@ class TestResendToNewRecipients:
     def _ticket(self, event: Event, user: RevelUser) -> Ticket:
         tier = TicketTier.objects.create(event=event, name=f"GA-{user.username}", price=0)
         return Ticket.objects.create(
-            event=event, tier=tier, user=user,
-            status=Ticket.TicketStatus.ACTIVE, guest_name=user.get_display_name(),
+            event=event,
+            tier=tier,
+            user=user,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name=user.get_display_name(),
         )
 
     def test_only_new_signups_notified(
@@ -144,8 +173,13 @@ class TestResendToNewRecipients:
         early = revel_user_factory(username="early")
         self._ticket(event, early)
         ann = Announcement.objects.create(
-            organization=org, event=event, title="loc", body="here",
-            created_by=org_owner, resend_to_new_signups=True, past_visibility=True,
+            organization=org,
+            event=event,
+            title="loc",
+            body="here",
+            created_by=org_owner,
+            resend_to_new_signups=True,
+            past_visibility=True,
         )
         announcement_service.send_announcement(ann)  # notifies `early`
         ann.refresh_from_db()
@@ -157,13 +191,18 @@ class TestResendToNewRecipients:
         sent = announcement_service.resend_to_new_recipients(ann)
         assert sent == 1
         assert Notification.objects.filter(
-            user=late, notification_type=NotificationType.ORG_ANNOUNCEMENT,
+            user=late,
+            notification_type=NotificationType.ORG_ANNOUNCEMENT,
             context__announcement_id=str(ann.id),
         ).exists()
-        assert Notification.objects.filter(
-            user=early, notification_type=NotificationType.ORG_ANNOUNCEMENT,
-            context__announcement_id=str(ann.id),
-        ).count() == 1
+        assert (
+            Notification.objects.filter(
+                user=early,
+                notification_type=NotificationType.ORG_ANNOUNCEMENT,
+                context__announcement_id=str(ann.id),
+            ).count()
+            == 1
+        )
         ann.refresh_from_db()
         assert ann.recipient_count == 2
 
@@ -173,8 +212,13 @@ class TestResendToNewRecipients:
         u = revel_user_factory(username="only")
         EventRSVP.objects.create(event=event, user=u, status=EventRSVP.RsvpStatus.YES)
         ann = Announcement.objects.create(
-            organization=org, event=event, title="x", body="y",
-            created_by=org_owner, resend_to_new_signups=True, past_visibility=True,
+            organization=org,
+            event=event,
+            title="x",
+            body="y",
+            created_by=org_owner,
+            resend_to_new_signups=True,
+            past_visibility=True,
         )
         announcement_service.send_announcement(ann)
         assert announcement_service.resend_to_new_recipients(ann) == 0
@@ -183,12 +227,15 @@ class TestResendToNewRecipients:
         with pytest.raises(ValueError):
             announcement_service.resend_to_new_recipients(draft)
 
-    def test_sent_but_flag_off_raises(
-        self, org: Organization, org_owner: RevelUser, event: Event
-    ) -> None:
+    def test_sent_but_flag_off_raises(self, org: Organization, org_owner: RevelUser, event: Event) -> None:
         ann = Announcement.objects.create(
-            organization=org, event=event, title="x", body="y", created_by=org_owner,
-            status=Announcement.AnnouncementStatus.SENT, sent_at=timezone.now(),
+            organization=org,
+            event=event,
+            title="x",
+            body="y",
+            created_by=org_owner,
+            status=Announcement.AnnouncementStatus.SENT,
+            sent_at=timezone.now(),
             resend_to_new_signups=False,
         )
         with pytest.raises(ValueError):
@@ -202,7 +249,8 @@ class TestScheduleSchema:
 
     def test_relative_ok(self) -> None:
         s = AnnouncementScheduleSchema(
-            schedule_anchor=Announcement.ScheduleAnchor.EVENT_START, schedule_offset_minutes=-1440,
+            schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+            schedule_offset_minutes=-1440,
         )
         assert s.scheduled_at is None
 
@@ -210,7 +258,8 @@ class TestScheduleSchema:
         with pytest.raises(ValueError):
             AnnouncementScheduleSchema(
                 scheduled_at=timezone.now() + dt.timedelta(days=1),
-                schedule_anchor=Announcement.ScheduleAnchor.EVENT_START, schedule_offset_minutes=-60,
+                schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+                schedule_offset_minutes=-60,
             )
 
     def test_neither_rejected(self) -> None:
@@ -225,8 +274,13 @@ class TestScheduleSchema:
 class TestCreateSchemaResend:
     def test_resend_forces_past_visibility(self) -> None:
         from uuid import uuid4
+
         s = AnnouncementCreateSchema(
-            title="t", body="b", event_id=uuid4(), resend_to_new_signups=True, past_visibility=False,
+            title="t",
+            body="b",
+            event_id=uuid4(),
+            resend_to_new_signups=True,
+            past_visibility=False,
         )
         assert s.past_visibility is True
 

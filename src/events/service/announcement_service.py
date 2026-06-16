@@ -119,6 +119,35 @@ def create_announcement(
     return announcement
 
 
+def _apply_event_id_update(announcement: Announcement, event_id: UUID | None) -> None:
+    """Resolve and apply an ``event_id`` update on an announcement.
+
+    Recurring-series template events are excluded: they are internal blueprints
+    and must not be targetable.
+
+    Args:
+        announcement: Announcement being updated.
+        event_id: New event id, or ``None`` to clear the event target.
+
+    Raises:
+        ValueError: If the event does not exist or belongs to another organization.
+    """
+    if event_id is None:
+        announcement.event = None
+        return
+    event = (
+        Event.objects.exclude_templates()
+        .filter(
+            id=event_id,
+            organization=announcement.organization,
+        )
+        .first()
+    )
+    if not event:
+        raise ValueError(_ERR_EVENT_NOT_FOUND)
+    announcement.event = event
+
+
 def update_announcement(
     announcement: Announcement,
     payload: AnnouncementUpdateSchema,
@@ -141,24 +170,8 @@ def update_announcement(
 
     update_data = payload.model_dump(exclude_unset=True)
 
-    # Handle event_id specially. Recurring-series template events are
-    # excluded: they are internal blueprints and must not be targetable.
     if "event_id" in update_data:
-        event_id = update_data.pop("event_id")
-        if event_id is None:
-            announcement.event = None
-        else:
-            event = (
-                Event.objects.exclude_templates()
-                .filter(
-                    id=event_id,
-                    organization=announcement.organization,
-                )
-                .first()
-            )
-            if not event:
-                raise ValueError(_ERR_EVENT_NOT_FOUND)
-            announcement.event = event
+        _apply_event_id_update(announcement, update_data.pop("event_id"))
 
     # Handle target_tier_ids specially
     if "target_tier_ids" in update_data:

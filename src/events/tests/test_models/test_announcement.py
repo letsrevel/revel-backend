@@ -530,9 +530,7 @@ class TestEffectiveSendAt:
         )
         assert ann.effective_send_at == when
 
-    def test_relative_event_start_subtracts_offset(
-        self, org: Organization, org_owner: RevelUser, event: Event
-    ) -> None:
+    def test_relative_event_start_subtracts_offset(self, org: Organization, org_owner: RevelUser, event: Event) -> None:
         """A relative schedule anchored to event start applies the signed offset."""
         ann = Announcement(
             organization=org,
