@@ -123,17 +123,17 @@ def update_announcement(
     announcement: Announcement,
     payload: AnnouncementUpdateSchema,
 ) -> Announcement:
-    """Update a draft announcement.
+    """Update a draft or scheduled announcement.
 
     Args:
-        announcement: Announcement to update (must be in DRAFT status).
+        announcement: Announcement to update (must be in DRAFT or SCHEDULED status).
         payload: Validated update data.
 
     Returns:
         Updated announcement instance.
 
     Raises:
-        ValueError: If announcement is not a draft.
+        ValueError: If announcement is neither a draft nor scheduled.
     """
     editable = (Announcement.AnnouncementStatus.DRAFT, Announcement.AnnouncementStatus.SCHEDULED)
     if announcement.status not in editable:
@@ -224,6 +224,10 @@ def schedule_announcement(
     announcement.scheduled_at = scheduled_at
     announcement.schedule_anchor = schedule_anchor
     announcement.schedule_offset_minutes = schedule_offset_minutes
+
+    is_relative = announcement.schedule_anchor is not None or announcement.schedule_offset_minutes is not None
+    if is_relative and (announcement.schedule_anchor is None or announcement.schedule_offset_minutes is None):
+        raise ValueError("Relative scheduling requires both an anchor and an offset")
 
     resolved = announcement.effective_send_at
     if resolved is None:

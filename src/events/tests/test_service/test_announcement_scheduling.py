@@ -82,6 +82,12 @@ class TestScheduleAnnouncement:
         with pytest.raises(ValueError):
             announcement_service.schedule_announcement(draft, scheduled_at=timezone.now() + dt.timedelta(days=1))
 
+    def test_partial_relative_rejected(self, draft: Announcement) -> None:
+        with pytest.raises(ValueError):
+            announcement_service.schedule_announcement(
+                draft, schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+            )
+
 
 class TestUnscheduleAnnouncement:
     def test_unschedule_resets_to_draft(self, draft: Announcement) -> None:
