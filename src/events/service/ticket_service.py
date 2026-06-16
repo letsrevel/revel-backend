@@ -765,12 +765,7 @@ def cancel_offline_ticket(
 
 
 def _is_offline_paid(ticket: Ticket) -> bool:
-    """Whether an offline/at-the-door ticket is currently in a paid state.
-
-    Mirrors the revenue aggregation in :func:`get_event_revenue`: an OFFLINE ticket
-    counts as paid once ``ACTIVE``/``CHECKED_IN``; an AT_THE_DOOR ticket only once
-    ``CHECKED_IN`` (cash collected at the door).
-    """
+    """Whether an offline/at-the-door ticket is in a paid state (mirrors get_event_revenue)."""
     payment_method = ticket.tier.payment_method
     if payment_method == TicketTier.PaymentMethod.OFFLINE:
         return ticket.status in (Ticket.TicketStatus.ACTIVE, Ticket.TicketStatus.CHECKED_IN)
@@ -782,13 +777,10 @@ def _is_offline_paid(ticket: Ticket) -> bool:
 def _resolve_offline_refund_amount(ticket: Ticket, refund_amount: Decimal | None) -> Decimal | None:
     """Resolve the amount to record as refunded for a manual offline/at-the-door refund.
 
-    The collected amount is the PWYC override (``price_paid``) or the tier price. When
-    ``refund_amount`` is omitted it defaults to the full collected amount — but only if the
-    ticket was actually in a paid state, so refunding a never-paid at-the-door ticket records
-    nothing (``None``) and is treated as a plain cancellation by revenue. An explicit amount
-    enables partial refunds and must be between zero and the collected amount.
-
-    Must be called before the ticket is cancelled (it reads the pre-cancellation status).
+    Collected = ``price_paid`` (PWYC) or tier price. An omitted ``refund_amount`` defaults to
+    the full collected amount, but only for a ticket that was actually paid (else ``None`` — a
+    never-paid refund records nothing). An explicit amount enables partial refunds and must be
+    between zero and the collected amount. Call before cancelling (reads pre-cancel status).
 
     Raises:
         HttpError 400: If an explicit ``refund_amount`` is negative or exceeds the amount paid.
@@ -955,11 +947,9 @@ def get_event_revenue(event: Event) -> list[CurrencyRevenue]:
         )
     )
 
-    # Refunded offline/at-the-door tickets are now CANCELLED (so excluded from `offline`
-    # above) but recorded the refunded amount. Add the collected amount back to gross and
-    # the refunded amount to refunded — exactly as the online path keeps a REFUNDED
-    # payment's full ``amount`` in gross. This nets out for full refunds and leaves the
-    # kept remainder in net for partial refunds.
+    # Refunded offline/at-the-door tickets are now CANCELLED (excluded from `offline` above).
+    # Add their collected amount back to gross and the refunded amount to refunded — as the
+    # online path keeps a REFUNDED payment in gross — so net keeps the remainder of partials.
     offline_refunded = (
         Ticket.objects.filter(
             event=event,
