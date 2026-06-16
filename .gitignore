@@ -52,9 +52,11 @@ coverage.xml
 cover/
 
 # Translations
-# Note: We commit *.mo files for reproducibility (similar to uv.lock)
-# This ensures consistent translations across all environments and Docker builds
+# Compiled .mo binaries are NOT committed (see ADR-0011, which reverts ADR-0006).
+# They are built from the .po sources during the Docker image build. Translation
+# quality is enforced on the .po sources via scripts/check_translations.py.
 *.pot
+*.mo
 
 # Django stuff:
 *.log

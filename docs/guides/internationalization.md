@@ -33,34 +33,37 @@ flowchart LR
 
 ### Adding a New Language
 
-1. Add the language to `LANGUAGES` in Django settings
+1. Add the language to `LANGUAGES` in Django settings (and to `LANGUAGES` in
+   `scripts/check_translations.py`)
 2. Extract translatable strings:
    ```bash
    make makemessages
    ```
 3. Translate the new `.po` file at `src/locale/{lang}/LC_MESSAGES/django.po`
-4. Compile translations:
-   ```bash
-   make compilemessages
-   ```
-5. Commit both `.po` and `.mo` files
+   (fill every `msgstr`; clear every `fuzzy` flag)
+4. Commit the `.po` file only — `.mo` is built automatically (see ADR-0011)
 
 ### Updating Existing Translations
 
 ```bash
-# 1. Extract new/changed strings
+# 1. Extract new/changed strings (deterministic: no POT-Creation-Date churn)
 make makemessages
 
 # 2. Translate new strings in .po files
-#    (look for empty msgstr entries)
+#    (look for empty msgstr entries and `fuzzy` markers)
 
-# 3. Compile to binary .mo files
-make compilemessages
+# 3. Verify the catalog is complete (keys extracted + translated)
+make i18n-check
 
-# 4. Commit both .po and .mo files
+# 4. Commit the .po files (no .mo — they are git-ignored, built in the image)
 git add src/locale/
 git commit -m "chore(i18n): update translations"
 ```
+
+!!! warning "Don't commit `.mo` files"
+    Compiled `.mo` binaries are git-ignored and built during the Docker image
+    build (and before tests). Only the `.po` sources are committed. See
+    [ADR-0011](../adr/0011-mo-files-built-not-committed.md).
 
 ---
 
@@ -70,12 +73,10 @@ git commit -m "chore(i18n): update translations"
 src/locale/
 ├── de/
 │   └── LC_MESSAGES/
-│       ├── django.po    # German translations (source)
-│       └── django.mo    # German translations (compiled)
+│       └── django.po    # German translations (source; .mo built, not committed)
 └── it/
     └── LC_MESSAGES/
-        ├── django.po    # Italian translations (source)
-        └── django.mo    # Italian translations (compiled)
+        └── django.po    # Italian translations (source; .mo built, not committed)
 ```
 
 !!! note "No English locale directory"
@@ -89,7 +90,7 @@ src/locale/
     - **Always** use `I18nJWTAuth` for authenticated endpoints. It activates the user's language automatically
     - **Always** wrap user-facing strings with `_()`
     - **Always** call `str()` on lazy translations when used in API responses (e.g., in serializers or plain dicts)
-    - **Always** commit `.mo` files to git (see rationale below)
+    - **Always** translate every new key (no empty `msgstr`, no `fuzzy`) — CI enforces it
     - Use `.format()` for string interpolation with translations:
       ```python
       _("Welcome, {name}!").format(name=user.first_name)
@@ -107,8 +108,14 @@ src/locale/
       _("Welcome, {name}!").format(name=name)
       ```
 
-!!! info "Why .mo Files Are in Git"
-    Unlike traditional Django projects, Revel commits compiled `.mo` files to version control. This ensures deployment environments don't need `gettext` installed and eliminates a build step. See [ADR-0006: .mo Files in Git](../adr/0006-mo-files-in-git.md) for the full rationale.
+!!! info "Why .mo Files Are NOT in Git"
+    Revel does **not** commit compiled `.mo` files. They are built from the `.po`
+    sources during the Docker image build (and before tests), while translation
+    *completeness* is enforced statically on the `.po` sources by
+    `scripts/check_translations.py`. See
+    [ADR-0011: Build Compiled Translations, Don't Commit Them](../adr/0011-mo-files-built-not-committed.md)
+    for the full rationale (it reverts the earlier
+    [ADR-0006](../adr/0006-mo-files-in-git.md)).
 
 ---
 
@@ -118,7 +125,7 @@ src/locale/
 
 | Check | Fix |
 |---|---|
-| `.mo` files exist and are up to date | Run `make compilemessages` |
+| Catalogs compiled locally | Run `make compilemessages` (`.mo` is not committed) |
 | User has correct language set | Verify `User.language` field |
 | Endpoint uses `I18nJWTAuth` | Switch from plain `JWTAuth` to `I18nJWTAuth` |
 | String is wrapped with `_()` | Add the `_()` wrapper |
@@ -126,13 +133,19 @@ src/locale/
 
 ### CI Failing on i18n Check
 
-The CI pipeline runs `make i18n-check` to verify `.mo` files match `.po` sources. If it fails:
+The CI pipeline runs `make i18n-check` (`scripts/check_translations.py`), which
+verifies the `.po` sources are **complete** — every code string is extracted and
+every entry is translated (no empty `msgstr`, no `fuzzy`). If it fails:
 
 ```bash
-# Recompile and commit
-make compilemessages
+# 1. Extract any missing keys, then translate the empty/fuzzy entries it reports
+make makemessages
+#    ...edit src/locale/{lang}/LC_MESSAGES/django.po...
+
+# 2. Re-check and commit the .po sources
+make i18n-check
 git add src/locale/
-git commit -m "chore(i18n): recompile .mo files"
+git commit -m "chore(i18n): complete translations"
 ```
 
 ### Variables Not Interpolated

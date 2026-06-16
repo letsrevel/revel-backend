@@ -16,6 +16,9 @@ RUN apt-get update \
       libgdal-dev \
       # libmagic for python-magic (MIME type detection)
       libmagic1 \
+      # gettext provides msgfmt for `manage.py compilemessages` (.po -> .mo).
+      # .mo binaries are not committed (ADR-0011); they are built here.
+      gettext \
  && rm -rf /var/lib/apt/lists/*
 # ───────────────────────────────────────────────────────────────────────────────
 
@@ -47,6 +50,10 @@ COPY . /app
 # Install the project itself
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-editable
+
+# Compile translation catalogs (.po -> .mo). Not committed to git (ADR-0011);
+# built here so the runtime stage gets them via the `src` COPY below.
+RUN cd src && uv run python manage.py compilemessages
 
 # Define static root and collect static files
 ENV STATIC_ROOT=/app/staticfiles

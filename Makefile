@@ -21,7 +21,9 @@ mypy:
 	uv run mypy --strict --extra-checks --warn-unreachable --warn-unused-ignores src
 
 .PHONY: test
-test:
+# .mo binaries are not committed (ADR-0011); compile them so the i18n tests,
+# which assert translated strings, resolve against the catalogs.
+test: compilemessages
 	@uv run pytest -n auto --cov=src --cov-report=term --cov-report=html --cov-branch -v src/ 2>&1 | tee .tests.output.full; \
 	exit_code=$${PIPESTATUS[0]}; \
 	if [ $$exit_code -eq 0 ]; then uv run coverage html --skip-covered; rm -f .tests.output.full .tests.output; \
@@ -30,15 +32,15 @@ test:
 	exit $$exit_code
 
 .PHONY: test-linear
-test-linear:
+test-linear: compilemessages
 	uv run pytest --cov=src --cov-report=term --cov-report=html --cov-branch -v src/ && uv run coverage html --skip-covered
 
 .PHONY: test-integration
-test-integration:
+test-integration: compilemessages
 	uv run pytest -m integration -v src/
 
 .PHONY: test-failed
-test-failed:
+test-failed: compilemessages
 	uv run pytest --cov=src --cov-report=term --cov-report=html --cov-branch -v --last-failed src/ && uv run coverage html --skip-covered
 
 
@@ -221,6 +223,10 @@ migrate:
 .PHONY: makemessages
 makemessages:
 	cd src && uv run python manage.py makemessages -l de -l it -l fr --no-location --no-obsolete
+	# Strip the POT-Creation-Date header: gettext stamps it on every run, which is
+	# the only remaining diff churn once --no-location is set. Removing it keeps
+	# `make makemessages` deterministic (diffs only on real string changes).
+	@find src/locale -name django.po -exec sed -i.bak '/^"POT-Creation-Date:/d' {} \; -exec rm -f {}.bak \;
 
 .PHONY: compilemessages
 compilemessages:
@@ -228,16 +234,8 @@ compilemessages:
 
 .PHONY: i18n-check
 i18n-check:
-	@echo "Checking if translation files are up to date..."
-	@cd src && uv run python manage.py compilemessages > /dev/null 2>&1; \
-	if ! git diff --exit-code locale/ > /dev/null 2>&1; then \
-		echo "❌ Translation files (.mo) are out of sync with .po files."; \
-		echo "   Run 'make compilemessages' and commit the updated .mo files."; \
-		git diff locale/; \
-		exit 1; \
-	else \
-		echo "✅ Translation files are up to date."; \
-	fi
+	@echo "Checking translation catalog (keys extracted + translated)..."
+	@uv run python scripts/check_translations.py
 
 
 .PHONY: check-version
