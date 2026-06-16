@@ -777,17 +777,24 @@ def _is_offline_paid(ticket: Ticket) -> bool:
 def _resolve_offline_refund_amount(ticket: Ticket, refund_amount: Decimal | None) -> Decimal | None:
     """Resolve the amount to record as refunded for a manual offline/at-the-door refund.
 
-    Collected = ``price_paid`` (PWYC) or tier price. An omitted ``refund_amount`` defaults to
-    the full collected amount, but only for a ticket that was actually paid (else ``None`` — a
-    never-paid refund records nothing). An explicit amount enables partial refunds and must be
-    between zero and the collected amount. Call before cancelling (reads pre-cancel status).
+    Collected = ``price_paid`` (PWYC) or tier price. A ticket that was never paid (e.g. an
+    at-the-door ticket never checked in) has nothing to refund: an omitted amount records
+    ``None`` and an explicit non-zero amount is rejected. For a paid ticket an omitted amount
+    defaults to the full collected amount; an explicit amount enables partial refunds and must
+    be between zero and the collected amount. Call before cancelling (reads pre-cancel status).
 
     Raises:
-        HttpError 400: If an explicit ``refund_amount`` is negative or exceeds the amount paid.
+        HttpError 400: If an explicit ``refund_amount`` is negative, exceeds the amount paid,
+            or is non-zero for a ticket that was never paid.
     """
+    if not _is_offline_paid(ticket):
+        # Nothing was ever collected — a refund of zero records nothing; a positive amount is invalid.
+        if refund_amount:
+            raise HttpError(400, str(_("Cannot refund a ticket that was never paid.")))
+        return None
     collected = ticket.price_paid if ticket.price_paid is not None else ticket.tier.price
     if refund_amount is None:
-        return collected if _is_offline_paid(ticket) else None
+        return collected
     if refund_amount < Decimal("0") or refund_amount > collected:
         raise HttpError(
             400,

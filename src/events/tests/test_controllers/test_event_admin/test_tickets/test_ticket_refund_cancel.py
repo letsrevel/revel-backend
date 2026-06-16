@@ -277,6 +277,25 @@ def test_mark_refunded_never_paid_at_door_records_no_amount(
     assert ticket.offline_refund_amount is None
 
 
+def test_mark_refunded_explicit_amount_on_never_paid_rejected(
+    organization_owner_client: Client,
+    event: Event,
+    at_door_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """An explicit refund amount on a never-paid at-the-door ticket is rejected (no revenue fabrication)."""
+    ticket = Ticket.objects.create(
+        guest_name="g", user=public_user, event=event, tier=at_door_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    url = reverse("api:mark_ticket_refunded", kwargs={"event_id": event.pk, "ticket_id": ticket.pk})
+    response = organization_owner_client.post(url, data={"refund_amount": "10.00"}, content_type="application/json")
+
+    assert response.status_code == 400
+    ticket.refresh_from_db()
+    assert ticket.status == Ticket.TicketStatus.ACTIVE
+    assert ticket.offline_refund_amount is None
+
+
 # --- Tests for cancel ticket endpoint ---
 
 

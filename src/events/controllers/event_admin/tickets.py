@@ -255,7 +255,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         self,
         event_id: UUID,
         ticket_id: UUID,
-        payload: schema.AdminCancelTicketSchema | None = Body(None),  # type: ignore[type-arg]
+        payload: schema.AdminRefundTicketSchema | None = Body(None),  # type: ignore[type-arg]
     ) -> models.Ticket:
         """Mark a manual offline/at-the-door ticket as refunded and cancel it.
 

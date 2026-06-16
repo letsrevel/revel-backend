@@ -1569,9 +1569,14 @@ msgstr ""
 "Eine oder mehrere Mitgliedsstufen-IDs sind ungültig oder gehören nicht zur "
 "Organisation des Events."
 
+msgid "Cannot refund a ticket that was never paid."
+msgstr "Ein Ticket, das nie bezahlt wurde, kann nicht erstattet werden."
+
 #, python-format
 msgid "Refund amount must be between 0 and the amount paid (%(amount)s)."
-msgstr "Der Erstattungsbetrag muss zwischen 0 und dem gezahlten Betrag liegen (%(amount)s)."
+msgstr ""
+"Der Erstattungsbetrag muss zwischen 0 und dem gezahlten Betrag liegen "
+"(%(amount)s)."
 
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "Die Position des Sitzplatzes '{}' liegt außerhalb der Sektorform."

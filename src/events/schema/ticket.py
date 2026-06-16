@@ -311,13 +311,18 @@ class CancellationBlockedErrorSchema(Schema):
 
 
 class AdminCancelTicketSchema(Schema):
-    """Optional payload for admin cancel / mark-refunded endpoints."""
+    """Optional payload for the admin cancel endpoint."""
 
     cancellation_reason: StrippedString | None = Field(default=None, max_length=500)
+
+
+class AdminRefundTicketSchema(AdminCancelTicketSchema):
+    """Optional payload for the admin mark-refunded endpoint."""
+
     refund_amount: Decimal | None = Field(
         default=None,
         ge=0,
-        description="Explicit amount refunded (mark-refunded only). Defaults to the amount paid when omitted.",
+        description="Explicit amount refunded. Defaults to the amount paid when omitted.",
     )
 
 
