@@ -189,9 +189,18 @@ LOGGING = {
         # Django logs unhandled exceptions in views (incl. admin) to ``django.request``
         # with ``exc_info``. Without this entry, Django's default config sends them to
         # ``mail_admins`` only — so 500s outside the Ninja API would never reach Loki.
+        #
+        # Level is ERROR (not WARNING) on purpose: Django's ``log_response`` emits 5xx at
+        # ERROR (with ``exc_info``) and 4xx at WARNING, and django-ninja-extra's access
+        # logger is *also* ``django.request`` (logs 4xx/5xx at WARNING). At WARNING this
+        # logger duplicated our own structured ``request_finished`` middleware log for every
+        # 4xx — e.g. a bare ``Not Found: /path`` with no request context (see #480). ERROR
+        # keeps exactly what this entry exists for (admin/non-API 500 tracebacks) and drops
+        # the redundant 4xx noise; API 500s are still captured separately by
+        # ``handle_general_exception`` (structlog, full traceback).
         "django.request": {
             "handlers": DEFAULT_HANDLERS,
-            "level": "WARNING",
+            "level": "ERROR",
             "propagate": False,
         },
         "django.server": {
