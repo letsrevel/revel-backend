@@ -22,7 +22,7 @@ requires-python = ">=3.13"
 dependencies = [
     "aiogram>=3.20.0.post0",
     "celery>=5.6.2",
-    "cryptography>=46.0.4",
+    "cryptography>=48.0.1",
     "django>=5.2.14,<6.0",
     "django-celery-beat>=2.8.1",
     "django-celery-results>=2.6.0",
@@ -122,6 +122,14 @@ dev = [
 sentinel = [
     "torch>=2.8.0",
     "transformers>=4.55.2",
+]
+
+[tool.uv]
+# Security floors for transitive dependencies we don't import directly.
+# aiohttp is pulled in by aiogram and instructor; 3.14.1 fixes a batch of
+# CVEs flagged by pip-audit (CVE-2026-54273..54280, CVE-2026-50269).
+constraint-dependencies = [
+    "aiohttp>=3.14.1",
 ]
 
 [build-system]
