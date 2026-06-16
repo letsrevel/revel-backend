@@ -7,7 +7,7 @@
 {% for group in notification_groups %}
 == {{ group.label }} ==
 {% for item in group.notifications %}
-* {{ item.title|default:item.context.event_name|default:group.label }} ({{ item.created_at|date:"M j, Y · g:i A" }})
+* {{ item.title }} ({{ item.created_at|date:"M j, Y · g:i A" }})
 {% if item.body %}  {{ item.body }}
 {% endif %}{% if item.url %}  {{ item.url }}
 {% endif %}{% endfor %}{% endfor %}

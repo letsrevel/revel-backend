@@ -38,7 +38,7 @@
                 <div class="group-label">{{ group.label }}</div>
                 {% for item in group.notifications %}
                 <div class="item">
-                    <div class="item-title">{{ item.title|default:item.context.event_name|default:group.label }}</div>
+                    <div class="item-title">{{ item.title }}</div>
                     {% if item.body %}<div class="item-body">{{ item.body|markdown }}</div>{% endif %}
                     <div class="item-meta">{{ item.created_at|date:"M j, Y · g:i A" }}</div>
                     {% if item.url %}<a class="item-link" href="{{ item.url }}">{% trans "View details →" %}</a>{% endif %}

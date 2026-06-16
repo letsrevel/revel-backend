@@ -117,9 +117,15 @@ class NotificationDigest:
                     "notifications": [],
                 }
 
+            label = groups[notif_type]["label"]
+            # Resolve the best available title here (not in the template) so a row
+            # always has a heading even when title is unrendered or the context
+            # carries no event name.
+            display_title = notif.title or notif.context.get("event_name") or label
+
             groups[notif_type]["notifications"].append(
                 {
-                    "title": notif.title,
+                    "title": display_title,
                     "body": notif.body or "",
                     "notification_type": notif_type,
                     "created_at": notif.created_at,
