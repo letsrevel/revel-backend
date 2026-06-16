@@ -4,7 +4,7 @@ Split out of ``events.tasks`` to keep that module under the 1000-line limit.
 The tasks keep their original registered names (``events.send_scheduled_announcements``
 and ``events.resend_announcements_to_new_signups``), so the Celery-beat schedules
 defined in migration 0082 — which reference tasks by name string — are unaffected.
-They are also re-exported from ``events.tasks`` for backwards-compatible imports.
+The Celery worker registers them via ``EventsConfig.ready`` importing this module.
 """
 
 import typing as t
