@@ -2,6 +2,7 @@ import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 from ninja import Body, Query
 from ninja_extra import api_controller, route
@@ -29,7 +30,35 @@ TicketOrdering = t.Literal[
     "-status",
     "tier__payment_method",
     "-tier__payment_method",
+    "price",
+    "-price",
+    "price_paid",
+    "-price_paid",
 ]
+
+# Effective amount actually taken per ticket: the Stripe payment amount (online),
+# else the recorded PWYC amount (offline/at-the-door), else the tier list price
+# (fixed-price tiers, where neither of the former is set). tier.price is non-nullable
+# (defaults to 0), so the result is never NULL — no NULLS FIRST/LAST handling needed.
+# All three operands are already joined via Ticket.objects.full(), but the COALESCE
+# itself must be annotated so it appears in the SELECT list (required for SELECT DISTINCT).
+EFFECTIVE_PRICE_PAID = Coalesce("payment__amount", "price_paid", "tier__price")
+
+# Maps the public ``order_by`` value to the actual queryset ordering field.
+TICKET_ORDER_FIELDS: dict[TicketOrdering, str] = {
+    "created_at": "created_at",
+    "-created_at": "-created_at",
+    "tier__name": "tier__name",
+    "-tier__name": "-tier__name",
+    "status": "status",
+    "-status": "-status",
+    "tier__payment_method": "tier__payment_method",
+    "-tier__payment_method": "-tier__payment_method",
+    "price": "tier__price",
+    "-price": "-tier__price",
+    "price_paid": "effective_price_paid",
+    "-price_paid": "-effective_price_paid",
+}
 
 
 @api_controller(
@@ -145,13 +174,16 @@ class EventAdminTicketsController(EventAdminBaseController):
         - tier__name: Ticket tier, alphabetically
         - status: Ticket status, by stored value
         - tier__payment_method: Payment method, by stored value
+        - price: Tier list price
+        - price_paid: Effective amount actually paid (online payment, else PWYC amount, else tier price)
         """
         event = self.get_one(event_id)
         # Use full() for AdminTicketSchema (includes user, tier, venue, sector, seat, payment)
         # with_org_membership() prefetches user's membership for "Make Member" feature
         qs = models.Ticket.objects.full().with_org_membership(event.organization_id).filter(event=event)
+        qs = params.filter(qs).annotate(effective_price_paid=EFFECTIVE_PRICE_PAID)
         # "-id" is a stable tiebreaker so pagination stays deterministic across equal sort keys.
-        return params.filter(qs).distinct().order_by(order_by, "-id")
+        return qs.distinct().order_by(TICKET_ORDER_FIELDS[order_by], "-id")
 
     @route.get(
         "/tickets/{ticket_id}",
