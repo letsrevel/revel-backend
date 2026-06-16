@@ -16,6 +16,7 @@ from events.controllers.permissions import OrganizationPermission
 from events.schema.announcement import (
     AnnouncementCreateSchema,
     AnnouncementListSchema,
+    AnnouncementScheduleSchema,
     AnnouncementSchema,
     AnnouncementUpdateSchema,
     RecipientCountSchema,
@@ -152,7 +153,10 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
             models.Announcement.objects,
             id=announcement_id,
             organization=organization,
-            status=models.Announcement.AnnouncementStatus.DRAFT,
+            status__in=[
+                models.Announcement.AnnouncementStatus.DRAFT,
+                models.Announcement.AnnouncementStatus.SCHEDULED,
+            ],
         )
         try:
             updated = announcement_service.update_announcement(announcement, payload)
@@ -181,7 +185,10 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
             models.Announcement.objects,
             id=announcement_id,
             organization=organization,
-            status=models.Announcement.AnnouncementStatus.DRAFT,
+            status__in=[
+                models.Announcement.AnnouncementStatus.DRAFT,
+                models.Announcement.AnnouncementStatus.SCHEDULED,
+            ],
         )
         announcement.delete()
         return 204, None
@@ -221,6 +228,62 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
         )
         announcement_service.send_announcement(announcement)
         # Reload with prefetched data for schema
+        return models.Announcement.objects.full().get(id=announcement.id)
+
+    @route.post(
+        "/announcements/{announcement_id}/schedule",
+        url_name="schedule_announcement",
+        response=AnnouncementSchema,
+    )
+    def schedule_announcement(
+        self,
+        slug: str,
+        announcement_id: UUID4,
+        payload: AnnouncementScheduleSchema,
+    ) -> models.Announcement:
+        """Schedule a draft announcement for a future absolute or relative time.
+
+        Body is either ``scheduled_at`` (absolute) or
+        ``schedule_anchor`` + ``schedule_offset_minutes`` (relative to event start/end).
+        Relative scheduling requires an event-targeted announcement.
+        """
+        organization = self.get_one(slug)
+        announcement = get_object_or_404(
+            models.Announcement.objects.select_related("event"),
+            id=announcement_id,
+            organization=organization,
+            status=models.Announcement.AnnouncementStatus.DRAFT,
+        )
+        try:
+            announcement_service.schedule_announcement(
+                announcement,
+                scheduled_at=payload.scheduled_at,
+                schedule_anchor=payload.schedule_anchor,
+                schedule_offset_minutes=payload.schedule_offset_minutes,
+            )
+        except ValueError as e:
+            raise HttpError(422, str(e))
+        return models.Announcement.objects.full().get(id=announcement.id)
+
+    @route.post(
+        "/announcements/{announcement_id}/unschedule",
+        url_name="unschedule_announcement",
+        response=AnnouncementSchema,
+    )
+    def unschedule_announcement(
+        self,
+        slug: str,
+        announcement_id: UUID4,
+    ) -> models.Announcement:
+        """Revert a scheduled announcement to draft and clear its schedule."""
+        organization = self.get_one(slug)
+        announcement = get_object_or_404(
+            models.Announcement.objects,
+            id=announcement_id,
+            organization=organization,
+            status=models.Announcement.AnnouncementStatus.SCHEDULED,
+        )
+        announcement_service.unschedule_announcement(announcement)
         return models.Announcement.objects.full().get(id=announcement.id)
 
     @route.get(
