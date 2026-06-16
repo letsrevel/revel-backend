@@ -1,5 +1,7 @@
 """Tests for ticket refund, cancel, and membership field endpoints."""
 
+from decimal import Decimal
+
 import pytest
 from django.test.client import Client
 from django.urls import reverse
@@ -195,6 +197,84 @@ def test_mark_ticket_refunded_wrong_event(
     response = organization_owner_client.post(url, data={}, content_type="application/json")
 
     assert response.status_code == 404
+
+
+# --- Tests for offline_refund_amount recording (#528) ---
+
+
+def test_mark_refunded_records_refund_amount_defaults_to_paid(
+    organization_owner_client: Client,
+    event: Event,
+    offline_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """Refunding a paid offline ticket with no explicit amount records the amount paid."""
+    ticket = Ticket.objects.create(
+        guest_name="g", user=public_user, event=event, tier=offline_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    url = reverse("api:mark_ticket_refunded", kwargs={"event_id": event.pk, "ticket_id": ticket.pk})
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
+
+    assert response.status_code == 200
+    ticket.refresh_from_db()
+    assert ticket.offline_refund_amount == Decimal("25.00")  # offline_tier price
+
+
+def test_mark_refunded_explicit_partial_amount(
+    organization_owner_client: Client,
+    event: Event,
+    offline_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """An explicit refund amount is recorded as-is (enables partial refunds)."""
+    ticket = Ticket.objects.create(
+        guest_name="g", user=public_user, event=event, tier=offline_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    url = reverse("api:mark_ticket_refunded", kwargs={"event_id": event.pk, "ticket_id": ticket.pk})
+    response = organization_owner_client.post(url, data={"refund_amount": "10.00"}, content_type="application/json")
+
+    assert response.status_code == 200
+    ticket.refresh_from_db()
+    assert ticket.offline_refund_amount == Decimal("10.00")
+
+
+def test_mark_refunded_amount_exceeding_paid_rejected(
+    organization_owner_client: Client,
+    event: Event,
+    offline_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """A refund amount greater than the amount paid is rejected with 400."""
+    ticket = Ticket.objects.create(
+        guest_name="g", user=public_user, event=event, tier=offline_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    url = reverse("api:mark_ticket_refunded", kwargs={"event_id": event.pk, "ticket_id": ticket.pk})
+    response = organization_owner_client.post(url, data={"refund_amount": "30.00"}, content_type="application/json")
+
+    assert response.status_code == 400
+    ticket.refresh_from_db()
+    # Rejected before any state change.
+    assert ticket.status == Ticket.TicketStatus.ACTIVE
+    assert ticket.offline_refund_amount is None
+
+
+def test_mark_refunded_never_paid_at_door_records_no_amount(
+    organization_owner_client: Client,
+    event: Event,
+    at_door_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """An at-the-door ticket never checked in was never paid: default refund records nothing."""
+    ticket = Ticket.objects.create(
+        guest_name="g", user=public_user, event=event, tier=at_door_tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    url = reverse("api:mark_ticket_refunded", kwargs={"event_id": event.pk, "ticket_id": ticket.pk})
+    response = organization_owner_client.post(url, data={}, content_type="application/json")
+
+    assert response.status_code == 200
+    ticket.refresh_from_db()
+    assert ticket.status == Ticket.TicketStatus.CANCELLED
+    assert ticket.offline_refund_amount is None
 
 
 # --- Tests for cancel ticket endpoint ---

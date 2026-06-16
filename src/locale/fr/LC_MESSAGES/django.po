@@ -1579,6 +1579,10 @@ msgstr ""
 "Un ou plusieurs identifiants de catégories d'adhésion sont invalides ou "
 "n'appartiennent pas à l'organisation de l'événement."
 
+#, python-format
+msgid "Refund amount must be between 0 and the amount paid (%(amount)s)."
+msgstr "Le montant du remboursement doit être compris entre 0 et le montant payé (%(amount)s)."
+
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "La position du siège « {} » est en dehors de la forme du secteur."
 

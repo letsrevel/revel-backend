@@ -162,6 +162,7 @@ class AdminTicketSchema(ModelSchema):
     price_paid: Decimal | None = None
     discount_code: TicketDiscountCodeSchema | None = None
     discount_amount: Decimal | None = None
+    offline_refund_amount: Decimal | None = None
 
     class Meta:
         model = Ticket
@@ -174,6 +175,7 @@ class AdminTicketSchema(ModelSchema):
             "seat",
             "price_paid",
             "discount_amount",
+            "offline_refund_amount",
         ]
 
     @staticmethod
@@ -312,6 +314,11 @@ class AdminCancelTicketSchema(Schema):
     """Optional payload for admin cancel / mark-refunded endpoints."""
 
     cancellation_reason: StrippedString | None = Field(default=None, max_length=500)
+    refund_amount: Decimal | None = Field(
+        default=None,
+        ge=0,
+        description="Explicit amount refunded (mark-refunded only). Defaults to the amount paid when omitted.",
+    )
 
 
 # ---- TicketTier Schemas for Admin CRUD ----

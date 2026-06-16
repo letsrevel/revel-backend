@@ -169,9 +169,9 @@ msgid ""
 "least one uppercase letter, one lowercase letter, one digit, and one special "
 "character (!@#$%%^&*(),.?\":{}|<>)."
 msgstr ""
-"Dein Passwort muss mindestens %(min_length)d Zeichen lang sein und mindestens "
-"einen Großbuchstaben, einen Kleinbuchstaben, eine Ziffer und ein Sonderzeichen "
-"enthalten (!@#$%%^&*(),.?\":{}|<>)."
+"Dein Passwort muss mindestens %(min_length)d Zeichen lang sein und "
+"mindestens einen Großbuchstaben, einen Kleinbuchstaben, eine Ziffer und ein "
+"Sonderzeichen enthalten (!@#$%%^&*(),.?\":{}|<>)."
 
 msgid "A user with this email already exists."
 msgstr "Ein:e Anwender:in mit dieser E-Mail existiert bereits."
@@ -1568,6 +1568,10 @@ msgid ""
 msgstr ""
 "Eine oder mehrere Mitgliedsstufen-IDs sind ungültig oder gehören nicht zur "
 "Organisation des Events."
+
+#, python-format
+msgid "Refund amount must be between 0 and the amount paid (%(amount)s)."
+msgstr "Der Erstattungsbetrag muss zwischen 0 und dem gezahlten Betrag liegen (%(amount)s)."
 
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "Die Position des Sitzplatzes '{}' liegt außerhalb der Sektorform."

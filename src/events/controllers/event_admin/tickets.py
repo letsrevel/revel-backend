@@ -276,6 +276,7 @@ class EventAdminTicketsController(EventAdminBaseController):
             ticket,
             cancelled_by=self.user(),
             reason=payload.cancellation_reason if payload else None,
+            refund_amount=payload.refund_amount if payload else None,
         )
 
     @route.post(
