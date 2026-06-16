@@ -8,6 +8,7 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
 from events.models import Announcement, Event, EventRSVP, Organization, Ticket, TicketTier
+from events.schema.announcement import AnnouncementCreateSchema, AnnouncementScheduleSchema
 from events.service import announcement_service
 from notifications.enums import NotificationType
 from notifications.models import Notification
@@ -171,3 +172,43 @@ class TestResendToNewRecipients:
         )
         with pytest.raises(ValueError):
             announcement_service.resend_to_new_recipients(ann)
+
+
+class TestScheduleSchema:
+    def test_absolute_ok(self) -> None:
+        s = AnnouncementScheduleSchema(scheduled_at=timezone.now() + dt.timedelta(days=1))
+        assert s.schedule_anchor is None
+
+    def test_relative_ok(self) -> None:
+        s = AnnouncementScheduleSchema(
+            schedule_anchor=Announcement.ScheduleAnchor.EVENT_START, schedule_offset_minutes=-1440,
+        )
+        assert s.scheduled_at is None
+
+    def test_both_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            AnnouncementScheduleSchema(
+                scheduled_at=timezone.now() + dt.timedelta(days=1),
+                schedule_anchor=Announcement.ScheduleAnchor.EVENT_START, schedule_offset_minutes=-60,
+            )
+
+    def test_neither_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            AnnouncementScheduleSchema()
+
+    def test_partial_relative_rejected(self) -> None:
+        with pytest.raises(ValueError):
+            AnnouncementScheduleSchema(schedule_anchor=Announcement.ScheduleAnchor.EVENT_START)
+
+
+class TestCreateSchemaResend:
+    def test_resend_forces_past_visibility(self) -> None:
+        from uuid import uuid4
+        s = AnnouncementCreateSchema(
+            title="t", body="b", event_id=uuid4(), resend_to_new_signups=True, past_visibility=False,
+        )
+        assert s.past_visibility is True
+
+    def test_resend_requires_event(self) -> None:
+        with pytest.raises(ValueError):
+            AnnouncementCreateSchema(title="t", body="b", target_all_members=True, resend_to_new_signups=True)
