@@ -266,3 +266,40 @@ class TestEditScheduledAnnouncement(TestAnnouncementSchedulingFixtures):
 
         assert response.status_code == 204
         assert not Announcement.objects.filter(id=announcement.id).exists()
+
+    def test_clearing_event_on_relative_schedule_returns_422(
+        self,
+        owner_client: Client,
+        org: Organization,
+        org_owner: RevelUser,
+        event: Event,
+    ) -> None:
+        """Clearing the event on a relatively-scheduled announcement returns 422, not 400."""
+        from events.service import announcement_service
+
+        announcement = Announcement.objects.create(
+            organization=org,
+            event=event,
+            title="Scheduled",
+            body="Body",
+            created_by=org_owner,
+            status=Announcement.AnnouncementStatus.DRAFT,
+        )
+        announcement_service.schedule_announcement(
+            announcement,
+            schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+            schedule_offset_minutes=-1440,
+        )
+        url = reverse(
+            "api:update_announcement",
+            kwargs={"slug": org.slug, "announcement_id": announcement.id},
+        )
+        payload = {"event_id": None, "target_all_members": True}
+
+        response = owner_client.put(
+            url,
+            data=orjson.dumps(payload),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 422, response.content

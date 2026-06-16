@@ -180,6 +180,9 @@ def update_announcement(
     if announcement.resend_to_new_signups and announcement.event_id is None:
         raise ValueError("Re-sending to new sign-ups requires an event-targeted announcement")
 
+    if announcement.schedule_anchor is not None and announcement.event_id is None:
+        raise ValueError("Relative scheduling requires an event-targeted announcement")
+
     # Validate that at least one targeting option remains
     _validate_announcement_has_targeting(announcement)
 

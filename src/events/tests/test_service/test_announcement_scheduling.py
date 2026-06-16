@@ -8,7 +8,11 @@ from django.utils import timezone
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
 from events.models import Announcement, Event, EventRSVP, Organization, Ticket, TicketTier
-from events.schema.announcement import AnnouncementCreateSchema, AnnouncementScheduleSchema
+from events.schema.announcement import (
+    AnnouncementCreateSchema,
+    AnnouncementScheduleSchema,
+    AnnouncementUpdateSchema,
+)
 from events.service import announcement_service
 from notifications.enums import NotificationType
 from notifications.models import Notification
@@ -107,6 +111,23 @@ class TestUnscheduleAnnouncement:
     def test_unschedule_non_scheduled_rejected(self, draft: Announcement) -> None:
         with pytest.raises(ValueError):
             announcement_service.unschedule_announcement(draft)
+
+
+class TestUpdateScheduledGuards:
+    def test_clearing_event_on_relative_schedule_raises_valueerror(
+        self, org: Organization, org_owner: RevelUser, event: Event
+    ) -> None:
+        ann = Announcement.objects.create(
+            organization=org, event=event, title="d", body="b",
+            created_by=org_owner, status=Announcement.AnnouncementStatus.DRAFT,
+        )
+        announcement_service.schedule_announcement(
+            ann, schedule_anchor=Announcement.ScheduleAnchor.EVENT_START, schedule_offset_minutes=-1440,
+        )
+        with pytest.raises(ValueError):
+            announcement_service.update_announcement(
+                ann, AnnouncementUpdateSchema(event_id=None, target_all_members=True),
+            )
 
 
 class TestResendToNewRecipients:
