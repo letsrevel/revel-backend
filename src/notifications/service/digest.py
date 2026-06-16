@@ -10,20 +10,29 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from accounts.models import RevelUser
-from notifications.enums import DeliveryChannel, DeliveryStatus
+from notifications.enums import DeliveryChannel, DeliveryStatus, NotificationType
 from notifications.models import Notification, NotificationPreference
 
 logger = structlog.get_logger(__name__)
 
 
 class DigestNotification(t.TypedDict):
-    """Structure for a notification in a digest."""
+    """Structure for a single notification row in a digest."""
 
     title: str
     body: str
     notification_type: str
     created_at: datetime
     context: dict[str, t.Any]
+    url: str
+
+
+class DigestGroup(t.TypedDict):
+    """A group of digest notifications sharing the same type."""
+
+    label: str
+    notification_type: str
+    notifications: list[DigestNotification]
 
 
 class NotificationDigest:
@@ -45,9 +54,6 @@ class NotificationDigest:
         Returns:
             Tuple of (subject, text_body, html_body)
         """
-        # Group notifications by type
-        grouped = self._group_notifications_by_type()
-
         # Count totals
         total_count = self.notifications.count()
 
@@ -64,6 +70,9 @@ class NotificationDigest:
         site_settings = SiteSettings.get_solo()
         frontend_base_url = site_settings.frontend_base_url
 
+        # Group notifications by type (needs the base URL to build per-item CTAs)
+        groups = self._build_notification_groups(frontend_base_url)
+
         # Generate unsubscribe link
         unsubscribe_token = generate_unsubscribe_token(self.user)
         unsubscribe_link = f"{frontend_base_url}/unsubscribe?token={unsubscribe_token}"
@@ -71,7 +80,7 @@ class NotificationDigest:
         context = {
             "user": self.user,
             "total_count": total_count,
-            "grouped_notifications": grouped,
+            "notification_groups": groups,
             "digest_date": timezone.now(),
             "frontend_url": frontend_base_url,
             "unsubscribe_link": unsubscribe_link,
@@ -83,31 +92,43 @@ class NotificationDigest:
 
         return subject, text_body, html_body
 
-    def _group_notifications_by_type(self) -> dict[str, list[DigestNotification]]:
-        """Group notifications by type for easier rendering.
+    def _build_notification_groups(self, frontend_base_url: str) -> list[DigestGroup]:
+        """Group notifications by type, preserving chronological order within a group.
+
+        Each group carries a human-readable label (the notification type's display
+        name) and each row carries a CTA link derived from its context, so the
+        template can render rich, actionable digest content.
+
+        Args:
+            frontend_base_url: Base URL used to build per-item CTAs and fallbacks.
 
         Returns:
-            Dict of notification_type -> list of notifications
+            List of DigestGroup, ordered by first appearance of each type.
         """
-        grouped: dict[str, list[DigestNotification]] = {}
+        groups: dict[str, DigestGroup] = {}
 
-        for notif in self.notifications.select_related("user"):
+        for notif in self.notifications.select_related("user").order_by("created_at"):
             notif_type = notif.notification_type
 
-            if notif_type not in grouped:
-                grouped[notif_type] = []
+            if notif_type not in groups:
+                groups[notif_type] = {
+                    "label": _humanize_notification_type(notif_type),
+                    "notification_type": notif_type,
+                    "notifications": [],
+                }
 
-            grouped[notif_type].append(
+            groups[notif_type]["notifications"].append(
                 {
                     "title": notif.title,
                     "body": notif.body or "",
-                    "notification_type": notif.notification_type,
+                    "notification_type": notif_type,
                     "created_at": notif.created_at,
                     "context": notif.context,
+                    "url": _build_notification_url(notif.context, frontend_base_url),
                 }
             )
 
-        return grouped
+        return list(groups.values())
 
     def send_digest_email(self) -> bool:
         """Send digest email to user.
@@ -128,6 +149,43 @@ class NotificationDigest:
         )
 
         return True
+
+
+def _humanize_notification_type(notification_type: str) -> str:
+    """Return a human-readable label for a notification type.
+
+    Falls back to a title-cased version of the raw value for any type that is no
+    longer part of the enum (e.g. a deprecated type still present on old rows).
+
+    Args:
+        notification_type: Raw notification type value.
+
+    Returns:
+        Display label, e.g. "Event Reminder".
+    """
+    try:
+        return str(NotificationType(notification_type).label)
+    except ValueError:
+        return notification_type.replace("_", " ").title()
+
+
+def _build_notification_url(context: dict[str, t.Any], frontend_base_url: str) -> str:
+    """Derive a CTA link for a digest row from its notification context.
+
+    Prefers the most specific link available (event, then a generic action URL),
+    falling back to the user's notifications page.
+
+    Args:
+        context: The notification's stored context.
+        frontend_base_url: Base URL used for the fallback link.
+
+    Returns:
+        Absolute URL for the digest row's call to action.
+    """
+    url = context.get("event_url") or context.get("frontend_url") or context.get("action_url")
+    if isinstance(url, str) and url:
+        return url
+    return f"{frontend_base_url}/notifications"
 
 
 def get_pending_notifications_for_digest(user: RevelUser, since: datetime) -> QuerySet[Notification]:

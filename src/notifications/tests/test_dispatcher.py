@@ -130,20 +130,47 @@ class TestDetermineDeliveryChannels:
     ) -> None:
         """Test that only in-app channel is used when user wants digest.
 
-        When digest mode is enabled, notifications are created as in-app only.
-        Email delivery happens later via the digest task.
+        When digest mode is enabled, non-transactional notifications are created as
+        in-app only. Email delivery happens later via the digest task.
         """
         # Arrange - Set user to daily digest
         prefs = regular_user.notification_preferences
         prefs.digest_frequency = NotificationPreference.DigestFrequency.DAILY
         prefs.save()
 
-        # Act
-        channels = determine_delivery_channels(regular_user, NotificationType.TICKET_CREATED)
+        # Act - EVENT_REMINDER is not transactional, so it waits for the digest
+        channels = determine_delivery_channels(regular_user, NotificationType.EVENT_REMINDER)
 
         # Assert
         assert channels == [DeliveryChannel.IN_APP]
         assert DeliveryChannel.EMAIL not in channels
+
+    def test_transactional_types_bypass_digest(
+        self,
+        regular_user: RevelUser,
+    ) -> None:
+        """Transactional notifications send immediately even on a digest cadence (#506).
+
+        Ticket/payment events are time-/money-sensitive and must reach the user's
+        enabled channels right away rather than waiting for the periodic digest.
+        """
+        # Arrange - User is on a daily digest
+        prefs = regular_user.notification_preferences
+        prefs.digest_frequency = NotificationPreference.DigestFrequency.DAILY
+        prefs.save()
+
+        transactional = (
+            NotificationType.PAYMENT_CONFIRMATION,
+            NotificationType.TICKET_CREATED,
+            NotificationType.TICKET_CANCELLED,
+            NotificationType.TICKET_REFUNDED,
+        )
+
+        # Act / Assert - each transactional type still delivers email immediately
+        for notification_type in transactional:
+            channels = determine_delivery_channels(regular_user, notification_type)
+            assert DeliveryChannel.EMAIL in channels, notification_type
+            assert DeliveryChannel.IN_APP in channels, notification_type
 
     def test_respects_disabled_channels(
         self,

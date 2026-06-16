@@ -12,6 +12,20 @@ from notifications.models import Notification, NotificationPreference
 logger = structlog.get_logger(__name__)
 
 
+# Transactional notification types always send immediately on their enabled channels,
+# bypassing the digest cadence. These are time-/money-sensitive (a ticket sale, a
+# payment, a cancellation or a refund) and must not be held back for the periodic
+# digest sweep. See issue #506.
+TRANSACTIONAL_TYPES: frozenset[str] = frozenset(
+    {
+        NotificationType.PAYMENT_CONFIRMATION,
+        NotificationType.TICKET_CREATED,
+        NotificationType.TICKET_CANCELLED,
+        NotificationType.TICKET_REFUNDED,
+    }
+)
+
+
 class NotificationData(t.NamedTuple):
     """Data for creating a notification."""
 
@@ -132,9 +146,13 @@ def determine_delivery_channels(user: RevelUser, notification_type: str) -> list
     """
     prefs = user.notification_preferences
 
-    # Check if user wants digest
-    if prefs.digest_frequency != NotificationPreference.DigestFrequency.IMMEDIATE:
-        # Only create in-app notification, email will be sent in digest
+    # Transactional notifications (ticket/payment events) always deliver on their
+    # enabled channels immediately and never wait for the digest (issue #506).
+    is_transactional = notification_type in TRANSACTIONAL_TYPES
+
+    # Otherwise, if the user is on a digest cadence, only create the in-app
+    # notification now; the email is bundled into the periodic digest sweep.
+    if not is_transactional and prefs.digest_frequency != NotificationPreference.DigestFrequency.IMMEDIATE:
         return [DeliveryChannel.IN_APP]
 
     # Get enabled channels for this notification type

@@ -229,8 +229,11 @@ class TestNotificationDigest:
 
         # Assert
         assert "3 new notification" in subject
-        # Check that the notification type appears in the digest
-        assert "EVENT_REMINDER" in text_body or "event_reminder" in text_body
+        # The group heading uses the human-readable type label, not the raw enum value
+        assert "Event Reminder" in text_body
+        assert "Event Reminder" in html_body
+        # Each row carries a CTA link derived from the notification context
+        assert "https://example.com/events/test-0" in text_body
         assert len(text_body) > 0
         assert len(html_body) > 0
 
