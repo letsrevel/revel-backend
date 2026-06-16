@@ -4,9 +4,11 @@ This module tests the Announcement model including queryset methods,
 model properties, and string representation.
 """
 
+import datetime as dt
 import typing as t
 
 import pytest
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -478,3 +480,158 @@ class TestAnnouncementTargeting:
         assert announcement.event is None
         assert announcement.target_all_members is False
         assert announcement.target_staff_only is True
+
+
+@pytest.fixture
+def org_owner(revel_user_factory: RevelUserFactory) -> RevelUser:
+    """Organization owner user."""
+    return revel_user_factory(username="sched_org_owner")
+
+
+@pytest.fixture
+def org(org_owner: RevelUser) -> Organization:
+    """Test organization."""
+    return Organization.objects.create(
+        name="Scheduled Org",
+        slug="scheduled-org",
+        owner=org_owner,
+    )
+
+
+@pytest.fixture
+def event(org: Organization) -> Event:
+    """Test event with both start and end set."""
+    start = timezone.now() + dt.timedelta(days=7)
+    return Event.objects.create(
+        organization=org,
+        name="Scheduled Event",
+        slug="scheduled-event",
+        event_type=Event.EventType.PUBLIC,
+        visibility=Event.Visibility.PUBLIC,
+        status=Event.EventStatus.OPEN,
+        start=start,
+        end=start + dt.timedelta(hours=3),
+    )
+
+
+class TestEffectiveSendAt:
+    """Tests for the effective_send_at property."""
+
+    def test_absolute_returns_scheduled_at(self, org: Organization, org_owner: RevelUser) -> None:
+        """An absolute schedule resolves to scheduled_at."""
+        when = timezone.now() + dt.timedelta(days=1)
+        ann = Announcement(
+            organization=org,
+            title="t",
+            body="b",
+            target_all_members=True,
+            created_by=org_owner,
+            scheduled_at=when,
+        )
+        assert ann.effective_send_at == when
+
+    def test_relative_event_start_subtracts_offset(
+        self, org: Organization, org_owner: RevelUser, event: Event
+    ) -> None:
+        """A relative schedule anchored to event start applies the signed offset."""
+        ann = Announcement(
+            organization=org,
+            event=event,
+            title="t",
+            body="b",
+            created_by=org_owner,
+            schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+            schedule_offset_minutes=-1440,
+        )
+        assert ann.effective_send_at == event.start - dt.timedelta(minutes=1440)
+
+    def test_relative_event_end_adds_offset_is_thank_you(
+        self, org: Organization, org_owner: RevelUser, event: Event
+    ) -> None:
+        """A relative schedule anchored to event end applies the signed offset."""
+        ann = Announcement(
+            organization=org,
+            event=event,
+            title="t",
+            body="b",
+            created_by=org_owner,
+            schedule_anchor=Announcement.ScheduleAnchor.EVENT_END,
+            schedule_offset_minutes=1440,
+        )
+        assert ann.effective_send_at == event.end + dt.timedelta(minutes=1440)
+
+    def test_relative_without_event_is_none(self, org: Organization, org_owner: RevelUser) -> None:
+        """A relative schedule with no event cannot resolve a send time."""
+        ann = Announcement(
+            organization=org,
+            title="t",
+            body="b",
+            target_all_members=True,
+            created_by=org_owner,
+            schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+            schedule_offset_minutes=-60,
+        )
+        assert ann.effective_send_at is None
+
+
+class TestAnnouncementClean:
+    """Tests for Announcement.clean validation."""
+
+    def test_relative_requires_both_anchor_and_offset(
+        self, org: Organization, org_owner: RevelUser, event: Event
+    ) -> None:
+        """An anchor without an offset is invalid."""
+        ann = Announcement(
+            organization=org,
+            event=event,
+            title="t",
+            body="b",
+            created_by=org_owner,
+            schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+        )
+        with pytest.raises(ValidationError):
+            ann.full_clean()
+
+    def test_absolute_and_relative_are_mutually_exclusive(
+        self, org: Organization, org_owner: RevelUser, event: Event
+    ) -> None:
+        """Providing both an absolute time and a relative schedule is invalid."""
+        ann = Announcement(
+            organization=org,
+            event=event,
+            title="t",
+            body="b",
+            created_by=org_owner,
+            scheduled_at=timezone.now() + dt.timedelta(days=1),
+            schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+            schedule_offset_minutes=-60,
+        )
+        with pytest.raises(ValidationError):
+            ann.full_clean()
+
+    def test_relative_requires_event(self, org: Organization, org_owner: RevelUser) -> None:
+        """A relative schedule requires an event-targeted announcement."""
+        ann = Announcement(
+            organization=org,
+            title="t",
+            body="b",
+            target_all_members=True,
+            created_by=org_owner,
+            schedule_anchor=Announcement.ScheduleAnchor.EVENT_START,
+            schedule_offset_minutes=-60,
+        )
+        with pytest.raises(ValidationError):
+            ann.full_clean()
+
+    def test_resend_requires_event(self, org: Organization, org_owner: RevelUser) -> None:
+        """Re-sending to new sign-ups requires an event-targeted announcement."""
+        ann = Announcement(
+            organization=org,
+            title="t",
+            body="b",
+            target_all_members=True,
+            created_by=org_owner,
+            resend_to_new_signups=True,
+        )
+        with pytest.raises(ValidationError):
+            ann.full_clean()
