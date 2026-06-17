@@ -82,6 +82,21 @@ class EventAdminCoreController(EventAdminBaseController):
         except event_service.SlugAlreadyExistsError as exc:
             raise HttpError(400, str(event_service.SLUG_ALREADY_EXISTS_MESSAGE)) from exc
 
+    @route.put(
+        "/schedule",
+        url_name="update_event_schedule",
+        response={200: schema.EventDetailSchema},
+        permissions=[EventPermission("edit_event")],
+    )
+    def update_event_schedule(self, event_id: UUID, payload: schema.EventScheduleUpdateSchema) -> models.Event:
+        """Replace this event's schedule (timeline) with the provided sessions.
+
+        Full-array replace: the supplied ``sessions`` list becomes the new schedule,
+        in the given order. Times are relative offsets (minutes) from the event start.
+        """
+        event = self.get_one(event_id)
+        return event_service.update_event_schedule(event, payload.sessions)
+
     @route.post(
         "/duplicate",
         url_name="duplicate_event",
