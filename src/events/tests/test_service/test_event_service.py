@@ -26,6 +26,8 @@ from events.models import (
 from events.models.mixins import LocationMixin
 from events.schema import EventTokenUpdateSchema, InvitationBaseSchema
 from events.service import event_service
+from events.service.duplication import duplicate_event
+from events.utils.schedule import EventScheduleSession
 
 pytestmark = pytest.mark.django_db
 
@@ -101,6 +103,19 @@ def test_create_event_token_rejects_tier_from_other_event(
             issuer=organization_owner_user,
             ticket_tier_ids=[foreign_tier.id],
         )
+
+
+def test_update_event_schedule_replaces_blob(event: Event) -> None:
+    """update_event_schedule fully replaces the schedule blob and persists it."""
+    sessions = [
+        EventScheduleSession(title="Arrival", offset_minutes=0),
+        EventScheduleSession(title="Workshop", offset_minutes=60, duration_minutes=90, is_required=True),
+    ]
+    result = event_service.update_event_schedule(event, sessions)
+    result.refresh_from_db()
+    assert len(result.schedule) == 2
+    assert result.schedule[0]["title"] == "Arrival"
+    assert result.schedule[1]["is_required"] is True
 
 
 def test_update_event_token_updates_scalar_fields(event: Event, organization_owner_user: RevelUser) -> None:
@@ -821,3 +836,24 @@ class TestCreateInvitationRequest:
 
         assert exc_info.value.status_code == 400
         assert "deadline" in str(exc_info.value.message).lower()
+
+
+def test_duplicate_event_copies_schedule_verbatim(event: Event) -> None:
+    """Assert that duplicate_event copies the schedule field without modification.
+
+    Schedule sessions use relative offsets (offset_minutes, duration_minutes), so
+    no date-shifting is needed and the copied list must match the original exactly.
+    """
+    event.schedule = [
+        {"title": "Arrival", "offset_minutes": 0},
+        {"title": "Workshop", "offset_minutes": 60, "duration_minutes": 90, "is_required": True},
+    ]
+    event.save(update_fields=["schedule"])
+
+    new_event = duplicate_event(
+        template_event=event,
+        new_name="Copy",
+        new_start=timezone.now() + timedelta(days=30),
+    )
+    # Relative offsets => identical schedule, no date shift.
+    assert new_event.schedule == event.schedule

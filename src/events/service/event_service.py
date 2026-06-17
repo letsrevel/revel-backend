@@ -16,6 +16,7 @@ from events.service.event_update_service import (
     SLUG_ALREADY_EXISTS_MESSAGE,
     SlugAlreadyExistsError,
     update_event,
+    update_event_schedule,
     update_slug,
     update_status,
 )
@@ -55,6 +56,7 @@ __all__ = [
     "duplicate_event",
     # event_update_service
     "update_event",
+    "update_event_schedule",
     "update_status",
     "update_slug",
     "SlugAlreadyExistsError",
