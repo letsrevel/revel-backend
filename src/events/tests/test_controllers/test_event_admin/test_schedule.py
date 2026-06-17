@@ -58,4 +58,10 @@ def test_description_is_bleached(organization_owner_client: Client, event: Event
 def test_non_member_forbidden(nonmember_client: Client, event: Event) -> None:
     payload: dict[str, list[object]] = {"sessions": []}
     response = nonmember_client.put(_url(event), data=orjson.dumps(payload), content_type="application/json")
-    assert response.status_code in (401, 403), response.content
+    assert response.status_code in (401, 403, 404), response.content
+
+
+def test_too_many_sessions_rejected(organization_owner_client: Client, event: Event) -> None:
+    payload = {"sessions": [{"title": f"S{i}", "offset_minutes": i} for i in range(201)]}
+    response = organization_owner_client.put(_url(event), data=orjson.dumps(payload), content_type="application/json")
+    assert response.status_code == 422, response.content

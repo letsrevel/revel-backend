@@ -3,6 +3,7 @@
 import typing as t
 from uuid import UUID
 
+from annotated_types import Len
 from django.utils.translation import gettext as _
 from ninja import ModelSchema, Schema
 from pydantic import AwareDatetime, BaseModel, Field, StringConstraints
@@ -61,7 +62,7 @@ EventScheduleSessionSchema = EventScheduleSession
 class EventScheduleUpdateSchema(Schema):
     """Full-array replace payload for an event's schedule."""
 
-    sessions: list[EventScheduleSessionSchema] = []
+    sessions: t.Annotated[list[EventScheduleSessionSchema], Len(max_length=200)] = []
 
 
 class EventDuplicateSchema(Schema):
