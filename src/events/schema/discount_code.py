@@ -121,6 +121,12 @@ class DiscountCodeUpdateSchema(_DiscountCodeValidatorMixin, Schema):
     tier_ids: list[UUID] | None = None
 
 
+class DiscountCodeDeleteResponse(Schema):
+    """Tells the client whether a code was hard-deleted or merely deactivated."""
+
+    action: t.Literal["deleted", "deactivated"]
+
+
 # ---- Public schemas ----
 
 

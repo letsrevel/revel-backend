@@ -133,6 +133,30 @@ def update_discount_code(
     return DiscountCode.objects.prefetch_related("series", "events", "tiers").get(pk=dc.pk)
 
 
+def delete_discount_code(dc: DiscountCode) -> t.Literal["deleted", "deactivated"]:
+    """Delete a discount code, hard-deleting it only when it was never used.
+
+    A code is considered unused when its ``times_used`` counter is zero *and* no
+    ticket references it (``times_used`` never decrements, so both checks together
+    guard against a code whose tickets were later cancelled). Unused codes are
+    hard-deleted, which also frees the ``(organization, code)`` slot for reuse.
+    Used codes are deactivated (``is_active = False``) to preserve the redemption
+    history on their tickets.
+
+    Args:
+        dc: The discount code to delete.
+
+    Returns:
+        ``"deleted"`` if the row was hard-deleted, ``"deactivated"`` otherwise.
+    """
+    if dc.times_used == 0 and not dc.tickets.exists():
+        dc.delete()
+        return "deleted"
+    dc.is_active = False
+    dc.save(update_fields=["is_active"])
+    return "deactivated"
+
+
 def _check_scope_applicability(dc: DiscountCode, tier: TicketTier) -> None:
     """Check if the discount code applies to the given tier (union logic).
 

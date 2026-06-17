@@ -254,6 +254,7 @@ from .follow import (
 # Discount code schemas
 from .discount_code import (
     DiscountCodeCreateSchema,
+    DiscountCodeDeleteResponse,
     DiscountCodeSchema,
     DiscountCodeUpdateSchema,
     DiscountCodeValidationResponse,
@@ -531,6 +532,7 @@ __all__ = [
     "OrganizationFollowUpdateSchema",
     # Discount codes
     "DiscountCodeCreateSchema",
+    "DiscountCodeDeleteResponse",
     "DiscountCodeSchema",
     "DiscountCodeUpdateSchema",
     "DiscountCodeValidationResponse",
