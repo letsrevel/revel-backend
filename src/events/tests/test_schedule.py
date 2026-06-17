@@ -100,5 +100,6 @@ class TestEventScheduleField:
 
     def test_clean_rejects_malformed_schedule(self, event: Event) -> None:
         event.schedule = [{"offset_minutes": 0}]  # missing title
-        with pytest.raises(DjangoValidationError):
+        with pytest.raises(DjangoValidationError) as exc_info:
             event.full_clean()
+        assert "schedule" in exc_info.value.message_dict
