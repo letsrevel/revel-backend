@@ -26,6 +26,7 @@ from events.models import (
 from events.models.mixins import LocationMixin
 from events.schema import EventTokenUpdateSchema, InvitationBaseSchema
 from events.service import event_service
+from events.utils.schedule import EventScheduleSession
 
 pytestmark = pytest.mark.django_db
 
@@ -105,8 +106,6 @@ def test_create_event_token_rejects_tier_from_other_event(
 
 def test_update_event_schedule_replaces_blob(event: Event) -> None:
     """update_event_schedule fully replaces the schedule blob and persists it."""
-    from events.utils.schedule import EventScheduleSession
-
     sessions = [
         EventScheduleSession(title="Arrival", offset_minutes=0),
         EventScheduleSession(title="Workshop", offset_minutes=60, duration_minutes=90, is_required=True),

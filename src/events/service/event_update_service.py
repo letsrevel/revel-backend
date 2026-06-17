@@ -10,6 +10,8 @@ Owns the side-effecting workflows for editing an event:
   re-process waitlist on un-cancel).
 - ``update_slug``: enforces per-organization slug uniqueness and persists
   the new slug.
+- ``update_event_schedule``: replaces the event's display-only schedule
+  (full-array replace of the relative-offset session list).
 
 The controller layer (``events/controllers/event_admin/core.py``) must not
 read/diff/dispatch around these flows directly; it should call into this
@@ -194,6 +196,7 @@ def update_slug(event: models.Event, slug: str) -> models.Event:
     return event
 
 
+@transaction.atomic
 def update_event_schedule(event: models.Event, sessions: list[EventScheduleSession]) -> models.Event:
     """Replace an event's schedule with the provided sessions (full-array replace).
 
