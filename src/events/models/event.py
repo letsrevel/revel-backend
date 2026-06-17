@@ -8,10 +8,12 @@ from django.contrib.gis.db import models
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import BooleanField, Exists, OuterRef, Prefetch, Q, Value
 from django.utils import timezone
+from pydantic import ValidationError as PydanticValidationError
 
 from accounts.models import RevelUser
 from common.fields import MarkdownField
 from common.models import TagAssignment, TaggableMixin, TimeStampedModel
+from events.utils.schedule import validate_schedule
 
 from .event_series import EventSeries
 from .mixins import (
@@ -263,6 +265,11 @@ class Event(
         EventSeries, on_delete=models.CASCADE, null=True, blank=True, related_name="events"
     )
     max_attendees = models.PositiveIntegerField(default=0)
+    schedule = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Ordered list of timeline sessions (relative offsets from event start). Display-only.",
+    )
     waitlist_open = models.BooleanField(default=False)
     waitlist_time_window = models.DurationField(
         null=True,
@@ -583,6 +590,12 @@ class Event(
         venue = self.venue
         if venue and venue.organization_id != self.organization_id:
             raise DjangoValidationError({"venue": "Venue must belong to the same organization as the event."})
+
+        # Validate the display-only schedule blob (also guards the admin raw-JSON widget).
+        try:
+            validate_schedule(self.schedule)
+        except PydanticValidationError as exc:
+            raise DjangoValidationError({"schedule": str(exc)}) from exc
 
         self._clean_waitlist_config()
 

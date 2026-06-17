@@ -1,8 +1,10 @@
 """Unit tests for the event schedule Pydantic validation."""
 
 import pytest
+from django.core.exceptions import ValidationError as DjangoValidationError
 from pydantic import ValidationError
 
+from events.models import Event
 from events.utils.schedule import EventScheduleSession, validate_schedule
 
 
@@ -84,3 +86,19 @@ class TestValidateSchedule:
     def test_rejects_malformed_session(self) -> None:
         with pytest.raises(ValidationError):
             validate_schedule([{"offset_minutes": 0}])  # missing title
+
+
+@pytest.mark.django_db
+class TestEventScheduleField:
+    def test_default_is_empty_list(self, event: Event) -> None:
+        event.refresh_from_db()
+        assert event.schedule == []
+
+    def test_clean_accepts_valid_schedule(self, event: Event) -> None:
+        event.schedule = [{"title": "Arrival", "offset_minutes": 0}]
+        event.full_clean()  # must not raise
+
+    def test_clean_rejects_malformed_schedule(self, event: Event) -> None:
+        event.schedule = [{"offset_minutes": 0}]  # missing title
+        with pytest.raises(DjangoValidationError):
+            event.full_clean()
