@@ -36,23 +36,23 @@ class EventScheduleSession(BaseModel):
         bleach the only frontend-markdown-rendered field here instead. ``title`` and
         ``location`` are plain text (frontend auto-escapes) and are left untouched.
         """
-        return sanitize_markdown(v) if v else v
+        return sanitize_markdown(v) if v is not None else None
 
 
 ScheduleSessions = t.Annotated[list[EventScheduleSession], Len(max_length=200)]
 _SCHEDULE_ADAPTER: TypeAdapter[list[EventScheduleSession]] = TypeAdapter(ScheduleSessions)
 
 
-def validate_schedule(data: t.Any) -> list[EventScheduleSession]:
+def validate_schedule(data: list[t.Any] | None) -> list[EventScheduleSession]:
     """Parse & validate a stored/inbound schedule.
 
     Args:
         data: Raw list (e.g. from JSONField) or None.
 
     Returns:
-        List of validated ``EventScheduleSession`` (empty when ``data`` is falsy).
+        List of validated ``EventScheduleSession`` (empty when ``data`` is None).
 
     Raises:
         pydantic.ValidationError: if ``data`` is malformed or exceeds 200 sessions.
     """
-    return _SCHEDULE_ADAPTER.validate_python(data or [])
+    return _SCHEDULE_ADAPTER.validate_python(data if data is not None else [])

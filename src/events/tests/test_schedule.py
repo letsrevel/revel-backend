@@ -54,6 +54,15 @@ class TestEventScheduleSession:
         session = EventScheduleSession(title="A < B", offset_minutes=0)
         assert session.title == "A < B"
 
+    def test_description_strips_dangerous_attributes(self) -> None:
+        session = EventScheduleSession(
+            title="X",
+            offset_minutes=0,
+            description='<p onclick="alert(1)">hello</p>',
+        )
+        assert "onclick" not in (session.description or "")
+        assert "hello" in (session.description or "")
+
 
 class TestValidateSchedule:
     def test_none_returns_empty_list(self) -> None:
