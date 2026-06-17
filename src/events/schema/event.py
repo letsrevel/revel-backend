@@ -10,6 +10,7 @@ from pydantic import AwareDatetime, BaseModel, Field, StringConstraints
 from accounts.models import RevelUser
 from common.schema import OneToOneFiftyString, OneToSixtyFourString, ProfilePictureSchemaMixin, StrippedString
 from events.models import Event, ResourceVisibility
+from events.utils.schedule import EventScheduleSession
 from geo.schema import CitySchema
 
 from .event_series import MinimalEventSeriesSchema
@@ -50,6 +51,17 @@ class EventCreateSchema(EventEditSchema):
     name: OneToOneFiftyString
     start: AwareDatetime
     requires_ticket: bool = False
+
+
+# Re-export the pydantic session model as the API schema (single source of truth),
+# mirroring RefundPolicySchema = RefundPolicy in schema/ticket.py.
+EventScheduleSessionSchema = EventScheduleSession
+
+
+class EventScheduleUpdateSchema(Schema):
+    """Full-array replace payload for an event's schedule."""
+
+    sessions: list[EventScheduleSessionSchema] = []
 
 
 class EventDuplicateSchema(Schema):
@@ -192,6 +204,7 @@ class EventDetailSchema(EventBaseSchema):
     location_maps_embed: str | None = None
     check_in_starts_at: AwareDatetime | None = None
     check_in_ends_at: AwareDatetime | None = None
+    schedule: list[EventScheduleSessionSchema] = []
 
     @staticmethod
     def resolve_address(obj: Event, context: t.Any) -> str | None:
