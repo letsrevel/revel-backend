@@ -96,6 +96,18 @@ class TestCreateAnnouncement:
         assert announcement.created_by == org_owner
         assert announcement.past_visibility is True
 
+    def test_create_persists_resend_to_new_signups(self, org: Organization, org_owner: RevelUser, event: Event) -> None:
+        """resend_to_new_signups from the payload is persisted (regression)."""
+        payload = AnnouncementCreateSchema(
+            title="t",
+            body="b",
+            event_id=event.id,
+            resend_to_new_signups=True,
+        )
+        ann = announcement_service.create_announcement(org, org_owner, payload)
+        assert ann.resend_to_new_signups is True
+        assert ann.past_visibility is True  # schema forces it on
+
     def test_create_announcement_with_all_members_targeting(
         self,
         org: Organization,
@@ -409,7 +421,7 @@ class TestUpdateAnnouncement:
         with pytest.raises(ValueError) as exc_info:
             announcement_service.update_announcement(sent_announcement, payload)
 
-        assert "Only draft announcements can be updated" in str(exc_info.value)
+        assert "Only draft or scheduled announcements can be updated" in str(exc_info.value)
 
     def test_update_announcement_with_invalid_event_raises_error(
         self,
@@ -621,7 +633,34 @@ class TestSendAnnouncement:
         with pytest.raises(ValueError) as exc_info:
             announcement_service.send_announcement(sent_announcement)
 
-        assert "Only draft announcements can be sent" in str(exc_info.value)
+        assert "Only draft or scheduled announcements can be sent" in str(exc_info.value)
+
+    def test_send_scheduled_announcement_succeeds(
+        self,
+        org: Organization,
+        org_owner: RevelUser,
+        revel_user_factory: RevelUserFactory,
+    ) -> None:
+        """A SCHEDULED announcement can be sent (not only DRAFT)."""
+        member = revel_user_factory(username="sched_member")
+        OrganizationMember.objects.create(
+            organization=org,
+            user=member,
+            status=OrganizationMember.MembershipStatus.ACTIVE,
+        )
+        ann = Announcement.objects.create(
+            organization=org,
+            title="S",
+            body="B",
+            target_all_members=True,
+            created_by=org_owner,
+            status=Announcement.AnnouncementStatus.SCHEDULED,
+            scheduled_at=timezone.now(),
+        )
+        count = announcement_service.send_announcement(ann)
+        ann.refresh_from_db()
+        assert count == 1
+        assert ann.status == Announcement.AnnouncementStatus.SENT
 
     def test_send_announcement_includes_event_context(
         self,

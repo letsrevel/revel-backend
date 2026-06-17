@@ -949,8 +949,17 @@ msgstr "Esiste già un codice sconto con questo codice."
 msgid "Draft"
 msgstr "Bozza"
 
+msgid "Scheduled"
+msgstr "Programmato"
+
 msgid "Sent"
 msgstr "Inviato"
+
+msgid "Event start"
+msgstr "Inizio dell'evento"
+
+msgid "Event end"
+msgstr "Fine dell'evento"
 
 msgid "Target all active organization members"
 msgstr "Invia a tutti i membri attivi dell'organizzazione"
@@ -964,6 +973,43 @@ msgstr "Invia solo ai membri dello staff dell'organizzazione"
 msgid "Allow new attendees/members to see this announcement after it was sent"
 msgstr ""
 "Consenti ai nuovi partecipanti/membri di vedere questo annuncio dopo l'invio"
+
+msgid ""
+"Absolute time to send a scheduled announcement (mutually exclusive with "
+"relative scheduling)."
+msgstr ""
+"Orario assoluto per inviare un annuncio programmato (mutuamente esclusivo "
+"con la programmazione relativa)."
+
+msgid "Anchor a relative schedule to the event start or end."
+msgstr "Ancora una programmazione relativa all'inizio o alla fine dell'evento."
+
+msgid "Signed minutes from the anchor (-1440 = 24h before, +1440 = 24h after)."
+msgstr ""
+"Minuti con segno rispetto all'ancora (-1440 = 24h prima, +1440 = 24h dopo)."
+
+msgid ""
+"Re-deliver to attendees who join after this announcement was first sent "
+"(event announcements only)."
+msgstr ""
+"Reinvia ai partecipanti che si aggiungono dopo il primo invio di questo "
+"annuncio (solo per annunci di evento)."
+
+msgid "Relative scheduling requires both an anchor and an offset."
+msgstr ""
+"La programmazione relativa richiede sia un'ancora sia uno scostamento."
+
+msgid "Provide either an absolute time or a relative schedule, not both."
+msgstr ""
+"Fornisci un orario assoluto oppure una programmazione relativa, non "
+"entrambi."
+
+msgid "Relative scheduling requires an event-targeted announcement."
+msgstr "La programmazione relativa richiede un annuncio rivolto a un evento."
+
+msgid "Re-sending to new sign-ups requires an event-targeted announcement."
+msgstr ""
+"Il reinvio alle nuove iscrizioni richiede un annuncio rivolto a un evento."
 
 msgid "Days a PAST_DUE subscription stays valid before expiring."
 msgstr "Giorni in cui un abbonamento PAST_DUE resta valido prima di scadere."

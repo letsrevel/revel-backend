@@ -1,5 +1,6 @@
 """Announcement-related schemas."""
 
+import datetime as dt
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
@@ -22,6 +23,7 @@ class AnnouncementCreateSchema(Schema):
     target_staff_only: bool = False
 
     past_visibility: bool = True
+    resend_to_new_signups: bool = False
 
     @model_validator(mode="after")
     def validate_targeting(self) -> "AnnouncementCreateSchema":
@@ -45,6 +47,11 @@ class AnnouncementCreateSchema(Schema):
                 "event_id, target_all_members, target_tier_ids, or target_staff_only"
             )
 
+        if self.resend_to_new_signups:
+            if self.event_id is None:
+                raise ValueError("resend_to_new_signups requires an event-targeted announcement")
+            self.past_visibility = True
+
         return self
 
 
@@ -61,6 +68,7 @@ class AnnouncementUpdateSchema(Schema):
     target_staff_only: bool | None = None
 
     past_visibility: bool | None = None
+    resend_to_new_signups: bool | None = None
 
     @model_validator(mode="after")
     def validate_targeting(self) -> "AnnouncementUpdateSchema":
@@ -69,6 +77,9 @@ class AnnouncementUpdateSchema(Schema):
         When updating targeting, the user must provide exactly one enabled option
         to prevent leaving the announcement in an invalid state with no targeting.
         """
+        if self.resend_to_new_signups:
+            self.past_visibility = True
+
         # Check if any targeting field is being updated (explicitly set, not None)
         targeting_updates = [
             self.event_id,
@@ -105,6 +116,27 @@ class AnnouncementUpdateSchema(Schema):
         return self
 
 
+class AnnouncementScheduleSchema(Schema):
+    """Schema for scheduling a draft announcement (absolute or relative)."""
+
+    scheduled_at: AwareDatetime | None = None
+    schedule_anchor: Announcement.ScheduleAnchor | None = None
+    schedule_offset_minutes: int | None = None
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "AnnouncementScheduleSchema":
+        """Require exactly one of: absolute time, or anchor + offset."""
+        is_relative = self.schedule_anchor is not None or self.schedule_offset_minutes is not None
+        if is_relative:
+            if self.scheduled_at is not None:
+                raise ValueError("Provide either an absolute time or a relative schedule, not both")
+            if self.schedule_anchor is None or self.schedule_offset_minutes is None:
+                raise ValueError("Relative scheduling requires both an anchor and an offset")
+        elif self.scheduled_at is None:
+            raise ValueError("Provide either scheduled_at or schedule_anchor + schedule_offset_minutes")
+        return self
+
+
 class MembershipTierMinimalSchema(Schema):
     """Minimal schema for membership tiers in announcement responses."""
 
@@ -117,6 +149,8 @@ class AnnouncementSchema(ModelSchema):
 
     # Fields requiring special handling (enum, resolvers, nested schema)
     status: Announcement.AnnouncementStatus
+    schedule_anchor: Announcement.ScheduleAnchor | None = None
+    effective_send_at: AwareDatetime | None = None
     event_id: UUID | None = None
     event_name: str | None = None
     target_tiers: list[MembershipTierMinimalSchema] = Field(default_factory=list)
@@ -134,6 +168,10 @@ class AnnouncementSchema(ModelSchema):
             "past_visibility",
             "sent_at",
             "recipient_count",
+            "scheduled_at",
+            "schedule_anchor",
+            "schedule_offset_minutes",
+            "resend_to_new_signups",
             "created_at",
             "updated_at",
         ]
@@ -142,6 +180,11 @@ class AnnouncementSchema(ModelSchema):
     def resolve_event_id(obj: Announcement) -> UUID | None:
         """Resolve event ID."""
         return obj.event_id
+
+    @staticmethod
+    def resolve_effective_send_at(obj: Announcement) -> "dt.datetime | None":
+        """Resolve the live effective send time (absolute or relative)."""
+        return obj.effective_send_at
 
     @staticmethod
     def resolve_event_name(obj: Announcement) -> str | None:
@@ -181,6 +224,8 @@ class AnnouncementListSchema(ModelSchema):
             "target_staff_only",
             "sent_at",
             "recipient_count",
+            "scheduled_at",
+            "resend_to_new_signups",
             "created_at",
         ]
 

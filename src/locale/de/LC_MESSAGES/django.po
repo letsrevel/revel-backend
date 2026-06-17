@@ -961,8 +961,17 @@ msgstr "Ein Rabattcode mit diesem Code existiert bereits."
 msgid "Draft"
 msgstr "Entwurf"
 
+msgid "Scheduled"
+msgstr "Geplant"
+
 msgid "Sent"
 msgstr "Gesendet"
+
+msgid "Event start"
+msgstr "Eventbeginn"
+
+msgid "Event end"
+msgstr "Eventende"
 
 msgid "Target all active organization members"
 msgstr "Alle aktiven Organisationsmitglieder als Zielgruppe"
@@ -977,6 +986,44 @@ msgid "Allow new attendees/members to see this announcement after it was sent"
 msgstr ""
 "Neuen Teilnehmer:innen oder Mitgliedern erlauben, diese Ankündigung nach dem "
 "Versand zu sehen"
+
+msgid ""
+"Absolute time to send a scheduled announcement (mutually exclusive with "
+"relative scheduling)."
+msgstr ""
+"Absoluter Zeitpunkt für den Versand einer geplanten Ankündigung (schließt "
+"die relative Planung aus)."
+
+msgid "Anchor a relative schedule to the event start or end."
+msgstr "Eine relative Planung am Eventbeginn oder -ende ausrichten."
+
+msgid "Signed minutes from the anchor (-1440 = 24h before, +1440 = 24h after)."
+msgstr ""
+"Vorzeichenbehaftete Minuten ab dem Anker (-1440 = 24 Std. davor, +1440 = 24 "
+"Std. danach)."
+
+msgid ""
+"Re-deliver to attendees who join after this announcement was first sent "
+"(event announcements only)."
+msgstr ""
+"Erneut an Teilnehmer:innen senden, die nach dem ersten Versand dieser "
+"Ankündigung hinzukommen (nur für Event-Ankündigungen)."
+
+msgid "Relative scheduling requires both an anchor and an offset."
+msgstr "Die relative Planung erfordert sowohl einen Anker als auch einen Versatz."
+
+msgid "Provide either an absolute time or a relative schedule, not both."
+msgstr ""
+"Geben Sie entweder einen absoluten Zeitpunkt oder eine relative Planung an, "
+"nicht beides."
+
+msgid "Relative scheduling requires an event-targeted announcement."
+msgstr "Die relative Planung erfordert eine auf ein Event gerichtete Ankündigung."
+
+msgid "Re-sending to new sign-ups requires an event-targeted announcement."
+msgstr ""
+"Das erneute Senden an neue Anmeldungen erfordert eine auf ein Event "
+"gerichtete Ankündigung."
 
 msgid "Days a PAST_DUE subscription stays valid before expiring."
 msgstr ""

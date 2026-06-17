@@ -3,12 +3,13 @@
 This module handles announcement CRUD operations and notification delivery.
 """
 
+import datetime as dt
 import typing as t
 from uuid import UUID
 
 import structlog
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import F, QuerySet
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -96,6 +97,7 @@ def create_announcement(
         target_all_members=payload.target_all_members,
         target_staff_only=payload.target_staff_only,
         past_visibility=payload.past_visibility,
+        resend_to_new_signups=payload.resend_to_new_signups,
         created_by=user,
         status=Announcement.AnnouncementStatus.DRAFT,
     )
@@ -118,45 +120,59 @@ def create_announcement(
     return announcement
 
 
+def _apply_event_id_update(announcement: Announcement, event_id: UUID | None) -> None:
+    """Resolve and apply an ``event_id`` update on an announcement.
+
+    Recurring-series template events are excluded: they are internal blueprints
+    and must not be targetable.
+
+    Args:
+        announcement: Announcement being updated.
+        event_id: New event id, or ``None`` to clear the event target.
+
+    Raises:
+        ValueError: If the event does not exist or belongs to another organization.
+    """
+    if event_id is None:
+        announcement.event = None
+        return
+    event = (
+        Event.objects.exclude_templates()
+        .filter(
+            id=event_id,
+            organization=announcement.organization,
+        )
+        .first()
+    )
+    if not event:
+        raise ValueError(_ERR_EVENT_NOT_FOUND)
+    announcement.event = event
+
+
 def update_announcement(
     announcement: Announcement,
     payload: AnnouncementUpdateSchema,
 ) -> Announcement:
-    """Update a draft announcement.
+    """Update a draft or scheduled announcement.
 
     Args:
-        announcement: Announcement to update (must be in DRAFT status).
+        announcement: Announcement to update (must be in DRAFT or SCHEDULED status).
         payload: Validated update data.
 
     Returns:
         Updated announcement instance.
 
     Raises:
-        ValueError: If announcement is not a draft.
+        ValueError: If announcement is neither a draft nor scheduled.
     """
-    if announcement.status != Announcement.AnnouncementStatus.DRAFT:
-        raise ValueError("Only draft announcements can be updated")
+    editable = (Announcement.AnnouncementStatus.DRAFT, Announcement.AnnouncementStatus.SCHEDULED)
+    if announcement.status not in editable:
+        raise ValueError("Only draft or scheduled announcements can be updated")
 
     update_data = payload.model_dump(exclude_unset=True)
 
-    # Handle event_id specially. Recurring-series template events are
-    # excluded: they are internal blueprints and must not be targetable.
     if "event_id" in update_data:
-        event_id = update_data.pop("event_id")
-        if event_id is None:
-            announcement.event = None
-        else:
-            event = (
-                Event.objects.exclude_templates()
-                .filter(
-                    id=event_id,
-                    organization=announcement.organization,
-                )
-                .first()
-            )
-            if not event:
-                raise ValueError(_ERR_EVENT_NOT_FOUND)
-            announcement.event = event
+        _apply_event_id_update(announcement, update_data.pop("event_id"))
 
     # Handle target_tier_ids specially
     if "target_tier_ids" in update_data:
@@ -175,6 +191,12 @@ def update_announcement(
         if value is not None:
             setattr(announcement, field, value)
 
+    if announcement.resend_to_new_signups and announcement.event_id is None:
+        raise ValueError("Re-sending to new sign-ups requires an event-targeted announcement")
+
+    if announcement.schedule_anchor is not None and announcement.event_id is None:
+        raise ValueError("Relative scheduling requires an event-targeted announcement")
+
     # Validate that at least one targeting option remains
     _validate_announcement_has_targeting(announcement)
 
@@ -185,6 +207,78 @@ def update_announcement(
         announcement_id=str(announcement.id),
     )
 
+    return announcement
+
+
+def schedule_announcement(
+    announcement: Announcement,
+    *,
+    scheduled_at: dt.datetime | None = None,
+    schedule_anchor: Announcement.ScheduleAnchor | None = None,
+    schedule_offset_minutes: int | None = None,
+) -> Announcement:
+    """Move a DRAFT announcement to SCHEDULED.
+
+    Provide either an absolute ``scheduled_at`` or a relative
+    (``schedule_anchor`` + ``schedule_offset_minutes``) schedule. The resolved
+    send time must be in the future.
+
+    Args:
+        announcement: Draft announcement to schedule.
+        scheduled_at: Absolute send time (mutually exclusive with relative scheduling).
+        schedule_anchor: Anchor for a relative schedule (event start or end).
+        schedule_offset_minutes: Signed minutes from the anchor.
+
+    Returns:
+        The scheduled announcement.
+
+    Raises:
+        ValueError: If not a draft, the schedule is unresolvable, or it is in the past.
+    """
+    if announcement.status != Announcement.AnnouncementStatus.DRAFT:
+        raise ValueError("Only draft announcements can be scheduled")
+
+    announcement.scheduled_at = scheduled_at
+    announcement.schedule_anchor = schedule_anchor
+    announcement.schedule_offset_minutes = schedule_offset_minutes
+
+    is_relative = announcement.schedule_anchor is not None or announcement.schedule_offset_minutes is not None
+    if is_relative and (announcement.schedule_anchor is None or announcement.schedule_offset_minutes is None):
+        raise ValueError("Relative scheduling requires both an anchor and an offset")
+
+    resolved = announcement.effective_send_at
+    if resolved is None:
+        raise ValueError("Could not resolve a scheduled time (relative scheduling requires an event)")
+    if resolved <= timezone.now():
+        raise ValueError("Scheduled time must be in the future")
+
+    announcement.status = Announcement.AnnouncementStatus.SCHEDULED
+    announcement.save()
+    logger.info("announcement_scheduled", announcement_id=str(announcement.id), send_at=resolved.isoformat())
+    return announcement
+
+
+def unschedule_announcement(announcement: Announcement) -> Announcement:
+    """Revert a SCHEDULED announcement to DRAFT and clear its schedule.
+
+    Args:
+        announcement: Scheduled announcement to revert.
+
+    Returns:
+        The reverted draft announcement.
+
+    Raises:
+        ValueError: If the announcement is not scheduled.
+    """
+    if announcement.status != Announcement.AnnouncementStatus.SCHEDULED:
+        raise ValueError("Only scheduled announcements can be unscheduled")
+
+    announcement.status = Announcement.AnnouncementStatus.DRAFT
+    announcement.scheduled_at = None
+    announcement.schedule_anchor = None
+    announcement.schedule_offset_minutes = None
+    announcement.save()
+    logger.info("announcement_unscheduled", announcement_id=str(announcement.id))
     return announcement
 
 
@@ -325,53 +419,111 @@ def get_recipient_count(announcement: Announcement) -> int:
 
 @transaction.atomic
 def send_announcement(announcement: Announcement) -> int:
-    """Send an announcement to all recipients.
+    """Send a draft or scheduled announcement to all recipients.
 
-    Creates notifications for all recipients and dispatches them.
-    Updates the announcement status to SENT.
-
-    Uses database-level locking to prevent race conditions where multiple
-    concurrent requests could send the same announcement twice.
+    Locks the row, snapshots recipients, marks the announcement SENT, and
+    dispatches notifications. Accepts DRAFT (manual send) or SCHEDULED (beat sweep).
 
     Args:
-        announcement: Announcement to send (must be in DRAFT status).
+        announcement: Announcement to send (must be DRAFT or SCHEDULED).
 
     Returns:
-        Number of notifications sent.
+        Number of notifications created.
 
     Raises:
-        ValueError: If announcement is not a draft.
+        ValueError: If the announcement is not DRAFT or SCHEDULED.
     """
-    from notifications.tasks import dispatch_notifications_batch
-
-    # Lock the announcement row to prevent concurrent sends
-    # Only select_related non-nullable FKs - PostgreSQL doesn't allow FOR UPDATE on outer joins
     announcement = Announcement.objects.select_related("organization").select_for_update().get(pk=announcement.pk)
 
-    if announcement.status != Announcement.AnnouncementStatus.DRAFT:
-        raise ValueError("Only draft announcements can be sent")
+    sendable = (Announcement.AnnouncementStatus.DRAFT, Announcement.AnnouncementStatus.SCHEDULED)
+    if announcement.status not in sendable:
+        raise ValueError("Only draft or scheduled announcements can be sent")
 
-    # Get all recipients with notification preferences prefetched
     recipients = list(get_recipients(announcement).select_related("notification_preferences"))
     recipient_count = len(recipients)
 
-    # Update announcement status even if no recipients
     announcement.status = Announcement.AnnouncementStatus.SENT
     announcement.sent_at = timezone.now()
     announcement.recipient_count = recipient_count
     announcement.save(update_fields=["status", "sent_at", "recipient_count"])
 
     if recipient_count == 0:
-        logger.info(
-            "announcement_sent_no_recipients",
-            announcement_id=str(announcement.id),
-        )
+        logger.info("announcement_sent_no_recipients", announcement_id=str(announcement.id))
         return 0
 
-    # Build notification context
-    context = _build_notification_context(announcement)
+    _deliver_to_recipients(announcement, recipients)
+    logger.info("announcement_sent", announcement_id=str(announcement.id), recipient_count=recipient_count)
+    return recipient_count
 
-    # Create notifications for all recipients
+
+@transaction.atomic
+def resend_to_new_recipients(announcement: Announcement) -> int:
+    """Re-deliver a sent announcement to attendees who joined after it was sent.
+
+    Computes the delta = current recipients MINUS users who already hold an
+    ``ORG_ANNOUNCEMENT`` notification for this announcement (the dedup ledger),
+    then delivers to and counts only the new users. The caller (beat sweep) is
+    responsible for excluding announcements whose event has ended.
+
+    Args:
+        announcement: A SENT announcement configured for resending.
+
+    Returns:
+        Number of new recipients notified.
+
+    Raises:
+        ValueError: If the announcement is not SENT or not configured for resending.
+    """
+    from notifications.models import Notification
+
+    announcement = Announcement.objects.select_related("organization").select_for_update().get(pk=announcement.pk)
+    if announcement.status != Announcement.AnnouncementStatus.SENT:
+        raise ValueError("Only sent announcements can be resent")
+    if not announcement.resend_to_new_signups:
+        raise ValueError("Announcement is not configured for resending")
+
+    now = timezone.now()
+    if announcement.event is not None and announcement.event.end <= now:
+        return 0
+
+    current_ids = set(get_recipients(announcement).values_list("id", flat=True))
+    notified_ids = set(
+        Notification.objects.filter(
+            notification_type=NotificationType.ORG_ANNOUNCEMENT,
+            context__announcement_id=str(announcement.id),
+        ).values_list("user_id", flat=True)
+    )
+    new_ids = current_ids - notified_ids
+    if not new_ids:
+        return 0
+
+    recipients = list(RevelUser.objects.filter(id__in=new_ids).select_related("notification_preferences"))
+    sent = _deliver_to_recipients(announcement, recipients)
+    if sent:
+        Announcement.objects.filter(pk=announcement.pk).update(recipient_count=F("recipient_count") + sent)
+        announcement.refresh_from_db(fields=["recipient_count"])
+    logger.info("announcement_resent_to_new_signups", announcement_id=str(announcement.id), new_recipients=sent)
+    return sent
+
+
+def _deliver_to_recipients(announcement: Announcement, recipients: list[RevelUser]) -> int:
+    """Create notifications for the given recipients and dispatch them.
+
+    Shared by the initial send, the scheduled send, and the resend-to-new-signups flow.
+
+    Args:
+        announcement: Announcement providing the notification context.
+        recipients: Users to notify (already de-duplicated).
+
+    Returns:
+        Number of notifications created.
+    """
+    from notifications.tasks import dispatch_notifications_batch
+
+    if not recipients:
+        return 0
+
+    context = _build_notification_context(announcement)
     notifications_data: list[NotificationData] = [
         NotificationData(
             notification_type=NotificationType.ORG_ANNOUNCEMENT,
@@ -380,21 +532,10 @@ def send_announcement(announcement: Announcement) -> int:
         )
         for user in recipients
     ]
-
-    # Bulk create all notifications (single INSERT)
     created_notifications = bulk_create_notifications(notifications_data)
-
-    # Dispatch all notifications in a batch task
     notification_ids = [str(n.id) for n in created_notifications]
     transaction.on_commit(lambda: dispatch_notifications_batch.delay(notification_ids))
-
-    logger.info(
-        "announcement_sent",
-        announcement_id=str(announcement.id),
-        recipient_count=recipient_count,
-    )
-
-    return recipient_count
+    return len(created_notifications)
 
 
 def _build_notification_context(announcement: Announcement) -> dict[str, t.Any]:

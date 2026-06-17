@@ -1,9 +1,11 @@
 """Announcement model for organization announcements."""
 
+import datetime as dt
 import typing as t
 
 from django.conf import settings
 from django.contrib.gis.db import models
+from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 
 from common.fields import MarkdownField
@@ -41,6 +43,10 @@ class AnnouncementQuerySet(models.QuerySet["Announcement"]):
         """Return only sent announcements."""
         return self.filter(status=Announcement.AnnouncementStatus.SENT)
 
+    def scheduled(self) -> t.Self:
+        """Return only scheduled announcements."""
+        return self.filter(status=Announcement.AnnouncementStatus.SCHEDULED)
+
 
 class AnnouncementManager(models.Manager["Announcement"]):
     """Custom manager for Announcement."""
@@ -77,13 +83,22 @@ class AnnouncementManager(models.Manager["Announcement"]):
         """Returns only sent announcements."""
         return self.get_queryset().sent()
 
+    def scheduled(self) -> AnnouncementQuerySet:
+        """Returns only scheduled announcements."""
+        return self.get_queryset().scheduled()
+
 
 class Announcement(TimeStampedModel):
     """Organization announcement that can target event attendees or members."""
 
     class AnnouncementStatus(models.TextChoices):
         DRAFT = "draft", _("Draft")
+        SCHEDULED = "scheduled", _("Scheduled")
         SENT = "sent", _("Sent")
+
+    class ScheduleAnchor(models.TextChoices):
+        EVENT_START = "event_start", _("Event start")
+        EVENT_END = "event_end", _("Event end")
 
     organization = models.ForeignKey(
         "events.Organization",
@@ -137,6 +152,31 @@ class Announcement(TimeStampedModel):
     sent_at = models.DateTimeField(null=True, blank=True, db_index=True)
     recipient_count = models.PositiveIntegerField(default=0)
 
+    scheduled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=_("Absolute time to send a scheduled announcement (mutually exclusive with relative scheduling)."),
+    )
+    schedule_anchor = models.CharField(
+        max_length=20,
+        choices=ScheduleAnchor.choices,
+        null=True,
+        blank=True,
+        help_text=_("Anchor a relative schedule to the event start or end."),
+    )
+    schedule_offset_minutes = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text=_("Signed minutes from the anchor (-1440 = 24h before, +1440 = 24h after)."),
+    )
+    resend_to_new_signups = models.BooleanField(
+        default=False,
+        help_text=_(
+            "Re-deliver to attendees who join after this announcement was first sent (event announcements only)."
+        ),
+    )
+
     objects = AnnouncementManager()
 
     class Meta:
@@ -148,3 +188,27 @@ class Announcement(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.title} ({self.organization.name})"
+
+    @property
+    def effective_send_at(self) -> dt.datetime | None:
+        """Resolve the live send time: absolute, or anchor +/- offset for relative."""
+        if self.schedule_anchor is None:
+            return self.scheduled_at
+        if self.event is None:
+            return None
+        anchor_time = self.event.start if self.schedule_anchor == self.ScheduleAnchor.EVENT_START else self.event.end
+        return anchor_time + dt.timedelta(minutes=self.schedule_offset_minutes or 0)
+
+    def clean(self) -> None:
+        """Validate scheduling/resend invariants (runs via TimeStampedModel.save)."""
+        super().clean()
+        is_relative = self.schedule_anchor is not None or self.schedule_offset_minutes is not None
+        if is_relative:
+            if self.schedule_anchor is None or self.schedule_offset_minutes is None:
+                raise ValidationError(_("Relative scheduling requires both an anchor and an offset."))
+            if self.scheduled_at is not None:
+                raise ValidationError(_("Provide either an absolute time or a relative schedule, not both."))
+            if self.event_id is None:
+                raise ValidationError(_("Relative scheduling requires an event-targeted announcement."))
+        if self.resend_to_new_signups and self.event_id is None:
+            raise ValidationError(_("Re-sending to new sign-ups requires an event-targeted announcement."))
