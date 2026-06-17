@@ -537,3 +537,58 @@ class TestApplyDiscount:
 
         with pytest.raises(HttpError):
             discount_code_service.apply_discount(dc, dc_owner, batch_size=1)
+
+
+class TestDeleteDiscountCode:
+    """Tests for delete_discount_code: hard-delete when unused, else deactivate."""
+
+    def test_unused_code_is_hard_deleted(self, dc_percentage: DiscountCode) -> None:
+        """times_used=0 and no tickets → hard delete, returns 'deleted'."""
+        pk = dc_percentage.pk
+        action = discount_code_service.delete_discount_code(dc_percentage)
+
+        assert action == "deleted"
+        assert not DiscountCode.objects.filter(pk=pk).exists()
+
+    def test_code_with_usage_counter_is_deactivated(self, dc_percentage: DiscountCode) -> None:
+        """times_used>0 → deactivate (preserve history), returns 'deactivated'."""
+        dc_percentage.times_used = 1
+        dc_percentage.save(update_fields=["times_used"])
+
+        action = discount_code_service.delete_discount_code(dc_percentage)
+
+        assert action == "deactivated"
+        dc_percentage.refresh_from_db()
+        assert dc_percentage.is_active is False
+
+    def test_code_with_referencing_ticket_is_deactivated(
+        self,
+        dc_percentage: DiscountCode,
+        dc_event: Event,
+        dc_paid_tier: TicketTier,
+        dc_owner: RevelUser,
+    ) -> None:
+        """A code referenced by a ticket is deactivated even if times_used=0.
+
+        times_used never decrements, but a cancelled-ticket scenario could leave
+        times_used=0 while tickets still reference the code; the relation check
+        keeps the redemption link intact.
+        """
+        from events.models import Ticket
+
+        Ticket.objects.create(
+            event=dc_event,
+            tier=dc_paid_tier,
+            user=dc_owner,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name="Holder",
+            discount_code=dc_percentage,
+        )
+        assert dc_percentage.times_used == 0
+
+        action = discount_code_service.delete_discount_code(dc_percentage)
+
+        assert action == "deactivated"
+        dc_percentage.refresh_from_db()
+        assert dc_percentage.is_active is False
+        assert dc_percentage.tickets.count() == 1

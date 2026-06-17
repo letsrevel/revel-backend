@@ -133,6 +133,37 @@ def update_discount_code(
     return DiscountCode.objects.prefetch_related("series", "events", "tiers").get(pk=dc.pk)
 
 
+@transaction.atomic
+def delete_discount_code(dc: DiscountCode) -> t.Literal["deleted", "deactivated"]:
+    """Delete a discount code, hard-deleting it only when it was never used.
+
+    A code is considered unused when its ``times_used`` counter is zero *and* no
+    ticket references it at all (any status). ``times_used`` never decrements, so
+    the two checks are belt-and-suspenders: either one being non-empty means the
+    code has redemption history worth keeping. Unused codes are hard-deleted,
+    which also frees the ``(organization, code)`` slot for reuse. Used codes are
+    deactivated (``is_active = False``) to preserve the redemption history on
+    their tickets.
+
+    The row is re-fetched under ``select_for_update`` (mirroring ``apply_discount``)
+    so a concurrent purchase can't slip a ticket past the check and then have its
+    ``Ticket.discount_code`` FK silently nulled by the hard delete (``SET_NULL``).
+
+    Args:
+        dc: The discount code to delete.
+
+    Returns:
+        ``"deleted"`` if the row was hard-deleted, ``"deactivated"`` otherwise.
+    """
+    dc = DiscountCode.objects.select_for_update().get(pk=dc.pk)
+    if dc.times_used == 0 and not dc.tickets.exists():
+        dc.delete()
+        return "deleted"
+    dc.is_active = False
+    dc.save(update_fields=["is_active"])
+    return "deactivated"
+
+
 def _check_scope_applicability(dc: DiscountCode, tier: TicketTier) -> None:
     """Check if the discount code applies to the given tier (union logic).
 

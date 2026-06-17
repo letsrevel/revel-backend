@@ -92,12 +92,11 @@ class OrganizationAdminDiscountCodesController(OrganizationAdminBaseController):
     @route.delete(
         "/discount-codes/{code_id}",
         url_name="delete_discount_code",
-        response={204: None},
+        response={200: schema.DiscountCodeDeleteResponse},
     )
-    def delete_discount_code(self, slug: str, code_id: UUID) -> tuple[int, None]:
-        """Soft-delete a discount code by deactivating it."""
+    def delete_discount_code(self, slug: str, code_id: UUID) -> schema.DiscountCodeDeleteResponse:
+        """Delete a discount code: hard-delete when unused, otherwise deactivate."""
         organization = self.get_one(slug)
         dc = get_object_or_404(models.DiscountCode, pk=code_id, organization=organization)
-        dc.is_active = False
-        dc.save(update_fields=["is_active"])
-        return 204, None
+        action = discount_code_service.delete_discount_code(dc)
+        return schema.DiscountCodeDeleteResponse(action=action)

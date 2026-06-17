@@ -5,7 +5,7 @@ Tests cover:
 - Creating discount codes (valid, with M2M, validation errors)
 - Getting discount code detail (exists, not found, wrong organization)
 - Updating discount codes (partial update, M2M update)
-- Deleting discount codes (soft-delete sets is_active=False)
+- Deleting discount codes (hard-delete when unused, otherwise deactivate)
 - Permission checks (owner, staff with manage_events, staff without, non-staff)
 """
 
@@ -541,30 +541,49 @@ class TestUpdateDiscountCode:
 
 
 # ===========================================================================
-# Delete discount code (soft-delete)
+# Delete discount code (hard-delete when unused, otherwise deactivate)
 # ===========================================================================
 
 
 class TestDeleteDiscountCode:
     """Tests for DELETE /organization-admin/{slug}/discount-codes/{code_id}."""
 
-    def test_delete_sets_inactive(
+    def test_delete_unused_code_hard_deletes(
         self,
         organization_owner_client: Client,
         organization: Organization,
         dc_percentage: DiscountCode,
     ) -> None:
-        """Should soft-delete by setting is_active=False."""
+        """An unused code (times_used=0, no tickets) should be hard-deleted."""
         url = reverse(
             "api:delete_discount_code",
             kwargs={"slug": organization.slug, "code_id": dc_percentage.id},
         )
         response = organization_owner_client.delete(url)
 
-        assert response.status_code == 204
+        assert response.status_code == 200
+        assert response.json() == {"action": "deleted"}
+        assert not DiscountCode.objects.filter(id=dc_percentage.id).exists()
+
+    def test_delete_used_code_deactivates(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+        dc_percentage: DiscountCode,
+    ) -> None:
+        """A used code (times_used>0) should be deactivated, not deleted."""
+        dc_percentage.times_used = 3
+        dc_percentage.save(update_fields=["times_used"])
+        url = reverse(
+            "api:delete_discount_code",
+            kwargs={"slug": organization.slug, "code_id": dc_percentage.id},
+        )
+        response = organization_owner_client.delete(url)
+
+        assert response.status_code == 200
+        assert response.json() == {"action": "deactivated"}
         dc_percentage.refresh_from_db()
         assert dc_percentage.is_active is False
-        # Record still exists in DB
         assert DiscountCode.objects.filter(id=dc_percentage.id).exists()
 
     def test_delete_nonexistent_code(self, organization_owner_client: Client, organization: Organization) -> None:
@@ -583,16 +602,16 @@ class TestDeleteDiscountCode:
         organization: Organization,
         dc_fixed: DiscountCode,
     ) -> None:
-        """Staff with manage_events should be able to soft-delete codes."""
+        """Staff with manage_events should be able to delete codes."""
         url = reverse(
             "api:delete_discount_code",
             kwargs={"slug": organization.slug, "code_id": dc_fixed.id},
         )
         response = manage_events_staff_client.delete(url)
 
-        assert response.status_code == 204
-        dc_fixed.refresh_from_db()
-        assert dc_fixed.is_active is False
+        assert response.status_code == 200
+        assert response.json() == {"action": "deleted"}
+        assert not DiscountCode.objects.filter(id=dc_fixed.id).exists()
 
     def test_delete_by_member_forbidden(
         self,
@@ -612,19 +631,19 @@ class TestDeleteDiscountCode:
         dc_percentage.refresh_from_db()
         assert dc_percentage.is_active is True
 
-    def test_delete_already_inactive_code(
+    def test_delete_already_inactive_unused_code_hard_deletes(
         self,
         organization_owner_client: Client,
         organization: Organization,
         dc_inactive: DiscountCode,
     ) -> None:
-        """Should still succeed (204) when deleting an already-inactive code."""
+        """An already-inactive but unused code should still be hard-deleted."""
         url = reverse(
             "api:delete_discount_code",
             kwargs={"slug": organization.slug, "code_id": dc_inactive.id},
         )
         response = organization_owner_client.delete(url)
 
-        assert response.status_code == 204
-        dc_inactive.refresh_from_db()
-        assert dc_inactive.is_active is False
+        assert response.status_code == 200
+        assert response.json() == {"action": "deleted"}
+        assert not DiscountCode.objects.filter(id=dc_inactive.id).exists()
