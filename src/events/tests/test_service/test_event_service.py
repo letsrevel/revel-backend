@@ -26,6 +26,7 @@ from events.models import (
 from events.models.mixins import LocationMixin
 from events.schema import EventTokenUpdateSchema, InvitationBaseSchema
 from events.service import event_service
+from events.service.duplication import duplicate_event
 from events.utils.schedule import EventScheduleSession
 
 pytestmark = pytest.mark.django_db
@@ -835,3 +836,24 @@ class TestCreateInvitationRequest:
 
         assert exc_info.value.status_code == 400
         assert "deadline" in str(exc_info.value.message).lower()
+
+
+def test_duplicate_event_copies_schedule_verbatim(event: Event) -> None:
+    """Assert that duplicate_event copies the schedule field without modification.
+
+    Schedule sessions use relative offsets (offset_minutes, duration_minutes), so
+    no date-shifting is needed and the copied list must match the original exactly.
+    """
+    event.schedule = [
+        {"title": "Arrival", "offset_minutes": 0},
+        {"title": "Workshop", "offset_minutes": 60, "duration_minutes": 90, "is_required": True},
+    ]
+    event.save(update_fields=["schedule"])
+
+    new_event = duplicate_event(
+        template_event=event,
+        new_name="Copy",
+        new_start=timezone.now() + timedelta(days=30),
+    )
+    # Relative offsets => identical schedule, no date shift.
+    assert new_event.schedule == event.schedule
