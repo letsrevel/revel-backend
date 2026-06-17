@@ -26,6 +26,7 @@ from common.utils import update_db_instance
 from events import models
 from events.schema import EventEditSchema
 from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
+from events.utils.schedule import EventScheduleSession
 
 
 class SlugAlreadyExistsError(Exception):
@@ -190,6 +191,21 @@ def update_slug(event: models.Event, slug: str) -> models.Event:
 
     event.slug = slug
     event.save(update_fields=["slug"])
+    return event
+
+
+def update_event_schedule(event: models.Event, sessions: list[EventScheduleSession]) -> models.Event:
+    """Replace an event's schedule with the provided sessions (full-array replace).
+
+    Args:
+        event: The event to update.
+        sessions: Validated schedule sessions (order preserved as authored).
+
+    Returns:
+        The updated event.
+    """
+    event.schedule = [s.model_dump(mode="json") for s in sessions]
+    event.save(update_fields=["schedule", "updated_at"])  # full_clean re-validates via clean()
     return event
 
 

@@ -103,6 +103,21 @@ def test_create_event_token_rejects_tier_from_other_event(
         )
 
 
+def test_update_event_schedule_replaces_blob(event: Event) -> None:
+    """update_event_schedule fully replaces the schedule blob and persists it."""
+    from events.utils.schedule import EventScheduleSession
+
+    sessions = [
+        EventScheduleSession(title="Arrival", offset_minutes=0),
+        EventScheduleSession(title="Workshop", offset_minutes=60, duration_minutes=90, is_required=True),
+    ]
+    result = event_service.update_event_schedule(event, sessions)
+    result.refresh_from_db()
+    assert len(result.schedule) == 2
+    assert result.schedule[0]["title"] == "Arrival"
+    assert result.schedule[1]["is_required"] is True
+
+
 def test_update_event_token_updates_scalar_fields(event: Event, organization_owner_user: RevelUser) -> None:
     """update_event_token updates scalar fields via a targeted .update()."""
     token = event_service.create_event_token(event=event, issuer=organization_owner_user, max_uses=5)
