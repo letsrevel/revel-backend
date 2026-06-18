@@ -37,6 +37,9 @@ def screen(
         return Verdict.BLOCK, 100.0
 
     # ESCALATE: best fuzzy ratio across candidate × wordlist
+    # ponytail: O(candidates × wordlist) per call; the nightly sweep runs it per FoodItem. Fine while
+    # the wordlist stays small/audited. If it grows, switch to
+    # rapidfuzz.process.extractOne(c, words, scorer=fuzz.ratio, score_cutoff=escalate_floor).
     best = 0.0
     for c in candidates:
         for term in words:

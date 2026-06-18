@@ -57,7 +57,7 @@ class DietaryController(UserAwareController):
         already exists, returns the existing item with 200 status. This prevents duplicate food items
         and allows users to freely create items during restriction creation.
         """
-        screen_food_item_name(payload.name, reporter=self.user())  # BLOCK → 422
+        screen_food_item_name(payload.name)  # BLOCK → 422
         existing = FoodItem.objects.filter(name__iexact=payload.name).first()
         if existing:
             return status.HTTP_200_OK, existing
@@ -67,7 +67,7 @@ class DietaryController(UserAwareController):
             Q(name__iexact=payload.name),
             {"name": payload.name},
         )
-        screen_food_item_name(food_item.name, reporter=self.user(), food_item=food_item)  # ESCALATE → report
+        screen_food_item_name(food_item.name, food_item=food_item)  # ESCALATE → report
         return (status.HTTP_201_CREATED if created else status.HTTP_200_OK), food_item
 
     # Dietary Restrictions Endpoints
@@ -98,13 +98,13 @@ class DietaryController(UserAwareController):
         Creates a restriction linked to a food item. If the food item doesn't exist (case-insensitive),
         it will be created automatically. Returns 400 if a restriction for this food item already exists.
         """
-        screen_food_item_name(payload.food_item_name, reporter=self.user())  # BLOCK → 422
+        screen_food_item_name(payload.food_item_name)  # BLOCK → 422
         food_item, _created = get_or_create_with_race_protection(
             FoodItem,
             Q(name__iexact=payload.food_item_name),
             {"name": payload.food_item_name},
         )
-        screen_food_item_name(food_item.name, reporter=self.user(), food_item=food_item)  # ESCALATE → report
+        screen_food_item_name(food_item.name, food_item=food_item)  # ESCALATE → report
 
         if DietaryRestriction.objects.filter(user=self.user(), food_item=food_item).exists():
             raise HttpError(

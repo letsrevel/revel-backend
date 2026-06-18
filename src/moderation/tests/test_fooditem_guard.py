@@ -1,11 +1,13 @@
 """Integration tests for the food-item name guard (block / escalate / allow)."""
 
 import pytest
+from django.contrib.contenttypes.models import ContentType
 from django.test import Client
 
 from accounts.models import DietaryRestriction, FoodItem, RevelUser
 from moderation.blocklist import screen as screen_mod
 from moderation.models import ContentReport
+from moderation.service.fooditem_guard import screen_food_item_name
 
 
 @pytest.fixture(autouse=True)
@@ -69,3 +71,42 @@ def test_create_food_item_allows_benign(auth_client: Client) -> None:
     )
     assert resp.status_code in (200, 201)
     assert not ContentReport.objects.exists()
+
+
+@pytest.mark.django_db
+def test_escalate_does_not_collide_with_existing_user_report(user: RevelUser) -> None:
+    """Regression: ESCALATE must not 500 when the user already has an open USER_REPORT on the item.
+
+    A blocklist escalation is a SYSTEM signal (reporter=None). The partial unique index on
+    (content_type, object_id, reporter) WHERE status='open' only collides on identical reporters,
+    so reporter=None and reporter=<user> coexist safely.
+    """
+    food_item = FoodItem.objects.create(name="badwrd")
+    ct = ContentType.objects.get_for_model(FoodItem)
+    # Seed an existing open USER_REPORT from this user on the same item.
+    ContentReport.objects.create(
+        content_type=ct,
+        object_id=food_item.pk,
+        reporter=user,
+        source=ContentReport.Source.USER_REPORT,
+        status=ContentReport.Status.OPEN,
+        reason=ContentReport.Reason.OFFENSIVE,
+        content_snapshot=food_item.name,
+    )
+
+    # Calling screen_food_item_name with the near-miss name (triggers ESCALATE) must not raise.
+    screen_food_item_name(food_item.name, food_item=food_item)
+
+    # A BLOCKLIST report with reporter=None should now exist alongside the USER_REPORT.
+    assert ContentReport.objects.filter(
+        object_id=food_item.pk,
+        source=ContentReport.Source.BLOCKLIST,
+        reporter=None,
+        status=ContentReport.Status.OPEN,
+    ).exists()
+    # The original user report is untouched.
+    assert ContentReport.objects.filter(
+        object_id=food_item.pk,
+        source=ContentReport.Source.USER_REPORT,
+        reporter=user,
+    ).exists()

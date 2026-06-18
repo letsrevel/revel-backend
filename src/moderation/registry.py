@@ -8,6 +8,7 @@ import typing as t
 import uuid
 
 from django.apps import apps
+from django.db import models
 from django.http import Http404
 
 # "app_label.model" -> snapshot attribute path
@@ -21,18 +22,19 @@ REPORTABLE_MODELS: dict[str, str] = {
 }
 
 
-def resolve_reportable(model_label: str, object_id: uuid.UUID) -> tuple[t.Any, str]:
+def resolve_reportable(model_label: str, object_id: uuid.UUID) -> tuple[models.Model, str]:
     """Resolve a reportable target to (instance, snapshot). 404 if not reportable/missing."""
-    snapshot_attr = REPORTABLE_MODELS.get(model_label.lower())
+    label_lower = model_label.lower()
+    snapshot_attr = REPORTABLE_MODELS.get(label_lower)
     if snapshot_attr is None:
         raise Http404("Content type is not reportable.")
     try:
-        app_label, model_name = model_label.lower().split(".", 1)
+        app_label, model_name = label_lower.split(".", 1)
         model = apps.get_model(app_label, model_name)
-    except (ValueError, LookupError):
+    except LookupError:
         raise Http404("Unknown content type.")
     instance = model.objects.filter(pk=object_id).first()
     if instance is None:
         raise Http404("Reported object does not exist.")
     snapshot = str(getattr(instance, snapshot_attr, "") or "")
-    return instance, snapshot
+    return t.cast(models.Model, instance), snapshot

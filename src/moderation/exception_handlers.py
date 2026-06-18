@@ -1,10 +1,12 @@
 """Moderation exception handlers, registered from ModerationConfig.ready."""
 
-from common.exception_handlers import ExceptionHandler, make_simple_handler, register_handlers
+from django.utils.translation import gettext_lazy as _
+
+from common.exception_handlers import ExceptionHandler, make_static_handler, register_handlers
 from moderation.exceptions import FoodItemBlockedError
 
 HANDLERS: dict[type[Exception], ExceptionHandler] = {
-    FoodItemBlockedError: make_simple_handler(422),
+    FoodItemBlockedError: make_static_handler(422, _("This name is not allowed.")),
 }
 
 
