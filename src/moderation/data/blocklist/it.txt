@@ -1,0 +1,2 @@
+# Curated slur/abuse blocklist (it). One term per line. Reviewed like code.
+# Real terms added by maintainers out-of-band; keep this file MINIMAL and audited.
