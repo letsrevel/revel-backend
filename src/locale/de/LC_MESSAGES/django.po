@@ -1010,7 +1010,8 @@ msgstr ""
 "Ankündigung hinzukommen (nur für Event-Ankündigungen)."
 
 msgid "Relative scheduling requires both an anchor and an offset."
-msgstr "Die relative Planung erfordert sowohl einen Anker als auch einen Versatz."
+msgstr ""
+"Die relative Planung erfordert sowohl einen Anker als auch einen Versatz."
 
 msgid "Provide either an absolute time or a relative schedule, not both."
 msgstr ""
@@ -1018,7 +1019,8 @@ msgstr ""
 "nicht beides."
 
 msgid "Relative scheduling requires an event-targeted announcement."
-msgstr "Die relative Planung erfordert eine auf ein Event gerichtete Ankündigung."
+msgstr ""
+"Die relative Planung erfordert eine auf ein Event gerichtete Ankündigung."
 
 msgid "Re-sending to new sign-ups requires an event-targeted announcement."
 msgstr ""
@@ -2177,6 +2179,9 @@ msgstr "Abbestellen oder Benachrichtigungseinstellungen verwalten"
 
 msgid "Unsubscribe or manage notification preferences:"
 msgstr "Abbestellen oder Benachrichtigungseinstellungen verwalten:"
+
+msgid "All times are shown in the event's local timezone."
+msgstr "Alle Zeiten werden in der lokalen Zeitzone der Veranstaltung angezeigt."
 
 msgid "Your account has been suspended for violating our Terms of Service."
 msgstr ""

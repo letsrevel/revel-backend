@@ -32,6 +32,7 @@
                 {% if event_start_formatted %}<div class="info-row">📅 {{ event_start_formatted }}</div>{% endif %}
                 {% if event_end_formatted %}<div class="info-row">{%trans "Until:"%} {{ event_end_formatted }}</div>{% endif %}
                 {% if event_location %}<div class="info-row">📍 {{ event_location }}</div>{% endif %}
+                {% if event_start_formatted %}{% include "notifications/email/_timezone_note.html" %}{% endif %}
             </div>
             {% endif %}
             <p>{%trans "Sign up to accept this invitation and join the event:"%}</p>

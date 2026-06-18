@@ -7,5 +7,6 @@
 {% endif %}{% if event_start_formatted %}📅 {{ event_start_formatted }}
 {% endif %}{% if event_end_formatted %}{%trans "Until:"%} {{ event_end_formatted }}
 {% endif %}{% if event_location %}📍 {{ event_location }}
+{% endif %}{% if event_start_formatted %}{% include "notifications/email/_timezone_note.txt" %}
 {% endif %}
 {%trans "Sign up to accept this invitation:" %} {{ signup_url }}

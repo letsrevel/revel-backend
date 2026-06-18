@@ -1,4 +1,5 @@
-{% load i18n %}{{ context.org_signature_md }}
+{% load i18n %}{% if context.event_start_formatted %}{% include "notifications/email/_timezone_note.txt" %}
+{% endif %}{{ context.org_signature_md }}
 
 ---
 {% trans "Unsubscribe or manage notification preferences:" %} {{ context.unsubscribe_link }}

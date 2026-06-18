@@ -36,7 +36,7 @@ from events.tasks import (
     notify_admin_new_organization_discord,
     notify_admin_new_organization_pushover,
 )
-from events.utils import get_invitation_message
+from events.utils import format_event_datetime, get_invitation_message
 from events.utils.reserved_slug_tokens import invalidate_reserved_tokens_cache
 from notifications.enums import NotificationType
 from notifications.signals import notification_requested
@@ -415,7 +415,7 @@ def handle_event_opened_notify_followers(sender: type[Event], instance: Event, c
                 "event_name": instance.name,
                 "event_description": instance.description or "",
                 "event_start": instance.start.isoformat() if instance.start else "",
-                "event_start_formatted": (instance.start.strftime("%B %d, %Y at %I:%M %p") if instance.start else ""),
+                "event_start_formatted": format_event_datetime(instance.start, instance),
                 "event_location": event_location,
                 "event_url": f"{frontend_base_url}/events/{instance.id}",
             }

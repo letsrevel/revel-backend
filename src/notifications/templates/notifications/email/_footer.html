@@ -1,4 +1,5 @@
 {% load i18n %}<div class="footer">
+    {% if context.event_start_formatted %}{% include "notifications/email/_timezone_note.html" %}{% endif %}
     {{ context.org_signature_html|safe }}
     <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
         <p style="font-size: 12px; color: #999;">

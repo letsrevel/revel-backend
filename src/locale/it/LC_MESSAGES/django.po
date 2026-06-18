@@ -996,13 +996,11 @@ msgstr ""
 "annuncio (solo per annunci di evento)."
 
 msgid "Relative scheduling requires both an anchor and an offset."
-msgstr ""
-"La programmazione relativa richiede sia un'ancora sia uno scostamento."
+msgstr "La programmazione relativa richiede sia un'ancora sia uno scostamento."
 
 msgid "Provide either an absolute time or a relative schedule, not both."
 msgstr ""
-"Fornisci un orario assoluto oppure una programmazione relativa, non "
-"entrambi."
+"Fornisci un orario assoluto oppure una programmazione relativa, non entrambi."
 
 msgid "Relative scheduling requires an event-targeted announcement."
 msgstr "La programmazione relativa richiede un annuncio rivolto a un evento."
@@ -2147,6 +2145,9 @@ msgstr "Annulla l'iscrizione o gestisci le preferenze di notifica"
 
 msgid "Unsubscribe or manage notification preferences:"
 msgstr "Annulla l'iscrizione o gestisci le preferenze di notifica:"
+
+msgid "All times are shown in the event's local timezone."
+msgstr "Tutti gli orari sono indicati nel fuso orario locale dell'evento."
 
 msgid "Your account has been suspended for violating our Terms of Service."
 msgstr ""
