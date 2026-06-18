@@ -45,9 +45,7 @@ class ContentReport(TimeStampedModel):
     reason = models.CharField(max_length=20, choices=Reason.choices)
     details = models.TextField(blank=True)
 
-    status = models.CharField(
-        max_length=20, choices=Status.choices, default=Status.OPEN, db_index=True
-    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN, db_index=True)
     resolved_by = models.ForeignKey(
         RevelUser, on_delete=models.SET_NULL, null=True, blank=True, related_name="resolved_content_reports"
     )

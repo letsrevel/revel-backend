@@ -29,8 +29,12 @@ def test_one_open_report_per_reporter_per_object(user: RevelUser) -> None:
     UniqueConstraint as ValidationError before any DB-level IntegrityError can fire."""
     food = FoodItem.objects.create(name="peanut")
     ct = ContentType.objects.get_for_model(FoodItem)
-    common: dict[str, t.Any] = dict(content_type=ct, object_id=food.id, reporter=user,
-                                    reason=ContentReport.Reason.OFFENSIVE)
+    common: dict[str, t.Any] = {
+        "content_type": ct,
+        "object_id": food.id,
+        "reporter": user,
+        "reason": ContentReport.Reason.OFFENSIVE,
+    }
     ContentReport.objects.create(**common)
     with pytest.raises(ValidationError) as exc_info:
         ContentReport.objects.create(**common)
@@ -43,8 +47,12 @@ def test_partial_uniqueness_allows_second_report_when_first_is_dismissed(user: R
     for the same (content_type, object_id, reporter) must succeed once the first is DISMISSED."""
     food = FoodItem.objects.create(name="banana")
     ct = ContentType.objects.get_for_model(FoodItem)
-    common: dict[str, t.Any] = dict(content_type=ct, object_id=food.id, reporter=user,
-                                    reason=ContentReport.Reason.OFFENSIVE)
+    common: dict[str, t.Any] = {
+        "content_type": ct,
+        "object_id": food.id,
+        "reporter": user,
+        "reason": ContentReport.Reason.OFFENSIVE,
+    }
     first = ContentReport.objects.create(**common)
     first.status = ContentReport.Status.DISMISSED
     first.save(update_fields=["status"])

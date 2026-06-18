@@ -1,6 +1,8 @@
-"""Allow-list of reportable models. The generic report endpoint accepts only these,
-preventing IDOR/enumeration against arbitrary models. Value = attribute carrying the
-human-readable snapshot for the triage queue."""
+"""Allow-list of reportable models.
+
+The generic report endpoint accepts only these, preventing IDOR/enumeration against
+arbitrary models. Value = attribute carrying the human-readable snapshot for the triage queue.
+"""
 
 import typing as t
 import uuid

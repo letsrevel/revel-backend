@@ -24,5 +24,6 @@ class ReportSchema(Schema):
 
     @staticmethod
     def resolve_content_type(obj: ContentReport) -> str:
+        """Render the generic-FK target as an ``app_label.model`` string."""
         ct = obj.content_type
         return f"{ct.app_label}.{ct.model}"
