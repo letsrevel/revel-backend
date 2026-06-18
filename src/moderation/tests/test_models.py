@@ -32,5 +32,22 @@ def test_one_open_report_per_reporter_per_object(user: RevelUser) -> None:
     common: dict[str, t.Any] = dict(content_type=ct, object_id=food.id, reporter=user,
                                     reason=ContentReport.Reason.OFFENSIVE)
     ContentReport.objects.create(**common)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as exc_info:
         ContentReport.objects.create(**common)
+    assert "unique_open_report_per_reporter_per_object" in str(exc_info.value)
+
+
+@pytest.mark.django_db
+def test_partial_uniqueness_allows_second_report_when_first_is_dismissed(user: RevelUser) -> None:
+    """The UniqueConstraint is PARTIAL (condition=Q(status='open')), so a second report
+    for the same (content_type, object_id, reporter) must succeed once the first is DISMISSED."""
+    food = FoodItem.objects.create(name="banana")
+    ct = ContentType.objects.get_for_model(FoodItem)
+    common: dict[str, t.Any] = dict(content_type=ct, object_id=food.id, reporter=user,
+                                    reason=ContentReport.Reason.OFFENSIVE)
+    first = ContentReport.objects.create(**common)
+    first.status = ContentReport.Status.DISMISSED
+    first.save(update_fields=["status"])
+    # Second report for the same target should succeed because first is no longer open.
+    ContentReport.objects.create(**common)
+    assert ContentReport.objects.filter(content_type=ct, object_id=food.id, reporter=user).count() == 2
