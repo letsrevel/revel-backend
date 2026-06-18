@@ -1021,7 +1021,8 @@ msgstr ""
 "annonce (annonces d'événement uniquement)."
 
 msgid "Relative scheduling requires both an anchor and an offset."
-msgstr "La programmation relative nécessite à la fois une ancre et un décalage."
+msgstr ""
+"La programmation relative nécessite à la fois une ancre et un décalage."
 
 msgid "Provide either an absolute time or a relative schedule, not both."
 msgstr ""
@@ -2186,6 +2187,9 @@ msgstr "Se désabonner ou gérer les préférences de notification"
 
 msgid "Unsubscribe or manage notification preferences:"
 msgstr "Se désabonner ou gérer les préférences de notification :"
+
+msgid "All times are shown in the event's local timezone."
+msgstr "Toutes les heures sont affichées dans le fuseau horaire local de l'événement."
 
 msgid "Your account has been suspended for violating our Terms of Service."
 msgstr ""

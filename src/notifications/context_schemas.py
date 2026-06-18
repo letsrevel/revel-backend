@@ -282,9 +282,12 @@ class InvitationReceivedContext(BaseNotificationContext):
     event_id: str
     event_name: str
     invitation_message: str
-    event_start: str
-    event_end: str
+    event_start: str  # ISO format
+    event_end: str  # ISO format
+    event_start_formatted: str  # User-friendly format, in event TZ
+    event_end_formatted: t.NotRequired[str]  # User-friendly format, in event TZ
     event_location: str
+    event_url: str
     organization_id: str
     organization_name: str
     rsvp_required: bool

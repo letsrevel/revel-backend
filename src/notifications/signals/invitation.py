@@ -12,6 +12,7 @@ from events.models import EventInvitation, EventInvitationRequest, PendingEventI
 from events.tasks import build_attendee_visibility_flags
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
+from notifications.service.notification_helpers import format_event_datetime
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -48,12 +49,14 @@ def handle_invitation_save(
                 "invitation_message": instance.custom_message or "",
                 "event_start": event.start.isoformat() if event.start else "",
                 "event_end": event.end.isoformat() if event.end else "",
+                "event_start_formatted": format_event_datetime(event.start, event),
+                "event_end_formatted": format_event_datetime(event.end, event),
                 "event_location": event_location,
                 "organization_id": str(event.organization.id),
                 "organization_name": event.organization.name,
                 "rsvp_required": not event.requires_ticket,
                 "tickets_required": event.requires_ticket,
-                "frontend_url": frontend_url,
+                "event_url": frontend_url,
             },
         )
 

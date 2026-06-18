@@ -1,0 +1,1 @@
+{% load i18n %}🕒 {% trans "All times are shown in the event's local timezone." %}
