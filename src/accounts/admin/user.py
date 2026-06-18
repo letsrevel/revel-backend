@@ -638,10 +638,6 @@ class FoodItemAdmin(ModelAdmin):  # type: ignore[misc]
         # Food items are created through dietary restrictions
         return t.cast(bool, request.user.is_superuser)
 
-    def has_delete_permission(self, request: t.Any, obj: t.Any = None) -> bool:
-        # Prevent deletion to maintain data integrity
-        return False
-
 
 @admin.register(DietaryRestriction)
 class DietaryRestrictionAdmin(ModelAdmin):  # type: ignore[misc]
