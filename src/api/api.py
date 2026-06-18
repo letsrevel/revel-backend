@@ -32,6 +32,7 @@ from events.controllers.questionnaire import QuestionnaireController
 from events.controllers.stripe_webhook import StripeWebhookController
 from events.controllers.user_preferences import UserPreferencesController
 from geo.controllers.cities import CityController
+from moderation.controllers.report import ModerationController
 from notifications.controllers.notification_controller import NotificationController
 from notifications.controllers.preference_controller import NotificationPreferenceController
 from polls.controllers import POLL_CONTROLLERS
@@ -141,6 +142,8 @@ api.register_controllers(
     *POLL_CONTROLLERS,
     # Telegram controllers
     TelegramController,
+    # Moderation controllers
+    ModerationController,
     # Wallet controllers
     TicketWalletController,
 )
