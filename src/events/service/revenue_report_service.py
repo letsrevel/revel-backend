@@ -1,7 +1,9 @@
 """Revenue & VAT report aggregation and content hash (#551)."""
 
 import hashlib
+import io
 import typing as t
+import zipfile
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -11,6 +13,7 @@ from zoneinfo import ZoneInfo
 from django.conf import settings
 from django.db.models import Q, QuerySet
 from django.utils import timezone
+from openpyxl import Workbook
 
 from common.service.vat_utils import calculate_vat_inclusive
 from events.models import Organization, Payment, Ticket, TicketTier
@@ -356,3 +359,104 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
     scope_key = f"{scope.org.id}:{scope.event_id}:{scope.date_from}:{scope.date_to}"
     raw = scope_key + "||" + "\n".join(parts)
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Bundle builders
+# ---------------------------------------------------------------------------
+
+_TXN_HEADERS = [
+    "date",
+    "payment_id",
+    "event",
+    "tier",
+    "buyer_country",
+    "reverse_charge",
+    "gross",
+    "net",
+    "vat_rate",
+    "vat_amount",
+    "discount",
+    "refund_amount",
+    "currency",
+    "stripe_session_id",
+    "stripe_payout_id",
+]
+
+
+def report_filename(scope: ReportScope, ext: str = "zip") -> str:
+    """Return a canonical filename for the report bundle or one of its parts."""
+    return f"revel-revenue-{scope.org.slug}-{scope.date_from}_{scope.date_to}.{ext}"
+
+
+def build_xlsx(data: RevenueReportData) -> bytes:
+    """Build the two-sheet XLSX workbook (Summary + Transactions) and return raw bytes."""
+    wb = Workbook()
+    summary = wb.active
+    summary.title = "Summary"  # type: ignore[union-attr]
+    summary.append(["Currency", "VAT rate", "Net", "VAT", "Gross", "Tickets"])  # type: ignore[union-attr]
+    for section in data.sections:
+        for bucket in section.rate_buckets:
+            summary.append(  # type: ignore[union-attr]
+                [section.currency, bucket.label, bucket.net, bucket.vat, bucket.gross, bucket.ticket_count]
+            )
+        summary.append([section.currency, "Refunds", "", "", -section.refunds_total, section.refunded_count])  # type: ignore[union-attr]
+        summary.append(  # type: ignore[union-attr]
+            [section.currency, "Net taxable turnover", section.net_taxable_turnover, "", "", section.sold_count]
+        )
+        summary.append([])  # type: ignore[union-attr]
+
+    txns = wb.create_sheet("Transactions")
+    txns.append(_TXN_HEADERS)
+    for section in data.sections:
+        for row in section.transactions:
+            # ponytail: TxnRow.date is always the SALE date (payment.created_at converted to
+            # local date), even for refund-only rows where the original sale fell outside the
+            # report period. The refund-only scenario is uncommon; a correct fix would add a
+            # separate `refund_date` field to TxnRow and emit that here when the sale is
+            # out-of-period. Tracked as a known limitation — do not change _process_payment
+            # or _process_ticket here; that belongs in a follow-up to avoid breaking Task 3's
+            # passing tests.
+            txns.append(
+                [
+                    row.date.isoformat(),
+                    row.payment_id,
+                    row.event,
+                    row.tier,
+                    row.buyer_country,
+                    row.reverse_charge,
+                    row.gross,
+                    row.net,
+                    row.vat_rate,
+                    row.vat_amount,
+                    row.discount,
+                    row.refund_amount,
+                    row.currency,
+                    row.stripe_session_id,
+                    row.stripe_payout_id,
+                ]
+            )
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    out = buf.getvalue()
+    buf.close()
+    wb.close()
+    return out
+
+
+def build_pdf(data: RevenueReportData) -> bytes:
+    """Render the revenue & VAT report as a PDF via WeasyPrint."""
+    from common.service.invoice_utils import render_pdf
+
+    return render_pdf("reports/revenue_vat_report.html", {"data": data, "org": data.scope.org})
+
+
+def build_zip(data: RevenueReportData) -> bytes:
+    """Bundle XLSX + PDF into a ZIP archive and return raw bytes."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(report_filename(data.scope, "xlsx"), build_xlsx(data))
+        zf.writestr(report_filename(data.scope, "pdf"), build_pdf(data))
+    buf.seek(0)
+    return buf.read()

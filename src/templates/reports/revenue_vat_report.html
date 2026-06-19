@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Revenue &amp; VAT report</title>
+  {% include "invoices/_base_styles.html" %}
+  <style>
+    .banner { background: #fff3cd; padding: 8px; margin-bottom: 12px; font-size: 11px; }
+    .foot { font-size: 9px; color: #666; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="banner"><strong>Internal accounting document — not an invoice.</strong> Output (revenue) side only.</div>
+  <div class="header">
+    <div>
+      <strong>{{ org.billing_name|default:org.name }}</strong><br>
+      {% if org.vat_id %}VAT: {{ org.vat_id }}<br>{% endif %}
+      {{ org.billing_address|linebreaksbr }}
+    </div>
+    <div class="invoice-meta">
+      <strong>Period</strong> {{ data.scope.date_from }} – {{ data.scope.date_to }}<br>
+      <strong>Generated</strong> {{ data.generated_at|date:"Y-m-d H:i" }}<br>
+      <strong>Source</strong> Stripe + offline
+    </div>
+  </div>
+
+  {% for section in data.sections %}
+  <h2>{{ section.currency }}</h2>
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th>VAT rate</th><th>Net</th><th>VAT</th><th>Gross</th><th>Tickets</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for b in section.rate_buckets %}
+      <tr>
+        <td>{{ b.label }}</td>
+        <td>{{ b.net }}</td>
+        <td>{{ b.vat }}</td>
+        <td>{{ b.gross }}</td>
+        <td>{{ b.ticket_count }}</td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td>Refunds</td><td></td><td></td><td>-{{ section.refunds_total }}</td><td>{{ section.refunded_count }}</td>
+      </tr>
+      <tr>
+        <th>Net taxable turnover</th>
+        <th colspan="2">{{ section.net_taxable_turnover }}</th>
+        <th>sold {{ section.sold_count }}</th>
+        <th></th>
+      </tr>
+    </tbody>
+  </table>
+  {% empty %}
+  <p>No revenue in this period.</p>
+  {% endfor %}
+
+  <p class="foot">Bank payouts are net of Stripe processing fees and Revel platform fees, which are booked separately from their respective monthly invoices.</p>
+</body>
+</html>
