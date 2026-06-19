@@ -113,6 +113,7 @@ def test_refund_reduces_bucket_and_reports_refund_total(
         vat_rate=Decimal("20.00"),
         refund_amount=Decimal("120.00"),
         refund_status=Payment.RefundStatus.SUCCEEDED,
+        refunded_at=timezone.now(),
         platform_fee=Decimal("0.00"),
         stripe_session_id="cs_test_3",
     )
@@ -120,6 +121,7 @@ def test_refund_reduces_bucket_and_reports_refund_total(
     section = next(s for s in data.sections if s.currency == "EUR")
     assert section.refunds_total == Decimal("120.00")
     assert section.net_taxable_turnover == Decimal("0.00")
+    assert section.sold_count == 1
     assert section.refunded_count == 1
 
 

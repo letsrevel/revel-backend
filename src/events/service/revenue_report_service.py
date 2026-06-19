@@ -212,10 +212,10 @@ def _process_payment(
     net, vat, rate, rc = _resolve_payment_vat(payment, org_rate)
 
     sale_in = _in_period(_local_date(payment.created_at, tz), scope)
-    # Fall back to created_at when refunded_at is unset (historical data gap).
-    refund_ts = payment.refunded_at if payment.refunded_at is not None else payment.created_at
-    refund_in = payment.refund_status == Payment.RefundStatus.SUCCEEDED and _in_period(
-        _local_date(refund_ts, tz), scope
+    refund_in = (
+        payment.refund_status == Payment.RefundStatus.SUCCEEDED
+        and payment.refunded_at is not None
+        and _in_period(_local_date(payment.refunded_at, tz), scope)
     )
 
     if sale_in:
