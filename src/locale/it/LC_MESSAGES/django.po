@@ -117,9 +117,6 @@ msgstr "OTP non valido."
 msgid "Google SSO is not available."
 msgstr "L'accesso tramite Google SSO non è disponibile."
 
-msgid "This name is not allowed."
-msgstr "Questo nome non è consentito."
-
 msgid "You already have a restriction for this food item."
 msgstr "Hai già una restrizione per questo alimento."
 
@@ -1696,6 +1693,9 @@ msgstr "Hai richiesto un biglietto per %(event_name)s (%(tier_name)s)."
 
 msgid "To confirm your ticket purchase, please click the link below:"
 msgstr "Per confermare l'acquisto del biglietto, clicca il link qui sotto:"
+
+msgid "This name is not allowed."
+msgstr "Questo nome non è consentito."
 
 msgid "Immediate"
 msgstr "Immediato"
