@@ -12,7 +12,7 @@ from accounts.models import RevelUser
 from events.management.commands.seeder.config import SeederConfig
 from events.management.commands.seeder.state import SeederState
 from events.management.commands.seeder.tickets import TicketSeeder
-from events.models import Event, Organization, Payment, Ticket, TicketTier
+from events.models import CancellationSource, Event, Organization, Payment, Ticket, TicketTier
 
 
 @pytest.fixture
@@ -65,6 +65,7 @@ def test_refunded_payment_is_internally_consistent(online_ticket: Ticket) -> Non
     online_ticket.refresh_from_db()
     assert online_ticket.status == Ticket.TicketStatus.CANCELLED
     assert online_ticket.cancelled_at is not None
+    assert online_ticket.cancellation_source == CancellationSource.STRIPE_DASHBOARD
 
     online_ticket.tier.refresh_from_db()
     assert online_ticket.tier.quantity_sold == 0  # decremented from 1

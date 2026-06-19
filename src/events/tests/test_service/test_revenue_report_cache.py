@@ -68,6 +68,16 @@ def test_refresh_forces_a_new_export(org_scope: t.Any) -> None:
 
 
 @pytest.mark.django_db
+def test_data_hash_changes_when_vat_rate_changes(org_scope: t.Any) -> None:
+    org, _user, scope = org_scope
+    hash_before = svc.compute_revenue_data_hash(scope)
+    org.vat_rate = Decimal("13.00")
+    org.save(update_fields=["vat_rate"])
+    hash_after = svc.compute_revenue_data_hash(scope)
+    assert hash_before != hash_after
+
+
+@pytest.mark.django_db
 def test_new_payment_invalidates_cache(org_scope: t.Any) -> None:
     org, user, scope = org_scope
     first = svc.get_or_generate_revenue_report(org, scope, requested_by=user)

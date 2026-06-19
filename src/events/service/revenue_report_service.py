@@ -11,6 +11,7 @@ from decimal import Decimal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+import structlog
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.template.loader import render_to_string
@@ -26,6 +27,8 @@ from events.utils import get_organization_timezone
 
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
+
+logger = structlog.get_logger(__name__)
 
 ZERO = Decimal("0.00")
 _REVERSE_CHARGE_LABEL = "0% / reverse-charge"
@@ -395,7 +398,10 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
                 ]
             )
         )
-    scope_key = f"{scope.org.id}:{scope.event_id}:{scope.date_from}:{scope.date_to}"
+    scope_key = (
+        f"{scope.org.id}:{scope.event_id}:{scope.date_from}:{scope.date_to}"
+        f":{str(scope.org.vat_rate)}:{scope.org.vat_country_code}"
+    )
     raw = scope_key + "||" + "\n".join(parts)
     return hashlib.sha256(raw.encode()).hexdigest()
 
@@ -432,18 +438,17 @@ def build_xlsx(data: RevenueReportData) -> bytes:
     """Build the two-sheet XLSX workbook (Summary + Transactions) and return raw bytes."""
     wb = Workbook()
     summary = wb.active
-    summary.title = "Summary"  # type: ignore[union-attr]
-    summary.append(["Currency", "VAT rate", "Net", "VAT", "Gross", "Tickets"])  # type: ignore[union-attr]
+    assert summary is not None  # Workbook() always creates a default sheet
+    summary.title = "Summary"
+    summary.append(["Currency", "VAT rate", "Net", "VAT", "Gross", "Tickets"])
     for section in data.sections:
         for bucket in section.rate_buckets:
-            summary.append(  # type: ignore[union-attr]
-                [section.currency, bucket.label, bucket.net, bucket.vat, bucket.gross, bucket.ticket_count]
-            )
-        summary.append([section.currency, "Refunds", "", "", -section.refunds_total, section.refunded_count])  # type: ignore[union-attr]
-        summary.append(  # type: ignore[union-attr]
+            summary.append([section.currency, bucket.label, bucket.net, bucket.vat, bucket.gross, bucket.ticket_count])
+        summary.append([section.currency, "Refunds", "", "", -section.refunds_total, section.refunded_count])
+        summary.append(
             [section.currency, "Net taxable turnover", section.net_taxable_turnover, "", "", section.sold_count]
         )
-        summary.append([])  # type: ignore[union-attr]
+        summary.append([])
 
     txns = wb.create_sheet("Transactions")
     txns.append(_TXN_HEADERS)
@@ -597,42 +602,46 @@ def deliver_scheduled_revenue_reports(now_utc: datetime) -> int:
     )
 
     for org in orgs:
-        tz = get_organization_timezone(org)
-        period = closed_period_for(org.revenue_report_cadence, now_utc.astimezone(tz))
-        if period is None:
-            continue
-        date_from, date_to, label = period
-        if org.last_revenue_report_sent_period == label:
-            continue
+        try:
+            tz = get_organization_timezone(org)
+            period = closed_period_for(org.revenue_report_cadence, now_utc.astimezone(tz))
+            if period is None:
+                continue
+            date_from, date_to, label = period
+            if org.last_revenue_report_sent_period == label:
+                continue
 
-        scope = ReportScope(org=org, event_id=None, date_from=date_from, date_to=date_to)
-        if not build_revenue_report_data(scope).sections:
-            continue  # skip empty periods; do not set the marker
+            scope = ReportScope(org=org, event_id=None, date_from=date_from, date_to=date_to)
+            if not build_revenue_report_data(scope).sections:
+                continue  # skip empty periods; do not set the marker
 
-        export = FileExport.objects.create(
-            requested_by=org.owner,
-            export_type=FileExport.ExportType.REVENUE_VAT_REPORT,
-            parameters=_scope_to_parameters(scope, compute_revenue_data_hash(scope)),
-        )
-        generate_revenue_report(export.id)
-        export.refresh_from_db()
+            export = FileExport.objects.create(
+                requested_by=org.owner,
+                export_type=FileExport.ExportType.REVENUE_VAT_REPORT,
+                parameters=_scope_to_parameters(scope, compute_revenue_data_hash(scope)),
+            )
+            generate_revenue_report(export.id)
+            export.refresh_from_db()
 
-        recipients = [org.billing_email]
-        if org.owner.email and org.owner.email != org.billing_email:
-            recipients.append(org.owner.email)
-        body = render_to_string(
-            "emails/revenue_report.txt",
-            {"org": org, "label": label, "snapshot_date": now_utc.date()},
-        )
-        send_email.delay(
-            to=recipients,
-            subject=f"Revenue & VAT report — {label}",
-            body=body,
-            attachment_storage_path=export.file.name,
-            attachment_filename=report_filename(scope),
-            attachment_mime_type="application/zip",
-        )
-        Organization.objects.filter(pk=org.pk).update(last_revenue_report_sent_period=label)
-        delivered += 1
+            recipients = [org.billing_email]
+            if org.owner.email and org.owner.email != org.billing_email:
+                recipients.append(org.owner.email)
+            body = render_to_string(
+                "emails/revenue_report.txt",
+                {"org": org, "label": label, "snapshot_date": now_utc.date()},
+            )
+            send_email.delay(
+                to=recipients,
+                subject=f"Revenue & VAT report — {label}",
+                body=body,
+                attachment_storage_path=export.file.name,
+                attachment_filename=report_filename(scope),
+                attachment_mime_type="application/zip",
+            )
+            Organization.objects.filter(pk=org.pk).update(last_revenue_report_sent_period=label)
+            delivered += 1
+        except Exception:
+            logger.exception("deliver_scheduled_revenue_reports: error for org", org_id=str(org.id))
+            continue  # do not set the marker; retry next run
 
     return delivered
