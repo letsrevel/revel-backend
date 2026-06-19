@@ -19,7 +19,7 @@ from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from common.utils import get_or_create_with_race_protection
-from moderation.service.fooditem_guard import screen_food_item_name
+from moderation.blocklist.screen import is_blocked
 
 
 @api_controller("/dietary", tags=["Dietary"], auth=I18nJWTAuth(), throttle=UserDefaultThrottle())
@@ -57,7 +57,8 @@ class DietaryController(UserAwareController):
         already exists, returns the existing item with 200 status. This prevents duplicate food items
         and allows users to freely create items during restriction creation.
         """
-        screen_food_item_name(payload.name)  # blocked name → 422
+        if is_blocked(payload.name):
+            raise HttpError(status.HTTP_422_UNPROCESSABLE_ENTITY, str(_("This name is not allowed.")))
         existing = FoodItem.objects.filter(name__iexact=payload.name).first()
         if existing:
             return status.HTTP_200_OK, existing
@@ -97,7 +98,8 @@ class DietaryController(UserAwareController):
         Creates a restriction linked to a food item. If the food item doesn't exist (case-insensitive),
         it will be created automatically. Returns 400 if a restriction for this food item already exists.
         """
-        screen_food_item_name(payload.food_item_name)  # blocked name → 422
+        if is_blocked(payload.food_item_name):
+            raise HttpError(status.HTTP_422_UNPROCESSABLE_ENTITY, str(_("This name is not allowed.")))
         food_item, _created = get_or_create_with_race_protection(
             FoodItem,
             Q(name__iexact=payload.food_item_name),
