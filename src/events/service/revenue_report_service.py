@@ -1,5 +1,6 @@
 """Revenue & VAT report aggregation and content hash (#551)."""
 
+import calendar
 import hashlib
 import io
 import typing as t
@@ -10,7 +11,6 @@ from decimal import Decimal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
@@ -20,6 +20,7 @@ from common.models import FileExport
 from common.service.export_service import complete_export, fail_export, start_export
 from common.service.vat_utils import calculate_vat_inclusive
 from events.models import Organization, Payment, Ticket, TicketTier
+from events.utils import get_organization_timezone
 
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
@@ -94,13 +95,45 @@ class RevenueReportData:
 
 
 def organization_timezone(org: Organization) -> ZoneInfo:
-    """Return the org's city timezone, falling back to the platform default.
+    """Return the org's city timezone, falling back to the platform default."""
+    return get_organization_timezone(org)
 
-    Task 8 will refactor this to delegate to events.utils.get_organization_timezone.
+
+def closed_period_for(cadence: str, now_local: datetime) -> tuple[date, date, str] | None:
+    """The most-recently-closed reporting period for the cadence, in local time.
+
+    QUARTERLY only fires in the month after a quarter closes (Jan/Apr/Jul/Oct).
+    Returns (date_from, date_to, label) or None when nothing closed this month.
+
+    Args:
+        cadence: One of ``Organization.RevenueReportCadence`` values.
+        now_local: Current local datetime (timezone-aware, in the org's tz).
+
+    Returns:
+        ``(date_from, date_to, label)`` for the most recently closed period,
+        or ``None`` when the cadence produces no report this month.
     """
-    if org.city and org.city.timezone:
-        return ZoneInfo(org.city.timezone)
-    return ZoneInfo(settings.TIME_ZONE)
+    from events.models import Organization
+
+    if cadence == Organization.RevenueReportCadence.MONTHLY:
+        year = now_local.year if now_local.month > 1 else now_local.year - 1
+        month = now_local.month - 1 or 12
+        last_day = calendar.monthrange(year, month)[1]
+        return date(year, month, 1), date(year, month, last_day), f"{year}-{month:02d}"
+
+    if cadence == Organization.RevenueReportCadence.QUARTERLY:
+        if now_local.month not in (1, 4, 7, 10):
+            return None
+        if now_local.month == 1:
+            year, quarter = now_local.year - 1, 4
+        else:
+            year, quarter = now_local.year, (now_local.month - 1) // 3
+        start_month = (quarter - 1) * 3 + 1
+        end_month = start_month + 2
+        last_day = calendar.monthrange(year, end_month)[1]
+        return date(year, start_month, 1), date(year, end_month, last_day), f"{year}-Q{quarter}"
+
+    return None
 
 
 def _local_date(value: datetime, tz: ZoneInfo) -> date:

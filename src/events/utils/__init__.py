@@ -15,6 +15,7 @@ from io import BytesIO
 from zoneinfo import ZoneInfo
 
 import structlog
+from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.dateformat import format as date_format
@@ -22,7 +23,7 @@ from django.utils.dateformat import format as date_format
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
     from events import models
-    from events.models import Ticket
+    from events.models import Organization, Ticket
 
 logger = structlog.get_logger(__name__)
 
@@ -81,6 +82,21 @@ def get_event_timezone(event: "models.Event") -> ZoneInfo:
                 timezone=event.city.timezone,
             )
     return ZoneInfo("UTC")
+
+
+def get_organization_timezone(org: "Organization") -> ZoneInfo:
+    """Return the org's city timezone, falling back to the platform default.
+
+    Args:
+        org: Organization instance.
+
+    Returns:
+        A ``ZoneInfo`` for the org's city timezone, or the platform default
+        (``settings.TIME_ZONE``) when no city or timezone is set.
+    """
+    if org.city and org.city.timezone:
+        return ZoneInfo(org.city.timezone)
+    return ZoneInfo(settings.TIME_ZONE)
 
 
 def format_event_datetime(
