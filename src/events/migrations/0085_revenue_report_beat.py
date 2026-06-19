@@ -21,7 +21,7 @@ def create_periodic_tasks(apps: t.Any, schema_editor: t.Any) -> None:
     PeriodicTask.objects.update_or_create(
         name="Send scheduled revenue reports",
         defaults={
-            "task": "events.tasks.send_scheduled_revenue_reports_task",
+            "task": "events.send_scheduled_revenue_reports",
             "crontab": schedule,
             "enabled": True,
         },

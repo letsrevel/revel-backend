@@ -340,4 +340,4 @@ def test_revenue_vat_report_export_type_exists() -> None:
     """#551 adds a dedicated export type for revenue/VAT reports."""
     from common.models import FileExport
 
-    assert FileExport.ExportType.REVENUE_VAT_REPORT == "revenue_vat_report"
+    assert FileExport.ExportType.REVENUE_VAT_REPORT.value == "revenue_vat_report"
