@@ -55,6 +55,7 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     visibility: Organization.Visibility
     accept_membership_requests: bool = False
     contact_method: Organization.ContactMethod = Organization.ContactMethod.NONE
+    revenue_report_cadence: Organization.RevenueReportCadence = Organization.RevenueReportCadence.NONE
 
 
 class OrganizationBillingInfoSchema(Schema):
@@ -193,6 +194,7 @@ class OrganizationAdminDetailSchema(
     billing_address: str
     billing_email: str
     invoicing_mode: OrganizationModel.InvoicingMode
+    revenue_report_cadence: OrganizationModel.RevenueReportCadence
 
 
 class OrganizationPermissionsSchema(Schema):
