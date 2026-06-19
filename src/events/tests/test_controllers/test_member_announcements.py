@@ -172,6 +172,7 @@ class TestMemberAnnouncementsEndpoint:
         assert len(data) == 1
         assert data[0]["id"] == str(announcement.id)
         assert data[0]["title"] == "Members Announcement"
+        assert data[0]["audience"] == Announcement.Audience.MEMBERS.value
 
     def test_new_member_sees_announcement_with_past_visibility(
         self,
@@ -295,6 +296,7 @@ class TestMemberAnnouncementsEndpoint:
         data = response.json()
         assert len(data) == 1
         assert data[0]["id"] == str(announcement.id)
+        assert data[0]["audience"] == Announcement.Audience.STAFF.value
 
     def test_member_does_not_see_staff_only_announcement(
         self,

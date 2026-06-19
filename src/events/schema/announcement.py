@@ -248,6 +248,7 @@ class AnnouncementPublicSchema(Schema):
     id: UUID
     title: str
     body: str
+    audience: Announcement.Audience
     sent_at: AwareDatetime | None = None
     organization_name: str | None = None
     event_name: str | None = None

@@ -100,6 +100,12 @@ class Announcement(TimeStampedModel):
         EVENT_START = "event_start", _("Event start")
         EVENT_END = "event_end", _("Event end")
 
+    class Audience(models.TextChoices):
+        EVENT = "event", _("Event attendees")
+        MEMBERS = "members", _("All members")
+        TIERS = "tiers", _("Specific membership tiers")
+        STAFF = "staff", _("Staff only")
+
     organization = models.ForeignKey(
         "events.Organization",
         on_delete=models.CASCADE,
@@ -188,6 +194,24 @@ class Announcement(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.title} ({self.organization.name})"
+
+    @property
+    def audience(self) -> "Announcement.Audience":
+        """Coarse descriptor of who can see this announcement.
+
+        Mirrors the targeting precedence used by ``get_recipients`` so the
+        public card can pick an icon + label without exposing any PII. Uses the
+        prefetched ``target_tiers`` cache (``len(... .all())``) to avoid an
+        extra query when tiers are prefetched. Defaults to ``STAFF`` for the
+        (validation-prevented) no-target case.
+        """
+        if self.event_id:
+            return self.Audience.EVENT
+        if self.target_all_members:
+            return self.Audience.MEMBERS
+        if len(self.target_tiers.all()):
+            return self.Audience.TIERS
+        return self.Audience.STAFF
 
     @property
     def effective_send_at(self) -> dt.datetime | None:

@@ -110,6 +110,7 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     waitlist_open: bool | None = None
     start: AwareDatetime
     end: AwareDatetime
+    timezone: str
     rsvp_before: AwareDatetime | None = None
     logo: str | None = None
     cover_art: str | None = None
@@ -134,6 +135,18 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     seats_held: int = 0
     is_bookmarked: bool = False
     cancellation_reason: str | None = None
+
+    @staticmethod
+    def resolve_timezone(obj: "Event") -> str:
+        """Expose the event's IANA timezone (e.g. ``Europe/Vienna``).
+
+        Mirrors the timezone the backend uses to format emails/notifications
+        (``get_event_timezone``), derived from the event's city with a UTC
+        fallback. The frontend renders the abbreviation/offset from this.
+        """
+        from events.utils import get_event_timezone
+
+        return str(get_event_timezone(obj))
 
     @staticmethod
     def resolve_cancellation_reason(obj: "Event", context: t.Any) -> str | None:

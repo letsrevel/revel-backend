@@ -527,6 +527,7 @@ class OrganizationController(UserAwareController):
                 status=models.Announcement.AnnouncementStatus.SENT,
             )
             .select_related("organization")
+            .prefetch_related("target_tiers")
             .order_by("-sent_at")
         )
 
