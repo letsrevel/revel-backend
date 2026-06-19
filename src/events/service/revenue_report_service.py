@@ -11,12 +11,18 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 from openpyxl import Workbook
 
+from common.models import FileExport
+from common.service.export_service import complete_export, fail_export, start_export
 from common.service.vat_utils import calculate_vat_inclusive
 from events.models import Organization, Payment, Ticket, TicketTier
+
+if t.TYPE_CHECKING:
+    from accounts.models import RevelUser
 
 ZERO = Decimal("0.00")
 _REVERSE_CHARGE_LABEL = "0% / reverse-charge"
@@ -460,3 +466,89 @@ def build_zip(data: RevenueReportData) -> bytes:
         zf.writestr(report_filename(data.scope, "pdf"), build_pdf(data))
     buf.seek(0)
     return buf.read()
+
+
+# ---------------------------------------------------------------------------
+# Cache + generation
+# ---------------------------------------------------------------------------
+
+# ponytail: event_id is stored as "" (empty string) rather than JSON null so
+# that the JSONField lookup `parameters__event_id=""` works reliably in
+# Postgres. A JSON null value requires IS NULL semantics in Postgres jsonb,
+# which Django's JSONField `__exact` lookup does not emit when the value is
+# Python None — it would produce `@> 'null'::jsonb` which misses rows in some
+# Django versions. Using "" avoids the null-in-JSON ambiguity entirely.
+# _parameters_to_scope converts "" back to None when rebuilding the scope.
+_NO_EVENT = ""
+
+
+def _scope_to_parameters(scope: ReportScope, data_hash: str) -> dict[str, t.Any]:
+    return {
+        "org_id": str(scope.org.id),
+        "event_id": str(scope.event_id) if scope.event_id else _NO_EVENT,
+        "date_from": scope.date_from.isoformat(),
+        "date_to": scope.date_to.isoformat(),
+        "data_hash": data_hash,
+    }
+
+
+def _parameters_to_scope(parameters: dict[str, t.Any]) -> ReportScope:
+    org = Organization.objects.get(id=parameters["org_id"])
+    event_id_raw = parameters["event_id"]
+    return ReportScope(
+        org=org,
+        event_id=UUID(event_id_raw) if event_id_raw else None,
+        date_from=date.fromisoformat(parameters["date_from"]),
+        date_to=date.fromisoformat(parameters["date_to"]),
+    )
+
+
+def get_or_generate_revenue_report(
+    org: Organization,
+    scope: ReportScope,
+    requested_by: "RevelUser",
+    refresh: bool = False,
+) -> FileExport:
+    """Return a READY cached export when one matches, else enqueue generation."""
+    data_hash = compute_revenue_data_hash(scope)
+    parameters = _scope_to_parameters(scope, data_hash)
+
+    if not refresh:
+        cached = (
+            FileExport.objects.filter(
+                export_type=FileExport.ExportType.REVENUE_VAT_REPORT,
+                status=FileExport.ExportStatus.READY,
+                parameters__org_id=parameters["org_id"],
+                parameters__event_id=parameters["event_id"],
+                parameters__date_from=parameters["date_from"],
+                parameters__date_to=parameters["date_to"],
+                parameters__data_hash=data_hash,
+            )
+            .order_by("-completed_at")
+            .first()
+        )
+        if cached is not None:
+            return cached
+
+    export = FileExport.objects.create(
+        requested_by=requested_by,
+        export_type=FileExport.ExportType.REVENUE_VAT_REPORT,
+        parameters=parameters,
+    )
+    from events.tasks import generate_revenue_report_task
+
+    transaction.on_commit(lambda: generate_revenue_report_task.delay(str(export.id)))
+    return export
+
+
+def generate_revenue_report(export_id: UUID) -> None:
+    """Build the ZIP bundle for an export and mark it READY (or FAILED)."""
+    export = FileExport.objects.select_related("requested_by").get(pk=export_id)
+    start_export(export)
+    try:
+        scope = _parameters_to_scope(export.parameters)
+        data = build_revenue_report_data(scope)
+        complete_export(export, build_zip(data), report_filename(scope))
+    except Exception as exc:  # let Celery record the failure after marking FAILED
+        fail_export(export, f"Revenue report failed: {exc}")
+        raise

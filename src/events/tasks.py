@@ -583,6 +583,14 @@ def generate_attendee_export_task(export_id: str) -> None:
 
 
 @shared_task
+def generate_revenue_report_task(export_id: str) -> None:
+    """Generate the revenue & VAT report bundle for a FileExport (#551)."""
+    from events.service.revenue_report_service import generate_revenue_report
+
+    generate_revenue_report(UUID(export_id))
+
+
+@shared_task
 def send_organization_contact_email_verification(
     email: str, token: str, organization_name: str, organization_slug: str
 ) -> None:
