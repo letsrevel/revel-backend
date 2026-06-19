@@ -13,12 +13,14 @@ from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
+from django.template.loader import render_to_string
 from django.utils import timezone
 from openpyxl import Workbook
 
 from common.models import FileExport
 from common.service.export_service import complete_export, fail_export, start_export
 from common.service.vat_utils import calculate_vat_inclusive
+from common.tasks import send_email
 from events.models import Organization, Payment, Ticket, TicketTier
 from events.utils import get_organization_timezone
 
@@ -113,8 +115,6 @@ def closed_period_for(cadence: str, now_local: datetime) -> tuple[date, date, st
         ``(date_from, date_to, label)`` for the most recently closed period,
         or ``None`` when the cadence produces no report this month.
     """
-    from events.models import Organization
-
     if cadence == Organization.RevenueReportCadence.MONTHLY:
         year = now_local.year if now_local.month > 1 else now_local.year - 1
         month = now_local.month - 1 or 12
@@ -585,3 +585,54 @@ def generate_revenue_report(export_id: UUID) -> None:
     except Exception as exc:  # let Celery record the failure after marking FAILED
         fail_export(export, f"Revenue report failed: {exc}")
         raise
+
+
+def deliver_scheduled_revenue_reports(now_utc: datetime) -> int:
+    """Generate + email the just-closed period's report for opted-in orgs. Returns count sent."""
+    delivered = 0
+    orgs = (
+        Organization.objects.select_related("city", "owner")
+        .exclude(revenue_report_cadence=Organization.RevenueReportCadence.NONE)
+        .exclude(billing_email="")
+    )
+
+    for org in orgs:
+        tz = get_organization_timezone(org)
+        period = closed_period_for(org.revenue_report_cadence, now_utc.astimezone(tz))
+        if period is None:
+            continue
+        date_from, date_to, label = period
+        if org.last_revenue_report_sent_period == label:
+            continue
+
+        scope = ReportScope(org=org, event_id=None, date_from=date_from, date_to=date_to)
+        if not build_revenue_report_data(scope).sections:
+            continue  # skip empty periods; do not set the marker
+
+        export = FileExport.objects.create(
+            requested_by=org.owner,
+            export_type=FileExport.ExportType.REVENUE_VAT_REPORT,
+            parameters=_scope_to_parameters(scope, compute_revenue_data_hash(scope)),
+        )
+        generate_revenue_report(export.id)
+        export.refresh_from_db()
+
+        recipients = [org.billing_email]
+        if org.owner.email and org.owner.email != org.billing_email:
+            recipients.append(org.owner.email)
+        body = render_to_string(
+            "emails/revenue_report.txt",
+            {"org": org, "label": label, "snapshot_date": now_utc.date()},
+        )
+        send_email.delay(
+            to=recipients,
+            subject=f"Revenue & VAT report — {label}",
+            body=body,
+            attachment_storage_path=export.file.name,
+            attachment_filename=report_filename(scope),
+            attachment_mime_type="application/zip",
+        )
+        Organization.objects.filter(pk=org.pk).update(last_revenue_report_sent_period=label)
+        delivered += 1
+
+    return delivered
