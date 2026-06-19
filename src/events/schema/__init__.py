@@ -332,6 +332,9 @@ from .waitlist import (
     WaitlistSettingsUpdateSchema,
 )
 
+# Revenue report schemas
+from .revenue_report import RevenueReportRequestSchema
+
 __all__ = [
     # Mixins and utilities
     "CityEditMixin",
@@ -586,4 +589,6 @@ __all__ = [
     "WaitlistOfferSchema",
     "WaitlistSettingsSchema",
     "WaitlistSettingsUpdateSchema",
+    # Revenue report
+    "RevenueReportRequestSchema",
 ]
