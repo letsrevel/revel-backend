@@ -3,11 +3,13 @@
 import uuid
 from datetime import timedelta
 from decimal import Decimal
+from uuid import UUID
 
+from django.db.models import F
 from django.utils import timezone
 
 from events.management.commands.seeder.base import BaseSeeder
-from events.models import Payment, Ticket, TicketTier
+from events.models import CancellationSource, Payment, Ticket, TicketTier
 
 # Ticket tier name templates
 TIER_NAMES = [
@@ -279,43 +281,64 @@ class TicketSeeder(BaseSeeder):
         self.log("Creating payments...")
 
         payments_to_create: list[Payment] = []
+        refunded_tickets: list[Ticket] = []
+        tier_refund_counts: dict[UUID, int] = {}
 
-        # Get tickets with online payment tiers that don't already have payments
         online_tickets = Ticket.objects.filter(
             tier__payment_method=TicketTier.PaymentMethod.ONLINE,
             payment__isnull=True,
         ).select_related("tier", "user")
 
-        for ticket in online_tickets:
-            # Status distribution
-            status_key = self.weighted_choice(self.config.payment_status_weights)
-            status_map = {
-                "succeeded": Payment.PaymentStatus.SUCCEEDED,
-                "pending": Payment.PaymentStatus.PENDING,
-                "failed": Payment.PaymentStatus.FAILED,
-                "refunded": Payment.PaymentStatus.REFUNDED,
-            }
-            status = status_map[status_key]
+        now = timezone.now()
+        status_map = {
+            "succeeded": Payment.PaymentStatus.SUCCEEDED,
+            "pending": Payment.PaymentStatus.PENDING,
+            "failed": Payment.PaymentStatus.FAILED,
+            "refunded": Payment.PaymentStatus.REFUNDED,
+        }
 
-            # Calculate platform fee (5%)
+        for ticket in online_tickets:
+            status = status_map[self.weighted_choice(self.config.payment_status_weights)]
             amount = ticket.tier.price
             platform_fee = amount * Decimal("0.05")
 
-            payments_to_create.append(
-                Payment(
-                    ticket=ticket,
-                    user=ticket.user,
-                    stripe_session_id=f"cs_test_{uuid.uuid4().hex[:24]}",
-                    stripe_payment_intent_id=f"pi_test_{uuid.uuid4().hex[:24]}"
-                    if status != Payment.PaymentStatus.PENDING
-                    else None,
-                    status=status,
-                    amount=amount,
-                    platform_fee=platform_fee,
-                    currency=ticket.tier.currency,
-                    expires_at=timezone.now() + timedelta(minutes=30),
-                )
+            payment = Payment(
+                ticket=ticket,
+                user=ticket.user,
+                stripe_session_id=f"cs_test_{uuid.uuid4().hex[:24]}",
+                stripe_payment_intent_id=(
+                    f"pi_test_{uuid.uuid4().hex[:24]}" if status != Payment.PaymentStatus.PENDING else None
+                ),
+                status=status,
+                amount=amount,
+                platform_fee=platform_fee,
+                currency=ticket.tier.currency,
+                expires_at=now + timedelta(minutes=30),
             )
+
+            if status == Payment.PaymentStatus.REFUNDED:
+                # Mirror the production refund path so seeded data is internally
+                # consistent (issue #550). ~70% full, ~30% partial refunds.
+                is_full = self.weighted_choice({"full": 0.7, "partial": 0.3}) == "full"
+                refund_amount = amount if is_full else (amount * Decimal("0.5")).quantize(Decimal("0.01"))
+                payment.refund_amount = refund_amount
+                payment.refund_status = Payment.RefundStatus.SUCCEEDED
+                payment.refunded_at = now
+                payment.stripe_refund_id = f"re_test_{uuid.uuid4().hex[:24]}"
+
+                ticket.status = Ticket.TicketStatus.CANCELLED
+                ticket.cancelled_at = now
+                ticket.cancellation_source = CancellationSource.STRIPE_DASHBOARD
+                refunded_tickets.append(ticket)
+                tier_refund_counts[ticket.tier_id] = tier_refund_counts.get(ticket.tier_id, 0) + 1
+
+            payments_to_create.append(payment)
 
         self.batch_create(Payment, payments_to_create, desc="Creating payments")
         self.log(f"  Created {len(payments_to_create)} payments")
+
+        if refunded_tickets:
+            Ticket.objects.bulk_update(refunded_tickets, ["status", "cancelled_at", "cancellation_source"])
+            for tier_id, n in tier_refund_counts.items():
+                TicketTier.objects.filter(pk=tier_id, quantity_sold__gte=n).update(quantity_sold=F("quantity_sold") - n)
+            self.log(f"  Refunded {len(refunded_tickets)} tickets")
