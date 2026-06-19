@@ -1736,6 +1736,9 @@ msgstr "Tu as demandé un ticket pour %(event_name)s (%(tier_name)s)."
 msgid "To confirm your ticket purchase, please click the link below:"
 msgstr "Pour confirmer ton achat de ticket, clique sur le lien ci-dessous :"
 
+msgid "This name is not allowed."
+msgstr "Ce nom n'est pas autorisé."
+
 msgid "Immediate"
 msgstr "Immédiat"
 
@@ -2189,7 +2192,8 @@ msgid "Unsubscribe or manage notification preferences:"
 msgstr "Se désabonner ou gérer les préférences de notification :"
 
 msgid "All times are shown in the event's local timezone."
-msgstr "Toutes les heures sont affichées dans le fuseau horaire local de l'événement."
+msgstr ""
+"Toutes les heures sont affichées dans le fuseau horaire local de l'événement."
 
 msgid "Your account has been suspended for violating our Terms of Service."
 msgstr ""

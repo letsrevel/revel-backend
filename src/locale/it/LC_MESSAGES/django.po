@@ -1694,6 +1694,9 @@ msgstr "Hai richiesto un biglietto per %(event_name)s (%(tier_name)s)."
 msgid "To confirm your ticket purchase, please click the link below:"
 msgstr "Per confermare l'acquisto del biglietto, clicca il link qui sotto:"
 
+msgid "This name is not allowed."
+msgstr "Questo nome non è consentito."
+
 msgid "Immediate"
 msgstr "Immediato"
 
