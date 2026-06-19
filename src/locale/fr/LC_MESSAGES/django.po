@@ -985,6 +985,18 @@ msgstr "Début de l'événement"
 msgid "Event end"
 msgstr "Fin de l'événement"
 
+msgid "Event attendees"
+msgstr "Participants à l'événement"
+
+msgid "All members"
+msgstr "Tous les membres"
+
+msgid "Specific membership tiers"
+msgstr "Niveaux d'adhésion spécifiques"
+
+msgid "Staff only"
+msgstr "Staff uniquement"
+
 msgid "Target all active organization members"
 msgstr "Cibler tout·e·s les membres actif·ve·s de l'organisation"
 

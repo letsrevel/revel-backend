@@ -633,3 +633,48 @@ class TestAnnouncementClean:
         )
         with pytest.raises(ValidationError):
             ann.full_clean()
+
+
+class TestAnnouncementAudience:
+    """Tests for the audience property (mirrors get_recipients precedence)."""
+
+    def test_event_targeting_is_event_audience(self, org: Organization, org_owner: RevelUser, event: Event) -> None:
+        """An event-scoped announcement resolves to the EVENT audience."""
+        ann = Announcement.objects.create(organization=org, event=event, title="t", body="b", created_by=org_owner)
+        assert ann.audience == Announcement.Audience.EVENT
+
+    def test_all_members_targeting_is_members_audience(self, org: Organization, org_owner: RevelUser) -> None:
+        """A target_all_members announcement resolves to the MEMBERS audience."""
+        ann = Announcement.objects.create(
+            organization=org, title="t", body="b", target_all_members=True, created_by=org_owner
+        )
+        assert ann.audience == Announcement.Audience.MEMBERS
+
+    def test_tier_targeting_is_tiers_audience(self, org: Organization, org_owner: RevelUser) -> None:
+        """A tier-targeted announcement resolves to the TIERS audience."""
+        tier = MembershipTier.objects.create(organization=org, name="VIP")
+        ann = Announcement.objects.create(organization=org, title="t", body="b", created_by=org_owner)
+        ann.target_tiers.add(tier)
+        assert ann.audience == Announcement.Audience.TIERS
+
+    def test_staff_only_targeting_is_staff_audience(self, org: Organization, org_owner: RevelUser) -> None:
+        """A staff-only announcement resolves to the STAFF audience."""
+        ann = Announcement.objects.create(
+            organization=org, title="t", body="b", target_staff_only=True, created_by=org_owner
+        )
+        assert ann.audience == Announcement.Audience.STAFF
+
+    def test_event_takes_precedence_over_member_flags(
+        self, org: Organization, org_owner: RevelUser, event: Event
+    ) -> None:
+        """Event scope wins over member/staff flags, mirroring get_recipients."""
+        ann = Announcement.objects.create(
+            organization=org,
+            event=event,
+            title="t",
+            body="b",
+            target_all_members=True,
+            target_staff_only=True,
+            created_by=org_owner,
+        )
+        assert ann.audience == Announcement.Audience.EVENT

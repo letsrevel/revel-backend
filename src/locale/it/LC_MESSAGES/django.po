@@ -961,6 +961,18 @@ msgstr "Inizio dell'evento"
 msgid "Event end"
 msgstr "Fine dell'evento"
 
+msgid "Event attendees"
+msgstr "Partecipanti all'evento"
+
+msgid "All members"
+msgstr "Tutti i membri"
+
+msgid "Specific membership tiers"
+msgstr "Livelli di iscrizione specifici"
+
+msgid "Staff only"
+msgstr "Solo staff"
+
 msgid "Target all active organization members"
 msgstr "Invia a tutti i membri attivi dell'organizzazione"
 
