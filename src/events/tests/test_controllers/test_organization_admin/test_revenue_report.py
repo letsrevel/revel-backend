@@ -41,6 +41,16 @@ def test_post_revenue_report_returns_file_export(owner_org: t.Any, django_captur
 
 
 @pytest.mark.django_db
+def test_malformed_event_id_returns_422(owner_org: t.Any) -> None:
+    """A non-UUID event_id is rejected at the schema boundary (422), not a 500."""
+    owner, org = owner_org
+    client = _jwt_client(owner)
+    url = reverse("api:create_revenue_report", kwargs={"slug": org.slug})
+    resp = client.post(url, data={"event_id": "not-a-uuid"}, content_type="application/json")
+    assert resp.status_code == 422
+
+
+@pytest.mark.django_db
 def test_non_admin_is_denied(owner_org: t.Any) -> None:
     _, org = owner_org
     stranger = RevelUser.objects.create_user(username="x", email="x@example.com", password="x")

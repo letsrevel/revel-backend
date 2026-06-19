@@ -126,6 +126,34 @@ def test_refund_reduces_bucket_and_reports_refund_total(
 
 
 @pytest.mark.django_db
+def test_offline_zero_refund_still_increments_refunded_count(
+    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
+) -> None:
+    """An offline ticket cancelled with a 0 refund is counted as refunded (#554 review)."""
+    org, event, _, user = org_event_tier
+    offline_tier = TicketTier.objects.create(
+        event=event,
+        name="Door",
+        price=Decimal("60.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.OFFLINE,
+    )
+    Ticket.objects.create(
+        event=event,
+        tier=offline_tier,
+        user=user,
+        status=Ticket.TicketStatus.CANCELLED,
+        guest_name="Bob",
+        offline_refund_amount=Decimal("0.00"),
+        cancelled_at=timezone.now(),
+    )
+    data = svc.build_revenue_report_data(_scope(org))
+    section = next(s for s in data.sections if s.currency == "EUR")
+    assert section.refunded_count == 1
+    assert section.refunds_total == Decimal("0.00")
+
+
+@pytest.mark.django_db
 def test_empty_period_returns_empty_sections(
     org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
 ) -> None:

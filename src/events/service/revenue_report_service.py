@@ -312,7 +312,7 @@ def _process_ticket(
 
     if sale_in:
         _add_sale(acc, breakdown.net_amount, breakdown.vat_amount, gross, org_rate, False)
-    if refund_in and ticket.offline_refund_amount:
+    if refund_in and ticket.offline_refund_amount is not None:
         _add_refund(acc, ticket.offline_refund_amount, org_rate, False)
 
     if sale_in or refund_in:
@@ -520,7 +520,17 @@ def build_zip(data: RevenueReportData) -> bytes:
 _NO_EVENT = ""
 
 
-def _scope_to_parameters(scope: ReportScope, data_hash: str) -> dict[str, t.Any]:
+class _ScopeParameters(t.TypedDict):
+    """Serialized ``ReportScope`` stored on ``FileExport.parameters`` for cache lookup."""
+
+    org_id: str
+    event_id: str
+    date_from: str
+    date_to: str
+    data_hash: str
+
+
+def _scope_to_parameters(scope: ReportScope, data_hash: str) -> _ScopeParameters:
     return {
         "org_id": str(scope.org.id),
         "event_id": str(scope.event_id) if scope.event_id else _NO_EVENT,
@@ -628,7 +638,7 @@ def deliver_scheduled_revenue_reports(now_utc: datetime) -> int:
                 recipients.append(org.owner.email)
             body = render_to_string(
                 "emails/revenue_report.txt",
-                {"org": org, "label": label, "snapshot_date": now_utc.date()},
+                {"org": org, "label": label, "snapshot_date": now_utc.astimezone(tz).date()},
             )
             send_email.delay(
                 to=recipients,

@@ -37,7 +37,7 @@ class OrganizationAdminRevenueController(OrganizationAdminBaseController):
         today = dt.datetime.now(tz).date()
         scope = revenue_report_service.ReportScope(
             org=org,
-            event_id=UUID(payload.event_id) if payload.event_id else None,
+            event_id=payload.event_id,
             date_from=payload.date_from or today.replace(month=1, day=1),
             date_to=payload.date_to or today,
         )
