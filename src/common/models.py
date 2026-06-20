@@ -415,6 +415,7 @@ class FileExport(TimeStampedModel):
     class ExportType(models.TextChoices):
         QUESTIONNAIRE_SUBMISSIONS = "questionnaire_submissions"
         ATTENDEE_LIST = "attendee_list"
+        REVENUE_VAT_REPORT = "revenue_vat_report"
 
     requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="file_exports")
     export_type = models.CharField(max_length=40, choices=ExportType.choices, db_index=True)

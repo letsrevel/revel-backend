@@ -14,7 +14,8 @@ from common.schema import ValidationErrorResponse
 from common.throttling import ExportThrottle, UserDefaultThrottle, WriteThrottle
 from events import filters, models, schema
 from events.controllers.permissions import EventPermission
-from events.service import ticket_service
+from events.schema.financials import EventFinancialsSchema
+from events.service import revenue_aggregation, ticket_service
 
 from .base import EventAdminBaseController
 
@@ -333,23 +334,25 @@ class EventAdminTicketsController(EventAdminBaseController):
     @route.get(
         "/revenue",
         url_name="event_revenue",
-        response=schema.EventRevenueSchema,
+        response=EventFinancialsSchema,
         permissions=[EventPermission("manage_tickets")],
         throttle=UserDefaultThrottle(),
     )
-    def get_event_revenue(self, event_id: UUID) -> schema.EventRevenueSchema:
-        """Aggregate ticket revenue for an event, grouped by currency.
-
-        Sums online (Stripe) payments and offline/at-the-door amounts confirmed as
-        paid. Online refunds are reflected in ``refunded``/``net``; offline refunds
-        are not yet tracked (see #528). ``paid_ticket_count`` counts currently-held
-        paid tickets.
-        """
+    def get_event_revenue(
+        self,
+        event_id: UUID,
+        year: int | None = None,
+        month: int | None = Query(None, ge=1, le=12),  # type: ignore[type-arg]
+        quarter: int | None = Query(None, ge=1, le=4),  # type: ignore[type-arg]
+    ) -> revenue_aggregation.EventFinancials:
+        """Per-event financials, all-time by default; optional year/month/quarter filter."""
         event = self.get_one(event_id)
-        revenue = ticket_service.get_event_revenue(event)
-        return schema.EventRevenueSchema(
-            by_currency=[schema.CurrencyRevenueSchema.model_validate(item) for item in revenue]
+        tz = revenue_aggregation.organization_timezone(event.organization)
+        date_from, date_to = revenue_aggregation.resolve_period(year, month, quarter, tz, default_all_time=True)
+        scope = revenue_aggregation.ReportScope(
+            org=event.organization, event_id=event.id, date_from=date_from, date_to=date_to
         )
+        return revenue_aggregation.event_financials(event, scope)
 
     # ---- Export ----
 

@@ -114,8 +114,6 @@ from .ticket import (
     CheckInResponseSchema,
     ConfirmPaymentSchema,
     Currencies,
-    CurrencyRevenueSchema,
-    EventRevenueSchema,
     GuestActionConfirmSchema,
     GuestActionPayload,
     GuestActionResponseSchema,
@@ -332,6 +330,17 @@ from .waitlist import (
     WaitlistSettingsUpdateSchema,
 )
 
+# Revenue report schemas
+from .revenue_report import RevenueReportRequestSchema
+
+# Financials schemas
+from .financials import (
+    CurrencyFinancialsSchema,
+    EventFinancialsSchema,
+    OrganizationFinancialsSchema,
+    RateBucketSchema,
+)
+
 __all__ = [
     # Mixins and utilities
     "CityEditMixin",
@@ -425,8 +434,6 @@ __all__ = [
     "CheckInResponseSchema",
     "ConfirmPaymentSchema",
     "Currencies",
-    "CurrencyRevenueSchema",
-    "EventRevenueSchema",
     "GuestActionConfirmSchema",
     "GuestActionPayload",
     "GuestActionResponseSchema",
@@ -586,4 +593,11 @@ __all__ = [
     "WaitlistOfferSchema",
     "WaitlistSettingsSchema",
     "WaitlistSettingsUpdateSchema",
+    # Revenue report
+    "RevenueReportRequestSchema",
+    # Financials
+    "CurrencyFinancialsSchema",
+    "EventFinancialsSchema",
+    "OrganizationFinancialsSchema",
+    "RateBucketSchema",
 ]

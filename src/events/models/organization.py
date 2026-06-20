@@ -278,6 +278,13 @@ class Organization(
         EMAIL = "email", "Email"
         FORM = "form", "Form"
 
+    class RevenueReportCadence(models.TextChoices):
+        """Cadence for scheduled revenue & VAT report delivery."""
+
+        NONE = "none", "None"
+        QUARTERLY = "quarterly", "Quarterly"
+        MONTHLY = "monthly", "Monthly"
+
     name = models.CharField(max_length=255, unique=True)
     slug = models.SlugField(max_length=255, unique=True)
     description = MarkdownField(null=True, blank=True)
@@ -374,6 +381,20 @@ class Organization(
         choices=InvoicingMode.choices,
         default=InvoicingMode.NONE,
         help_text="Attendee invoicing mode: none, hybrid (draft + manual send), or auto (generate + send).",
+    )
+
+    # Revenue report delivery
+    revenue_report_cadence = models.CharField(
+        max_length=10,
+        choices=RevenueReportCadence.choices,
+        default=RevenueReportCadence.NONE,
+        help_text="Cadence for emailed revenue & VAT reports. Requires billing_email when not 'none'.",
+    )
+    last_revenue_report_sent_period = models.CharField(
+        max_length=16,
+        blank=True,
+        default="",
+        help_text="Last period for which a revenue report was sent (e.g. '2024-Q1' or '2024-03').",
     )
 
     # Membership subscriptions

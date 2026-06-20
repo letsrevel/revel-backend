@@ -1,0 +1,10 @@
+Hello,
+
+Your Revel revenue & VAT report for {{ label }} is attached as a ZIP (XLSX + PDF).
+
+Snapshot as of {{ snapshot_date }}. If refunds or chargebacks occur later, re-download
+the current version from your organization dashboard.
+
+This is an internal accounting document, not an invoice.
+
+— Revel

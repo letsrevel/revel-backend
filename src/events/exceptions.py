@@ -47,3 +47,7 @@ class InvalidStripeWebhookSignatureError(Exception):
 
 class DuplicateDiscountCodeError(Exception):
     """Raised when creating a discount code whose ``(organization, code)`` pair already exists."""
+
+
+class InvalidPeriodError(Exception):
+    """Raised when month and quarter period filters are combined."""

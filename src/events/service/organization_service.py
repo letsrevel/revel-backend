@@ -3,6 +3,7 @@ from datetime import timedelta
 from uuid import UUID
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
@@ -689,6 +690,7 @@ def update_organization(organization: Organization, payload: schema.Organization
     """Update an organization's editable fields.
 
     Validates ``contact_method`` against the organization's verified-email state
+    and ``revenue_report_cadence`` against the presence of ``billing_email``
     before persisting. Other fields are applied via ``update_db_instance``.
     """
     from events.service import update_db_instance
@@ -696,6 +698,12 @@ def update_organization(organization: Organization, payload: schema.Organization
     data = payload.model_dump(exclude_unset=True)
     if "contact_method" in data:
         validate_contact_method(organization, Organization.ContactMethod(data["contact_method"]))
+
+    # Apply cadence from payload (if present) before the billing_email check,
+    # so the check reflects the intended post-save state.
+    effective_cadence = data.get("revenue_report_cadence", organization.revenue_report_cadence)
+    if effective_cadence != Organization.RevenueReportCadence.NONE and not organization.billing_email:
+        raise ValidationError({"revenue_report_cadence": "A billing email is required to enable scheduled reports."})
 
     return update_db_instance(organization, payload)
 
