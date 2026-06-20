@@ -335,6 +335,14 @@ from .waitlist import (
 # Revenue report schemas
 from .revenue_report import RevenueReportRequestSchema
 
+# Financials schemas
+from events.schema.financials import (
+    CurrencyFinancialsSchema,
+    EventFinancialsSchema,
+    OrganizationFinancialsSchema,
+    RateBucketSchema,
+)
+
 __all__ = [
     # Mixins and utilities
     "CityEditMixin",
@@ -591,4 +599,9 @@ __all__ = [
     "WaitlistSettingsUpdateSchema",
     # Revenue report
     "RevenueReportRequestSchema",
+    # Financials
+    "CurrencyFinancialsSchema",
+    "EventFinancialsSchema",
+    "OrganizationFinancialsSchema",
+    "RateBucketSchema",
 ]
