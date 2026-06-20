@@ -26,6 +26,7 @@ from events.exceptions import (
     AlreadyMemberError,
     BillingInfoRequiredError,
     DuplicateDiscountCodeError,
+    InvalidPeriodError,
     InvalidResourceStateError,
     InvalidStripeWebhookSignatureError,
     OrganizationTokenGrantInvariantError,
@@ -89,6 +90,8 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     InvalidStripeWebhookSignatureError: make_static_handler(403, _("Invalid Stripe signature")),
     # Duplicate discount code → 409 with a clear, translatable message instead of an opaque 500.
     DuplicateDiscountCodeError: make_static_handler(409, _("A discount code with this code already exists.")),
+    # Mutually exclusive period selectors (month + quarter together) → 422.
+    InvalidPeriodError: make_simple_handler(422),
 }
 
 

@@ -91,6 +91,52 @@ class RevenueReportData:
     generated_at: datetime
 
 
+def resolve_period(
+    year: int | None,
+    month: int | None,
+    quarter: int | None,
+    tz: ZoneInfo,
+    *,
+    default_all_time: bool,
+) -> tuple[date, date]:
+    """Resolve (year, month, quarter) selectors into an inclusive date window.
+
+    ``month`` and ``quarter`` are mutually exclusive. With no selectors:
+    all-time (``date.min``..today) when ``default_all_time`` else the current year.
+
+    Args:
+        year: Optional calendar year (e.g. 2025).
+        month: Optional month number (1–12). Mutually exclusive with ``quarter``.
+        quarter: Optional quarter number (1–4). Mutually exclusive with ``month``.
+        tz: Timezone to use for resolving "today".
+        default_all_time: When ``True`` and no selectors are given, return
+            ``(date.min, today)``; when ``False``, return the current year span.
+
+    Returns:
+        Inclusive ``(date_from, date_to)`` window.
+
+    Raises:
+        InvalidPeriodError: When both ``month`` and ``quarter`` are specified.
+    """
+    from events.exceptions import InvalidPeriodError
+
+    if month is not None and quarter is not None:
+        raise InvalidPeriodError("Specify either month or quarter, not both.")
+    today = datetime.now(tz).date()
+    if year is None and month is None and quarter is None and default_all_time:
+        return date.min, today
+    year = year if year is not None else today.year
+    if month is not None:
+        last_day = calendar.monthrange(year, month)[1]
+        return date(year, month, 1), date(year, month, last_day)
+    if quarter is not None:
+        start_month = (quarter - 1) * 3 + 1
+        end_month = start_month + 2
+        last_day = calendar.monthrange(year, end_month)[1]
+        return date(year, start_month, 1), date(year, end_month, last_day)
+    return date(year, 1, 1), date(year, 12, 31)
+
+
 def organization_timezone(org: Organization) -> ZoneInfo:
     """Return the org's city timezone, falling back to the platform default."""
     return get_organization_timezone(org)
