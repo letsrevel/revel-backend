@@ -334,7 +334,7 @@ from .waitlist import (
 from .revenue_report import RevenueReportRequestSchema
 
 # Financials schemas
-from events.schema.financials import (
+from .financials import (
     CurrencyFinancialsSchema,
     EventFinancialsSchema,
     OrganizationFinancialsSchema,

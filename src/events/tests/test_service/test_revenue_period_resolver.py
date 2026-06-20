@@ -32,6 +32,19 @@ def test_quarter_window() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("quarter", "expected"),
+    [
+        (1, (dt.date(2025, 1, 1), dt.date(2025, 3, 31))),
+        (2, (dt.date(2025, 4, 1), dt.date(2025, 6, 30))),
+        (3, (dt.date(2025, 7, 1), dt.date(2025, 9, 30))),
+        (4, (dt.date(2025, 10, 1), dt.date(2025, 12, 31))),
+    ],
+)
+def test_all_quarter_windows(quarter: int, expected: tuple[dt.date, dt.date]) -> None:
+    assert resolve_period(2025, None, quarter, UTC, default_all_time=False) == expected
+
+
 def test_default_all_time_spans_min_to_today() -> None:
     date_from, date_to = resolve_period(None, None, None, UTC, default_all_time=True)
     assert date_from == dt.date.min
