@@ -10,7 +10,6 @@ from uuid import UUID
 import structlog
 from django.db import transaction
 from django.template.loader import render_to_string
-from django.utils import timezone
 from openpyxl import Workbook
 from openpyxl.styles import Alignment
 
@@ -20,12 +19,8 @@ from common.tasks import send_email
 from events.models import Organization
 from events.service.export.formatting import LABEL_FONT, auto_fit_columns, style_header_row
 from events.service.revenue_aggregation import (
-    ZERO,
-    CurrencySection,
-    RateBucket,
     ReportScope,
     RevenueReportData,
-    TxnRow,
     build_revenue_report_data,
     closed_period_for,
     compute_revenue_data_hash,

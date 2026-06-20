@@ -18,8 +18,8 @@ from zoneinfo import ZoneInfo
 if t.TYPE_CHECKING:
     from events.models import Event
 
-from django.utils import timezone
 from django.db.models import Q, QuerySet
+from django.utils import timezone
 
 from common.service.vat_utils import calculate_vat_inclusive
 from events.models import Organization, Payment, Ticket, TicketTier

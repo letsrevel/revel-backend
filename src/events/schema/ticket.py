@@ -500,30 +500,6 @@ class ReorderSchema(Schema):
     tier_ids: list[UUID]
 
 
-class CurrencyRevenueSchema(Schema):
-    """Aggregated ticket revenue for a single currency.
-
-    ``gross`` is the total ever successfully charged/collected (online payments
-    that succeeded or were later refunded, plus offline/at-the-door amounts
-    confirmed as paid). ``refunded`` covers online (Stripe) refunds only; offline
-    refunds are not yet tracked (see backend issue #528). ``net`` is
-    ``gross - refunded``. ``paid_ticket_count`` counts currently-held paid tickets
-    (refunded/cancelled tickets excluded).
-    """
-
-    currency: Currencies
-    gross: Decimal
-    refunded: Decimal
-    net: Decimal
-    paid_ticket_count: int
-
-
-class EventRevenueSchema(Schema):
-    """Per-event ticket revenue, grouped by currency."""
-
-    by_currency: list[CurrencyRevenueSchema]
-
-
 # --- Stripe Schemas ---
 
 # StripeOnboardingLinkSchema and StripeAccountStatusSchema live in common.schema
