@@ -1,6 +1,7 @@
 """Revenue & VAT report aggregation and content hash (#551)."""
 
 import calendar
+import copy
 import hashlib
 import io
 import typing as t
@@ -359,7 +360,7 @@ def _merge_currency(dst: _CurrencyAcc, src: _CurrencyAcc) -> None:
     for key, b in src.buckets.items():
         d = dst.buckets.get(key)
         if d is None:
-            dst.buckets[key] = b
+            dst.buckets[key] = copy.copy(b)
             continue
         d.sale_net += b.sale_net
         d.sale_vat += b.sale_vat
@@ -417,7 +418,7 @@ def _aggregate(scope: ReportScope, *, include_transactions: bool = True) -> dict
 def build_revenue_report_data(scope: ReportScope) -> RevenueReportData:
     """Aggregate ticket revenue into buckets by currency and VAT rate (org-wide)."""
     merged: dict[str, _CurrencyAcc] = {}
-    for agg in _aggregate(scope, include_transactions=True).values():
+    for agg in _aggregate(scope).values():
         for currency, acc in agg.currencies.items():
             _merge_currency(merged.setdefault(currency, _CurrencyAcc()), acc)
     sections = [s for currency, acc in sorted(merged.items()) if (s := _currency_section(currency, acc))]
