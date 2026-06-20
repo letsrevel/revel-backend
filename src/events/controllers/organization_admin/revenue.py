@@ -4,6 +4,7 @@ import datetime as dt
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
+from ninja import Query
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
@@ -12,7 +13,8 @@ from common.throttling import ExportThrottle, UserDefaultThrottle
 from events import schema
 from events.controllers.permissions import OrganizationPermission
 from events.schema.export import FileExportSchema
-from events.service import revenue_report_service
+from events.schema.financials import OrganizationFinancialsSchema
+from events.service import revenue_aggregation, revenue_report_service
 
 from .base import OrganizationAdminBaseController
 
@@ -43,6 +45,36 @@ class OrganizationAdminRevenueController(OrganizationAdminBaseController):
         )
         return revenue_report_service.get_or_generate_revenue_report(
             org, scope, requested_by=self.user(), refresh=refresh
+        )
+
+    @route.get(
+        "/revenue",
+        url_name="organization_financials",
+        response=OrganizationFinancialsSchema,
+        permissions=[OrganizationPermission("manage_organization")],
+        throttle=UserDefaultThrottle(),
+    )
+    def get_organization_financials(
+        self,
+        slug: str,
+        year: int | None = None,
+        month: int | None = Query(None, ge=1, le=12),  # type: ignore[type-arg]
+        quarter: int | None = Query(None, ge=1, le=4),  # type: ignore[type-arg]
+        currency: str | None = None,
+        sort: str = Query("revenue"),  # type: ignore[type-arg]
+        order: str = Query("desc"),  # type: ignore[type-arg]
+    ) -> revenue_aggregation.OrganizationFinancials:
+        """Org-wide financials broken down by event, period-filtered and sortable."""
+        org = self.get_one(slug)
+        tz = revenue_aggregation.organization_timezone(org)
+        date_from, date_to = revenue_aggregation.resolve_period(
+            year, month, quarter, tz, default_all_time=False
+        )
+        scope = revenue_aggregation.ReportScope(
+            org=org, event_id=None, date_from=date_from, date_to=date_to
+        )
+        return revenue_aggregation.organization_financials(
+            scope, currency=currency, sort=sort, order=order
         )
 
     @route.get(
