@@ -20,14 +20,22 @@ def _url(org: Organization) -> str:
 def _online(user: RevelUser, event: Event, tier: TicketTier, amount: str, currency: str = "EUR") -> None:
     ticket = Ticket.objects.create(guest_name="g", user=user, event=event, tier=tier, status=Ticket.TicketStatus.ACTIVE)
     Payment.objects.create(
-        ticket=ticket, user=user, stripe_session_id="s", amount=Decimal(amount),
-        platform_fee=Decimal("0.50"), currency=currency, status=Payment.PaymentStatus.SUCCEEDED,
+        ticket=ticket,
+        user=user,
+        stripe_session_id="s",
+        amount=Decimal(amount),
+        platform_fee=Decimal("0.50"),
+        currency=currency,
+        status=Payment.PaymentStatus.SUCCEEDED,
     )
 
 
 def test_financials_default_current_year(
-    organization_owner_client: Client, organization: Organization, event: Event,
-    event_ticket_tier: TicketTier, public_user: RevelUser,
+    organization_owner_client: Client,
+    organization: Organization,
+    event: Event,
+    event_ticket_tier: TicketTier,
+    public_user: RevelUser,
 ) -> None:
     _online(public_user, event, event_ticket_tier, "30.00")
     response = organization_owner_client.get(_url(organization))
@@ -42,15 +50,20 @@ def test_financials_default_current_year(
 
 
 def test_financials_month_and_quarter_is_422(
-    organization_owner_client: Client, organization: Organization,
+    organization_owner_client: Client,
+    organization: Organization,
 ) -> None:
     response = organization_owner_client.get(_url(organization), {"month": 1, "quarter": 1})
     assert response.status_code == 422
 
 
 def test_financials_currency_filter(
-    organization_owner_client: Client, organization: Organization, event: Event,
-    event_ticket_tier: TicketTier, public_user: RevelUser, member_user: RevelUser,
+    organization_owner_client: Client,
+    organization: Organization,
+    event: Event,
+    event_ticket_tier: TicketTier,
+    public_user: RevelUser,
+    member_user: RevelUser,
 ) -> None:
     _online(public_user, event, event_ticket_tier, "100.00", currency="EUR")
     _online(member_user, event, event_ticket_tier, "5.00", currency="USD")
@@ -62,7 +75,8 @@ def test_financials_currency_filter(
 
 
 def test_financials_requires_manage_organization(
-    member_client: Client, organization: Organization,
+    member_client: Client,
+    organization: Organization,
 ) -> None:
     response = member_client.get(_url(organization))
     assert response.status_code == 403

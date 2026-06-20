@@ -223,7 +223,7 @@ def _scope_to_parameters(scope: ReportScope, data_hash: str) -> _ScopeParameters
     }
 
 
-def _parameters_to_scope(parameters: dict[str, t.Any]) -> ReportScope:
+def _parameters_to_scope(parameters: _ScopeParameters) -> ReportScope:
     org = Organization.objects.get(id=parameters["org_id"])
     event_id_raw = parameters["event_id"]
     return ReportScope(
@@ -277,7 +277,7 @@ def generate_revenue_report(export_id: UUID) -> None:
     export = FileExport.objects.select_related("requested_by").get(pk=export_id)
     start_export(export)
     try:
-        scope = _parameters_to_scope(export.parameters)
+        scope = _parameters_to_scope(t.cast(_ScopeParameters, export.parameters))
         data = build_revenue_report_data(scope)
         complete_export(export, build_zip(data), report_filename(scope))
     except Exception as exc:  # let Celery record the failure after marking FAILED

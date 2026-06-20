@@ -18,8 +18,13 @@ ALL_TIME = (dt.date.min, dt.date(2999, 12, 31))
 def _online(user: RevelUser, event: Event, tier: TicketTier, amount: str, currency: str = "EUR") -> Payment:
     ticket = Ticket.objects.create(guest_name="g", user=user, event=event, tier=tier, status=Ticket.TicketStatus.ACTIVE)
     return Payment.objects.create(
-        ticket=ticket, user=user, stripe_session_id="s", amount=Decimal(amount),
-        platform_fee=Decimal("0.50"), currency=currency, status=Payment.PaymentStatus.SUCCEEDED,
+        ticket=ticket,
+        user=user,
+        stripe_session_id="s",
+        amount=Decimal(amount),
+        platform_fee=Decimal("0.50"),
+        currency=currency,
+        status=Payment.PaymentStatus.SUCCEEDED,
     )
 
 
@@ -28,7 +33,10 @@ def _second_online_event(org: Organization, slug: str, price: str) -> tuple[Even
     now = timezone.now()
     ev = Event.objects.create(organization=org, name=slug, slug=slug, start=now, end=now + dt.timedelta(hours=2))
     tier = TicketTier.objects.create(
-        event=ev, name="GA", price=Decimal(price), currency="EUR",
+        event=ev,
+        name="GA",
+        price=Decimal(price),
+        currency="EUR",
         payment_method=TicketTier.PaymentMethod.ONLINE,
     )
     return ev, tier
@@ -39,8 +47,11 @@ def _scope(org: Organization) -> ReportScope:
 
 
 def test_org_financials_sorted_by_revenue(
-    organization: Organization, event: Event, event_ticket_tier: TicketTier,
-    public_user: RevelUser, member_user: RevelUser,
+    organization: Organization,
+    event: Event,
+    event_ticket_tier: TicketTier,
+    public_user: RevelUser,
+    member_user: RevelUser,
 ) -> None:
     """Events order by net within the active currency; order flips with `order`."""
     _online(public_user, event, event_ticket_tier, "100.00")  # the fixture event = bigger
@@ -57,8 +68,11 @@ def test_org_financials_sorted_by_revenue(
 
 
 def test_org_financials_dominant_currency_and_filter(
-    organization: Organization, event: Event, event_ticket_tier: TicketTier,
-    public_user: RevelUser, member_user: RevelUser
+    organization: Organization,
+    event: Event,
+    event_ticket_tier: TicketTier,
+    public_user: RevelUser,
+    member_user: RevelUser,
 ) -> None:
     """Dominant currency = highest gross; ?currency= scopes totals/events to it."""
     _online(public_user, event, event_ticket_tier, "100.00", currency="EUR")

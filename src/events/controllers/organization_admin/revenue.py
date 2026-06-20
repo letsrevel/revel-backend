@@ -12,6 +12,7 @@ from common.models import FileExport
 from common.throttling import ExportThrottle, UserDefaultThrottle
 from events import schema
 from events.controllers.permissions import OrganizationPermission
+from events.exceptions import InvalidPeriodError
 from events.schema.export import FileExportSchema
 from events.schema.financials import OrganizationFinancialsSchema
 from events.service import revenue_aggregation, revenue_report_service
@@ -37,11 +38,15 @@ class OrganizationAdminRevenueController(OrganizationAdminBaseController):
         org = self.get_one(slug)
         tz = revenue_report_service.organization_timezone(org)
         today = dt.datetime.now(tz).date()
+        date_from = payload.date_from or today.replace(month=1, day=1)
+        date_to = payload.date_to or today
+        if date_from > date_to:
+            raise InvalidPeriodError("date_from must be on or before date_to.")
         scope = revenue_report_service.ReportScope(
             org=org,
             event_id=payload.event_id,
-            date_from=payload.date_from or today.replace(month=1, day=1),
-            date_to=payload.date_to or today,
+            date_from=date_from,
+            date_to=date_to,
         )
         return revenue_report_service.get_or_generate_revenue_report(
             org, scope, requested_by=self.user(), refresh=refresh
@@ -67,15 +72,9 @@ class OrganizationAdminRevenueController(OrganizationAdminBaseController):
         """Org-wide financials broken down by event, period-filtered and sortable."""
         org = self.get_one(slug)
         tz = revenue_aggregation.organization_timezone(org)
-        date_from, date_to = revenue_aggregation.resolve_period(
-            year, month, quarter, tz, default_all_time=False
-        )
-        scope = revenue_aggregation.ReportScope(
-            org=org, event_id=None, date_from=date_from, date_to=date_to
-        )
-        return revenue_aggregation.organization_financials(
-            scope, currency=currency, sort=sort, order=order
-        )
+        date_from, date_to = revenue_aggregation.resolve_period(year, month, quarter, tz, default_all_time=False)
+        scope = revenue_aggregation.ReportScope(org=org, event_id=None, date_from=date_from, date_to=date_to)
+        return revenue_aggregation.organization_financials(scope, currency=currency, sort=sort, order=order)
 
     @route.get(
         "/revenue-reports/{export_id}",

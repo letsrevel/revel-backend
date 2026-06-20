@@ -37,7 +37,10 @@ def org_event_tier(db: t.Any) -> tuple[Organization, Event, TicketTier, RevelUse
 
 
 def _scope(org: Organization) -> svc.ReportScope:
-    return svc.ReportScope(org=org, event_id=None, date_from=dt.date(2026, 1, 1), date_to=dt.date(2026, 12, 31))
+    # Wide window so rows stamped at ``timezone.now()`` (auto ``created_at``,
+    # ``refunded_at``, ``cancelled_at``) always fall in-period regardless of the
+    # year the suite runs in. These tests do not exercise out-of-period exclusion.
+    return svc.ReportScope(org=org, event_id=None, date_from=dt.date(2000, 1, 1), date_to=dt.date(2100, 1, 1))
 
 
 @pytest.mark.django_db

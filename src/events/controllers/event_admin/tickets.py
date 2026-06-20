@@ -348,9 +348,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         """Per-event financials, all-time by default; optional year/month/quarter filter."""
         event = self.get_one(event_id)
         tz = revenue_aggregation.organization_timezone(event.organization)
-        date_from, date_to = revenue_aggregation.resolve_period(
-            year, month, quarter, tz, default_all_time=True
-        )
+        date_from, date_to = revenue_aggregation.resolve_period(year, month, quarter, tz, default_all_time=True)
         scope = revenue_aggregation.ReportScope(
             org=event.organization, event_id=event.id, date_from=date_from, date_to=date_to
         )

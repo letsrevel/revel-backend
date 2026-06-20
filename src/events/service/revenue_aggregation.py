@@ -410,7 +410,11 @@ def _merge_currency(dst: _CurrencyAcc, src: _CurrencyAcc) -> None:
 
 
 def _currency_section(currency: str, acc: _CurrencyAcc) -> CurrencySection | None:
-    """Build a report ``CurrencySection`` (net-of-refunds) or ``None`` if empty."""
+    """Build a report ``CurrencySection`` or ``None`` if empty.
+
+    Rate-bucket money (``net``/``vat``/``gross``) is net-of-refunds; ``ticket_count``
+    is the gross sold count (refunds are reported separately in ``refunded_count``).
+    """
     if not acc.buckets:
         return None
     buckets = [
@@ -501,7 +505,12 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
 
 @dataclass(frozen=True)
 class CurrencyFinancials:
-    """Per-currency financials for the live endpoints (pre-refund gross + VAT detail)."""
+    """Per-currency financials for the live endpoints.
+
+    Top-level ``gross`` is pre-refund (total ever charged) with ``refunds`` reported
+    separately and ``net = gross - refunds``. The nested ``rate_buckets`` instead carry
+    net-of-refunds money (``gross``/``net``/``vat`` = sale minus refund per rate).
+    """
 
     currency: str
     gross: Decimal
@@ -537,7 +546,10 @@ class OrganizationFinancials:
 
 
 def _currency_financials(currency: str, acc: _CurrencyAcc) -> CurrencyFinancials | None:
-    """Build per-currency financials (pre-refund gross), or ``None`` if no activity."""
+    """Build per-currency financials, or ``None`` if no activity.
+
+    Top-level ``gross`` is pre-refund; nested ``rate_buckets`` are net-of-refunds.
+    """
     if not acc.buckets:
         return None
     rate_buckets = [
@@ -606,8 +618,8 @@ def organization_financials(
             _merge_currency(merged.setdefault(cur, _CurrencyAcc()), acc)
     totals_all = [cf for cur, acc in sorted(merged.items()) if (cf := _currency_financials(cur, acc))]
 
-    active = currency if currency is not None else (
-        max(totals_all, key=lambda c: c.gross).currency if totals_all else None
+    active = (
+        currency if currency is not None else (max(totals_all, key=lambda c: c.gross).currency if totals_all else None)
     )
 
     def _net_in(ef: EventFinancials, cur: str | None) -> Decimal:
@@ -615,8 +627,9 @@ def organization_financials(
 
     if currency is not None:
         event_fins = [
-            EventFinancials(ef.event_id, ef.event_name, ef.event_start,
-                            [c for c in ef.by_currency if c.currency == currency])
+            EventFinancials(
+                ef.event_id, ef.event_name, ef.event_start, [c for c in ef.by_currency if c.currency == currency]
+            )
             for ef in event_fins
         ]
         event_fins = [ef for ef in event_fins if ef.by_currency]

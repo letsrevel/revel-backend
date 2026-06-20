@@ -51,6 +51,16 @@ def test_malformed_event_id_returns_422(owner_org: t.Any) -> None:
 
 
 @pytest.mark.django_db
+def test_inverted_date_range_returns_422(owner_org: t.Any) -> None:
+    """A date_to before the defaulted date_from (e.g. a prior-year date_to only) is rejected, not silently empty."""
+    owner, org = owner_org
+    client = _jwt_client(owner)
+    url = reverse("api:create_revenue_report", kwargs={"slug": org.slug})
+    resp = client.post(url, data={"date_to": "2000-01-01"}, content_type="application/json")
+    assert resp.status_code == 422
+
+
+@pytest.mark.django_db
 def test_non_admin_is_denied(owner_org: t.Any) -> None:
     _, org = owner_org
     stranger = RevelUser.objects.create_user(username="x", email="x@example.com", password="x")

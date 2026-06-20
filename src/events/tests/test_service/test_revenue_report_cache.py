@@ -42,7 +42,8 @@ def org_scope(db: t.Any) -> tuple[Organization, RevelUser, svc.ReportScope]:
         platform_fee=Decimal("0.00"),
         stripe_session_id="cs_test_cache_1",
     )
-    scope = svc.ReportScope(org=org, event_id=None, date_from=dt.date(2026, 1, 1), date_to=dt.date(2026, 12, 31))
+    # Wide window so the now-stamped sale always falls in-period (year-agnostic).
+    scope = svc.ReportScope(org=org, event_id=None, date_from=dt.date(2000, 1, 1), date_to=dt.date(2100, 1, 1))
     return org, user, scope
 
 
