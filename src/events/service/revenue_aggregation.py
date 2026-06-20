@@ -15,6 +15,9 @@ from decimal import Decimal
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+if t.TYPE_CHECKING:
+    from events.models import Event
+
 from django.utils import timezone
 from django.db.models import Q, QuerySet
 
@@ -489,3 +492,149 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
     )
     raw = scope_key + "||" + "\n".join(parts)
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Live-endpoint projections (Task 5)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CurrencyFinancials:
+    """Per-currency financials for the live endpoints (pre-refund gross + VAT detail)."""
+
+    currency: str
+    gross: Decimal
+    refunds: Decimal
+    net: Decimal
+    net_taxable: Decimal
+    vat: Decimal
+    sold_count: int
+    refunded_count: int
+    rate_buckets: list[RateBucket]
+
+
+@dataclass(frozen=True)
+class EventFinancials:
+    """Financials for a single event, broken down by currency."""
+
+    event_id: UUID
+    event_name: str
+    event_start: datetime
+    by_currency: list[CurrencyFinancials]
+
+
+@dataclass(frozen=True)
+class OrganizationFinancials:
+    """Org-wide financials broken down by event, scoped to an active currency."""
+
+    date_from: date
+    date_to: date
+    active_currency: str | None
+    available_currencies: list[str]
+    totals: list[CurrencyFinancials]
+    events: list[EventFinancials]
+
+
+def _currency_financials(currency: str, acc: _CurrencyAcc) -> CurrencyFinancials | None:
+    """Build per-currency financials (pre-refund gross), or ``None`` if no activity."""
+    if not acc.buckets:
+        return None
+    rate_buckets = [
+        RateBucket(
+            vat_rate=b.vat_rate,
+            label=b.label,
+            net=b.sale_net - b.refund_net,
+            vat=b.sale_vat - b.refund_vat,
+            gross=b.sale_gross - b.refund_gross,
+            ticket_count=b.sold_count,
+        )
+        for b in sorted(acc.buckets.values(), key=lambda x: x.vat_rate)
+    ]
+    gross = sum((b.sale_gross for b in acc.buckets.values()), ZERO)
+    refunds = sum((b.refund_gross for b in acc.buckets.values()), ZERO)
+    return CurrencyFinancials(
+        currency=currency,
+        gross=gross,
+        refunds=refunds,
+        net=gross - refunds,
+        net_taxable=sum((rb.net for rb in rate_buckets), ZERO),
+        vat=sum((rb.vat for rb in rate_buckets), ZERO),
+        sold_count=sum(b.sold_count for b in acc.buckets.values()),
+        refunded_count=sum(b.refunded_count for b in acc.buckets.values()),
+        rate_buckets=rate_buckets,
+    )
+
+
+def _event_financials(agg: _EventAgg) -> EventFinancials:
+    by_currency = [
+        cf for currency, acc in sorted(agg.currencies.items()) if (cf := _currency_financials(currency, acc))
+    ]
+    return EventFinancials(
+        event_id=agg.event_id,
+        event_name=agg.name,
+        event_start=agg.start,
+        by_currency=by_currency,
+    )
+
+
+def event_financials(event: "Event", scope: ReportScope) -> EventFinancials:
+    """Per-event projection: aggregate just this event and shape it for the API."""
+    agg = _aggregate(scope, include_transactions=False).get(event.id)
+    if agg is None:
+        return EventFinancials(event_id=event.id, event_name=event.name, event_start=event.start, by_currency=[])
+    return _event_financials(agg)
+
+
+def organization_financials(
+    scope: ReportScope,
+    *,
+    currency: str | None,
+    sort: str,
+    order: str,
+) -> OrganizationFinancials:
+    """Org-wide projection grouped by event, scoped/sorted for the dashboard."""
+    events_agg = _aggregate(scope, include_transactions=False)
+    event_fins = [ef for agg in events_agg.values() if (ef := _event_financials(agg)).by_currency]
+
+    available = sorted({cf.currency for ef in event_fins for cf in ef.by_currency})
+
+    # Org-wide per-currency totals (roll up across events).
+    merged: dict[str, _CurrencyAcc] = {}
+    for agg in events_agg.values():
+        for cur, acc in agg.currencies.items():
+            _merge_currency(merged.setdefault(cur, _CurrencyAcc()), acc)
+    totals_all = [cf for cur, acc in sorted(merged.items()) if (cf := _currency_financials(cur, acc))]
+
+    active = currency if currency is not None else (
+        max(totals_all, key=lambda c: c.gross).currency if totals_all else None
+    )
+
+    def _net_in(ef: EventFinancials, cur: str | None) -> Decimal:
+        return next((c.net for c in ef.by_currency if c.currency == cur), ZERO)
+
+    if currency is not None:
+        event_fins = [
+            EventFinancials(ef.event_id, ef.event_name, ef.event_start,
+                            [c for c in ef.by_currency if c.currency == currency])
+            for ef in event_fins
+        ]
+        event_fins = [ef for ef in event_fins if ef.by_currency]
+        totals = [c for c in totals_all if c.currency == currency]
+    else:
+        totals = totals_all
+
+    reverse = order == "desc"
+    if sort == "event_start":
+        event_fins.sort(key=lambda ef: ef.event_start, reverse=reverse)
+    else:  # "revenue"
+        event_fins.sort(key=lambda ef: _net_in(ef, active), reverse=reverse)
+
+    return OrganizationFinancials(
+        date_from=scope.date_from,
+        date_to=scope.date_to,
+        active_currency=active,
+        available_currencies=available,
+        totals=totals,
+        events=event_fins,
+    )
