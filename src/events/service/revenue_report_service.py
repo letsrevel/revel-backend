@@ -256,6 +256,7 @@ def _process_payment(
     org_rate: Decimal,
     tz: ZoneInfo,
     currencies: dict[str, _CurrencyAcc],
+    include_transactions: bool = True,
 ) -> None:
     currency = payment.currency
     acc = currencies.setdefault(currency, _CurrencyAcc())
@@ -273,7 +274,7 @@ def _process_payment(
     if refund_in and payment.refund_amount:
         _add_refund(acc, payment.refund_amount, rate, rc)
 
-    if sale_in or refund_in:
+    if (sale_in or refund_in) and include_transactions:
         acc.transactions.append(
             TxnRow(
                 date=_local_date(payment.created_at, tz),
@@ -301,6 +302,7 @@ def _process_ticket(
     org_rate: Decimal,
     tz: ZoneInfo,
     currencies: dict[str, _CurrencyAcc],
+    include_transactions: bool = True,
 ) -> None:
     currency = ticket.tier.currency if ticket.tier else scope.org.vat_country_code
     acc = currencies.setdefault(currency, _CurrencyAcc())
@@ -320,7 +322,7 @@ def _process_ticket(
     if refund_in and ticket.offline_refund_amount is not None:
         _add_refund(acc, ticket.offline_refund_amount, org_rate, False)
 
-    if sale_in or refund_in:
+    if (sale_in or refund_in) and include_transactions:
         acc.transactions.append(
             TxnRow(
                 date=_local_date(ticket.created_at, tz),
@@ -342,49 +344,83 @@ def _process_ticket(
         )
 
 
-def build_revenue_report_data(scope: ReportScope) -> RevenueReportData:
-    """Aggregate ticket revenue into buckets by currency and VAT rate."""
+class _EventAgg:
+    """Per-event accumulator: event metadata plus its per-currency totals."""
+
+    def __init__(self, event_id: UUID, name: str, start: datetime) -> None:
+        self.event_id = event_id
+        self.name = name
+        self.start = start
+        self.currencies: dict[str, _CurrencyAcc] = {}
+
+
+def _merge_currency(dst: _CurrencyAcc, src: _CurrencyAcc) -> None:
+    """Fold ``src`` into ``dst`` (used to roll per-event currencies up to org level)."""
+    for key, b in src.buckets.items():
+        d = dst.buckets.get(key)
+        if d is None:
+            dst.buckets[key] = b
+            continue
+        d.sale_net += b.sale_net
+        d.sale_vat += b.sale_vat
+        d.sale_gross += b.sale_gross
+        d.sold_count += b.sold_count
+        d.refund_net += b.refund_net
+        d.refund_vat += b.refund_vat
+        d.refund_gross += b.refund_gross
+        d.refunded_count += b.refunded_count
+    dst.transactions.extend(src.transactions)
+
+
+def _currency_section(currency: str, acc: _CurrencyAcc) -> CurrencySection | None:
+    """Build a report ``CurrencySection`` (net-of-refunds) or ``None`` if empty."""
+    if not acc.buckets:
+        return None
+    buckets = [
+        RateBucket(
+            vat_rate=b.vat_rate,
+            label=b.label,
+            net=b.sale_net - b.refund_net,
+            vat=b.sale_vat - b.refund_vat,
+            gross=b.sale_gross - b.refund_gross,
+            ticket_count=b.sold_count,
+        )
+        for b in sorted(acc.buckets.values(), key=lambda x: x.vat_rate)
+    ]
+    return CurrencySection(
+        currency=currency,
+        rate_buckets=buckets,
+        refunds_total=sum((b.refund_gross for b in acc.buckets.values()), ZERO),
+        net_taxable_turnover=sum((rb.net for rb in buckets), ZERO),
+        sold_count=sum(b.sold_count for b in acc.buckets.values()),
+        refunded_count=sum(b.refunded_count for b in acc.buckets.values()),
+        transactions=sorted(acc.transactions, key=lambda r: r.date),
+    )
+
+
+def _aggregate(scope: ReportScope, *, include_transactions: bool = True) -> dict[UUID, _EventAgg]:
+    """Single per-row pass; returns per-event accumulators keyed by event id."""
     tz = organization_timezone(scope.org)
     org_rate = scope.org.vat_rate
-    currencies: dict[str, _CurrencyAcc] = {}
-
+    events: dict[UUID, _EventAgg] = {}
     for payment in _online_payments(scope):
-        _process_payment(payment, scope, org_rate, tz, currencies)
-
+        ev = payment.ticket.event
+        agg = events.setdefault(ev.id, _EventAgg(ev.id, ev.name, ev.start))
+        _process_payment(payment, scope, org_rate, tz, agg.currencies, include_transactions)
     for ticket in _offline_tickets(scope):
-        _process_ticket(ticket, scope, org_rate, tz, currencies)
+        ev = ticket.event
+        agg = events.setdefault(ev.id, _EventAgg(ev.id, ev.name, ev.start))
+        _process_ticket(ticket, scope, org_rate, tz, agg.currencies, include_transactions)
+    return events
 
-    sections: list[CurrencySection] = []
-    for currency, acc in sorted(currencies.items()):
-        if not acc.buckets:
-            continue  # out-of-period currency (setdefault created an empty acc)
-        buckets = [
-            RateBucket(
-                vat_rate=b.vat_rate,
-                label=b.label,
-                net=b.sale_net - b.refund_net,
-                vat=b.sale_vat - b.refund_vat,
-                gross=b.sale_gross - b.refund_gross,
-                ticket_count=b.sold_count,
-            )
-            for b in sorted(acc.buckets.values(), key=lambda x: x.vat_rate)
-        ]
-        refunds_total = sum((b.refund_gross for b in acc.buckets.values()), ZERO)
-        sold_count = sum(b.sold_count for b in acc.buckets.values())
-        refunded_count = sum(b.refunded_count for b in acc.buckets.values())
-        net_taxable = sum((rb.net for rb in buckets), ZERO)
-        sections.append(
-            CurrencySection(
-                currency=currency,
-                rate_buckets=buckets,
-                refunds_total=refunds_total,
-                net_taxable_turnover=net_taxable,
-                sold_count=sold_count,
-                refunded_count=refunded_count,
-                transactions=sorted(acc.transactions, key=lambda r: r.date),
-            )
-        )
 
+def build_revenue_report_data(scope: ReportScope) -> RevenueReportData:
+    """Aggregate ticket revenue into buckets by currency and VAT rate (org-wide)."""
+    merged: dict[str, _CurrencyAcc] = {}
+    for agg in _aggregate(scope, include_transactions=True).values():
+        for currency, acc in agg.currencies.items():
+            _merge_currency(merged.setdefault(currency, _CurrencyAcc()), acc)
+    sections = [s for currency, acc in sorted(merged.items()) if (s := _currency_section(currency, acc))]
     return RevenueReportData(scope=scope, sections=sections, generated_at=timezone.now())
 
 
