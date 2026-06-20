@@ -152,15 +152,19 @@ def _in_period(d: date, scope: ReportScope) -> bool:
 
 
 class _BucketAcc:
-    """Mutable per-rate accumulator (sales minus refunds)."""
+    """Mutable per-rate accumulator tracking sale and refund sides separately."""
 
     def __init__(self, vat_rate: Decimal, label: str) -> None:
         self.vat_rate = vat_rate
         self.label = label
-        self.net = ZERO
-        self.vat = ZERO
-        self.gross = ZERO
-        self.count = 0
+        self.sale_net = ZERO
+        self.sale_vat = ZERO
+        self.sale_gross = ZERO
+        self.sold_count = 0
+        self.refund_net = ZERO
+        self.refund_vat = ZERO
+        self.refund_gross = ZERO
+        self.refunded_count = 0
 
 
 class _CurrencyAcc:
@@ -168,9 +172,6 @@ class _CurrencyAcc:
 
     def __init__(self) -> None:
         self.buckets: dict[str, _BucketAcc] = {}
-        self.refunds_total = ZERO
-        self.sold_count = 0
-        self.refunded_count = 0
         self.transactions: list[TxnRow] = []
 
     def bucket_for(self, vat_rate: Decimal, reverse_charge: bool) -> _BucketAcc:
@@ -205,22 +206,20 @@ def _add_sale(
     rc: bool,
 ) -> None:
     bucket = acc.bucket_for(rate, rc)
-    bucket.net += net
-    bucket.vat += vat
-    bucket.gross += gross
-    bucket.count += 1
-    acc.sold_count += 1
+    bucket.sale_net += net
+    bucket.sale_vat += vat
+    bucket.sale_gross += gross
+    bucket.sold_count += 1
 
 
 def _add_refund(acc: _CurrencyAcc, refund_gross: Decimal, rate: Decimal, rc: bool) -> None:
     effective_rate = ZERO if (rc or rate == ZERO) else rate
     breakdown = calculate_vat_inclusive(refund_gross, effective_rate)
     bucket = acc.bucket_for(rate, rc)
-    bucket.net -= breakdown.net_amount
-    bucket.vat -= breakdown.vat_amount
-    bucket.gross -= refund_gross
-    acc.refunds_total += refund_gross
-    acc.refunded_count += 1
+    bucket.refund_net += breakdown.net_amount
+    bucket.refund_vat += breakdown.vat_amount
+    bucket.refund_gross += refund_gross
+    bucket.refunded_count += 1
 
 
 def _online_payments(scope: ReportScope) -> QuerySet[Payment]:
@@ -357,21 +356,31 @@ def build_revenue_report_data(scope: ReportScope) -> RevenueReportData:
 
     sections: list[CurrencySection] = []
     for currency, acc in sorted(currencies.items()):
+        if not acc.buckets:
+            continue  # out-of-period currency (setdefault created an empty acc)
         buckets = [
-            RateBucket(b.vat_rate, b.label, b.net, b.vat, b.gross, b.count)
+            RateBucket(
+                vat_rate=b.vat_rate,
+                label=b.label,
+                net=b.sale_net - b.refund_net,
+                vat=b.sale_vat - b.refund_vat,
+                gross=b.sale_gross - b.refund_gross,
+                ticket_count=b.sold_count,
+            )
             for b in sorted(acc.buckets.values(), key=lambda x: x.vat_rate)
         ]
-        net_taxable = sum((b.net for b in buckets), ZERO)
-        if not buckets and acc.refunds_total == ZERO:
-            continue
+        refunds_total = sum((b.refund_gross for b in acc.buckets.values()), ZERO)
+        sold_count = sum(b.sold_count for b in acc.buckets.values())
+        refunded_count = sum(b.refunded_count for b in acc.buckets.values())
+        net_taxable = sum((rb.net for rb in buckets), ZERO)
         sections.append(
             CurrencySection(
                 currency=currency,
                 rate_buckets=buckets,
-                refunds_total=acc.refunds_total,
+                refunds_total=refunds_total,
                 net_taxable_turnover=net_taxable,
-                sold_count=acc.sold_count,
-                refunded_count=acc.refunded_count,
+                sold_count=sold_count,
+                refunded_count=refunded_count,
                 transactions=sorted(acc.transactions, key=lambda r: r.date),
             )
         )
