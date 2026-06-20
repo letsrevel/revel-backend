@@ -17,15 +17,19 @@ from django.db.models import Q, QuerySet
 from django.template.loader import render_to_string
 from django.utils import timezone
 from openpyxl import Workbook
+from openpyxl.styles import Alignment
 
 from common.models import FileExport
 from common.service.export_service import complete_export, fail_export, start_export
 from common.service.vat_utils import calculate_vat_inclusive
 from common.tasks import send_email
 from events.models import Organization, Payment, Ticket, TicketTier
+from events.service.export.formatting import LABEL_FONT, auto_fit_columns, style_header_row
 from events.utils import get_organization_timezone
 
 if t.TYPE_CHECKING:
+    from openpyxl.worksheet.worksheet import Worksheet
+
     from accounts.models import RevelUser
 
 logger = structlog.get_logger(__name__)
@@ -173,7 +177,9 @@ class _CurrencyAcc:
         if reverse_charge or vat_rate == ZERO:
             return self.buckets.setdefault("rc", _BucketAcc(ZERO, _REVERSE_CHARGE_LABEL))
         key = f"{vat_rate:.2f}"
-        return self.buckets.setdefault(key, _BucketAcc(vat_rate, f"{vat_rate.normalize()}%"))
+        # ``:f`` avoids Decimal scientific notation: Decimal("20.00").normalize() is
+        # Decimal("2E+1"), which would render as "2E+1%" instead of "20%".
+        return self.buckets.setdefault(key, _BucketAcc(vat_rate, f"{vat_rate.normalize():f}%"))
 
 
 def _resolve_payment_vat(payment: Payment, org_rate: Decimal) -> tuple[Decimal, Decimal, Decimal, bool]:
@@ -410,6 +416,32 @@ def compute_revenue_data_hash(scope: ReportScope) -> str:
 # Bundle builders
 # ---------------------------------------------------------------------------
 
+# Locale-aware Excel number formats: the group/decimal separators render per the
+# viewer's locale (e.g. "1.234.567,89" in an AT/DE Excel), so a single format code
+# serves both comma- and dot-grouping audiences.
+_MONEY_FORMAT = "#,##0.00"
+_INT_FORMAT = "#,##0"
+_PERCENT_FORMAT = '0.##"%"'  # value 20 -> "20%", 7.5 -> "7.5%" (literal %, no x100)
+
+
+def _format_numeric_columns(
+    ws: "Worksheet",
+    money_cols: tuple[int, ...] = (),
+    int_cols: tuple[int, ...] = (),
+    percent_cols: tuple[int, ...] = (),
+) -> None:
+    """Right-align and number-format the given 1-based columns across data rows."""
+    right = Alignment(horizontal="right")
+    specs = ((money_cols, _MONEY_FORMAT), (int_cols, _INT_FORMAT), (percent_cols, _PERCENT_FORMAT))
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+        for cols, fmt in specs:
+            for col in cols:
+                cell = row[col - 1]
+                if isinstance(cell.value, (int, float, Decimal)) and not isinstance(cell.value, bool):
+                    cell.number_format = fmt
+                    cell.alignment = right
+
+
 _TXN_HEADERS = [
     "date",
     "payment_id",
@@ -444,11 +476,19 @@ def build_xlsx(data: RevenueReportData) -> bytes:
     for section in data.sections:
         for bucket in section.rate_buckets:
             summary.append([section.currency, bucket.label, bucket.net, bucket.vat, bucket.gross, bucket.ticket_count])
-        summary.append([section.currency, "Refunds", "", "", -section.refunds_total, section.refunded_count])
+        summary.append([section.currency, "Refunds", None, None, -section.refunds_total, section.refunded_count])
         summary.append(
-            [section.currency, "Net taxable turnover", section.net_taxable_turnover, "", "", section.sold_count]
+            [section.currency, "Net taxable turnover", section.net_taxable_turnover, None, None, section.sold_count]
         )
         summary.append([])
+    _format_numeric_columns(summary, money_cols=(3, 4, 5), int_cols=(6,))
+    for summary_row in summary.iter_rows(min_row=2, max_row=summary.max_row):
+        if summary_row[1].value == "Net taxable turnover":  # bold the per-currency total row
+            for cell in summary_row:
+                cell.font = LABEL_FONT
+    style_header_row(summary)
+    auto_fit_columns(summary)
+    summary.freeze_panes = "A2"
 
     txns = wb.create_sheet("Transactions")
     txns.append(_TXN_HEADERS)
@@ -480,6 +520,10 @@ def build_xlsx(data: RevenueReportData) -> bytes:
                     row.stripe_payout_id,
                 ]
             )
+    _format_numeric_columns(txns, money_cols=(7, 8, 10, 11, 12), percent_cols=(9,))
+    style_header_row(txns)
+    auto_fit_columns(txns)
+    txns.freeze_panes = "A2"
 
     buf = io.BytesIO()
     wb.save(buf)

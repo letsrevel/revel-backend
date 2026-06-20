@@ -126,6 +126,34 @@ def test_refund_reduces_bucket_and_reports_refund_total(
 
 
 @pytest.mark.django_db
+def test_vat_rate_bucket_label_is_human_readable(
+    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
+) -> None:
+    """A 20% rate renders as "20%", not Decimal scientific notation "2E+1%" (#554)."""
+    org, event, tier, user = org_event_tier
+    ticket = Ticket.objects.create(
+        event=event, tier=tier, user=user, status=Ticket.TicketStatus.ACTIVE, guest_name="Zoe"
+    )
+    Payment.objects.create(
+        ticket=ticket,
+        user=user,
+        status=Payment.PaymentStatus.SUCCEEDED,
+        amount=Decimal("120.00"),
+        currency="EUR",
+        net_amount=Decimal("100.00"),
+        vat_amount=Decimal("20.00"),
+        vat_rate=Decimal("20.00"),
+        platform_fee=Decimal("0.00"),
+        stripe_session_id="cs_test_label",
+    )
+    data = svc.build_revenue_report_data(_scope(org))
+    section = next(s for s in data.sections if s.currency == "EUR")
+    labels = [b.label for b in section.rate_buckets]
+    assert "20%" in labels
+    assert "2E+1%" not in labels
+
+
+@pytest.mark.django_db
 def test_offline_zero_refund_still_increments_refunded_count(
     org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
 ) -> None:

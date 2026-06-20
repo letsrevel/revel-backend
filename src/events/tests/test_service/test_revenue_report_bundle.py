@@ -69,6 +69,24 @@ def test_xlsx_has_summary_and_transactions_sheets(report_data: svc.RevenueReport
 
 
 @pytest.mark.django_db
+def test_xlsx_is_styled_and_number_formatted(report_data: svc.RevenueReportData) -> None:
+    """Money cells carry a thousands-separator format and the VAT label is readable (#554)."""
+    wb = load_workbook(io.BytesIO(svc.build_xlsx(report_data)))
+    summary = wb["Summary"]
+    # Row 2 is the single 20% bucket: B=label, C=Net, E=Gross, F=Tickets.
+    assert summary["B2"].value == "20%"
+    assert summary["C2"].number_format == "#,##0.00"
+    assert summary["F2"].number_format == "#,##0"
+    assert summary.freeze_panes == "A2"
+    # Header row is styled (bold white-on-blue fill applied by style_header_row).
+    assert summary["A1"].font.bold is True
+
+    txns = wb["Transactions"]
+    assert txns["G2"].number_format == "#,##0.00"  # gross
+    assert txns["I2"].number_format == '0.##"%"'  # vat_rate
+
+
+@pytest.mark.django_db
 def test_pdf_is_nonempty_pdf(report_data: svc.RevenueReportData) -> None:
     pdf = svc.build_pdf(report_data)
     assert pdf[:4] == b"%PDF"

@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+{% load invoice_filters %}
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -7,6 +8,8 @@
   <style>
     .banner { background: #fff3cd; padding: 8px; margin-bottom: 12px; font-size: 11px; }
     .foot { font-size: 9px; color: #666; margin-top: 16px; }
+    .items-table td.num, .items-table th.num { text-align: right; white-space: nowrap; }
+    .total-row th { border-top: 2px solid #333; }
   </style>
 </head>
 <body>
@@ -29,26 +32,28 @@
   <table class="items-table">
     <thead>
       <tr>
-        <th>VAT rate</th><th>Net</th><th>VAT</th><th>Gross</th><th>Tickets</th>
+        <th>VAT rate</th><th class="num">Net</th><th class="num">VAT</th><th class="num">Gross</th><th class="num">Tickets</th>
       </tr>
     </thead>
     <tbody>
       {% for b in section.rate_buckets %}
       <tr>
         <td>{{ b.label }}</td>
-        <td>{{ b.net }}</td>
-        <td>{{ b.vat }}</td>
-        <td>{{ b.gross }}</td>
-        <td>{{ b.ticket_count }}</td>
+        <td class="num">{{ b.net|format_number }}</td>
+        <td class="num">{{ b.vat|format_number }}</td>
+        <td class="num">{{ b.gross|format_number }}</td>
+        <td class="num">{{ b.ticket_count }}</td>
       </tr>
       {% endfor %}
       <tr>
-        <td>Refunds</td><td></td><td></td><td>-{{ section.refunds_total }}</td><td>{{ section.refunded_count }}</td>
+        <td>Refunds</td><td></td><td></td>
+        <td class="num">−{{ section.refunds_total|format_number }}</td>
+        <td class="num">{{ section.refunded_count }}</td>
       </tr>
-      <tr>
+      <tr class="total-row">
         <th>Net taxable turnover</th>
-        <th colspan="2">{{ section.net_taxable_turnover }}</th>
-        <th>sold {{ section.sold_count }}</th>
+        <th class="num" colspan="2">{{ section.net_taxable_turnover|format_number }}</th>
+        <th class="num">sold {{ section.sold_count }}</th>
         <th></th>
       </tr>
     </tbody>
