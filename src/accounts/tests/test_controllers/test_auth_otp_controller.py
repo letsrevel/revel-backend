@@ -71,8 +71,9 @@ def test_obtain_token_with_otp_success(
 
 
 @patch("accounts.service.auth.google_login")
-def test_google_login_success(mock_google_login: MagicMock, client: Client) -> None:
+def test_google_login_success(mock_google_login: MagicMock, client: Client, settings: MagicMock) -> None:
     """Test that the google_login endpoint calls the service and returns a token."""
+    settings.FEATURE_GOOGLE_SSO = True
     mock_google_login.return_value = {
         "access": "google_access_token",
         "refresh": "google_refresh_token",
