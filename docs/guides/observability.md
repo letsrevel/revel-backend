@@ -205,7 +205,8 @@ The observability stack is controlled by a single environment variable:
 
 ```bash
 # Enable/disable observability (default: varies by environment)
-ENABLE_OBSERVABILITY=True
+# (legacy name ENABLE_OBSERVABILITY is still honoured as a deprecated alias)
+FEATURE_OBSERVABILITY=True
 ```
 
 | Environment | Default | Rationale |
@@ -215,7 +216,7 @@ ENABLE_OBSERVABILITY=True
 | CI | `False` | Speed + avoids connection errors to non-existent services |
 
 !!! info "CI Behavior"
-    Observability is disabled in CI to prevent connection errors (no Loki/Tempo/Prometheus running) and to keep test execution fast. The `ENABLE_OBSERVABILITY=False` flag disables all exporters and the async log queue.
+    Observability is disabled in CI to prevent connection errors (no Loki/Tempo/Prometheus running) and to keep test execution fast. The `FEATURE_OBSERVABILITY=False` flag disables all exporters and the async log queue.
 
 ---
 

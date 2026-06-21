@@ -79,7 +79,7 @@ class BaseJWTAuth(JWTAuth):
             # request context (where request.user is still anonymous), so this
             # is the earliest point the user is known for API requests. The
             # middleware clears contextvars at the end of every request.
-            if settings.ENABLE_OBSERVABILITY:
+            if settings.FEATURE_OBSERVABILITY:
                 structlog.contextvars.bind_contextvars(user_id=str(user.pk))
 
         return user

@@ -8,13 +8,13 @@ import typing as t
 
 
 def load_cities_from_csv(apps: migrations.state.Apps, schema_editor: t.Any) -> None:
-    from geo.conf import WORLDCITIES_CSV_PATH
+    from geo.conf import resolve_worldcities_csv
 
     City = apps.get_model("geo", "City")
 
-    path = Path(WORLDCITIES_CSV_PATH)
+    path = Path(resolve_worldcities_csv())
     if not path.exists():
-        raise FileNotFoundError(f"City import failed: file does not exist at {WORLDCITIES_CSV_PATH}")
+        raise FileNotFoundError(f"City import failed: no worldcities CSV found at {path}")
 
     with path.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f)

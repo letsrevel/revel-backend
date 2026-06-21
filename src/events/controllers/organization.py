@@ -1,6 +1,7 @@
 import typing as t
 from uuid import UUID
 
+from django.conf import settings
 from django.db.models import QuerySet
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
@@ -148,8 +149,12 @@ class OrganizationController(UserAwareController):
         **Error Cases:**
         - 400: User already owns an organization
         - 403: Email not verified
+        - 403: Organization creation is disabled on this instance (non-staff only)
         """
-        organization = organization_service.create_organization(owner=self.user(), **payload.model_dump())
+        user = self.user()
+        if not settings.FEATURE_ORGANIZATION_CREATION and not user.is_staff:
+            raise HttpError(403, str(_("Organization creation is disabled on this instance.")))
+        organization = organization_service.create_organization(owner=user, **payload.model_dump())
         return 201, organization
 
     @route.get("/{slug}", url_name="get_organization", response=schema.OrganizationRetrieveSchema)

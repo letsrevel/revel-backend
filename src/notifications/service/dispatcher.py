@@ -4,6 +4,7 @@ import typing as t
 from collections.abc import Sequence
 
 import structlog
+from django.conf import settings
 
 from accounts.models import RevelUser
 from notifications.enums import DeliveryChannel, NotificationType
@@ -157,6 +158,11 @@ def determine_delivery_channels(user: RevelUser, notification_type: str) -> list
 
     # Get enabled channels for this notification type
     channels = prefs.get_channels_for_notification_type(notification_type)
+
+    # Strip Telegram when the integration is disabled (self-host without a bot),
+    # so we never enqueue a delivery that can't succeed (issue #8).
+    if not settings.FEATURE_TELEGRAM:
+        channels = [c for c in channels if c != DeliveryChannel.TELEGRAM]
 
     logger.debug(
         "determined_delivery_channels",

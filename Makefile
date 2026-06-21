@@ -6,7 +6,7 @@ setup:
 	docker compose up -d; \
 	sleep 3; \
 	$(MAKE) bootstrap; \
-	$(MAKE) ENABLE_OBSERVABILITY=False run
+	$(MAKE) FEATURE_OBSERVABILITY=False run
 
 .PHONY: format
 format:

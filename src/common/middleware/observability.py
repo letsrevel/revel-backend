@@ -41,7 +41,7 @@ class StructlogContextMiddleware:
         Returns:
             HttpResponse
         """
-        if not settings.ENABLE_OBSERVABILITY:
+        if not settings.FEATURE_OBSERVABILITY:
             return self.get_response(request)
 
         # Generate unique request ID

@@ -65,7 +65,7 @@ testing:
 !!! note "No Observability Stack in CI"
 
     The observability services (Loki, Tempo, Prometheus, Grafana, Pyroscope) are
-    **not** started in CI. The environment variable `ENABLE_OBSERVABILITY=False`
+    **not** started in CI. The environment variable `FEATURE_OBSERVABILITY=False`
     disables all observability instrumentation during test runs.
 
 ---

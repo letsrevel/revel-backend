@@ -3,6 +3,7 @@ import sys
 import typing as t
 from io import BytesIO
 
+from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.core.exceptions import ValidationError
 from django.core.files import File
@@ -150,8 +151,11 @@ def create_file_audit_and_scan(
         field: Field name containing the file
         file_hash: SHA-256 hash of the file content
         uploader_email: Email of the user who uploaded the file
+
+    When ``FEATURE_MALWARE_SCAN`` is disabled the file is recorded as ``CLEAN``
+    immediately and no ClamAV scan is dispatched (self-host without an AV daemon).
     """
-    FileUploadAudit.objects.create(
+    audit = FileUploadAudit.objects.create(
         app=app,
         model=model,
         instance_pk=instance_pk,
@@ -159,6 +163,10 @@ def create_file_audit_and_scan(
         file_hash=file_hash,
         uploader=uploader_email,
     )
+    if not settings.FEATURE_MALWARE_SCAN:
+        audit.status = FileUploadAudit.FileUploadAuditStatus.CLEAN
+        audit.save(update_fields=["status", "updated_at"])
+        return
     transaction.on_commit(lambda: tasks.scan_for_malware.delay(app=app, model=model, pk=str(instance_pk), field=field))
 
 

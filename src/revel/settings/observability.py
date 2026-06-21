@@ -15,8 +15,9 @@ from decouple import config
 
 from .base import DEBUG, DEPLOYMENT_ENVIRONMENT, VERSION
 
-# Observability toggle
-ENABLE_OBSERVABILITY = config("ENABLE_OBSERVABILITY", default=True, cast=bool)
+# Observability toggle (FEATURE_OBSERVABILITY) lives in features.py, which is imported
+# before this module. The legacy ENABLE_OBSERVABILITY env var is still honoured there as a
+# deprecated alias. Read the toggle via ``settings.FEATURE_OBSERVABILITY``.
 
 # Sampling configuration
 TRACING_SAMPLE_RATE = config("TRACING_SAMPLE_RATE", default=1.0 if DEBUG else 0.1, cast=float)

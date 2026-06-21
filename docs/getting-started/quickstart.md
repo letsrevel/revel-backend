@@ -97,9 +97,9 @@ Once the server is running, you have access to several services:
     ```
 
 !!! warning "Observability is disabled by default"
-    `make setup` starts the server with `ENABLE_OBSERVABILITY=False` because the observability stack (Loki, Tempo, Prometheus) is not running under `compose.yaml`. However, `.env.example` sets `ENABLE_OBSERVABILITY=True`. If you see connection errors in logs after running `make run` on subsequent sessions, either:
+    `make setup` starts the server with `FEATURE_OBSERVABILITY=False` because the observability stack (Loki, Tempo, Prometheus) is not running under `compose.yaml`. However, `.env.example` sets `FEATURE_OBSERVABILITY=True`. If you see connection errors in logs after running `make run` on subsequent sessions, either:
 
-    - Set `ENABLE_OBSERVABILITY=False` in your `.env`, or
+    - Set `FEATURE_OBSERVABILITY=False` in your `.env`, or
     - Start the observability stack: `docker compose -f docker-compose-observability.yml up -d`
 
 ## Next Steps
