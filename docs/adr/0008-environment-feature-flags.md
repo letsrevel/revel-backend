@@ -41,6 +41,31 @@ Convention:
 - Flags are checked via `django.conf.settings.FEATURE_*` in service and controller layers
 - Tests override flags with `@override_settings(FEATURE_X=True/False)`
 
+Current `FEATURE_*` flags: `FEATURE_LLM_EVALUATION`, `FEATURE_GOOGLE_SSO`,
+`FEATURE_MALWARE_SCAN`, `FEATURE_TELEGRAM`, `FEATURE_ORGANIZATION_CREATION`,
+`FEATURE_OBSERVABILITY`.
+
+## Taxonomy: which mechanism for which toggle
+
+Not every switch is a product feature flag. To keep `features.py` meaningful and stop
+operational/dev knobs from sprawling, a toggle belongs in exactly one of three places:
+
+| Mechanism | What it is | Where it lives | Examples |
+| --- | --- | --- | --- |
+| **`FEATURE_*` env flag** | A product capability toggled per deployment | `src/revel/settings/features.py` | `FEATURE_LLM_EVALUATION`, `FEATURE_TELEGRAM`, `FEATURE_MALWARE_SCAN`, `FEATURE_ORGANIZATION_CREATION`, `FEATURE_OBSERVABILITY` |
+| **Operational / dev toggle** | Profiling, throttling, test/CI behaviour, transport — *not* a product capability | its domain settings module (`base.py`, `email.py`, `celery.py`, `sso.py`, …) | `DEMO_MODE`, `SILK_PROFILER`, `DISABLE_THROTTLING`, `SYSTEM_TESTING`, `EMAIL_DRY_RUN`, `CELERY_TASK_ALWAYS_EAGER`, `SSO_SHOW_FORM_ON_ADMIN_PAGE` |
+| **`SiteSettings` (DB singleton)** | Runtime, admin-editable, no redeploy | `events` app, edited via admin | `notify_user_joined`, `notify_organization_created`, `live_emails` |
+
+Guidance:
+
+- A new switch is a `FEATURE_*` flag **only** if it gates a product capability a deployment
+  might legitimately want off (an optional integration, an external dependency, a per-instance
+  policy). Everything else is operational config and stays in its domain module.
+- `SSO_SHOW_FORM_ON_ADMIN_PAGE` is intentionally **not** a `FEATURE_*` flag: it is an admin-UI
+  toggle, not a product capability, and stays in `sso.py`.
+- DB-backed runtime toggles (`SiteSettings`) are a deliberately separate mechanism (no redeploy)
+  and are out of scope for this ADR; do not migrate them into `features.py`.
+
 ## Consequences
 
 **Positive:**

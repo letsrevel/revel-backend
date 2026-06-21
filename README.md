@@ -270,13 +270,13 @@ docker compose -f docker-compose-observability.yml up -d
 Observability can be configured via environment variables in `.env`:
 
 ```bash
-ENABLE_OBSERVABILITY=True          # Enable/disable all observability features
+FEATURE_OBSERVABILITY=True         # Enable/disable all observability features (legacy alias: ENABLE_OBSERVABILITY)
 TRACING_SAMPLE_RATE=1.0            # 100% in dev (auto-switches to 0.1 in production)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
 !!! note
-    `make setup` runs with `ENABLE_OBSERVABILITY=False` to avoid connection errors to non-existent services. If you start the observability stack later, set `ENABLE_OBSERVABILITY=True` in your `.env`.
+    `make setup` runs with `FEATURE_OBSERVABILITY=False` to avoid connection errors to non-existent services. If you start the observability stack later, set `FEATURE_OBSERVABILITY=True` in your `.env`. The old `ENABLE_OBSERVABILITY` name is still honoured as a deprecated alias for one release.
 
 ### Verifying Observability Setup
 

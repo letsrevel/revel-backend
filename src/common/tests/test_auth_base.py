@@ -11,7 +11,7 @@ from common.authentication import I18nJWTAuth
 pytestmark = pytest.mark.django_db
 
 
-@override_settings(ENABLE_OBSERVABILITY=True)
+@override_settings(FEATURE_OBSERVABILITY=True)
 def test_jwt_auth_binds_user_id_contextvar(user: RevelUser) -> None:
     """Successful JWT auth binds user_id into the structlog request context.
 
@@ -32,7 +32,7 @@ def test_jwt_auth_binds_user_id_contextvar(user: RevelUser) -> None:
         structlog.contextvars.clear_contextvars()
 
 
-@override_settings(ENABLE_OBSERVABILITY=False)
+@override_settings(FEATURE_OBSERVABILITY=False)
 def test_jwt_auth_skips_binding_when_observability_disabled(user: RevelUser) -> None:
     """With observability disabled, nothing is bound (contextvars are never cleared either)."""
     token = str(RefreshToken.for_user(user).access_token)  # type: ignore[attr-defined]

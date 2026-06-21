@@ -37,7 +37,7 @@ def init_profiling() -> None:
     Profiling is handled externally by Grafana Alloy (eBPF) - no Python code needed.
     This function exists for logging and future extensibility.
     """
-    if not settings.ENABLE_OBSERVABILITY:
+    if not settings.FEATURE_OBSERVABILITY:
         logger.debug("Observability disabled - profiling will not be active")
         return
 

@@ -25,7 +25,7 @@ def init_tracing() -> None:
     - Sampling based on environment
     - Auto-instrumentation for Django, Celery, PostgreSQL, Redis
     """
-    if not settings.ENABLE_OBSERVABILITY:
+    if not settings.FEATURE_OBSERVABILITY:
         logger.info("Observability disabled - skipping OpenTelemetry tracing initialization")
         return
 

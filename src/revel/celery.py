@@ -38,7 +38,7 @@ def celery_task_prerun(task_id: str, task: t.Any, *args: t.Any, **kwargs: t.Any)
     """
     from django.conf import settings
 
-    if not settings.ENABLE_OBSERVABILITY:
+    if not settings.FEATURE_OBSERVABILITY:
         return
 
     # Clear any previous context
@@ -78,7 +78,7 @@ def celery_task_postrun(*args: t.Any, **kwargs: t.Any) -> None:
     """
     from django.conf import settings
 
-    if not settings.ENABLE_OBSERVABILITY:
+    if not settings.FEATURE_OBSERVABILITY:
         return
 
     # Clear context after task completes
