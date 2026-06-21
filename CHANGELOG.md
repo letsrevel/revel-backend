@@ -7,9 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [1.64.0] - 2026-06-21
 
-- Per-event ticket revenue endpoint `GET /event-admin/{event_id}/revenue` (#515): organizers can now see total earned per event, grouped by currency, without cross-referencing Stripe manually. Sums online (Stripe) payments and offline/at-the-door amounts confirmed as paid (offline counts once `ACTIVE`, at-the-door once `CHECKED_IN`), reporting `gross`/`refunded`/`net` and a paid-ticket count. Online refunds are netted out; offline refunds are not yet tracked (#528).
+### Added
+- **Revenue & VAT reporting**: a full financial-reporting suite for organizers, all driven by one tax-precise engine so every view reconciles.
+  - Downloadable **revenue & VAT report** (org-admin `POST /organization-admin/{slug}/revenue-report`, poll via `GET /organization-admin/{slug}/revenue-reports/{id}`): a ZIP bundling an XLSX (Summary + Transactions) and a PDF (per-VAT-rate table, refunds, net taxable turnover). Aggregates online (Stripe) and offline/at-the-door payments per currency and per VAT rate; refunds attributed to the period they occurred. Cached and reused unless `?refresh=true`.
+  - **Scheduled delivery**: per-org `revenue_report_cadence` (`NONE`/`QUARTERLY`/`MONTHLY`) emails the just-closed period's report ZIP to the org `billing_email` and owner; computed in the org's timezone, skips empty periods.
+  - **Live org financials** endpoint `GET /organization-admin/{slug}/revenue`: per-event revenue, sortable (`sort=revenue|event_start`), period-filtered (`year` + optional `month`/`quarter`), with currency switching (`available_currencies`, `?currency=`).
+  - Per-event revenue endpoint now reports VAT detail and tracks both online and offline ticket refunds.
+- **Self-hosting support**: the backend now boots and runs on a self-hosted box without ClamAV, Telegram, or the full geo dataset, with feature flags to tailor a deployment.
+  - `FEATURE_MALWARE_SCAN` (default on) — when off, uploads skip the ClamAV scan and are marked clean.
+  - `FEATURE_TELEGRAM` (default on) — when off, Telegram delivery is dropped and the linking endpoints 404.
+  - `FEATURE_ORGANIZATION_CREATION` (default on) — when off, `POST /organizations/` returns 403 for non-staff (single-org instances); staff/superusers bypass.
+  - Cities-CSV fallback to a bundled `worldcities.mini.csv` so a fresh container no longer crash-loops on the city-load migration.
+  - `provision_stripe_webhooks --format json` for machine-readable webhook setup, and a new self-hosting documentation section.
+- **Feature flags in `GET /version`**: the anonymous version endpoint now returns a `features` object (`organization_creation`, `telegram`, `google_sso`, `llm_evaluation`) so clients can hide gated UI instead of letting users hit a 403/404.
+- **Event schedule / timeline**: organizers can author an ordered list of display-only sessions (title, markdown description, relative start offset, optional duration/location, `is_required` badge) via `PUT /event-admin/{event_id}/schedule`; exposed on the event detail and copied verbatim on event duplication/recurrence.
+- **Scheduled announcements**: send an announcement at a future absolute time or relative to event start/end (auto-shifts when the event moves); adds a `SCHEDULED` status plus `/schedule` and `/unschedule` endpoints, delivered by a background sweep.
+- **Resend announcements to new sign-ups**: an event announcement can be re-delivered to attendees who join after the first send, until the event ends, without double-notifying.
+- **Immediate transactional emails**: payment- and ticket-related notifications (`PAYMENT_CONFIRMATION`, `TICKET_CREATED`, `TICKET_CANCELLED`, `TICKET_REFUNDED`) now bypass the digest and deliver immediately on the user's enabled channels.
+- Event `timezone` (resolved IANA string, UTC fallback) exposed on the event list and detail schemas, and an `audience` descriptor on the public announcement schema.
+- Admin moderation: staff can now delete offensive food items, and offensive food-item names are blocked at creation across all languages (new `moderation` app).
+- Admin ticket list is now sortable, and shows the discount code applied to each ticket.
+- Questionnaire submissions now expose `requires_evaluation`.
+
+### Changed
+- Email digest overhauled: grouped by human-readable type label, each item carrying a body, timestamp, and a "View details" link, restyled to match the transactional emails.
+- Observability flag renamed `ENABLE_OBSERVABILITY` → `FEATURE_OBSERVABILITY`; the old env var still works as a deprecated alias for one release.
+- **Breaking** (per-event revenue endpoint `GET /event-admin/{event_id}/tickets/revenue`): now returns `EventFinancialsSchema` — `refunded` renamed to `refunds`, `paid_ticket_count` removed (derive from `sold_count - refunded_count`, and `sold_count` now also counts later-refunded/cancelled sales), and VAT detail (`net_taxable`, `vat`, `rate_buckets`) added. Requires a coordinated frontend update.
+
+### Fixed
+- Event times in notifications and emails are now always rendered in the event's own timezone.
+- New ticket tiers now appear at the bottom of the list instead of the top.
+- Questionnaire/poll shuffling is now stable per viewer across page reloads (still varies between users) instead of re-randomizing on every load.
+- Creating a discount code with a duplicate code now returns a clear 409 instead of an opaque 500.
+- Discount codes that have never been used are hard-deleted; used codes are deactivated to preserve history.
+- Reduced redundant 4xx log noise while ensuring 500 tracebacks are captured.
+
+### Removed
+- The on-check-in notification (`TICKET_CHECKED_IN`) is no longer sent — the holder is already at the event.
+
+## [1.63.1] - 2026-06-13
+
+### Fixed
+- `SiteSettings`/`Legal` singletons (django-solo) are now cached, eliminating a per-request N+1 (one request was issuing 160+ identical `SiteSettings` queries) that made status-update and bulk-notification flows slow.
+
+### Security
+- Bumped `tornado` to 6.5.7 to clear CVE-2026-49854.
+
+## [1.63.0] - 2026-06-11
+
+### Added
+- **Stripe webhook hardening**: multiple signing secrets (`STRIPE_WEBHOOK_SECRETS`, CSV) so secrets can be rotated without downtime; a `StripeWebhookEvent` log providing DB-level idempotency against redeliveries; explicit event dispatch; and a daily pruning job. Invalid signatures now fail closed with a 403 instead of a 500.
+- Stripe API version pinned (`STRIPE_API_VERSION`) for predictable behaviour, with a `charge.refunded` compatibility fix.
+- `provision_stripe_webhooks` management command to set up Stripe webhooks.
+- The platform host's own Stripe account can be bound to a single organization (superuser admin actions), enabling the host to sell tickets directly.
+
+### Fixed
+- Duplicate Stripe webhook deliveries now correctly replay idempotent task dispatches instead of being silently dropped.
+- Organization admin now exposes the social-media fields from `SocialMediaMixin`.
 
 ## [1.62.7] - 2026-06-10
 
