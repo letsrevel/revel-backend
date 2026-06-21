@@ -235,7 +235,7 @@ class ChangePasswordSchema(PasswordMixin):
     old_password: str
 
 
-SupportedLanguage = t.Literal["en", "de", "it"]
+SupportedLanguage = t.Literal["en", "de", "it", "fr"]
 
 
 class ProfileUpdateSchema(Schema):
@@ -245,7 +245,7 @@ class ProfileUpdateSchema(Schema):
     pronouns: StrippedString = Field(..., max_length=100, description="User's pronouns")
     first_name: StrippedString = Field(..., max_length=30, description="User's first name")
     last_name: StrippedString = Field(..., max_length=150, description="User's last name")
-    language: SupportedLanguage = Field("en", max_length=7, description="User's preferred language (en, de, it)")
+    language: SupportedLanguage = Field("en", max_length=7, description="User's preferred language (en, de, it, fr)")
     bio: str = Field("", max_length=500, description="User's bio (publicly visible)")
 
     @model_validator(mode="after")
@@ -262,7 +262,7 @@ class ProfileUpdateSchema(Schema):
 class LanguageUpdateSchema(Schema):
     """Schema for updating user's preferred language."""
 
-    language: SupportedLanguage = Field(..., description="User's preferred language (en, de, it)")
+    language: SupportedLanguage = Field(..., description="User's preferred language (en, de, it, fr)")
 
 
 class VerifyEmailResponseSchema(Schema):
