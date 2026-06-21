@@ -1,6 +1,9 @@
 # src/telegram/controllers.py
 """Telegram API controllers."""
 
+from django.conf import settings
+from django.utils.translation import gettext_lazy as _
+from ninja.errors import HttpError
 from ninja_extra import api_controller, route
 
 from common.authentication import I18nJWTAuth
@@ -10,6 +13,12 @@ from common.throttling import UserDefaultThrottle, WriteThrottle
 from telegram import service
 from telegram.models import TelegramUser
 from telegram.schema import BotNameSchema, TelegramLinkStatusSchema, TelegramOTPSchema
+
+
+def _ensure_telegram_enabled() -> None:
+    """Raise 404 when the Telegram integration is disabled on this instance."""
+    if not settings.FEATURE_TELEGRAM:
+        raise HttpError(404, str(_("Telegram integration is not enabled.")))
 
 
 @api_controller("/telegram", tags=["Telegram"], auth=I18nJWTAuth(), throttle=UserDefaultThrottle())
@@ -33,6 +42,7 @@ class TelegramController(UserAwareController):
         Raises:
             HttpError: 400 if account already connected or OTP invalid/expired.
         """
+        _ensure_telegram_enabled()
         service.connect_accounts(self.user(), payload.cleaned_otp())
         return 200, ResponseMessage(message="Telegram account linked successfully")
 
@@ -43,6 +53,7 @@ class TelegramController(UserAwareController):
         Raises:
             HttpError: 400 if no Telegram account is linked.
         """
+        _ensure_telegram_enabled()
         service.disconnect_account(self.user())
 
     @route.get("/status", response=TelegramLinkStatusSchema)
@@ -52,6 +63,7 @@ class TelegramController(UserAwareController):
         Returns:
             Link status with connection state and username if connected.
         """
+        _ensure_telegram_enabled()
         tg_user = TelegramUser.objects.filter(user=self.user()).first()
         return TelegramLinkStatusSchema(
             connected=tg_user is not None, telegram_username=tg_user.telegram_username if tg_user else None
@@ -64,5 +76,6 @@ class TelegramController(UserAwareController):
         Returns:
             Bot name retrieved from Telegram API (cached for 24 hours).
         """
+        _ensure_telegram_enabled()
         bot_name = service.get_bot_name()
         return BotNameSchema(botname=bot_name)
