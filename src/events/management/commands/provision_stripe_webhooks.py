@@ -73,6 +73,10 @@ class Command(BaseCommand):
         if not url.startswith("https://"):
             raise CommandError(f"--url must be https:// (Stripe rejects http in live mode). Got: {url}")
 
+        if options["dry_run"] and options["format"] == "json":
+            # --format json promises JSON-only output; --dry-run emits human text, so refuse the combo.
+            raise CommandError("--dry-run cannot be combined with --format json.")
+
         if options["dry_run"]:
             self.stdout.write("DRY RUN — no API calls.")
             self.stdout.write(f"Would create platform endpoint at {url}: {', '.join(PLATFORM_EVENTS)}")

@@ -234,9 +234,15 @@ def to_safe_email_address(email: str, site_settings: SiteSettings | None = None)
 def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dict[str, t.Any]:
     """Scan for malware."""
     if not settings.FEATURE_MALWARE_SCAN:
-        FileUploadAudit.objects.filter(app=app, model=model, field=field).update(
-            status=FileUploadAudit.FileUploadAuditStatus.CLEAN, updated_at=timezone.now()
-        )
+        # Scope to this upload's still-pending audit: never rewrite another instance's row
+        # or a previously-flagged (e.g. MALICIOUS) audit to CLEAN.
+        FileUploadAudit.objects.filter(
+            app=app,
+            model=model,
+            field=field,
+            instance_pk=pk,
+            status=FileUploadAudit.FileUploadAuditStatus.PENDING,
+        ).update(status=FileUploadAudit.FileUploadAuditStatus.CLEAN, updated_at=timezone.now())
         return None
     cd = pyclamd.ClamdNetworkSocket(host=settings.CLAMAV_HOST, port=settings.CLAMAV_PORT)
     if not cd.ping():
