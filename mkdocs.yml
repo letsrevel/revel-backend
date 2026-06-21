@@ -97,6 +97,14 @@ nav:
       - adr/0007-celery-exception-propagation.md
       - adr/0008-environment-feature-flags.md
       - adr/0010-dependency-compliance.md
+  - Self-Hosting:
+      - Overview: self-hosting/index.md
+      - Quickstart: self-hosting/quickstart.md
+      - DNS & Cloudflare: self-hosting/dns-cloudflare.md
+      - Tiers & Configuration: self-hosting/tiers.md
+      - Observability: self-hosting/observability.md
+      - Maintenance: self-hosting/maintenance.md
+      - Troubleshooting: self-hosting/troubleshooting.md
   - Runbooks:
       - runbooks/dependency-audit.md
       - runbooks/admin-groups.md
