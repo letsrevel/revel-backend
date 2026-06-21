@@ -25,7 +25,7 @@ class CityController(ControllerBase):
         Searching,
         search_fields=["name", "ascii_name", "country"],
     )
-    def list_cities(self, filters: CityFilterSchema = Query(...)) -> QuerySet[City]:  # type: ignore[type-arg]
+    def list_cities(self, filters: t.Annotated[CityFilterSchema, Query(...)]) -> QuerySet[City]:
         """Search and browse cities from the global database.
 
         Supports filtering by country and searching by city name. Use the 'search' parameter

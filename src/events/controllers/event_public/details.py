@@ -1,3 +1,4 @@
+import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -67,7 +68,7 @@ class EventPublicDetailsController(EventPublicBaseController):
     def list_resources(
         self,
         event_id: UUID,
-        params: filters.ResourceFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.ResourceFilterSchema, Query(...)],
     ) -> QuerySet[models.AdditionalResource]:
         """Get supplementary resources attached to this event.
 

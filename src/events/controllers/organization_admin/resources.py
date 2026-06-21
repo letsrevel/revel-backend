@@ -1,3 +1,4 @@
+import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -32,7 +33,7 @@ class OrganizationAdminResourcesController(OrganizationAdminBaseController):
     def list_resources(
         self,
         slug: str,
-        params: filters.ResourceFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.ResourceFilterSchema, Query(...)],
     ) -> QuerySet[models.AdditionalResource]:
         """List all resources for a specific organization."""
         organization = self.get_one(slug)

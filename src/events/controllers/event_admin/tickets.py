@@ -161,7 +161,7 @@ class EventAdminTicketsController(EventAdminBaseController):
     def list_tickets(
         self,
         event_id: UUID,
-        params: filters.TicketFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.TicketFilterSchema, Query(...)],
         order_by: TicketOrdering = "-created_at",
     ) -> QuerySet[models.Ticket]:
         """List tickets for an event with optional filters.
@@ -208,7 +208,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         self,
         event_id: UUID,
         ticket_id: UUID,
-        payload: schema.ConfirmPaymentSchema | None = Body(None),  # type: ignore[type-arg]
+        payload: t.Annotated[schema.ConfirmPaymentSchema | None, Body(None)] = None,
     ) -> models.Ticket:
         """Confirm payment for a pending offline ticket and activate it."""
         event = self.get_one(event_id)
@@ -256,7 +256,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         self,
         event_id: UUID,
         ticket_id: UUID,
-        payload: schema.AdminRefundTicketSchema | None = Body(None),  # type: ignore[type-arg]
+        payload: t.Annotated[schema.AdminRefundTicketSchema | None, Body(None)] = None,
     ) -> models.Ticket:
         """Mark a manual offline/at-the-door ticket as refunded and cancel it.
 
@@ -290,7 +290,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         self,
         event_id: UUID,
         ticket_id: UUID,
-        payload: schema.AdminCancelTicketSchema | None = Body(None),  # type: ignore[type-arg]
+        payload: t.Annotated[schema.AdminCancelTicketSchema | None, Body(None)] = None,
     ) -> models.Ticket:
         """Cancel an offline/at-the-door ticket and record organizer audit fields.
 
@@ -323,7 +323,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         self,
         event_id: UUID,
         ticket_id: UUID,
-        payload: schema.ConfirmPaymentSchema | None = Body(None),  # type: ignore[type-arg]
+        payload: t.Annotated[schema.ConfirmPaymentSchema | None, Body(None)] = None,
     ) -> models.Ticket:
         """Check in an attendee by scanning their ticket."""
         event = self.get_one(event_id)
@@ -342,8 +342,8 @@ class EventAdminTicketsController(EventAdminBaseController):
         self,
         event_id: UUID,
         year: int | None = None,
-        month: int | None = Query(None, ge=1, le=12),  # type: ignore[type-arg]
-        quarter: int | None = Query(None, ge=1, le=4),  # type: ignore[type-arg]
+        month: t.Annotated[int | None, Query(ge=1, le=12)] = None,
+        quarter: t.Annotated[int | None, Query(ge=1, le=4)] = None,
     ) -> revenue_aggregation.EventFinancials:
         """Per-event financials, all-time by default; optional year/month/quarter filter."""
         event = self.get_one(event_id)

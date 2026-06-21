@@ -1,5 +1,6 @@
 """Controller for recurring event management."""
 
+import typing as t
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
@@ -137,7 +138,7 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         self,
         slug: str,
         series_id: UUID,
-        payload: schema.GenerateSeriesEventsSchema | None = Body(None),  # type: ignore[type-arg]
+        payload: t.Annotated[schema.GenerateSeriesEventsSchema | None, Body(None)] = None,
     ) -> list[models.Event]:
         """Manually generate events for the series within the rolling window."""
         series = self._get_series(slug, series_id)

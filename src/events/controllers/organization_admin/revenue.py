@@ -1,6 +1,7 @@
 """Org-admin revenue & VAT report endpoints (#551)."""
 
 import datetime as dt
+import typing as t
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
@@ -63,11 +64,11 @@ class OrganizationAdminRevenueController(OrganizationAdminBaseController):
         self,
         slug: str,
         year: int | None = None,
-        month: int | None = Query(None, ge=1, le=12),  # type: ignore[type-arg]
-        quarter: int | None = Query(None, ge=1, le=4),  # type: ignore[type-arg]
+        month: t.Annotated[int | None, Query(ge=1, le=12)] = None,
+        quarter: t.Annotated[int | None, Query(ge=1, le=4)] = None,
         currency: str | None = None,
-        sort: str = Query("revenue"),  # type: ignore[type-arg]
-        order: str = Query("desc"),  # type: ignore[type-arg]
+        sort: t.Annotated[str, Query()] = "revenue",
+        order: t.Annotated[str, Query()] = "desc",
     ) -> revenue_aggregation.OrganizationFinancials:
         """Org-wide financials broken down by event, period-filtered and sortable."""
         org = self.get_one(slug)

@@ -1,3 +1,4 @@
+import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -40,7 +41,7 @@ class OrganizationAdminBlacklistController(OrganizationAdminBaseController):
     def list_blacklist(
         self,
         slug: str,
-        params: filters.BlacklistFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.BlacklistFilterSchema, Query(...)],
     ) -> QuerySet[models.Blacklist]:
         """List all blacklist entries for the organization.
 

@@ -1,3 +1,4 @@
+import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -40,7 +41,7 @@ class EventAdminRSVPsController(EventAdminBaseController):
     def list_rsvps(
         self,
         event_id: UUID,
-        params: filters.RSVPFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.RSVPFilterSchema, Query(...)],
     ) -> QuerySet[models.EventRSVP]:
         """List all RSVPs for an event.
 

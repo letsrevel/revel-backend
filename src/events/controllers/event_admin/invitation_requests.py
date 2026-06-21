@@ -1,3 +1,4 @@
+import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -38,7 +39,7 @@ class EventAdminInvitationRequestsController(EventAdminBaseController):
     def list_invitation_requests(
         self,
         event_id: UUID,
-        params: filters.InvitationRequestFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.InvitationRequestFilterSchema, Query(...)],
     ) -> QuerySet[models.EventInvitationRequest]:
         """List all invitation requests for an event.
 

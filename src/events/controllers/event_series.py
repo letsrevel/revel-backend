@@ -38,7 +38,7 @@ class EventSeriesController(UserAwareController):
     @searching(Searching, search_fields=["name", "description", "organization__name", "tags__tag__name"])
     def list_event_series(
         self,
-        params: filters.EventSeriesFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.EventSeriesFilterSchema, Query(...)],
     ) -> QuerySet[models.EventSeries]:
         """Browse event series (recurring event collections) visible to the current user.
 
@@ -67,7 +67,7 @@ class EventSeriesController(UserAwareController):
     def list_resources(
         self,
         series_id: UUID,
-        params: filters.ResourceFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.ResourceFilterSchema, Query(...)],
     ) -> QuerySet[models.AdditionalResource]:
         """Get resources attached to this event series.
 

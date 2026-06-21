@@ -124,7 +124,7 @@ Use the `@searching` decorator to add search capabilities:
 @route.get("", response=list[EventSchema])
 @paginate(PageNumberPaginationExtra)
 @searching(Searching, search_fields=["name", "description"])
-def list_events(self, filters: EventFilterSchema = Query(...)) -> QuerySet[Event]:  # type: ignore[type-arg]
+def list_events(self, filters: t.Annotated[EventFilterSchema, Query(...)]) -> QuerySet[Event]:
     return Event.objects.filter(is_published=True)
 ```
 
@@ -202,13 +202,15 @@ class EventSchema(Schema):
 ### Optional JSON Body
 
 !!! note "Django Ninja quirk"
-    For endpoints with an optional JSON body, use `Body(None)` with a type ignore comment. Plain `Schema | None = None` causes "Cannot parse request body" when no JSON is sent.
+    For endpoints with an optional JSON body, keep `Body(None)` in the metadata via the `Annotated` idiom. Plain `Schema | None = None` causes "Cannot parse request body" when no JSON is sent.
 
 ```python
+import typing as t
+
 from ninja import Body
 
 @route.post("/confirm")
-def confirm(self, payload: ConfirmSchema | None = Body(None)) -> Response:  # type: ignore[type-arg]
+def confirm(self, payload: t.Annotated[ConfirmSchema | None, Body(None)] = None) -> Response:
     ...
 ```
 

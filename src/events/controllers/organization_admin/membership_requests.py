@@ -1,3 +1,4 @@
+import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -36,7 +37,7 @@ class OrganizationAdminMembershipRequestsController(OrganizationAdminBaseControl
     def list_membership_requests(
         self,
         slug: str,
-        params: filters.MembershipRequestFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.MembershipRequestFilterSchema, Query(...)],
     ) -> QuerySet[OrganizationMembershipRequest]:
         """List all membership requests for an organization.
 
