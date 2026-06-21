@@ -8,6 +8,7 @@ def seed_dietary_preferences(apps, schema_editor):
     DietaryPreference = apps.get_model("accounts", "DietaryPreference")
 
     preferences = [
+        "Omnivore",
         "Vegetarian",
         "Vegan",
         "Pescatarian",
@@ -29,6 +30,7 @@ def reverse_seed_dietary_preferences(apps, schema_editor):
     DietaryPreference = apps.get_model("accounts", "DietaryPreference")
 
     preferences = [
+        "Omnivore",
         "Vegetarian",
         "Vegan",
         "Pescatarian",
