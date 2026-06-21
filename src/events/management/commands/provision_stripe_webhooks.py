@@ -17,6 +17,7 @@ new ones until the operator disables it in the dashboard — the event-log
 dedup makes the overlap harmless).
 """
 
+import json
 import typing as t
 
 import stripe
@@ -59,6 +60,12 @@ class Command(BaseCommand):
             action="store_true",
             help="Create even if endpoints already target this URL (cutover overlap).",
         )
+        parser.add_argument(
+            "--format",
+            choices=["text", "json"],
+            default="text",
+            help="Output format. 'json' prints only a machine-readable object (for setup.sh).",
+        )
 
     def handle(self, *args: t.Any, **options: t.Any) -> None:
         """Validate ``--url``, then either preview or POST two endpoints to Stripe."""
@@ -97,6 +104,17 @@ class Command(BaseCommand):
             api_version=settings.STRIPE_API_VERSION,
             description="Revel Connect events",
         )
+
+        if options["format"] == "json":
+            self.stdout.write(
+                json.dumps(
+                    {
+                        "platform": {"id": platform.id, "secret": platform.secret},
+                        "connect": {"id": connect.id, "secret": connect.secret},
+                    }
+                )
+            )
+            return
 
         self.stdout.write(self.style.SUCCESS("Created two webhook endpoints:"))
         self.stdout.write(f"  Platform: {platform.id}  secret: {platform.secret}")
