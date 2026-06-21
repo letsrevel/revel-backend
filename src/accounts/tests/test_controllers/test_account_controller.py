@@ -229,7 +229,7 @@ def test_update_language_success(auth_client: Client, user: RevelUser) -> None:
 def test_update_language_invalid_language(auth_client: Client) -> None:
     """Test language update with invalid language returns 422."""
     url = reverse("api:update-language")
-    payload = {"language": "fr"}  # Not in supported languages
+    payload = {"language": "es"}  # Not in supported languages
 
     response = auth_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
