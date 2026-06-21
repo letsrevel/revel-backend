@@ -59,7 +59,7 @@ class QuestionnaireController(UserAwareController):
     @searching(Searching, search_fields=["questionnaire__name", "events__name", "event_series__name"])
     def list_org_questionnaires(
         self,
-        params: filters.QuestionnaireFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.QuestionnaireFilterSchema, Query(...)],
     ) -> QuerySet[event_models.OrganizationQuestionnaire]:
         """Browse questionnaires you have permission to view or manage.
 
@@ -459,7 +459,7 @@ class QuestionnaireController(UserAwareController):
     def list_submissions(
         self,
         org_questionnaire_id: UUID,
-        params: filters.SubmissionFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.SubmissionFilterSchema, Query(...)],
         order_by: t.Literal["submitted_at", "-submitted_at"] = "-submitted_at",
     ) -> QuerySet[questionnaires_models.QuestionnaireSubmission]:
         """View user submissions for this questionnaire (admin only).

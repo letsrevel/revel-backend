@@ -106,7 +106,7 @@ class OrganizationController(UserAwareController):
     @searching(Searching, search_fields=["name", "description", "tags__tag__name"])
     def list_organizations(
         self,
-        params: filters.OrganizationFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.OrganizationFilterSchema, Query(...)],
         order_by: t.Literal["name", "-name", "distance"] = "distance",
     ) -> QuerySet[models.Organization]:
         """Browse and search organizations visible to the current user.
@@ -171,7 +171,7 @@ class OrganizationController(UserAwareController):
     def list_resources(
         self,
         slug: str,
-        params: filters.ResourceFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.ResourceFilterSchema, Query(...)],
     ) -> QuerySet[models.AdditionalResource]:
         """Get resources attached to this organization and marked for display on organization page.
 

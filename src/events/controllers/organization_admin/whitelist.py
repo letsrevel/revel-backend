@@ -1,3 +1,4 @@
+import typing as t
 from uuid import UUID
 
 from django.db.models import Count, QuerySet
@@ -41,7 +42,7 @@ class OrganizationAdminWhitelistController(OrganizationAdminBaseController):
     def list_whitelist_requests(
         self,
         slug: str,
-        params: filters.WhitelistRequestFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.WhitelistRequestFilterSchema, Query(...)],
     ) -> QuerySet[models.WhitelistRequest]:
         """List whitelist requests for the organization.
 

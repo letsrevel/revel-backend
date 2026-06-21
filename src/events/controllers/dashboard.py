@@ -58,7 +58,7 @@ class DashboardController(UserAwareController):
     @searching(Searching, search_fields=["name", "description", "tags__tag__name"])
     def dashboard_organizations(
         self,
-        params: filters.DashboardOrganizationsFiltersSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.DashboardOrganizationsFiltersSchema, Query(...)],
     ) -> QuerySet[models.Organization]:
         """View organizations for your dashboard filtered by your relationship to them.
 
@@ -84,7 +84,7 @@ class DashboardController(UserAwareController):
     )
     def dashboard_events(
         self,
-        params: filters.DashboardEventsFiltersSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.DashboardEventsFiltersSchema, Query(...)],
         order_by: t.Literal["start", "-start"] = "start",
         include_past: bool = False,
     ) -> QuerySet[models.Event]:
@@ -107,8 +107,8 @@ class DashboardController(UserAwareController):
     @route.get("/calendar", url_name="dashboard_calendar", response=list[schema.EventInListSchema])
     def dashboard_calendar(
         self,
-        params: filters.DashboardEventsFiltersSchema = Query(...),  # type: ignore[type-arg]
-        calendar_params: filters.CalendarParamsSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.DashboardEventsFiltersSchema, Query(...)],
+        calendar_params: t.Annotated[filters.CalendarParamsSchema, Query(...)],
     ) -> QuerySet[models.Event]:
         """View events in a calendar view filtered by your relationship to them.
 
@@ -155,7 +155,7 @@ class DashboardController(UserAwareController):
     @searching(Searching, search_fields=["name", "description", "tags__tag__name"])
     def dashboard_event_series(
         self,
-        params: filters.DashboardEventSeriesFiltersSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.DashboardEventSeriesFiltersSchema, Query(...)],
     ) -> QuerySet[models.EventSeries]:
         """View event series for your dashboard filtered by your relationship to them.
 
@@ -203,7 +203,7 @@ class DashboardController(UserAwareController):
     @searching(Searching, search_fields=["event__name", "event__description", "tier__name"])
     def dashboard_tickets(
         self,
-        params: filters.TicketFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.TicketFilterSchema, Query(...)],
     ) -> QuerySet[models.Ticket]:
         """View your tickets across all events.
 
@@ -226,8 +226,8 @@ class DashboardController(UserAwareController):
     @searching(Searching, search_fields=["event__name", "event__description", "message"])
     def dashboard_invitation_requests(
         self,
+        params: t.Annotated[filters.InvitationRequestFilterSchema, Query(...)],
         event_id: UUID | None = None,
-        params: filters.InvitationRequestFilterSchema = Query(...),  # type: ignore[type-arg]
     ) -> QuerySet[models.EventInvitationRequest]:
         """View your invitation requests across all events.
 
@@ -250,7 +250,7 @@ class DashboardController(UserAwareController):
     @searching(Searching, search_fields=["event__name", "event__description"])
     def dashboard_rsvps(
         self,
-        params: filters.RSVPFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.RSVPFilterSchema, Query(...)],
     ) -> QuerySet[models.EventRSVP]:
         """View your RSVPs across all events.
 

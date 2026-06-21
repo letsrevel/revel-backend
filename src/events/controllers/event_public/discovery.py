@@ -46,7 +46,7 @@ class EventPublicDiscoveryController(EventPublicBaseController):
     )
     def list_events(
         self,
-        params: filters.EventFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.EventFilterSchema, Query(...)],
         order_by: t.Literal["start", "-start", "distance"] = "distance",
         include_past: bool = False,
     ) -> QuerySet[models.Event]:
@@ -79,8 +79,8 @@ class EventPublicDiscoveryController(EventPublicBaseController):
     @route.get("/calendar", url_name="calendar_events", response=list[schema.EventInListSchema])
     def calendar_events(
         self,
-        params: filters.EventFilterSchema = Query(...),  # type: ignore[type-arg]
-        calendar_params: filters.CalendarParamsSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.EventFilterSchema, Query(...)],
+        calendar_params: t.Annotated[filters.CalendarParamsSchema, Query(...)],
     ) -> QuerySet[models.Event]:
         """Get events for a calendar view (week, month, or year).
 

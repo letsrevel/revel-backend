@@ -1,5 +1,7 @@
 """Organization admin announcements controller."""
 
+import typing as t
+
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from ninja import Query
@@ -47,7 +49,7 @@ class OrganizationAdminAnnouncementsController(OrganizationAdminBaseController):
     def list_announcements(
         self,
         slug: str,
-        params: filters.AnnouncementFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.AnnouncementFilterSchema, Query(...)],
     ) -> QuerySet[models.Announcement]:
         """List all announcements for this organization.
 

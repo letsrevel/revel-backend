@@ -1,3 +1,4 @@
+import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -116,7 +117,7 @@ class EventAdminTokensController(EventAdminBaseController):
     def list_event_tokens(
         self,
         event_id: UUID,
-        params: filters.EventTokenFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.EventTokenFilterSchema, Query(...)],
     ) -> QuerySet[models.EventToken]:
         """Retrieve all invitation tokens for this event with usage statistics.
 

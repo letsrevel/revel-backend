@@ -1,5 +1,7 @@
 """Controller for referral code validation."""
 
+import typing as t
+
 from django.utils.translation import gettext_lazy as _
 from ninja import Query, Schema
 from ninja.errors import HttpError
@@ -19,7 +21,7 @@ class ReferralController(ControllerBase):
         response=ReferralValidationResponse,
         url_name="validate-referral-code",
     )
-    def validate(self, code: str = Query(...)) -> ReferralValidationResponse:  # type: ignore[type-arg]
+    def validate(self, code: t.Annotated[str, Query(...)]) -> ReferralValidationResponse:
         """Validate a referral code.
 
         Returns 200 if the code exists and is active, 404 otherwise.

@@ -1,3 +1,5 @@
+import typing as t
+
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from ninja import Query
@@ -35,7 +37,7 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
     def list_organization_tokens(
         self,
         slug: str,
-        params: filters.OrganizationTokenFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.OrganizationTokenFilterSchema, Query(...)],
     ) -> QuerySet[models.OrganizationToken]:
         """Retrieve all membership invitation tokens for this organization.
 

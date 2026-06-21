@@ -209,10 +209,18 @@ class MyController(ControllerBase):
         return item
 ```
 
-> **Optional JSON body**: use `Body(None)` (from `ninja`) with `# type: ignore[type-arg]`; a
-> plain `Schema | None = None` raises "Cannot parse request body" when no JSON is sent. Tests
-> must pass `content_type="application/json"` even with an empty body. (`Query(...)` also needs
-> the `# type: ignore[type-arg]`.)
+> **Ninja `Query`/`Body` params — use the `Annotated` idiom** (not a `# type: ignore[type-arg]`):
+> put the real type in the annotation and the `Query()`/`Body()` object in the metadata. This
+> passes `mypy --strict` cleanly and preserves the OpenAPI constraints.
+> - `params: FilterSchema = Query(...)` → `params: t.Annotated[FilterSchema, Query(...)]` (required — drop the `=` default)
+> - `month: int | None = Query(None, ge=1, le=12)` → `month: t.Annotated[int | None, Query(ge=1, le=12)] = None`
+> - `payload: Schema | None = Body(None)` → `payload: t.Annotated[Schema | None, Body(None)] = None`
+>
+> **Optional JSON body**: a plain `Schema | None = None` raises "Cannot parse request body" when
+> no JSON is sent — keep `Body(None)` in the metadata (`t.Annotated[Schema | None, Body(None)] = None`).
+> Tests must pass `content_type="application/json"` even with an empty body. When a whole-schema
+> `Query(...)` param becomes required, make sure it doesn't sit after a defaulted param (Python
+> `SyntaxError`); reorder so it comes first.
 
 ### Exception handling (per-app handlers)
 Ninja Extra has **no per-controller exception hook**, so we keep controllers free of try/except

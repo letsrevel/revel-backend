@@ -1,5 +1,6 @@
 """Admin endpoints for advanced waitlist configuration and offers."""
 
+import typing as t
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -114,7 +115,7 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         self,
         event_id: UUID,
         offer_id: UUID,
-        payload: schema.WaitlistOfferReactivateSchema | None = Body(None),  # type: ignore[type-arg]
+        payload: t.Annotated[schema.WaitlistOfferReactivateSchema | None, Body(None)] = None,
     ) -> models.WaitlistOffer:
         """Re-open a previously expired or revoked offer for the same user.
 

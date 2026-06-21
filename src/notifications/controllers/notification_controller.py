@@ -1,5 +1,6 @@
 """API controller for notification management."""
 
+import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -33,7 +34,7 @@ class NotificationController(UserAwareController):
     @paginate(PageNumberPaginationExtra, page_size=20)
     def list_notifications(
         self,
-        params: NotificationFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[NotificationFilterSchema, Query(...)],
     ) -> QuerySet[Notification]:
         """List user's notifications.
 

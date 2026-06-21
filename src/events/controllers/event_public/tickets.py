@@ -381,7 +381,7 @@ class EventPublicTicketsController(EventPublicBaseController):
     def cancel_my_ticket(
         self,
         ticket_id: UUID,
-        payload: schema.TicketCancellationRequestSchema | None = Body(None),  # type: ignore[type-arg]
+        payload: t.Annotated[schema.TicketCancellationRequestSchema | None, Body(None)] = None,
     ) -> t.Any:
         """Ticket-holder-initiated cancellation with automatic Stripe refund where applicable.
 

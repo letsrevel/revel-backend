@@ -1,3 +1,4 @@
+import typing as t
 from uuid import UUID
 
 from django.db.models import QuerySet
@@ -37,7 +38,7 @@ class OrganizationAdminDiscountCodesController(OrganizationAdminBaseController):
     def list_discount_codes(
         self,
         slug: str,
-        params: filters.DiscountCodeFilterSchema = Query(...),  # type: ignore[type-arg]
+        params: t.Annotated[filters.DiscountCodeFilterSchema, Query(...)],
     ) -> QuerySet[models.DiscountCode]:
         """List all discount codes for the organization.
 
