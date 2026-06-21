@@ -72,6 +72,7 @@ nav:
       - Questionnaires: architecture/questionnaires.md
       - Billing & VAT: architecture/billing-and-vat.md
       - XLSX Exports: architecture/exports.md
+      - Engineering Notes (deep gotchas): engineering-notes.md
   - Guides:
       - guides/index.md
       - User Journey: guides/user-journey.md
@@ -96,7 +97,9 @@ nav:
       - adr/0006-mo-files-in-git.md
       - adr/0007-celery-exception-propagation.md
       - adr/0008-environment-feature-flags.md
+      - adr/0009-referral-payout-bounded-contexts.md
       - adr/0010-dependency-compliance.md
+      - adr/0011-mo-files-built-not-committed.md
   - Self-Hosting:
       - Overview: self-hosting/index.md
       - Quickstart: self-hosting/quickstart.md
@@ -110,10 +113,16 @@ nav:
       - runbooks/admin-groups.md
       - runbooks/stripe-hardening-rollout.md
       - runbooks/stripe-webhook-endpoints.md
+      - runbooks/rate-limit-429s.md
   - Post-Mortems:
       - postmortems/index.md
       - postmortems/0001-guest-user-verification-bypass.md
       - postmortems/0002-server-side-cursor-pgbouncer.md
+      - postmortems/0003-ssr-post-body-loss-internal-api-path.md
+
+# Internal agent plans/specs live under docs/superpowers/ — kept in git but not published.
+exclude_docs: |
+  superpowers/
 
 plugins:
   - search
