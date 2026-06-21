@@ -910,6 +910,9 @@ msgstr "Solo chi ha il biglietto può annullarlo."
 msgid "Refund failed. Please try again later."
 msgstr "Rimborso non riuscito. Per favore riprova più tardi."
 
+msgid "Organization creation is disabled on this instance."
+msgstr "La creazione di organizzazioni è disabilitata su questa istanza."
+
 msgid "Message sent."
 msgstr "Messaggio inviato."
 
@@ -3717,6 +3720,9 @@ msgstr "Autenticazione"
 
 msgid "Groups"
 msgstr "Gruppi"
+
+msgid "Telegram integration is not enabled."
+msgstr "L'integrazione con Telegram non è abilitata."
 
 msgid "Connected banned Telegram account"
 msgstr "Account Telegram bloccato collegato"

@@ -934,6 +934,9 @@ msgstr "Seul·e le·la titulaire du ticket peut annuler ce ticket."
 msgid "Refund failed. Please try again later."
 msgstr "Le remboursement a échoué. Réessaie plus tard."
 
+msgid "Organization creation is disabled on this instance."
+msgstr "La création d'organisations est désactivée sur cette instance."
+
 msgid "Message sent."
 msgstr "Message envoyé."
 
@@ -3756,6 +3759,9 @@ msgstr "Authentification"
 
 msgid "Groups"
 msgstr "Groupes"
+
+msgid "Telegram integration is not enabled."
+msgstr "L'intégration Telegram n'est pas activée."
 
 msgid "Connected banned Telegram account"
 msgstr "Compte Telegram banni connecté"

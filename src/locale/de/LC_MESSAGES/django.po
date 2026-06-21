@@ -924,6 +924,9 @@ msgid "Refund failed. Please try again later."
 msgstr ""
 "Die Rückerstattung ist fehlgeschlagen. Bitte versuche es später erneut."
 
+msgid "Organization creation is disabled on this instance."
+msgstr "Das Erstellen von Organisationen ist auf dieser Instanz deaktiviert."
+
 msgid "Message sent."
 msgstr "Nachricht gesendet."
 
@@ -3751,6 +3754,9 @@ msgstr "Authentifizierung"
 
 msgid "Groups"
 msgstr "Gruppen"
+
+msgid "Telegram integration is not enabled."
+msgstr "Die Telegram-Integration ist nicht aktiviert."
 
 msgid "Connected banned Telegram account"
 msgstr "Gesperrtes Telegram-Konto verbunden"
