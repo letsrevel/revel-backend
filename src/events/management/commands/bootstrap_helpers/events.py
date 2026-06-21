@@ -96,6 +96,42 @@ def _create_summer_festival(state: BootstrapState, now: "datetime.datetime") -> 
         end=now + timedelta(days=45, hours=8),
         max_attendees=500,
         waitlist_open=True,
+        schedule=[
+            {
+                "title": "Gates Open",
+                "offset_minutes": 0,
+                "duration_minutes": 60,
+                "location": "Main Entrance",
+                "description": "Food trucks, local vendors, and the craft beer garden open.",
+            },
+            {
+                "title": "Opening Acts",
+                "offset_minutes": 60,
+                "duration_minutes": 90,
+                "location": "Main Stage",
+                "description": "Local and touring artists kick off the evening.",
+            },
+            {
+                "title": "Sunset Session with DJ Nova",
+                "offset_minutes": 150,
+                "duration_minutes": 90,
+                "location": "Sunset Stage",
+            },
+            {
+                "title": "Headliner Performances",
+                "offset_minutes": 240,
+                "duration_minutes": 120,
+                "location": "Main Stage",
+                "is_required": True,
+            },
+            {
+                "title": "After-Party DJ Set",
+                "offset_minutes": 360,
+                "duration_minutes": 120,
+                "location": "Garden Stage",
+                "description": "Wind down the night with a closing DJ set.",
+            },
+        ],
         description="""# Summer Sunset Music Festival
 
 Join us for an unforgettable evening of music under the stars! Experience the magic of live
@@ -210,6 +246,34 @@ def _create_tech_workshop(state: BootstrapState, now: "datetime.datetime") -> No
         end=now + timedelta(days=20, hours=3),
         max_attendees=30,
         rsvp_before=now + timedelta(days=18),
+        schedule=[
+            {
+                "title": "Introduction & Setup",
+                "offset_minutes": 0,
+                "duration_minutes": 30,
+                "location": "Main Room",
+            },
+            {
+                "title": "API Integration Deep Dive",
+                "offset_minutes": 30,
+                "duration_minutes": 60,
+                "location": "Main Room",
+                "description": "Authentication, rate limiting, error handling, and streaming responses.",
+            },
+            {
+                "title": "Hands-on Project Work",
+                "offset_minutes": 90,
+                "duration_minutes": 60,
+                "location": "Lab",
+                "is_required": True,
+            },
+            {
+                "title": "Show & Tell + Q&A",
+                "offset_minutes": 150,
+                "duration_minutes": 30,
+                "location": "Main Room",
+            },
+        ],
         description="""# Hands-on Workshop: Building with AI APIs
 
 Learn to integrate cutting-edge AI capabilities into your applications. This practical workshop
@@ -269,6 +333,42 @@ def _create_spring_potluck(state: BootstrapState, now: "datetime.datetime") -> N
         end=now + timedelta(days=15, hours=5),
         rsvp_before=now + timedelta(days=13),
         max_attendees=80,
+        schedule=[
+            {
+                "title": "Welcome & Setup",
+                "offset_minutes": 0,
+                "duration_minutes": 30,
+                "location": "Garden Entrance",
+            },
+            {
+                "title": "Potluck Feast",
+                "offset_minutes": 30,
+                "duration_minutes": 90,
+                "location": "Main Lawn",
+                "is_required": True,
+                "description": "Share your dish and enjoy international flavors from the community.",
+            },
+            {
+                "title": "Live Acoustic Music",
+                "offset_minutes": 120,
+                "duration_minutes": 120,
+                "location": "Bandstand",
+            },
+            {
+                "title": "Lawn Games & Kids Corner",
+                "offset_minutes": 120,
+                "duration_minutes": 90,
+                "location": "South Field",
+                "description": "Kubb, frisbee, badminton, plus face painting and crafts for kids.",
+            },
+            {
+                "title": "Plant Swap",
+                "offset_minutes": 240,
+                "duration_minutes": 60,
+                "location": "Swap Table",
+                "description": "Bring cuttings to share and take home something new.",
+            },
+        ],
         description="""# Spring Community Potluck & Garden Party
 
 Celebrate the arrival of spring with neighbors, friends, and community members! Bring a dish
@@ -406,6 +506,58 @@ def _create_wellness_retreat(state: BootstrapState, now: "datetime.datetime") ->
         start=now + timedelta(days=35),
         end=now + timedelta(days=37),
         max_attendees=25,
+        schedule=[
+            {
+                "title": "Arrival & Welcome Tea",
+                "offset_minutes": 0,
+                "duration_minutes": 60,
+                "location": "Main Lodge",
+            },
+            {
+                "title": "Opening Circle & Intention Setting",
+                "offset_minutes": 150,
+                "duration_minutes": 60,
+                "location": "Yoga Hall",
+                "is_required": True,
+            },
+            {
+                "title": "Restorative Yoga & Meditation",
+                "offset_minutes": 210,
+                "duration_minutes": 60,
+                "location": "Yoga Hall",
+            },
+            {
+                "title": "Sunrise Meditation",
+                "offset_minutes": 780,
+                "duration_minutes": 60,
+                "location": "Garden Deck",
+            },
+            {
+                "title": "Energizing Vinyasa Flow",
+                "offset_minutes": 840,
+                "duration_minutes": 90,
+                "location": "Yoga Hall",
+            },
+            {
+                "title": "Workshop: Breathwork & Stress Release",
+                "offset_minutes": 1260,
+                "duration_minutes": 120,
+                "location": "Studio",
+            },
+            {
+                "title": "Yin Yoga & Sound Bath",
+                "offset_minutes": 1380,
+                "duration_minutes": 120,
+                "location": "Yoga Hall",
+            },
+            {
+                "title": "Closing Circle",
+                "offset_minutes": 2400,
+                "duration_minutes": 60,
+                "location": "Yoga Hall",
+                "is_required": True,
+            },
+        ],
         description="""# Weekend Wellness Retreat
 
 Escape the city for a transformative weekend of yoga, meditation, nourishing food,
