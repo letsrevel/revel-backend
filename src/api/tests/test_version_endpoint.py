@@ -1,5 +1,6 @@
 """Tests for the /version endpoint and maintenance banner logic."""
 
+import typing as t
 from datetime import timedelta
 
 import pytest
@@ -34,6 +35,32 @@ class TestVersionEndpointBaseline:
         data = response.json()
 
         assert data["banner"] is None
+
+
+class TestVersionEndpointFeatures:
+    """Tests for the user-facing feature flags exposed in /version."""
+
+    def test_features_reflect_settings(self, client: Client, settings: t.Any) -> None:
+        """Test that the features block mirrors the FEATURE_* settings."""
+        settings.FEATURE_ORGANIZATION_CREATION = True
+        settings.FEATURE_TELEGRAM = False
+        settings.FEATURE_GOOGLE_SSO = True
+        settings.FEATURE_LLM_EVALUATION = False
+
+        data = client.get(VERSION_URL).json()
+
+        assert data["features"] == {
+            "organization_creation": True,
+            "telegram": False,
+            "google_sso": True,
+            "llm_evaluation": False,
+        }
+
+    def test_operational_flags_are_not_exposed(self, client: Client) -> None:
+        """Test that operational flags (malware scan, observability) are not leaked to clients."""
+        data = client.get(VERSION_URL).json()
+
+        assert set(data["features"]) == {"organization_creation", "telegram", "google_sso", "llm_evaluation"}
 
 
 class TestVersionEndpointWithBanner:

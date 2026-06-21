@@ -14,7 +14,7 @@ from accounts.controllers.referral_stripe import ReferralStripeController
 from common.controllers import MediaValidationController, TagController
 from common.exception_handlers import ExceptionHandler, register_handlers
 from common.models import Legal, SiteSettings
-from common.schema import BannerSchema, LegalSchema, ResponseOk, VersionResponse
+from common.schema import BannerSchema, FeaturesSchema, LegalSchema, ResponseOk, VersionResponse
 from common.throttling import AnonDefaultThrottle, UserDefaultThrottle
 from events.controllers.dashboard import DashboardController
 from events.controllers.event_admin import EVENT_ADMIN_CONTROLLERS
@@ -67,7 +67,19 @@ def version(request: HttpRequest) -> tuple[int, VersionResponse]:
         The response status code and message.
     """
     banner = _get_active_banner()
-    return 200, VersionResponse(version=settings.VERSION, demo=settings.DEMO_MODE, banner=banner)
+    return 200, VersionResponse(
+        version=settings.VERSION, demo=settings.DEMO_MODE, banner=banner, features=_get_features()
+    )
+
+
+def _get_features() -> FeaturesSchema:
+    """Expose the user-facing feature flags so clients can hide gated UI."""
+    return FeaturesSchema(
+        organization_creation=settings.FEATURE_ORGANIZATION_CREATION,
+        telegram=settings.FEATURE_TELEGRAM,
+        google_sso=settings.FEATURE_GOOGLE_SSO,
+        llm_evaluation=settings.FEATURE_LLM_EVALUATION,
+    )
 
 
 def _get_active_banner() -> BannerSchema | None:

@@ -110,10 +110,25 @@ class BannerSchema(Schema):
     ends_at: AwareDatetime | None = None
 
 
+class FeaturesSchema(Schema):
+    """User-facing feature flags so clients can hide gated UI instead of failing on click.
+
+    Reflects the server-side ``FEATURE_*`` settings. Operational flags
+    (``FEATURE_MALWARE_SCAN``, ``FEATURE_OBSERVABILITY``) are intentionally omitted —
+    they do not affect what an end user sees.
+    """
+
+    organization_creation: bool
+    telegram: bool
+    google_sso: bool
+    llm_evaluation: bool
+
+
 class VersionResponse(Schema):
     version: str
     demo: bool = False
     banner: BannerSchema | None = None
+    features: FeaturesSchema
 
 
 class ResponseOk(Schema):
