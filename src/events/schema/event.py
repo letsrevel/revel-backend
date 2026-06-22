@@ -33,6 +33,7 @@ class EventEditSchema(CityEditMixin):
     waitlist_open: bool = False
     start: AwareDatetime | None = None
     end: AwareDatetime | None = None
+    is_open_ended: bool = False
     rsvp_before: AwareDatetime | None = Field(None, description="RSVP deadline for events that do not require tickets")
     check_in_starts_at: AwareDatetime | None = Field(None, description="When check-in opens for this event")
     check_in_ends_at: AwareDatetime | None = Field(None, description="When check-in closes for this event")
@@ -110,6 +111,7 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     waitlist_open: bool | None = None
     start: AwareDatetime
     end: AwareDatetime
+    is_open_ended: bool = False
     timezone: str
     rsvp_before: AwareDatetime | None = None
     logo: str | None = None
@@ -263,6 +265,7 @@ class MinimalEventSchema(LogoCoverArtThumbnailMixin):
     name: str
     start: AwareDatetime
     end: AwareDatetime
+    is_open_ended: bool = False
     logo: str | None = None
     cover_art: str | None = None
     venue: VenueSchema | None = None

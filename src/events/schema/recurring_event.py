@@ -91,6 +91,7 @@ class TemplateEditSchema(Schema):
     public_pronoun_distribution: bool | None = None
     can_attend_without_login: bool | None = None
     requires_ticket: bool | None = None
+    is_open_ended: bool | None = None
     address: StrippedString | None = Field(default=None, max_length=255)
 
 

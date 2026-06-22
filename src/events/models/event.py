@@ -304,6 +304,13 @@ class Event(
     )
     start = models.DateTimeField(db_index=True)
     end = models.DateTimeField(db_index=True)
+    is_open_ended = models.BooleanField(
+        default=False,
+        help_text=(
+            "If True, the event has no fixed end shown to attendees. `end` is still set "
+            "(defaulting to start + 24h) and used internally as an operational horizon."
+        ),
+    )
     rsvp_before = models.DateTimeField(
         null=True, blank=True, db_index=True, help_text="RSVP deadline for events that do not require tickets"
     )

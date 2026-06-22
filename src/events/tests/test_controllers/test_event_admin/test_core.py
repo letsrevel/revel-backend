@@ -35,6 +35,21 @@ def test_update_event_by_owner(organization_owner_client: Client, event: Event) 
     assert event.visibility == "private"
 
 
+def test_update_event_open_ended_flag(organization_owner_client: Client, event: Event) -> None:
+    """is_open_ended round-trips through the edit endpoint and the detail response."""
+    assert event.is_open_ended is False
+    url = reverse("api:edit_event", kwargs={"event_id": event.pk})
+    payload = {"is_open_ended": True}
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    assert response.json()["is_open_ended"] is True
+
+    event.refresh_from_db()
+    assert event.is_open_ended is True
+
+
 def test_update_event_by_staff_with_permission(organization_staff_client: Client, event: Event) -> None:
     """Test that a staff member with 'edit_event' permission can update."""
     url = reverse("api:edit_event", kwargs={"event_id": event.pk})
