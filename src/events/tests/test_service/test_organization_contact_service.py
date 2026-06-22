@@ -112,7 +112,7 @@ class TestUpdateOrganizationContactMethod:
             contact_method=Organization.ContactMethod.EMAIL,
         )
         with pytest.raises(HttpError) as exc_info:
-            organization_service.update_organization(organization, payload)
+            organization_service.update_organization(organization, payload, requester=organization.owner)
         assert exc_info.value.status_code == 400
 
     def test_update_rejects_form_without_verified_email(self, organization: Organization) -> None:
@@ -125,7 +125,7 @@ class TestUpdateOrganizationContactMethod:
             contact_method=Organization.ContactMethod.FORM,
         )
         with pytest.raises(HttpError) as exc_info:
-            organization_service.update_organization(organization, payload)
+            organization_service.update_organization(organization, payload, requester=organization.owner)
         assert exc_info.value.status_code == 400
 
     def test_update_allows_form_with_verified_email(self, organization: Organization) -> None:
@@ -137,7 +137,7 @@ class TestUpdateOrganizationContactMethod:
             visibility=Organization.Visibility.PUBLIC,
             contact_method=Organization.ContactMethod.FORM,
         )
-        organization_service.update_organization(organization, payload)
+        organization_service.update_organization(organization, payload, requester=organization.owner)
         organization.refresh_from_db()
         assert organization.contact_method == Organization.ContactMethod.FORM
 

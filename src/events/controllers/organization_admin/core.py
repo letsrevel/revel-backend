@@ -48,7 +48,7 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
         Use the update-contact-email endpoint instead for email changes.
         """
         organization = self.get_one(slug)
-        return organization_service.update_organization(organization, payload)
+        return organization_service.update_organization(organization, payload, requester=self.user())
 
     @route.post(
         "/update-contact-email",

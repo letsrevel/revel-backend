@@ -33,6 +33,7 @@ from events.exceptions import (
     OrganizationTokenMembershipTierRequiredError,
     OrganizationTokenStaffGrantForbidden,
     PendingMembershipRequestExistsError,
+    RevenueReportCadenceOwnerOnlyError,
     StripeNotConnectedError,
     TicketAlreadyCancelledError,
     TooManyItemsError,
@@ -41,6 +42,7 @@ from events.service.event_manager import UserIsIneligibleError
 from events.service.organization_service import (
     GRANT_INVARIANT_MESSAGE,
     MEMBERSHIP_TIER_REQUIRED_MESSAGE,
+    REVENUE_CADENCE_OWNER_ONLY_MESSAGE,
     STAFF_GRANT_FORBIDDEN_MESSAGE,
 )
 from events.service.ticket_service import (
@@ -82,6 +84,9 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     OrganizationTokenStaffGrantForbidden: make_static_handler(403, STAFF_GRANT_FORBIDDEN_MESSAGE),
     OrganizationTokenGrantInvariantError: make_static_handler(422, GRANT_INVARIANT_MESSAGE),
     OrganizationTokenMembershipTierRequiredError: make_static_handler(422, MEMBERSHIP_TIER_REQUIRED_MESSAGE),
+    # revenue_report_cadence is owner-only (financially sensitive); staff-grantable
+    # edit_organization must not reach it → 403.
+    RevenueReportCadenceOwnerOnlyError: make_static_handler(403, REVENUE_CADENCE_OWNER_ONLY_MESSAGE),
     # Ticket/tier guards (formerly mapped via try/except in the tickets controller).
     TicketAlreadyCancelledError: make_static_handler(409, TICKET_ALREADY_CANCELLED_MESSAGE),
     StripeNotConnectedError: make_static_handler(400, STRIPE_NOT_CONNECTED_MESSAGE),

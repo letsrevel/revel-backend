@@ -29,6 +29,10 @@ class OrganizationTokenMembershipTierRequiredError(Exception):
     """Raised when an organization-token update would leave ``grants_membership=True`` with no ``membership_tier``."""
 
 
+class RevenueReportCadenceOwnerOnlyError(Exception):
+    """Raised when a non-owner attempts to change an organization's ``revenue_report_cadence``."""
+
+
 class TicketAlreadyCancelledError(Exception):
     """Raised when attempting to cancel/refund a ticket that is already in CANCELLED state."""
 
