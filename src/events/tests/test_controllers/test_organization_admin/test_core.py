@@ -260,6 +260,40 @@ def test_update_organization_by_staff_without_permission(
     assert response.status_code == 403
 
 
+def test_staff_with_edit_permission_cannot_change_revenue_cadence(
+    organization_staff_client: Client, organization: Organization, staff_member: OrganizationStaff
+) -> None:
+    """revenue_report_cadence is owner-only: staff with edit_organization gets a 403 (issue #570)."""
+    perms = staff_member.permissions
+    perms["default"]["edit_organization"] = True
+    staff_member.permissions = perms
+    staff_member.save()
+    organization.billing_email = "billing@example.com"
+    organization.save()
+
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {"visibility": "public", "revenue_report_cadence": "monthly"}
+    response = organization_staff_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 403
+    organization.refresh_from_db()
+    assert organization.revenue_report_cadence == Organization.RevenueReportCadence.NONE
+
+
+def test_owner_can_change_revenue_cadence(organization_owner_client: Client, organization: Organization) -> None:
+    """The owner can still change revenue_report_cadence (issue #570)."""
+    organization.billing_email = "billing@example.com"
+    organization.save()
+
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {"visibility": "public", "revenue_report_cadence": "monthly"}
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    organization.refresh_from_db()
+    assert organization.revenue_report_cadence == Organization.RevenueReportCadence.MONTHLY
+
+
 @pytest.mark.parametrize(
     "client_fixture,expected_status_code",
     [("member_client", 403), ("nonmember_client", 403), ("client", 401)],

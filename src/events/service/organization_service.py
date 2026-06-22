@@ -23,6 +23,7 @@ from events.exceptions import (
     OrganizationTokenMembershipTierRequiredError,
     OrganizationTokenStaffGrantForbidden,
     PendingMembershipRequestExistsError,
+    RevenueReportCadenceOwnerOnlyError,
 )
 from events.models import (
     MembershipTier,
@@ -46,6 +47,7 @@ from notifications.signals import notification_requested
 STAFF_GRANT_FORBIDDEN_MESSAGE = _("Only the organization owner can manage staff-granting tokens.")
 GRANT_INVARIANT_MESSAGE = _("At least one of grants_membership or grants_staff_status must be True.")
 MEMBERSHIP_TIER_REQUIRED_MESSAGE = _("membership_tier_id is required when grants_membership is True.")
+REVENUE_CADENCE_OWNER_ONLY_MESSAGE = _("Only the organization owner can change the revenue report cadence.")
 
 
 def _create_and_send_contact_email_verification(
@@ -686,18 +688,32 @@ def validate_contact_method(organization: Organization, contact_method: Organiza
 
 
 @transaction.atomic
-def update_organization(organization: Organization, payload: schema.OrganizationEditSchema) -> Organization:
+def update_organization(
+    organization: Organization, payload: schema.OrganizationEditSchema, *, requester: RevelUser
+) -> Organization:
     """Update an organization's editable fields.
 
     Validates ``contact_method`` against the organization's verified-email state
     and ``revenue_report_cadence`` against the presence of ``billing_email``
     before persisting. Other fields are applied via ``update_db_instance``.
+
+    ``revenue_report_cadence`` controls scheduled financial-report delivery and is
+    owner-only, consistent with the owner-only org revenue endpoints. ``edit_organization``
+    is staff-grantable, so a non-owner attempting to change the cadence is rejected here
+    regardless of which permission got them to this endpoint.
     """
     from events.service import update_db_instance
 
     data = payload.model_dump(exclude_unset=True)
     if "contact_method" in data:
         validate_contact_method(organization, Organization.ContactMethod(data["contact_method"]))
+
+    if (
+        "revenue_report_cadence" in data
+        and data["revenue_report_cadence"] != organization.revenue_report_cadence
+        and organization.owner_id != requester.pk
+    ):
+        raise RevenueReportCadenceOwnerOnlyError
 
     # Apply cadence from payload (if present) before the billing_email check,
     # so the check reflects the intended post-save state.
