@@ -1440,6 +1440,11 @@ msgstr ""
 msgid "membership_tier_id is required when grants_membership is True."
 msgstr "membership_tier_id est requis lorsque grants_membership est True."
 
+msgid "Only the organization owner can change the revenue report cadence."
+msgstr ""
+"Seul·e le·la propriétaire de l'organisation peut modifier la cadence des "
+"rapports de revenus."
+
 #, python-format
 msgid ""
 "The name contains a reserved word: \"%(token)s\". Please choose a different "
