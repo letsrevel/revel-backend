@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.65.0] - 2026-06-22
+
+### Added
+- `is_open_ended` flag on events: organizers can mark an event as having no fixed end. `end` is still set (defaulting to start + 24h) and used internally for ICS generation, Wallet expiry, and the "upcoming"/"event ended" gates; the flag is a display signal for the frontend (e.g. render "Ongoing", hide the end time). Settable on events and on recurring-series templates, where it propagates to existing occurrences.
+
+### Security
+- `revenue_report_cadence` is now owner-only on organization updates. It was writable via `PUT /organization-admin/{slug}` under the staff-grantable `edit_organization` permission; a non-owner attempting to change the cadence now gets a `403` (no-op submissions of the current value still pass).
+
+## [1.64.1] - 2026-06-22
+
 ### Added
 - French (`fr`) is now an accepted value for the user's preferred language in the profile and language-update endpoints, matching the languages already configured for the site.
 
