@@ -78,7 +78,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
             {
                 "fields": (
                     ("event_type", "visibility", "status"),
-                    ("start", "end"),
+                    ("start", "end", "is_open_ended"),
                     "event_series",
                     ("max_attendees", "max_tickets_per_user"),
                     (

@@ -155,6 +155,22 @@ def test_event_save_preserves_explicit_end_date(organization: Organization) -> N
 
 
 @pytest.mark.django_db
+def test_event_open_ended_defaults_and_horizon(organization: Organization) -> None:
+    """is_open_ended defaults to False; an open-ended event still gets an internal end horizon."""
+    start_time = timezone.make_aware(datetime.datetime(2024, 3, 15, 14, 30))
+
+    default_event = Event.objects.create(organization=organization, name="Default", start=start_time, end=start_time)
+    assert default_event.is_open_ended is False
+
+    open_ended = Event.objects.create(
+        organization=organization, name="Open Ended", start=start_time, is_open_ended=True
+    )
+    assert open_ended.is_open_ended is True
+    # `end` is left as an operational horizon (start + 24h) even when open-ended.
+    assert open_ended.end == start_time + datetime.timedelta(days=1)
+
+
+@pytest.mark.django_db
 def test_event_ics_generation(event: Event) -> None:
     """Test that Event.ics() generates valid iCalendar content."""
     ics_content = event.ics()
