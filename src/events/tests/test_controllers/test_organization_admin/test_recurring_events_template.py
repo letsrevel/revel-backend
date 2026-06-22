@@ -201,6 +201,35 @@ class TestUpdateTemplate:
             event.refresh_from_db()
             assert event.description == original
 
+    def test_update_template_is_open_ended(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+    ) -> None:
+        """is_open_ended is accepted by TemplateEditSchema (extra='forbid') and set on the template."""
+        from events.service import recurrence_service
+
+        series = _make_series_with_future_dtstart(organization)
+        with patch("notifications.service.notification_helpers.notify_series_events_generated"):
+            recurrence_service.generate_series_events(series)
+
+        url = reverse(
+            "api:update_series_template",
+            kwargs={"slug": organization.slug, "series_id": str(series.id)},
+        )
+        payload = {"is_open_ended": True}
+
+        response = organization_owner_client.patch(
+            url,
+            data=orjson.dumps(payload),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        series.refresh_from_db()
+        assert series.template_event is not None
+        assert series.template_event.is_open_ended is True
+
     def test_update_template_with_future_unmodified_propagation(
         self,
         organization_owner_client: Client,

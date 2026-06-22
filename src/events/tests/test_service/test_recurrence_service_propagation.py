@@ -89,6 +89,29 @@ class TestPropagateTemplateChanges:
         updated = [e for e in created if e.name == "Propagated Name"]
         assert len(updated) >= 1
 
+    @freeze_time("2026-04-06 10:00:00")
+    @patch("notifications.service.notification_helpers.notify_series_events_generated")
+    def test_propagates_is_open_ended_to_future_events(
+        self,
+        mock_notify: t.Any,
+        active_series: EventSeries,
+    ) -> None:
+        """is_open_ended is in PROPAGATABLE_FIELDS, so template changes reach future occurrences."""
+        created = recurrence_service.generate_series_events(active_series)
+        assert len(created) >= 1
+        assert all(not e.is_open_ended for e in created)
+
+        count = recurrence_service.propagate_template_changes(
+            series=active_series,
+            changed_fields={"is_open_ended": True},
+            scope=PropagateScope.ALL_FUTURE,
+        )
+
+        assert count >= 1
+        for event in created:
+            event.refresh_from_db()
+        assert any(e.is_open_ended for e in created)
+
     def test_none_scope_is_a_noop(
         self,
         active_series: EventSeries,
