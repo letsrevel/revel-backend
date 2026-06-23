@@ -143,6 +143,14 @@ class AuthorizationMiddleware(BaseMiddleware):
 
         user: RevelUser = t.cast(RevelUser, tg_user.user)
 
+        if not user.is_active:
+            await self._send_error(
+                event,
+                "⚠️ Your account has been deactivated.",
+                "Account deactivated",
+            )
+            return None
+
         if requires_superuser and not user.is_superuser:
             await self._send_error(event, "⚠️ This command is for administrators only.", "Administrators only")
             return None

@@ -295,6 +295,28 @@ class TestHandleUnsubscribe:
         text = mock_message.answer.call_args.args[0]
         assert "unsubscribed" in text.lower()
 
+    @pytest.mark.asyncio
+    async def test_unsubscribe_removes_telegram_channel(
+        self,
+        mock_message: AsyncMock,
+        django_user: RevelUser,
+    ) -> None:
+        """/unsubscribe must actually drop TELEGRAM from enabled_channels (issue #584)."""
+        from notifications.enums import DeliveryChannel
+        from notifications.models import NotificationPreference
+
+        tg_user = await _get_tg_user(django_user)
+        prefs = await NotificationPreference.objects.acreate(
+            user=django_user,
+            enabled_channels=[DeliveryChannel.EMAIL, DeliveryChannel.TELEGRAM],
+        )
+
+        await handle_unsubscribe(mock_message, tg_user=tg_user, user=django_user)
+
+        await prefs.arefresh_from_db()
+        assert DeliveryChannel.TELEGRAM not in prefs.enabled_channels
+        assert DeliveryChannel.EMAIL in prefs.enabled_channels
+
 
 # ── sanitize_text (pure function) ────────────────────────────────────
 
