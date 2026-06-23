@@ -53,7 +53,9 @@ theme:
 
 nav:
   - Home: index.md
-  - What's New: whats-new/index.md
+  - What's New:
+      - whats-new/index.md
+      - whats-new/2026-06-22-last-month.md
   - Getting Started:
       - getting-started/index.md
       - Quick Start: getting-started/quickstart.md
@@ -124,11 +126,6 @@ nav:
 # Internal agent plans/specs live under docs/superpowers/ — kept in git but not published.
 exclude_docs: |
   superpowers/
-
-# Dated "What's New" editions are published & linked from whats-new/index.md, but kept out of
-# the nav sidebar (the index page IS their table of contents).
-not_in_nav: |
-  whats-new/20*.md
 
 plugins:
   - search
