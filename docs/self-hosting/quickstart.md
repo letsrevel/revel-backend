@@ -30,7 +30,7 @@ The wizard prompts you for:
 
 1. **Tier** — Slim or Full. This selects the `COMPOSE_PROFILES` and resource limits. Start with
    Slim unless you specifically want the observability stack and antivirus.
-2. **Domains** — your `FRONTEND_DOMAIN` and `API_DOMAIN` (plus `grafana`, `flower`, and `docs`
+2. **Domains** — your `FRONTEND_DOMAIN` and `API_DOMAIN` (plus `grafana` and `docs`
    subdomains if you chose Full).
 3. **Email** — SMTP host, port, credentials, and the from-address used for verification and
    ticket delivery. (You can opt into `EMAIL_DRY_RUN=True` for a test instance.)
@@ -43,10 +43,10 @@ The wizard prompts you for:
 When it finishes, the wizard:
 
 - writes a complete `.env` file (review it before going to production),
-- selects the appropriate **Caddyfile variant** (plain vs. the Cloudflare variant — see
-  [DNS & Cloudflare](dns-cloudflare.md)),
-- **fetches the geo data** (the IP2Location BIN if you supplied a token, and the cities dataset;
-  if the full cities CSV is unavailable it falls back to the bundled 50-city mini dataset), and
+- selects the appropriate **Caddyfile variant** (the generic edge variant, or the Cloudflare
+  variant if you proxy through Cloudflare — see [DNS & Cloudflare](dns-cloudflare.md)),
+- **fetches the geo data** (the cities dataset, and optionally the IP2Location BIN; if the full
+  cities CSV is unavailable it falls back to the bundled 50-city mini dataset), and
 - runs `docker compose up -d` to start the stack.
 
 !!! note "Keep this page in sync"
@@ -72,7 +72,6 @@ With DNS pointed at the box and certificates issued, your instance is reachable 
 - **Frontend** — `https://<FRONTEND_DOMAIN>`
 - **API** — `https://<API_DOMAIN>` (interactive docs at `https://<API_DOMAIN>/api/docs`)
 - **Grafana** (Full tier only) — `https://grafana.<your-domain>`
-- **Flower** (Full tier only) — `https://flower.<your-domain>`
 
 If the site does not come up, the most common cause is TLS issuance failing behind Cloudflare's
 proxy — see the [DNS & Cloudflare](dns-cloudflare.md) caveat and the

@@ -20,7 +20,7 @@ Restore a dump with `psql` against the running Postgres container:
 
 ```bash
 # Copy the dump into the container (or mount it), then:
-docker compose exec -T postgres psql -U <PG_USER> -d <PG_DATABASE> < backup.sql
+docker compose exec -T revel_postgres psql -U <DB_USER> -d <DB_NAME> < backup.sql
 ```
 
 Restore into an empty database. If you are recovering onto a fresh box, bring the stack up so the
@@ -36,8 +36,8 @@ schema migrations have run, then load the dump.
 ./deploy.sh update
 ```
 
-This pulls the latest application images from the registry and reloads the affected services
-(rolling them with the new images and applying any pending database migrations). Read the changelog
+This pulls the latest application images from the registry and recreates the affected services
+with them (the `web` container runs any pending database migrations on startup). Read the changelog
 before updating a production instance, and take a backup first.
 
 ## Refreshing geo data
