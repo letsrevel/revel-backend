@@ -53,17 +53,23 @@ When it finishes, the wizard:
     The exact prompts are defined by `infra/setup.sh`. If the wizard changes, treat the script as
     the source of truth and update this list to match.
 
-## 3. Create the first superuser
+## 3. Create the admin and first organization
 
-Once the containers are healthy, create an administrator account:
+Once the containers are healthy, the wizard offers to run the first-run bootstrap for you. It
+prompts for an admin email, password, and organization name (proposing a slug), then creates the
+superuser and the first organization and prints your admin-panel and frontend URLs. You can also
+run it manually at any time:
 
 ```bash
-docker compose exec web python manage.py createsuperuser
+docker compose exec web python manage.py bootstrap_admin
 ```
 
+The command pins the superuser's username to its email — matching every account created through the
+public API — so prefer it over the stock `createsuperuser`, which lets the two diverge.
+
 On a single-org instance you will typically also set `FEATURE_ORGANIZATION_CREATION=False` so that
-regular users cannot create their own organizations — your superuser remains able to create the one
-org. See [Tiers & Configuration](tiers.md#single-org-instances).
+regular users cannot create their own organizations — your superuser remains able to create more.
+See [Tiers & Configuration](tiers.md#single-org-instances).
 
 ## 4. Visit your instance
 
