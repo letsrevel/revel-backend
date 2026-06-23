@@ -306,16 +306,40 @@ class TestHandleUnsubscribe:
         from notifications.models import NotificationPreference
 
         tg_user = await _get_tg_user(django_user)
-        prefs = await NotificationPreference.objects.acreate(
-            user=django_user,
-            enabled_channels=[DeliveryChannel.EMAIL, DeliveryChannel.TELEGRAM],
-        )
+        prefs = await NotificationPreference.objects.aget(user=django_user)
+        prefs.enabled_channels = [DeliveryChannel.EMAIL, DeliveryChannel.TELEGRAM]
+        await prefs.asave(update_fields=["enabled_channels"])
 
         await handle_unsubscribe(mock_message, tg_user=tg_user, user=django_user)
 
         await prefs.arefresh_from_db()
         assert DeliveryChannel.TELEGRAM not in prefs.enabled_channels
         assert DeliveryChannel.EMAIL in prefs.enabled_channels
+
+    @pytest.mark.asyncio
+    async def test_unsubscribe_clears_per_type_telegram_override(
+        self,
+        mock_message: AsyncMock,
+        django_user: RevelUser,
+    ) -> None:
+        """/unsubscribe must also clear TELEGRAM from per-type overrides that bypass
+        enabled_channels (e.g. ORG_CONTACT_MESSAGE_RECEIVED defaults to IN_APP+TELEGRAM)."""
+        from notifications.enums import DeliveryChannel, NotificationType
+        from notifications.models import NotificationPreference
+
+        tg_user = await _get_tg_user(django_user)
+        # Default notification_type_settings seeds ORG_CONTACT_MESSAGE_RECEIVED with TELEGRAM.
+        prefs = await NotificationPreference.objects.aget(user=django_user)
+        assert DeliveryChannel.TELEGRAM in prefs.get_channels_for_notification_type(
+            NotificationType.ORG_CONTACT_MESSAGE_RECEIVED
+        )
+
+        await handle_unsubscribe(mock_message, tg_user=tg_user, user=django_user)
+
+        await prefs.arefresh_from_db()
+        assert DeliveryChannel.TELEGRAM not in prefs.get_channels_for_notification_type(
+            NotificationType.ORG_CONTACT_MESSAGE_RECEIVED
+        )
 
 
 # ── sanitize_text (pure function) ────────────────────────────────────

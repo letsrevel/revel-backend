@@ -179,6 +179,28 @@ class TestRequiresLinkedUser:
         event.answer.assert_awaited_once()
         assert "deactivated" in event.answer.call_args.args[0].lower()
 
+    @pytest.mark.asyncio
+    async def test_inactive_user_blocked_callback(
+        self,
+        middleware: AuthorizationMiddleware,
+        django_inactive_user: RevelUser,
+    ) -> None:
+        """Callback queries from a banned user show an alert instead of running (issue #583)."""
+        handler = AsyncMock()
+        tg_user = await _get_tg_user(django_inactive_user)
+        event = _make_cb_event(data="some:action")
+        data: dict[str, t.Any] = {"tg_user": tg_user}
+
+        flags = {"requires_linked_user": True}
+        with patch("aiogram.dispatcher.flags.get_flag", side_effect=_make_flags_getter(flags)):
+            result = await middleware(handler, event, data)
+
+        assert result is None
+        handler.assert_not_awaited()
+        assert "user" not in data
+        event.answer.assert_awaited_once()
+        assert event.answer.call_args.kwargs["show_alert"] is True
+
 
 # ── requires_superuser ───────────────────────────────────────────────
 

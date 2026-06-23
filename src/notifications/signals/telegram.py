@@ -33,10 +33,9 @@ def enable_telegram_channel(sender: type, user: "RevelUser", telegram_user: "Tel
 
 @receiver(telegram_account_unlinked)
 def disable_telegram_channel(sender: type, user: "RevelUser", telegram_user: "TelegramUser", **kwargs: object) -> None:
-    """Remove TELEGRAM from enabled_channels when user unlinks their Telegram account."""
+    """Remove TELEGRAM from all preferences when user unlinks their Telegram account."""
     prefs = NotificationPreference.objects.get(user=user)
 
-    if DeliveryChannel.TELEGRAM in prefs.enabled_channels:
-        prefs.enabled_channels.remove(DeliveryChannel.TELEGRAM)
-        prefs.save(update_fields=["enabled_channels", "updated_at"])
+    if prefs.disable_channel(DeliveryChannel.TELEGRAM):
+        prefs.save(update_fields=["enabled_channels", "notification_type_settings", "updated_at"])
         logger.info("telegram_channel_disabled", user_id=str(user.id))
