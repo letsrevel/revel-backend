@@ -2,8 +2,8 @@
 
 This guide documents the primary user flows through the Revel platform, covering both attendee and organizer perspectives.
 
-!!! tip "Comprehensive user journeys"
-    For the full persona-based user journey map (used to drive E2E test cases), see [`USER_JOURNEYS.md`](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md) in the repository root.
+!!! tip "This guide is a curated overview"
+    This page covers the primary flows at a glance. It is **not exhaustive** — for the full, canonical, persona-based user journey map (used to drive E2E test cases), see [`USER_JOURNEYS.md`](https://github.com/letsrevel/revel-backend/blob/main/USER_JOURNEYS.md) in the repository root. Where a subsystem has a dedicated architecture page, the relevant section links to it.
 
 ---
 
@@ -324,6 +324,9 @@ Organizers can create discount codes to offer reduced pricing on ticket purchase
 3. Buyer enters code during checkout → validated and applied to price
 4. Usage tracked per code and per user
 
+!!! note "Duplicate codes & delete-vs-deactivate"
+    Creating a code whose string already exists returns a clear **409 Conflict** (it used to surface as an opaque 500). Deleting a code that has **never been used** hard-deletes it; deleting a code that **has been used** deactivates it instead, preserving usage history.
+
 ### Billing Profile Management
 
 Users participating in the referral program can set up a billing profile:
@@ -339,6 +342,90 @@ Users participating in the referral program can set up a billing profile:
 
 !!! note "Referral payouts"
     A complete billing profile with self-billing agreement and connected Stripe account is required before referral payouts can be processed.
+
+### Bookmarks
+
+Users can privately bookmark events for later. Bookmarks do not sign you up and do not affect eligibility.
+
+- `POST /api/events/{event_id}/bookmark` → `201` for a new bookmark, `200` if it already existed
+- `DELETE /api/events/{event_id}/bookmark` is idempotent and works even for events you can no longer see
+- `is_bookmarked` is reflected on event list/detail responses; find them via the `bookmarked` facet on `/dashboard/events` (bookmarked **unlisted** events surface there even though they stay hidden from discovery)
+
+### Self-Service Ticket Cancellation & Refunds
+
+Opt-in per ticket tier via `allow_user_cancellation`, `cancellation_deadline_hours`, and `refund_policy` (tiered % by hours-before-event + flat fee). Buyers see the cancellation terms **before purchase** on `TicketTierSchema`, and the active policy is **snapshotted onto the ticket at purchase** (`refund_policy_snapshot`) so later policy changes never affect issued tickets.
+
+- `GET /events/tickets/{id}/cancellation-preview` — policy windows + a live refund quote for this ticket
+- `POST /events/tickets/{id}/cancel` — works for free, offline, at-the-door, and online (Stripe) tickets; online tickets trigger a per-`Payment`, partial-amount-aware Stripe refund
+- Blocked cases (already cancelled, checked-in, event started, past deadline) return `409 CancellationBlockedErrorSchema` with a stable `code`; cancelling an already-cancelled ticket returns 409
+- Triggers a `TICKET_CANCELLED` / `TICKET_REFUNDED` notification (immediate transactional email) reporting the actual `refund_amount`
+
+### Recurring Events & Series
+
+Organizers can run first-class recurring series: a `RecurrenceRule` + a template event drive rolling-window materialization, where each occurrence is a real, independent `Event`. A daily Celery beat task keeps the window populated; template edits propagate to future occurrences via a field whitelist, and a drift endpoint surfaces occurrences that no longer match the rule after a cadence change. A single `SERIES_EVENTS_GENERATED` digest is sent per generated batch.
+
+- Admin: `POST /organization-admin/{slug}/create-recurring-event`, plus `PATCH .../event-series/{id}/template` (with `?propagate=`), `.../recurrence`, `POST .../generate` / `.../pause` / `.../resume` / `.../cancel-occurrence`, and `GET .../event-series/{id}/drift`
+
+!!! info "See Also"
+    Full architecture: [Recurring Event Series](../architecture/recurring-series.md).
+
+### Open-Ended Events
+
+An event can be marked `is_open_ended` for ongoing/no-fixed-end events. `end` is still set (defaults to start + 24h) and used internally for ICS/Wallet/upcoming gates; the flag is a display signal so the frontend can render "Ongoing" and hide the end time.
+
+### Membership Subscriptions
+
+> **Phase 1 — OFFLINE only.** Subscriptions are staff-managed (recorded payments), not self-served Stripe billing.
+
+Organizers configure recurring membership plans per membership tier (`MembershipSubscriptionPlan`), gated by the `manage_subscriptions` permission (owner ✓, staff ✓ by default, member ✗). Staff create/list/get subscriptions, drive the lifecycle (cancel / pause / resume), and record payments (`MembershipPayment`, with `occurred_at` to backfill the real payment date). A `post_save` signal syncs `OrganizationMember.status + tier` from the subscription (never creating members, never touching a `BANNED` member), and a daily beat task expires subscriptions past the org's grace period.
+
+- Member view: `GET /me/membership-subscriptions`, `GET /me/organizations/{org_id}/subscription`, and `GET /me/memberships` (unified memberships list, inlining the most recent non-terminal subscription per org)
+- Org policy: `membership_grace_period_days` (default 7), `membership_refund_policy`
+
+### Polls
+
+Organization-managed polls built on the questionnaire pipeline — a `Poll` is 1:1 with a `Questionnaire` and votes are stored as `QuestionnaireSubmission` rows. Creation and management require the `manage_polls` permission. Polls have a draft/open/closed lifecycle, configurable audience/result visibility, anonymity, and a vote-change policy.
+
+- `/api/polls/` group: list, detail, `GET /{id}/results`, create (`POST /polls/organizations/{org_id}`), patch, `open` / `close` / `reopen`, `duplicate`, delete (owner-only), `POST /{id}/vote`, `DELETE /{id}/vote`
+
+!!! info "See Also"
+    Full architecture: [Polls](../architecture/polls.md).
+
+### Content Moderation
+
+Offensive **food-item names** are blocked at creation across all supported languages (the `moderation` app), and staff can delete offensive food items via the admin. Quarantined (malware-flagged) uploads are stored behind a protected, signed-URL media path — never publicly downloadable; staff retrieve them via a signed admin link.
+
+!!! info "See Also"
+    Full architecture: [Content Moderation](../architecture/moderation.md).
+
+### Event Schedule / Timeline
+
+Organizers author an ordered list of display-only sessions via `PUT /event-admin/{event_id}/schedule`. Each session has a title, Markdown description, relative start offset, optional duration/location, and an `is_required` badge. The schedule is exposed on the public event detail and copied verbatim on event duplication and recurring-series materialization.
+
+### Revenue & VAT Reporting
+
+A VAT-precise financial-reporting suite for organizers, driven by one tax engine so every view reconciles (online Stripe + offline/at-the-door payments, per currency and per VAT rate; refunds attributed to the period they occurred).
+
+- Live org financials: `GET /organization-admin/{slug}/revenue` (sortable, period- and currency-filtered)
+- Downloadable report: `POST /organization-admin/{slug}/revenue-report` → poll `GET .../revenue-reports/{id}`; output is a ZIP bundling an XLSX (Summary + Transactions) and a PDF (per-VAT-rate table)
+- Scheduled delivery: org-level `revenue_report_cadence` (`NONE` / `QUARTERLY` / `MONTHLY`, **owner-only** to change) emails the just-closed period's report to the org billing email and owner
+- Per-event: `GET /event-admin/{event_id}/tickets/revenue` → `EventFinancialsSchema`
+
+!!! info "See Also"
+    Full architecture: [Billing & VAT](../architecture/billing-and-vat.md).
+
+### Guest Checkout & Guest-to-User Upgrade
+
+When an event has `can_attend_without_login=True`, anonymous visitors can attend without an account: a guest RSVP or guest ticket checkout creates a guest `RevelUser` (`guest=True`) from just a name and email. If the guest later registers with the same email, an activation link upgrades the guest account to a full user and all previous guest tickets/RSVPs are preserved.
+
+### Self-Served Email Change
+
+Users can change their own email address:
+
+- `POST /account/email-change-request` — requires the current password; sends a single-use confirmation link to the **new** address (proof of control)
+- `POST /account/email-change-confirm` — swaps `email` + `username`, **blacklists every outstanding JWT** for the user, and returns a fresh token pair so the confirming device stays signed in
+
+Both addresses receive completion emails; the old address also gets an in-flight notice with a masked rendering of the new address. The flow rejects Google-SSO accounts and same-email / already-taken targets with clear `400`s, and silently no-ops for globally-banned targets.
 
 ---
 

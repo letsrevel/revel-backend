@@ -12,9 +12,11 @@ revel-backend/
 │   ├── events/             # Core event management app
 │   ├── questionnaires/     # Dynamic questionnaires app
 │   ├── notifications/      # Multi-channel notifications app
+│   ├── polls/              # Organization-managed polls (1.58.0)
 │   ├── wallet/             # Apple Wallet pass generation
 │   ├── geo/                # Geolocation app
 │   ├── telegram/           # Telegram bot app
+│   ├── moderation/         # Content moderation / blocklists (1.64.0)
 │   ├── api/                # Global API configuration
 │   └── common/             # Shared utilities
 ├── docs/                   # MkDocs documentation
@@ -55,7 +57,10 @@ The largest and most central app. Manages the full lifecycle of events, from org
 Key responsibilities:
 
 - **Organizations**: creation, membership, roles (Owner, Staff, Member)
-- **Events**: creation, configuration, publishing
+- **Memberships**: paid membership subscriptions
+- **Events**: creation, configuration, publishing; recurring event series; open-ended events
+  (`is_open_ended`, 1.65.0)
+- **Schedule**: per-event schedule / timeline of sessions (1.64.0)
 - **Ticket tiers**: pricing, capacity, payment methods (free, online, PWYC)
 - **Tickets**: checkout, payment confirmation, check-in
 - **Venues**: location management
@@ -64,6 +69,7 @@ Key responsibilities:
 - **Blacklists**: organization-level email blocking
 - **Discount codes**: organization-scoped percentage/fixed-amount discounts for ticket purchases
 - **Followers**: user-to-organization following
+- **Billing**: attendee invoicing and revenue / VAT reporting
 - **Exports**: async XLSX exports for attendee lists and questionnaire submissions
 
 ---
@@ -89,6 +95,19 @@ Key responsibilities:
 - Notification creation and delivery
 - Channel routing (in-app, email, Telegram)
 - User notification preferences
+
+---
+
+### `polls/`: Organization-Managed Polls
+
+Lets organizations run polls for their members. Each `Poll` wraps a `Questionnaire` 1:1, reusing
+the questionnaire engine for the questions and recording votes as questionnaire submissions.
+
+Key responsibilities:
+
+- Poll modeling (1:1 with a `Questionnaire`)
+- Vote casting and tallying (votes are questionnaire submissions)
+- Access gated by the `manage_polls` organization permission
 
 ---
 
@@ -120,6 +139,18 @@ Key responsibilities:
 - Minimal FSM-based conversation management (preferences, broadcast)
 - Account linking (Telegram user to Revel user via OTP)
 - Notification delivery via Telegram
+
+---
+
+### `moderation/`: Content Moderation
+
+Guards user-supplied content against offensive input. Its primary use is blocking offensive
+food-item names (potluck) across multiple languages via a maintained blocklist.
+
+Key responsibilities:
+
+- Multi-language blocklist matching for user-supplied names
+- Staff deletion of offending content
 
 ---
 

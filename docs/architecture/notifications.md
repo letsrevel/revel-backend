@@ -64,13 +64,33 @@ The following notification types are supported across all channels:
 |---|---|
 | `ticket_created` | Ticket was successfully created |
 | `ticket_cancelled` | Ticket was cancelled |
-| `ticket_checked_in` | User was checked in at an event |
 | `ticket_refunded` | Ticket payment was refunded |
 | `ticket_updated` | Ticket details were updated |
 | `payment_confirmation` | Payment was processed successfully |
 | `rsvp_confirmation` | RSVP was confirmed |
 | `rsvp_updated` | RSVP details were updated |
 | `rsvp_cancelled` | RSVP was cancelled |
+
+!!! note "`ticket_checked_in` is no longer dispatched (1.64.0)"
+    The `ticket_checked_in` enum value (and its template/context scaffolding) still
+    exists, but no notification is sent on check-in — the holder is already at the
+    event, so the message was pure noise.
+
+### Transactional types (bypass the digest)
+
+Four notification types are flagged **transactional** in
+`notifications/service/dispatcher.py` (`TRANSACTIONAL_TYPES`):
+
+- `payment_confirmation`
+- `ticket_created`
+- `ticket_cancelled`
+- `ticket_refunded`
+
+These are time- and money-sensitive, so they **always deliver immediately on the
+user's enabled channels and bypass the digest cadence** — even for users on a
+daily/weekly digest, they are never bundled and held back. Every other type honours
+the user's digest setting (digest users get the in-app notification now and the email
+in the next digest sweep).
 
 ### Waitlist & Availability
 
@@ -117,6 +137,12 @@ The following notification types are supported across all channels:
 | `org_announcement` | Organization-wide announcement |
 | `system_announcement` | Platform-wide announcement (e.g., privacy policy or ToC updates) |
 
+!!! note "Announcements can be sent now or scheduled"
+    Org announcements can be **sent immediately**, **scheduled** for a future absolute
+    or event-relative time, and optionally **re-sent** to attendees who sign up after the
+    first send — all delivered as `org_announcement` notifications through this dispatcher.
+    See [Scheduled Announcements](scheduled-announcements.md).
+
 ### Following
 
 | Type | Description |
@@ -160,7 +186,7 @@ Users configure their notification preferences per channel and per type. The pre
 
 - **Per-channel toggles**: Enable/disable each channel independently
 - **Per-type toggles**: Fine-grained control over which notifications to receive
-- **Digest mode**: Batch notifications into periodic summaries instead of sending individually
+- **Digest mode**: Batch notifications into periodic summaries instead of sending individually (does not apply to the [transactional types](#transactional-types-bypass-the-digest), which always deliver immediately)
 
 !!! info "Defaults"
     New users receive most notification types on all available channels by default. Exceptions: **potluck notifications** are restricted to in-app only (no email or Telegram) and **guest users** have potluck notifications disabled entirely. Telegram notifications always require the user to have linked their Telegram account.
@@ -176,6 +202,23 @@ The notification system is implemented in `notifications/service/`, which includ
 - **Unsubscribe handling**: Manages per-type and per-channel opt-outs
 
 Notifications are triggered from the service layer via Django signals and direct dispatcher calls. Delivery for email and Telegram channels is always asynchronous via Celery tasks.
+
+!!! info "Digest email (overhauled in 1.64.0)"
+    The digest groups its notifications by **human-readable type label** (e.g. "Event
+    Reminder"). Each item carries its body, a timestamp, and a **"View details"** link
+    derived from the notification's context, and the whole email is restyled to match
+    the transactional email templates. See `NotificationDigest._build_notification_groups`
+    in `notifications/service/digest.py`.
+
+!!! info "Event times render in the event's timezone (1.64.0)"
+    Event times in notifications and emails are always rendered in the **event's own
+    timezone** (via `format_event_datetime`), not the recipient's or the server's.
+
+!!! warning "`FEATURE_TELEGRAM` strips the Telegram channel platform-wide"
+    When `FEATURE_TELEGRAM` is off (self-host without a bot), the dispatcher strips the
+    Telegram channel from every notification's delivery list — no Telegram delivery is
+    ever enqueued, regardless of a user's per-channel preference. See
+    [Telegram Bot → Configuration](../guides/telegram-bot.md).
 
 ## Admin Pings (Pushover & Discord)
 

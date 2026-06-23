@@ -9,6 +9,7 @@ Revel supports multiple languages with full translation coverage across API resp
 | `en` | English | Default |
 | `de` | German | Informal ("du") |
 | `it` | Italian | Informal ("tu") |
+| `fr` | French | Informal ("tu") |
 
 ---
 
@@ -74,9 +75,12 @@ src/locale/
 ├── de/
 │   └── LC_MESSAGES/
 │       └── django.po    # German translations (source; .mo built, not committed)
-└── it/
+├── it/
+│   └── LC_MESSAGES/
+│       └── django.po    # Italian translations (source; .mo built, not committed)
+└── fr/
     └── LC_MESSAGES/
-        └── django.po    # Italian translations (source; .mo built, not committed)
+        └── django.po    # French translations (source; .mo built, not committed)
 ```
 
 !!! note "No English locale directory"

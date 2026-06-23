@@ -53,8 +53,9 @@ just wastes RAM.
 
 ### Feature flags
 
-These default to `True` (production behaviour). Set them to `False` to drop the corresponding
-dependency:
+Most default to `True` (production behaviour); set them to `False` to drop the corresponding
+dependency. `FEATURE_GOOGLE_SSO` is the exception — it is opt-in and defaults to `False`
+(see [ADR-0008](../adr/0008-environment-feature-flags.md)).
 
 - `FEATURE_MALWARE_SCAN` — when `False`, uploads skip the ClamAV scan and are marked clean
   immediately. Lets you run without the `antivirus` profile.
@@ -64,6 +65,8 @@ dependency:
   evaluation still works. Lets you run without an OpenAI key.
 - `FEATURE_ORGANIZATION_CREATION` — when `False`, regular users cannot create organizations; staff
   and superusers still can. See below.
+- `FEATURE_GOOGLE_SSO` — opt-in (defaults to `False`). Leave it off for password-only auth (the
+  login button stays hidden); set `True` and provide OAuth credentials to enable Google login.
 - `FEATURE_OBSERVABILITY` — master toggle for the metrics/traces/logs exporters and the async log
   queue. Set `False` (and drop the `observability` profile) on Slim. Legacy alias:
   `ENABLE_OBSERVABILITY` (deprecated). See [Observability](observability.md).

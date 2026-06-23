@@ -197,6 +197,8 @@ The `Organization` model stores:
 | `billing_name` | CharField | Legal entity name for invoices (auto-filled from VIES if empty; falls back to org name) |
 | `billing_address` | TextField | Billing address (auto-filled from VIES if empty) |
 | `billing_email` | EmailField | Billing contact (falls back to contact_email for invoices) |
+| `revenue_report_cadence` | CharField | Scheduled revenue-report cadence (`NONE`/`QUARTERLY`/`MONTHLY`, default `NONE`). **Owner-only to write** (as of 1.65.0); requires `billing_email` when not `NONE` |
+| `last_revenue_report_sent_period` | CharField | Internal scheduling bookkeeping — the last period emailed (e.g. `2026-Q1` or `2026-03`); prevents double-sends |
 
 !!! note "Online tier prerequisite"
     Creating an online (Stripe) ticket tier requires `billing_name`, `vat_country_code`, and `billing_address` to be set on the organization (when platform fees are configured). This ensures invoices can be generated correctly from the first sale.
@@ -218,9 +220,88 @@ Each `TicketTier` has an optional `vat_rate` field. If set, it overrides the org
 | `platform_vat_rate` | Platform's domestic VAT rate |
 | `platform_invoice_bcc_email` | BCC address for all outgoing invoices |
 
+## Revenue & VAT Reporting
+
+Organizers get a financial-reporting suite for their own tax filing, all driven by **one
+tax-precise aggregation engine** (`events.service.revenue_aggregation`) so every view
+reconciles: the downloadable report rolls it up across events, the org `/revenue` endpoint
+groups it by event, and the per-event endpoint filters it to a single event.
+
+### Aggregation Engine
+
+`build_revenue_report_data()` (and its live-endpoint projections) performs a single per-row
+pass over both revenue sources and folds them into buckets keyed by **currency** and then by
+**VAT rate**:
+
+| Source | Selected rows |
+|---|---|
+| Online (Stripe) | `Payment` records on `ONLINE` tiers with status `SUCCEEDED` or `REFUNDED` |
+| Offline / at-the-door | Paid `Ticket` records on `OFFLINE` / `AT_THE_DOOR` tiers, plus cancelled tickets carrying an `offline_refund_amount` |
+
+Key behaviors:
+
+- **Per currency, per VAT rate** — each currency section carries one `RateBucket` per VAT
+  rate; reverse-charge and 0%-rate rows collapse into a single `0% / reverse-charge` bucket.
+- **Refunds attributed to the period they occurred** — a sale and its refund are counted in
+  whichever report period each one falls into (by local date), not lumped onto the sale date.
+  Rate-bucket money is net-of-refunds; refunds are also surfaced separately
+  (`refunds_total` / `refunded_count`).
+- **Net taxable turnover** — per currency, the sum of net (sale minus refund) across rate
+  buckets.
+- **VAT snapshot first** — online payments use the persisted `net_amount`/`vat_amount`/`vat_rate`
+  snapshot when present, falling back to `calculate_vat_inclusive()` at the org rate; offline
+  tickets are always extracted at the org rate.
+- **Org timezone** — sale/refund dates are converted to the org's city timezone before the
+  period window is applied.
+
+!!! info "One engine, three views"
+    The report ZIP, the org `/revenue` dashboard endpoint, and the per-event `/revenue`
+    endpoint all call into the same aggregator. The only differences are scope (org-wide vs.
+    one event) and shape (the live endpoints skip the per-transaction detail rows).
+
+### Report Bundle (ZIP)
+
+`POST /organization-admin/{slug}/revenue-report` produces a **multi-file ZIP** built by
+`events.service.revenue_report_service`:
+
+- **`*.xlsx`** — two sheets: **Summary** (per currency: one row per VAT rate, a Refunds row, a
+  bold Net-taxable-turnover total) and **Transactions** (one row per sale/refund line).
+- **`*.pdf`** — rendered via WeasyPrint: per-VAT-rate table, refunds, and net taxable turnover.
+
+Generation is asynchronous (a `FileExport` row + Celery task — see
+[Exports](exports.md#revenue-vat-export) for the artifact mechanics). The result is **cached**:
+a matching READY export (same org, event, date range, and a content hash over the in-scope
+rows) is reused unless `?refresh=true` is passed.
+
+### Scheduled Delivery
+
+Orgs can opt into emailed reports via `Organization.revenue_report_cadence`
+(`NONE` / `QUARTERLY` / `MONTHLY`, default `NONE`). A monthly Beat sweep
+(`deliver_scheduled_revenue_reports`) computes the **just-closed period in the org's own
+timezone**, generates the ZIP, and emails it to the org's `billing_email` (plus the owner if
+different). Empty periods are skipped (no email, marker not advanced), and a
+`last_revenue_report_sent_period` marker prevents double-sends. QUARTERLY orgs only actually
+send in Jan/Apr/Jul/Oct; other months no-op.
+
+### Per-Event Schema Change
+
+!!! warning "Breaking change (1.64.0)"
+    The per-event revenue endpoint now returns `EventFinancialsSchema`, which differs from the
+    previous shape:
+
+    - `refunded` → **`refunds`**.
+    - **`paid_ticket_count` removed** — derive it as `sold_count - refunded_count`.
+    - `sold_count` semantics changed: it now also counts sales that were later
+      refunded/cancelled (the gross count ever sold), not just currently-paid tickets.
+    - VAT detail **added**: `net_taxable`, `vat`, and `rate_buckets` (per-VAT-rate breakdown).
+
+    A coordinated frontend update is required.
+
 ## API Endpoints
 
-All endpoints require organization **owner** permissions.
+Billing-info, VAT-ID, invoice, and credit-note endpoints require organization **owner**
+permissions. The **revenue & VAT** endpoints instead require the `manage_organization`
+permission (owner or staff with that grant) — see [Revenue Endpoints](#revenue-endpoints).
 
 ### Billing Info
 
@@ -247,6 +328,23 @@ All endpoints require organization **owner** permissions.
 | `GET` | `/organization-admin/{slug}/invoices/{id}` | Get invoice detail |
 | `GET` | `/organization-admin/{slug}/invoices/{id}/download` | Get signed PDF download URL |
 | `GET` | `/organization-admin/{slug}/credit-notes` | List credit notes (paginated) |
+
+### Revenue Endpoints
+
+These require `manage_organization` (not owner), and return the data described under
+[Revenue & VAT Reporting](#revenue-vat-reporting).
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/organization-admin/{slug}/revenue-report` | Create (or reuse a cached) report ZIP for a period; `?refresh=true` forces regeneration. Returns a `FileExport` (poll for the signed URL) |
+| `GET` | `/organization-admin/{slug}/revenue-reports/{export_id}` | Poll a report; the response carries a signed download URL once `status=READY` |
+| `GET` | `/organization-admin/{slug}/revenue` | Live org financials by event: `year` + optional `month`/`quarter`, `currency` switching (`available_currencies`), `sort=revenue\|event_start`, `order=asc\|desc` |
+
+!!! note "Per-event financials"
+    A per-event view lives on the event-admin controller:
+    `GET /event-admin/{event_id}/revenue` (permission `manage_tickets`) returns
+    `EventFinancialsSchema` — the same engine scoped to one event, all-time by default with an
+    optional `year`/`month`/`quarter` filter.
 
 ## Attendee Invoicing
 
@@ -488,5 +586,13 @@ Both are configured via environment variables and fall back to `DEFAULT_FROM_EMA
 | `events.calculate_referral_payouts` | 1st of month, 06:00 UTC | Calculate referral payout amounts |
 | `accounts.process_referral_payouts` | 1st of month, 06:30 UTC | Stripe transfers + statement PDFs + emails |
 | `events.revalidate_vat_ids` | 15th of month, 03:00 UTC | Re-validate all org VAT IDs via VIES |
+| `events.send_scheduled_revenue_reports` | 5th of month, 06:00 UTC | Email the just-closed period's report ZIP to `billing_email` + owner for opted-in orgs (period computed in org timezone; skips empty periods) |
 
 Tasks are registered via data migrations.
+
+!!! note "On-demand vs. scheduled"
+    `events.generate_revenue_report` is **not** a Beat job — it is the worker task that builds a
+    single report ZIP, dispatched on demand by the `POST .../revenue-report` endpoint (via
+    `transaction.on_commit`) and reused by the scheduled sweep above. Only
+    `events.send_scheduled_revenue_reports` runs on a schedule. The sweep fires on the 5th
+    (not the 1st) to leave a short settle window for late refunds before the snapshot is taken.

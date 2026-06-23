@@ -13,15 +13,25 @@ Throttles live in `common/throttling.py` (subclasses of `ninja_extra`'s
 | `UserRateThrottle`, **authenticated** request | `user.pk` | No — per user |
 | `AnonRateThrottle`, or any throttle on an **anonymous** request | client IP via `get_ident()` | **Yes** |
 
-`get_ident()` with `NUM_PROXIES=1` returns the **last** `X-Forwarded-For` entry,
-which in production is the **Cloudflare edge IP**, not the visitor (the real IP is
-only in `CF-Connecting-IP`, which nothing reads yet). So anonymous users behind the
-same Cloudflare egress IP **share a throttle bucket** — the most likely cause of
+Throttling uses the **stock** `get_ident()` — the throttle classes in
+`common/throttling.py` do **not** override it. With `NUM_PROXIES=1`, `get_ident()`
+returns the **last** `X-Forwarded-For` entry, which in production is the
+**Cloudflare edge IP**, not the visitor. So anonymous users behind the same
+Cloudflare egress IP **share a throttle bucket** — the most likely cause of
 *false-positive* 429s for legitimate users.
 
-See backend issue #479 and infra#3 for the proper fix (lock origin to Cloudflare,
-then key throttles on the real visitor IP). This is **not** a bypass — the current
-key is unspoofable; the risk is collateral throttling, not evasion.
+!!! note "Throttling keys on the proxy IP, not `X-Real-IP`"
+
+    Since 1.62.4, `common/client_ip.py` resolves the real visitor IP from
+    `X-Real-IP` (which Caddy sets from Cloudflare's `CF-Connecting-IP`), and request
+    logging, the geo middleware, and impersonation audit all read it. **Throttling
+    does not** — it still keys on the proxy IP via stock `get_ident()`
+    (`X-Forwarded-For` + `NUM_PROXIES`), so the shared-bucket collision above is
+    unchanged until throttles are migrated onto `get_client_ip()`.
+
+See backend issue #479 and infra#3 for the remaining fix (key throttles on the real
+visitor IP too). This is **not** a bypass — the current key is unspoofable; the risk
+is collateral throttling, not evasion.
 
 The lowest, most collision-prone limit is anonymous **registration**
 (`UserRegistrationThrottle`, 100/day).

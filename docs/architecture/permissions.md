@@ -162,6 +162,8 @@ A flat set of boolean flags representing individual actions:
 | `delete_questionnaire` | `False` | Delete questionnaires |
 | `evaluate_questionnaire` | `True` | Review and score questionnaire submissions |
 | `send_announcements` | `False` | Send announcements to members |
+| `manage_subscriptions` | `True` | Manage membership subscriptions |
+| `manage_polls` | `False` | Manage organization polls |
 
 ### `PermissionsSchema` (with per-event overrides)
 
@@ -314,6 +316,19 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
     def stripe_connect(self, slug: str, payload: EmailSchema):
         ...
 ```
+
+!!! warning "Owner-only fields inside `edit_organization`-gated endpoints"
+    A few financially sensitive organization fields are **owner-only even when the
+    endpoint itself is gated by `edit_organization`** (which is staff-grantable). The
+    update flows past the permission class, but the service layer re-checks ownership
+    and rejects the change for non-owners.
+
+    The current example is `revenue_report_cadence` (it controls scheduled financial-report
+    delivery, consistent with the owner-only org revenue endpoints). A non-owner staff
+    member with `edit_organization` can update other org fields, but attempting to change
+    `revenue_report_cadence` raises `RevenueReportCadenceOwnerOnlyError`. The check lives in
+    `update_organization` (`events/service/organization_service.py`), not in the permission
+    class (carve-out introduced in v1.65.0).
 
 ### How `get_object_or_exception` Triggers Permission Checks
 
