@@ -6,6 +6,7 @@ exports, organization). Every task is re-exported here so the historical
 ``from events.tasks import <task>`` import path keeps working.
 """
 
+from events.tasks.announcements import resend_announcements_to_new_signups, send_scheduled_announcements
 from events.tasks.attendees import (
     build_attendee_visibility_flags,
     send_guest_rsvp_confirmation,
@@ -32,6 +33,8 @@ from events.tasks.organization import (
 )
 from events.tasks.payments import cleanup_expired_payments, cleanup_ticket_file_cache
 from events.tasks.recurrence import generate_recurring_events_task, generate_single_series_events_task
+from events.tasks.revenue import generate_revenue_report_task, send_scheduled_revenue_reports_task
+from events.tasks.stripe_webhooks import prune_stripe_webhook_events
 from events.tasks.subscriptions import expire_subscriptions_past_grace
 from events.tasks.waitlist import (
     expire_waitlist_offers_task,
@@ -55,11 +58,14 @@ __all__ = [
     "generate_monthly_invoices_task",
     "generate_questionnaire_export_task",
     "generate_recurring_events_task",
+    "generate_revenue_report_task",
     "generate_single_series_events_task",
     "notify_admin_new_organization_discord",
     "notify_admin_new_organization_pushover",
     "nudge_open_waitlists_task",
     "process_waitlist_for_event_task",
+    "prune_stripe_webhook_events",
+    "resend_announcements_to_new_signups",
     "reset_demo_data",
     "revalidate_single_vat_id_task",
     "revalidate_vat_ids_task",
@@ -68,5 +74,7 @@ __all__ = [
     "send_invoice_email_task",
     "send_organization_contact_email_verification",
     "send_organization_contact_message_email",
+    "send_scheduled_announcements",
+    "send_scheduled_revenue_reports_task",
     "send_waitlist_offer_notification_task",
 ]

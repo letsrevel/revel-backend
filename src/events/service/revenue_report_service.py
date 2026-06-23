@@ -266,7 +266,7 @@ def get_or_generate_revenue_report(
         export_type=FileExport.ExportType.REVENUE_VAT_REPORT,
         parameters=parameters,
     )
-    from events.revenue_tasks import generate_revenue_report_task
+    from events.tasks import generate_revenue_report_task
 
     transaction.on_commit(lambda: generate_revenue_report_task.delay(str(export.id)))
     return export

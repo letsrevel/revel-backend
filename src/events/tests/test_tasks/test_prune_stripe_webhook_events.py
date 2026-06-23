@@ -7,7 +7,7 @@ import pytest
 from django.utils import timezone
 
 from events.models import StripeWebhookEvent
-from events.tasks_stripe import prune_stripe_webhook_events
+from events.tasks import prune_stripe_webhook_events
 
 pytestmark = pytest.mark.django_db
 

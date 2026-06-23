@@ -8,15 +8,14 @@ class EventsConfig(AppConfig):
     def ready(self) -> None:
         """Run startup-time side effects for the events app.
 
-        Imports the signal handlers and the ``tasks_stripe`` /
-        ``announcement_tasks`` / ``revenue_tasks`` modules (so the Celery worker
-        registers their tasks) and installs the per-app exception handlers on the
-        global Ninja API.
+        Imports the signal handlers and installs the per-app exception handlers on
+        the global Ninja API. The Celery tasks live in the ``events.tasks`` package
+        and are registered via Celery autodiscovery, so they need no manual import here.
 
         Returns:
             None: Performs registration side effects only.
         """
-        from . import announcement_tasks, revenue_tasks, signals, tasks_stripe  # noqa: F401
+        from . import signals  # noqa: F401
         from .exception_handlers import register as register_exception_handlers
 
         register_exception_handlers()

@@ -10,8 +10,8 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
-from events.announcement_tasks import resend_announcements_to_new_signups, send_scheduled_announcements
 from events.models import Announcement, Event, Organization, Ticket, TicketTier
+from events.tasks import resend_announcements_to_new_signups, send_scheduled_announcements
 
 pytestmark = pytest.mark.django_db
 

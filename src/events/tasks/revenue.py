@@ -1,11 +1,8 @@
 """Celery tasks for revenue & VAT report generation and scheduled delivery (#551, #552).
 
-Split out of ``events.tasks`` to keep that module under the 1000-line limit.
 The tasks carry explicit registered names (``events.generate_revenue_report`` and
 ``events.send_scheduled_revenue_reports``) so the Celery-beat schedule defined in
-migration 0085 — which references the task by name string — is decoupled from this
-module's path. The Celery worker registers them via ``EventsConfig.ready`` importing
-this module.
+migration 0085 — which references the task by name string — is unaffected.
 """
 
 from uuid import UUID
