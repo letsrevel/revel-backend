@@ -123,7 +123,7 @@ seed:
 
 .PHONY: bootstrap-tests
 bootstrap-tests:
-	uv run python src/manage.py bootstrap_tests
+	uv run python src/manage.py bootstrap_test_events
 
 .PHONY: run
 run:
