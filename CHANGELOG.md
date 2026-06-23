@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Email digest overhauled: grouped by human-readable type label, each item carrying a body, timestamp, and a "View details" link, restyled to match the transactional emails.
 - Observability flag renamed `ENABLE_OBSERVABILITY` → `FEATURE_OBSERVABILITY`; the old env var still works as a deprecated alias for one release.
-- **Breaking** (per-event revenue endpoint `GET /event-admin/{event_id}/tickets/revenue`): now returns `EventFinancialsSchema` — `refunded` renamed to `refunds`, `paid_ticket_count` removed (derive from `sold_count - refunded_count`, and `sold_count` now also counts later-refunded/cancelled sales), and VAT detail (`net_taxable`, `vat`, `rate_buckets`) added. Requires a coordinated frontend update.
+- **Breaking** (per-event revenue endpoint `GET /event-admin/{event_id}/revenue`): now returns `EventFinancialsSchema` — `refunded` renamed to `refunds`, `paid_ticket_count` removed (derive from `sold_count - refunded_count`, and `sold_count` now also counts later-refunded/cancelled sales), and VAT detail (`net_taxable`, `vat`, `rate_buckets`) added. Requires a coordinated frontend update.
 
 ### Fixed
 - Event times in notifications and emails are now always rendered in the event's own timezone.
