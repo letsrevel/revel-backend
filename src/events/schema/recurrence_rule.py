@@ -25,14 +25,15 @@ class RecurrenceRuleCreateSchema(Schema):
     timezone: str = Field(
         default="UTC",
         description=(
-            "IANA timezone name for the recurrence anchor. NOTE: this field is "
-            "currently advisory metadata only — occurrences are anchored to the "
-            "UTC `dtstart` and do not observe DST in the named zone. A weekly "
-            "rule for 'Mondays at 10:00 Europe/Vienna' starting before the "
-            "spring DST transition will materialize at 11:00 Vienna time after "
-            "the transition (because it stays anchored to 09:00 UTC). Phase 3 "
-            "will localize the anchor; until then, set `dtstart` to the exact "
-            "UTC instant you want and treat `timezone` as informational."
+            "IANA timezone name the recurrence anchor is localized to. "
+            "Occurrences preserve their wall-clock time-of-day in this zone "
+            "across DST transitions: a weekly rule for 'Mondays at 10:00 "
+            "Europe/Vienna' materializes at 10:00 Vienna time both before and "
+            "after the spring/autumn switch (the underlying UTC instant shifts "
+            "by the DST offset). `dtstart` is the UTC instant of the first "
+            "occurrence; its wall-clock time in this zone defines the anchor. "
+            "The default 'UTC' has no DST, so occurrences stay fixed to the "
+            "stored UTC instant."
         ),
     )
 

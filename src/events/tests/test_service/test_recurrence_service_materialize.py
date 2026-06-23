@@ -236,6 +236,47 @@ class TestGenerateSeriesEvents:
             assert event.is_template is False
             assert event.event_series_id == active_series.id
 
+    @freeze_time("2026-03-23 09:00:00")
+    @patch("notifications.service.notification_helpers.notify_series_events_generated")
+    def test_non_utc_series_preserves_wall_clock_across_dst(
+        self,
+        mock_notify: t.Any,
+        active_series: EventSeries,
+    ) -> None:
+        """A non-UTC series keeps the local wall-clock time across the DST switch.
+
+        The rule anchors to Mondays 10:00 Europe/Vienna starting 2026-03-23
+        (CET, 09:00 UTC). The spring transition is 2026-03-29, so every Monday
+        from 2026-03-30 onward is CEST (08:00 UTC) while staying at 10:00 Vienna
+        wall-clock. This exercises the full materialization pipeline, not just
+        ``to_rrule()``.
+        """
+        import zoneinfo
+        from datetime import timezone as dt_timezone
+
+        vienna = zoneinfo.ZoneInfo("Europe/Vienna")
+        # Reconfigure the rule to a Vienna-anchored Monday before the DST switch.
+        rule = active_series.recurrence_rule
+        assert rule is not None
+        rule.timezone = "Europe/Vienna"
+        rule.dtstart = datetime(2026, 3, 23, 10, 0, tzinfo=vienna)
+        rule.save()
+        active_series.generation_window_weeks = 3
+        active_series.save(update_fields=["generation_window_weeks"])
+
+        # Act
+        created = recurrence_service.generate_series_events(active_series)
+
+        # Assert — every occurrence is 10:00 Vienna wall-clock…
+        starts = sorted(e.start for e in created)
+        assert len(starts) == 4  # Mar 23 (pre-DST) + Mar 30, Apr 6, Apr 13 (post-DST)
+        for start in starts:
+            local = start.astimezone(vienna)
+            assert (local.hour, local.minute) == (10, 0)
+        # …and the UTC instant shifts from 09:00 (CET) to 08:00 (CEST) across DST.
+        utc_hours = [s.astimezone(dt_timezone.utc).hour for s in starts]
+        assert utc_hours == [9, 8, 8, 8]  # Mar 23 pre-DST, rest post-DST
+
     @freeze_time("2026-04-06 10:00:00")
     @patch("notifications.service.notification_helpers.notify_series_events_generated")
     def test_skips_exdates(

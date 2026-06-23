@@ -25,7 +25,7 @@ This page covers the rule model, how and when occurrences are generated, drift d
 | `dtstart` | DateTime | Anchor of the series. |
 | `until` / `count` | DateTime / int, nullable | Optional boundaries. |
 | `rrule_string` | Text, read-only | Recomputed on every save from the structured fields. |
-| `timezone` | str (default `UTC`) | Validated IANA zone. **Currently reserved metadata** — occurrences are anchored to the UTC `dtstart` and do not yet observe DST in the named tz (a `# ponytail:`-style Phase-3 ceiling noted in the model). |
+| `timezone` | str (default `UTC`) | Validated IANA zone. `to_rrule()` localizes `dtstart` into this zone, so occurrences **preserve their wall-clock time across DST** (a "Mondays 10:00 Europe/Vienna" rule stays at 10:00 Vienna before and after the switch; the underlying UTC instant shifts by the offset). Default `UTC` is a no-op. |
 
 Validation is delegated to `events/utils/recurrence_validators.py` so the Pydantic input schema and the model `clean()` enforce identical rules. `to_rrule()` builds a `dateutil.rrule`; `get_occurrences(after, before)` returns the occurrence datetimes strictly between two bounds.
 
