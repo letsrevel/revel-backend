@@ -6,15 +6,12 @@ and determining which users should receive specific notification types.
 
 from uuid import UUID
 
-import structlog
 from django.db.models import Q, QuerySet
 
 from accounts.models import RevelUser
 from events.models import Event, EventInvitation, EventRSVP, Organization, OrganizationMember, Ticket, TicketTier
 from notifications.enums import NotificationType
 from notifications.models import NotificationPreference
-
-logger = structlog.get_logger(__name__)
 
 
 class BatchParticipationChecker:
@@ -575,54 +572,3 @@ def get_staff_for_notification(
         return get_organization_staff_with_permission(organization_id, required_permission)
 
     return get_organization_staff_and_owners(organization_id)
-
-
-def should_notify_user_for_questionnaire(
-    user: RevelUser, organization: Organization, notification_type: NotificationType
-) -> bool:
-    """Check if a user should be notified about questionnaire events.
-
-    Args:
-        user: The user to check
-        organization: The organization context
-        notification_type: Type of questionnaire notification
-
-    Returns:
-        True if user should be notified
-    """
-    return is_user_eligible_for_notification(user, notification_type, organization=organization)
-
-
-def log_notification_attempt(
-    user: RevelUser,
-    notification_type: NotificationType,
-    event: Event | None = None,
-    success: bool = True,
-    error_message: str | None = None,
-) -> None:
-    """Log notification attempts for debugging and audit purposes.
-
-    Args:
-        user: User who was targeted for notification
-        notification_type: Type of notification
-        event: Associated event (if any)
-        success: Whether the notification was sent successfully
-        error_message: Error message if notification failed
-    """
-    log_kwargs = {
-        "notification_type": notification_type.value,
-        "user_email": user.email,
-        "success": success,
-    }
-
-    if event:
-        log_kwargs["event_name"] = event.name
-        log_kwargs["event_id"] = str(event.id)
-
-    if error_message:
-        log_kwargs["error"] = error_message
-
-    if success:
-        logger.info("notification_sent", **log_kwargs)
-    else:
-        logger.error("notification_failed", **log_kwargs)
