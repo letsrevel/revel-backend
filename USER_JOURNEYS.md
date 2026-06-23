@@ -2,7 +2,7 @@
 
 This document maps every user journey through the Revel platform, organized by persona. Its purpose is to serve as the source of truth for Playwright E2E test cases on the frontend. Each journey describes the **what** and **why** from the user's perspective — the exact UI steps and assertions will live in the test suite.
 
-> **Last updated**: 2026-04-01 (v1.47.0)
+> **Last updated**: 2026-06-23 (v1.65.0)
 
 ---
 
@@ -27,11 +27,14 @@ This document maps every user journey through the Revel platform, organized by p
 - [Journey 15: Notifications & Communication](#journey-15-notifications--communication)
 - [Journey 16: Billing, Payments & VAT](#journey-16-billing-payments--vat)
 - [Journey 17: Account Lifecycle (Security, GDPR, Deletion)](#journey-17-account-lifecycle-security-gdpr-deletion)
-- [Journey 18: Event Series & Following](#journey-18-event-series--following)
+- [Journey 18: Event Series, Recurring Events & Following](#journey-18-event-series-recurring-events--following)
 - [Journey 19: Venue & Seating](#journey-19-venue--seating)
 - [Journey 20: Discount Codes](#journey-20-discount-codes)
 - [Journey 21: Referral Program](#journey-21-referral-program)
 - [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing)
+- [Journey 23: Membership Subscriptions](#journey-23-membership-subscriptions)
+- [Journey 24: Polls](#journey-24-polls)
+- [Journey 25: Revenue & VAT Reporting](#journey-25-revenue--vat-reporting)
 - [Cross-Cutting Concerns](#cross-cutting-concerns)
 - [Gap-Fill Interview Questions](#gap-fill-interview-questions)
 
@@ -43,13 +46,15 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 
 **Core differentiators** (inferred — to be validated):
 - Privacy-first: no tracking, minimal data collection, GDPR-native
-- Self-hostable: organizations own their data and infrastructure
+- Self-hostable: organizations own their data and infrastructure; single-org instances run without ClamAV, Telegram, or the full geo dataset, tailored via feature flags
 - Questionnaire-based access control: events can screen attendees via questionnaires
-- Flexible attendance models: free RSVP, ticketed (fixed, PWYC, offline), invitation-only, members only
-- Community features: potluck coordination, dietary tracking, membership tiers
+- Flexible attendance models: free RSVP, ticketed (fixed, PWYC, offline, at-the-door), invitation-only, members only
+- Recurring events: first-class recurring series with rolling-window materialization (each occurrence is a real, independent event)
+- Community features: potluck coordination, dietary tracking, membership tiers, recurring membership subscriptions, organization-managed polls
 - Blacklist/whitelist system with fuzzy name matching for safer spaces
-- Multi-channel notifications: in-app, email, Telegram
-- Internationalized: English, German, Italian
+- Organizer financial tooling: VAT-precise revenue reporting, attendee invoicing, referral payouts
+- Multi-channel notifications: in-app, email, Telegram (immediate transactional emails + grouped digests)
+- Internationalized: English, German, Italian, French
 
 ---
 
@@ -65,8 +70,9 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 | **Guest Attendee** | Attends event without account (guest checkout / guest RSVP) | Not logged in |
 | **Organization Owner** | Created the org, has all permissions implicitly | Fully authenticated |
 | **Organization Staff** | Assigned staff role with granular JSON-based permissions | Fully authenticated |
-| **Waitlisted User** | Joined waitlist for a full event | Fully authenticated |
+| **Waitlisted User** | Joined waitlist for a full event; may hold a time-limited waitlist offer | Fully authenticated |
 | **Referrer** | Has a referral code and earns payouts from referred users' ticket purchases | Fully authenticated |
+| **Subscriber** | Member with an active (currently OFFLINE) recurring membership subscription tied to a plan/tier | Fully authenticated |
 
 ---
 
@@ -111,7 +117,19 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 
 ### 1.7 Marketing Pages
 - Visit various marketing pages (`/community-first-event-platform`, etc.)
-- Localized variants exist for de/it
+- Localized variants exist for de/it/fr
+
+### 1.8 Contact an Organization
+- Org has `contact_method` set to `email` or `form` (with a verified contact email)
+- `none` → no contact UI shown; `email` → org's verified address is exposed on the public org schema
+- Submit a message via the public contact form (`POST /organizations/{slug}/contact`)
+  - Requires a verified-email account; throttled
+  - Delivered as a single transactional email to the org's mailbox (`Reply-To: <sender>`)
+  - Org staff with `edit_organization` also receive an in-platform `ORG_CONTACT_MESSAGE_RECEIVED` notification
+
+### 1.9 Feature-Flag-Aware UI
+- `GET /version` (anonymous) returns a `features` object: `organization_creation`, `telegram`, `google_sso`, `llm_evaluation`
+- Frontend hides gated UI (e.g. Google SSO button, "Create organization" CTA, Telegram linking) instead of letting users hit a 403/404
 
 ---
 
@@ -157,12 +175,13 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - Navigate to `/dashboard`
 - See: personalized greeting, quick actions (create event, create org)
 - See: empty state for events/invitations (if no activity yet)
-- Filter events by: owner, staff, member, RSVP, ticketed, invited, subscribed
+- Filter events by: owner, staff, member, RSVP, ticketed, invited, subscribed, **bookmarked**
+- Bookmarked **unlisted** events surface in the `bookmarked` facet even though they stay hidden from discovery
 
 ### 3.2 Profile Management
 - Navigate to `/account/profile`
 - Edit: first name, last name, preferred name, pronouns
-- Edit: language preference (en/de/it)
+- Edit: language preference (en/de/it/fr)
 - Edit: bio (Markdown)
 - Upload/change profile picture
 - View email and verification status
@@ -219,6 +238,18 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - Submit optional message
 - Wait for approval → notification when approved/rejected
 
+### 3.11 Bookmark Events
+- Click the bookmark icon on an event (list or detail)
+- `POST /api/events/{event_id}/bookmark` → `201` for a new bookmark, `200` if it already existed
+- `is_bookmarked` reflected on event list/detail responses
+- Unbookmark (`DELETE`) is idempotent and works even for events you can no longer see
+- Bookmarks are private — they do not sign you up or affect eligibility
+- Find bookmarked events via the `bookmarked` facet on `/dashboard/events`
+
+### 3.12 View Memberships & Subscriptions
+- `GET /me/memberships` — unified, paginated list of every org membership for the user, inlining the most recent non-terminal subscription per org when one exists
+- See [Journey 23: Membership Subscriptions](#journey-23-membership-subscriptions) for the subscriber flow
+
 ---
 
 ## Journey 4: Organization Member
@@ -242,6 +273,7 @@ Multiple paths:
 - Certain ticket tiers restricted to specific membership tiers
 - Announcements can target specific tiers
 - Tier assignment set by staff on approval or later
+- A tier can be backed by a recurring **membership subscription** (currently OFFLINE) — see [Journey 23](#journey-23-membership-subscriptions)
 
 ### 4.4 Membership Status Changes
 - ACTIVE → PAUSED (by staff): limited access
@@ -271,6 +303,8 @@ User sees one of:
 - "Join waitlist" button (if at capacity and waitlist_open)
 - Error explaining why they can't attend
 
+`EventUserEligibility` carries a stable, machine-readable `reason_code` (`ReasonCode` enum) alongside the human-readable `reason` string — clients should branch on `reason_code`, not on localized prose.
+
 ### 5.3 RSVP
 - Click YES → RSVP confirmed, attendee_count incremented
 - Click MAYBE → recorded but doesn't count toward capacity
@@ -295,6 +329,15 @@ If event at capacity and waitlist_open:
 ### 5.6 Leave Waitlist
 - Click "Leave Waitlist"
 - Removed from waitlist
+
+### 5.7 Receive a Waitlist Offer (Advanced Waitlist)
+When the event opts in via `waitlist_time_window`:
+- Capacity opening triggers a **batch** of offers (FIFO or lottery, per `waitlist_lottery_mode`), sized by `waitlist_batch_size`
+- The offered spot is **reserved** for the duration of the window — non-waitlist users can't take it
+- User receives an offer notification with an expiry deadline (`WaitlistOffer`)
+- Accept before expiry → proceed with RSVP/ticket flow
+- Let it expire → spot released to the next batch; the user stays eligible for future batches
+- `waitlist_cutoff_date` / `waitlist_cutoff_window` stop new offers close to the event
 
 ---
 
@@ -369,6 +412,18 @@ Depends on tier's seat_assignment_mode:
 - Code validated: active, within dates, not exceeded max_uses, applicable to tier/event
 - Discount applied: percentage or fixed amount off
 
+### 6.12 Cancel Ticket & Refund (Self-Service)
+Opt-in per tier via `allow_user_cancellation`, `cancellation_deadline_hours`, and `refund_policy`:
+- Buyers see the cancellation terms **before purchase** — `TicketTierSchema` exposes `allow_user_cancellation`, `cancellation_deadline_hours`, and `refund_policy` (tiered % by hours-before-event + flat fee)
+- The active policy is snapshotted onto the ticket at purchase time (`refund_policy_snapshot`), so later policy changes never retroactively affect issued tickets
+- **Preview**: `GET /events/tickets/{id}/cancellation-preview` returns the policy windows + a live refund quote for this ticket
+- **Cancel**: `POST /events/tickets/{id}/cancel` works for free, offline, at-the-door, and online (Stripe) tickets
+  - Online tickets trigger a Stripe refund (per-`Payment`, partial-amount aware)
+  - Blocked cases return `409 CancellationBlockedErrorSchema` with a stable `code` (already cancelled, checked-in, event started, past deadline, etc.)
+- Cancelling an already-cancelled ticket returns **409**
+- Receive a `TICKET_CANCELLED` / `TICKET_REFUNDED` notification (immediate transactional email); copy branches on `cancellation_source` (user-initiated / organizer / stripe_dashboard)
+- Refund notifications report the actual `refund_amount` (partial-refund accurate), not the full ticket price
+
 ---
 
 ## Journey 7: Guest Attendee (No Account)
@@ -403,6 +458,8 @@ Depends on tier's seat_assignment_mode:
 - Fill required fields (name, contact email, city)
 - Auto-become owner with all permissions
 - Contact email auto-verified if matches user's verified email
+- Name is rejected if it slugifies to a **reserved slug token** — a hardcoded platform set (`admin`, `api`, `www`, `revel`, …) plus a DB-managed `ReservedSlugToken` soft list (`demo`, `test`, …); message localized in en/de/it
+- On single-org / self-hosted instances, `FEATURE_ORGANIZATION_CREATION=off` returns `403` for non-staff (staff/superusers bypass)
 
 ### 8.2 Organization Settings
 - Navigate to `/org/[slug]/admin/settings`
@@ -410,6 +467,10 @@ Depends on tier's seat_assignment_mode:
 - Upload: logo, cover art
 - Set visibility: PUBLIC, UNLISTED, PRIVATE, MEMBERS_ONLY
 - Toggle: accept_membership_requests
+- Set `contact_method`: `none` / `email` / `form` (both `email` and `form` require a verified `contact_email`)
+  - Changing `contact_email` to a new (unverified) address auto-forces `contact_method=none`
+- Set `revenue_report_cadence`: `NONE` / `QUARTERLY` / `MONTHLY` (**owner-only** — non-owners get a `403`; see [Journey 25](#journey-25-revenue--vat-reporting))
+- Set membership-subscription policy: `membership_grace_period_days` (default 7), `membership_refund_policy`
 
 ### 8.3 Stripe Connect Setup
 - Navigate to billing settings
@@ -424,6 +485,7 @@ Depends on tier's seat_assignment_mode:
 - Configure billing address and email
 - Set VAT rate
 - View platform fee invoices
+- Access live financials and downloadable revenue & VAT reports (see [Journey 25](#journey-25-revenue--vat-reporting))
 
 ### 8.5 Staff Management
 - Navigate to `/org/[slug]/admin/members` → Staff tab
@@ -437,9 +499,12 @@ Depends on tier's seat_assignment_mode:
   - edit_organization, manage_members
   - manage_potluck
   - create/edit/delete/evaluate_questionnaire
+  - manage_polls
+  - manage_subscriptions
   - send_announcements
 - Set per-event permission overrides
 - Remove staff
+- Sales-specific permissions are also configurable from the admin panel
 
 ### 8.6 Member Management
 - View members list with search/pagination
@@ -516,14 +581,16 @@ Same as owner event management but filtered by permissions.
   - RSVP before deadline
   - Max attendees
   - Max tickets per user
-  - Waitlist open: yes/no
+  - Waitlist open: yes/no (+ advanced waitlist window/batch/lottery/cutoff config — see [Journey 5.7](#57-receive-a-waitlist-offer-advanced-waitlist))
   - Potluck open: yes/no
+  - Open-ended: `is_open_ended` — mark an event with no fixed end. `end` is still set (defaults to start + 24h) and used internally for ICS/Wallet/upcoming gates; the flag is a display signal (render "Ongoing", hide the end time)
   - Address visibility rules
   - Check-in window (starts_at, ends_at)
   - Invitation message (default message for invitations)
 - Link to: venue, event series
 - Upload: logo, cover art
 - Add tags
+- Authoring also exposes: resolved IANA `timezone` (UTC fallback) on list/detail; event `schedule` / timeline (see [10.14](#1014-event-schedule--timeline))
 
 ### 10.2 Event Lifecycle
 ```
@@ -535,6 +602,7 @@ DRAFT → OPEN → CLOSED
 - **OPEN**: Visible per event_type rules. Accepts RSVPs/tickets.
 - **CLOSED**: No new RSVPs/tickets. Event still visible.
 - **CANCELLED**: Event cancelled. Notifications sent.
+- **Cancellation reason** (optional, ≤1000 chars): accepted on `POST /actions/update-status/{status}` only when transitioning to `cancelled`; auto-cleared on un-cancel. Included in the `EVENT_CANCELLED` notification and returned on event list/detail — but readable only by **attendees** (ticket holders, confirmed YES RSVPs, staff/owners); merely-invited or anonymous users receive `null`.
 
 ### 10.3 Edit Event
 - All fields editable while in DRAFT
@@ -561,12 +629,13 @@ DRAFT → OPEN → CLOSED
 - Reorder tiers (display_order)
 
 ### 10.5 Manage Tickets
-- View all tickets with status, search, filters
+- View all tickets with status, search, filters; list is **sortable**
+- Each ticket row shows the **discount code** applied (if any)
 - Create tickets manually (on behalf of users)
 - Update ticket status
 - Bulk update tickets
 - Check in tickets (mark CHECKED_IN)
-- Cancel tickets
+- Cancel / mark-refunded tickets — admin actions record `cancelled_at`, `cancelled_by`, `cancellation_source=ORGANIZER`, optional reason, and (on refund) `refund_amount` / `refund_status` / `refunded_at`
 - View payment details
 
 ### 10.6 Manage RSVPs
@@ -604,6 +673,10 @@ DRAFT → OPEN → CLOSED
 - View waitlist entries
 - Remove users from waitlist
 - Waitlist auto-processed when capacity increases or cancellations occur
+- **Advanced waitlist offers** (when `waitlist_time_window` configured): batched, time-limited offers (FIFO or lottery), reserved spots during the window
+  - Admin offer-management endpoints: manually create / reactivate / revoke offers; `WaitlistOfferSchema.user` is a nested `MinimalRevelUserSchema` (no follow-up lookup)
+  - Manual create / reactivate accept a payload `expires_at` even when no global window is set; they only 400 when neither event nor payload defines an expiry
+  - Revoked offers are excluded from auto-reoffering (soft-skip until reactivated); expired users stay eligible for future batches
 
 ### 10.11 Announcements
 - Create draft announcement
@@ -611,6 +684,9 @@ DRAFT → OPEN → CLOSED
 - Preview recipient count before sending
 - Send → notification dispatched to all targets
 - Past visibility flag: controls if announcement visible after event
+- **Schedule** a send for a future absolute time, or relative to event start/end (auto-shifts when the event moves) — adds a `SCHEDULED` status with `/schedule` and `/unschedule` endpoints; delivered by a background sweep
+- **Resend to new sign-ups**: re-deliver an event announcement to attendees who join after the first send, until the event ends, without double-notifying
+- Public announcement schema carries an `audience` descriptor
 
 ### 10.12 Event Resources
 - Attach files, links, or text to event
@@ -621,6 +697,16 @@ DRAFT → OPEN → CLOSED
 - Dietary summary (aggregated restrictions/preferences)
 - Pronoun distribution (visible to non-staff only when `public_pronoun_distribution=True`)
 - Ticket sales by tier
+
+### 10.14 Event Schedule / Timeline
+- Author an ordered list of display-only sessions via `PUT /event-admin/{event_id}/schedule`
+- Each session: title, markdown description, relative start offset, optional duration/location, `is_required` badge
+- Exposed on the public event detail; copied verbatim on event duplication and recurring-series materialization
+
+### 10.15 Event Revenue (per event)
+- `GET /event-admin/{event_id}/tickets/revenue` returns `EventFinancialsSchema`: `sold_count` (incl. later refunded/cancelled), `refunds`, `refunded_count`, and VAT detail (`net_taxable`, `vat`, `rate_buckets`)
+- Tracks both online (Stripe) and offline/at-the-door ticket refunds
+- Org-wide financials live in [Journey 25](#journey-25-revenue--vat-reporting)
 
 ---
 
@@ -659,8 +745,10 @@ DRAFT → OPEN → CLOSED
 - Navigate to `/events/[org_slug]/[event_slug]/questionnaire/[id]`
 - Answer all required questions
 - Conditional questions appear/disappear based on selections
-- Upload files if required (ClamAV scanned)
+- Upload files if required (ClamAV scanned, unless `FEATURE_MALWARE_SCAN` is off)
+- Question/section shuffling is **stable per viewer** across reloads (varies between users), not re-randomized on every load
 - Submit
+- Single-answer questions (`allow_multiple_answers=False`) reject submissions with more than one selected option — enforced at the service layer, closing an admission-gate bypass that `bulk_create` previously skipped
 
 ### 11.4 Automatic Evaluation
 - Celery task picks up submission
@@ -686,6 +774,15 @@ DRAFT → OPEN → CLOSED
 
 ### 11.7 Export Submissions
 - Organizer exports all submissions (for offline review, record-keeping)
+- Submissions expose `requires_evaluation` so the UI can distinguish auto-scored from review-pending
+
+### 11.8 Duplicate Questionnaire
+- `POST /api/questionnaires/{org_questionnaire_id}/duplicate` deep-copies sections, questions, options, and intra-questionnaire dependencies into a new **DRAFT** in the same org (requires `create_questionnaire`)
+- Pass `copy_associations: true` to also link the copy to the template's events/series (unattached by default)
+- Votes, submissions, answers, evaluations, and uploaded files are never copied
+
+### 11.9 Access Control (Answer Key)
+- `GET /api/questionnaires/{id}` and the list endpoint require **org admin** permission — the full answer key (`is_correct`, weights, `min_score`, `reviewer_notes`, `llm_guidelines`) is no longer readable by arbitrary authenticated users
 
 ---
 
@@ -767,6 +864,17 @@ DRAFT → OPEN → CLOSED
 - Active organization members bypass fuzzy blacklist matching
 - Only hard blacklist (with FK) blocks members
 
+### 13.6 Unban Behavior
+- Removing a blacklist entry clears the stale `BANNED` `OrganizationMember` row the ban created
+- Membership transitions to `CANCELLED` (not `ACTIVE` — avoids implicitly re-granting prior privileges); the org and its events become visible again
+- If another blacklist entry still covers the user in the org, `BANNED` is preserved
+- Hard-blacklisted users can no longer reclaim a staff-granting org invitation token to regain access
+
+### 13.7 Content Moderation (Platform / Staff)
+- Offensive **food-item names** are blocked at creation across all languages (new `moderation` app)
+- Staff can delete offensive food items via the admin
+- Quarantined (malware-flagged) uploads are stored behind the protected, signed-URL media path — never publicly downloadable; staff retrieve them via a signed admin link
+
 ---
 
 ## Journey 14: Potluck Coordination
@@ -804,19 +912,25 @@ FOOD, MAIN_COURSE, SIDE_DISH, DESSERT, DRINK, ALCOHOL, NON_ALCOHOLIC, SUPPLIES, 
 ### 15.1 Notification Channels
 - **In-app**: Bell icon with unread count, notification list
 - **Email**: Immediate or digest (hourly, daily, weekly)
-- **Telegram**: Via connected Telegram account
+  - **Transactional emails always deliver immediately**, bypassing the digest: `PAYMENT_CONFIRMATION`, `TICKET_CREATED`, `TICKET_CANCELLED`, `TICKET_REFUNDED`
+  - **Digest** is grouped by human-readable type label; each item carries a body, timestamp, and a "View details" link, styled to match the transactional emails
+- **Telegram**: Via connected Telegram account (unavailable when `FEATURE_TELEGRAM` is off — linking endpoints 404)
+- All event times in notifications/emails render in the **event's own timezone**
 
 ### 15.2 Notification Types (non-exhaustive)
-- Account: registration welcome, email verified, password reset
-- Events: created, opened, closed, cancelled, reminder
-- Tickets: created, purchased, cancelled, refunded, checked in
+- Account: registration welcome, email verified, email change in-flight/completed, password reset
+- Events: created, opened, closed, cancelled (with reason for attendees), reminder, series events generated
+- Tickets: created, purchased, cancelled, refunded (note: on-check-in `TICKET_CHECKED_IN` is **no longer sent** — the holder is already there)
 - Invitations: sent, accepted, pending conversion
 - Memberships: granted, request created/approved/rejected
+- Subscriptions: payment recorded, lifecycle changes (cancel/pause/resume), expiry/past-due
 - Questionnaires: submitted, evaluation complete
+- Polls: (organization-managed; see [Journey 24](#journey-24-polls))
 - RSVPs: confirmed
 - Potluck: item claimed/unclaimed
 - Whitelist: request created/approved/rejected
-- Announcements: new announcement
+- Announcements: new announcement (immediate, scheduled, or resent to new sign-ups)
+- Organization: contact message received (`ORG_CONTACT_MESSAGE_RECEIVED` — Telegram body omits subject/preview since chats aren't E2E-encrypted)
 
 ### 15.3 Notification Preferences
 - Silence all notifications (global toggle)
@@ -889,6 +1003,14 @@ FOOD, MAIN_COURSE, SIDE_DISH, DESSERT, DRINK, ALCOHOL, NON_ALCOHOLIC, SUPPLIES, 
 ### 16.6 Attendee Invoicing
 See [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing) for the full flow.
 
+### 16.7 Revenue & VAT Reporting
+See [Journey 25: Revenue & VAT Reporting](#journey-25-revenue--vat-reporting) for live financials, downloadable reports, and scheduled delivery.
+
+### 16.8 Stripe Webhook Reliability (Behind the Scenes)
+- Multiple rotating signing secrets (`STRIPE_WEBHOOK_SECRETS`); invalid signatures fail closed with `403`
+- DB-level idempotency (`StripeWebhookEvent` log) so redeliveries replay task dispatches instead of being dropped or double-processed
+- Stripe API version pinned for predictable behaviour; `provision_stripe_webhooks` management command for setup
+
 ---
 
 ## Journey 17: Account Lifecycle (Security, GDPR, Deletion)
@@ -922,13 +1044,20 @@ See [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing) for the ful
 - System tracks: last_reminder_sent_at, final_warning_sent_at, deactivation_email_sent_at
 - Unverified users receive escalating reminders
 
+### 17.6 Self-Served Email Change
+- `POST /account/email-change-request` — requires the current password; sends a single-use confirmation link to the **new** address (proof of control)
+- `POST /account/email-change-confirm` — swaps `email` + `username`, **blacklists every outstanding JWT** for the user, and returns a fresh token pair so the confirming device stays signed in
+- Both addresses receive completion emails; the old address also gets an in-flight notice with a masked rendering of the new address
+- Rejected with clear `400`s for Google-SSO accounts and same-email / already-taken targets; globally-banned targets silently no-op
+
 ---
 
-## Journey 18: Event Series & Following
+## Journey 18: Event Series, Recurring Events & Following
 
 ### 18.1 View Event Series
 - Browse series at `/events/[org_slug]/series/[series_slug]`
 - See: series info, list of events, shared branding
+- `is_recurring` exposed on series list/retrieve schemas
 
 ### 18.2 Follow Event Series
 - Click "Follow" on series page
@@ -941,6 +1070,23 @@ See [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing) for the ful
 - User completes once → valid for all events in series
 - Unless per_event=True (then must complete per event)
 - max_submission_age can expire old submissions
+
+### 18.4 Recurring Events (Organizer)
+First-class recurring series with rolling-window materialization:
+- Define a `RecurrenceRule` (frequency, interval, weekdays, monthly params, boundaries) → emits an RFC 5545 `RRULE`
+- Series config: `template_event`, `recurrence_rule`, `exdates`, `auto_publish`, `generation_window_weeks`
+- Each occurrence is a **real materialized `Event`** (independent tickets, payments, capacity) duplicated from the template; safe template edits propagate via a `PROPAGATABLE_FIELDS` whitelist
+- A daily Celery beat task drives rolling-window generation
+- 7 admin endpoints: create recurring series, edit template with propagation, update recurrence, cancel occurrence, manual generate, pause/resume
+- `GET /organization-admin/{slug}/event-series/{series_id}` returns the full `EventSeriesRecurrenceDetailSchema`
+- `GET .../template-event` returns the template's `EventDetailSchema` (the public detail route filters templates out by design)
+
+### 18.5 Cadence-Drift Detection
+- `GET /organization-admin/{slug}/event-series/{series_id}/drift` returns the IDs of future occurrences that no longer match the current `RRULE` after a cadence change (excludes manually-modified and cancelled occurrences)
+
+### 18.6 Series Notifications
+- A single digest `SERIES_EVENTS_GENERATED` notification per generated batch (not one per occurrence)
+- Series-followed (staff) and series-events-generated (follower) notifications link to the public `/events/[org_slug]/series/[series_slug]` route
 
 ---
 
@@ -978,6 +1124,8 @@ See [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing) for the ful
 - Limits: max uses total, max uses per user, min purchase amount
 - Validity: start date, end date
 - Activate/deactivate
+- Creating a code with a **duplicate code** returns a clear `409` (was an opaque 500)
+- `currency` is validated against the supported `Currencies` whitelist on both create and update
 
 ### 20.2 Apply Discount Code (Attendee)
 - During ticket checkout
@@ -987,6 +1135,10 @@ See [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing) for the ful
 ### 20.3 Track Usage (Organizer)
 - View usage count per code
 - See which users used which codes
+
+### 20.4 Delete vs Deactivate
+- Deleting a code that has **never been used** hard-deletes it
+- Deleting a code that **has been used** deactivates it instead, preserving usage history
 
 ---
 
@@ -1029,6 +1181,10 @@ See [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing) for the ful
 - Navigate to `/account/referral/payouts`
 - See all payouts: period, amount, status (CALCULATED, PAID, FAILED, ROLLED_OVER)
 - Download statement PDFs for issued payouts
+
+### 21.7 Manual Referral Recording (Platform Admin)
+- Referral admin supports full create / edit / delete, so staff can manually record a referral win when the referred user never used the referrer's link
+- `referrer` stays auto-derived from the referral code; double-referrals and referrals that already have payouts remain protected
 
 ---
 
@@ -1081,11 +1237,95 @@ See [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing) for the ful
 
 ---
 
+## Journey 23: Membership Subscriptions
+
+> **Phase 1 — OFFLINE only.** Subscriptions are currently staff-managed (recorded payments), not self-served Stripe billing. Online/auto-renew is future work.
+
+### 23.1 Configure Subscription Plans (Organizer)
+- Requires the `manage_subscriptions` permission (owner ✓, staff ✓ by default, member ✗)
+- Create plans per membership tier: `MembershipSubscriptionPlan` CRUD scoped to a tier
+- Org-level policy: `membership_grace_period_days` (default 7), `membership_refund_policy`
+- `GET /organization-admin/{slug}/plans` lists every plan across the org (optional `is_active` filter); `tier_name` resolved on `PlanSchema` so UIs render the plan→tier link without a join
+
+### 23.2 Create & Manage a Subscription (Organizer)
+- Staff endpoints: subscription create / list / get
+- Lifecycle: cancel / pause / resume
+- Record a payment (`MembershipPayment`); record-only refund
+- `occurred_at` lets staff backfill OFFLINE payments with the real payment date — it anchors `period_start` / `period_end` math when set
+- `GET /organization-admin/{slug}/subscriptions/{sub_id}/payments` — paginated payment history (newest first)
+- A partial-unique constraint enforces at most one non-terminal subscription per `(user, org)`
+
+### 23.3 Membership Sync (Behind the Scenes)
+- A `post_save` signal syncs `OrganizationMember.status + tier` from the subscription
+- It never **creates** members and never touches a `BANNED` member
+- Daily Celery beat `events.expire_subscriptions_past_grace` transitions `ACTIVE → PAST_DUE → EXPIRED` once past the org's grace period
+
+### 23.4 Member View
+- `GET /me/membership-subscriptions` — the caller's subscriptions
+- `GET /me/organizations/{org_id}/subscription` — the caller's subscription for one org
+- `GET /me/memberships` — unified memberships list, inlining the most recent non-terminal subscription per org
+- `MySubscriptionSchema` resolves `organization_name`, `organization_slug`, `organization_logo_url` so dashboards render a card without N+1 org lookups
+
+---
+
+## Journey 24: Polls
+
+> Organization-managed polls, built on the questionnaire pipeline. A `Poll` is 1:1 with a `Questionnaire`; votes are stored as `QuestionnaireSubmission` rows.
+
+### 24.1 Create & Manage a Poll (Organizer)
+- Requires the `manage_polls` permission (JSONField-backed, no migration)
+- `/api/polls/` endpoint group: list, detail, results, create, patch, open, close, reopen, delete
+- Configure: audience/visibility (PUBLIC / UNLISTED / …), lifecycle (open/close timestamps), anonymity (`staff_anonymous`, `public_anonymous`), result visibility/timing, vote-change policy, membership-tier restrictions
+- Lifecycle is row-locked to serialize close-vs-vote races; a `polls.close_polls_due` beat task auto-closes due polls
+
+### 24.2 Duplicate a Poll
+- `POST /api/polls/{poll_id}/duplicate` clones a poll and its wrapped questionnaire into a new **DRAFT** poll
+- Copies visibility, result timing, anonymity, vote-change policy, and tier restrictions while resetting the lifecycle (status + open/close timestamps)
+- `staff_anonymous` / `public_anonymous` — normally immutable after creation — may be overridden on the copy
+- Votes, submissions, answers, evaluations, and uploaded files are never copied
+
+### 24.3 Vote (Member / Eligible User)
+- `POST` vote and `POST` withdraw on `/api/polls/...`
+- Vote-change policy controls whether a cast vote can be changed
+- A DRAFT poll's detail endpoint never leaks unpublished questions/options to non-staff (even with the UUID) — hidden until published
+
+### 24.4 View Results
+- `GET /api/polls/{id}/results` — visibility and timing governed by the poll's result settings and anonymity flags
+
+---
+
+## Journey 25: Revenue & VAT Reporting
+
+> A VAT-precise financial-reporting suite for organizers, all driven by one tax engine so every view reconciles. Aggregates online (Stripe) and offline/at-the-door payments per currency and per VAT rate; refunds attributed to the period they occurred.
+
+### 25.1 Live Org Financials
+- `GET /organization-admin/{slug}/revenue` — per-event revenue
+  - Sortable (`sort=revenue|event_start`)
+  - Period-filtered (`year` + optional `month` / `quarter`)
+  - Currency switching (`available_currencies`, `?currency=`)
+
+### 25.2 Downloadable Revenue & VAT Report
+- `POST /organization-admin/{slug}/revenue-report` kicks off generation; poll via `GET /organization-admin/{slug}/revenue-reports/{id}`
+- Output is a **ZIP** bundling:
+  - an **XLSX** (Summary + Transactions sheets)
+  - a **PDF** (per-VAT-rate table, refunds, net taxable turnover)
+- Cached and reused unless `?refresh=true`
+
+### 25.3 Scheduled Delivery
+- Org-level `revenue_report_cadence`: `NONE` / `QUARTERLY` / `MONTHLY` (**owner-only** to change — see [Journey 8.2](#82-organization-settings))
+- Emails the just-closed period's report ZIP to the org `billing_email` and owner
+- Computed in the org's timezone; empty periods are skipped
+
+### 25.4 Per-Event Revenue
+- `GET /event-admin/{event_id}/tickets/revenue` → `EventFinancialsSchema` (see [Journey 10.15](#1015-event-revenue-per-event)) — VAT detail, online + offline refunds tracked
+
+---
+
 ## Cross-Cutting Concerns
 
 ### Internationalization
-- UI available in: English, German, Italian
-- User sets language preference
+- UI available in: English, German, Italian, French
+- User sets language preference (`en`/`de`/`it`/`fr`)
 - Emails sent in user's preferred language
 - Legal content localized
 
@@ -1117,9 +1357,20 @@ See [Journey 22: Attendee Invoicing](#journey-22-attendee-invoicing) for the ful
 - Banned users receive `ACCOUNT_BANNED` notification before deactivation
 
 ### Feature Flags
+Configured via environment variables. The anonymous `GET /version` returns a `features` object so clients can hide gated UI instead of letting users hit a 403/404.
 - `FEATURE_LLM_EVALUATION`: Gates LLM-based questionnaire evaluation (when disabled, LLM evaluation is skipped)
 - `FEATURE_GOOGLE_SSO`: Gates Google SSO login (when disabled, endpoint returns 403)
-- Configured via environment variables
+- `FEATURE_MALWARE_SCAN` (default on): when off, uploads skip the ClamAV scan and are marked clean
+- `FEATURE_TELEGRAM` (default on): when off, Telegram delivery is dropped and the linking endpoints 404
+- `FEATURE_ORGANIZATION_CREATION` (default on): when off, `POST /organizations/` returns 403 for non-staff (single-org instances); staff/superusers bypass
+- `FEATURE_OBSERVABILITY` (renamed from `ENABLE_OBSERVABILITY`, which still works as a deprecated alias for one release)
+- `/version` exposes a subset to clients: `organization_creation`, `telegram`, `google_sso`, `llm_evaluation`
+
+### Self-Hosting
+- The backend boots and runs on a self-hosted box **without** ClamAV, Telegram, or the full geo dataset, tailored via the feature flags above
+- Cities-CSV fallback to a bundled `worldcities.mini.csv` so a fresh container doesn't crash-loop on the city-load migration
+- `provision_stripe_webhooks --format json` for machine-readable webhook setup; dedicated self-hosting docs section
+- The platform host's own Stripe account can be bound to a single organization (superuser admin action), letting the host sell tickets directly
 
 ### UNLISTED Visibility
 - Organizations and events can be set to UNLISTED
@@ -1173,7 +1424,7 @@ The following questions represent gaps in my understanding that I could not reso
 
 8. **RSVP change behavior**: After RSVP YES, when the user changes to NO, is there a confirmation dialog? Does it mention potluck items being released?
 
-9. **Ticket cancellation**: Can users cancel their own tickets? Under what conditions? Is there a refund flow for Stripe payments?
+9. ~~**Ticket cancellation**: Can users cancel their own tickets? Under what conditions? Is there a refund flow for Stripe payments?~~ **Resolved (v1.50.0)** — opt-in per tier (`allow_user_cancellation`, `cancellation_deadline_hours`, snapshotted `refund_policy`); self-service `cancel` + `cancellation-preview` endpoints; Stripe refunds for online tickets. See [Journey 6.12](#612-cancel-ticket--refund-self-service). Remaining UX question: is there a confirmation dialog, and does it surface the live refund quote inline?
 
 10. **Guest checkout UX**: For `can_attend_without_login=True` events, what does the guest see? A simplified form? Are they encouraged to create an account afterward?
 
@@ -1215,7 +1466,21 @@ The following questions represent gaps in my understanding that I could not reso
 
 25. **Rate limiting**: Should E2E tests account for rate limiting, or is it disabled in test environments?
 
-26. **Feature flags**: Which features are behind flags that might affect test scenarios? (Google SSO is one — any others?)
+26. ~~**Feature flags**: Which features are behind flags that might affect test scenarios? (Google SSO is one — any others?)~~ **Resolved (v1.64.0)** — `FEATURE_GOOGLE_SSO`, `FEATURE_LLM_EVALUATION`, `FEATURE_MALWARE_SCAN`, `FEATURE_TELEGRAM`, `FEATURE_ORGANIZATION_CREATION`, `FEATURE_OBSERVABILITY`. The client-visible subset is on `GET /version`. See [Cross-Cutting → Feature Flags](#feature-flags). Open question: which flag combinations should the E2E matrix actually exercise?
+
+### New Capabilities (added since v1.47.0)
+
+31. **Membership subscriptions**: Phase 1 is OFFLINE/staff-managed. What's the intended member-facing UX today — read-only "your subscription" cards, or any self-service actions? When does online/auto-renew billing land?
+
+32. **Polls**: What's the primary use case — event feedback, community decisions, both? Are polls surfaced on the public org/event page, or member-dashboard only? Which anonymity defaults should E2E assert?
+
+33. **Recurring events**: For E2E, should we test the full generation lifecycle (create rule → materialize → drift after cadence change), or treat occurrences as ordinary events once generated?
+
+34. **Advanced waitlist offers**: What does the offer notification + accept flow look like to the user? Is there a countdown UI for the offer expiry window?
+
+35. **Revenue & VAT reporting**: Is the downloadable ZIP report something to verify E2E (download + open), or is asserting the live `/revenue` endpoint sufficient? Any locale/currency combos that must be covered?
+
+36. **Open-ended events**: How should the frontend render `is_open_ended` (e.g. "Ongoing" badge, hidden end time)? Anything special for ICS/Wallet expectations in tests?
 
 ### Prioritization
 

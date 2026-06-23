@@ -189,10 +189,12 @@ The project uses multiple Docker Compose files for different purposes:
 
 | File | Purpose | Usage |
 |------|---------|-------|
-| `compose.yaml` | **Local development** - includes Mailpit for email testing | `docker compose up -d` |
-| `docker-compose-ci.yml` | **CI/CD pipeline** - minimal services for testing | `docker compose -f docker-compose-ci.yml up -d` |
-| `docker-compose-base.yml` | **Shared services** - extended by other compose files | Not used directly |
-| `docker-compose-observability.yml` | **Full stack with observability** - standalone (includes core services + Grafana, Prometheus, Loki, etc.) | Alternative to `compose.yaml` |
+| `compose.yaml` | **Local development** — PostgreSQL, Redis, ClamAV + Mailpit (email testing) | `docker compose up -d` |
+| `docker-compose-ci.yml` | **CI** — minimal services for tests (PostgreSQL, Redis, ClamAV, no Mailpit) | `docker compose -f docker-compose-ci.yml up -d` |
+| `docker-compose-base.yml` | **Service definitions** — every service the other files extend (core + observability stack); not run directly | — |
+| `docker-compose-observability.yml` | **Standalone** — core services + the full observability stack (Grafana, Prometheus, Loki, Tempo, …). Replaces `compose.yaml`; does **not** include Mailpit | `docker compose -f docker-compose-observability.yml up -d` |
+
+The application itself (Django + Celery) runs on the host via `make run` — Docker only provides the backing services. For production (app, frontend, reverse proxy, TLS) use the [infra](https://github.com/letsrevel/infra) repo.
 
 For local development, simply run:
 ```bash
@@ -217,18 +219,18 @@ Revel includes a comprehensive observability stack built on the LGTM (Loki, Graf
 
 ### Available Services
 
-The observability stack requires a separate Docker Compose file. After `make setup`, only the core services (PostgreSQL, Redis, ClamAV, Mailpit) are running. To enable full observability:
+The observability stack lives in a separate Docker Compose file. After `make setup`, only the core services (PostgreSQL, Redis, ClamAV, Mailpit) are running. To enable full observability:
 
 ```bash
+docker compose down                                          # stop compose.yaml first
 docker compose -f docker-compose-observability.yml up -d
 ```
 
 !!! note
-    `docker-compose-observability.yml` is a **standalone** compose file that includes both core services and the observability stack. Do not run it alongside `compose.yaml`.
+    `docker-compose-observability.yml` is **standalone**: it bundles the core services *and* the observability stack, so it **replaces** `compose.yaml` (same container names — don't run both). Note it does **not** include Mailpit, so email testing is unavailable while it's running.
 
 | Service | Purpose | URL | Credentials |
 |---------|---------|-----|-------------|
-| **Mailpit** | Email testing - catches all outgoing emails | [http://localhost:8025](http://localhost:8025) | - |
 | **Grafana** | Unified dashboard for logs, traces, and metrics | [http://localhost:3000](http://localhost:3000) | admin / admin |
 | **Prometheus** | Metrics collection and querying | [http://localhost:9090](http://localhost:9090) | - |
 | **Loki** | Log aggregation | [http://localhost:3100](http://localhost:3100) | - |
