@@ -123,8 +123,14 @@ area sections (`##`), then the §4 changelog footer.
 - [<date> — Last <window>](<filename-without-.md>.md) — <one-line teaser of the headline items>
 ```
 
-(Dated pages are kept out of the nav via `not_in_nav: whats-new/20*.md` in `mkdocs.yml`; the index
-is their table of contents. New files are reachable by URL and from the index — no nav edit needed.)
+Also add the edition to the **left-sidebar nav** in `mkdocs.yml`, under the `What's New:` section
+right after `whats-new/index.md` (newest first, matching the ADR section's per-entry layout):
+
+```yaml
+  - What's New:
+      - whats-new/index.md
+      - whats-new/<filename>.md   # <-- prepend the new edition here, above older ones
+```
 
 **c. Print the Discord message in chat**, inside a fenced block so it's copy-pasteable — a SHORT
 teaser, not the full post: a punchy intro line, **4–6 headline bullets** (the biggest items only),
