@@ -1,10 +1,8 @@
 """Celery tasks for scheduled and resent organization announcements.
 
-Split out of ``events.tasks`` to keep that module under the 1000-line limit.
-The tasks keep their original registered names (``events.send_scheduled_announcements``
+The tasks carry explicit registered names (``events.send_scheduled_announcements``
 and ``events.resend_announcements_to_new_signups``), so the Celery-beat schedules
 defined in migration 0082 — which reference tasks by name string — are unaffected.
-The Celery worker registers them via ``EventsConfig.ready`` importing this module.
 """
 
 import typing as t
@@ -14,7 +12,7 @@ from celery import shared_task
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Announcement
+from events.models import Announcement
 
 logger = structlog.get_logger(__name__)
 
