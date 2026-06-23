@@ -269,13 +269,13 @@ class TestGenerateSeriesEvents:
 
         # Assert — every occurrence is 10:00 Vienna wall-clock…
         starts = sorted(e.start for e in created)
+        assert len(starts) == 4  # Mar 23 (pre-DST) + Mar 30, Apr 6, Apr 13 (post-DST)
         for start in starts:
             local = start.astimezone(vienna)
             assert (local.hour, local.minute) == (10, 0)
         # …and the UTC instant shifts from 09:00 (CET) to 08:00 (CEST) across DST.
         utc_hours = [s.astimezone(dt_timezone.utc).hour for s in starts]
-        assert utc_hours[0] == 9  # 2026-03-23 (pre-DST)
-        assert all(h == 8 for h in utc_hours[1:])  # post-DST Mondays
+        assert utc_hours == [9, 8, 8, 8]  # Mar 23 pre-DST, rest post-DST
 
     @freeze_time("2026-04-06 10:00:00")
     @patch("notifications.service.notification_helpers.notify_series_events_generated")

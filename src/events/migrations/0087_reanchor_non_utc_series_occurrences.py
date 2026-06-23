@@ -15,7 +15,7 @@ event's duration is preserved.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db import migrations
@@ -24,7 +24,7 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
-def reanchor_non_utc_occurrences(apps, schema_editor):  # type: ignore[no-untyped-def]
+def reanchor_non_utc_occurrences(apps, schema_editor):
     """Shift future non-UTC occurrences to the DST-correct wall-clock instant."""
     Event = apps.get_model("events", "Event")
 
@@ -54,11 +54,11 @@ def reanchor_non_utc_occurrences(apps, schema_editor):  # type: ignore[no-untype
 
         anchor_local = rule.dtstart.astimezone(tz)
         old_local = event.start.astimezone(tz)
-        # ponytail: recomputes the occurrence on its *local* calendar date with
-        # the anchor's wall-clock time-of-day. A DST drift that pushed the old
-        # start across local midnight (only possible for anchors within ~1h of
-        # midnight) would land on the wrong day; such anchors aren't used in
-        # practice and are left as-is by the equality check below.
+        # Recompute the occurrence on its *local* calendar date with the anchor's
+        # wall-clock time-of-day. A DST drift that pushed the old start across
+        # local midnight (only possible for anchors within ~1h of midnight) would
+        # land on the wrong day, producing a delta larger than the DST offset; the
+        # >1h guard below skips those rather than rewrite them to the wrong day.
         new_start = datetime(
             old_local.year,
             old_local.month,
@@ -73,6 +73,11 @@ def reanchor_non_utc_occurrences(apps, schema_editor):  # type: ignore[no-untype
             continue
 
         delta = new_start - event.start
+        if abs(delta) > timedelta(hours=1):
+            # A correct DST re-anchor shifts by at most the DST offset (≤1h).
+            # A larger delta means the local-date recombination crossed a day
+            # boundary (near-midnight anchor edge); skip to avoid a wrong-day move.
+            continue
         event.start = new_start
         event.end = event.end + delta
         # Historical-model save() runs no signals/full_clean, so no notifications
