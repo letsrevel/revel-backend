@@ -1,7 +1,7 @@
 ---
 description: Multi-agent security vulnerability sweep — fans out region-scoped hunters, verifies findings, and reports
 argument-hint: "[scope: full (default) | <app/path> | diff] [--fast | --deep] [--report <file>]"
-allowed-tools: Bash(git ls-files:*), Bash(git diff:*), Bash(git merge-base:*), Bash(git log:*), Bash(git rev-parse:*)
+allowed-tools: Bash(git ls-files:*), Bash(git diff:*), Bash(git merge-base:*), Bash(git log:*), Bash(git rev-parse:*), Bash(date:*)
 disable-model-invocation: true
 ---
 
@@ -21,7 +21,7 @@ User arguments (may be empty): **$ARGUMENTS**
 - **flags:**
   - `--fast` → override all hunter models to **sonnet**.
   - `--deep` → override all hunter models to **opus**.
-  - `--report <file>` → in Phase 5, also write the full report to `<file>` (markdown).
+  - `--report <file>` → override the default report path (see Phase 5).
   - default (no model flag) → use the **tiered** models in the region map.
 
 **Reconcile the region map with the live tree** (catches newly-added apps/modules):
@@ -100,7 +100,7 @@ Drop everything else (and any `verdict: FALSE_POSITIVE` regardless of score). Co
 
 ## Phase 5 — Report & consolidate memory
 
-**Report to the user** in the session (and to `--report <file>` if given) using this format:
+**Write the report to disk by default.** Path: `<--report value>` if given, else `./<YYYY-MM-DD>-VULNERABILITY_REPORT.md` (date from `date +%F`) at the repo root. Use the Write tool. **Then also print a condensed summary in-session**, using this format (the on-disk file uses the same format in full):
 
 ```
 # Security sweep — <scope> — <date>
