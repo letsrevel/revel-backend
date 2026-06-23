@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.66.0] - 2026-06-23
+
+### Added
+- **`bootstrap_admin` management command**: an interactive first-run command for self-hosted instances that creates the initial superuser — with its `username` pinned to the email, matching accounts created through the public API — and the first organization (proposing an editable slug), then prints the admin-panel and frontend URLs derived from settings (`BASE_URL`/`ADMIN_URL`/`FRONTEND_BASE_URL`). Preferred over the stock `createsuperuser`, which lets username and email diverge.
+
 ## [1.65.0] - 2026-06-22
 
 ### Added
