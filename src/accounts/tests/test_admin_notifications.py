@@ -40,7 +40,7 @@ def _make_response(status_code: int = 200) -> MagicMock:
 @pytest.mark.django_db
 @override_settings(PUSHOVER_USER_KEY="", PUSHOVER_APP_TOKEN="")
 def test_pushover_skipped_when_not_configured(user: RevelUser) -> None:
-    with patch("accounts.tasks.httpx.post") as mock_post:
+    with patch("accounts.tasks.notifications.httpx.post") as mock_post:
         result = notify_admin_new_user_joined(user_id=str(user.id), user_email=user.email, is_guest=False)
     assert result == {"status": "skipped", "reason": "pushover_not_configured"}
     mock_post.assert_not_called()
@@ -49,7 +49,7 @@ def test_pushover_skipped_when_not_configured(user: RevelUser) -> None:
 @pytest.mark.django_db
 @override_settings(PUSHOVER_USER_KEY="key", PUSHOVER_APP_TOKEN="token")
 def test_pushover_message_without_referrer_has_user_count(user: RevelUser) -> None:
-    with patch("accounts.tasks.httpx.post", return_value=_make_response()) as mock_post:
+    with patch("accounts.tasks.notifications.httpx.post", return_value=_make_response()) as mock_post:
         notify_admin_new_user_joined(user_id=str(user.id), user_email=user.email, is_guest=False)
 
     _, kwargs = mock_post.call_args
@@ -69,7 +69,7 @@ def test_pushover_message_includes_referrer_when_present(user: RevelUser, django
     code = ReferralCode.objects.create(user=referrer, code="ABCD1234")
     Referral.objects.create(referral_code=code, referred_user=user)
 
-    with patch("accounts.tasks.httpx.post", return_value=_make_response()) as mock_post:
+    with patch("accounts.tasks.notifications.httpx.post", return_value=_make_response()) as mock_post:
         notify_admin_new_user_joined(user_id=str(user.id), user_email=user.email, is_guest=False)
 
     message = mock_post.call_args.kwargs["data"]["message"]
@@ -79,7 +79,7 @@ def test_pushover_message_includes_referrer_when_present(user: RevelUser, django
 @pytest.mark.django_db
 @override_settings(DISCORD_ADMIN_WEBHOOK_URL="")
 def test_discord_skipped_when_not_configured() -> None:
-    with patch("accounts.tasks.httpx.post") as mock_post:
+    with patch("accounts.tasks.notifications.httpx.post") as mock_post:
         result = notify_admin_new_user_joined_discord()
     assert result == {"status": "skipped", "reason": "discord_webhook_not_configured"}
     mock_post.assert_not_called()
@@ -92,7 +92,7 @@ def test_discord_message_omits_pii_and_includes_count(user: RevelUser) -> None:
     user.last_name = "sensitive-last-name"
     user.save(update_fields=["first_name", "last_name"])
 
-    with patch("accounts.tasks.httpx.post", return_value=_make_response()) as mock_post:
+    with patch("accounts.tasks.notifications.httpx.post", return_value=_make_response()) as mock_post:
         notify_admin_new_user_joined_discord()
 
     _, kwargs = mock_post.call_args
@@ -113,7 +113,7 @@ def test_discord_retries_on_http_error() -> None:
     mock_request = MagicMock()
     err = httpx.HTTPStatusError("boom", request=mock_request, response=MagicMock(status_code=500))
     with (
-        patch("accounts.tasks.httpx.post", side_effect=err),
+        patch("accounts.tasks.notifications.httpx.post", side_effect=err),
         patch.object(notify_admin_new_user_joined_discord, "retry", side_effect=RuntimeError("retried")) as mock_retry,
         pytest.raises(RuntimeError, match="retried"),
     ):
