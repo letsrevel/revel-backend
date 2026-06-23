@@ -302,6 +302,13 @@ class InteractionSeeder(BaseSeeder):
 
         entries_to_create: list[Blacklist] = []
 
+        # Blacklist enforces unique (org, user), (org, email), and (org, phone) per org;
+        # track what we've already queued so random picks/faker collisions don't trip the
+        # constraints during bulk_create (especially at small --users counts).
+        seen_users: set[tuple[str, str]] = set()
+        seen_emails: set[tuple[str, str]] = set()
+        seen_phones: set[tuple[str, str]] = set()
+
         for org in self.state.organizations:
             # 5-15 blacklist entries per org
             num_entries = self.random_int(5, 15)
@@ -311,6 +318,9 @@ class InteractionSeeder(BaseSeeder):
 
                 if entry_type == "user":
                     user = self.random_choice(self.state.regular_users)
+                    if (str(org.id), str(user.id)) in seen_users:
+                        continue
+                    seen_users.add((str(org.id), str(user.id)))
                     entries_to_create.append(
                         Blacklist(
                             organization=org,
@@ -321,10 +331,14 @@ class InteractionSeeder(BaseSeeder):
                         )
                     )
                 elif entry_type == "email":
+                    email = self.faker.email()
+                    if (str(org.id), email) in seen_emails:
+                        continue
+                    seen_emails.add((str(org.id), email))
                     entries_to_create.append(
                         Blacklist(
                             organization=org,
-                            email=self.faker.email(),
+                            email=email,
                             reason=self.faker.sentence(),
                             created_by=org.owner,
                         )
@@ -340,10 +354,14 @@ class InteractionSeeder(BaseSeeder):
                         )
                     )
                 else:  # phone
+                    phone_number = self.faker.phone_number()[:20]
+                    if (str(org.id), phone_number) in seen_phones:
+                        continue
+                    seen_phones.add((str(org.id), phone_number))
                     entries_to_create.append(
                         Blacklist(
                             organization=org,
-                            phone_number=self.faker.phone_number()[:20],
+                            phone_number=phone_number,
                             reason=self.faker.sentence(),
                             created_by=org.owner,
                         )

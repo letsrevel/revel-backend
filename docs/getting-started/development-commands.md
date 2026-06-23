@@ -149,7 +149,7 @@ To test with real async processing, set `CELERY_TASK_ALWAYS_EAGER=False` in your
 | `make shell` | Open the Django interactive shell |
 | `make reset-db` | Reset the database using the `reset_db` management command |
 | `make db-diagram` | Generate a database entity-relationship diagram (requires `django-extensions`) |
-| `make bootstrap-tests` | Run only the `bootstrap_tests` management command (test events for eligibility gates) |
+| `make bootstrap-tests` | Run only the `bootstrap_test_events` management command (test events for eligibility gates) |
 | `make check-version` | Check the currently deployed versions on main and dev servers |
 | `make count-lines` | Count non-blank, non-comment Python lines in `src/` |
 | `make tree` | Print the project directory tree (excludes `__pycache__`, images, htmlcov) |
