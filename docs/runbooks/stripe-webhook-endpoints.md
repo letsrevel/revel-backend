@@ -58,6 +58,13 @@ Rotation = provision a new pair with `--force`, add the new secrets to the CSV
 endpoints in the dashboard and drop their secrets. The event-log dedup
 (`StripeWebhookEvent.event_id` unique) makes the overlap window harmless.
 
+!!! tip "Machine-readable output (1.64.0+)"
+
+    Pass `--format json` to print **only** a JSON object
+    (`{"platform": {"id", "secret"}, "connect": {"id", "secret"}}`) instead of the
+    human-readable secrets block — for scripted self-hosted setup (e.g. `setup.sh`).
+    It cannot be combined with `--dry-run`.
+
 ## Host-as-org binding
 
 Exactly one organization may use the platform's own Stripe account:

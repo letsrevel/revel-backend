@@ -458,6 +458,53 @@ The `QuestionnaireService` class provides CRUD operations for questionnaires and
 - **`create_section()` / `create_mc_question()` / `create_ft_question()` / `create_fu_question()`**: Individual creation methods supporting nested conditional content
 - **`evaluate_submission()`**: Creates or updates a manual evaluation for a submission
 
+## Security
+
+Beyond [prompt-injection protection](#prompt-injection-protection), two access-control
+invariants guard the questionnaire system.
+
+### Admin reads are org-admin gated
+
+The **admin** questionnaire schema exposes the answer key — `is_correct` on each option,
+per-question `positive_weight` / `negative_weight`, the questionnaire's `min_score`,
+`reviewer_notes`, and `llm_guidelines`. None of this may reach a candidate who is about to
+take the questionnaire.
+
+Accordingly, the admin **detail** (`GET /{org_questionnaire_id}`) and **list**
+(`GET /`) endpoints are restricted to organization administrators:
+
+- The detail endpoint requires `QuestionnairePermission("evaluate_questionnaire")` (owner or
+  staff with that flag).
+- The list endpoint is scoped to `OrganizationQuestionnaire.objects.for_admin(self.user())`,
+  so only organizations the user owns or staffs are returned.
+
+!!! danger "Why this matters"
+    Before this was tightened, the admin detail read could leak the full answer key
+    (`is_correct`, weights, `min_score`, `reviewer_notes`, `llm_guidelines`) to any
+    authenticated user. Candidates take questionnaires through the separate user-facing
+    `build()` flow, which never serializes those fields.
+
+### Submission invariants enforced in the service layer
+
+Answers are persisted with `bulk_create`, which **skips** Django's `Model.clean()`. So model-level
+checks (`MultipleChoiceAnswer.clean()`) are **not** a sufficient guard on the write path. The
+`QuestionnaireService` re-enforces the invariants explicitly at submission time:
+
+- **Single-answer questions** (`allow_multiple_answers=False`) may receive at most one selected
+  option. Options are aggregated per question **across all answer entries** (de-duplicated), so a
+  client cannot split selections into several entries to slip past a per-entry length check. A
+  violation raises `DisallowedMultipleAnswersError`.
+- **Options must belong to their question.** Each `(question_id, option_id)` pair is checked
+  against the options actually owned by that question (queried fresh, since the prefetched cache
+  can be stale). A foreign option id raises `CrossQuestionnaireSubmissionError`.
+
+!!! warning "Why service-layer enforcement is required"
+    Without these checks, a submitter could pair a single-answer question with *every* option
+    (guaranteeing the correct one is selected) or borrow a correct option from another question —
+    the evaluator would credit the paired question's weight and, in `AUTOMATIC` mode,
+    auto-approve an admission gate. The model `clean()` alone does not catch this because answers
+    are bulk-created.
+
 ## Information-Gathering Mode (`requires_evaluation`)
 
 The `OrganizationQuestionnaire` wrapper has a `requires_evaluation` boolean field (default `True`). When set to `False`, the questionnaire gates access based on submission existence alone — no LLM evaluation, no manual review, no scoring.
@@ -474,6 +521,15 @@ This is useful for **admission questionnaires that collect information without j
 
 !!! warning "Interaction with evaluation_mode"
     The `requires_evaluation` flag takes precedence over the underlying `Questionnaire.evaluation_mode`. Even if the questionnaire is configured with `AUTOMATIC` evaluation mode, setting `requires_evaluation=False` on the `OrganizationQuestionnaire` wrapper will skip evaluation entirely.
+
+!!! info "Submission responses expose `requires_evaluation`"
+    Submission response schemas (`QuestionnaireSubmissionResponseSchema` and the staff-side
+    `SubmissionListItemSchema`) now include the `requires_evaluation` boolean (resolved from the
+    wrapping `OrganizationQuestionnaire`). Clients can branch on it — for example, to avoid
+    showing an information-gathering submission as "pending review" when no evaluation will ever
+    run. The resolver is idempotent: when ninja re-validates the pre-built schema instance on the
+    submit endpoint (it has no `.questionnaire` relation), the already-computed value is reused
+    rather than re-walking the ORM, defaulting to `True` when no organization wrapper exists.
 
 ## Integration with Eligibility
 

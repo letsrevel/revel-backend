@@ -69,12 +69,16 @@ nav:
       - Permissions & Roles: architecture/permissions.md
       - Eligibility Pipeline: architecture/eligibility-pipeline.md
       - Advanced Waitlist: architecture/waitlist.md
+      - Recurring Series: architecture/recurring-series.md
       - Protected Files (HMAC): architecture/protected-files.md
       - File Security: architecture/security.md
       - Notifications: architecture/notifications.md
+      - Scheduled Announcements: architecture/scheduled-announcements.md
       - Questionnaires: architecture/questionnaires.md
+      - Polls: architecture/polls.md
+      - Content Moderation: architecture/moderation.md
       - Billing & VAT: architecture/billing-and-vat.md
-      - XLSX Exports: architecture/exports.md
+      - Exports: architecture/exports.md
       - Engineering Notes (deep gotchas): engineering-notes.md
   - Guides:
       - guides/index.md

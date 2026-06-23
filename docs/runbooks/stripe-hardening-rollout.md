@@ -130,6 +130,11 @@ provisioning command) deployed. Run the WHOLE procedure on demo first.
    ```
    **Immediately copy both printed `whsec_*` secrets** — Stripe never shows them again.
    (If lost: delete the endpoint in the dashboard and re-run.)
+
+   For scripted self-hosted setup, `provision_stripe_webhooks` supports
+   `--format json` (1.64.0+): it prints **only** a machine-readable object
+   (`{"platform": {"id", "secret"}, "connect": {"id", "secret"}}`) instead of the
+   human-readable block. It cannot be combined with `--dry-run`.
 3. Update the env — new secrets first, **old secret kept last** (the overlap window):
    ```
    STRIPE_WEBHOOK_SECRETS=<new_platform_whsec>,<new_connect_whsec>,<old_whsec>

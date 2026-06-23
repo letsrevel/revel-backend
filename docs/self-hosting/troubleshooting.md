@@ -27,6 +27,18 @@ FEATURE_MALWARE_SCAN=False
 Either run the `antivirus` profile **or** set this flag — don't do neither. (The setup wizard keeps
 these aligned; this only bites if you edit `.env` by hand.)
 
+## Telegram linking returns 404 / no Telegram notifications
+
+**Cause:** the `telegram` Compose profile and `FEATURE_TELEGRAM` are out of sync. With
+`FEATURE_TELEGRAM=False` the linking endpoints return 404 and Telegram is dropped from
+notification delivery; with the profile off there is no bot process to poll updates or send
+messages.
+
+**Fix:** pair the two. To use Telegram, run the `telegram` profile **and** leave
+`FEATURE_TELEGRAM=True` (the default). To run without it, set `FEATURE_TELEGRAM=False` and leave
+the profile off. (As with ClamAV, the setup wizard keeps these aligned; mismatches only happen when
+you edit `.env` by hand.)
+
 ## Cloudflare 5xx / certificate errors
 
 **Cause:** the Cloudflare proxy ("orange cloud") was enabled before Caddy obtained its certificate,

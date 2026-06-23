@@ -167,7 +167,11 @@ Most external services have safe defaults for local development. Here's what act
 | Env Var | Default | Description |
 |---------|---------|-------------|
 | `FEATURE_LLM_EVALUATION` | `True` | Enable LLM-powered evaluation for questionnaires with free-text questions |
-| `FEATURE_GOOGLE_SSO` | `True` | Enable Google SSO login endpoint |
+| `FEATURE_GOOGLE_SSO` | `False` | Enable Google SSO login endpoint (opt-in; needs OAuth creds) |
+| `FEATURE_MALWARE_SCAN` | `True` | Scan uploads with ClamAV; when `False`, uploads are marked clean (ClamAV optional) |
+| `FEATURE_TELEGRAM` | `True` | Enable Telegram delivery and linking endpoints |
+| `FEATURE_ORGANIZATION_CREATION` | `True` | Allow regular users to create organizations |
+| `FEATURE_OBSERVABILITY` | `True` | Enable metrics/traces/logs exporters (renamed from `ENABLE_OBSERVABILITY`, whose deprecated alias still works for one release) |
 
 !!! info "Telegram token"
     The default `TELEGRAM_BOT_TOKEN` is a non-functional placeholder. The app starts fine with it, but Telegram features won't work. To develop with a real bot, create one via [@BotFather](https://t.me/BotFather) and set the token in your `.env`.

@@ -80,7 +80,7 @@ Superusers can broadcast messages to all bot users via a dedicated FSM flow.
 |---|---|
 | `/start` | Welcome message, shows linked status |
 | `/connect` | Link Telegram account to Revel via OTP |
-| `/preferences` | Manage notification preferences *(stub — not yet implemented)* |
+| `/preferences` | Manage notification preferences *(not yet implemented — the command, router, and FSM scaffolding are registered but the handler is empty, so the command currently no-ops)* |
 | `/cancel` | Cancel current FSM conversation |
 | `/toc` | Terms and conditions |
 | `/privacy` | Privacy policy |
@@ -90,6 +90,7 @@ Superusers can broadcast messages to all bot users via a dedicated FSM flow.
 
 | Setting | Default | Description |
 |---|---|---|
+| `FEATURE_TELEGRAM` | `True` (on) | Master switch for the integration. When off, the OTP-linking endpoints (`/telegram/connect`, `/disconnect`, `/status`, `/botname`) return **404** and the notification dispatcher strips the Telegram channel platform-wide, so **no Telegram notifications are sent**. Key self-hosting toggle for instances running without a bot. |
 | `TELEGRAM_BOT_TOKEN` | `0000000000:AABBCCDD` (placeholder) | Bot token from [@BotFather](https://t.me/BotFather) |
 | `TELEGRAM_SUPERUSER_IDS` | `""` | Comma-separated Telegram user IDs with superuser access |
 | `TELEGRAM_STAFF_IDS` | `""` | Comma-separated Telegram user IDs with staff access |

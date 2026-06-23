@@ -220,25 +220,58 @@ FEATURE_OBSERVABILITY=True
 
 ---
 
+## Reading Production Logs
+
+For day-to-day operations, prefer the operator CLI over hand-writing LogQL:
+
+```bash
+# last hour of web errors
+.venv/bin/python scripts/loki_logs.py web --level error
+
+# everything for one request, across services, last 6h
+.venv/bin/python scripts/loki_logs.py --request-id 9f3c... --since 6h --forward
+
+# 500s in the API, last 2h
+.venv/bin/python scripts/loki_logs.py web --status-code 500 --since 2h
+```
+
+`scripts/loki_logs.py` talks to Loki through the Grafana datasource proxy (Loki
+itself is not exposed publicly) using a Grafana service-account token read from
+`GRAFANA_TOKEN`. It filters by service, level, status code, user id, request/trace
+id, path, IP, and free-text grep, and has a `-q/--query` raw-LogQL escape hatch.
+
+!!! tip "`loki-logs` skill"
+
+    The `loki-logs` Claude skill wraps this CLI for log investigations (a prod
+    error, a stuck Celery task, tracing one request/trace_id/user across services).
+
+---
+
 ## Example Queries
 
 === "Loki (LogQL)"
 
+    Since 1.62.4 each event is a single JSON render, and the request-metadata fields
+    (`status_code`, `user_id`, `method`, `path`, `request_id`, `trace_id`,
+    `ip_address`, `user_agent`) are promoted to **structured metadata** (1.62.5) —
+    filter them with `| field="value"`, no `| json` parse needed. Stream **labels**
+    are `service_name`, `level`, and `environment`.
+
     ```logql
-    # All errors in the last hour
-    {app="revel"} |= "error" | json
+    # All web errors in the last hour
+    {service_name="web", level="error"}
 
-    # Errors for a specific user
-    {app="revel"} | json | user_id="<uuid>"
+    # Errors for a specific user (structured-metadata label filter)
+    {service_name="web", level="error"} | user_id="<uuid>"
 
-    # Slow requests (>1s)
-    {app="revel"} | json | duration > 1000
+    # 500s in the API (status_code is a structured-metadata label)
+    {service_name="web"} | status_code="500"
 
     # Celery task failures
-    {app="revel", component="celery"} |= "task_failure"
+    {service_name="celery_default"} |= "task_failure"
 
     # Payment-related logs
-    {app="revel"} | json | logql_filter="payment"
+    {service_name="web"} |= "stripe"
     ```
 
 === "Prometheus (PromQL)"

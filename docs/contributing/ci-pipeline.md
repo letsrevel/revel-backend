@@ -18,7 +18,7 @@ The `make check` command runs six checks in sequence:
 | **Lint** | ruff | Catches code quality issues and anti-patterns |
 | **Type check** | mypy (strict) | Validates type annotations across the entire codebase |
 | **Migration check** | Django | Verifies no migrations are missing (`makemigrations --check`) |
-| **i18n check** | custom | Ensures compiled `.mo` files are up-to-date with `.po` sources |
+| **i18n check** | custom | Ensures every `_()` string is extracted and every `.po` entry is translated (no empty `msgstr` / fuzzy) — no `.mo` involved |
 | **File length** | custom | Ensures no source file exceeds 1,000 lines |
 
 !!! tip "Run Locally First"
