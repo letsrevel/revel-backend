@@ -18,7 +18,7 @@ Revel scales down a long way. There are two reference sizings:
   only, with conservative resource limits. ClamAV, Telegram, and the observability stack are
   switched off. This is the recommended starting point for a single-org instance.
 - **Full** — **8 vCPU / 32 GB RAM**. Runs every optional profile: antivirus scanning, the LGTM
-  observability stack (Grafana/Loki/Tempo/etc.), Flower, the Telegram bot, and the canary.
+  observability stack (Grafana/Loki/Tempo/etc.), the Telegram bot, and the canary.
   This mirrors a production deployment.
 
 The difference between the two is almost entirely a matter of which Compose profiles you enable
@@ -38,7 +38,7 @@ A minimal (Slim) instance runs these core services:
 - **pgbouncer** — connection pooler in front of Postgres.
 - **redis** — Celery broker, result backend, and cache.
 
-Everything else (ClamAV, the LGTM observability stack, Flower, the Telegram bot) is optional and
+Everything else (ClamAV, the LGTM observability stack, the Telegram bot) is optional and
 gated behind Compose profiles and feature flags.
 
 ## Optional dependencies

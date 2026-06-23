@@ -11,13 +11,13 @@ limits are:
 
 | Setting | Slim (~2 vCPU / 4 GB) | Full (8 vCPU / 32 GB) |
 | --- | --- | --- |
-| `COMPOSE_PROFILES` | *(empty)* | `observability,antivirus,flower,telegram,canary` |
+| `COMPOSE_PROFILES` | *(empty)* | `observability,antivirus,telegram,canary` |
 | Postgres `shared_buffers` | `256MB` | `4GB` |
 | Gunicorn workers | `2` | `6` |
 | Celery concurrency | `2` | `4` |
 
 Slim runs only the core services (caddy, frontend, web, celery, beat, postgres, pgbouncer, redis).
-Full adds antivirus scanning, the LGTM observability stack, Flower, the Telegram bot, and the
+Full adds antivirus scanning, the LGTM observability stack, the Telegram bot, and the
 canary.
 
 ## Compose profiles
@@ -28,7 +28,6 @@ Each optional capability is gated behind a Compose profile. Add the profile name
 - **observability** — Prometheus, Loki, Tempo, Pyroscope, Alloy, and Grafana. See
   [Observability](observability.md).
 - **antivirus** — the ClamAV daemon used by `FEATURE_MALWARE_SCAN`.
-- **flower** — the Celery monitoring UI.
 - **telegram** — the Telegram bot process.
 - **canary** — the synthetic-monitoring canary.
 
@@ -50,7 +49,7 @@ just wastes RAM.
 
 - `FRONTEND_DOMAIN` — public hostname of the web app.
 - `API_DOMAIN` — public hostname of the API.
-- Additional `*_DOMAIN` vars (`grafana`, `flower`, `docs`) for the Full-tier management UIs.
+- Additional `*_DOMAIN` vars (`grafana`, `docs`) for the Full-tier management UIs.
 
 ### Feature flags
 

@@ -39,13 +39,15 @@ FEATURE_OBSERVABILITY=True
 
 ## Grafana login
 
-Grafana's admin credentials are set via environment variables in `.env`:
+Grafana's admin credentials are set via environment variables in `.env` (the wizard generates a
+random password for you):
 
-- `GF_SECURITY_ADMIN_USER` — the admin username.
-- `GF_SECURITY_ADMIN_PASSWORD` — the admin password.
+- `GRAFANA_ADMIN_USER` — the admin username (defaults to `admin`).
+- `GRAFANA_ADMIN_PASSWORD` — the admin password.
 
-Set these before first start; once Grafana initializes its database, changing the password is done
-in the Grafana UI rather than via the env var. Grafana is reachable at `https://grafana.<your-domain>`
+Compose passes these to Grafana as `GF_SECURITY_ADMIN_USER` / `GF_SECURITY_ADMIN_PASSWORD`. Set
+them before first start; once Grafana initializes its database, changing the password is done in
+the Grafana UI rather than via the env var. Grafana is reachable at `https://grafana.<your-domain>`
 once DNS and certificates are in place.
 
 ## Resource cost

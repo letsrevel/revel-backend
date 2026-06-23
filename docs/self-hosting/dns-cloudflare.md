@@ -21,7 +21,6 @@ For a **Full** instance, also add the management subdomains:
 | Type | Name | Value |
 | --- | --- | --- |
 | A | `grafana.<your-domain>` | your server IPv4 |
-| A | `flower.<your-domain>` | your server IPv4 |
 | A | `docs.<your-domain>` | your server IPv4 |
 
 Add the matching AAAA records if you serve over IPv6.
