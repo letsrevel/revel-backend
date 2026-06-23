@@ -32,7 +32,6 @@ class EventAdminInvitationsController(EventAdminBaseController):
         "/invitations",
         url_name="create_direct_invitations",
         response={200: schema.DirectInvitationResponseSchema, 400: ValidationErrorResponse},
-        permissions=[EventPermission("invite_to_event")],
     )
     def create_invitations(self, event_id: UUID, payload: schema.DirectInvitationCreateSchema) -> dict[str, int]:
         """Create direct invitations for users by email addresses."""
@@ -43,7 +42,6 @@ class EventAdminInvitationsController(EventAdminBaseController):
         "/invitations",
         url_name="list_event_invitations",
         response=PaginatedResponseSchema[schema.EventInvitationListSchema],
-        permissions=[EventPermission("invite_to_event")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -57,7 +55,6 @@ class EventAdminInvitationsController(EventAdminBaseController):
         "/pending-invitations",
         url_name="list_pending_invitations",
         response=PaginatedResponseSchema[schema.PendingEventInvitationListSchema],
-        permissions=[EventPermission("invite_to_event")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -74,7 +71,6 @@ class EventAdminInvitationsController(EventAdminBaseController):
         "/invitations/{invitation_type}/{invitation_id}",
         url_name="delete_invitation",
         response={204: None, 404: ValidationErrorResponse},
-        permissions=[EventPermission("invite_to_event")],
     )
     def delete_invitation_endpoint(
         self, event_id: UUID, invitation_type: t.Literal["registered", "pending"], invitation_id: UUID

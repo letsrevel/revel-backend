@@ -65,7 +65,7 @@ TICKET_ORDER_FIELDS: dict[TicketOrdering, str] = {
 @api_controller(
     "/event-admin/{event_id}",
     auth=I18nJWTAuth(),
-    permissions=[EventPermission("invite_to_event")],
+    permissions=[EventPermission("manage_tickets")],
     tags=["Event Admin"],
     throttle=WriteThrottle(),
 )
@@ -78,6 +78,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/ticket-tiers",
         url_name="list_ticket_tiers",
         response=PaginatedResponseSchema[schema.TicketTierDetailSchema],
+        permissions=[EventPermission("invite_to_event")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -95,7 +96,6 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/ticket-tier",
         url_name="create_ticket_tier",
         response=schema.TicketTierDetailSchema,
-        permissions=[EventPermission("manage_tickets")],
     )
     def create_ticket_tier(self, event_id: UUID, payload: schema.TicketTierCreateSchema) -> models.TicketTier:
         """Create a new ticket tier for an event."""
@@ -106,7 +106,6 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/ticket-tier/{tier_id}",
         url_name="update_ticket_tier",
         response=schema.TicketTierDetailSchema,
-        permissions=[EventPermission("manage_tickets")],
     )
     def update_ticket_tier(
         self, event_id: UUID, tier_id: UUID, payload: schema.TicketTierUpdateSchema
@@ -120,7 +119,6 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/ticket-tier/{tier_id}",
         url_name="delete_ticket_tier",
         response={204: None},
-        permissions=[EventPermission("manage_tickets")],
     )
     def delete_ticket_tier(self, event_id: UUID, tier_id: UUID) -> tuple[int, None]:
         """Delete a ticket tier.
@@ -136,7 +134,6 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/ticket-tiers/reorder",
         url_name="reorder_ticket_tiers",
         response={204: None},
-        permissions=[EventPermission("manage_tickets")],
     )
     def reorder_ticket_tiers(self, event_id: UUID, payload: schema.ReorderSchema) -> tuple[int, None]:
         """Reorder ticket tiers for an event."""
@@ -150,7 +147,6 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/tickets",
         url_name="list_tickets",
         response=PaginatedResponseSchema[schema.AdminTicketSchema],
-        permissions=[EventPermission("manage_tickets")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -190,7 +186,6 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/tickets/{ticket_id}",
         url_name="get_ticket",
         response={200: schema.AdminTicketSchema},
-        permissions=[EventPermission("manage_tickets")],
         throttle=UserDefaultThrottle(),
     )
     def get_ticket(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
@@ -202,7 +197,6 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/tickets/{ticket_id}/confirm-payment",
         url_name="confirm_ticket_payment",
         response={200: schema.UserTicketSchema},
-        permissions=[EventPermission("manage_tickets")],
     )
     def confirm_ticket_payment(
         self,
@@ -228,7 +222,6 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/tickets/{ticket_id}/unconfirm-payment",
         url_name="unconfirm_ticket_payment",
         response={200: schema.UserTicketSchema},
-        permissions=[EventPermission("manage_tickets")],
     )
     def unconfirm_ticket_payment(self, event_id: UUID, ticket_id: UUID) -> models.Ticket:
         """Revert a confirmed ticket back to pending status.
@@ -250,7 +243,6 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/tickets/{ticket_id}/mark-refunded",
         url_name="mark_ticket_refunded",
         response={200: schema.UserTicketSchema},
-        permissions=[EventPermission("manage_tickets")],
     )
     def mark_ticket_refunded(
         self,
@@ -284,7 +276,6 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/tickets/{ticket_id}/cancel",
         url_name="cancel_ticket",
         response={200: schema.UserTicketSchema},
-        permissions=[EventPermission("manage_tickets")],
     )
     def cancel_ticket(
         self,
@@ -335,7 +326,6 @@ class EventAdminTicketsController(EventAdminBaseController):
         "/revenue",
         url_name="event_revenue",
         response=EventFinancialsSchema,
-        permissions=[EventPermission("manage_tickets")],
         throttle=UserDefaultThrottle(),
     )
     def get_event_revenue(

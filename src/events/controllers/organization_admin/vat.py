@@ -25,6 +25,7 @@ from .base import OrganizationAdminBaseController
     auth=I18nJWTAuth(),
     tags=["Organization Admin - VAT"],
     throttle=UserDefaultThrottle(),
+    permissions=[IsOrganizationOwner()],
 )
 class OrganizationAdminVATController(OrganizationAdminBaseController):
     """VAT settings and platform fee invoice management."""
@@ -35,7 +36,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/billing-info",
         url_name="get_billing_info",
         response=schema.OrganizationBillingInfoSchema,
-        permissions=[IsOrganizationOwner()],
     )
     def get_billing_info(self, slug: str) -> models.Organization:
         """Get organization billing info and VAT settings."""
@@ -45,7 +45,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/billing-info",
         url_name="update_billing_info",
         response=schema.OrganizationBillingInfoSchema,
-        permissions=[IsOrganizationOwner()],
         throttle=WriteThrottle(),
     )
     def update_billing_info(
@@ -63,7 +62,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/vat-id",
         url_name="set_vat_id",
         response=schema.OrganizationBillingInfoSchema,
-        permissions=[IsOrganizationOwner()],
         throttle=WriteThrottle(),
     )
     def set_vat_id(self, slug: str, payload: schema.VATIdUpdateSchema) -> models.Organization:
@@ -76,7 +74,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/vat-id",
         url_name="delete_vat_id",
         response={204: None},
-        permissions=[IsOrganizationOwner()],
         throttle=WriteThrottle(),
     )
     def delete_vat_id(self, slug: str) -> tuple[int, None]:
@@ -90,7 +87,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/invoices",
         url_name="list_invoices",
         response=PaginatedResponseSchema[schema.PlatformFeeInvoiceSchema],
-        permissions=[IsOrganizationOwner()],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     def list_invoices(self, slug: str) -> QuerySet[models.PlatformFeeInvoice]:
@@ -102,7 +98,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/invoices/{invoice_id}",
         url_name="get_invoice",
         response=schema.PlatformFeeInvoiceSchema,
-        permissions=[IsOrganizationOwner()],
     )
     def get_invoice(self, slug: str, invoice_id: UUID) -> models.PlatformFeeInvoice:
         """Get a specific platform fee invoice."""
@@ -113,7 +108,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/invoices/{invoice_id}/download",
         url_name="download_invoice",
         response=schema.InvoiceDownloadURLSchema,
-        permissions=[IsOrganizationOwner()],
     )
     def download_invoice(self, slug: str, invoice_id: UUID) -> schema.InvoiceDownloadURLSchema:
         """Get a signed download URL for an invoice PDF."""
@@ -130,7 +124,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/credit-notes",
         url_name="list_credit_notes",
         response=PaginatedResponseSchema[schema.PlatformFeeCreditNoteSchema],
-        permissions=[IsOrganizationOwner()],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     def list_credit_notes(self, slug: str) -> QuerySet[models.PlatformFeeCreditNote]:
@@ -144,7 +137,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/invoicing",
         url_name="set_invoicing_mode",
         response=schema.OrganizationBillingInfoSchema,
-        permissions=[IsOrganizationOwner()],
         throttle=WriteThrottle(),
     )
     def set_invoicing_mode(self, slug: str, payload: schema.InvoicingModeUpdateSchema) -> models.Organization:
@@ -166,7 +158,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/attendee-invoices",
         url_name="list_attendee_invoices",
         response=PaginatedResponseSchema[schema.AttendeeInvoiceDetailSchema],
-        permissions=[IsOrganizationOwner()],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(Searching, search_fields=["invoice_number", "buyer_name", "buyer_email", "event__name"])
@@ -179,7 +170,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/attendee-invoices/{invoice_id}",
         url_name="get_attendee_invoice",
         response=schema.AttendeeInvoiceDetailSchema,
-        permissions=[IsOrganizationOwner()],
     )
     def get_attendee_invoice(self, slug: str, invoice_id: UUID) -> models.AttendeeInvoice:
         """Get a specific attendee invoice."""
@@ -190,7 +180,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/attendee-invoices/{invoice_id}/download",
         url_name="download_attendee_invoice",
         response=schema.InvoiceDownloadURLSchema,
-        permissions=[IsOrganizationOwner()],
     )
     def download_attendee_invoice(self, slug: str, invoice_id: UUID) -> schema.InvoiceDownloadURLSchema:
         """Get a signed download URL for an attendee invoice PDF.
@@ -211,7 +200,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/attendee-invoices/{invoice_id}",
         url_name="update_attendee_invoice",
         response=schema.AttendeeInvoiceDetailSchema,
-        permissions=[IsOrganizationOwner()],
         throttle=WriteThrottle(),
     )
     def update_attendee_invoice(
@@ -229,7 +217,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/attendee-invoices/{invoice_id}/issue",
         url_name="issue_attendee_invoice",
         response=schema.AttendeeInvoiceDetailSchema,
-        permissions=[IsOrganizationOwner()],
         throttle=WriteThrottle(),
     )
     def issue_attendee_invoice(self, slug: str, invoice_id: UUID) -> models.AttendeeInvoice:
@@ -244,7 +231,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/attendee-invoices/{invoice_id}",
         url_name="delete_attendee_invoice",
         response={204: None},
-        permissions=[IsOrganizationOwner()],
         throttle=WriteThrottle(),
     )
     def delete_attendee_invoice(self, slug: str, invoice_id: UUID) -> tuple[int, None]:
@@ -262,7 +248,6 @@ class OrganizationAdminVATController(OrganizationAdminBaseController):
         "/attendee-credit-notes",
         url_name="list_attendee_credit_notes",
         response=PaginatedResponseSchema[schema.AttendeeInvoiceCreditNoteSchema],
-        permissions=[IsOrganizationOwner()],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(

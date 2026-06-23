@@ -28,7 +28,6 @@ class EventAdminWaitlistController(EventAdminBaseController):
         "/waitlist",
         url_name="list_waitlist",
         response=PaginatedResponseSchema[schema.WaitlistEntrySchema],
-        permissions=[EventPermission("invite_to_event")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -49,7 +48,6 @@ class EventAdminWaitlistController(EventAdminBaseController):
         "/waitlist/{waitlist_id}",
         url_name="delete_waitlist_entry",
         response={204: None},
-        permissions=[EventPermission("invite_to_event")],
     )
     def delete_waitlist_entry(self, event_id: UUID, waitlist_id: UUID) -> tuple[int, None]:
         """Remove a user from the event waitlist.

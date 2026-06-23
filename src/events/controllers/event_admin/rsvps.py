@@ -33,7 +33,6 @@ class EventAdminRSVPsController(EventAdminBaseController):
         "/rsvps",
         url_name="list_rsvps",
         response=PaginatedResponseSchema[schema.RSVPDetailSchema],
-        permissions=[EventPermission("invite_to_event")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -62,7 +61,6 @@ class EventAdminRSVPsController(EventAdminBaseController):
         "/rsvps/{rsvp_id}",
         url_name="get_rsvp",
         response=schema.RSVPDetailSchema,
-        permissions=[EventPermission("invite_to_event")],
         throttle=UserDefaultThrottle(),
     )
     def get_rsvp(self, event_id: UUID, rsvp_id: UUID) -> models.EventRSVP:
@@ -74,7 +72,6 @@ class EventAdminRSVPsController(EventAdminBaseController):
         "/rsvps",
         url_name="create_rsvp",
         response=schema.RSVPDetailSchema,
-        permissions=[EventPermission("invite_to_event")],
     )
     def create_rsvp(self, event_id: UUID, payload: schema.RSVPCreateSchema) -> models.EventRSVP:
         """Create an RSVP on behalf of a user.
@@ -105,7 +102,6 @@ class EventAdminRSVPsController(EventAdminBaseController):
         "/rsvps/{rsvp_id}",
         url_name="update_rsvp",
         response=schema.RSVPDetailSchema,
-        permissions=[EventPermission("invite_to_event")],
     )
     def update_rsvp(self, event_id: UUID, rsvp_id: UUID, payload: schema.RSVPUpdateSchema) -> models.EventRSVP:
         """Update an existing RSVP.
@@ -124,7 +120,6 @@ class EventAdminRSVPsController(EventAdminBaseController):
         "/rsvps/{rsvp_id}",
         url_name="delete_rsvp",
         response={204: None},
-        permissions=[EventPermission("invite_to_event")],
     )
     def delete_rsvp(self, event_id: UUID, rsvp_id: UUID) -> tuple[int, None]:
         """Delete an RSVP.

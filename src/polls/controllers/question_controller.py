@@ -50,6 +50,7 @@ from questionnaires.service import QuestionnaireService
     tags=["Polls"],
     auth=I18nJWTAuth(),
     throttle=WriteThrottle(),
+    permissions=[PollPermission("manage_polls")],
 )
 class PollQuestionController(UserAwareController):
     """Poll-scoped question/option/section CRUD.
@@ -72,7 +73,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/sections",
         url_name="poll_create_section",
         response=questionnaire_schema.SectionResponseSchema,
-        permissions=[PollPermission("manage_polls")],
     )
     def create_section(
         self, poll_id: UUID, payload: questionnaire_schema.SectionCreateSchema
@@ -86,7 +86,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/sections/{section_id}",
         url_name="poll_update_section",
         response=questionnaire_schema.SectionResponseSchema,
-        permissions=[PollPermission("manage_polls")],
     )
     def update_section(
         self, poll_id: UUID, section_id: UUID, payload: questionnaire_schema.SectionUpdateSchema
@@ -105,7 +104,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/sections/{section_id}",
         url_name="poll_delete_section",
         response={204: None},
-        permissions=[PollPermission("manage_polls")],
     )
     def delete_section(self, poll_id: UUID, section_id: UUID) -> tuple[int, None]:
         """Delete a section (and its nested questions) from a DRAFT poll."""
@@ -124,7 +122,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/multiple-choice-questions",
         url_name="poll_create_mc_question",
         response=questionnaire_schema.MultipleChoiceQuestionResponseSchema,
-        permissions=[PollPermission("manage_polls")],
     )
     def create_mc_question(
         self, poll_id: UUID, payload: questionnaire_schema.MultipleChoiceQuestionCreateSchema
@@ -138,7 +135,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/multiple-choice-questions/{question_id}",
         url_name="poll_update_mc_question",
         response=questionnaire_schema.MultipleChoiceQuestionResponseSchema,
-        permissions=[PollPermission("manage_polls")],
     )
     def update_mc_question(
         self,
@@ -160,7 +156,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/multiple-choice-questions/{question_id}",
         url_name="poll_delete_mc_question",
         response={204: None},
-        permissions=[PollPermission("manage_polls")],
     )
     def delete_mc_question(self, poll_id: UUID, question_id: UUID) -> tuple[int, None]:
         """Delete a multiple-choice question (and its options) from a DRAFT poll."""
@@ -179,7 +174,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/multiple-choice-questions/{question_id}/options",
         url_name="poll_create_mc_option",
         response=questionnaire_schema.MultipleChoiceOptionUpdateSchema,
-        permissions=[PollPermission("manage_polls")],
     )
     def create_mc_option(
         self,
@@ -201,7 +195,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/multiple-choice-options/{option_id}",
         url_name="poll_update_mc_option",
         response=questionnaire_schema.MultipleChoiceOptionUpdateSchema,
-        permissions=[PollPermission("manage_polls")],
     )
     def update_mc_option(
         self,
@@ -223,7 +216,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/multiple-choice-options/{option_id}",
         url_name="poll_delete_mc_option",
         response={204: None},
-        permissions=[PollPermission("manage_polls")],
     )
     def delete_mc_option(self, poll_id: UUID, option_id: UUID) -> tuple[int, None]:
         """Delete an MC option from a DRAFT poll."""
@@ -242,7 +234,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/free-text-questions",
         url_name="poll_create_ft_question",
         response=questionnaire_schema.FreeTextQuestionResponseSchema,
-        permissions=[PollPermission("manage_polls")],
     )
     def create_ft_question(
         self, poll_id: UUID, payload: questionnaire_schema.FreeTextQuestionCreateSchema
@@ -256,7 +247,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/free-text-questions/{question_id}",
         url_name="poll_update_ft_question",
         response=questionnaire_schema.FreeTextQuestionResponseSchema,
-        permissions=[PollPermission("manage_polls")],
     )
     def update_ft_question(
         self,
@@ -278,7 +268,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/free-text-questions/{question_id}",
         url_name="poll_delete_ft_question",
         response={204: None},
-        permissions=[PollPermission("manage_polls")],
     )
     def delete_ft_question(self, poll_id: UUID, question_id: UUID) -> tuple[int, None]:
         """Delete a free-text question from a DRAFT poll."""
@@ -297,7 +286,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/file-upload-questions",
         url_name="poll_create_fu_question",
         response=questionnaire_schema.FileUploadQuestionResponseSchema,
-        permissions=[PollPermission("manage_polls")],
     )
     def create_fu_question(
         self, poll_id: UUID, payload: questionnaire_schema.FileUploadQuestionCreateSchema
@@ -311,7 +299,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/file-upload-questions/{question_id}",
         url_name="poll_update_fu_question",
         response=questionnaire_schema.FileUploadQuestionResponseSchema,
-        permissions=[PollPermission("manage_polls")],
     )
     def update_fu_question(
         self,
@@ -333,7 +320,6 @@ class PollQuestionController(UserAwareController):
         "/{poll_id}/file-upload-questions/{question_id}",
         url_name="poll_delete_fu_question",
         response={204: None},
-        permissions=[PollPermission("manage_polls")],
     )
     def delete_fu_question(self, poll_id: UUID, question_id: UUID) -> tuple[int, None]:
         """Delete a file-upload question from a DRAFT poll."""
