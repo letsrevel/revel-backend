@@ -96,6 +96,7 @@ def create_organization(
     address: str | None = None,
     location_maps_url: str | None = None,
     location_maps_embed: str | None = None,
+    slug: str | None = None,
 ) -> Organization:
     """Create a new organization.
 
@@ -108,6 +109,7 @@ def create_organization(
         address: Optional address for the organization
         location_maps_url: Optional shareable Google Maps URL
         location_maps_embed: Optional Google Maps embed URL for iframe
+        slug: Optional explicit slug; when omitted the model derives one from the name.
 
     Returns:
         The created Organization instance
@@ -135,6 +137,7 @@ def create_organization(
     # Create the organization
     organization = Organization.objects.create(
         name=name,
+        slug=slug or "",  # empty → the SluggedModel mixin derives it from the name
         owner=owner,
         description=description or "",
         contact_email=contact_email,
