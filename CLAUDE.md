@@ -75,7 +75,7 @@ This project uses a comprehensive Makefile.
 - `make setup` — One-time setup: venv, deps, Docker services, server.
 - `make run` — Start Django dev server (generates test JWTs first).
 - `make jwt EMAIL=user@example.com` — Get JWT access/refresh tokens for a user.
-- `make check` — All quality checks (format, lint, mypy, migration-check, i18n-check, file-length).
+- `make check` — All quality checks (format, lint, mypy, migration-check, i18n-check, file-length, task-names).
 - `make test` — Parallel pytest with coverage; on failure saves the failures section to `.tests.output`.
 - `make test-linear` — Sequential tests (single process, for debugging).
 - `make test-failed` — Re-run only failed tests.
@@ -318,6 +318,14 @@ def list_items(self) -> QuerySet[Item]:
   so `uv.lock` stays in sync.
 - **Celery beat cadence**: no per-minute jobs — default 5 min, 15 min for heavier sweeps,
   sub-5-min only if genuinely cheap.
+- **Celery task names — always pin `name=`**: every `@shared_task` **must** pass an explicit
+  `name=` (e.g. `@shared_task(name="events.cleanup_expired_payments")`). A bare `@shared_task`
+  takes Celery's *default* name derived from the module path (`<module>.<func>`), so moving or
+  renaming the module silently changes the registered name — which breaks `django_celery_beat`
+  `PeriodicTask` rows (they reference tasks by name string) and strands in-flight messages across
+  a deploy. Enforced by `make task-names` (in `make check` **and** CI). When moving an existing
+  task, keep its current name verbatim. To catch beat rows pointing at a now-missing task (e.g.
+  manually-created ones), run `python manage.py check_orphaned_beat_tasks`.
 - Use Django Ninja's automatic OpenAPI docs. Use the **context7 MCP** to look up library docs.
 
 > ⚠️ **Deep production gotchas** — Celery `transaction.on_commit` / `ATOMIC_REQUESTS`, and

@@ -15,7 +15,7 @@ DB_CODE = "DB5LITEBINIPV6"
 VALIDATION_IP = "8.8.8.8"
 
 
-@shared_task
+@shared_task(name="geo.tasks.download_ip2location")
 def download_ip2location() -> None:
     """Download a fresh IP2Location database.
 

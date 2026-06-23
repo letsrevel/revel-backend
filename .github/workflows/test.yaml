@@ -92,6 +92,9 @@ jobs:
       - name: Check file length (max 1000 lines)
         run: ./scripts/check-file-length.sh 1000
 
+      - name: Check Celery tasks declare explicit names
+        run: uv run python scripts/check_task_names.py src
+
       - name: Check for missing migrations
         working-directory: src
         run: uv run manage.py makemigrations --check --dry-run --no-input

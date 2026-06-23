@@ -29,6 +29,7 @@ class ThumbnailGenerationError(Exception):
 
 
 @shared_task(
+    name="common.thumbnails.tasks.generate_thumbnails_task",
     bind=True,
     max_retries=3,
     default_retry_delay=60,
@@ -113,7 +114,7 @@ def generate_thumbnails_task(
     return result.thumbnails
 
 
-@shared_task
+@shared_task(name="common.thumbnails.tasks.delete_orphaned_thumbnails_task")
 def delete_orphaned_thumbnails_task(
     *,
     thumbnail_paths: list[str],

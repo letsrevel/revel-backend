@@ -40,6 +40,37 @@ that transaction. If a worker picks the task up before the request commits, any
   the `django_capture_on_commit_callbacks(execute=True)` fixture or be marked
   `@pytest.mark.django_db(transaction=True)` with a docstring explaining why.
 
+## Celery Task Names (always pin `name=`)
+
+A bare `@shared_task` registers under Celery's **default name**, derived from the task's
+import path: `<module>.<func>` (e.g. a task defined in `events/tasks.py` becomes
+`events.tasks.<func>`). That couples the registered name to the *file location*, which bites
+in two production-only ways:
+
+- **`django_celery_beat` schedules break silently.** `PeriodicTask` rows (seeded by
+  migrations or created in the admin) reference tasks by **name string**. Move or rename the
+  module and the default name changes, but the DB row still points at the old string — the
+  beat scheduler emits it, no worker is registered under that name, and the job just stops
+  firing. No error at deploy time; it surfaces as "why didn't the nightly job run?"
+- **In-flight messages die across a rolling deploy.** A task enqueued under the old name
+  before deploy is picked up by a new worker that only knows the new name → `NotRegistered`.
+
+**Rule:** every task pins an explicit `name=` (`@shared_task(name="events.cleanup_expired_payments")`),
+so the registered name is independent of where the function lives and modules stay free to move
+or split. When relocating an existing task, **keep its current name verbatim** (pin it to the
+old default if it was bare) so beat rows and queued messages keep resolving.
+
+Two guards enforce this:
+
+- **`make task-names`** (`scripts/check_task_names.py`, in `make check` **and** CI) — a static
+  AST check that fails if any `@shared_task`/`@app.task` lacks `name=`. No imports, no DB.
+- **`python manage.py check_orphaned_beat_tasks`** — a runtime check that fails if any
+  `PeriodicTask` row references a name no task is registered under. Catches manually-created
+  rows the static check can't see; suitable as a deploy/health gate.
+
+This is exactly why `events/tasks.py` and `accounts/tasks.py` could be split into packages, and
+the stray `events/tasks_stripe.py` etc. folded in, without breaking a single beat schedule.
+
 ## Server-Side Cursors & Connection Pooling (`.iterator()`)
 
 Production runs **PgBouncer in transaction-pooling mode**, so `DATABASES["default"]`

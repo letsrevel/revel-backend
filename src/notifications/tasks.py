@@ -16,7 +16,7 @@ from notifications.service.channels.registry import get_channel_instance
 logger = structlog.get_logger(__name__)
 
 
-@shared_task
+@shared_task(name="notifications.tasks.dispatch_notification")
 def dispatch_notification(notification_id: str) -> dict[str, t.Any]:
     """Main dispatcher task - creates delivery records and dispatches to channels.
 
@@ -123,7 +123,7 @@ class BatchDispatchError(Exception):
         return (self.__class__, (self.failed_ids, self.total))
 
 
-@shared_task
+@shared_task(name="notifications.tasks.dispatch_notifications_batch")
 def dispatch_notifications_batch(notification_ids: list[str]) -> dict[str, t.Any]:
     """Dispatch multiple notifications efficiently.
 
@@ -197,7 +197,7 @@ def dispatch_notifications_batch(notification_ids: list[str]) -> dict[str, t.Any
     }
 
 
-@shared_task(bind=True, max_retries=3)
+@shared_task(name="notifications.tasks.deliver_to_channel", bind=True, max_retries=3)
 def deliver_to_channel(self: t.Any, delivery_id: str) -> dict[str, t.Any]:
     """Deliver notification through specific channel.
 
@@ -276,7 +276,7 @@ def deliver_to_channel(self: t.Any, delivery_id: str) -> dict[str, t.Any]:
 # ===== Digest Tasks =====
 
 
-@shared_task
+@shared_task(name="notifications.tasks.send_notification_digests")
 def send_notification_digests() -> dict[str, t.Any]:
     """Send notification digests to users based on their preferences.
 
@@ -361,7 +361,7 @@ def send_notification_digests() -> dict[str, t.Any]:
 # ===== Maintenance Tasks =====
 
 
-@shared_task
+@shared_task(name="notifications.tasks.cleanup_old_notifications")
 def cleanup_old_notifications() -> dict[str, t.Any]:
     """Clean up notifications older than configured retention period.
 
@@ -382,7 +382,7 @@ def cleanup_old_notifications() -> dict[str, t.Any]:
     return {"deleted_count": deleted_count, "retention_days": retention_days}
 
 
-@shared_task
+@shared_task(name="notifications.tasks.retry_failed_deliveries")
 def retry_failed_deliveries() -> dict[str, t.Any]:
     """Retry failed deliveries that might be recoverable.
 
@@ -419,7 +419,7 @@ def retry_failed_deliveries() -> dict[str, t.Any]:
     return {"retried_count": retry_count}
 
 
-@shared_task
+@shared_task(name="notifications.tasks.send_event_reminders")
 def send_event_reminders() -> dict[str, t.Any]:
     """Send event reminders for upcoming events.
 
@@ -436,7 +436,7 @@ def send_event_reminders() -> dict[str, t.Any]:
     return service.send_all_reminders()
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+@shared_task(name="notifications.tasks.send_pending_invitation_email", bind=True, max_retries=3, default_retry_delay=60)
 def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> None:
     """Send an invitation email to a non-registered user.
 
