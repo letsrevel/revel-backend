@@ -1073,7 +1073,7 @@ See [Journey 25: Revenue & VAT Reporting](#journey-25-revenue--vat-reporting) fo
 
 ### 18.4 Recurring Events (Organizer)
 First-class recurring series with rolling-window materialization:
-- Define a `RecurrenceRule` (frequency, interval, weekdays, monthly params, boundaries) → emits an RFC 5545 `RRULE`
+- Define a `RecurrenceRule` (frequency, interval, weekdays, monthly params, boundaries, IANA `timezone`) → emits an RFC 5545 `RRULE`; occurrences preserve their wall-clock time in the rule's `timezone` across DST transitions
 - Series config: `template_event`, `recurrence_rule`, `exdates`, `auto_publish`, `generation_window_weeks`
 - Each occurrence is a **real materialized `Event`** (independent tickets, payments, capacity) duplicated from the template; safe template edits propagate via a `PROPAGATABLE_FIELDS` whitelist
 - A daily Celery beat task drives rolling-window generation

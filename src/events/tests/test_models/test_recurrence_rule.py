@@ -525,42 +525,32 @@ class TestRecurrenceRuleSave:
 
 
 class TestRecurrenceRuleDSTBehavior:
-    """Lock in the (current, pre-Phase-3) DST behavior of recurrence rules.
+    """Verify timezone-aware occurrence generation across DST transitions.
 
-    The ``timezone`` field is currently advisory metadata only — occurrences
-    are anchored to the UTC ``dtstart`` and do **not** observe DST in the
-    named zone. This is documented in the model's field comment and in the
-    ``RecurrenceRuleCreateSchema.timezone`` description. These tests pin the
-    behavior so the eventual Phase 3 fix is intentional, observable, and
-    breaks something visible (forcing an update to these tests in lockstep
-    with the fix).
+    ``to_rrule()`` localizes ``dtstart`` into the rule's ``timezone``, so
+    occurrences preserve their wall-clock time-of-day in that zone across a
+    DST switch (the underlying UTC instant shifts by the offset). The default
+    ``"UTC"`` timezone is a no-op and keeps occurrences anchored to the stored
+    UTC instant.
     """
 
-    def test_weekly_rule_anchors_to_utc_across_dst_transition(self) -> None:
-        """Weekly rule starting before DST yields the same UTC time after DST.
+    def test_weekly_rule_preserves_wall_clock_across_dst_transition(self) -> None:
+        """A named-zone weekly rule keeps the same local time across DST.
 
-        This is the bug that Phase 3 will fix. A user expecting "Mondays at
-        10:00 in their local time" gets "Mondays at the UTC instant they
-        originally picked," which drifts by 1 hour relative to wall-clock
-        time after DST.
+        A user asking for "Mondays at 10:00 Europe/Vienna" gets 10:00 Vienna
+        both before and after the spring DST switch; the UTC instant shifts by
+        one hour (09:00 → 08:00) to keep the wall-clock time stable.
 
-        Important: we pass a UTC-normalized ``dtstart`` to the model because
-        that is what production sees. Django's ``DateTimeField`` stores datetimes
-        as UTC in the database and reads them back as UTC-aware, regardless of
-        what timezone the client originally sent. Passing a ``zoneinfo``-aware
-        datetime directly to ``dateutil.rrule`` would make ``rrule`` preserve
-        the local wall-clock time across DST (its built-in behavior), which
-        would mask the current bug. Normalizing to UTC here matches the
-        round-trip that real data goes through on save.
+        We pass a UTC-normalized ``dtstart`` to the model because that is what
+        production sees: Django's ``DateTimeField`` stores datetimes as UTC and
+        reads them back UTC-aware regardless of what offset the client sent.
         """
         import zoneinfo
         from datetime import timezone as dt_timezone
 
         # Arrange — Monday 2026-03-23 10:00 Europe/Vienna (CET, UTC+1).
         # The spring DST transition happens on 2026-03-29, so the next
-        # Monday (2026-03-30) is in CEST (UTC+2). A timezone-aware system
-        # would yield 10:00 Vienna both weeks; the current behavior yields
-        # 09:00 UTC both weeks, which is 11:00 Vienna in the second week.
+        # Monday (2026-03-30) is in CEST (UTC+2).
         vienna = zoneinfo.ZoneInfo("Europe/Vienna")
         dtstart_utc = datetime(2026, 3, 23, 10, 0, tzinfo=vienna).astimezone(dt_timezone.utc)
 
@@ -576,19 +566,38 @@ class TestRecurrenceRuleDSTBehavior:
         # Act
         occurrences = list(rule.to_rrule())
 
-        # Assert — both occurrences share the same UTC instant offset from
-        # midnight, even though the second one falls after DST. A
-        # timezone-aware Phase 3 implementation would shift the second
-        # occurrence by one hour to keep the wall-clock time stable.
+        # Assert — wall-clock time in Vienna is identical both weeks…
+        assert len(occurrences) == 2
+        first_vienna = occurrences[0].astimezone(vienna)
+        second_vienna = occurrences[1].astimezone(vienna)
+        assert (first_vienna.hour, first_vienna.minute) == (10, 0)
+        assert (second_vienna.hour, second_vienna.minute) == (10, 0)
+        # …while the UTC instant shifts by one hour across the DST boundary.
+        first_utc = occurrences[0].astimezone(dt_timezone.utc)
+        second_utc = occurrences[1].astimezone(dt_timezone.utc)
+        assert first_utc.hour == 9
+        assert second_utc.hour == 8
+
+    def test_utc_timezone_keeps_occurrences_anchored_to_utc_instant(self) -> None:
+        """The default ``UTC`` timezone is a no-op: no DST shift is applied."""
+        from datetime import timezone as dt_timezone
+
+        # Same anchor as above but with the default UTC timezone: both weeks
+        # must share the same UTC wall-clock time (no DST observance).
+        dtstart_utc = datetime(2026, 3, 23, 9, 0, tzinfo=dt_timezone.utc)
+
+        rule = RecurrenceRule(
+            frequency=RecurrenceRule.Frequency.WEEKLY,
+            interval=1,
+            weekdays=[0],  # Monday
+            dtstart=dtstart_utc,
+            count=2,
+            timezone="UTC",
+        )
+
+        occurrences = list(rule.to_rrule())
+
         assert len(occurrences) == 2
         first_utc = occurrences[0].astimezone(dt_timezone.utc)
         second_utc = occurrences[1].astimezone(dt_timezone.utc)
-        assert first_utc.hour == second_utc.hour, (
-            "Phase 1/2 anchors occurrences to UTC dtstart and ignores DST. "
-            "If this assertion starts failing, Phase 3 has been implemented "
-            "and the field comment + schema description should be updated."
-        )
-        # And the wall-clock time in Vienna drifts by exactly one hour.
-        first_vienna = occurrences[0].astimezone(vienna)
-        second_vienna = occurrences[1].astimezone(vienna)
-        assert second_vienna.hour - first_vienna.hour == 1
+        assert first_utc.hour == second_utc.hour == 9

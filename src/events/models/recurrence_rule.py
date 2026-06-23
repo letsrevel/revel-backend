@@ -2,6 +2,7 @@
 
 import typing as t
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from dateutil.rrule import DAILY, MONTHLY, WEEKLY, YEARLY, rrule
 from dateutil.rrule import weekday as rrule_weekday
@@ -61,10 +62,12 @@ class RecurrenceRule(TimeStampedModel):
     # Computed RRULE string (read-only, populated on save)
     rrule_string = models.TextField(editable=False, blank=True, default="")
 
-    # Timezone for the recurrence anchor. Currently reserved metadata: occurrences
-    # are anchored to the UTC ``dtstart`` and do not observe DST in the named tz
-    # (Phase 3 will use this field to localize the anchor). Validated as a real
-    # IANA zone name so bad data is rejected on save.
+    # IANA timezone the recurrence anchor is localized to. ``to_rrule()`` presents
+    # ``dtstart`` in this zone, so occurrences preserve wall-clock time across DST
+    # transitions (a "Mondays 10:00 Europe/Vienna" rule stays at 10:00 Vienna
+    # before and after the spring/autumn switch). The default ``"UTC"`` is a no-op
+    # (UTC has no DST), so rules that don't care keep the simple UTC behavior.
+    # Validated as a real IANA zone name so bad data is rejected on save.
     timezone = models.CharField(max_length=64, default="UTC")
 
     class Meta:
@@ -99,16 +102,32 @@ class RecurrenceRule(TimeStampedModel):
             raise ValidationError(exc.message) from exc
 
     def to_rrule(self) -> rrule:
-        """Build a dateutil rrule object from the stored fields."""
+        """Build a dateutil rrule object from the stored fields.
+
+        ``dtstart`` (and ``until``) are localized into ``self.timezone`` before
+        being handed to ``dateutil.rrule``, which then preserves the *wall-clock*
+        time-of-day across DST transitions in that zone. With the default
+        ``"UTC"`` timezone this is a no-op and occurrences stay anchored to the
+        stored UTC instant.
+
+        ``dtstart`` is stored as a UTC instant (Django ``USE_TZ``), so the
+        localized wall-clock time reflects the instant the organiser originally
+        picked, expressed in the named zone.
+        """
+        tz = ZoneInfo(self.timezone)
         freq = self.FREQ_MAP[self.frequency]
         kwargs: dict[str, t.Any] = {
             "freq": freq,
             "interval": self.interval,
-            "dtstart": self.dtstart,
+            # ponytail: a wall-clock time that is skipped/repeated by a DST
+            # transition (e.g. 02:30 on spring-forward night) is resolved by
+            # zoneinfo's fold rules rather than special-cased. Acceptable for an
+            # anchor; revisit if sub-hourly anchors near a transition matter.
+            "dtstart": self.dtstart.astimezone(tz),
         }
 
         if self.until:
-            kwargs["until"] = self.until
+            kwargs["until"] = self.until.astimezone(tz)
         if self.count:
             kwargs["count"] = self.count
 
