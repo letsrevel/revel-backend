@@ -1,0 +1,247 @@
+"""Celery tasks for attendee invoices, platform-fee invoices, VAT revalidation and referral payouts."""
+
+import datetime
+import typing as t
+from uuid import UUID
+
+import structlog
+from celery import shared_task
+from django.conf import settings
+from django.utils import timezone
+from django.utils.translation import gettext as _
+
+from common.models import SiteSettings
+from common.tasks import send_email
+from events.models import Organization
+
+if t.TYPE_CHECKING:
+    from events.service.referral_payout_service import PayoutResult
+
+logger = structlog.get_logger(__name__)
+
+
+@shared_task(
+    name="events.generate_attendee_invoice",
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+def generate_attendee_invoice_task(stripe_session_id: str) -> None:
+    """Generate an attendee invoice PDF for a completed checkout session.
+
+    Runs asynchronously after payment success. On success, chains to the
+    delivery task for AUTO-mode invoices.
+    """
+    from events.models.attendee_invoice import AttendeeInvoice
+    from events.service.attendee_invoice_service import generate_attendee_invoice
+
+    invoice = generate_attendee_invoice(stripe_session_id)
+    if invoice and invoice.status == AttendeeInvoice.InvoiceStatus.ISSUED:
+        deliver_attendee_invoice_task.delay(str(invoice.id))
+
+
+@shared_task(
+    name="events.deliver_attendee_invoice",
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+def deliver_attendee_invoice_task(invoice_id: str) -> None:
+    """Deliver an attendee invoice via email."""
+    from events.models.attendee_invoice import AttendeeInvoice
+    from events.service.attendee_invoice_service import deliver_attendee_invoice
+
+    invoice = AttendeeInvoice.objects.get(id=UUID(invoice_id))
+    deliver_attendee_invoice(invoice)
+
+
+@shared_task(
+    name="events.generate_attendee_credit_note",
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+def generate_attendee_credit_note_task(stripe_session_id: str, refunded_payment_ids: list[str]) -> None:
+    """Generate a credit note PDF for refunded payments on an invoiced session.
+
+    On success, chains to the delivery task.
+    """
+    from events.service.attendee_invoice_service import generate_attendee_credit_note
+
+    credit_note = generate_attendee_credit_note(stripe_session_id, [UUID(pid) for pid in refunded_payment_ids])
+    if credit_note:
+        deliver_attendee_credit_note_task.delay(str(credit_note.id))
+
+
+@shared_task(
+    name="events.deliver_attendee_credit_note",
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+def deliver_attendee_credit_note_task(credit_note_id: str) -> None:
+    """Deliver a credit note via email."""
+    from events.models.attendee_invoice import AttendeeInvoiceCreditNote
+    from events.service.attendee_invoice_service import deliver_credit_note
+
+    credit_note = AttendeeInvoiceCreditNote.objects.get(id=UUID(credit_note_id))
+    deliver_credit_note(credit_note)
+
+
+class MonthlyInvoiceGenerationResult(t.TypedDict):
+    """Telemetry counters returned by ``generate_monthly_invoices_task``."""
+
+    invoices_generated: int
+
+
+@shared_task(name="events.generate_monthly_invoices")
+def generate_monthly_invoices_task() -> MonthlyInvoiceGenerationResult:
+    """Generate platform fee invoices for the previous month, then dispatch emails.
+
+    Runs on the 1st of each month via Celery Beat.
+    Invoice creation is idempotent (skips existing invoices).
+    Each email is dispatched as a separate task for independent retry.
+    """
+    from events.service.invoice_service import generate_monthly_invoices
+
+    invoices = generate_monthly_invoices()
+
+    for invoice in invoices:
+        if invoice.pdf_file and invoice.organization_id:
+            send_invoice_email_task.delay(str(invoice.id))
+
+    return {"invoices_generated": len(invoices)}
+
+
+@shared_task(
+    name="events.send_invoice_email",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=5,
+)
+def send_invoice_email_task(invoice_id: str) -> None:
+    """Send a single platform fee invoice email.
+
+    Separate task so each email can retry independently on SMTP failure
+    without affecting other invoices.
+    """
+    from events.models.invoice import PlatformFeeInvoice
+    from events.service.invoice_service import get_invoice_recipients
+
+    invoice = PlatformFeeInvoice.objects.select_related("organization__owner").get(pk=invoice_id)
+    org = invoice.organization
+    if not org:
+        logger.warning("invoice_org_deleted", invoice_number=invoice.invoice_number)
+        return
+
+    recipients = get_invoice_recipients(org)
+    if not recipients:
+        logger.warning("no_invoice_recipients", invoice_number=invoice.invoice_number, org_id=str(org.id))
+        return
+
+    site = SiteSettings.get_solo()
+    bcc = [site.platform_invoice_bcc_email] if site.platform_invoice_bcc_email else []
+
+    subject = _("Platform fee invoice %(invoice_number)s (%(currency)s)") % {
+        "invoice_number": invoice.invoice_number,
+        "currency": invoice.currency,
+    }
+    body = _(
+        "Please find attached the platform fee invoice %(invoice_number)s "
+        "for %(currency)s transactions in the period %(period_start)s to %(period_end)s."
+    ) % {
+        "invoice_number": invoice.invoice_number,
+        "currency": invoice.currency,
+        "period_start": invoice.period_start.isoformat(),
+        "period_end": invoice.period_end.isoformat(),
+    }
+
+    send_email(
+        to=recipients,
+        subject=subject,
+        body=body,
+        bcc=bcc,
+        from_email=settings.DEFAULT_BILLING_EMAIL,
+        reply_to=[settings.DEFAULT_REPLY_TO_EMAIL],
+        attachment_storage_path=invoice.pdf_file.name,
+        attachment_filename=f"{invoice.invoice_number}.pdf",
+    )
+
+    logger.info("invoice_email_sent", invoice_number=invoice.invoice_number, to=recipients)
+
+
+class VatRevalidationResult(t.TypedDict):
+    """Telemetry counters returned by ``revalidate_vat_ids_task``."""
+
+    dispatched: int
+
+
+@shared_task(name="events.revalidate_vat_ids")
+def revalidate_vat_ids_task() -> VatRevalidationResult:
+    """Dispatch per-org VIES re-validation tasks.
+
+    Runs on the 15th of each month via Celery Beat.
+    Each org gets its own task with independent retry.
+    """
+    org_ids = list(Organization.objects.filter(vat_id__gt="").values_list("id", flat=True))
+
+    for org_id in org_ids:
+        revalidate_single_vat_id_task.delay(str(org_id))
+
+    logger.info("vat_revalidation_dispatched", org_count=len(org_ids))
+    return {"dispatched": len(org_ids)}
+
+
+@shared_task(
+    name="events.revalidate_single_vat_id",
+    autoretry_for=(Exception,),
+    retry_backoff=60,
+    retry_backoff_max=3600,
+    max_retries=5,
+)
+def revalidate_single_vat_id_task(org_id: str) -> None:
+    """Re-validate a single organization's VAT ID via VIES.
+
+    Retries with exponential backoff on VIES unavailability or network errors.
+    Fails loudly on unexpected errors after max retries.
+    """
+    from events.service.vies_service import validate_and_update_organization
+
+    org = Organization.objects.get(pk=org_id)
+    if not org.vat_id:
+        return
+
+    validate_and_update_organization(org)
+    logger.info("vat_revalidation_done", org_id=org_id, vat_id=org.vat_id, valid=org.vat_id_validated)
+
+
+@shared_task(name="events.calculate_referral_payouts")
+def calculate_referral_payouts() -> "PayoutResult":
+    """Calculate referral earnings for the previous calendar month.
+
+    Runs on the 1st of each month via Celery beat. For each Referral,
+    aggregates platform fees from the referred user's organizations and creates
+    a ReferralPayout record. Idempotent — safe to re-run.
+    """
+    import calendar
+
+    today = timezone.now().date()
+    # Previous month
+    if today.month == 1:
+        year, month = today.year - 1, 12
+    else:
+        year, month = today.year, today.month - 1
+
+    period_start = datetime.date(year, month, 1)
+    period_end = datetime.date(year, month, calendar.monthrange(year, month)[1])
+
+    from events.service.referral_payout_service import calculate_payouts_for_period
+
+    result = calculate_payouts_for_period(period_start, period_end)
+    logger.info("referral_payouts_calculated", period=str(period_start), **result)
+    return result
