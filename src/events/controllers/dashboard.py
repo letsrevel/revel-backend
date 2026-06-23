@@ -15,7 +15,6 @@ from ninja_extra import (
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.signing import get_file_url
@@ -27,10 +26,6 @@ from events.service.attendee_invoice_service import ensure_pdf_exists
 
 @api_controller("/dashboard", auth=I18nJWTAuth())
 class DashboardController(UserAwareController):
-    def user(self) -> RevelUser:
-        """Get the user for this request."""
-        return t.cast(RevelUser, self.context.request.user)  # type: ignore[union-attr]
-
     def get_event_queryset(self, *, include_past: bool = False) -> QuerySet[models.Event]:
         """Get the event queryset."""
         return models.Event.objects.for_user(self.user(), include_past=include_past)

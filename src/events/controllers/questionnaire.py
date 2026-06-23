@@ -11,7 +11,6 @@ from ninja_extra import (
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
 
-from accounts.models import RevelUser
 from common.authentication import I18nJWTAuth
 from common.controllers import UserAwareController
 from common.schema import ValidationErrorResponse
@@ -44,10 +43,6 @@ class QuestionnaireController(UserAwareController):
     def get_organization_queryset(self) -> QuerySet[event_models.Organization]:
         """Get the queryset for the organization."""
         return event_models.Organization.objects.for_user(self.user())
-
-    def user(self) -> RevelUser:
-        """Get a user for this request."""
-        return t.cast(RevelUser, self.context.request.user)  # type: ignore[union-attr]
 
     @route.get(
         "/",
