@@ -22,7 +22,13 @@ from events.service import organization_service, update_db_instance
 from .base import OrganizationAdminBaseController
 
 
-@api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
+@api_controller(
+    "/organization-admin/{slug}",
+    auth=I18nJWTAuth(),
+    tags=["Organization Admin"],
+    throttle=WriteThrottle(),
+    permissions=[OrganizationPermission("manage_members")],
+)
 class OrganizationAdminMembersController(OrganizationAdminBaseController):
     """Organization membership management endpoints.
 
@@ -35,7 +41,6 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/members",
         url_name="list_organization_members",
         response=PaginatedResponseSchema[schema.OrganizationMemberSchema],
-        permissions=[OrganizationPermission("manage_members")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -57,7 +62,6 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/members/{user_id}",
         url_name="update_organization_member",
         response=schema.OrganizationMemberSchema,
-        permissions=[OrganizationPermission("manage_members")],
     )
     def update_member(
         self, slug: str, user_id: UUID, payload: schema.OrganizationMemberUpdateSchema
@@ -100,7 +104,6 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/members/{user_id}",
         url_name="remove_organization_member",
         response={204: None},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def remove_member(self, slug: str, user_id: UUID) -> tuple[int, None]:
         """Remove a member from an organization."""
@@ -113,7 +116,6 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/members/{user_id}",
         url_name="create_organization_member",
         response={201: schema.OrganizationMemberSchema},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def add_member(
         self, slug: str, user_id: UUID, payload: schema.MemberAddSchema
@@ -142,7 +144,6 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/membership-tiers",
         url_name="create_membership_tier",
         response={201: schema.MembershipTierSchema},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def create_membership_tier(
         self, slug: str, payload: schema.MembershipTierCreateSchema
@@ -156,7 +157,6 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/membership-tiers/{tier_id}",
         url_name="update_membership_tier",
         response=schema.MembershipTierSchema,
-        permissions=[OrganizationPermission("manage_members")],
     )
     def update_membership_tier(
         self, slug: str, tier_id: UUID, payload: schema.MembershipTierUpdateSchema
@@ -170,7 +170,6 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/membership-tiers/{tier_id}",
         url_name="delete_membership_tier",
         response={204: None},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def delete_membership_tier(self, slug: str, tier_id: UUID) -> tuple[int, None]:
         """Delete a membership tier.
@@ -188,7 +187,6 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/staff",
         url_name="list_organization_staff",
         response=PaginatedResponseSchema[schema.OrganizationStaffSchema],
-        permissions=[OrganizationPermission("manage_members")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
@@ -215,7 +213,6 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/staff/{user_id}",
         url_name="create_organization_staff",
         response={201: schema.OrganizationStaffSchema},
-        permissions=[OrganizationPermission("manage_members")],
     )
     def add_staff(
         self, slug: str, user_id: UUID, payload: models.PermissionsSchema | None = None

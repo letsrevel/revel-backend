@@ -15,7 +15,13 @@ from events.service import venue_service
 from .base import OrganizationAdminBaseController
 
 
-@api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
+@api_controller(
+    "/organization-admin/{slug}",
+    auth=I18nJWTAuth(),
+    tags=["Organization Admin"],
+    throttle=WriteThrottle(),
+    permissions=[OrganizationPermission("edit_organization")],
+)
 class OrganizationAdminVenuesController(OrganizationAdminBaseController):
     """Organization venue management endpoints.
 
@@ -46,7 +52,6 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues",
         url_name="create_organization_venue",
         response={201: schema.VenueDetailSchema},
-        permissions=[OrganizationPermission("edit_organization")],
     )
     def create_venue(self, slug: str, payload: schema.VenueCreateSchema) -> tuple[int, models.Venue]:
         """Create a new venue for the organization.
@@ -83,7 +88,6 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}",
         url_name="update_organization_venue",
         response=schema.VenueDetailSchema,
-        permissions=[OrganizationPermission("edit_organization")],
     )
     def update_venue(self, slug: str, venue_id: UUID, payload: schema.VenueUpdateSchema) -> models.Venue:
         """Update venue details.
@@ -101,7 +105,6 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}",
         url_name="delete_organization_venue",
         response={204: None},
-        permissions=[OrganizationPermission("edit_organization")],
     )
     def delete_venue(self, slug: str, venue_id: UUID) -> tuple[int, None]:
         """Delete a venue and all its sectors and seats.
@@ -142,7 +145,6 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}/sectors",
         url_name="create_venue_sector",
         response={201: schema.VenueSectorWithSeatsSchema},
-        permissions=[OrganizationPermission("edit_organization")],
     )
     def create_sector(
         self, slug: str, venue_id: UUID, payload: schema.VenueSectorCreateSchema
@@ -180,7 +182,6 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}/sectors/{sector_id}",
         url_name="update_venue_sector",
         response=schema.VenueSectorWithSeatsSchema,
-        permissions=[OrganizationPermission("edit_organization")],
     )
     def update_sector(
         self, slug: str, venue_id: UUID, sector_id: UUID, payload: schema.VenueSectorUpdateSchema
@@ -199,7 +200,6 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}/sectors/{sector_id}",
         url_name="delete_venue_sector",
         response={204: None},
-        permissions=[OrganizationPermission("edit_organization")],
     )
     def delete_sector(self, slug: str, venue_id: UUID, sector_id: UUID) -> tuple[int, None]:
         """Delete a sector and all its seats.
@@ -219,7 +219,6 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}/sectors/{sector_id}/seats",
         url_name="bulk_create_venue_seats",
         response={201: list[schema.VenueSeatSchema]},
-        permissions=[OrganizationPermission("edit_organization")],
     )
     def bulk_create_seats(
         self, slug: str, venue_id: UUID, sector_id: UUID, payload: schema.VenueSeatBulkCreateSchema
@@ -239,7 +238,6 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}/sectors/{sector_id}/seats/bulk-delete",
         url_name="bulk_delete_venue_seats",
         response={200: dict[str, int]},
-        permissions=[OrganizationPermission("edit_organization")],
     )
     def bulk_delete_seats(
         self, slug: str, venue_id: UUID, sector_id: UUID, payload: schema.VenueSeatBulkDeleteSchema
@@ -259,7 +257,6 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}/sectors/{sector_id}/seats/bulk-update",
         url_name="bulk_update_venue_seats",
         response=list[schema.VenueSeatSchema],
-        permissions=[OrganizationPermission("edit_organization")],
     )
     def bulk_update_seats(
         self, slug: str, venue_id: UUID, sector_id: UUID, payload: schema.VenueSeatBulkUpdateSchema
@@ -281,7 +278,6 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}/sectors/{sector_id}/seats/by-label/{label}",
         url_name="update_venue_seat",
         response=schema.VenueSeatSchema,
-        permissions=[OrganizationPermission("edit_organization")],
     )
     def update_seat(
         self, slug: str, venue_id: UUID, sector_id: UUID, label: str, payload: schema.VenueSeatUpdateSchema
@@ -304,7 +300,6 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         "/venues/{venue_id}/sectors/{sector_id}/seats/by-label/{label}",
         url_name="delete_venue_seat",
         response={204: None},
-        permissions=[OrganizationPermission("edit_organization")],
     )
     def delete_seat(self, slug: str, venue_id: UUID, sector_id: UUID, label: str) -> tuple[int, None]:
         """Delete a specific seat by its label.

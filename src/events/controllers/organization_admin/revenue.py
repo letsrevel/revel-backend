@@ -21,7 +21,12 @@ from events.service import revenue_aggregation, revenue_report_service
 from .base import OrganizationAdminBaseController
 
 
-@api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"])
+@api_controller(
+    "/organization-admin/{slug}",
+    auth=I18nJWTAuth(),
+    tags=["Organization Admin"],
+    permissions=[OrganizationPermission("manage_organization")],
+)
 class OrganizationAdminRevenueController(OrganizationAdminBaseController):
     """Generate and poll downloadable revenue & VAT report bundles."""
 
@@ -29,7 +34,6 @@ class OrganizationAdminRevenueController(OrganizationAdminBaseController):
         "/revenue-report",
         url_name="create_revenue_report",
         response=FileExportSchema,
-        permissions=[OrganizationPermission("manage_organization")],
         throttle=ExportThrottle(),
     )
     def create_revenue_report(
@@ -57,7 +61,6 @@ class OrganizationAdminRevenueController(OrganizationAdminBaseController):
         "/revenue",
         url_name="organization_financials",
         response=OrganizationFinancialsSchema,
-        permissions=[OrganizationPermission("manage_organization")],
         throttle=UserDefaultThrottle(),
     )
     def get_organization_financials(
@@ -81,7 +84,6 @@ class OrganizationAdminRevenueController(OrganizationAdminBaseController):
         "/revenue-reports/{export_id}",
         url_name="get_revenue_report",
         response=FileExportSchema,
-        permissions=[OrganizationPermission("manage_organization")],
         throttle=UserDefaultThrottle(),
     )
     def get_revenue_report(self, slug: str, export_id: UUID) -> FileExport:

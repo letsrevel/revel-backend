@@ -73,7 +73,6 @@ class EventAdminWaitlistOffersController(EventAdminBaseController):
         "/waitlist-offers",
         url_name="list_waitlist_offers",
         response=PaginatedResponseSchema[schema.WaitlistOfferSchema],
-        permissions=[EventPermission("invite_to_event")],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)

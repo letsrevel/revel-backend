@@ -19,7 +19,13 @@ from events.service.recurrence_service import PropagateScope
 from .base import OrganizationAdminBaseController
 
 
-@api_controller("/organization-admin/{slug}", auth=I18nJWTAuth(), tags=["Organization Admin"], throttle=WriteThrottle())
+@api_controller(
+    "/organization-admin/{slug}",
+    auth=I18nJWTAuth(),
+    tags=["Organization Admin"],
+    throttle=WriteThrottle(),
+    permissions=[OrganizationPermission("edit_event_series")],
+)
 class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController):
     """Recurring event management endpoints.
 
@@ -67,7 +73,6 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         "/event-series/{series_id}/template",
         url_name="update_series_template",
         response={200: schema.EventSeriesRecurrenceDetailSchema, 400: ValidationErrorResponse},
-        permissions=[OrganizationPermission("edit_event_series")],
     )
     def update_template(
         self,
@@ -98,7 +103,6 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         "/event-series/{series_id}/recurrence",
         url_name="update_series_recurrence",
         response={200: schema.EventSeriesRecurrenceDetailSchema, 400: ValidationErrorResponse},
-        permissions=[OrganizationPermission("edit_event_series")],
     )
     def update_recurrence(
         self, slug: str, series_id: UUID, payload: schema.EventSeriesRecurrenceUpdateSchema
@@ -117,7 +121,6 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         "/event-series/{series_id}/cancel-occurrence",
         url_name="cancel_series_occurrence",
         response={200: schema.EventSeriesRecurrenceDetailSchema},
-        permissions=[OrganizationPermission("edit_event_series")],
     )
     def cancel_occurrence(
         self, slug: str, series_id: UUID, payload: schema.CancelOccurrenceSchema
@@ -132,7 +135,6 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         "/event-series/{series_id}/generate",
         url_name="generate_series_events",
         response=list[schema.EventDetailSchema],
-        permissions=[OrganizationPermission("edit_event_series")],
     )
     def generate_events(
         self,
@@ -149,7 +151,6 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         "/event-series/{series_id}",
         url_name="get_series_detail",
         response=schema.EventSeriesRecurrenceDetailSchema,
-        permissions=[OrganizationPermission("edit_event_series")],
         throttle=UserDefaultThrottle(),
     )
     def get_series_detail(self, slug: str, series_id: UUID) -> models.EventSeries:
@@ -166,7 +167,6 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         "/event-series/{series_id}/drift",
         url_name="get_series_drift",
         response=schema.EventSeriesDriftSchema,
-        permissions=[OrganizationPermission("edit_event_series")],
         throttle=UserDefaultThrottle(),
     )
     def get_series_drift(self, slug: str, series_id: UUID) -> schema.EventSeriesDriftSchema:
@@ -185,7 +185,6 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         "/event-series/{series_id}/template-event",
         url_name="get_series_template_event",
         response=schema.EventDetailSchema,
-        permissions=[OrganizationPermission("edit_event_series")],
         throttle=UserDefaultThrottle(),
     )
     def get_series_template_event(self, slug: str, series_id: UUID) -> models.Event:
@@ -206,7 +205,6 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         "/event-series/{series_id}/pause",
         url_name="pause_series",
         response=schema.EventSeriesRecurrenceDetailSchema,
-        permissions=[OrganizationPermission("edit_event_series")],
     )
     def pause_series(self, slug: str, series_id: UUID) -> models.EventSeries:
         """Pause generation without cancelling existing events."""
@@ -219,7 +217,6 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
         "/event-series/{series_id}/resume",
         url_name="resume_series",
         response=schema.EventSeriesRecurrenceDetailSchema,
-        permissions=[OrganizationPermission("edit_event_series")],
     )
     def resume_series(self, slug: str, series_id: UUID) -> models.EventSeries:
         """Resume generation for a paused series."""
