@@ -73,9 +73,8 @@ class NotificationPreferenceController(UserAwareController):
         """Disable a notification channel."""
         prefs, _ = NotificationPreference.objects.get_or_create(user=self.user())
 
-        if channel in prefs.enabled_channels:
-            prefs.enabled_channels.remove(channel)
-            prefs.save(update_fields=["enabled_channels", "updated_at"])
+        if prefs.disable_channel(channel):
+            prefs.save(update_fields=["enabled_channels", "notification_type_settings", "updated_at"])
 
         return prefs
 

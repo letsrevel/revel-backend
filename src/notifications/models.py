@@ -316,3 +316,29 @@ class NotificationPreference(TimeStampedModel):
 
         # Otherwise use global enabled channels
         return list(self.enabled_channels)
+
+    def disable_channel(self, channel: str) -> bool:
+        """Remove a delivery channel from global and per-type preferences.
+
+        Removes ``channel`` from ``enabled_channels`` and from every per-type
+        override in ``notification_type_settings``. Per-type channel lists
+        OVERRIDE ``enabled_channels`` (see ``get_channels_for_notification_type``),
+        so clearing only the global list would leave types that hardcode the
+        channel (e.g. ``ORG_CONTACT_MESSAGE_RECEIVED`` → TELEGRAM) still delivering.
+
+        Args:
+            channel: Channel to remove (e.g. ``DeliveryChannel.TELEGRAM``).
+
+        Returns:
+            True if anything changed, False otherwise.
+        """
+        changed = False
+        if channel in self.enabled_channels:
+            self.enabled_channels = [c for c in self.enabled_channels if c != channel]
+            changed = True
+        for setting in self.notification_type_settings.values():
+            channels = setting.get("channels")
+            if channels and channel in channels:
+                setting["channels"] = [c for c in channels if c != channel]
+                changed = True
+        return changed

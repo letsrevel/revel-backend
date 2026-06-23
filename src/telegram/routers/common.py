@@ -146,12 +146,13 @@ async def handle_unsubscribe(message: Message, tg_user: TelegramUser, user: Reve
     logger.info("telegram_user_requested_unsubscribe", telegram_id=tg_user.telegram_id)
 
     # Get or create notification preferences and disable telegram channel
+    from notifications.enums import DeliveryChannel
     from notifications.models import NotificationPreference
 
-    prefs, created = await NotificationPreference.objects.aget_or_create(user=user)
+    prefs, _ = await NotificationPreference.objects.aget_or_create(user=user)
 
-    # Remove telegram from enabled channels if present
-    await prefs.asave(update_fields=["enabled_channels", "updated_at"])
+    if prefs.disable_channel(DeliveryChannel.TELEGRAM):
+        await prefs.asave(update_fields=["enabled_channels", "notification_type_settings", "updated_at"])
     logger.info("telegram_user_disabled_notifications", telegram_id=tg_user.telegram_id)
     await message.answer(
         "✅ You have been unsubscribed from all Telegram notifications.\n\n"
