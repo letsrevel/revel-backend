@@ -41,6 +41,12 @@ Unlike monolithic, corporate platforms that treat events as transactions, Revel 
 
 ---
 
+> 🤖 **AI disclosure:** Revel makes use of AI-assisted coding, but stays firmly away from vibe
+> coding. Every line that lands in `main` is understood, reviewed, and defended by a human.
+> If you contribute with AI, follow the workflow in **[AI_USAGE.md](AI_USAGE.md)**.
+
+---
+
 ### ✨ Live Demo
 
 You can try out an early version of Revel yourself at https://demo.letsrevel.io
@@ -207,9 +213,16 @@ This starts PostgreSQL, Redis, ClamAV, and **Mailpit**. All emails sent by the a
 
 ## 🏠 Self-Hosting (Production)
 
-For a full production deployment — reverse proxy, TLS, the SvelteKit frontend, and the observability stack — use the **[infra](https://github.com/letsrevel/infra)** repository, which ships a turn-key Docker Compose setup and a documented `.env.example`.
+The entire stack — frontend, API, workers, database, and (optionally) the full observability suite — is self-hostable on a single box with Docker Compose. The **[infra](https://github.com/letsrevel/infra)** repository ships the Compose files, a parameterized Caddyfile, and an interactive **`setup.sh` wizard** that writes your `.env`, picks the right Caddy config, fetches geo data, and brings the stack up. You don't need to clone the backend or frontend repos — the application images are pulled from the registry.
 
-The published frontend image (`ghcr.io/letsrevel/revel-frontend`) is **environment-agnostic**: it reads its backend API URL from `PUBLIC_API_URL` at **runtime**, so a single prebuilt image can point at any backend. Set `PUBLIC_API_URL` (and `ORIGIN`) in your deployment environment — no rebuild required. See `letsrevel/infra`'s `.env.example` for the canonical configuration.
+**Two reference tiers** let Revel scale down a long way:
+
+- **Slim** — ~2 vCPU / 4 GB RAM (~5 €/mo). Core services only; ClamAV, Telegram, and observability switched off. Recommended starting point for a single-org instance.
+- **Full** — 8 vCPU / 32 GB RAM. Every optional Compose profile: antivirus, the LGTM observability stack, the Telegram bot, and the login canary.
+
+The difference is mostly which Compose profiles you enable (`COMPOSE_PROFILES`) plus a few feature flags (`FEATURE_MALWARE_SCAN`, `FEATURE_TELEGRAM`, `FEATURE_OBSERVABILITY`, `FEATURE_ORGANIZATION_CREATION`). Clients read the active flags from `GET /version`, so gated features are hidden rather than 403'd. The published frontend image (`ghcr.io/letsrevel/revel-frontend`) is **environment-agnostic** — it reads its backend API URL from `PUBLIC_API_URL` at **runtime**, so one prebuilt image can target any backend (no rebuild required).
+
+📖 **Full guide:** [docs.letsrevel.io/self-hosting](https://docs.letsrevel.io/self-hosting/).
 
 ---
 
@@ -434,7 +447,7 @@ Most apps contain controllers and service modules for API endpoints and business
 
 ## 🤝 Contributing
 
-We welcome contributions! Please read our **[CONTRIBUTING.md](CONTRIBUTING.md)** to learn how you can get involved, from reporting bugs to submitting code.
+We welcome contributions! Please read our **[CONTRIBUTING.md](CONTRIBUTING.md)** to learn how you can get involved, from reporting bugs to submitting code. If you contribute with AI assistance, also read **[AI_USAGE.md](AI_USAGE.md)** — it is not optional.
 
 ### Internationalization
 

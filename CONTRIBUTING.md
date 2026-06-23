@@ -4,6 +4,10 @@ Thank you for your interest in contributing to Revel! We're excited to have you 
 
 This document provides guidelines for contributing to the project to ensure a smooth and effective process for everyone.
 
+> 🤖 **Using AI?** Revel embraces AI-assisted coding but rejects vibe coding. If you contribute
+> PRs or Issues created with AI, read **[AI_USAGE.md](AI_USAGE.md)** first: it describes the
+> required workflow. Following it is not optional.
+
 ## How to Contribute
 
 There are several ways you can contribute to the project:
