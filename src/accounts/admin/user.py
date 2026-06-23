@@ -20,6 +20,7 @@ from django.utils.translation import ngettext
 from django_google_sso.admin import GoogleSSOInlineAdmin, get_current_user_and_admin
 from unfold.admin import ModelAdmin, TabularInline
 
+from accounts.admin import formatters
 from accounts.models import (
     DietaryPreference,
     DietaryRestriction,
@@ -37,7 +38,6 @@ from accounts.service.impersonation import can_impersonate, create_impersonation
 from accounts.utils.email_normalization import normalize_email_for_matching
 from common.client_ip import get_client_ip
 from common.models import SiteSettings
-from common.signing import get_file_url
 from events.models import GeneralUserPreferences
 
 # Monkey patch the missing attribute
@@ -373,36 +373,16 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
                 messages.WARNING,
             )
 
-    # Custom displays
+    # Custom displays (rendering logic lives in accounts/admin/formatters.py)
     @admin.display(description="")
     def profile_thumbnail_display(self, obj: RevelUser) -> str:
         """Display profile picture thumbnail in list view."""
-        if url := get_file_url(obj.profile_picture_thumbnail):
-            return format_html(
-                '<img src="{}" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;" />',
-                url,
-            )
-        return format_html(
-            '<span style="display: inline-block; width: 32px; height: 32px; '
-            "border-radius: 50%; background-color: #e5e7eb; text-align: center; "
-            'line-height: 32px; font-size: 14px; color: #6b7280;">{}</span>',
-            obj.username[0].upper() if obj.username else "?",
-        )
+        return formatters.profile_thumbnail(obj)
 
     @admin.display(description="Profile Picture Preview")
     def profile_image_preview_display(self, obj: RevelUser) -> str:
         """Display profile picture preview in detail view."""
-        if url := get_file_url(obj.profile_picture_preview):
-            return format_html(
-                '<img src="{}" style="max-width: 200px; max-height: 200px; border-radius: 8px;" />',
-                url,
-            )
-        if url := get_file_url(obj.profile_picture):
-            return format_html(
-                '<img src="{}" style="max-width: 200px; max-height: 200px; border-radius: 8px;" />',
-                url,
-            )
-        return "No profile picture"
+        return formatters.profile_image_preview(obj)
 
     @admin.display(description="Display Name", ordering="preferred_name")
     def display_name_display(self, obj: RevelUser) -> str:
@@ -418,71 +398,21 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
 
     @admin.display(description="Events")
     def event_count(self, obj: RevelUser) -> int:
-        # Count events user has tickets for or RSVP'd to
-        from events.models import EventRSVP, Ticket
-
-        ticket_events = Ticket.objects.filter(user=obj).values("event").distinct().count()
-        rsvp_events = EventRSVP.objects.filter(user=obj).values("event").distinct().count()
-        return ticket_events + rsvp_events
+        return formatters.event_count(obj)
 
     @admin.display(description="Organizations")
     def organization_count(self, obj: RevelUser) -> int:
-        # Count owned + member + staff organizations
-        from events.models import Organization, OrganizationMember, OrganizationStaff
+        return formatters.organization_count(obj)
 
-        owned = Organization.objects.filter(owner=obj).count()
-        member = OrganizationMember.objects.filter(user=obj).count()
-        staff = OrganizationStaff.objects.filter(user=obj).count()
-        return owned + member + staff
-
+    @admin.display(description="Event Participation")
     def event_participation_display(self, obj: RevelUser) -> str:
         """Display user's event participation details."""
-        from events.models import EventRSVP, Ticket
+        return formatters.event_participation(obj)
 
-        tickets = Ticket.objects.filter(user=obj).select_related("event")
-        rsvps = EventRSVP.objects.filter(user=obj).select_related("event")
-
-        html = "<h4>Event Participation:</h4><ul>"
-
-        for ticket in tickets[:10]:  # Show recent 10
-            event_url = reverse("admin:events_event_change", args=[ticket.event.id])
-            html += f'<li><a href="{event_url}">{ticket.event.name}</a> - Ticket ({ticket.status})</li>'
-
-        for rsvp in rsvps[:10]:  # Show recent 10
-            event_url = reverse("admin:events_event_change", args=[rsvp.event.id])
-            html += f'<li><a href="{event_url}">{rsvp.event.name}</a> - RSVP ({rsvp.status})</li>'
-
-        html += "</ul>"
-        return mark_safe(html)
-
-    event_participation_display.short_description = "Event Participation"  # type: ignore[attr-defined]
-
+    @admin.display(description="Organization Participation")
     def organization_participation_display(self, obj: RevelUser) -> str:
         """Display user's organization participation details."""
-        from events.models import Organization, OrganizationMember, OrganizationStaff
-
-        owned_orgs = Organization.objects.filter(owner=obj)
-        staff_orgs = OrganizationStaff.objects.filter(user=obj).select_related("organization")
-        member_orgs = OrganizationMember.objects.filter(user=obj).select_related("organization")
-
-        html = "<h4>Organization Roles:</h4><ul>"
-
-        for org in owned_orgs:
-            org_url = reverse("admin:events_organization_change", args=[org.id])
-            html += f'<li><a href="{org_url}">{org.name}</a> - Owner</li>'
-
-        for staff in staff_orgs:
-            org_url = reverse("admin:events_organization_change", args=[staff.organization.id])
-            html += f'<li><a href="{org_url}">{staff.organization.name}</a> - Staff</li>'
-
-        for member in member_orgs:
-            org_url = reverse("admin:events_organization_change", args=[member.organization.id])
-            html += f'<li><a href="{org_url}">{member.organization.name}</a> - Member</li>'
-
-        html += "</ul>"
-        return mark_safe(html)
-
-    organization_participation_display.short_description = "Organization Participation"  # type: ignore[attr-defined]
+        return formatters.organization_participation(obj)
 
     def get_list_display(self, request: HttpRequest) -> list[str]:  # type: ignore[override]
         list_display = list(super().get_list_display(request))
@@ -494,16 +424,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     @admin.display(description=_("Impersonate"))
     def impersonate_link(self, obj: RevelUser) -> str:
         """Display impersonation link for eligible users."""
-        # Don't show link for superusers or staff (can't impersonate them)
-        if obj.is_superuser or obj.is_staff:
-            return format_html('<span class="text-base-400">—</span>')
-        url = reverse("admin:accounts_reveluser_impersonate", args=[obj.pk])
-        return format_html(
-            '<a href="{}" target="_blank" class="text-primary-600 hover:text-primary-700 '
-            'dark:text-primary-500 dark:hover:text-primary-400 text-sm font-medium">{}</a>',
-            url,
-            _("Impersonate"),
-        )
+        return formatters.impersonate_link(obj)
 
     def get_urls(self) -> list[t.Any]:
         """Add custom URLs for impersonation."""
