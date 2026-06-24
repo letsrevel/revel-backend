@@ -252,6 +252,13 @@ def _send_payout_statement_email(
     referrer: RevelUser,
 ) -> None:
     """Dispatch the payout statement PDF to the referrer via email."""
+    from accounts.service.payout_statement_service import ensure_payout_statement_pdf_exists
+
+    # Self-heal a PDF lost to a crash between the statement row commit and the
+    # out-of-transaction PDF save, so the backstop sweep never emails a statement
+    # with no attachment and then marks it delivered (issue #616).
+    ensure_payout_statement_pdf_exists(statement)
+
     billing_profile = getattr(referrer, "billing_profile", None)
     recipient = billing_profile.billing_email if billing_profile and billing_profile.billing_email else referrer.email
 
