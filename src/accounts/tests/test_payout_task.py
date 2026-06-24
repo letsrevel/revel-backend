@@ -24,7 +24,7 @@ from accounts.models import (
     RevelUser,
     UserBillingProfile,
 )
-from accounts.tasks import process_referral_payouts
+from accounts.tasks import generate_and_send_payout_statement, process_referral_payouts
 from common.models import SiteSettings
 
 pytestmark = pytest.mark.django_db
@@ -716,3 +716,194 @@ class TestPayoutReturnStats:
         assert stats == {"paid": 0, "failed": 0, "skipped": 0}
         mock_gen_statement.assert_not_called()
         mock_transfer_create.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Statement/email dispatch & batch isolation (issue #611)
+# ---------------------------------------------------------------------------
+
+
+class TestPayoutStatementDispatch:
+    """Statement+email is dispatched out-of-band and never halts the batch."""
+
+    @patch("accounts.tasks.payouts.generate_and_send_payout_statement.delay")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
+    def test_dispatches_statement_task_after_transfer(
+        self,
+        mock_transfer_create: MagicMock,
+        mock_delay: MagicMock,
+        calculated_payout: ReferralPayout,
+        billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """After a successful transfer, the retryable statement task is dispatched with the payout id."""
+        mock_transfer_create.return_value = _mock_stripe_transfer()
+
+        process_referral_payouts()
+
+        mock_delay.assert_called_once_with(str(calculated_payout.id))
+
+    @patch("accounts.tasks.payouts.generate_and_send_payout_statement.delay")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
+    def test_dispatch_failure_does_not_halt_batch(
+        self,
+        mock_transfer_create: MagicMock,
+        mock_delay: MagicMock,
+        calculated_payout: ReferralPayout,
+        referral: Referral,
+        billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """A dispatch failure (e.g. broker down) is isolated: remaining payouts are still transferred + PAID."""
+        second_payout = ReferralPayout.objects.create(
+            referral=referral,
+            period_start=date(2026, 2, 1),
+            period_end=date(2026, 2, 28),
+            net_platform_fees=Decimal("100.00"),
+            payout_amount=Decimal("15.00"),
+            currency="EUR",
+            status=ReferralPayout.ReferralPayoutStatus.CALCULATED,
+        )
+        mock_transfer_create.return_value = _mock_stripe_transfer()
+        mock_delay.side_effect = RuntimeError("broker unavailable")
+
+        stats = process_referral_payouts()
+
+        # Both transfers happened and both rows are PAID despite every dispatch raising.
+        assert stats == {"paid": 2, "failed": 0, "skipped": 0}
+        assert mock_delay.call_count == 2
+        calculated_payout.refresh_from_db()
+        second_payout.refresh_from_db()
+        assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.PAID
+        assert second_payout.status == ReferralPayout.ReferralPayoutStatus.PAID
+
+
+class TestGenerateAndSendPayoutStatementTask:
+    """The retryable per-payout statement task delegates to generate + email."""
+
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.service.payout_statement_service.generate_payout_statement")
+    def test_generates_statement_and_sends_email(
+        self,
+        mock_gen_statement: MagicMock,
+        mock_send_email: MagicMock,
+        calculated_payout: ReferralPayout,
+        billing_profile: UserBillingProfile,
+        referrer: RevelUser,
+        site_settings: SiteSettings,
+    ) -> None:
+        """The task loads the PAID payout by id, generates the statement, and emails it to the referrer."""
+        calculated_payout.status = ReferralPayout.ReferralPayoutStatus.PAID
+        calculated_payout.save(update_fields=["status"])
+        statement_mock = MagicMock(spec=ReferralPayoutStatement)
+        mock_gen_statement.return_value = statement_mock
+
+        generate_and_send_payout_statement(str(calculated_payout.id))
+
+        mock_gen_statement.assert_called_once()
+        assert mock_gen_statement.call_args.args[0] == calculated_payout
+        mock_send_email.assert_called_once_with(calculated_payout, statement_mock, referrer)
+
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.service.payout_statement_service.generate_payout_statement")
+    def test_skips_non_paid_payout(
+        self,
+        mock_gen_statement: MagicMock,
+        mock_send_email: MagicMock,
+        calculated_payout: ReferralPayout,
+        billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """The task is a no-op for a non-PAID payout — no statement is generated, no email is sent."""
+        # calculated_payout is still CALCULATED — generating a statement here would
+        # issue a financial document for an unpaid payout.
+        generate_and_send_payout_statement(str(calculated_payout.id))
+
+        mock_gen_statement.assert_not_called()
+        mock_send_email.assert_not_called()
+
+
+class TestPayoutStatementBackstopSweep:
+    """PAID payouts missing a statement are re-dispatched at the start of each run (issue #611)."""
+
+    @staticmethod
+    def _paid_payout(referral: Referral, month: int) -> ReferralPayout:
+        return ReferralPayout.objects.create(
+            referral=referral,
+            period_start=date(2026, month, 1),
+            period_end=date(2026, month, 28),
+            net_platform_fees=Decimal("100.00"),
+            payout_amount=Decimal("15.00"),
+            currency="EUR",
+            status=ReferralPayout.ReferralPayoutStatus.PAID,
+        )
+
+    @patch("accounts.tasks.payouts.generate_and_send_payout_statement.delay")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
+    def test_redispatches_paid_payout_missing_statement(
+        self,
+        mock_transfer_create: MagicMock,
+        mock_delay: MagicMock,
+        referral: Referral,
+        billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """A PAID payout with no statement is re-dispatched even though reruns never re-scan PAID rows."""
+        paid_payout = self._paid_payout(referral, month=1)
+
+        process_referral_payouts()
+
+        mock_delay.assert_called_once_with(str(paid_payout.id))
+        mock_transfer_create.assert_not_called()  # no CALCULATED payouts to transfer
+
+    @patch("accounts.tasks.payouts.generate_and_send_payout_statement.delay")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
+    def test_does_not_redispatch_when_statement_exists(
+        self,
+        mock_transfer_create: MagicMock,
+        mock_delay: MagicMock,
+        referral: Referral,
+        billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """A PAID payout that already has a statement is left alone by the sweep."""
+        paid_payout = self._paid_payout(referral, month=1)
+        ReferralPayoutStatement.objects.create(
+            payout=paid_payout,
+            document_type=ReferralPayoutStatement.DocumentType.PAYOUT_STATEMENT,
+            document_number="RVL-RP-2026-000001",
+            amount_gross=Decimal("15.00"),
+            amount_net=Decimal("15.00"),
+            amount_vat=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+            referrer_name="Payout Referrer",
+            platform_business_name="Revel GmbH",
+            platform_business_address="Mariahilfer Str. 10, 1060 Wien, Austria",
+            platform_vat_id="ATU12345678",
+        )
+
+        process_referral_payouts()
+
+        mock_delay.assert_not_called()
+
+    @patch("accounts.tasks.payouts.generate_and_send_payout_statement.delay")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
+    def test_sweep_dispatch_failure_does_not_halt_run(
+        self,
+        mock_transfer_create: MagicMock,
+        mock_delay: MagicMock,
+        calculated_payout: ReferralPayout,
+        referral: Referral,
+        billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """A broker outage during the sweep is isolated: the CALCULATED batch still runs and pays out."""
+        self._paid_payout(referral, month=2)  # missing-statement row to sweep
+        mock_transfer_create.return_value = _mock_stripe_transfer()
+        mock_delay.side_effect = RuntimeError("broker unavailable")
+
+        stats = process_referral_payouts()
+
+        assert stats["paid"] == 1
+        calculated_payout.refresh_from_db()
+        assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.PAID
