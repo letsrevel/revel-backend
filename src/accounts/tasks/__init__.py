@@ -28,7 +28,7 @@ from accounts.tasks.gdpr import (
     generate_user_data_export,
 )
 from accounts.tasks.notifications import notify_admin_new_user_joined, notify_admin_new_user_joined_discord
-from accounts.tasks.payouts import process_referral_payouts
+from accounts.tasks.payouts import generate_and_send_payout_statement, process_referral_payouts
 from accounts.tasks.tokens import flush_expired_tokens
 from accounts.tasks.verification_reminders import (
     deactivate_unverified_accounts,
@@ -45,6 +45,7 @@ __all__ = [
     "delete_old_inactive_accounts",
     "delete_user_account",
     "flush_expired_tokens",
+    "generate_and_send_payout_statement",
     "generate_user_data_export",
     "mark_reminder_sent",
     "notify_admin_new_user_joined",

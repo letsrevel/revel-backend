@@ -32,6 +32,40 @@ def _reclaim_stale_payouts() -> None:
         logger.warning("stale_pending_payouts_reclaimed", count=stale_count)
 
 
+def _dispatch_statement(payout_id: str) -> None:
+    """Dispatch the retryable statement+email task, isolating broker failures.
+
+    A dispatch failure (e.g. broker outage) must never halt the caller — the
+    payout is already PAID, and the backstop sweep re-dispatches on the next run.
+    """
+    try:
+        generate_and_send_payout_statement.delay(payout_id)
+    except Exception as exc:  # broker unavailable — isolate per the function contract
+        logger.error("payout_statement_dispatch_failed", payout_id=payout_id, error=str(exc))
+
+
+def _redispatch_missing_statements() -> None:
+    """Backstop: re-dispatch statement+email for PAID payouts that never got one.
+
+    Covers the rare case where the in-loop dispatch failed (e.g. broker outage)
+    or the retryable task exhausted its retries, leaving a PAID payout without a
+    statement — which reruns never revisit (they only scan ``CALCULATED``).
+    Idempotent: ``generate_payout_statement`` returns any existing statement, and
+    only payouts with no related statement are selected.
+    """
+    missing_ids = list(
+        ReferralPayout.objects.filter(
+            status=ReferralPayout.ReferralPayoutStatus.PAID,
+            statement__isnull=True,
+        ).values_list("id", flat=True)
+    )
+    if not missing_ids:
+        return
+    for payout_id in missing_ids:
+        _dispatch_statement(str(payout_id))
+    logger.warning("payout_statements_redispatched", count=len(missing_ids))
+
+
 def _validate_payout_eligibility(payout: ReferralPayout, referrer: RevelUser) -> str | None:
     """Run pre-flight checks for a payout. Returns a skip reason or None if eligible."""
     if not referrer.stripe_account_id or not referrer.stripe_charges_enabled:
@@ -77,16 +111,16 @@ def process_referral_payouts() -> dict[str, int]:
        and has agreed to self-billing.
     3. Create a Stripe Transfer (with idempotency key ``payout.id``).
     4. On success → ``PAID``; on Stripe error → ``FAILED`` (logged, loop continues).
-    5. Generate the payout statement PDF and email it to the referrer.
+    5. Dispatch the per-payout statement+email task (retryable, idempotent) so a
+       transient statement/email failure self-heals instead of aborting the batch.
 
     Errors are handled per-payout so one failure does not block the rest.
 
     Returns:
         Dict with ``paid``, ``failed``, and ``skipped`` counts.
     """
-    from accounts.service.payout_statement_service import generate_payout_statement
-
     _reclaim_stale_payouts()
+    _redispatch_missing_statements()
 
     payout_ids = list(
         ReferralPayout.objects.filter(status=ReferralPayout.ReferralPayoutStatus.CALCULATED)
@@ -159,12 +193,45 @@ def process_referral_payouts() -> dict[str, int]:
             currency=payout.currency,
         )
 
-        # --- Generate statement + email (only after successful transfer) ---
-        statement = generate_payout_statement(payout)
-        _send_payout_statement_email(payout, statement, referrer)
+        # --- Dispatch statement + email (retryable, only after successful transfer) ---
+        # Done out-of-band so a transient statement/email failure self-heals via
+        # Celery retry instead of aborting the batch or silently dropping the
+        # statement (a financial document). The transfer is already committed; a
+        # missed dispatch is recovered by the backstop sweep on the next run.
+        _dispatch_statement(str(payout.id))
 
     logger.info("process_referral_payouts_completed", **stats)
     return stats
+
+
+@shared_task(
+    name="accounts.generate_and_send_payout_statement",
+    autoretry_for=(Exception,),
+    retry_backoff=30,
+    retry_backoff_max=600,
+    max_retries=3,
+)
+def generate_and_send_payout_statement(payout_id: str) -> None:
+    """Generate a payout statement PDF and email it to the referrer.
+
+    Dispatched per-payout after a successful Stripe transfer (see
+    :func:`process_referral_payouts`). Retryable and idempotent so a transient
+    storage/render/SMTP failure self-heals instead of silently dropping the
+    statement — which, for a self-billing arrangement, is a financial document.
+    ``generate_payout_statement`` returns the existing statement if one was
+    already created, so retries never duplicate it.
+
+    Args:
+        payout_id: UUID (as ``str``) of the PAID ``ReferralPayout``.
+    """
+    from accounts.service.payout_statement_service import generate_payout_statement
+
+    payout = ReferralPayout.objects.select_related("referral__referrer__billing_profile", "referral__referrer").get(
+        id=payout_id
+    )
+    referrer = payout.referral.referrer
+    statement = generate_payout_statement(payout)
+    _send_payout_statement_email(payout, statement, referrer)
 
 
 def _send_payout_statement_email(
