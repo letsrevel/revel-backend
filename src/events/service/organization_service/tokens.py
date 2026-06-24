@@ -276,19 +276,26 @@ def claim_invitation(user: RevelUser, token: str) -> Organization | None:
     if blacklist_service.check_user_hard_blacklisted(user, organization_token.organization):
         return None
 
+    # Apply every grant the token carries. A token may grant both staff status and
+    # membership (grants_membership defaults to True), so the paths are evaluated
+    # independently — not as an either/or — otherwise the membership grant would be
+    # silently dropped on a staff-granting token.
+    created = False
     if organization_token.grants_staff_status:
-        _, created = OrganizationStaff.objects.get_or_create(organization=organization_token.organization, user=user)
-    elif organization_token.grants_membership:
+        _, staff_created = OrganizationStaff.objects.get_or_create(
+            organization=organization_token.organization, user=user
+        )
+        created = created or staff_created
+    if organization_token.grants_membership:
         # Create member with tier if specified
         defaults = {}
         if organization_token.membership_tier:
             defaults["tier"] = organization_token.membership_tier
 
-        _, created = OrganizationMember.objects.get_or_create(
+        _, member_created = OrganizationMember.objects.get_or_create(
             organization=organization_token.organization, user=user, defaults=defaults
         )
-    else:
-        return None
+        created = created or member_created
 
     if not created:
         return None
