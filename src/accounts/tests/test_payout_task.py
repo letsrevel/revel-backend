@@ -792,7 +792,9 @@ class TestGenerateAndSendPayoutStatementTask:
         referrer: RevelUser,
         site_settings: SiteSettings,
     ) -> None:
-        """The task loads the payout by id, generates the statement, and emails it to the referrer."""
+        """The task loads the PAID payout by id, generates the statement, and emails it to the referrer."""
+        calculated_payout.status = ReferralPayout.ReferralPayoutStatus.PAID
+        calculated_payout.save(update_fields=["status"])
         statement_mock = MagicMock(spec=ReferralPayoutStatement)
         mock_gen_statement.return_value = statement_mock
 
