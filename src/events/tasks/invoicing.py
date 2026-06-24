@@ -92,6 +92,65 @@ def deliver_attendee_credit_note_task(credit_note_id: str) -> None:
     deliver_credit_note(credit_note)
 
 
+class UndeliveredInvoiceSweepResult(t.TypedDict):
+    """Telemetry counters returned by ``redispatch_undelivered_invoices_task``."""
+
+    attendee_invoices: int
+    attendee_credit_notes: int
+    platform_fee_invoices: int
+
+
+@shared_task(name="events.redispatch_undelivered_invoices")
+def redispatch_undelivered_invoices_task() -> UndeliveredInvoiceSweepResult:
+    """Backstop: re-dispatch financial documents whose email was never delivered.
+
+    Unlike the generate→deliver chain (which only fires once), nothing revisits an
+    ISSUED invoice / credit note whose delivery task exhausted its retries, leaving
+    the document silently undelivered (issue #616). Selecting on ``email_sent_at``
+    being null covers both failure modes: the deliver tasks self-heal a missing PDF
+    before sending, so a document missing *either* the PDF *or* the email is
+    recovered by re-dispatching delivery.
+
+    Idempotent: ``mark_email_sent`` is a no-op once set, so a document already in
+    flight is at worst delivered twice (at-least-once), never zero.
+    """
+    from events.models.attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote
+    from events.models.invoice import PlatformFeeInvoice
+
+    invoice_ids = list(
+        AttendeeInvoice.objects.filter(
+            status=AttendeeInvoice.InvoiceStatus.ISSUED,
+            email_sent_at__isnull=True,
+        ).values_list("id", flat=True)
+    )
+    for invoice_id in invoice_ids:
+        deliver_attendee_invoice_task.delay(str(invoice_id))
+
+    credit_note_ids = list(
+        AttendeeInvoiceCreditNote.objects.filter(email_sent_at__isnull=True).values_list("id", flat=True)
+    )
+    for credit_note_id in credit_note_ids:
+        deliver_attendee_credit_note_task.delay(str(credit_note_id))
+
+    platform_fee_ids = list(
+        PlatformFeeInvoice.objects.filter(
+            status=PlatformFeeInvoice.InvoiceStatus.ISSUED,
+            email_sent_at__isnull=True,
+        ).values_list("id", flat=True)
+    )
+    for platform_fee_id in platform_fee_ids:
+        send_invoice_email_task.delay(str(platform_fee_id))
+
+    result: UndeliveredInvoiceSweepResult = {
+        "attendee_invoices": len(invoice_ids),
+        "attendee_credit_notes": len(credit_note_ids),
+        "platform_fee_invoices": len(platform_fee_ids),
+    }
+    if any(result.values()):
+        logger.warning("undelivered_invoices_redispatched", **result)
+    return result
+
+
 class MonthlyInvoiceGenerationResult(t.TypedDict):
     """Telemetry counters returned by ``generate_monthly_invoices_task``."""
 
@@ -131,7 +190,7 @@ def send_invoice_email_task(invoice_id: str) -> None:
     without affecting other invoices.
     """
     from events.models.invoice import PlatformFeeInvoice
-    from events.service.invoice_service import get_invoice_recipients
+    from events.service.invoice_service import ensure_invoice_pdf_exists, get_invoice_recipients
 
     invoice = PlatformFeeInvoice.objects.select_related("organization__owner").get(pk=invoice_id)
     org = invoice.organization
@@ -143,6 +202,9 @@ def send_invoice_email_task(invoice_id: str) -> None:
     if not recipients:
         logger.warning("no_invoice_recipients", invoice_number=invoice.invoice_number, org_id=str(org.id))
         return
+
+    # Self-heal a PDF lost to a crash between commit and PDF save (issue #616).
+    ensure_invoice_pdf_exists(invoice)
 
     site = SiteSettings.get_solo()
     bcc = [site.platform_invoice_bcc_email] if site.platform_invoice_bcc_email else []
@@ -171,6 +233,8 @@ def send_invoice_email_task(invoice_id: str) -> None:
         attachment_storage_path=invoice.pdf_file.name,
         attachment_filename=f"{invoice.invoice_number}.pdf",
     )
+
+    invoice.mark_email_sent()
 
     logger.info("invoice_email_sent", invoice_number=invoice.invoice_number, to=recipients)
 

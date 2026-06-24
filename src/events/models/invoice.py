@@ -2,10 +2,10 @@ from django.core.validators import MinValueValidator
 from django.db import models
 
 from common.fields import ProtectedFileField
-from common.models import TimeStampedModel
+from common.models import EmailDeliverableMixin, TimeStampedModel
 
 
-class PlatformFeeInvoice(TimeStampedModel):
+class PlatformFeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     """Monthly platform fee invoice for an organization.
 
     Snapshots org and platform details at generation time for historical accuracy,

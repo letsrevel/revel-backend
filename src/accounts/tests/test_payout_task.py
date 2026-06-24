@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import stripe
+from django.utils import timezone
 
 from accounts.models import (
     Referral,
@@ -671,6 +672,61 @@ class TestPayoutEmailDispatch:
         assert call_kwargs["attachment_storage_path"] is not None
         assert call_kwargs["attachment_filename"].endswith(".pdf")
 
+    @patch("accounts.tasks.payouts.send_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
+    @patch("common.service.invoice_utils.HTML")
+    def test_marks_statement_delivered_after_successful_send(
+        self,
+        mock_html_cls: MagicMock,
+        mock_transfer_create: MagicMock,
+        mock_send_email: MagicMock,
+        calculated_payout: ReferralPayout,
+        billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """A successful send stamps email_sent_at so the backstop sweep won't re-dispatch it (#616)."""
+        mock_html_cls.return_value.write_pdf.return_value = None
+        mock_transfer_create.return_value = _mock_stripe_transfer()
+
+        process_referral_payouts()
+
+        calculated_payout.refresh_from_db()
+        assert calculated_payout.statement.email_sent_at is not None
+
+    @patch("accounts.tasks.payouts.send_email", side_effect=RuntimeError("smtp down"))
+    def test_send_failure_leaves_statement_undelivered(
+        self,
+        mock_send_email: MagicMock,
+        calculated_payout: ReferralPayout,
+        billing_profile: UserBillingProfile,
+        referrer: RevelUser,
+        site_settings: SiteSettings,
+    ) -> None:
+        """If the send raises, mark_email_sent is never reached so email_sent_at stays null (#616)."""
+        from accounts.tasks.payouts import _send_payout_statement_email
+
+        calculated_payout.status = ReferralPayout.ReferralPayoutStatus.PAID
+        calculated_payout.save(update_fields=["status"])
+        statement = ReferralPayoutStatement.objects.create(
+            payout=calculated_payout,
+            document_type=ReferralPayoutStatement.DocumentType.PAYOUT_STATEMENT,
+            document_number="RVL-RP-2026-000050",
+            amount_gross=Decimal("15.00"),
+            amount_net=Decimal("15.00"),
+            amount_vat=Decimal("0.00"),
+            vat_rate=Decimal("0.00"),
+            referrer_name="Payout Referrer",
+            platform_business_name="Revel GmbH",
+            platform_business_address="Mariahilfer Str. 10, 1060 Wien, Austria",
+            platform_vat_id="ATU12345678",
+        )
+
+        with pytest.raises(RuntimeError):
+            _send_payout_statement_email(calculated_payout, statement, referrer)
+
+        statement.refresh_from_db()
+        assert statement.email_sent_at is None
+
 
 # ---------------------------------------------------------------------------
 # Return value
@@ -856,22 +912,12 @@ class TestPayoutStatementBackstopSweep:
         mock_delay.assert_called_once_with(str(paid_payout.id))
         mock_transfer_create.assert_not_called()  # no CALCULATED payouts to transfer
 
-    @patch("accounts.tasks.payouts.generate_and_send_payout_statement.delay")
-    @patch("accounts.tasks.payouts.stripe.Transfer.create")
-    def test_does_not_redispatch_when_statement_exists(
-        self,
-        mock_transfer_create: MagicMock,
-        mock_delay: MagicMock,
-        referral: Referral,
-        billing_profile: UserBillingProfile,
-        site_settings: SiteSettings,
-    ) -> None:
-        """A PAID payout that already has a statement is left alone by the sweep."""
-        paid_payout = self._paid_payout(referral, month=1)
-        ReferralPayoutStatement.objects.create(
-            payout=paid_payout,
+    @staticmethod
+    def _statement(payout: ReferralPayout, *, number: str, delivered: bool) -> ReferralPayoutStatement:
+        return ReferralPayoutStatement.objects.create(
+            payout=payout,
             document_type=ReferralPayoutStatement.DocumentType.PAYOUT_STATEMENT,
-            document_number="RVL-RP-2026-000001",
+            document_number=number,
             amount_gross=Decimal("15.00"),
             amount_net=Decimal("15.00"),
             amount_vat=Decimal("0.00"),
@@ -880,11 +926,44 @@ class TestPayoutStatementBackstopSweep:
             platform_business_name="Revel GmbH",
             platform_business_address="Mariahilfer Str. 10, 1060 Wien, Austria",
             platform_vat_id="ATU12345678",
+            email_sent_at=timezone.now() if delivered else None,
         )
+
+    @patch("accounts.tasks.payouts.generate_and_send_payout_statement.delay")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
+    def test_does_not_redispatch_when_statement_delivered(
+        self,
+        mock_transfer_create: MagicMock,
+        mock_delay: MagicMock,
+        referral: Referral,
+        billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """A PAID payout whose statement was already delivered (email_sent_at set) is left alone."""
+        paid_payout = self._paid_payout(referral, month=1)
+        self._statement(paid_payout, number="RVL-RP-2026-000001", delivered=True)
 
         process_referral_payouts()
 
         mock_delay.assert_not_called()
+
+    @patch("accounts.tasks.payouts.generate_and_send_payout_statement.delay")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
+    def test_redispatches_paid_payout_with_undelivered_statement(
+        self,
+        mock_transfer_create: MagicMock,
+        mock_delay: MagicMock,
+        referral: Referral,
+        billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """A statement that exists but whose email never delivered (email_sent_at null) is re-dispatched (#616)."""
+        paid_payout = self._paid_payout(referral, month=1)
+        self._statement(paid_payout, number="RVL-RP-2026-000001", delivered=False)
+
+        process_referral_payouts()
+
+        mock_delay.assert_called_once_with(str(paid_payout.id))
 
     @patch("accounts.tasks.payouts.generate_and_send_payout_statement.delay")
     @patch("accounts.tasks.payouts.stripe.Transfer.create")

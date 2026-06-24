@@ -72,6 +72,19 @@ def _render_invoice_pdf(invoice: PlatformFeeInvoice) -> bytes:
     )
 
 
+def ensure_invoice_pdf_exists(invoice: PlatformFeeInvoice) -> None:
+    """Regenerate the invoice PDF if it's missing.
+
+    The PDF is saved outside the creation transaction (WeasyPrint is slow), so a
+    worker crash can leave an ISSUED invoice without one. The recovery sweep calls
+    this before re-sending so a lost document self-heals (issue #616).
+    """
+    if invoice.pdf_file:
+        return
+    pdf_bytes = _render_invoice_pdf(invoice)
+    invoice.pdf_file.save(f"{invoice.invoice_number}.pdf", ContentFile(pdf_bytes), save=True)
+
+
 def get_invoice_recipients(org: Organization) -> list[str]:
     """Get the list of email recipients for an invoice.
 

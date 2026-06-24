@@ -11,7 +11,7 @@ from django.conf import settings
 from django.db import models
 
 from common.fields import ProtectedFileField
-from common.models import TimeStampedModel
+from common.models import EmailDeliverableMixin, TimeStampedModel
 
 
 class BuyerBillingSnapshot(t.TypedDict):
@@ -37,7 +37,7 @@ class InvoiceLineItemDict(t.TypedDict):
     vat_rate: str
 
 
-class AttendeeInvoice(TimeStampedModel):
+class AttendeeInvoice(EmailDeliverableMixin, TimeStampedModel):
     """Invoice issued to an attendee on behalf of an organizer.
 
     In HYBRID mode, invoices start as DRAFT and can be edited by the org admin
@@ -137,7 +137,7 @@ class AttendeeInvoice(TimeStampedModel):
         return f"{self.invoice_number} ({self.seller_name})"
 
 
-class AttendeeInvoiceCreditNote(TimeStampedModel):
+class AttendeeInvoiceCreditNote(EmailDeliverableMixin, TimeStampedModel):
     """Credit note for refunds on already-issued attendee invoices."""
 
     invoice = models.ForeignKey(
