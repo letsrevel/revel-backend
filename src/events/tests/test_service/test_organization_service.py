@@ -213,6 +213,30 @@ class TestClaimInvitation:
             organization=staff_organization_token.organization, user=nonmember_user
         ).exists()
 
+    def test_claim_invitation_grants_both_staff_and_membership(
+        self, organization: Organization, organization_owner_user: RevelUser, nonmember_user: RevelUser
+    ) -> None:
+        """A token granting both staff and membership must apply both, not just staff."""
+        default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+        token = OrganizationToken.objects.create(
+            organization=organization,
+            issuer=organization_owner_user,
+            grants_staff_status=True,
+            grants_membership=True,
+            membership_tier=default_tier,
+        )
+
+        # Act
+        claimed_org = organization_service.claim_invitation(nonmember_user, token.id)
+
+        # Assert - both grants applied, and the use is consumed exactly once
+        assert claimed_org == organization
+        assert OrganizationStaff.objects.filter(organization=organization, user=nonmember_user).exists()
+        member = OrganizationMember.objects.get(organization=organization, user=nonmember_user)
+        assert member.tier == default_tier
+        token.refresh_from_db()
+        assert token.uses == 1
+
 
 @pytest.mark.django_db
 class TestMemberManagement:
