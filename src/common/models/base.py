@@ -35,6 +35,7 @@ class EmailDeliverableMixin(models.Model):
     email_sent_at = models.DateTimeField(
         null=True,
         blank=True,
+        db_index=True,
         help_text="When the document was successfully emailed to its recipient.",
     )
 
