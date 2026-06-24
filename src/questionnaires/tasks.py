@@ -10,7 +10,7 @@ from .models import QuestionnaireSubmission
 logger = structlog.get_logger(__name__)
 
 
-@shared_task
+@shared_task(name="questionnaires.tasks.evaluate_questionnaire_submission")
 def evaluate_questionnaire_submission(questionnaire_submission_id: str) -> UUID:
     """Evaluate a questionnaire submission automatically."""
     logger.info("questionnaire_evaluation_task_started", submission_id=questionnaire_submission_id)

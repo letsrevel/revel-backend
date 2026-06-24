@@ -92,7 +92,7 @@ def _execute_email_callback(callback_data: dict[str, t.Any], success: bool, erro
         )
 
 
-@shared_task
+@shared_task(name="common.tasks.send_email")
 def send_email(
     *,
     to: str | list[str],
@@ -200,7 +200,7 @@ def send_email(
             _execute_email_callback(callback_data, success, error_message)
 
 
-@shared_task
+@shared_task(name="common.tasks.cleanup_email_logs")
 def cleanup_email_logs() -> None:
     """Clean up email logs."""
     older_than_a_week = EmailLog.objects.filter(sent_at__lte=timezone.now() - timedelta(days=7))
@@ -230,7 +230,7 @@ def to_safe_email_address(email: str, site_settings: SiteSettings | None = None)
     return safe_email
 
 
-@shared_task
+@shared_task(name="common.tasks.scan_for_malware")
 def scan_for_malware(*, app: str, model: str, pk: str, field: str) -> None | dict[str, t.Any]:
     """Scan for malware."""
     if not settings.FEATURE_MALWARE_SCAN:
@@ -299,7 +299,7 @@ def _get_organization_owner(app: str, model: str, pk: str) -> RevelUser | None:
     return None
 
 
-@shared_task
+@shared_task(name="common.tasks.notify_malware_detected")
 def notify_malware_detected(
     *, app: str, model: str, pk: str, field: str, file_hash: str, findings: dict[str, t.Any]
 ) -> None:
@@ -399,7 +399,7 @@ def _notify_superusers_about_malware(
     )
 
 
-@shared_task
+@shared_task(name="common.tasks.cleanup_expired_file_exports")
 def cleanup_expired_file_exports() -> dict[str, int]:
     """Delete expired file exports (both files and database records).
 

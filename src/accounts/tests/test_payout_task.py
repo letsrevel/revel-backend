@@ -136,7 +136,7 @@ class TestPayoutPreflightChecks:
     """Test that payouts are skipped when pre-flight checks fail."""
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     def test_skips_when_stripe_charges_not_enabled(
         self,
         mock_transfer: MagicMock,
@@ -164,7 +164,7 @@ class TestPayoutPreflightChecks:
         assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     def test_skips_when_no_billing_profile(
         self,
         mock_transfer: MagicMock,
@@ -188,7 +188,7 @@ class TestPayoutPreflightChecks:
         assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     def test_skips_when_self_billing_not_agreed(
         self,
         mock_transfer: MagicMock,
@@ -214,7 +214,7 @@ class TestPayoutPreflightChecks:
         assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     def test_skips_when_billing_info_incomplete(
         self,
         mock_transfer: MagicMock,
@@ -238,7 +238,7 @@ class TestPayoutPreflightChecks:
         assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     def test_skips_when_below_minimum_threshold(
         self,
         mock_transfer: MagicMock,
@@ -269,7 +269,7 @@ class TestPayoutPreflightChecks:
         assert payout.status == ReferralPayout.ReferralPayoutStatus.CALCULATED
 
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     def test_only_processes_calculated_status(
         self,
         mock_transfer: MagicMock,
@@ -315,8 +315,8 @@ class TestPayoutPreflightChecks:
 class TestPayoutHappyPath:
     """Test the full happy-path payout flow."""
 
-    @patch("accounts.tasks._send_payout_statement_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     def test_creates_stripe_transfer_with_correct_params(
         self,
@@ -342,8 +342,8 @@ class TestPayoutHappyPath:
             idempotency_key=f"referral-payout-{calculated_payout.id}",
         )
 
-    @patch("accounts.tasks._send_payout_statement_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     def test_updates_payout_status_to_paid(
         self,
@@ -366,8 +366,8 @@ class TestPayoutHappyPath:
         assert stats["failed"] == 0
         assert stats["skipped"] == 0
 
-    @patch("accounts.tasks._send_payout_statement_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     def test_stores_stripe_transfer_id(
         self,
@@ -387,8 +387,8 @@ class TestPayoutHappyPath:
         calculated_payout.refresh_from_db()
         assert calculated_payout.stripe_transfer_id == "tr_test_123"
 
-    @patch("accounts.tasks._send_payout_statement_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     def test_generates_statement_after_successful_transfer(
         self,
@@ -410,8 +410,8 @@ class TestPayoutHappyPath:
         calculated_payout.refresh_from_db()
         assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.PAID
 
-    @patch("accounts.tasks._send_payout_statement_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     def test_sends_email_after_successful_transfer(
         self,
@@ -441,8 +441,8 @@ class TestPayoutHappyPath:
 class TestPayoutStripeError:
     """Test error handling when Stripe Transfer fails."""
 
-    @patch("accounts.tasks._send_payout_statement_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     def test_updates_status_to_failed_on_stripe_error(
         self,
@@ -462,8 +462,8 @@ class TestPayoutStripeError:
         calculated_payout.refresh_from_db()
         assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.FAILED
 
-    @patch("accounts.tasks._send_payout_statement_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     def test_stripe_error_continues_loop_and_records_failure(
         self,
@@ -484,8 +484,8 @@ class TestPayoutStripeError:
         calculated_payout.refresh_from_db()
         assert calculated_payout.status == ReferralPayout.ReferralPayoutStatus.FAILED
 
-    @patch("accounts.tasks._send_payout_statement_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     def test_no_statement_or_email_on_stripe_failure(
         self,
@@ -504,8 +504,8 @@ class TestPayoutStripeError:
         mock_gen_statement.assert_not_called()
         mock_send_email.assert_not_called()
 
-    @patch("accounts.tasks._send_payout_statement_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     def test_stripe_transfer_id_not_set_on_failure(
         self,
@@ -533,8 +533,8 @@ class TestPayoutStripeError:
 class TestPayoutEmailDispatch:
     """Test the email dispatch for payout statements."""
 
-    @patch("accounts.tasks.send_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts.send_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("common.service.invoice_utils.HTML")
     def test_email_sent_with_correct_from_email_and_reply_to(
         self,
@@ -559,8 +559,8 @@ class TestPayoutEmailDispatch:
         assert call_kwargs["from_email"] == settings.DEFAULT_BILLING_EMAIL
         assert call_kwargs["reply_to"] == [settings.DEFAULT_REPLY_TO_EMAIL]
 
-    @patch("accounts.tasks.send_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts.send_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("common.service.invoice_utils.HTML")
     def test_email_recipient_is_billing_email_when_set(
         self,
@@ -580,8 +580,8 @@ class TestPayoutEmailDispatch:
         call_kwargs = mock_send_email.call_args.kwargs
         assert call_kwargs["to"] == "billing@payout-referrer.at"
 
-    @patch("accounts.tasks.send_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts.send_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("common.service.invoice_utils.HTML")
     def test_email_recipient_falls_back_to_user_email(
         self,
@@ -604,8 +604,8 @@ class TestPayoutEmailDispatch:
         call_kwargs = mock_send_email.call_args.kwargs
         assert call_kwargs["to"] == referrer.email
 
-    @patch("accounts.tasks.send_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts.send_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("common.service.invoice_utils.HTML")
     def test_email_includes_bcc_from_site_settings(
         self,
@@ -625,8 +625,8 @@ class TestPayoutEmailDispatch:
         call_kwargs = mock_send_email.call_args.kwargs
         assert call_kwargs["bcc"] == ["accounting@revel.at"]
 
-    @patch("accounts.tasks.send_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts.send_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("common.service.invoice_utils.HTML")
     def test_email_no_bcc_when_site_settings_empty(
         self,
@@ -648,8 +648,8 @@ class TestPayoutEmailDispatch:
         call_kwargs = mock_send_email.call_args.kwargs
         assert call_kwargs["bcc"] == []
 
-    @patch("accounts.tasks.send_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts.send_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("common.service.invoice_utils.HTML")
     def test_email_includes_pdf_attachment(
         self,
@@ -680,8 +680,8 @@ class TestPayoutEmailDispatch:
 class TestPayoutReturnStats:
     """Test the stats dict returned by the task."""
 
-    @patch("accounts.tasks._send_payout_statement_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     def test_returns_correct_stats_on_success(
         self,
@@ -700,8 +700,8 @@ class TestPayoutReturnStats:
 
         assert stats == {"paid": 1, "failed": 0, "skipped": 0}
 
-    @patch("accounts.tasks._send_payout_statement_email")
-    @patch("accounts.tasks.stripe.Transfer.create")
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.tasks.payouts.stripe.Transfer.create")
     @patch("accounts.service.payout_statement_service.generate_payout_statement")
     def test_empty_stats_when_no_calculated_payouts(
         self,

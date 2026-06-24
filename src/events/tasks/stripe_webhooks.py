@@ -1,7 +1,8 @@
 """Celery tasks for Stripe webhook maintenance.
 
-Lives outside ``events/tasks.py`` (at the file-length limit); imported from
-:meth:`events.apps.EventsConfig.ready` so the worker registers the task.
+The task carries an explicit registered name (``events.prune_stripe_webhook_events``),
+so the Celery-beat schedule defined in migration 0079 — which references the task by
+name string — is unaffected.
 """
 
 from datetime import timedelta

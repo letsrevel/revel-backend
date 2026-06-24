@@ -69,7 +69,7 @@ def old_unverified_user_31d(django_user_model: type[RevelUser]) -> RevelUser:
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_early_reminder_24h_never_sent(
     mock_send_email: MagicMock,
     old_unverified_user_24h: RevelUser,
@@ -84,7 +84,7 @@ def test_send_early_reminder_24h_never_sent(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_early_reminder_24h_recently_sent(
     mock_send_email: MagicMock,
     old_unverified_user_24h: RevelUser,
@@ -101,7 +101,7 @@ def test_send_early_reminder_24h_recently_sent(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_early_reminder_24h_old_reminder(
     mock_send_email: MagicMock,
     old_unverified_user_24h: RevelUser,
@@ -118,7 +118,7 @@ def test_send_early_reminder_24h_old_reminder(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_early_reminder_3d_48h_passed(
     mock_send_email: MagicMock,
     old_unverified_user_4d: RevelUser,
@@ -135,7 +135,7 @@ def test_send_early_reminder_3d_48h_passed(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_early_reminder_3d_only_24h_passed(
     mock_send_email: MagicMock,
     old_unverified_user_4d: RevelUser,
@@ -152,7 +152,7 @@ def test_send_early_reminder_3d_only_24h_passed(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_early_reminder_7d_week_passed(
     mock_send_email: MagicMock,
     old_unverified_user_8d: RevelUser,
@@ -169,7 +169,7 @@ def test_send_early_reminder_7d_week_passed(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_early_reminder_skips_if_final_warning_sent(
     mock_send_email: MagicMock,
     old_unverified_user_24h: RevelUser,
@@ -185,7 +185,7 @@ def test_send_early_reminder_skips_if_final_warning_sent(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_early_reminder_skips_verified_users(
     mock_send_email: MagicMock,
     old_unverified_user_24h: RevelUser,
@@ -199,7 +199,7 @@ def test_send_early_reminder_skips_verified_users(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_early_reminder_skips_guest_users(
     mock_send_email: MagicMock,
     old_unverified_user_24h: RevelUser,
@@ -213,7 +213,7 @@ def test_send_early_reminder_skips_guest_users(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_early_reminder_skips_inactive_users(
     mock_send_email: MagicMock,
     old_unverified_user_24h: RevelUser,
@@ -230,7 +230,7 @@ def test_send_early_reminder_skips_inactive_users(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_final_warning_30d_old(
     mock_send_email: MagicMock,
     old_unverified_user_31d: RevelUser,
@@ -245,7 +245,7 @@ def test_send_final_warning_30d_old(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_final_warning_only_once(
     mock_send_email: MagicMock,
     old_unverified_user_31d: RevelUser,
@@ -262,7 +262,7 @@ def test_send_final_warning_only_once(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_send_final_warning_skips_verified_users(
     mock_send_email: MagicMock,
     old_unverified_user_31d: RevelUser,
@@ -279,7 +279,7 @@ def test_send_final_warning_skips_verified_users(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_deactivate_unverified_accounts(
     mock_send_email: MagicMock,
     old_unverified_user_31d: RevelUser,
@@ -303,7 +303,7 @@ def test_deactivate_unverified_accounts(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_deactivate_respects_grace_period(
     mock_send_email: MagicMock,
     old_unverified_user_31d: RevelUser,
@@ -324,7 +324,7 @@ def test_deactivate_respects_grace_period(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_deactivate_only_once(
     mock_send_email: MagicMock,
     old_unverified_user_31d: RevelUser,
@@ -345,7 +345,7 @@ def test_deactivate_only_once(
 
 
 @pytest.mark.django_db
-@patch("accounts.tasks.send_email.delay")
+@patch("accounts.tasks.verification_reminders.send_email.delay")
 def test_deactivate_skips_verified_users(
     mock_send_email: MagicMock,
     old_unverified_user_31d: RevelUser,
