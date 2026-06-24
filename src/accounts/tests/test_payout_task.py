@@ -802,6 +802,24 @@ class TestGenerateAndSendPayoutStatementTask:
         assert mock_gen_statement.call_args.args[0] == calculated_payout
         mock_send_email.assert_called_once_with(calculated_payout, statement_mock, referrer)
 
+    @patch("accounts.tasks.payouts._send_payout_statement_email")
+    @patch("accounts.service.payout_statement_service.generate_payout_statement")
+    def test_skips_non_paid_payout(
+        self,
+        mock_gen_statement: MagicMock,
+        mock_send_email: MagicMock,
+        calculated_payout: ReferralPayout,
+        billing_profile: UserBillingProfile,
+        site_settings: SiteSettings,
+    ) -> None:
+        """The task is a no-op for a non-PAID payout — no statement is generated, no email is sent."""
+        # calculated_payout is still CALCULATED — generating a statement here would
+        # issue a financial document for an unpaid payout.
+        generate_and_send_payout_statement(str(calculated_payout.id))
+
+        mock_gen_statement.assert_not_called()
+        mock_send_email.assert_not_called()
+
 
 class TestPayoutStatementBackstopSweep:
     """PAID payouts missing a statement are re-dispatched at the start of each run (issue #611)."""

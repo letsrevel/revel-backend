@@ -229,6 +229,13 @@ def generate_and_send_payout_statement(payout_id: str) -> None:
     payout = ReferralPayout.objects.select_related("referral__referrer__billing_profile", "referral__referrer").get(
         id=payout_id
     )
+    # Guard the financial-document invariant: this public task must never issue a
+    # statement for a payout that wasn't actually paid (e.g. a stale beat row or a
+    # manual dispatch handing it a CALCULATED/FAILED id). Callers only dispatch
+    # PAID payouts, so this is a fail-fast safety net, not an expected path.
+    if payout.status != ReferralPayout.ReferralPayoutStatus.PAID:
+        logger.warning("payout_statement_skipped_non_paid", payout_id=payout_id, status=payout.status)
+        return
     referrer = payout.referral.referrer
     statement = generate_payout_statement(payout)
     _send_payout_statement_email(payout, statement, referrer)
