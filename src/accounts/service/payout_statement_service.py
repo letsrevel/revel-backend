@@ -88,7 +88,6 @@ def generate_payout_statement(payout: ReferralPayout) -> ReferralPayoutStatement
     year = payout.period_start.year
 
     doc_type, vat = _determine_vat_treatment(payout, billing_profile, site)
-    is_b2b = doc_type == ReferralPayoutStatement.DocumentType.SELF_BILLING_INVOICE
 
     with transaction.atomic():
         document_number = _get_next_statement_number(year)
@@ -117,35 +116,7 @@ def generate_payout_statement(payout: ReferralPayout) -> ReferralPayoutStatement
         )
 
     # Generate PDF outside transaction (WeasyPrint is slow)
-    document_title = "GUTSCHRIFT" if is_b2b else "PAYOUT STATEMENT"
-    pdf_bytes = render_pdf(
-        "invoices/referral_payout_statement.html",
-        {
-            "document_title": document_title,
-            "document_number": document_number,
-            "issued_date": now.strftime("%Y-%m-%d"),
-            "period_start": payout.period_start.isoformat(),
-            "period_end": payout.period_end.isoformat(),
-            "period_label": payout.period_start.strftime("%B %Y"),
-            "currency": payout.currency,
-            # Platform
-            "platform_business_name": site.platform_business_name,
-            "platform_business_address": site.platform_business_address,
-            "platform_vat_id": site.platform_vat_id,
-            # Referrer
-            "referrer_name": statement.referrer_name,
-            "referrer_address": statement.referrer_address,
-            "referrer_vat_id": statement.referrer_vat_id,
-            # Amounts
-            "amount_net": vat.fee_net,
-            "amount_vat": vat.fee_vat,
-            "amount_gross": vat.fee_gross,
-            "vat_rate": vat.fee_vat_rate,
-            "reverse_charge": vat.reverse_charge,
-            "is_b2b": is_b2b,
-        },
-    )
-    statement.pdf_file.save(f"{document_number}.pdf", ContentFile(pdf_bytes), save=True)
+    _render_and_save_statement_pdf(statement)
 
     logger.info(
         "payout_statement_generated",
@@ -156,3 +127,55 @@ def generate_payout_statement(payout: ReferralPayout) -> ReferralPayoutStatement
         currency=payout.currency,
     )
     return statement
+
+
+def _render_and_save_statement_pdf(statement: ReferralPayoutStatement) -> None:
+    """Render the statement PDF from the persisted snapshot and attach it.
+
+    Sourced entirely from the statement row (+ its payout) so it can both finish
+    initial generation and self-heal a statement whose PDF was lost to a crash
+    between the row commit and the out-of-transaction save here.
+    """
+    payout = statement.payout
+    is_b2b = statement.document_type == ReferralPayoutStatement.DocumentType.SELF_BILLING_INVOICE
+    document_title = "GUTSCHRIFT" if is_b2b else "PAYOUT STATEMENT"
+    pdf_bytes = render_pdf(
+        "invoices/referral_payout_statement.html",
+        {
+            "document_title": document_title,
+            "document_number": statement.document_number,
+            "issued_date": statement.issued_at.strftime("%Y-%m-%d") if statement.issued_at else "",
+            "period_start": payout.period_start.isoformat(),
+            "period_end": payout.period_end.isoformat(),
+            "period_label": payout.period_start.strftime("%B %Y"),
+            "currency": statement.currency,
+            # Platform
+            "platform_business_name": statement.platform_business_name,
+            "platform_business_address": statement.platform_business_address,
+            "platform_vat_id": statement.platform_vat_id,
+            # Referrer
+            "referrer_name": statement.referrer_name,
+            "referrer_address": statement.referrer_address,
+            "referrer_vat_id": statement.referrer_vat_id,
+            # Amounts
+            "amount_net": statement.amount_net,
+            "amount_vat": statement.amount_vat,
+            "amount_gross": statement.amount_gross,
+            "vat_rate": statement.vat_rate,
+            "reverse_charge": statement.reverse_charge,
+            "is_b2b": is_b2b,
+        },
+    )
+    statement.pdf_file.save(f"{statement.document_number}.pdf", ContentFile(pdf_bytes), save=True)
+
+
+def ensure_payout_statement_pdf_exists(statement: ReferralPayoutStatement) -> None:
+    """Regenerate the statement PDF if it's missing (on-demand self-heal).
+
+    ``generate_payout_statement`` saves the PDF outside its creating transaction,
+    so a worker crash can leave an existing statement without one. The delivery
+    path calls this before sending so a lost document self-heals instead of being
+    emailed with no attachment (issue #616).
+    """
+    if not statement.pdf_file:
+        _render_and_save_statement_pdf(statement)

@@ -471,6 +471,41 @@ class TestSendInvoiceEmailTask:
         with pytest.raises(PlatformFeeInvoice.DoesNotExist):
             send_invoice_email_task(fake_id)
 
+    @patch("events.tasks.invoicing.send_email")
+    def test_marks_email_sent_on_success(
+        self,
+        mock_send_email: MagicMock,
+        sample_invoice: PlatformFeeInvoice,
+        site_settings: SiteSettings,
+    ) -> None:
+        """A successful send stamps email_sent_at so the backstop sweep skips it (#616)."""
+        assert sample_invoice.email_sent_at is None
+
+        send_invoice_email_task(str(sample_invoice.id))
+
+        sample_invoice.refresh_from_db()
+        assert sample_invoice.email_sent_at is not None
+
+    @patch("events.service.invoice_service._render_invoice_pdf", return_value=b"%PDF-fake")
+    @patch("events.tasks.invoicing.send_email")
+    def test_regenerates_missing_pdf_before_sending(
+        self,
+        mock_send_email: MagicMock,
+        mock_render: MagicMock,
+        sample_invoice_no_pdf: PlatformFeeInvoice,
+        site_settings: SiteSettings,
+    ) -> None:
+        """An ISSUED invoice that lost its PDF (crash after commit) self-heals on delivery (#616)."""
+        assert not sample_invoice_no_pdf.pdf_file
+
+        send_invoice_email_task(str(sample_invoice_no_pdf.id))
+
+        sample_invoice_no_pdf.refresh_from_db()
+        assert sample_invoice_no_pdf.pdf_file  # self-healed
+        mock_render.assert_called_once()
+        mock_send_email.assert_called_once()
+        assert sample_invoice_no_pdf.email_sent_at is not None
+
 
 # ===========================================================================
 # revalidate_vat_ids_task
@@ -644,3 +679,74 @@ class TestRevalidateSingleVatIdTask:
         invoice_org.refresh_from_db()
         assert invoice_org.vat_id_validated is False
         assert invoice_org.vies_request_identifier == "REVAL-INVALID"
+
+
+# ===========================================================================
+# redispatch_undelivered_invoices_task (delivery backstop, #616)
+# ===========================================================================
+
+
+class TestRedispatchUndeliveredInvoicesTask:
+    """The backstop re-dispatches financial documents whose email never delivered."""
+
+    @patch("events.tasks.invoicing.send_invoice_email_task.delay")
+    def test_redispatches_undelivered_platform_fee_invoice(
+        self,
+        mock_delay: MagicMock,
+        sample_invoice: PlatformFeeInvoice,
+    ) -> None:
+        """An ISSUED platform fee invoice with email_sent_at null is re-dispatched."""
+        from events.tasks import redispatch_undelivered_invoices_task
+
+        assert sample_invoice.email_sent_at is None
+
+        result = redispatch_undelivered_invoices_task()
+
+        mock_delay.assert_called_once_with(str(sample_invoice.id))
+        assert result["platform_fee_invoices"] == 1
+
+    @patch("events.tasks.invoicing.send_invoice_email_task.delay")
+    def test_skips_delivered_platform_fee_invoice(
+        self,
+        mock_delay: MagicMock,
+        sample_invoice: PlatformFeeInvoice,
+    ) -> None:
+        """A platform fee invoice already delivered (email_sent_at set) is left alone."""
+        from events.tasks import redispatch_undelivered_invoices_task
+
+        sample_invoice.mark_email_sent()
+
+        result = redispatch_undelivered_invoices_task()
+
+        mock_delay.assert_not_called()
+        assert result["platform_fee_invoices"] == 0
+
+    def test_mark_email_sent_is_idempotent(
+        self,
+        sample_invoice: PlatformFeeInvoice,
+    ) -> None:
+        """mark_email_sent is first-write-wins: a re-send never moves the recorded delivery time (#616)."""
+        sample_invoice.mark_email_sent()
+        first = sample_invoice.email_sent_at
+        assert first is not None
+
+        sample_invoice.mark_email_sent()
+        sample_invoice.refresh_from_db()
+        assert sample_invoice.email_sent_at == first
+
+    @patch("events.tasks.invoicing.send_invoice_email_task.delay")
+    def test_skips_draft_platform_fee_invoice(
+        self,
+        mock_delay: MagicMock,
+        sample_invoice_no_pdf: PlatformFeeInvoice,
+    ) -> None:
+        """A DRAFT invoice is never swept — only ISSUED documents are deliverable."""
+        from events.tasks import redispatch_undelivered_invoices_task
+
+        sample_invoice_no_pdf.status = PlatformFeeInvoice.InvoiceStatus.DRAFT
+        sample_invoice_no_pdf.save(update_fields=["status"])
+
+        result = redispatch_undelivered_invoices_task()
+
+        mock_delay.assert_not_called()
+        assert result["platform_fee_invoices"] == 0

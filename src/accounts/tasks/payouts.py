@@ -7,6 +7,7 @@ import structlog
 from celery import shared_task
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
@@ -49,15 +50,19 @@ def _redispatch_missing_statements() -> None:
 
     Covers the rare case where the in-loop dispatch failed (e.g. broker outage)
     or the retryable task exhausted its retries, leaving a PAID payout without a
-    statement — which reruns never revisit (they only scan ``CALCULATED``).
-    Idempotent: ``generate_payout_statement`` returns any existing statement, and
-    only payouts with no related statement are selected.
+    statement — or with a statement whose email delivery never succeeded
+    (``email_sent_at`` still null) — which reruns never revisit (they only scan
+    ``CALCULATED``). Without the delivery check, a send that exhausted its retries
+    would be silently dropped forever (issue #616).
+
+    Idempotent: ``generate_payout_statement`` returns any existing statement and
+    ``mark_email_sent`` is a no-op once set, so at worst a recipient gets a
+    duplicate email (at-least-once), never zero.
     """
     missing_ids = list(
-        ReferralPayout.objects.filter(
-            status=ReferralPayout.ReferralPayoutStatus.PAID,
-            statement__isnull=True,
-        ).values_list("id", flat=True)
+        ReferralPayout.objects.filter(status=ReferralPayout.ReferralPayoutStatus.PAID)
+        .filter(Q(statement__isnull=True) | Q(statement__email_sent_at__isnull=True))
+        .values_list("id", flat=True)
     )
     if not missing_ids:
         return
@@ -247,6 +252,13 @@ def _send_payout_statement_email(
     referrer: RevelUser,
 ) -> None:
     """Dispatch the payout statement PDF to the referrer via email."""
+    from accounts.service.payout_statement_service import ensure_payout_statement_pdf_exists
+
+    # Self-heal a PDF lost to a crash between the statement row commit and the
+    # out-of-transaction PDF save, so the backstop sweep never emails a statement
+    # with no attachment and then marks it delivered (issue #616).
+    ensure_payout_statement_pdf_exists(statement)
+
     billing_profile = getattr(referrer, "billing_profile", None)
     recipient = billing_profile.billing_email if billing_profile and billing_profile.billing_email else referrer.email
 
@@ -276,6 +288,8 @@ def _send_payout_statement_email(
         attachment_storage_path=statement.pdf_file.name,
         attachment_filename=f"{statement.document_number}.pdf",
     )
+
+    statement.mark_email_sent()
 
     logger.info(
         "payout_statement_email_sent",

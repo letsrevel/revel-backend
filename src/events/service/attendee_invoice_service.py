@@ -423,10 +423,17 @@ def _send_org_branded_email(
     body: str,
     attachment_path: str,
     attachment_filename: str,
-) -> None:
+) -> bool:
     """Send an email branded with the org's billing identity.
 
-    Resolves recipient, reply-to, and BCC from the invoice/org.
+    Resolves recipient, reply-to, and BCC from the invoice/org. Sent synchronously
+    (not ``.delay()``) so the calling retryable task owns retries and can record a
+    successful delivery only after the email actually went out (issue #616).
+
+    Returns:
+        ``True`` if the email was sent, ``False`` if there was no recipient (a
+        permanent failure — retrying won't help). An SMTP failure propagates so
+        the caller's Celery task retries.
     """
     from common.tasks import send_email
 
@@ -439,7 +446,7 @@ def _send_org_branded_email(
         to_email = invoice.user.email
     if not to_email:
         logger.warning("attendee_invoice_no_recipient", invoice_number=invoice.invoice_number)
-        return
+        return False
 
     reply_to_email = ""
     bcc_email = ""
@@ -447,7 +454,7 @@ def _send_org_branded_email(
         reply_to_email = org.billing_email or org.contact_email or ""
         bcc_email = org.billing_email or org.contact_email or ""
 
-    send_email.delay(
+    send_email(
         to=to_email,
         subject=subject,
         body=body,
@@ -459,22 +466,31 @@ def _send_org_branded_email(
     )
 
     logger.info("attendee_invoice_email_sent", subject=subject, invoice_number=invoice.invoice_number)
+    return True
 
 
 def deliver_attendee_invoice(invoice: AttendeeInvoice) -> None:
-    """Send the invoice PDF via email to the buyer."""
+    """Send the invoice PDF via email to the buyer.
+
+    Self-heals a missing PDF (regenerates on demand) so the recovery sweep can
+    recover a document that exhausted its delivery retries, whether it lost the
+    PDF or only the email (issue #616). Records the delivery on success.
+    """
+    ensure_pdf_exists(invoice)
     if not invoice.pdf_file:
         logger.warning("attendee_invoice_no_pdf", invoice_number=invoice.invoice_number)
         return
 
     event_name = invoice.event.name if invoice.event else "Event"
-    _send_org_branded_email(
+    sent = _send_org_branded_email(
         invoice=invoice,
         subject=f"Invoice {invoice.invoice_number} — {event_name}",
         body=f"Please find attached invoice {invoice.invoice_number} for your purchase at {event_name}.",
         attachment_path=invoice.pdf_file.name,
         attachment_filename=f"{invoice.invoice_number}.pdf",
     )
+    if sent:
+        invoice.mark_email_sent()
 
 
 # ---------------------------------------------------------------------------
@@ -605,14 +621,19 @@ def ensure_credit_note_pdf_exists(credit_note: AttendeeInvoiceCreditNote) -> Non
 
 
 def deliver_credit_note(credit_note: AttendeeInvoiceCreditNote) -> None:
-    """Send the credit note PDF via email."""
+    """Send the credit note PDF via email.
+
+    Self-heals a missing PDF and records the delivery on success so the recovery
+    sweep can recover an undelivered credit note (issue #616).
+    """
+    ensure_credit_note_pdf_exists(credit_note)
     invoice = credit_note.invoice
     if not credit_note.pdf_file:
         logger.warning("attendee_credit_note_no_pdf", credit_note_number=credit_note.credit_note_number)
         return
 
     event_name = invoice.event.name if invoice.event else "Event"
-    _send_org_branded_email(
+    sent = _send_org_branded_email(
         invoice=invoice,
         subject=f"Credit Note {credit_note.credit_note_number} — {event_name}",
         body=(
@@ -621,3 +642,5 @@ def deliver_credit_note(credit_note: AttendeeInvoiceCreditNote) -> None:
         attachment_path=credit_note.pdf_file.name,
         attachment_filename=f"{credit_note.credit_note_number}.pdf",
     )
+    if sent:
+        credit_note.mark_email_sent()

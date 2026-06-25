@@ -66,25 +66,11 @@ def _create_invoice(org: Organization, event: Event, user: RevelUser, *, issued:
 
 
 class TestDeliverAttendeeInvoice:
-    """Test invoice/credit note delivery edge cases."""
-
-    @patch(MOCK_SEND_EMAIL)
-    def test_no_pdf_skips_delivery(
-        self,
-        mock_email: t.Any,
-        organization: Organization,
-        event: Event,
-        member_user: RevelUser,
-    ) -> None:
-        """Invoice without PDF should log warning and skip email."""
-        inv = _create_invoice(organization, event, member_user)
-        assert not inv.pdf_file
-        deliver_attendee_invoice(inv)
-        mock_email.delay.assert_not_called()
+    """Test invoice/credit note delivery: self-healing PDF, sync send, delivery tracking (#616)."""
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     @patch(MOCK_SEND_EMAIL)
-    def test_no_recipient_skips_delivery(
+    def test_delivers_and_marks_email_sent(
         self,
         mock_email: t.Any,
         mock_pdf: t.Any,
@@ -92,26 +78,73 @@ class TestDeliverAttendeeInvoice:
         event: Event,
         member_user: RevelUser,
     ) -> None:
-        """Invoice with no buyer_email and no user email should skip email."""
+        """A successful delivery sends synchronously and stamps email_sent_at."""
+        inv = _create_invoice(organization, event, member_user)
+        ensure_pdf_exists(inv)
+        inv.refresh_from_db()
+        assert inv.email_sent_at is None
+
+        deliver_attendee_invoice(inv)
+
+        mock_email.assert_called_once()
+        inv.refresh_from_db()
+        assert inv.email_sent_at is not None
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_regenerates_pdf_when_missing_then_delivers(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """A missing PDF is regenerated before sending so the sweep can recover a lost document."""
+        inv = _create_invoice(organization, event, member_user)
+        assert not inv.pdf_file
+
+        deliver_attendee_invoice(inv)
+
+        inv.refresh_from_db()
+        assert inv.pdf_file  # self-healed
+        mock_email.assert_called_once()
+        assert inv.email_sent_at is not None
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_no_recipient_skips_delivery_and_does_not_mark(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """No recipient is a permanent failure: don't send, don't mark (so it isn't recorded as delivered)."""
         inv = _create_invoice(organization, event, member_user)
         inv.buyer_email = ""
         inv.save(update_fields=["buyer_email"])
         member_user.email = ""
         member_user.save(update_fields=["email"])
-        ensure_pdf_exists(inv)
-        inv.refresh_from_db()
-        deliver_attendee_invoice(inv)
-        mock_email.delay.assert_not_called()
 
+        deliver_attendee_invoice(inv)
+
+        mock_email.assert_not_called()
+        inv.refresh_from_db()
+        assert inv.email_sent_at is None
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     @patch(MOCK_SEND_EMAIL)
-    def test_credit_note_no_pdf_skips_delivery(
+    def test_credit_note_regenerates_pdf_then_delivers(
         self,
         mock_email: t.Any,
+        mock_pdf: t.Any,
         organization: Organization,
         event: Event,
         member_user: RevelUser,
     ) -> None:
-        """Credit note without PDF should log warning and skip email."""
+        """A credit note with no PDF is regenerated, sent, and marked delivered."""
         inv = _create_invoice(organization, event, member_user)
         cn = AttendeeInvoiceCreditNote.objects.create(
             invoice=inv,
@@ -123,8 +156,88 @@ class TestDeliverAttendeeInvoice:
             issued_at=timezone.now(),
         )
         assert not cn.pdf_file
+
         deliver_credit_note(cn)
-        mock_email.delay.assert_not_called()
+
+        cn.refresh_from_db()
+        assert cn.pdf_file  # self-healed
+        mock_email.assert_called_once()
+        assert cn.email_sent_at is not None
+
+
+# ---------------------------------------------------------------------------
+# redispatch_undelivered_invoices_task — attendee dimensions (#616)
+# ---------------------------------------------------------------------------
+
+
+class TestRedispatchUndeliveredAttendeeDocuments:
+    """The backstop re-dispatches ISSUED invoices / credit notes with email_sent_at null."""
+
+    @patch("events.tasks.invoicing.deliver_attendee_invoice_task.delay")
+    def test_redispatches_undelivered_issued_invoice(
+        self,
+        mock_delay: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """An ISSUED invoice that was never delivered is re-dispatched."""
+        from events.tasks import redispatch_undelivered_invoices_task
+
+        inv = _create_invoice(organization, event, member_user)
+        assert inv.email_sent_at is None
+
+        result = redispatch_undelivered_invoices_task()
+
+        mock_delay.assert_called_once_with(str(inv.id))
+        assert result["attendee_invoices"] == 1
+
+    @patch("events.tasks.invoicing.deliver_attendee_invoice_task.delay")
+    def test_skips_delivered_and_draft_invoices(
+        self,
+        mock_delay: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """A delivered invoice and a DRAFT invoice are both left alone by the sweep."""
+        from events.tasks import redispatch_undelivered_invoices_task
+
+        delivered = _create_invoice(organization, event, member_user)
+        delivered.mark_email_sent()
+        _create_invoice(organization, event, member_user, issued=False)  # DRAFT
+
+        result = redispatch_undelivered_invoices_task()
+
+        mock_delay.assert_not_called()
+        assert result["attendee_invoices"] == 0
+
+    @patch("events.tasks.invoicing.deliver_attendee_credit_note_task.delay")
+    def test_redispatches_undelivered_credit_note(
+        self,
+        mock_delay: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """A credit note that was never delivered is re-dispatched."""
+        from events.tasks import redispatch_undelivered_invoices_task
+
+        inv = _create_invoice(organization, event, member_user)
+        cn = AttendeeInvoiceCreditNote.objects.create(
+            invoice=inv,
+            credit_note_number="DLV-CN-SWEEP-1",
+            amount_gross=Decimal("100.00"),
+            amount_net=Decimal("81.97"),
+            amount_vat=Decimal("18.03"),
+            line_items=[],
+            issued_at=timezone.now(),
+        )
+
+        result = redispatch_undelivered_invoices_task()
+
+        mock_delay.assert_called_once_with(str(cn.id))
+        assert result["attendee_credit_notes"] == 1
 
 
 # ---------------------------------------------------------------------------

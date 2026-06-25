@@ -20,6 +20,41 @@ class TimeStampedModel(models.Model):
         super().save(*args, **kwargs)
 
 
+class EmailDeliverableMixin(models.Model):
+    """Mixin for financial documents (invoices, statements) delivered by email.
+
+    Persists a successful-delivery timestamp so a document whose email send
+    exhausts its Celery retries isn't silently lost: a recovery sweep can
+    re-select documents with ``email_sent_at`` still null and re-dispatch them.
+
+    Delivery is at-least-once by design — :meth:`mark_email_sent` is a no-op once
+    set, so re-sending after a partial failure never moves the recorded delivery
+    time. See issue #616.
+    """
+
+    email_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="When the document was successfully emailed to its recipient.",
+    )
+
+    class Meta:
+        abstract = True
+
+    def mark_email_sent(self) -> None:
+        """Record a successful email delivery (idempotent — first write wins)."""
+        if self.email_sent_at is not None:
+            return
+        from django.utils import timezone
+
+        self.email_sent_at = timezone.now()
+        update_fields = ["email_sent_at"]
+        if hasattr(self, "updated_at"):
+            update_fields.append("updated_at")
+        self.save(update_fields=update_fields)
+
+
 class StripeConnectMixin(models.Model):
     """Mixin for models that can connect a Stripe account (e.g., Organization, RevelUser).
 

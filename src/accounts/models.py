@@ -28,7 +28,7 @@ from common.fields import (
     ProtectedImageField,
     validate_image_file,
 )
-from common.models import ExifStripMixin, StripeConnectMixin, TimeStampedModel
+from common.models import EmailDeliverableMixin, ExifStripMixin, StripeConnectMixin, TimeStampedModel
 
 
 def profile_picture_upload_path(instance: "RevelUser", filename: str) -> str:
@@ -509,7 +509,7 @@ class ReferralPayout(TimeStampedModel):
         return f"{self.referral} | {self.period_start} | {self.payout_amount} {self.currency} ({self.status})"
 
 
-class ReferralPayoutStatement(TimeStampedModel):
+class ReferralPayoutStatement(EmailDeliverableMixin, TimeStampedModel):
     """PDF document for a referral payout (Gutschrift or payout statement).
 
     Either a self-billing invoice (Gutschrift, B2B with validated VAT ID)
