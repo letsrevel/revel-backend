@@ -10,7 +10,6 @@ from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.urls import reverse
-from django.utils import timezone
 from django.utils.html import format_html
 from unfold.admin import TabularInline
 from unfold.widgets import CHECKBOX_CLASSES
@@ -74,13 +73,9 @@ class EmailDeliveryAdminMixin:
     def retry_delivery(self, request: HttpRequest, queryset: QuerySet[t.Any]) -> None:
         count = 0
         for obj in queryset.filter(email_delivery_failed_at__isnull=False):
-            values: dict[str, t.Any] = {"email_delivery_failed_at": None, "email_delivery_error": ""}
-            if hasattr(obj, "updated_at"):
-                values["updated_at"] = timezone.now()
-            # QuerySet.update() bypasses full_clean so an org_deleted document (null but
-            # non-blank org FK) can be cleared without tripping validation, mirroring
-            # mark_email_undeliverable.
-            type(obj)._base_manager.filter(pk=obj.pk).update(**values)
+            # clear_email_undeliverable() uses _base_manager.update() (no full_clean), so an
+            # org_deleted document's null org FK doesn't block the clear.
+            obj.clear_email_undeliverable()
             # Dispatch only after the surrounding ATOMIC_REQUESTS transaction commits, so the
             # worker can't read the still-flagged row before the cleared state lands.
             transaction.on_commit(functools.partial(self._redeliver, obj))

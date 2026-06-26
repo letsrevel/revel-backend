@@ -382,6 +382,30 @@ class TestEmailDeliverableMixinTerminalState:
         assert refreshed.email_delivery_failed_at is None
         assert refreshed.email_delivery_error == ""
 
+    def test_undeliverable_loses_to_concurrent_sent(
+        self,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """A stale mark_email_undeliverable can't clobber a row another worker already sent.
+
+        Simulates the race: a second worker holds an in-memory snapshot with both fields
+        null (so the cheap guard passes), but the row was marked sent in between. The
+        DB-side compare-and-set must lose, leaving only email_sent_at set.
+        """
+        inv = _create_invoice(organization, event, member_user)
+        stale = AttendeeInvoice.objects.get(pk=inv.pk)  # snapshot before the send
+
+        inv.mark_email_sent()  # another worker delivers and records it
+
+        stale.mark_email_undeliverable(AttendeeInvoice.DeliveryFailureReason.NO_RECIPIENT)
+
+        refreshed = AttendeeInvoice.objects.get(pk=inv.pk)
+        assert refreshed.email_sent_at is not None
+        assert refreshed.email_delivery_failed_at is None
+        assert refreshed.email_delivery_error == ""
+
 
 # ---------------------------------------------------------------------------
 # _sanitize_org_slug
