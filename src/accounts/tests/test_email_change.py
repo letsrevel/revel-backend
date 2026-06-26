@@ -70,6 +70,8 @@ class TestRequestEmailChange:
             user=user, new_email="new@example.com", password="strong-password-123!"
         )
         assert token
+        # Exactly the confirmation + notice emails — no extra/unrelated dispatch.
+        assert mock_send.call_count == 2
         conf_call = _call_for(mock_send, AccountEmail.CHANGE_CONFIRMATION)
         assert conf_call.args == (AccountEmail.CHANGE_CONFIRMATION, "new@example.com")
         assert conf_call.kwargs == {"token": token}
@@ -179,6 +181,8 @@ class TestConfirmEmailChange:
         assert result.email == "new@example.com"
         assert result.username == "new@example.com"
         assert result.email_verified is True
+        # Exactly the completed-old + completed-new emails — no extra/unrelated dispatch.
+        assert mock_send.call_count == 2
         expected_context = {"old_email": old_email, "new_email": "new@example.com"}
         old_call = _call_for(mock_send, AccountEmail.CHANGE_COMPLETED_OLD)
         assert old_call.args == (AccountEmail.CHANGE_COMPLETED_OLD, old_email)

@@ -48,6 +48,8 @@ class _Config:
             ``frontend_base_url`` to build the action link. ``None`` for the informational
             emails that carry no link.
         link_context_key: Context key the body templates use for the built link.
+        required_context_keys: Caller-supplied context keys the templates require — validated
+            up front so a bad dispatch fails fast instead of rendering a partial email.
         include_frontend_base_url: Whether the body templates reference ``frontend_base_url``.
         subject_includes_site_name: Whether the subject template references ``site_name``
             (taken from the current ``Site``).
@@ -56,6 +58,7 @@ class _Config:
     template_base: str
     link_path: str | None = None
     link_context_key: str | None = None
+    required_context_keys: tuple[str, ...] = ()
     include_frontend_base_url: bool = False
     subject_includes_site_name: bool = False
 
@@ -84,14 +87,17 @@ _CONFIGS: dict[AccountEmail, _Config] = {
     ),
     AccountEmail.CHANGE_NOTICE: _Config(
         template_base="email_change_notice",
+        required_context_keys=("masked_new_email",),
         include_frontend_base_url=True,
     ),
     AccountEmail.CHANGE_COMPLETED_OLD: _Config(
         template_base="email_change_completed_old",
+        required_context_keys=("old_email", "new_email"),
         include_frontend_base_url=True,
     ),
     AccountEmail.CHANGE_COMPLETED_NEW: _Config(
         template_base="email_change_completed_new",
+        required_context_keys=("old_email", "new_email"),
         include_frontend_base_url=True,
     ),
     AccountEmail.DELETION: _Config(
@@ -125,13 +131,17 @@ def send_account_email(
             ``{"old_email": ..., "new_email": ...}`` for the change-completed emails.
 
     Raises:
-        ValueError: If a link-bearing email type is dispatched without a token.
+        ValueError: If a link-bearing email type is dispatched without a token, or a message
+            type is dispatched without its required context keys.
     """
     config = _CONFIGS[AccountEmail(email_type)]
     logger.info("account_email_sending", email_type=email_type, to=to)
 
     site_settings = SiteSettings.get_solo()
     body_context: dict[str, str] = dict(context or {})
+    missing_keys = [key for key in config.required_context_keys if key not in body_context]
+    if missing_keys:
+        raise ValueError(f"{email_type} email requires context keys: {', '.join(missing_keys)}")
     if config.link_path is not None:
         if token is None:
             raise ValueError(f"{email_type} email requires a token")

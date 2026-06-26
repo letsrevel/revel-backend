@@ -163,6 +163,14 @@ def test_link_email_without_token_raises(mock_send: MagicMock) -> None:
     mock_send.assert_not_called()
 
 
+@patch("accounts.tasks.email.send_email")
+def test_missing_required_context_raises(mock_send: MagicMock) -> None:
+    """A message dispatched without its required context keys fails fast, not with a partial render."""
+    with pytest.raises(ValueError, match="requires context keys: old_email, new_email"):
+        send_account_email(AccountEmail.CHANGE_COMPLETED_OLD, "old@example.com")
+    mock_send.assert_not_called()
+
+
 def test_email_type_accepts_raw_string_value() -> None:
     """Celery serialises the StrEnum to its value; the task must accept the round-tripped string."""
     assert AccountEmail("verification") is AccountEmail.VERIFICATION
