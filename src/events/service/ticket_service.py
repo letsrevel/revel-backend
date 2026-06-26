@@ -744,7 +744,7 @@ OFFLINE_PAID_STATUSES: dict[str, tuple[Ticket.TicketStatus, ...]] = {
 }
 
 
-def _offline_paid_q() -> Q:
+def offline_paid_q() -> Q:
     """Q matching offline/at-the-door tickets in a paid state (see ``OFFLINE_PAID_STATUSES``)."""
     q = Q()
     for method, statuses in OFFLINE_PAID_STATUSES.items():

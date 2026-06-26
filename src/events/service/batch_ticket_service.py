@@ -16,7 +16,7 @@ from events.models.discount_code import DiscountCode
 from events.schema import TicketPurchaseItem
 from events.tasks import build_attendee_visibility_flags
 from notifications.signals.ticket import send_batch_ticket_created_notifications
-from notifications.signals.waitlist import _remove_user_from_waitlist
+from notifications.signals.waitlist import remove_user_from_waitlist
 
 if t.TYPE_CHECKING:
     from events.schema.ticket import BuyerBillingInfoSchema
@@ -685,7 +685,7 @@ class BatchTicketService:
             send_batch_ticket_created_notifications(tickets)
 
             # Remove user from waitlist (once per batch)
-            _remove_user_from_waitlist(self.event.id, self.user.id)
+            remove_user_from_waitlist(self.event.id, self.user.id)
 
         transaction.on_commit(on_commit)
 

@@ -135,7 +135,7 @@ def _check_and_notify_waitlist(event_id: t.Any, old_count: int | None = None) ->
                 _notify_waitlist(event, spots_available)
 
 
-def _remove_user_from_waitlist(event_id: t.Any, user_id: t.Any) -> None:
+def remove_user_from_waitlist(event_id: t.Any, user_id: t.Any) -> None:
     """Remove a user from event waitlist.
 
     Args:
@@ -192,7 +192,7 @@ def handle_ticket_waitlist_logic(sender: type[Ticket], instance: Ticket, created
                 should_remove = True
 
         if should_remove:
-            _remove_user_from_waitlist(instance.event_id, instance.user_id)
+            remove_user_from_waitlist(instance.event_id, instance.user_id)
 
         # Check if we should notify waitlist (when count decreases and event was full)
         if hasattr(instance, "_old_attendee_count") and instance.status == Ticket.TicketStatus.CANCELLED:
@@ -240,7 +240,7 @@ def handle_rsvp_waitlist_logic(sender: type[EventRSVP], instance: EventRSVP, cre
     def process_waitlist() -> None:
         # Remove from waitlist if RSVP is YES or NO (MAYBE users stay on waitlist)
         if instance.status in (EventRSVP.RsvpStatus.YES, EventRSVP.RsvpStatus.NO):
-            _remove_user_from_waitlist(instance.event_id, instance.user_id)
+            remove_user_from_waitlist(instance.event_id, instance.user_id)
 
         # Check if we should notify waitlist (when YES changes to NO/MAYBE and event was full)
         if hasattr(instance, "_old_attendee_count") and hasattr(instance, "_old_rsvp_status"):

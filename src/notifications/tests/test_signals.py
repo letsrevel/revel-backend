@@ -276,7 +276,7 @@ class TestEventCancelledNotificationReason:
             patch.object(
                 event_signals, "get_eligible_users_for_event_notification", return_value=self._build_eligible(user)
             ),
-            patch.object(event_signals, "_get_event_location_for_user", return_value=("Somewhere", None)),
+            patch.object(event_signals, "get_event_location_for_user", return_value=("Somewhere", None)),
             patch("notifications.signals.event.notification_requested.send") as send_mock,
             django_capture_on_commit_callbacks(execute=True),
         ):
@@ -301,7 +301,7 @@ class TestEventCancelledNotificationReason:
             patch.object(
                 event_signals, "get_eligible_users_for_event_notification", return_value=self._build_eligible(user)
             ),
-            patch.object(event_signals, "_get_event_location_for_user", return_value=("Somewhere", None)),
+            patch.object(event_signals, "get_event_location_for_user", return_value=("Somewhere", None)),
             patch("notifications.signals.event.notification_requested.send") as send_mock,
             django_capture_on_commit_callbacks(execute=True),
         ):
@@ -334,7 +334,7 @@ class TestEventCancelledNotificationReason:
             patch.object(
                 event_signals, "get_eligible_users_for_event_notification", return_value=self._build_eligible(user)
             ),
-            patch.object(event_signals, "_get_event_location_for_user", return_value=("Somewhere", None)),
+            patch.object(event_signals, "get_event_location_for_user", return_value=("Somewhere", None)),
             # Avoid actually dispatching; we only care that the row validates + persists.
             patch("notifications.tasks.dispatch_notification.delay"),
             django_capture_on_commit_callbacks(execute=True),

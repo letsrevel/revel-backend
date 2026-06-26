@@ -10,7 +10,7 @@ from events import schema
 from events.exceptions import RevenueReportCadenceOwnerOnlyError
 from events.models import Organization
 from events.service.organization_service.contact import (
-    _create_and_send_contact_email_verification,
+    create_and_send_contact_email_verification,
     validate_contact_method,
 )
 from events.utils.reserved_slug_tokens import find_reserved_token
@@ -86,7 +86,7 @@ def create_organization(
 
     # Send verification email if contact email is not auto-verified
     if not contact_email_verified:
-        _create_and_send_contact_email_verification(organization, contact_email, owner)
+        create_and_send_contact_email_verification(organization, contact_email, owner)
 
     return organization
 

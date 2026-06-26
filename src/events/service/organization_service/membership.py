@@ -17,6 +17,10 @@ from events.models import (
     OrganizationStaff,
     PermissionsSchema,
 )
+
+# Intentional cross-module use of a private helper: the name is pinned by
+# events/migrations/0001_initial.py (referenced as a field `default=`), so it
+# cannot be renamed without breaking historical migrations.
 from events.models.organization import _get_default_permissions
 from events.service import blacklist_service
 from notifications.enums import NotificationType

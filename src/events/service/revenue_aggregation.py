@@ -271,9 +271,9 @@ def _online_payments(scope: ReportScope) -> QuerySet[Payment]:
 
 
 def _offline_tickets(scope: ReportScope) -> QuerySet[Ticket]:
-    from events.service.ticket_service import _offline_paid_q  # private but stable
+    from events.service.ticket_service import offline_paid_q
 
-    offline_paid = _offline_paid_q()
+    offline_paid = offline_paid_q()
     qs = Ticket.objects.select_related("event", "tier").filter(
         Q(offline_paid) | Q(status=Ticket.TicketStatus.CANCELLED, offline_refund_amount__isnull=False),
         event__organization=scope.org,

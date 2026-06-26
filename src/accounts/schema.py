@@ -186,7 +186,7 @@ class VerifyEmailSchema(Schema):
     token: str
 
 
-class _BaseEmailJWTPayloadSchema(Schema):
+class BaseEmailJWTPayloadSchema(Schema):
     user_id: UUID4
     email: EmailStr
     exp: datetime.datetime
@@ -195,26 +195,27 @@ class _BaseEmailJWTPayloadSchema(Schema):
 
     @field_serializer("exp")
     def serialize_exp(self, value: datetime.datetime) -> int:
+        """Serialize the expiry datetime to a Unix timestamp."""
         return int(value.timestamp())
 
 
-class VerifyEmailJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+class VerifyEmailJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     type: t.Literal["email_verification"] = "email_verification"
 
 
-class PasswordResetJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+class PasswordResetJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     type: t.Literal["password_reset"] = "password_reset"
 
 
-class DeleteAccountJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+class DeleteAccountJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     type: t.Literal["delete_account"] = "delete_account"
 
 
-class UnsubscribeJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+class UnsubscribeJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     type: t.Literal["unsubscribe"] = "unsubscribe"
 
 
-class EmailChangeJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+class EmailChangeJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     new_email: EmailStr
     type: t.Literal["email_change"] = "email_change"
 

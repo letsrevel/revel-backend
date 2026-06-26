@@ -182,7 +182,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 preview = true
 
 fixable = ["A", "B", "C", "D", "E", "F", "G", "I", "N", "Q", "S", "T", "W", "ANN", "ARG", "BLE", "COM", "DJ", "DTZ", "EM", "ERA", "EXE", "FBT", "ICN", "INP", "ISC", "NPY", "PD", "PGH", "PIE", "PL", "PT", "PTH", "PYI", "RET", "RSE", "RUF", "SIM", "SLF", "TCH", "TID", "TRY", "UP", "YTT"]
-select = ["C", "D", "E", "F", "I", "PLR1702", "T201", "W"]
+select = ["C", "D", "E", "F", "I", "PLC2701", "PLR1702", "RUF022", "T201", "W"]
 extend-select = ["I", "W", "E", "D"]
 ignore = ["D100", "D101", "D104", "D105", "D106"]
 unfixable = []

@@ -35,30 +35,23 @@ from events.service.tokens import (
 )
 
 __all__ = [
-    # calendar_utils
+    "SLUG_ALREADY_EXISTS_MESSAGE",
+    "SlugAlreadyExistsError",
+    "approve_invitation_request",
     "calculate_calendar_date_range",
-    "order_by_distance",
-    # tokens
+    "claim_invitation",
     "create_event_token",
-    "update_event_token",
+    "create_invitation_request",
+    "duplicate_event",
+    "get_event_dietary_summary",
+    "get_event_pronoun_distribution",
     "get_event_token",
     "get_token_rejection_reason",
-    "claim_invitation",
-    # invitations
-    "create_invitation_request",
-    "approve_invitation_request",
+    "order_by_distance",
     "reject_invitation_request",
-    # dietary
-    "get_event_dietary_summary",
-    # pronouns
-    "get_event_pronoun_distribution",
-    # duplication
-    "duplicate_event",
-    # event_update_service
     "update_event",
     "update_event_schedule",
-    "update_status",
+    "update_event_token",
     "update_slug",
-    "SlugAlreadyExistsError",
-    "SLUG_ALREADY_EXISTS_MESSAGE",
+    "update_status",
 ]

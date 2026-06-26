@@ -13,7 +13,7 @@ from common.models import SiteSettings
 from events.models import Event, EventRSVP, Ticket
 from notifications.enums import NotificationType
 from notifications.models import Notification
-from notifications.service.notification_helpers import _get_event_location_for_user, format_event_datetime
+from notifications.service.notification_helpers import format_event_datetime, get_event_location_for_user
 from notifications.signals import notification_requested
 
 logger = structlog.get_logger(__name__)
@@ -135,7 +135,7 @@ class EventReminderService:
         Returns:
             Context dict with location info added if user can see address
         """
-        event_location, address_url = _get_event_location_for_user(event, user)
+        event_location, address_url = get_event_location_for_user(event, user)
         user_context = {**context, "event_location": event_location}
         if address_url:
             user_context["address_url"] = address_url

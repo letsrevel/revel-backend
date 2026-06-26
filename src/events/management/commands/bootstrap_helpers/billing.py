@@ -14,8 +14,8 @@ from accounts.service.payout_statement_service import generate_payout_statement
 from common.models import SiteSettings
 from events import models as events_models
 from events.service.invoice_service import (
-    _render_invoice_pdf,
     generate_invoices_for_period,
+    render_invoice_pdf,
 )
 from events.service.referral_payout_service import calculate_payouts_for_period
 from events.service.vat_service import calculate_platform_fee_vat, calculate_vat_inclusive, get_effective_vat_rate
@@ -218,7 +218,7 @@ def create_payments_and_invoice(state: BootstrapState) -> None:
         # If PDF wasn't generated (e.g. WeasyPrint not available), try rendering it
         if not invoice.pdf_file:
             try:
-                pdf_bytes = _render_invoice_pdf(invoice)
+                pdf_bytes = render_invoice_pdf(invoice)
                 invoice.pdf_file.save(
                     f"{invoice.invoice_number}.pdf",
                     ContentFile(pdf_bytes),
