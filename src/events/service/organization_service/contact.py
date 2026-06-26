@@ -14,7 +14,7 @@ from events import schema, tasks
 from events.models import Organization, OrganizationContactMessage
 
 
-def _create_and_send_contact_email_verification(
+def create_and_send_contact_email_verification(
     organization: Organization,
     email: str,
     user: RevelUser,
@@ -89,7 +89,7 @@ def update_contact_email(organization: Organization, new_email: str, requester: 
     organization.save(update_fields=["contact_email", "contact_email_verified", "contact_method"])
 
     # Create verification token and send email
-    return _create_and_send_contact_email_verification(organization, new_email, requester)
+    return create_and_send_contact_email_verification(organization, new_email, requester)
 
 
 def create_contact_message(

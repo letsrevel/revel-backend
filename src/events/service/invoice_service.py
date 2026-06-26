@@ -44,7 +44,7 @@ def _get_next_credit_note_number(year: int) -> str:
     return get_next_sequential_number(PlatformFeeCreditNote, "RVL-CN-", year, "credit_note_number")
 
 
-def _render_invoice_pdf(invoice: PlatformFeeInvoice) -> bytes:
+def render_invoice_pdf(invoice: PlatformFeeInvoice) -> bytes:
     """Render an invoice as a PDF using WeasyPrint."""
     return render_pdf(
         "invoices/platform_fee_invoice.html",
@@ -81,7 +81,7 @@ def ensure_invoice_pdf_exists(invoice: PlatformFeeInvoice) -> None:
     """
     if invoice.pdf_file:
         return
-    pdf_bytes = _render_invoice_pdf(invoice)
+    pdf_bytes = render_invoice_pdf(invoice)
     invoice.pdf_file.save(f"{invoice.invoice_number}.pdf", ContentFile(pdf_bytes), save=True)
 
 
@@ -178,7 +178,7 @@ def _create_org_invoice(
         return None
 
     # Generate and attach PDF outside transaction (WeasyPrint is slow)
-    pdf_bytes = _render_invoice_pdf(invoice)
+    pdf_bytes = render_invoice_pdf(invoice)
     invoice.pdf_file.save(
         f"{invoice_number}.pdf",
         ContentFile(pdf_bytes),

@@ -7,6 +7,7 @@ import path (and ``organization_service.<name>`` access) keeps working.
 """
 
 from events.service.organization_service.contact import (
+    create_and_send_contact_email_verification,
     create_contact_message,
     update_contact_email,
     validate_contact_method,
@@ -52,6 +53,7 @@ __all__ = [
     "add_staff",
     "approve_membership_request",
     "claim_invitation",
+    "create_and_send_contact_email_verification",
     "create_contact_message",
     "create_membership_request",
     "create_organization",

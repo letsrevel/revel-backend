@@ -9,11 +9,26 @@ import typing as t
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-__all__ = ["suppress_default_tier_creation", "suppress_event_notifications"]
+__all__ = [
+    "is_default_tier_creation_suppressed",
+    "is_event_notifications_suppressed",
+    "suppress_default_tier_creation",
+    "suppress_event_notifications",
+]
 
 _suppress_default_tier_creation: ContextVar[bool] = ContextVar("_suppress_default_tier_creation", default=False)
 
 _suppress_event_notifications: ContextVar[bool] = ContextVar("_suppress_event_notifications", default=False)
+
+
+def is_default_tier_creation_suppressed() -> bool:
+    """Return whether default ticket-tier creation is suppressed in this context."""
+    return _suppress_default_tier_creation.get()
+
+
+def is_event_notifications_suppressed() -> bool:
+    """Return whether event notifications are suppressed in this context."""
+    return _suppress_event_notifications.get()
 
 
 @contextmanager

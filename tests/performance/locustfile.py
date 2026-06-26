@@ -108,12 +108,12 @@ from scenarios.ticket_scenarios import FreeTicketUser, PWYCTicketUser  # noqa: E
 #       --class RSVPUser --class FreeTicketUser
 
 __all__ = [
-    "ExistingUserLogin",
-    "NewUserRegistration",
-    "EventBrowser",
     "DashboardUser",
-    "RSVPUser",
+    "EventBrowser",
+    "ExistingUserLogin",
     "FreeTicketUser",
+    "NewUserRegistration",
     "PWYCTicketUser",
     "QuestionnaireUser",
+    "RSVPUser",
 ]

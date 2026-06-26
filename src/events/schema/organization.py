@@ -7,7 +7,7 @@ from uuid import UUID
 from ninja import ModelSchema, Schema
 from pydantic import UUID4, AwareDatetime, EmailStr, Field, StringConstraints, model_validator
 
-from accounts.schema import MemberUserSchema, MinimalRevelUserSchema, _BaseEmailJWTPayloadSchema
+from accounts.schema import BaseEmailJWTPayloadSchema, MemberUserSchema, MinimalRevelUserSchema
 from common.schema import BillingInfoSchemaMixin, OneToOneFiftyString, StrippedString, VATIdUpdateBaseSchema
 from events import models
 from events.models import (
@@ -37,7 +37,7 @@ class OrganizationCreateSchema(CityEditMixin):
     contact_email: EmailStr
 
 
-class VerifyOrganizationContactEmailJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+class VerifyOrganizationContactEmailJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     """JWT payload schema for organization contact email verification."""
 
     type: t.Literal["org_contact_email_verification"] = "org_contact_email_verification"

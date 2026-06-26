@@ -45,15 +45,15 @@ from django.conf import settings
 from django.db.models.fields.files import FieldFile
 
 __all__ = [
-    "PROTECTED_PATH_PREFIX",
     "DEFAULT_EXPIRES_IN",
-    "generate_signature",
-    "verify_signature",
-    "generate_signed_url",
-    "is_protected_path",
-    "get_file_url",
-    "parse_signed_url_params",
+    "PROTECTED_PATH_PREFIX",
     "SignedURLParams",
+    "generate_signature",
+    "generate_signed_url",
+    "get_file_url",
+    "is_protected_path",
+    "parse_signed_url_params",
+    "verify_signature",
 ]
 
 # Signature length in hex characters (64 bits = 16 hex chars)

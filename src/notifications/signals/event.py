@@ -13,8 +13,8 @@ from events.models import Event
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_eligible_users_for_event_notification
 from notifications.service.notification_helpers import (
-    _get_event_location_for_user,
     format_event_datetime,
+    get_event_location_for_user,
     notify_event_opened,
 )
 from notifications.signals import notification_requested
@@ -48,7 +48,7 @@ def _handle_event_cancelled(sender: type[Event], instance: Event) -> None:
 
         for user in eligible_users:
             # Check address visibility per user
-            event_location, address_url = _get_event_location_for_user(instance, user)
+            event_location, address_url = get_event_location_for_user(instance, user)
 
             context: dict[str, t.Any] = {
                 "event_id": str(instance.id),
@@ -108,7 +108,7 @@ def _handle_event_updated(
 
         for user in eligible_users:
             # Check address visibility per user
-            event_location, address_url = _get_event_location_for_user(instance, user)
+            event_location, address_url = get_event_location_for_user(instance, user)
 
             # Redact address/city from the change diff for users who cannot see the address,
             # mirroring the per-user gating already applied to event_location. address_visibility
@@ -223,9 +223,9 @@ def _detect_field_changes(
 @receiver(pre_save, sender=Event)
 def capture_event_state(sender: type[Event], instance: Event, **kwargs: t.Any) -> None:
     """Capture event state before save to detect changes."""
-    from events.suppression import _suppress_event_notifications
+    from events.suppression import is_event_notifications_suppressed
 
-    if _suppress_event_notifications.get():
+    if is_event_notifications_suppressed():
         return
 
     if instance.pk:
@@ -252,9 +252,9 @@ def handle_event_notification(sender: type[Event], instance: Event, created: boo
     - EVENT_CANCELLED: When event status changes to DELETED
     - EVENT_UPDATED: When important fields change
     """
-    from events.suppression import _suppress_event_notifications
+    from events.suppression import is_event_notifications_suppressed
 
-    if _suppress_event_notifications.get():
+    if is_event_notifications_suppressed():
         return
 
     # Get previous state

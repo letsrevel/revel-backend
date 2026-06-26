@@ -492,7 +492,7 @@ class TestSendInvoiceEmailTask:
         sample_invoice.refresh_from_db()
         assert sample_invoice.email_sent_at is not None
 
-    @patch("events.service.invoice_service._render_invoice_pdf", return_value=b"%PDF-fake")
+    @patch("events.service.invoice_service.render_invoice_pdf", return_value=b"%PDF-fake")
     @patch("events.tasks.invoicing.send_email")
     def test_regenerates_missing_pdf_before_sending(
         self,

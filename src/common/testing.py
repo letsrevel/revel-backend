@@ -64,11 +64,11 @@ def get_header_name(token_type: str) -> str:
 
 
 __all__: t.Sequence[str] = [
-    "store_test_token",
-    "get_and_clear_test_tokens",
-    "get_header_name",
-    "TOKEN_TYPE_VERIFICATION",
-    "TOKEN_TYPE_PASSWORD_RESET",
     "TOKEN_TYPE_DELETION",
     "TOKEN_TYPE_EMAIL_CHANGE",
+    "TOKEN_TYPE_PASSWORD_RESET",
+    "TOKEN_TYPE_VERIFICATION",
+    "get_and_clear_test_tokens",
+    "get_header_name",
+    "store_test_token",
 ]

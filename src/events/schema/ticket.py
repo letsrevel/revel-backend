@@ -7,7 +7,7 @@ from uuid import UUID
 from ninja import ModelSchema, Schema
 from pydantic import UUID4, AwareDatetime, EmailStr, Field, field_validator, model_validator
 
-from accounts.schema import MemberUserSchema, MinimalRevelUserSchema, _BaseEmailJWTPayloadSchema
+from accounts.schema import BaseEmailJWTPayloadSchema, MemberUserSchema, MinimalRevelUserSchema
 from common.schema import OneToOneFiftyString, StrippedString, validate_country_code
 from common.signing import get_file_url
 from events import models
@@ -680,7 +680,7 @@ class GuestActionConfirmSchema(Schema):
 # ---- Guest JWT Payload Schemas (for email confirmation tokens) ----
 
 
-class GuestRSVPJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+class GuestRSVPJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     """JWT payload for guest RSVP confirmation."""
 
     type: t.Literal["guest_rsvp"] = "guest_rsvp"
@@ -695,7 +695,7 @@ class GuestTicketItemPayload(Schema):
     seat_id: UUID4 | None = None
 
 
-class GuestTicketJWTPayloadSchema(_BaseEmailJWTPayloadSchema):
+class GuestTicketJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     """JWT payload for guest ticket purchase confirmation.
 
     Only used for non-online-payment tickets (free/offline/at-the-door).

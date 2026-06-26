@@ -49,9 +49,9 @@ logger = structlog.get_logger(__name__)
 @receiver(post_save, sender=Event)
 def handle_event_save(sender: type[Event], instance: Event, created: bool, **kwargs: t.Any) -> None:
     """Handle event creation and updates."""
-    from events.suppression import _suppress_default_tier_creation
+    from events.suppression import is_default_tier_creation_suppressed
 
-    if _suppress_default_tier_creation.get():
+    if is_default_tier_creation_suppressed():
         return
 
     # Create default ticket tier if needed
@@ -333,9 +333,9 @@ def capture_event_old_status(sender: type[Event], instance: Event, **kwargs: t.A
     This allows us to reliably detect when an event's status changes to OPEN,
     regardless of whether save() is called with or without update_fields.
     """
-    from events.suppression import _suppress_event_notifications
+    from events.suppression import is_event_notifications_suppressed
 
-    if _suppress_event_notifications.get():
+    if is_event_notifications_suppressed():
         return
 
     if instance.pk:
@@ -390,9 +390,9 @@ def handle_event_opened_notify_followers(sender: type[Event], instance: Event, c
     Series followers are prioritized - if a user follows both the org and series,
     they receive the series notification only.
     """
-    from events.suppression import _suppress_event_notifications
+    from events.suppression import is_event_notifications_suppressed
 
-    if _suppress_event_notifications.get():
+    if is_event_notifications_suppressed():
         return
 
     if not _should_notify_followers_for_event(instance, created):
