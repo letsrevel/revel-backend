@@ -4,6 +4,9 @@
 import typing as t
 
 from django import forms
+from django.contrib import admin, messages
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from unfold.admin import TabularInline
@@ -34,6 +37,46 @@ class OrganizationLinkMixin:
         return format_html('<a href="{}">{}</a>', url, obj.organization.name)
 
     organization_link.short_description = "Organization"  # type: ignore[attr-defined]
+
+
+class EmailDeliveryAdminMixin:
+    """Surfaces ``EmailDeliverableMixin`` delivery state and a retry action.
+
+    Shared by the financial-document admins. Subclasses implement :meth:`_redeliver`
+    to re-dispatch their model's delivery task. The retry action clears the terminal
+    ``email_delivery_failed_at`` state (set when a document had no recipient / its org
+    was deleted) and re-dispatches, so an operator can re-attempt once the recipient
+    is fixed (issue #618).
+    """
+
+    # Fields to expose read-only on the change form (add to a "Delivery" fieldset).
+    email_delivery_fields = ["email_sent_at", "email_delivery_failed_at", "email_delivery_error"]
+
+    @admin.display(description="Delivery")
+    def delivery_status(self, obj: t.Any) -> str:
+        if obj.email_sent_at:
+            return format_html('<span style="color: green;">Sent</span>')
+        if obj.email_delivery_failed_at:
+            return format_html(
+                '<span style="color: red;">Undeliverable ({})</span>',
+                obj.get_email_delivery_error_display(),
+            )
+        return format_html('<span style="color: gray;">Pending</span>')
+
+    def _redeliver(self, obj: t.Any) -> None:
+        """Re-dispatch the delivery task for ``obj``. Implemented per model."""
+        raise NotImplementedError
+
+    @admin.action(description="Retry delivery (clear undeliverable state)")
+    def retry_delivery(self, request: HttpRequest, queryset: QuerySet[t.Any]) -> None:
+        count = 0
+        for obj in queryset.filter(email_delivery_failed_at__isnull=False):
+            obj.email_delivery_failed_at = None
+            obj.email_delivery_error = ""
+            obj.save(update_fields=["email_delivery_failed_at", "email_delivery_error", "updated_at"])
+            self._redeliver(obj)
+            count += 1
+        self.message_user(request, f"Re-dispatched delivery for {count} document(s).", messages.SUCCESS)  # type: ignore[attr-defined]
 
 
 class EventLinkMixin:

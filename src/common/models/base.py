@@ -30,7 +30,17 @@ class EmailDeliverableMixin(models.Model):
     Delivery is at-least-once by design — :meth:`mark_email_sent` is a no-op once
     set, so re-sending after a partial failure never moves the recorded delivery
     time. See issue #616.
+
+    A document with no resolvable recipient (or whose org was deleted) can never
+    be delivered, so retrying it forever is pointless noise. :meth:`mark_email_undeliverable`
+    records a terminal failure state that the recovery sweep excludes, so such a
+    document is enqueued once and then left alone until an operator fixes the
+    recipient and retries it. See issue #618.
     """
+
+    class DeliveryFailureReason(models.TextChoices):
+        NO_RECIPIENT = "no_recipient", "No resolvable recipient"
+        ORG_DELETED = "org_deleted", "Organization deleted"
 
     email_sent_at = models.DateTimeField(
         null=True,
@@ -38,21 +48,64 @@ class EmailDeliverableMixin(models.Model):
         db_index=True,
         help_text="When the document was successfully emailed to its recipient.",
     )
+    email_delivery_failed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="When the document was found permanently undeliverable (no recipient / org gone).",
+    )
+    email_delivery_error = models.CharField(
+        max_length=32,
+        blank=True,
+        choices=DeliveryFailureReason.choices,
+        help_text="Why the document is permanently undeliverable.",
+    )
 
     class Meta:
         abstract = True
 
     def mark_email_sent(self) -> None:
-        """Record a successful email delivery (idempotent — first write wins)."""
+        """Record a successful email delivery (idempotent — first write wins).
+
+        Also clears any prior terminal-failure state so a document that became
+        deliverable (e.g. an operator fixed the recipient) leaves the undeliverable
+        set on its next successful send.
+        """
         if self.email_sent_at is not None:
             return
         from django.utils import timezone
 
         self.email_sent_at = timezone.now()
         update_fields = ["email_sent_at"]
+        if self.email_delivery_failed_at is not None:
+            self.email_delivery_failed_at = None
+            self.email_delivery_error = ""
+            update_fields += ["email_delivery_failed_at", "email_delivery_error"]
         if hasattr(self, "updated_at"):
             update_fields.append("updated_at")
         self.save(update_fields=update_fields)
+
+    def mark_email_undeliverable(self, reason: "EmailDeliverableMixin.DeliveryFailureReason") -> None:
+        """Record a terminal delivery failure (idempotent — no-op once sent or already failed).
+
+        Excludes the document from the recovery sweep so a genuinely undeliverable
+        document isn't re-enqueued every sweep forever (issue #618).
+
+        Written via ``QuerySet.update`` rather than ``save()`` so the ``org_deleted``
+        case doesn't trip ``full_clean`` on the now-null (but non-blank) organization FK.
+        """
+        if self.email_sent_at is not None or self.email_delivery_failed_at is not None:
+            return
+        from django.utils import timezone
+
+        now = timezone.now()
+        self.email_delivery_failed_at = now
+        self.email_delivery_error = reason
+        values: dict[str, t.Any] = {"email_delivery_failed_at": now, "email_delivery_error": reason}
+        if hasattr(self, "updated_at"):
+            self.updated_at = now
+            values["updated_at"] = now
+        type(self)._base_manager.filter(pk=self.pk).update(**values)
 
 
 class StripeConnectMixin(models.Model):

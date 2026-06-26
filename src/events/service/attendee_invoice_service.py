@@ -491,6 +491,8 @@ def deliver_attendee_invoice(invoice: AttendeeInvoice) -> None:
     )
     if sent:
         invoice.mark_email_sent()
+    else:
+        invoice.mark_email_undeliverable(AttendeeInvoice.DeliveryFailureReason.NO_RECIPIENT)
 
 
 # ---------------------------------------------------------------------------
@@ -644,3 +646,5 @@ def deliver_credit_note(credit_note: AttendeeInvoiceCreditNote) -> None:
     )
     if sent:
         credit_note.mark_email_sent()
+    else:
+        credit_note.mark_email_undeliverable(AttendeeInvoiceCreditNote.DeliveryFailureReason.NO_RECIPIENT)
