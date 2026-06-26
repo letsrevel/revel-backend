@@ -325,13 +325,16 @@ class TestSendInvoiceEmailTask:
         sample_invoice: PlatformFeeInvoice,
         site_settings: SiteSettings,
     ) -> None:
-        """When the organization has been deleted (SET_NULL), the task returns without sending."""
+        """When the organization has been deleted (SET_NULL), the task flags it undeliverable (#618)."""
         # SET_NULL the org relationship
         PlatformFeeInvoice.objects.filter(pk=sample_invoice.pk).update(organization=None)
 
         send_invoice_email_task(str(sample_invoice.id))
 
         mock_send_email.assert_not_called()
+        sample_invoice.refresh_from_db()
+        assert sample_invoice.email_delivery_failed_at is not None
+        assert sample_invoice.email_delivery_error == PlatformFeeInvoice.DeliveryFailureReason.ORG_DELETED
 
     @patch("events.tasks.invoicing.send_email")
     def test_handles_no_recipients_gracefully(
@@ -378,6 +381,9 @@ class TestSendInvoiceEmailTask:
         send_invoice_email_task(str(invoice.id))
 
         mock_send_email.assert_not_called()
+        invoice.refresh_from_db()
+        assert invoice.email_delivery_failed_at is not None
+        assert invoice.email_delivery_error == PlatformFeeInvoice.DeliveryFailureReason.NO_RECIPIENT
 
     @patch("events.tasks.invoicing.send_email")
     def test_falls_back_to_contact_email_when_no_billing_email(
@@ -745,6 +751,22 @@ class TestRedispatchUndeliveredInvoicesTask:
 
         sample_invoice_no_pdf.status = PlatformFeeInvoice.InvoiceStatus.DRAFT
         sample_invoice_no_pdf.save(update_fields=["status"])
+
+        result = redispatch_undelivered_invoices_task()
+
+        mock_delay.assert_not_called()
+        assert result["platform_fee_invoices"] == 0
+
+    @patch("events.tasks.invoicing.send_invoice_email_task.delay")
+    def test_skips_undeliverable_platform_fee_invoice(
+        self,
+        mock_delay: MagicMock,
+        sample_invoice: PlatformFeeInvoice,
+    ) -> None:
+        """A platform fee invoice flagged terminally undeliverable is excluded from the sweep (#618)."""
+        from events.tasks import redispatch_undelivered_invoices_task
+
+        sample_invoice.mark_email_undeliverable(PlatformFeeInvoice.DeliveryFailureReason.ORG_DELETED)
 
         result = redispatch_undelivered_invoices_task()
 

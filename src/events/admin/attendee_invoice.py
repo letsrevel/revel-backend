@@ -10,11 +10,11 @@ from unfold.admin import ModelAdmin
 
 from common.signing import get_file_url
 from events import models
-from events.admin.base import OrganizationLinkMixin
+from events.admin.base import EmailDeliveryAdminMixin, OrganizationLinkMixin
 
 
 @admin.register(models.AttendeeInvoice)
-class AttendeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+class AttendeeInvoiceAdmin(ModelAdmin, EmailDeliveryAdminMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for AttendeeInvoice with filtering and PDF download."""
 
     list_select_related = ["organization", "event", "user"]
@@ -25,10 +25,12 @@ class AttendeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[m
         "total_display",
         "vat_display",
         "status_display",
+        "delivery_status",
         "reverse_charge_display",
         "issued_at",
     ]
-    list_filter = ["status", "currency", "reverse_charge"]
+    list_filter = ["status", "currency", "reverse_charge", "email_delivery_error"]
+    actions = ["retry_delivery"]
     search_fields = [
         "invoice_number",
         "seller_name",
@@ -65,6 +67,9 @@ class AttendeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[m
         "buyer_email",
         "issued_at",
         "pdf_link",
+        "email_sent_at",
+        "email_delivery_failed_at",
+        "email_delivery_error",
         "created_at",
         "updated_at",
     ]
@@ -75,6 +80,10 @@ class AttendeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[m
         (
             None,
             {"fields": ["id", "invoice_number", "organization", "event", "user", "status", "issued_at", "pdf_link"]},
+        ),
+        (
+            "Delivery",
+            {"fields": ["email_sent_at", "email_delivery_failed_at", "email_delivery_error"]},
         ),
         (
             "Amounts",
@@ -128,20 +137,27 @@ class AttendeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[m
             return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">Download PDF</a>', url)
         return "—"
 
+    def _redeliver(self, obj: models.AttendeeInvoice) -> None:
+        from events.tasks.invoicing import deliver_attendee_invoice_task
+
+        deliver_attendee_invoice_task.delay(str(obj.id))
+
 
 @admin.register(models.AttendeeInvoiceCreditNote)
-class AttendeeInvoiceCreditNoteAdmin(ModelAdmin):  # type: ignore[misc]
+class AttendeeInvoiceCreditNoteAdmin(ModelAdmin, EmailDeliveryAdminMixin):  # type: ignore[misc]
     """Admin for AttendeeInvoiceCreditNote."""
 
     list_display = [
         "credit_note_number",
         "invoice_link",
         "amount_display",
+        "delivery_status",
         "issued_at",
         "created_at",
     ]
     list_select_related = ["invoice"]
-    list_filter = ["issued_at", "created_at"]
+    list_filter = ["issued_at", "created_at", "email_delivery_error"]
+    actions = ["retry_delivery"]
     search_fields = ["credit_note_number", "invoice__invoice_number", "invoice__seller_name"]
     readonly_fields = [
         "id",
@@ -152,11 +168,19 @@ class AttendeeInvoiceCreditNoteAdmin(ModelAdmin):  # type: ignore[misc]
         "amount_vat",
         "line_items",
         "issued_at",
+        "email_sent_at",
+        "email_delivery_failed_at",
+        "email_delivery_error",
         "created_at",
         "updated_at",
     ]
     date_hierarchy = "created_at"
     ordering = ["-created_at"]
+
+    def _redeliver(self, obj: models.AttendeeInvoiceCreditNote) -> None:
+        from events.tasks.invoicing import deliver_attendee_credit_note_task
+
+        deliver_attendee_credit_note_task.delay(str(obj.id))
 
     @admin.display(description="Invoice")
     def invoice_link(self, obj: models.AttendeeInvoiceCreditNote) -> str:

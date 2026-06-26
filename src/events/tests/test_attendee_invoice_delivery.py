@@ -113,7 +113,7 @@ class TestDeliverAttendeeInvoice:
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     @patch(MOCK_SEND_EMAIL)
-    def test_no_recipient_skips_delivery_and_does_not_mark(
+    def test_no_recipient_skips_delivery_and_marks_undeliverable(
         self,
         mock_email: t.Any,
         mock_pdf: t.Any,
@@ -121,7 +121,7 @@ class TestDeliverAttendeeInvoice:
         event: Event,
         member_user: RevelUser,
     ) -> None:
-        """No recipient is a permanent failure: don't send, don't mark (so it isn't recorded as delivered)."""
+        """No recipient is a terminal failure: don't send, don't mark sent, flag undeliverable (#618)."""
         inv = _create_invoice(organization, event, member_user)
         inv.buyer_email = ""
         inv.save(update_fields=["buyer_email"])
@@ -133,6 +133,42 @@ class TestDeliverAttendeeInvoice:
         mock_email.assert_not_called()
         inv.refresh_from_db()
         assert inv.email_sent_at is None
+        assert inv.email_delivery_failed_at is not None
+        assert inv.email_delivery_error == AttendeeInvoice.DeliveryFailureReason.NO_RECIPIENT
+
+    @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
+    @patch(MOCK_SEND_EMAIL)
+    def test_credit_note_no_recipient_marks_undeliverable(
+        self,
+        mock_email: t.Any,
+        mock_pdf: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """A credit note with no resolvable recipient flags the credit note undeliverable (#618)."""
+        inv = _create_invoice(organization, event, member_user)
+        inv.buyer_email = ""
+        inv.save(update_fields=["buyer_email"])
+        member_user.email = ""
+        member_user.save(update_fields=["email"])
+        cn = AttendeeInvoiceCreditNote.objects.create(
+            invoice=inv,
+            credit_note_number="DLV-CN-NORCPT-1",
+            amount_gross=Decimal("100.00"),
+            amount_net=Decimal("81.97"),
+            amount_vat=Decimal("18.03"),
+            line_items=[],
+            issued_at=timezone.now(),
+        )
+
+        deliver_credit_note(cn)
+
+        mock_email.assert_not_called()
+        cn.refresh_from_db()
+        assert cn.email_sent_at is None
+        assert cn.email_delivery_failed_at is not None
+        assert cn.email_delivery_error == AttendeeInvoiceCreditNote.DeliveryFailureReason.NO_RECIPIENT
 
     @patch(MOCK_RENDER_PDF, return_value=b"fake-pdf")
     @patch(MOCK_SEND_EMAIL)
@@ -238,6 +274,137 @@ class TestRedispatchUndeliveredAttendeeDocuments:
 
         mock_delay.assert_called_once_with(str(cn.id))
         assert result["attendee_credit_notes"] == 1
+
+    @patch("events.tasks.invoicing.deliver_attendee_invoice_task.delay")
+    def test_sweep_excludes_undeliverable_invoice(
+        self,
+        mock_delay: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """An invoice flagged terminally undeliverable is excluded from the sweep (#618)."""
+        from events.tasks import redispatch_undelivered_invoices_task
+
+        inv = _create_invoice(organization, event, member_user)
+        inv.mark_email_undeliverable(AttendeeInvoice.DeliveryFailureReason.NO_RECIPIENT)
+
+        result = redispatch_undelivered_invoices_task()
+
+        mock_delay.assert_not_called()
+        assert result["attendee_invoices"] == 0
+
+    @patch("events.tasks.invoicing.deliver_attendee_credit_note_task.delay")
+    def test_sweep_excludes_undeliverable_credit_note(
+        self,
+        mock_delay: t.Any,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """A credit note flagged terminally undeliverable is excluded from the sweep (#618)."""
+        from events.tasks import redispatch_undelivered_invoices_task
+
+        inv = _create_invoice(organization, event, member_user)
+        cn = AttendeeInvoiceCreditNote.objects.create(
+            invoice=inv,
+            credit_note_number="DLV-CN-UNDLV-1",
+            amount_gross=Decimal("100.00"),
+            amount_net=Decimal("81.97"),
+            amount_vat=Decimal("18.03"),
+            line_items=[],
+            issued_at=timezone.now(),
+        )
+        cn.mark_email_undeliverable(AttendeeInvoiceCreditNote.DeliveryFailureReason.NO_RECIPIENT)
+
+        result = redispatch_undelivered_invoices_task()
+
+        mock_delay.assert_not_called()
+        assert result["attendee_credit_notes"] == 0
+
+
+# ---------------------------------------------------------------------------
+# EmailDeliverableMixin terminal-failure state (#618)
+# ---------------------------------------------------------------------------
+
+
+class TestEmailDeliverableMixinTerminalState:
+    """mark_email_undeliverable / mark_email_sent interplay on the shared mixin."""
+
+    def test_mark_undeliverable_is_first_failure_wins(
+        self,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """A second terminal-failure mark never moves the recorded failure time."""
+        inv = _create_invoice(organization, event, member_user)
+        inv.mark_email_undeliverable(AttendeeInvoice.DeliveryFailureReason.NO_RECIPIENT)
+        first = inv.email_delivery_failed_at
+        assert first is not None
+
+        inv.mark_email_undeliverable(AttendeeInvoice.DeliveryFailureReason.ORG_DELETED)
+        inv.refresh_from_db()
+        assert inv.email_delivery_failed_at == first
+        assert inv.email_delivery_error == AttendeeInvoice.DeliveryFailureReason.NO_RECIPIENT
+
+    def test_mark_undeliverable_noop_once_sent(
+        self,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """A document already delivered is never flagged undeliverable."""
+        inv = _create_invoice(organization, event, member_user)
+        inv.mark_email_sent()
+
+        inv.mark_email_undeliverable(AttendeeInvoice.DeliveryFailureReason.NO_RECIPIENT)
+
+        inv.refresh_from_db()
+        assert inv.email_delivery_failed_at is None
+        assert inv.email_delivery_error == ""
+
+    def test_mark_email_sent_clears_terminal_failure(
+        self,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """A later successful send clears a prior undeliverable flag (operator fixed recipient)."""
+        inv = _create_invoice(organization, event, member_user)
+        inv.mark_email_undeliverable(AttendeeInvoice.DeliveryFailureReason.NO_RECIPIENT)
+        assert inv.email_delivery_failed_at is not None
+
+        inv.mark_email_sent()
+
+        refreshed = AttendeeInvoice.objects.get(pk=inv.pk)
+        assert refreshed.email_sent_at is not None
+        assert refreshed.email_delivery_failed_at is None
+        assert refreshed.email_delivery_error == ""
+
+    def test_undeliverable_loses_to_concurrent_sent(
+        self,
+        organization: Organization,
+        event: Event,
+        member_user: RevelUser,
+    ) -> None:
+        """A stale mark_email_undeliverable can't clobber a row another worker already sent.
+
+        Simulates the race: a second worker holds an in-memory snapshot with both fields
+        null (so the cheap guard passes), but the row was marked sent in between. The
+        DB-side compare-and-set must lose, leaving only email_sent_at set.
+        """
+        inv = _create_invoice(organization, event, member_user)
+        stale = AttendeeInvoice.objects.get(pk=inv.pk)  # snapshot before the send
+
+        inv.mark_email_sent()  # another worker delivers and records it
+
+        stale.mark_email_undeliverable(AttendeeInvoice.DeliveryFailureReason.NO_RECIPIENT)
+
+        refreshed = AttendeeInvoice.objects.get(pk=inv.pk)
+        assert refreshed.email_sent_at is not None
+        assert refreshed.email_delivery_failed_at is None
+        assert refreshed.email_delivery_error == ""
 
 
 # ---------------------------------------------------------------------------

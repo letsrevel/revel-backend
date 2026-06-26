@@ -113,6 +113,10 @@ def redispatch_undelivered_invoices_task() -> UndeliveredInvoiceSweepResult:
 
     Idempotent: ``mark_email_sent`` is a no-op once set, so a document already in
     flight is at worst delivered twice (at-least-once), never zero.
+
+    Genuinely undeliverable documents (no recipient / org deleted) carry a terminal
+    ``email_delivery_failed_at`` and are excluded so the sweep doesn't re-enqueue
+    them every run forever (issue #618).
     """
     from events.models.attendee_invoice import AttendeeInvoice, AttendeeInvoiceCreditNote
     from events.models.invoice import PlatformFeeInvoice
@@ -121,13 +125,17 @@ def redispatch_undelivered_invoices_task() -> UndeliveredInvoiceSweepResult:
         AttendeeInvoice.objects.filter(
             status=AttendeeInvoice.InvoiceStatus.ISSUED,
             email_sent_at__isnull=True,
+            email_delivery_failed_at__isnull=True,
         ).values_list("id", flat=True)
     )
     for invoice_id in invoice_ids:
         deliver_attendee_invoice_task.delay(str(invoice_id))
 
     credit_note_ids = list(
-        AttendeeInvoiceCreditNote.objects.filter(email_sent_at__isnull=True).values_list("id", flat=True)
+        AttendeeInvoiceCreditNote.objects.filter(
+            email_sent_at__isnull=True,
+            email_delivery_failed_at__isnull=True,
+        ).values_list("id", flat=True)
     )
     for credit_note_id in credit_note_ids:
         deliver_attendee_credit_note_task.delay(str(credit_note_id))
@@ -136,6 +144,7 @@ def redispatch_undelivered_invoices_task() -> UndeliveredInvoiceSweepResult:
         PlatformFeeInvoice.objects.filter(
             status=PlatformFeeInvoice.InvoiceStatus.ISSUED,
             email_sent_at__isnull=True,
+            email_delivery_failed_at__isnull=True,
         ).values_list("id", flat=True)
     )
     for platform_fee_id in platform_fee_ids:
@@ -196,11 +205,13 @@ def send_invoice_email_task(invoice_id: str) -> None:
     org = invoice.organization
     if not org:
         logger.warning("invoice_org_deleted", invoice_number=invoice.invoice_number)
+        invoice.mark_email_undeliverable(PlatformFeeInvoice.DeliveryFailureReason.ORG_DELETED)
         return
 
     recipients = get_invoice_recipients(org)
     if not recipients:
         logger.warning("no_invoice_recipients", invoice_number=invoice.invoice_number, org_id=str(org.id))
+        invoice.mark_email_undeliverable(PlatformFeeInvoice.DeliveryFailureReason.NO_RECIPIENT)
         return
 
     # Self-heal a PDF lost to a crash between commit and PDF save (issue #616).

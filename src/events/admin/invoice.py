@@ -11,11 +11,11 @@ from unfold.admin import ModelAdmin
 
 from common.signing import get_file_url
 from events import models
-from events.admin.base import OrganizationLinkMixin
+from events.admin.base import EmailDeliveryAdminMixin, OrganizationLinkMixin
 
 
 @admin.register(models.PlatformFeeInvoice)
-class PlatformFeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
+class PlatformFeeInvoiceAdmin(ModelAdmin, EmailDeliveryAdminMixin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for PlatformFeeInvoice with filtering and PDF download."""
 
     list_select_related = ["organization"]
@@ -26,10 +26,12 @@ class PlatformFeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignor
         "fee_display",
         "vat_display",
         "status_display",
+        "delivery_status",
         "reverse_charge_display",
         "issued_at",
     ]
-    list_filter = ["status", "currency", "reverse_charge", "period_start"]
+    list_filter = ["status", "currency", "reverse_charge", "period_start", "email_delivery_error"]
+    actions = ["retry_delivery"]
     search_fields = ["invoice_number", "org_name", "organization__name"]
     readonly_fields = [
         "id",
@@ -54,6 +56,9 @@ class PlatformFeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignor
         "total_ticket_revenue",
         "issued_at",
         "pdf_link",
+        "email_sent_at",
+        "email_delivery_failed_at",
+        "email_delivery_error",
         "created_at",
         "updated_at",
     ]
@@ -62,6 +67,7 @@ class PlatformFeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignor
 
     fieldsets = [
         (None, {"fields": ["id", "invoice_number", "organization", "status", "issued_at", "pdf_link"]}),
+        ("Delivery", {"fields": ["email_sent_at", "email_delivery_failed_at", "email_delivery_error"]}),
         ("Period", {"fields": ["period_start", "period_end", "currency"]}),
         (
             "Fee Breakdown",
@@ -112,6 +118,11 @@ class PlatformFeeInvoiceAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignor
         if url := get_file_url(obj.pdf_file):
             return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">Download PDF</a>', url)
         return "—"
+
+    def _redeliver(self, obj: models.PlatformFeeInvoice) -> None:
+        from events.tasks.invoicing import send_invoice_email_task
+
+        send_invoice_email_task.delay(str(obj.id))
 
 
 @admin.register(models.PlatformFeeCreditNote)
