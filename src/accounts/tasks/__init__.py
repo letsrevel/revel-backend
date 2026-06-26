@@ -1,9 +1,12 @@
 """Tasks for the authentication app.
 
 This package groups the accounts app's asynchronous tasks by domain (email,
-tokens, gdpr, verification_reminders, notifications, bans, payouts). Every task
-is re-exported here so the historical ``from accounts.tasks import <task>``
-import path keeps working.
+tokens, gdpr, verification_reminders, notifications, bans, payouts). Tasks are
+re-exported here so the ``from accounts.tasks import <task>`` import path works.
+
+The eight per-message email-send tasks were consolidated into the single
+``send_account_email`` task (issue #608); their old names are intentionally no
+longer exported. See ``accounts/tasks/email.py``.
 
 ``mark_reminder_sent`` is re-exported because ``common.tasks._execute_email_callback``
 resolves it via ``getattr(import_module("accounts.tasks"), "mark_reminder_sent")``
