@@ -23,7 +23,7 @@ def test_user_language_field_choices(user: RevelUser) -> None:
     assert user.language in valid_languages
 
 
-@patch("accounts.tasks.send_verification_email.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_error_message_translation_german(mock_send_email: object, user: RevelUser) -> None:
     """Test that error messages are translated to German."""
     with translation.override("de"):
@@ -40,7 +40,7 @@ def test_error_message_translation_german(mock_send_email: object, user: RevelUs
             )
 
 
-@patch("accounts.tasks.send_verification_email.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_error_message_translation_italian(mock_send_email: object, user: RevelUser) -> None:
     """Test that error messages are translated to Italian."""
     with translation.override("it"):
@@ -57,7 +57,7 @@ def test_error_message_translation_italian(mock_send_email: object, user: RevelU
             )
 
 
-@patch("accounts.tasks.send_verification_email.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_error_message_translation_french(mock_send_email: object, user: RevelUser) -> None:
     """Test that error messages are translated to French."""
     with translation.override("fr"):
@@ -74,7 +74,7 @@ def test_error_message_translation_french(mock_send_email: object, user: RevelUs
             )
 
 
-@patch("accounts.tasks.send_verification_email.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_error_message_default_english(mock_send_email: object, user: RevelUser) -> None:
     """Test that error messages default to English when no translation is active."""
     with translation.override("en"):

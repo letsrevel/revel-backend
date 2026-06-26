@@ -12,6 +12,7 @@ from accounts import schema
 from accounts.jwt import create_token
 from accounts.models import Referral, ReferralCode, RevelUser
 from accounts.service import account as account_service
+from accounts.tasks import AccountEmail
 
 pytestmark = pytest.mark.django_db
 
@@ -49,7 +50,7 @@ class TestRegisterUserSchemaEmailNormalization:
         )
         assert payload.email == "user@example.com"
 
-    @patch("accounts.tasks.send_verification_email.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_registration_saves_lowercase_email(self, mock_send_email: MagicMock) -> None:
         """Test that user registration saves email as lowercase in database."""
         payload = schema.RegisterUserSchema(
@@ -64,11 +65,11 @@ class TestRegisterUserSchemaEmailNormalization:
         assert user.username == "mixedcase@example.com"
 
 
-# transaction=True: register_user dispatches send_verification_email via transaction.on_commit.
+# transaction=True: register_user dispatches send_account_email via transaction.on_commit.
 # In default pytest-django mode the wrapping transaction is rolled back and the callback never
 # fires, breaking the delay_mock assertion.
 @pytest.mark.django_db(transaction=True)
-@patch("accounts.tasks.send_verification_email.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_register_user_success(mock_send_email: MagicMock, valid_register_payload: schema.RegisterUserSchema) -> None:
     """Test successful user registration creates a user and sends an email."""
     assert RevelUser.objects.count() == 0
@@ -79,10 +80,10 @@ def test_register_user_success(mock_send_email: MagicMock, valid_register_payloa
     assert user.username == valid_register_payload.email
     assert not user.email_verified
     assert user.is_active  # Active by default to allow email verification
-    mock_send_email.assert_called_once_with(user.email, token)
+    mock_send_email.assert_called_once_with(AccountEmail.VERIFICATION, user.email, token=token)
 
 
-@patch("accounts.tasks.send_verification_email.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_register_user_already_exists(
     mock_send_email: MagicMock, user: RevelUser, valid_register_payload: schema.RegisterUserSchema
 ) -> None:
@@ -98,7 +99,7 @@ def test_register_user_already_exists(
     mock_send_email.assert_not_called()
 
 
-@patch("accounts.tasks.send_account_activation_link.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_register_user_sends_activation_for_guest(mock_activation: MagicMock, guest_user: RevelUser) -> None:
     """Test that registering with a guest email sends activation email and raises 400."""
     original_password = guest_user.password
@@ -123,7 +124,7 @@ def test_register_user_sends_activation_for_guest(mock_activation: MagicMock, gu
     assert guest_user.password == original_password
 
 
-@patch("accounts.tasks.send_account_activation_link.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_register_user_sends_activation_for_verified_guest(mock_activation: MagicMock, guest_user: RevelUser) -> None:
     """Test that registration sends activation for a guest even with anomalous email_verified=True."""
     guest_user.email_verified = True
@@ -146,7 +147,7 @@ def test_register_user_sends_activation_for_verified_guest(mock_activation: Magi
     assert guest_user.guest is True
 
 
-@patch("accounts.tasks.send_account_activation_link.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_register_guest_activation_uses_password_reset_token(mock_activation: MagicMock, guest_user: RevelUser) -> None:
     """Test that the activation email uses a password-reset token so reset_password() handles conversion."""
     payload = schema.RegisterUserSchema(
@@ -160,7 +161,7 @@ def test_register_guest_activation_uses_password_reset_token(mock_activation: Ma
         account_service.register_user(payload)
 
     mock_activation.assert_called_once()
-    token = mock_activation.call_args[0][1]
+    token = mock_activation.call_args.kwargs["token"]
     # The token must be decodable as a PasswordResetJWTPayloadSchema
     decoded = account_service.token_to_payload(token, schema.PasswordResetJWTPayloadSchema)
     assert decoded.user_id == guest_user.id
@@ -253,7 +254,7 @@ def test_resend_verification_email_blocks_guest_user(mock_send: MagicMock, guest
     assert guest_user.email_verified is False
 
 
-@patch("accounts.tasks.send_verification_email.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_register_user_existing_unverified_non_guest(
     mock_send_email: MagicMock, user: RevelUser, valid_register_payload: schema.RegisterUserSchema
 ) -> None:
@@ -269,18 +270,18 @@ def test_register_user_existing_unverified_non_guest(
     mock_send_email.assert_called_once()
 
 
-# transaction=True: request_password_reset dispatches send_password_reset_link via transaction.on_commit.
+# transaction=True: request_password_reset dispatches send_account_email via transaction.on_commit.
 # Default pytest-django mode rolls back the wrapping transaction so the callback never fires.
 @pytest.mark.django_db(transaction=True)
-@patch("accounts.tasks.send_password_reset_link.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_request_password_reset_success(mock_send_email: MagicMock, user: RevelUser) -> None:
     """Test requesting a password reset sends an email for an existing user."""
     token = account_service.request_password_reset(user.email)
     assert token is not None
-    mock_send_email.assert_called_once_with(user.email, token)
+    mock_send_email.assert_called_once_with(AccountEmail.PASSWORD_RESET, user.email, token=token)
 
 
-@patch("accounts.tasks.send_password_reset_link.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_request_password_reset_nonexistent_user(mock_send_email: MagicMock) -> None:
     """Test that no email is sent for a nonexistent user (to prevent enumeration)."""
     token = account_service.request_password_reset("nobody@example.com")
@@ -288,7 +289,7 @@ def test_request_password_reset_nonexistent_user(mock_send_email: MagicMock) -> 
     mock_send_email.assert_not_called()
 
 
-@patch("accounts.tasks.send_password_reset_link.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_request_password_reset_for_google_user(mock_send_email: MagicMock, google_user: RevelUser) -> None:
     """Test that password reset is disabled for Google SSO users."""
     token = account_service.request_password_reset(google_user.email)
@@ -296,15 +297,15 @@ def test_request_password_reset_for_google_user(mock_send_email: MagicMock, goog
     mock_send_email.assert_not_called()
 
 
-# transaction=True: request_password_reset dispatches send_password_reset_link via transaction.on_commit.
+# transaction=True: request_password_reset dispatches send_account_email via transaction.on_commit.
 # Default pytest-django mode rolls back the wrapping transaction so the callback never fires.
 @pytest.mark.django_db(transaction=True)
-@patch("accounts.tasks.send_password_reset_link.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_request_password_reset_for_guest_user(mock_send_email: MagicMock, guest_user: RevelUser) -> None:
     """Test that guest users can request a password reset (converts them on reset)."""
     token = account_service.request_password_reset(guest_user.email)
     assert token is not None
-    mock_send_email.assert_called_once_with(guest_user.email, token)
+    mock_send_email.assert_called_once_with(AccountEmail.PASSWORD_RESET, guest_user.email, token=token)
 
 
 def test_reset_password_converts_guest_user(guest_user: RevelUser) -> None:
@@ -351,15 +352,15 @@ def test_reset_password_for_google_user_fails(google_user: RevelUser) -> None:
         account_service.reset_password(token, "any-password")
 
 
-# transaction=True: request_account_deletion dispatches send_account_deletion_link via transaction.on_commit.
+# transaction=True: request_account_deletion dispatches send_account_email via transaction.on_commit.
 # Default pytest-django mode rolls back the wrapping transaction so the callback never fires.
 @pytest.mark.django_db(transaction=True)
-@patch("accounts.tasks.send_account_deletion_link.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_request_account_deletion(mock_send_email: MagicMock, user: RevelUser) -> None:
     """Test that requesting account deletion sends the correct email task."""
     token = account_service.request_account_deletion(user)
     assert token is not None
-    mock_send_email.assert_called_once_with(user.email, token)
+    mock_send_email.assert_called_once_with(AccountEmail.DELETION, user.email, token=token)
 
 
 # transaction=True: confirm_account_deletion dispatches delete_user_account via transaction.on_commit.
@@ -380,7 +381,7 @@ def test_confirm_account_deletion_success(user: RevelUser) -> None:
     assert not RevelUser.objects.filter(id=user_id).exists()
 
 
-@patch("accounts.tasks.send_account_activation_link.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_full_guest_to_full_user_lifecycle(mock_activation: MagicMock, guest_user: RevelUser) -> None:
     """Test the complete guest activation lifecycle.
 
@@ -404,7 +405,7 @@ def test_full_guest_to_full_user_lifecycle(mock_activation: MagicMock, guest_use
         account_service.register_user(payload)
 
     mock_activation.assert_called_once()
-    activation_token = mock_activation.call_args[0][1]
+    activation_token = mock_activation.call_args.kwargs["token"]
 
     # Guest is still a guest
     guest_user.refresh_from_db()
@@ -437,7 +438,7 @@ class TestRegisterWithReferralCode:
     def active_code(self, referrer: RevelUser) -> ReferralCode:
         return ReferralCode.objects.create(user=referrer, code="TESTCODE")
 
-    @patch("accounts.tasks.send_verification_email.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_register_with_valid_referral_code(self, mock_send_email: MagicMock, active_code: ReferralCode) -> None:
         """Test that a valid referral code creates a Referral record."""
         payload = schema.RegisterUserSchema(
@@ -455,7 +456,7 @@ class TestRegisterWithReferralCode:
         assert referral.referrer == active_code.user
         assert referral.revenue_share_percent == settings.DEFAULT_REFERRAL_SHARE_PERCENT
 
-    @patch("accounts.tasks.send_verification_email.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_register_with_case_insensitive_referral_code(
         self, mock_send_email: MagicMock, active_code: ReferralCode
     ) -> None:
@@ -505,7 +506,7 @@ class TestRegisterWithReferralCode:
 
         assert RevelUser.objects.filter(email="referred@example.com").count() == 0
 
-    @patch("accounts.tasks.send_verification_email.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_register_without_referral_code(self, mock_send_email: MagicMock) -> None:
         """Test that registration without a referral code creates no Referral."""
         payload = schema.RegisterUserSchema(

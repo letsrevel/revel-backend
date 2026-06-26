@@ -42,7 +42,7 @@ def _send_activation_email_for_guest(user: RevelUser) -> None:
     # transaction back. The target guest already exists (committed), so there
     # is no read-after-commit race and the email must be sent despite the
     # rollback. See register_user.
-    tasks.send_account_activation_link.delay(user.email, token)
+    tasks.send_account_email.delay(tasks.AccountEmail.ACTIVATION, user.email, token=token)
     logger.info("account_activation_email_sent", user_id=str(user.id), email=user.email)
 
 
@@ -183,9 +183,11 @@ def send_verification_email_for_user(user: RevelUser, *, defer: bool = True) -> 
     logger.info("verification_email_requested", user_id=str(user.id), email=user.email)
     token = create_verification_token(user)
     if defer:
-        transaction.on_commit(lambda: tasks.send_verification_email.delay(user.email, token))
+        transaction.on_commit(
+            lambda: tasks.send_account_email.delay(tasks.AccountEmail.VERIFICATION, user.email, token=token)
+        )
     else:
-        tasks.send_verification_email.delay(user.email, token)
+        tasks.send_account_email.delay(tasks.AccountEmail.VERIFICATION, user.email, token=token)
     return user, token
 
 
@@ -285,7 +287,9 @@ def request_password_reset(email: str) -> str | None:
         logger.info("password_reset_blocked_google_sso", user_id=str(user.id), email=email)
         return None
     token = create_password_reset_token(user)
-    transaction.on_commit(lambda: tasks.send_password_reset_link.delay(user.email, token))
+    transaction.on_commit(
+        lambda: tasks.send_account_email.delay(tasks.AccountEmail.PASSWORD_RESET, user.email, token=token)
+    )
     logger.info("password_reset_email_sent", user_id=str(user.id), email=email)
     return token
 
@@ -301,7 +305,7 @@ def request_account_deletion(user: RevelUser) -> str:
     """
     logger.info("account_deletion_requested", user_id=str(user.id), email=user.email)
     token = create_deletion_token(user)
-    transaction.on_commit(lambda: tasks.send_account_deletion_link.delay(user.email, token))
+    transaction.on_commit(lambda: tasks.send_account_email.delay(tasks.AccountEmail.DELETION, user.email, token=token))
     return token
 
 
@@ -409,8 +413,14 @@ def request_email_change(user: RevelUser, new_email: str, password: str) -> str:
         raise HttpError(400, str(_("This email is already in use.")))
 
     token = create_email_change_token(user, new_email)
-    transaction.on_commit(lambda: tasks.send_email_change_confirmation.delay(new_email, token))
-    transaction.on_commit(lambda: tasks.send_email_change_notice.delay(user.email, _mask_email(new_email)))
+    transaction.on_commit(
+        lambda: tasks.send_account_email.delay(tasks.AccountEmail.CHANGE_CONFIRMATION, new_email, token=token)
+    )
+    transaction.on_commit(
+        lambda: tasks.send_account_email.delay(
+            tasks.AccountEmail.CHANGE_NOTICE, user.email, context={"masked_new_email": _mask_email(new_email)}
+        )
+    )
     logger.info("email_change_email_sent", user_id=str(user.id), new_email=new_email)
     return token
 
@@ -469,8 +479,17 @@ def confirm_email_change(token: str) -> RevelUser:
         logger.warning("email_change_confirm_race_loss", user_id=str(user.id), new_email=new_email)
         raise HttpError(400, str(_("This email is already in use.")))
 
-    transaction.on_commit(lambda: tasks.send_email_change_completed_old.delay(old_email, new_email))
-    transaction.on_commit(lambda: tasks.send_email_change_completed_new.delay(new_email, old_email))
+    _change_completed_context = {"old_email": old_email, "new_email": new_email}
+    transaction.on_commit(
+        lambda: tasks.send_account_email.delay(
+            tasks.AccountEmail.CHANGE_COMPLETED_OLD, old_email, context=_change_completed_context
+        )
+    )
+    transaction.on_commit(
+        lambda: tasks.send_account_email.delay(
+            tasks.AccountEmail.CHANGE_COMPLETED_NEW, new_email, context=_change_completed_context
+        )
+    )
     logger.info(
         "email_change_confirmed",
         user_id=str(user.id),

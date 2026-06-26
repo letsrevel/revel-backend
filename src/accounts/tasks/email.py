@@ -1,4 +1,17 @@
-"""Transactional account email-send tasks (verification, activation, password reset, email change, deletion)."""
+"""Transactional account email-send task (verification, activation, password reset, email change, deletion).
+
+A single template-driven Celery task — :func:`send_account_email` — renders and sends every
+transactional account email. Each message type is described by an :data:`_CONFIGS` entry
+(template base, frontend link path, and which extra context the templates expect), so adding a
+new message is a one-line config addition rather than another near-identical wrapper task.
+
+Consolidated from eight per-message wrapper tasks (issue #608). The old task names
+(``accounts.tasks.send_verification_email`` etc.) are **gone** — deploys must drain Celery
+(``safe_reboot``) so no in-flight message references a removed name.
+"""
+
+import dataclasses
+import enum
 
 import structlog
 from celery import shared_task
@@ -11,138 +24,126 @@ from common.tasks import send_email
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(name="accounts.tasks.send_verification_email")
-def send_verification_email(email: str, token: str) -> None:
-    """Send a verification email."""
-    logger.info("verification_email_sending", email=email)
-    subject = str(render_to_string("accounts/emails/email_verification_subject.txt"))
-    verification_link = SiteSettings.get_solo().frontend_base_url + f"/login/confirm-email?token={token}"
-    body = render_to_string("accounts/emails/email_verification_body.txt", {"verification_link": verification_link})
-    html_body = render_to_string(
-        "accounts/emails/email_verification_body.html", {"verification_link": verification_link}
-    )
-    send_email(to=email, subject=subject, body=body, html_body=html_body)
-    logger.info("verification_email_sent", email=email)
+class AccountEmail(enum.StrEnum):
+    """The transactional account email types dispatched via :func:`send_account_email`."""
+
+    VERIFICATION = "verification"
+    ACTIVATION = "activation"
+    PASSWORD_RESET = "password_reset"
+    CHANGE_CONFIRMATION = "change_confirmation"
+    CHANGE_NOTICE = "change_notice"
+    CHANGE_COMPLETED_OLD = "change_completed_old"
+    CHANGE_COMPLETED_NEW = "change_completed_new"
+    DELETION = "deletion"
 
 
-@shared_task(name="accounts.tasks.send_account_activation_link")
-def send_account_activation_link(email: str, token: str) -> None:
-    """Send an account activation email to a guest user registering for a full account."""
-    logger.info("account_activation_email_sending", email=email)
-    subject = str(render_to_string("accounts/emails/account_activation_subject.txt"))
-    activation_link = SiteSettings.get_solo().frontend_base_url + f"/login/reset-password?token={token}"
-    body = render_to_string("accounts/emails/account_activation_body.txt", {"activation_link": activation_link})
-    html_body = render_to_string("accounts/emails/account_activation_body.html", {"activation_link": activation_link})
-    send_email(to=email, subject=subject, body=body, html_body=html_body)
-    logger.info("account_activation_email_sent", email=email)
+@dataclasses.dataclass(frozen=True)
+class _Config:
+    """Static description of one transactional account email.
+
+    Attributes:
+        template_base: Stem under ``accounts/emails/`` — renders ``{base}_subject.txt``,
+            ``{base}_body.txt`` and ``{base}_body.html``.
+        link_path: Frontend path (a ``{token}`` format string) appended to
+            ``frontend_base_url`` to build the action link. ``None`` for the informational
+            emails that carry no link.
+        link_context_key: Context key the body templates use for the built link.
+        include_frontend_base_url: Whether the body templates reference ``frontend_base_url``.
+        subject_includes_site_name: Whether the subject template references ``site_name``
+            (taken from the current ``Site``).
+    """
+
+    template_base: str
+    link_path: str | None = None
+    link_context_key: str | None = None
+    include_frontend_base_url: bool = False
+    subject_includes_site_name: bool = False
 
 
-@shared_task(name="accounts.tasks.send_password_reset_link")
-def send_password_reset_link(email: str, token: str) -> None:
-    """Send a password reset email."""
-    logger.info("password_reset_email_sending", email=email)
-    subject = str(render_to_string("accounts/emails/password_reset_subject.txt"))
-    password_reset_link = SiteSettings.get_solo().frontend_base_url + f"/login/reset-password?token={token}"
-    body = render_to_string("accounts/emails/password_reset_body.txt", {"password_reset_link": password_reset_link})
-    html_body = render_to_string(
-        "accounts/emails/password_reset_body.html", {"password_reset_link": password_reset_link}
-    )
-    send_email(to=email, subject=subject, body=body, html_body=html_body)
-    logger.info("password_reset_email_sent", email=email)
+_CONFIGS: dict[AccountEmail, _Config] = {
+    AccountEmail.VERIFICATION: _Config(
+        template_base="email_verification",
+        link_path="/login/confirm-email?token={token}",
+        link_context_key="verification_link",
+    ),
+    AccountEmail.ACTIVATION: _Config(
+        template_base="account_activation",
+        link_path="/login/reset-password?token={token}",
+        link_context_key="activation_link",
+    ),
+    AccountEmail.PASSWORD_RESET: _Config(
+        template_base="password_reset",
+        link_path="/login/reset-password?token={token}",
+        link_context_key="password_reset_link",
+    ),
+    AccountEmail.CHANGE_CONFIRMATION: _Config(
+        template_base="email_change_confirmation",
+        link_path="/account/confirm-email-change?token={token}",
+        link_context_key="confirmation_link",
+        include_frontend_base_url=True,
+    ),
+    AccountEmail.CHANGE_NOTICE: _Config(
+        template_base="email_change_notice",
+        include_frontend_base_url=True,
+    ),
+    AccountEmail.CHANGE_COMPLETED_OLD: _Config(
+        template_base="email_change_completed_old",
+        include_frontend_base_url=True,
+    ),
+    AccountEmail.CHANGE_COMPLETED_NEW: _Config(
+        template_base="email_change_completed_new",
+        include_frontend_base_url=True,
+    ),
+    AccountEmail.DELETION: _Config(
+        template_base="account_delete",
+        link_path="/account/confirm-deletion?token={token}",
+        link_context_key="account_deletion_link",
+        include_frontend_base_url=True,
+        subject_includes_site_name=True,
+    ),
+}
 
 
-@shared_task(name="accounts.tasks.send_email_change_confirmation")
-def send_email_change_confirmation(new_email: str, token: str) -> None:
-    """Send the confirmation link to the **new** email address.
-
-    Clicking the link proves the user controls the new mailbox.
+@shared_task(name="accounts.tasks.send_account_email")
+def send_account_email(
+    email_type: str,
+    to: str,
+    *,
+    token: str | None = None,
+    context: dict[str, str] | None = None,
+) -> None:
+    """Render and send a transactional account email.
 
     Args:
-        new_email: The new email address requested by the user.
-        token: The single-use email-change JWT to embed in the confirmation link.
+        email_type: An :class:`AccountEmail` value selecting the message and its template set.
+        to: Recipient email address.
+        token: Single-use token for the link-bearing emails (verification, activation,
+            password reset, email-change confirmation, deletion). ``None`` for the
+            informational email-change emails.
+        context: Extra template context required by some message types — e.g.
+            ``{"masked_new_email": ...}`` for the change notice, or
+            ``{"old_email": ..., "new_email": ...}`` for the change-completed emails.
+
+    Raises:
+        ValueError: If a link-bearing email type is dispatched without a token.
     """
-    logger.info("email_change_confirmation_sending", new_email=new_email)
-    subject = str(render_to_string("accounts/emails/email_change_confirmation_subject.txt"))
+    config = _CONFIGS[AccountEmail(email_type)]
+    logger.info("account_email_sending", email_type=email_type, to=to)
+
     site_settings = SiteSettings.get_solo()
-    confirmation_link = site_settings.frontend_base_url + f"/account/confirm-email-change?token={token}"
-    context = {"confirmation_link": confirmation_link, "frontend_base_url": site_settings.frontend_base_url}
-    body = render_to_string("accounts/emails/email_change_confirmation_body.txt", context)
-    html_body = render_to_string("accounts/emails/email_change_confirmation_body.html", context)
-    send_email(to=new_email, subject=subject, body=body, html_body=html_body)
-    logger.info("email_change_confirmation_sent", new_email=new_email)
+    body_context: dict[str, str] = dict(context or {})
+    if config.link_path is not None:
+        if token is None:
+            raise ValueError(f"{email_type} email requires a token")
+        assert config.link_context_key is not None
+        body_context[config.link_context_key] = site_settings.frontend_base_url + config.link_path.format(token=token)
+    if config.include_frontend_base_url:
+        body_context["frontend_base_url"] = site_settings.frontend_base_url
 
+    subject_context = {"site_name": Site.objects.get_current().name} if config.subject_includes_site_name else {}
+    subject = str(render_to_string(f"accounts/emails/{config.template_base}_subject.txt", subject_context))
+    body = render_to_string(f"accounts/emails/{config.template_base}_body.txt", body_context)
+    html_body = render_to_string(f"accounts/emails/{config.template_base}_body.html", body_context)
+    send_email(to=to, subject=subject, body=body, html_body=html_body)
 
-@shared_task(name="accounts.tasks.send_email_change_notice")
-def send_email_change_notice(current_email: str, masked_new_email: str) -> None:
-    """Notify the **current** email address that a change was requested.
-
-    Informational only — there is no cancel link in v1.
-
-    Args:
-        current_email: The user's current email address.
-        masked_new_email: The new address in masked form (e.g. ``a***@example.com``).
-    """
-    logger.info("email_change_notice_sending", current_email=current_email)
-    subject = str(render_to_string("accounts/emails/email_change_notice_subject.txt"))
-    site_settings = SiteSettings.get_solo()
-    context = {"masked_new_email": masked_new_email, "frontend_base_url": site_settings.frontend_base_url}
-    body = render_to_string("accounts/emails/email_change_notice_body.txt", context)
-    html_body = render_to_string("accounts/emails/email_change_notice_body.html", context)
-    send_email(to=current_email, subject=subject, body=body, html_body=html_body)
-    logger.info("email_change_notice_sent", current_email=current_email)
-
-
-@shared_task(name="accounts.tasks.send_email_change_completed_old")
-def send_email_change_completed_old(old_email: str, new_email: str) -> None:
-    """Notify the **old** address that the email change has completed.
-
-    Args:
-        old_email: The address being decommissioned.
-        new_email: The address that is now primary on the account.
-    """
-    logger.info("email_change_completed_old_sending", old_email=old_email)
-    subject = str(render_to_string("accounts/emails/email_change_completed_old_subject.txt"))
-    site_settings = SiteSettings.get_solo()
-    context = {"old_email": old_email, "new_email": new_email, "frontend_base_url": site_settings.frontend_base_url}
-    body = render_to_string("accounts/emails/email_change_completed_old_body.txt", context)
-    html_body = render_to_string("accounts/emails/email_change_completed_old_body.html", context)
-    send_email(to=old_email, subject=subject, body=body, html_body=html_body)
-    logger.info("email_change_completed_old_sent", old_email=old_email)
-
-
-@shared_task(name="accounts.tasks.send_email_change_completed_new")
-def send_email_change_completed_new(new_email: str, old_email: str) -> None:
-    """Welcome message to the **new** address confirming the change is live.
-
-    Args:
-        new_email: The address that is now primary on the account.
-        old_email: The previous address (referenced in the body for clarity).
-    """
-    logger.info("email_change_completed_new_sending", new_email=new_email)
-    subject = str(render_to_string("accounts/emails/email_change_completed_new_subject.txt"))
-    site_settings = SiteSettings.get_solo()
-    context = {"old_email": old_email, "new_email": new_email, "frontend_base_url": site_settings.frontend_base_url}
-    body = render_to_string("accounts/emails/email_change_completed_new_body.txt", context)
-    html_body = render_to_string("accounts/emails/email_change_completed_new_body.html", context)
-    send_email(to=new_email, subject=subject, body=body, html_body=html_body)
-    logger.info("email_change_completed_new_sent", new_email=new_email)
-
-
-@shared_task(name="accounts.tasks.send_account_deletion_link")
-def send_account_deletion_link(email: str, token: str) -> None:
-    """Send an account deletion confirmation email."""
-    logger.info("account_deletion_email_sending", email=email)
-    site = Site.objects.get_current()
-    subject = str(render_to_string("accounts/emails/account_delete_subject.txt", {"site_name": site.name}))
-    site_settings = SiteSettings.get_solo()
-    account_deletion_link = site_settings.frontend_base_url + f"/account/confirm-deletion?token={token}"
-    body = render_to_string(
-        "accounts/emails/account_delete_body.txt",
-        {"account_deletion_link": account_deletion_link, "frontend_base_url": site_settings.frontend_base_url},
-    )
-    html_body = render_to_string(
-        "accounts/emails/account_delete_body.html",
-        {"account_deletion_link": account_deletion_link, "frontend_base_url": site_settings.frontend_base_url},
-    )
-    send_email(to=email, subject=subject, body=body, html_body=html_body)
-    logger.info("account_deletion_email_sent", email=email)
+    logger.info("account_email_sent", email_type=email_type, to=to)
