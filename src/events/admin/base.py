@@ -1,13 +1,16 @@
 # src/events/admin/base.py
 """Base admin components: mixins, forms, and inlines."""
 
+import functools
 import typing as t
 
 from django import forms
 from django.contrib import admin, messages
+from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import format_html
 from unfold.admin import TabularInline
 from unfold.widgets import CHECKBOX_CLASSES
@@ -71,10 +74,16 @@ class EmailDeliveryAdminMixin:
     def retry_delivery(self, request: HttpRequest, queryset: QuerySet[t.Any]) -> None:
         count = 0
         for obj in queryset.filter(email_delivery_failed_at__isnull=False):
-            obj.email_delivery_failed_at = None
-            obj.email_delivery_error = ""
-            obj.save(update_fields=["email_delivery_failed_at", "email_delivery_error", "updated_at"])
-            self._redeliver(obj)
+            values: dict[str, t.Any] = {"email_delivery_failed_at": None, "email_delivery_error": ""}
+            if hasattr(obj, "updated_at"):
+                values["updated_at"] = timezone.now()
+            # QuerySet.update() bypasses full_clean so an org_deleted document (null but
+            # non-blank org FK) can be cleared without tripping validation, mirroring
+            # mark_email_undeliverable.
+            type(obj)._base_manager.filter(pk=obj.pk).update(**values)
+            # Dispatch only after the surrounding ATOMIC_REQUESTS transaction commits, so the
+            # worker can't read the still-flagged row before the cleared state lands.
+            transaction.on_commit(functools.partial(self._redeliver, obj))
             count += 1
         self.message_user(request, f"Re-dispatched delivery for {count} document(s).", messages.SUCCESS)  # type: ignore[attr-defined]
 
