@@ -8,7 +8,6 @@ context so the consolidation is behaviour-preserving.
 from unittest.mock import MagicMock, patch
 
 import pytest
-from django.contrib.sites.models import Site
 from django.template.loader import render_to_string
 
 from accounts.tasks import AccountEmail, send_account_email
@@ -19,70 +18,30 @@ pytestmark = pytest.mark.django_db
 _TOKEN = "test-token-123"  # noqa: S105 — not a real secret
 
 
-def _render(
-    base: str, context: dict[str, str], *, subject_context: dict[str, str] | None = None
-) -> tuple[str, str, str]:
+def _render(base: str, context: dict[str, str]) -> tuple[str, str, str]:
     """Render the (subject, body, html_body) triad for an ``accounts/emails`` template base."""
-    subject = str(render_to_string(f"accounts/emails/{base}_subject.txt", subject_context or {}))
+    subject = str(render_to_string(f"accounts/emails/{base}_subject.txt"))
     body = render_to_string(f"accounts/emails/{base}_body.txt", context)
     html_body = render_to_string(f"accounts/emails/{base}_body.html", context)
     return subject, body, html_body
 
 
-# (email_type, recipient, template_base, link_path, link_context_key, include_frontend_base_url, subject_site_name)
+# (email_type, recipient, template_base, link_path)
 _LINK_CASES = [
-    (
-        AccountEmail.VERIFICATION,
-        "u@example.com",
-        "email_verification",
-        "/login/confirm-email?token={token}",
-        "verification_link",
-        False,
-        False,
-    ),
-    (
-        AccountEmail.ACTIVATION,
-        "u@example.com",
-        "account_activation",
-        "/login/reset-password?token={token}",
-        "activation_link",
-        False,
-        False,
-    ),
-    (
-        AccountEmail.PASSWORD_RESET,
-        "u@example.com",
-        "password_reset",
-        "/login/reset-password?token={token}",
-        "password_reset_link",
-        False,
-        False,
-    ),
+    (AccountEmail.VERIFICATION, "u@example.com", "email_verification", "/login/confirm-email?token={token}"),
+    (AccountEmail.ACTIVATION, "u@example.com", "account_activation", "/login/reset-password?token={token}"),
+    (AccountEmail.PASSWORD_RESET, "u@example.com", "password_reset", "/login/reset-password?token={token}"),
     (
         AccountEmail.CHANGE_CONFIRMATION,
         "new@example.com",
         "email_change_confirmation",
         "/account/confirm-email-change?token={token}",
-        "confirmation_link",
-        True,
-        False,
     ),
-    (
-        AccountEmail.DELETION,
-        "u@example.com",
-        "account_delete",
-        "/account/confirm-deletion?token={token}",
-        "account_deletion_link",
-        True,
-        True,
-    ),
+    (AccountEmail.DELETION, "u@example.com", "account_delete", "/account/confirm-deletion?token={token}"),
 ]
 
 
-@pytest.mark.parametrize(
-    "email_type, to, base, link_path, link_key, include_fbu, subject_site_name",
-    _LINK_CASES,
-)
+@pytest.mark.parametrize("email_type, to, base, link_path", _LINK_CASES)
 @patch("accounts.tasks.email.send_email")
 def test_link_email_renders_byte_for_byte(
     mock_send: MagicMock,
@@ -90,17 +49,12 @@ def test_link_email_renders_byte_for_byte(
     to: str,
     base: str,
     link_path: str,
-    link_key: str,
-    include_fbu: bool,
-    subject_site_name: bool,
 ) -> None:
     site_settings = SiteSettings.get_solo()
     full_link = site_settings.frontend_base_url + link_path.format(token=_TOKEN)
-    expected_context = {link_key: full_link}
-    if include_fbu:
-        expected_context["frontend_base_url"] = site_settings.frontend_base_url
-    subject_context = {"site_name": Site.objects.get_current().name} if subject_site_name else {}
-    exp_subject, exp_body, exp_html = _render(base, expected_context, subject_context=subject_context)
+    # Every body gets frontend_base_url; every link-bearing template reads the same action_link key.
+    expected_context = {"frontend_base_url": site_settings.frontend_base_url, "action_link": full_link}
+    exp_subject, exp_body, exp_html = _render(base, expected_context)
 
     send_account_email(email_type, to, token=_TOKEN)
 
