@@ -1,8 +1,8 @@
-"""Byte-for-byte render coverage for the consolidated ``send_account_email`` task (issue #608).
+"""Render coverage for the consolidated ``send_account_email`` task (issue #608).
 
-Each case independently reconstructs the subject/body/html the old per-message wrapper produced
-and asserts the consolidated task renders exactly the same — locking the link paths and template
-context so the consolidation is behaviour-preserving.
+Each case independently re-renders the message's templates with the context the task is expected
+to build, then asserts the task produced exactly that subject/body/html — locking the link paths,
+the ``action_link`` key, and the per-type context so the task and its templates can't drift apart.
 """
 
 from unittest.mock import MagicMock, patch
