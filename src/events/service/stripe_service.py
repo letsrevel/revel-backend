@@ -193,24 +193,10 @@ def create_checkout_session(
     if Ticket.objects.filter(~Q(status=Ticket.TicketStatus.PENDING), event=event, tier=locked_tier, user=user).exists():
         raise HttpError(400, str(_("You already have a ticket")))
 
-    # Check if a pending ticket already exists for this user/tier combination
-    existing_ticket = (
-        Ticket.objects.filter(event=event, tier=locked_tier, user=user, status=Ticket.TicketStatus.PENDING)
-        .select_related("payment")
-        .first()
-    )
-
-    if existing_ticket and hasattr(existing_ticket, "payment"):
-        payment = existing_ticket.payment
-        if not payment.has_expired():
-            # The user has an active session, retrieve it and send them back
-            session = Session.retrieve(payment.stripe_session_id)
-            return t.cast(str, session.url), payment
-        else:
-            payment.delete()
-            existing_ticket.delete()
-            TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") - 1)
-            locked_tier.refresh_from_db()  # Reload the value after the F() update
+    # Reuse an active pending session if one exists (otherwise stale ones are cleared).
+    reused = _reuse_or_clear_pending_ticket(event, locked_tier, user)
+    if reused is not None:
+        return reused
 
     # Availability Check (after any potential cleanup)
     if locked_tier.total_quantity is not None and locked_tier.quantity_sold >= locked_tier.total_quantity:
@@ -226,18 +212,7 @@ def create_checkout_session(
     )
 
     org = event.organization
-    net_fee = (effective_price * org.platform_fee_percent / Decimal(100)).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
-    # Fixed fee is stored in DEFAULT_CURRENCY; convert to payment currency if different.
-    # Exchange rates are always available (seeded by migration, refreshed daily).
-    # Unsupported currencies are rejected at tier creation (schema validation).
-    fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, tier.currency)
-    net_fee_total = net_fee + fixed_fee
-
-    # Gross up the net fee with VAT when applicable
-    site = SiteSettings.get_solo()
-    fee_vat = calculate_platform_fee_vat(net_fee_total, org, site.platform_vat_country, site.platform_vat_rate)
+    fee_vat = _compute_platform_fee_vat(org, effective_price, tier.currency)
     application_fee_amount = to_stripe_amount(fee_vat.fee_gross, tier.currency)
 
     expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
@@ -252,14 +227,95 @@ def create_checkout_session(
         expires_at=expires_at,
     )
 
-    # Ticket sale VAT breakdown
+    payment = _create_single_payment_record(
+        ticket=ticket,
+        user=user,
+        session_id=session.id,
+        tier=tier,
+        effective_price=effective_price,
+        fee_vat=fee_vat,
+        expires_at=expires_at,
+        org=org,
+    )
+    TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + 1)
+
+    return t.cast(str, session.url), payment
+
+
+def _reuse_or_clear_pending_ticket(
+    event: Event,
+    locked_tier: TicketTier,
+    user: RevelUser,
+) -> tuple[str, Payment] | None:
+    """Return an active pending checkout to resume, or clear a stale one.
+
+    Must run inside ``create_checkout_session``'s atomic block with the tier locked.
+
+    Returns:
+        ``(checkout_url, payment)`` when the user has an unexpired pending session
+        to resume; ``None`` otherwise (after deleting any expired pending ticket and
+        decrementing the tier's ``quantity_sold``).
+    """
+    existing_ticket = (
+        Ticket.objects.filter(event=event, tier=locked_tier, user=user, status=Ticket.TicketStatus.PENDING)
+        .select_related("payment")
+        .first()
+    )
+
+    if not (existing_ticket and hasattr(existing_ticket, "payment")):
+        return None
+
+    payment = existing_ticket.payment
+    if not payment.has_expired():
+        # The user has an active session, retrieve it and send them back
+        session = Session.retrieve(payment.stripe_session_id)
+        return t.cast(str, session.url), payment
+
+    payment.delete()
+    existing_ticket.delete()
+    TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") - 1)
+    locked_tier.refresh_from_db()  # Reload the value after the F() update
+    return None
+
+
+def _compute_platform_fee_vat(
+    org: Organization,
+    amount: Decimal,
+    currency: str,
+) -> "PlatformFeeVATResult":
+    """Compute the platform fee (percent + fixed) and gross it up with VAT.
+
+    The fixed fee is stored in ``DEFAULT_CURRENCY`` and converted to ``currency``.
+    Exchange rates are always available (seeded by migration, refreshed daily);
+    unsupported currencies are rejected at tier creation (schema validation).
+    """
+    net_fee = (amount * org.platform_fee_percent / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, currency)
+    net_fee_total = net_fee + fixed_fee
+
+    site = SiteSettings.get_solo()
+    return calculate_platform_fee_vat(net_fee_total, org, site.platform_vat_country, site.platform_vat_rate)
+
+
+def _create_single_payment_record(
+    *,
+    ticket: Ticket,
+    user: RevelUser,
+    session_id: str,
+    tier: TicketTier,
+    effective_price: Decimal,
+    fee_vat: "PlatformFeeVATResult",
+    expires_at: datetime,
+    org: Organization,
+) -> Payment:
+    """Create the Payment row for a single-ticket checkout, with VAT breakdown."""
     effective_vat_rate = get_effective_vat_rate(tier.vat_rate, org.vat_rate)
     ticket_vat = calculate_vat_inclusive(effective_price, effective_vat_rate)
 
-    payment = Payment.objects.create(
+    return Payment.objects.create(
         ticket=ticket,
         user=user,
-        stripe_session_id=session.id,
+        stripe_session_id=session_id,
         amount=effective_price,
         platform_fee=fee_vat.fee_gross,
         currency=tier.currency,
@@ -276,9 +332,6 @@ def create_checkout_session(
         platform_fee_vat_rate=fee_vat.fee_vat_rate,
         platform_fee_reverse_charge=fee_vat.reverse_charge,
     )
-    TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + 1)
-
-    return t.cast(str, session.url), payment
 
 
 def _build_billing_snapshot(

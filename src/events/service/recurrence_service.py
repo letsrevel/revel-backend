@@ -174,45 +174,7 @@ def generate_series_events(
             )
             return []
 
-        rule = locked_series.recurrence_rule.to_rrule()
-        horizon = until_override or (timezone.now() + timedelta(weeks=locked_series.generation_window_weeks))
-        # Offset start_from by 1 second so dtstart itself is included in between().
-        start_from = locked_series.last_generated_until or (
-            locked_series.recurrence_rule.dtstart - timedelta(seconds=1)
-        )
-        # Defense against horizon decreases (e.g. user lowers
-        # generation_window_weeks): without this cap, start_from could
-        # exceed horizon and silently stall generation.
-        if start_from > horizon:
-            start_from = horizon
-
-        # Compute which dates to skip (using timezone-aware datetime comparison).
-        # Scope existing_starts to the window we're about to generate to avoid loading
-        # the entire history of long-running series.
-        exdates_set = _parse_exdates(locked_series.exdates)
-        existing_starts = set(
-            locked_series.events.filter(
-                is_template=False,
-                start__gte=start_from,
-                start__lt=horizon,
-            ).values_list("start", flat=True)
-        )
-
-        # Continue the occurrence_index sequence from where the last batch left off so
-        # indices remain globally monotonic across rolling-window runs.
-        max_index = locked_series.events.filter(is_template=False).aggregate(max_idx=db_models.Max("occurrence_index"))[
-            "max_idx"
-        ]
-        next_index = (max_index if max_index is not None else -1) + 1
-
-        occurrences = rule.between(start_from, horizon, inc=False)
-
-        for dt in occurrences:
-            if dt in exdates_set or dt in existing_starts:
-                continue
-            event = materialize_occurrence(locked_series, dt, index=next_index)
-            created.append(event)
-            next_index += 1
+        created, horizon = _materialize_due_occurrences(locked_series, until_override)
 
         locked_series.last_generated_until = horizon
         locked_series.save(update_fields=["last_generated_until"])
@@ -238,6 +200,64 @@ def generate_series_events(
         notify_series_events_generated(series, created)
 
     return created
+
+
+def _materialize_due_occurrences(
+    locked_series: EventSeries,
+    until_override: datetime | None,
+) -> tuple[list[Event], datetime]:
+    """Compute the rolling window and materialize any missing occurrences.
+
+    Must be called inside ``generate_series_events``'s atomic block, with the
+    series row already locked and ``recurrence_rule``/``template_event`` verified
+    present by the caller's guard.
+
+    Args:
+        locked_series: The row-locked series being generated.
+        until_override: Optional override for the generation horizon.
+
+    Returns:
+        A ``(created_events, horizon)`` tuple. ``horizon`` is the value the caller
+        should persist as ``last_generated_until``.
+    """
+    rule_model = locked_series.recurrence_rule
+    assert rule_model is not None  # guaranteed by caller's guard
+    rule = rule_model.to_rrule()
+    horizon = until_override or (timezone.now() + timedelta(weeks=locked_series.generation_window_weeks))
+    # Offset start_from by 1 second so dtstart itself is included in between().
+    start_from = locked_series.last_generated_until or (rule_model.dtstart - timedelta(seconds=1))
+    # Defense against horizon decreases (e.g. user lowers generation_window_weeks):
+    # without this cap, start_from could exceed horizon and silently stall generation.
+    if start_from > horizon:
+        start_from = horizon
+
+    # Compute which dates to skip (using timezone-aware datetime comparison).
+    # Scope existing_starts to the window we're about to generate to avoid loading
+    # the entire history of long-running series.
+    exdates_set = _parse_exdates(locked_series.exdates)
+    existing_starts = set(
+        locked_series.events.filter(
+            is_template=False,
+            start__gte=start_from,
+            start__lt=horizon,
+        ).values_list("start", flat=True)
+    )
+
+    # Continue the occurrence_index sequence from where the last batch left off so
+    # indices remain globally monotonic across rolling-window runs.
+    max_index = locked_series.events.filter(is_template=False).aggregate(max_idx=db_models.Max("occurrence_index"))[
+        "max_idx"
+    ]
+    next_index = (max_index if max_index is not None else -1) + 1
+
+    created: list[Event] = []
+    for dt in rule.between(start_from, horizon, inc=False):
+        if dt in exdates_set or dt in existing_starts:
+            continue
+        created.append(materialize_occurrence(locked_series, dt, index=next_index))
+        next_index += 1
+
+    return created, horizon
 
 
 @transaction.atomic
