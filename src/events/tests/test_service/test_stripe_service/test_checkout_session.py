@@ -149,7 +149,9 @@ class TestCreateCheckoutSession:
 
         # Assert
         assert checkout_url == "https://checkout.stripe.com/pay/cs_existing"
-        mock_stripe_retrieve.assert_called_once_with("cs_existing")
+        # Connected-account sessions must be retrieved with the org's stripe_account,
+        # otherwise Stripe can't find the session (regression guard).
+        mock_stripe_retrieve.assert_called_once_with("cs_existing", stripe_account="acct_test123")
         mock_stripe_create.assert_not_called()  # Should not create a new session
         assert Ticket.objects.count() == 1  # No new ticket created
 

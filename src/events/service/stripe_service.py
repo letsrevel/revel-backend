@@ -267,8 +267,15 @@ def _reuse_or_clear_pending_ticket(
 
     payment = existing_ticket.payment
     if not payment.has_expired():
-        # The user has an active session, retrieve it and send them back
-        session = Session.retrieve(payment.stripe_session_id)
+        # The user has an active session, retrieve it and send them back.
+        # Connected-account sessions must be retrieved with the same stripe_account
+        # they were created with, otherwise Stripe raises InvalidRequestError (mirrors
+        # the retrieval in resume_pending_checkout).
+        org_stripe_account = event.organization.stripe_account_id
+        session = Session.retrieve(
+            payment.stripe_session_id,
+            stripe_account=org_stripe_account if org_stripe_account != settings.STRIPE_ACCOUNT else None,
+        )
         return t.cast(str, session.url), payment
 
     payment.delete()
