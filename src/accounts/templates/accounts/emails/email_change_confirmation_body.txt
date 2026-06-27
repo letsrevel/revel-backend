@@ -2,7 +2,7 @@
 
 {% blocktrans %}You (or someone using your account) asked to change the email address on your Revel account to this one. To confirm the change, click the link below:{% endblocktrans %}
 
-{{ confirmation_link }}
+{{ action_link }}
 
 {% blocktrans %}Important: after you confirm, you will be signed out of every other device and you will need to sign in again using this new email address.{% endblocktrans %}
 

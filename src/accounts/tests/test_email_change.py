@@ -20,6 +20,14 @@ from accounts import schema
 from accounts.jwt import create_token
 from accounts.models import GlobalBan, RevelUser
 from accounts.service import account as account_service
+from accounts.tasks import AccountEmail
+
+
+def _call_for(mock: MagicMock, email_type: AccountEmail) -> t.Any:
+    """Return the single send_account_email.delay call matching ``email_type``."""
+    calls = [c for c in mock.call_args_list if c.args[0] == email_type]
+    assert len(calls) == 1, f"expected exactly one {email_type} call, got {len(calls)}"
+    return calls[0]
 
 
 def _jti(token: str) -> str:
@@ -52,41 +60,43 @@ class TestRequestEmailChange:
     # transaction.on_commit. In default pytest-django mode the wrapping transaction is rolled
     # back and the callbacks never fire, breaking the delay_mock assertions.
     @pytest.mark.django_db(transaction=True)
-    @patch("accounts.tasks.send_email_change_notice.delay")
-    @patch("accounts.tasks.send_email_change_confirmation.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_success(
         self,
-        mock_send_conf: MagicMock,
-        mock_send_notice: MagicMock,
+        mock_send: MagicMock,
         user: RevelUser,
     ) -> None:
         token = account_service.request_email_change(
             user=user, new_email="new@example.com", password="strong-password-123!"
         )
         assert token
-        mock_send_conf.assert_called_once_with("new@example.com", token)
-        mock_send_notice.assert_called_once()
-        notice_args = mock_send_notice.call_args
-        assert notice_args.args[0] == user.email
+        # Exactly the confirmation + notice emails — no extra/unrelated dispatch.
+        assert mock_send.call_count == 2
+        conf_call = _call_for(mock_send, AccountEmail.CHANGE_CONFIRMATION)
+        assert conf_call.args == (AccountEmail.CHANGE_CONFIRMATION, "new@example.com")
+        assert conf_call.kwargs == {"token": token}
+        notice_call = _call_for(mock_send, AccountEmail.CHANGE_NOTICE)
+        assert notice_call.args[1] == user.email
+        masked = notice_call.kwargs["context"]["masked_new_email"]
         # Masking: a****@example.com style
-        assert notice_args.args[1].endswith("@example.com")
-        assert "*" in notice_args.args[1]
+        assert masked.endswith("@example.com")
+        assert "*" in masked
 
-    @patch("accounts.tasks.send_email_change_confirmation.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_wrong_password(self, mock_send: MagicMock, user: RevelUser) -> None:
         with pytest.raises(HttpError) as exc:
             account_service.request_email_change(user=user, new_email="new@example.com", password="WRONG")
         assert exc.value.status_code == 400
         mock_send.assert_not_called()
 
-    @patch("accounts.tasks.send_email_change_confirmation.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_same_email(self, mock_send: MagicMock, user: RevelUser) -> None:
         with pytest.raises(HttpError) as exc:
             account_service.request_email_change(user=user, new_email=user.email, password="strong-password-123!")
         assert exc.value.status_code == 400
         mock_send.assert_not_called()
 
-    @patch("accounts.tasks.send_email_change_confirmation.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_duplicate_email(self, mock_send: MagicMock, user: RevelUser, django_user_model: t.Type[RevelUser]) -> None:
         django_user_model.objects.create_user(username="taken@example.com", email="taken@example.com", password="x")
         with pytest.raises(HttpError) as exc:
@@ -96,7 +106,7 @@ class TestRequestEmailChange:
         assert exc.value.status_code == 400
         mock_send.assert_not_called()
 
-    @patch("accounts.tasks.send_email_change_confirmation.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_duplicate_email_case_insensitive(
         self, mock_send: MagicMock, user: RevelUser, django_user_model: t.Type[RevelUser]
     ) -> None:
@@ -108,7 +118,7 @@ class TestRequestEmailChange:
             )
         mock_send.assert_not_called()
 
-    @patch("accounts.tasks.send_email_change_confirmation.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_google_sso_user_rejected(self, mock_send: MagicMock, google_user: RevelUser) -> None:
         # Real SSO accounts have only the sentinel password — do not override it. The
         # SSO branch must fire before the password check, otherwise these users get the
@@ -119,12 +129,10 @@ class TestRequestEmailChange:
         assert "SSO" in str(exc.value.message)
         mock_send.assert_not_called()
 
-    @patch("accounts.tasks.send_email_change_notice.delay")
-    @patch("accounts.tasks.send_email_change_confirmation.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_globally_banned_target_no_op(
         self,
-        mock_send_conf: MagicMock,
-        mock_send_notice: MagicMock,
+        mock_send: MagicMock,
         user: RevelUser,
     ) -> None:
         GlobalBan.objects.create(
@@ -136,8 +144,7 @@ class TestRequestEmailChange:
             user=user, new_email="banned@example.com", password="strong-password-123!"
         )
         assert token == ""
-        mock_send_conf.assert_not_called()
-        mock_send_notice.assert_not_called()
+        mock_send.assert_not_called()
 
 
 # ===== Service: confirm_email_change =====
@@ -159,12 +166,10 @@ class TestConfirmEmailChange:
     # transaction.on_commit. In default pytest-django mode the wrapping transaction is rolled
     # back and the callbacks never fire, breaking the delay_mock assertions.
     @pytest.mark.django_db(transaction=True)
-    @patch("accounts.tasks.send_email_change_completed_new.delay")
-    @patch("accounts.tasks.send_email_change_completed_old.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_success(
         self,
-        mock_send_old: MagicMock,
-        mock_send_new: MagicMock,
+        mock_send: MagicMock,
         user: RevelUser,
     ) -> None:
         old_email = user.email
@@ -176,15 +181,20 @@ class TestConfirmEmailChange:
         assert result.email == "new@example.com"
         assert result.username == "new@example.com"
         assert result.email_verified is True
-        mock_send_old.assert_called_once_with(old_email, "new@example.com")
-        mock_send_new.assert_called_once_with("new@example.com", old_email)
+        # Exactly the completed-old + completed-new emails — no extra/unrelated dispatch.
+        assert mock_send.call_count == 2
+        expected_context = {"old_email": old_email, "new_email": "new@example.com"}
+        old_call = _call_for(mock_send, AccountEmail.CHANGE_COMPLETED_OLD)
+        assert old_call.args == (AccountEmail.CHANGE_COMPLETED_OLD, old_email)
+        assert old_call.kwargs == {"context": expected_context}
+        new_call = _call_for(mock_send, AccountEmail.CHANGE_COMPLETED_NEW)
+        assert new_call.args == (AccountEmail.CHANGE_COMPLETED_NEW, "new@example.com")
+        assert new_call.kwargs == {"context": expected_context}
 
-    @patch("accounts.tasks.send_email_change_completed_new.delay")
-    @patch("accounts.tasks.send_email_change_completed_old.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_blacklists_all_user_tokens(
         self,
-        mock_old: MagicMock,
-        mock_new: MagicMock,
+        mock_send: MagicMock,
         user: RevelUser,
     ) -> None:
         # Issue a couple of refresh tokens for the user — they should all be blacklisted.
@@ -205,9 +215,8 @@ class TestConfirmEmailChange:
             account_service.confirm_email_change(token)
         assert exc.value.status_code == 400
 
-    @patch("accounts.tasks.send_email_change_completed_new.delay")
-    @patch("accounts.tasks.send_email_change_completed_old.delay")
-    def test_blacklisted_token_rejected(self, mock_old: MagicMock, mock_new: MagicMock, user: RevelUser) -> None:
+    @patch("accounts.tasks.send_account_email.delay")
+    def test_blacklisted_token_rejected(self, mock_send: MagicMock, user: RevelUser) -> None:
         token = _make_change_token(user, "new@example.com")
         account_service.confirm_email_change(token)
         # The specific JTI is blacklisted.
@@ -216,12 +225,10 @@ class TestConfirmEmailChange:
         with pytest.raises(HttpError):
             account_service.confirm_email_change(token)
 
-    @patch("accounts.tasks.send_email_change_completed_new.delay")
-    @patch("accounts.tasks.send_email_change_completed_old.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_race_email_taken(
         self,
-        mock_old: MagicMock,
-        mock_new: MagicMock,
+        mock_send: MagicMock,
         user: RevelUser,
         django_user_model: t.Type[RevelUser],
     ) -> None:
@@ -259,11 +266,8 @@ class TestConfirmEmailChange:
 # transaction.on_commit. In default pytest-django mode the wrapping transaction is rolled back
 # and the callbacks never fire, breaking the delay_mock assertions.
 @pytest.mark.django_db(transaction=True)
-@patch("accounts.tasks.send_email_change_notice.delay")
-@patch("accounts.tasks.send_email_change_confirmation.delay")
-def test_email_change_request_endpoint(
-    mock_conf: MagicMock, mock_notice: MagicMock, auth_client: Client, user: RevelUser
-) -> None:
+@patch("accounts.tasks.send_account_email.delay")
+def test_email_change_request_endpoint(mock_send: MagicMock, auth_client: Client, user: RevelUser) -> None:
     url = reverse("api:email-change-request")
     response = auth_client.post(
         url,
@@ -272,8 +276,8 @@ def test_email_change_request_endpoint(
     )
     assert response.status_code == 200, response.content
     assert "confirmation link" in response.json()["message"].lower()
-    mock_conf.assert_called_once()
-    mock_notice.assert_called_once()
+    _call_for(mock_send, AccountEmail.CHANGE_CONFIRMATION)
+    _call_for(mock_send, AccountEmail.CHANGE_NOTICE)
 
 
 def test_email_change_request_requires_auth(client: Client) -> None:
@@ -286,11 +290,9 @@ def test_email_change_request_requires_auth(client: Client) -> None:
     assert response.status_code == 401
 
 
-@patch("accounts.tasks.send_email_change_completed_new.delay")
-@patch("accounts.tasks.send_email_change_completed_old.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_email_change_confirm_endpoint(
-    mock_old: MagicMock,
-    mock_new: MagicMock,
+    mock_send: MagicMock,
     client: Client,
     user: RevelUser,
 ) -> None:
@@ -308,11 +310,9 @@ def test_email_change_confirm_endpoint(
     assert "refresh" in data["token"]
 
 
-@patch("accounts.tasks.send_email_change_completed_new.delay")
-@patch("accounts.tasks.send_email_change_completed_old.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_full_flow_old_refresh_tokens_invalidated(
-    mock_old: MagicMock,
-    mock_new: MagicMock,
+    mock_send: MagicMock,
     client: Client,
     user: RevelUser,
 ) -> None:

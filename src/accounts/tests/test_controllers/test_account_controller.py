@@ -69,11 +69,11 @@ def test_verify_email_success(
     assert data["token"]["access"] == "access_token"
 
 
-# transaction=True: resend_verification_email dispatches send_verification_email via
+# transaction=True: resend_verification_email dispatches send_account_email via
 # transaction.on_commit. In default pytest-django mode the wrapping transaction is rolled back
 # and the callback never fires, breaking the delay_mock assertion.
 @pytest.mark.django_db(transaction=True)
-@patch("accounts.tasks.send_verification_email.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_resend_verification_email_success(
     mock_send_email: MagicMock, client: Client, unverified_user: RevelUser
 ) -> None:
@@ -87,7 +87,7 @@ def test_resend_verification_email_success(
     mock_send_email.assert_called_once()
 
 
-@patch("accounts.tasks.send_verification_email.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_resend_verification_email_for_verified_user(
     mock_send_email: MagicMock, client: Client, user: RevelUser
 ) -> None:
@@ -104,7 +104,7 @@ def test_resend_verification_email_for_verified_user(
     mock_send_email.assert_not_called()
 
 
-@patch("accounts.tasks.send_verification_email.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_resend_verification_email_nonexistent_user(mock_send_email: MagicMock, client: Client) -> None:
     """Test resending verification for a non-existent user returns 200 (security by obscurity)."""
     url = reverse("api:resend-verification-email")
@@ -117,11 +117,11 @@ def test_resend_verification_email_nonexistent_user(mock_send_email: MagicMock, 
     mock_send_email.assert_not_called()
 
 
-# transaction=True: request_account_deletion dispatches send_account_deletion_link via
+# transaction=True: request_account_deletion dispatches send_account_email via
 # transaction.on_commit. In default pytest-django mode the wrapping transaction is rolled back
 # and the callback never fires, breaking the delay_mock assertion.
 @pytest.mark.django_db(transaction=True)
-@patch("accounts.tasks.send_account_deletion_link.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_delete_account_request(mock_send_email: MagicMock, auth_client: Client) -> None:
     """Test that requesting account deletion returns 200."""
     url = reverse("api:delete-account-request")
@@ -144,11 +144,11 @@ def test_delete_account_confirm(mock_confirm_delete: MagicMock, client: Client) 
     mock_confirm_delete.assert_called_once_with("valid.deletion.token")
 
 
-# transaction=True: request_password_reset dispatches send_password_reset_link via
+# transaction=True: request_password_reset dispatches send_account_email via
 # transaction.on_commit. In default pytest-django mode the wrapping transaction is rolled back
 # and the callback never fires, breaking the delay_mock assertion.
 @pytest.mark.django_db(transaction=True)
-@patch("accounts.tasks.send_password_reset_link.delay")
+@patch("accounts.tasks.send_account_email.delay")
 def test_password_reset_request(mock_send_email: MagicMock, client: Client, user: RevelUser) -> None:
     """Test password reset request returns 200, preventing user enumeration."""
     url = reverse("api:reset-password-request")

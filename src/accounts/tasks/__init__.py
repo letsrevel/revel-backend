@@ -1,9 +1,12 @@
 """Tasks for the authentication app.
 
 This package groups the accounts app's asynchronous tasks by domain (email,
-tokens, gdpr, verification_reminders, notifications, bans, payouts). Every task
-is re-exported here so the historical ``from accounts.tasks import <task>``
-import path keeps working.
+tokens, gdpr, verification_reminders, notifications, bans, payouts). Tasks are
+re-exported here so the ``from accounts.tasks import <task>`` import path works.
+
+The eight per-message email-send tasks were consolidated into the single
+``send_account_email`` task (issue #608); their old names are intentionally no
+longer exported. See ``accounts/tasks/email.py``.
 
 ``mark_reminder_sent`` is re-exported because ``common.tasks._execute_email_callback``
 resolves it via ``getattr(import_module("accounts.tasks"), "mark_reminder_sent")``
@@ -11,16 +14,7 @@ against its allowlist — it must stay importable from this package.
 """
 
 from accounts.tasks.bans import process_domain_ban_task
-from accounts.tasks.email import (
-    send_account_activation_link,
-    send_account_deletion_link,
-    send_email_change_completed_new,
-    send_email_change_completed_old,
-    send_email_change_confirmation,
-    send_email_change_notice,
-    send_password_reset_link,
-    send_verification_email,
-)
+from accounts.tasks.email import AccountEmail, send_account_email
 from accounts.tasks.gdpr import (
     DATA_EXPORT_URL_EXPIRES_IN,
     cleanup_expired_data_exports,
@@ -40,6 +34,7 @@ from accounts.tasks.verification_reminders import (
 
 __all__ = [
     "DATA_EXPORT_URL_EXPIRES_IN",
+    "AccountEmail",
     "cleanup_expired_data_exports",
     "deactivate_unverified_accounts",
     "delete_old_inactive_accounts",
@@ -52,14 +47,7 @@ __all__ = [
     "notify_admin_new_user_joined_discord",
     "process_domain_ban_task",
     "process_referral_payouts",
-    "send_account_activation_link",
-    "send_account_deletion_link",
+    "send_account_email",
     "send_early_verification_reminders",
-    "send_email_change_completed_new",
-    "send_email_change_completed_old",
-    "send_email_change_confirmation",
-    "send_email_change_notice",
     "send_final_verification_warnings",
-    "send_password_reset_link",
-    "send_verification_email",
 ]

@@ -628,7 +628,7 @@ class TestProcessDomainBanTask:
 class TestRegistrationBanGuard:
     """Tests for ban check in register_user."""
 
-    @patch("accounts.tasks.send_verification_email.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_registration_blocked_for_banned_email(self, mock_email: MagicMock, admin_user: RevelUser) -> None:
         GlobalBan.objects.create(
             ban_type=GlobalBan.BanType.EMAIL,
@@ -648,7 +648,7 @@ class TestRegistrationBanGuard:
         assert exc_info.value.status_code == 403
         assert "not available" in str(exc_info.value)
 
-    @patch("accounts.tasks.send_verification_email.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_registration_blocked_for_banned_domain(self, mock_email: MagicMock, admin_user: RevelUser) -> None:
         GlobalBan.objects.create(
             ban_type=GlobalBan.BanType.DOMAIN,
@@ -667,7 +667,7 @@ class TestRegistrationBanGuard:
             account_service.register_user(payload)
         assert exc_info.value.status_code == 403
 
-    @patch("accounts.tasks.send_verification_email.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_registration_allowed_for_clean_email(self, mock_email: MagicMock) -> None:
         payload = schema.RegisterUserSchema(
             email="clean@example.com",
@@ -684,7 +684,7 @@ class TestRegistrationBanGuard:
 class TestVerifyEmailBanGuard:
     """Tests for ban check in verify_email."""
 
-    @patch("accounts.tasks.send_verification_email.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_verify_email_blocked_for_banned_user(
         self,
         mock_email: MagicMock,
@@ -710,7 +710,7 @@ class TestVerifyEmailBanGuard:
             account_service.verify_email(token)
         assert exc_info.value.status_code == 403
 
-    @patch("accounts.tasks.send_verification_email.delay")
+    @patch("accounts.tasks.send_account_email.delay")
     def test_verify_email_allowed_for_clean_user(
         self,
         mock_email: MagicMock,
