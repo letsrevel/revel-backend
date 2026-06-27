@@ -77,7 +77,7 @@ def _enable_live_emails() -> str:
     site = SiteSettings.get_solo()
     site.live_emails = True
     site.save(update_fields=["live_emails"])
-    return t.cast(str, site.frontend_base_url)
+    return site.frontend_base_url
 
 
 def _unique_recipient() -> str:
