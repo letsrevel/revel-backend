@@ -271,6 +271,13 @@ def _reuse_or_clear_pending_ticket(
         # Connected-account sessions must be retrieved with the same stripe_account
         # they were created with, otherwise Stripe raises InvalidRequestError (mirrors
         # the retrieval in resume_pending_checkout).
+        #
+        # No InvalidRequestError guard here (unlike resume_pending_checkout): a not-found
+        # retrieve is unreachable on this path. create_checkout_session's is_stripe_connected
+        # precheck rejects deauthorized orgs before we get here, expired sessions are gated by
+        # has_expired() (and stay retrievable anyway), and the account context now matches how
+        # the session was created. resume_pending_checkout needs the guard because it has no
+        # such precheck.
         org_stripe_account = event.organization.stripe_account_id
         session = Session.retrieve(
             payment.stripe_session_id,
