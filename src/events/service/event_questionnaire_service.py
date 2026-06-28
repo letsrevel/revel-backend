@@ -39,6 +39,7 @@ from questionnaires.models import (
 )
 from questionnaires.schema import QuestionnaireSubmissionSchema
 from questionnaires.service.questionnaire_service import QuestionnaireService
+from questionnaires.service.submission_service import SubmissionService
 
 if t.TYPE_CHECKING:
     from datetime import datetime
@@ -134,7 +135,7 @@ def submit_event_questionnaire(
     *,
     user: RevelUser,
     event: Event,
-    questionnaire_service: QuestionnaireService,
+    questionnaire_service: SubmissionService,
     org_questionnaire: OrganizationQuestionnaire,
     submission_schema: QuestionnaireSubmissionSchema,
 ) -> QuestionnaireSubmission:
@@ -146,7 +147,7 @@ def submit_event_questionnaire(
     Args:
         user: The user submitting the questionnaire.
         event: The event the questionnaire is being submitted for.
-        questionnaire_service: The QuestionnaireService instance for the questionnaire.
+        questionnaire_service: The SubmissionService instance for the questionnaire.
         org_questionnaire: The OrganizationQuestionnaire wrapper.
         submission_schema: The submission data from the user.
 

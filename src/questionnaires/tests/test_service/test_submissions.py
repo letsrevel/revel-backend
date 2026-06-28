@@ -1,4 +1,4 @@
-"""Tests for QuestionnaireService submission retrieval methods."""
+"""Tests for SubmissionService submission retrieval methods."""
 
 import pytest
 from django.http import Http404
@@ -13,7 +13,7 @@ from questionnaires.models import (
     Questionnaire,
     QuestionnaireSubmission,
 )
-from questionnaires.service import QuestionnaireService
+from questionnaires.service import SubmissionService
 
 pytestmark = pytest.mark.django_db
 
@@ -34,7 +34,7 @@ def test_get_submissions_queryset(questionnaire: Questionnaire, user: RevelUser)
         user=user, questionnaire=other_questionnaire, status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
     )
 
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
     submissions = service.get_submissions_queryset()
 
     # Should only return submissions for this questionnaire
@@ -63,7 +63,7 @@ def test_get_submission_detail(
         submission=submission, question=free_text_question, answer="This is my answer"
     )
 
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
     retrieved_submission = service.get_submission_detail(submission.id)
 
     assert retrieved_submission.id == submission.id
@@ -87,7 +87,7 @@ def test_get_submission_detail_wrong_questionnaire(questionnaire: Questionnaire,
     other_questionnaire = Questionnaire.objects.create(name="Other Questionnaire")
     submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=other_questionnaire)
 
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
 
     with pytest.raises(Http404):
         service.get_submission_detail(submission.id)

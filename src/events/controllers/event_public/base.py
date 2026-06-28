@@ -11,7 +11,7 @@ from events import models
 from events.service import event_service
 from events.service.tokens import TokenRejection
 from questionnaires.models import Questionnaire
-from questionnaires.service import QuestionnaireService
+from questionnaires.service import SubmissionService
 
 _TOKEN_GONE_MESSAGES = {
     "expired": _("This invitation link has expired."),
@@ -108,10 +108,10 @@ class EventPublicBaseController(UserAwareController):
             self._token_rejection = event_service.get_token_rejection_reason(token)
         return event_token
 
-    def get_questionnaire_service(self, questionnaire_id: UUID) -> QuestionnaireService:
-        """Get the questionnaire for this request."""
+    def get_questionnaire_service(self, questionnaire_id: UUID) -> SubmissionService:
+        """Get the submission service for this request."""
         try:
-            service = QuestionnaireService(questionnaire_id)
+            service = SubmissionService(questionnaire_id)
         except Questionnaire.DoesNotExist:
             raise Http404()
         return service

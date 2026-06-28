@@ -12,7 +12,7 @@ from questionnaires.models import (
     MultipleChoiceQuestion,
     Questionnaire,
 )
-from questionnaires.service.questionnaire_service import QuestionnaireService
+from questionnaires.service.submission_service import SubmissionService
 
 
 @pytest.fixture
@@ -90,9 +90,9 @@ def eq_option(eq_mcq: MultipleChoiceQuestion) -> MultipleChoiceOption:
 def eq_questionnaire_service(
     eq_questionnaire: Questionnaire,
     eq_mcq: MultipleChoiceQuestion,
-) -> QuestionnaireService:
-    """QuestionnaireService instance for the test questionnaire."""
-    return QuestionnaireService(eq_questionnaire.id)
+) -> SubmissionService:
+    """SubmissionService instance for the test questionnaire."""
+    return SubmissionService(eq_questionnaire.id)
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Tests for the QuestionnaireService.build() method."""
+"""Tests for the SubmissionService.build() method."""
 
 import pytest
 
@@ -7,7 +7,7 @@ from questionnaires.models import (
     MultipleChoiceQuestion,
     Questionnaire,
 )
-from questionnaires.service import QuestionnaireService, get_questionnaire_schema
+from questionnaires.service import SubmissionService, get_questionnaire_schema
 
 pytestmark = pytest.mark.django_db
 
@@ -19,7 +19,7 @@ def test_build_questionnaire_no_shuffling(complex_questionnaire: Questionnaire) 
     q.shuffle_sections = False
     q.save()
 
-    service = QuestionnaireService(q.id)
+    service = SubmissionService(q.id)
     schema = service.build()
 
     assert schema.id == q.id
@@ -48,7 +48,7 @@ def test_build_questionnaire_with_shuffling(complex_questionnaire: Questionnaire
     q.shuffle_sections = True
     q.save()
 
-    service = QuestionnaireService(q.id)
+    service = SubmissionService(q.id)
     schema = service.build()
 
     # Assert that shuffle was called for:
@@ -71,7 +71,7 @@ def test_build_questionnaire_with_sorted_options(questionnaire: Questionnaire) -
     opt1 = MultipleChoiceOption.objects.create(question=mcq, option="Option 2", order=2)
     opt2 = MultipleChoiceOption.objects.create(question=mcq, option="Option 1", order=1)
 
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
     schema = service.build()
 
     assert len(schema.multiple_choice_questions) == 1
@@ -94,7 +94,7 @@ def test_build_shuffle_is_stable_for_same_seed(questionnaire: Questionnaire) -> 
         MultipleChoiceOption.objects.create(question=mcq, option=f"Option {i}", order=i)
 
     def option_order(seed: str) -> list[str]:
-        schema = QuestionnaireService(questionnaire.id).build(shuffle_seed=seed)
+        schema = SubmissionService(questionnaire.id).build(shuffle_seed=seed)
         return [opt.option for opt in schema.multiple_choice_questions[0].options]
 
     identity = [f"Option {i}" for i in range(8)]

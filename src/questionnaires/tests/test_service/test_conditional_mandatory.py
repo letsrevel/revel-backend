@@ -1,4 +1,4 @@
-"""Tests for conditional mandatory questions in QuestionnaireService.submit()."""
+"""Tests for conditional mandatory questions in SubmissionService.submit()."""
 
 import pytest
 
@@ -16,7 +16,7 @@ from questionnaires.schema import (
     MultipleChoiceSubmissionSchema,
     QuestionnaireSubmissionSchema,
 )
-from questionnaires.service import QuestionnaireService
+from questionnaires.service import SubmissionService
 
 pytestmark = pytest.mark.django_db
 
@@ -42,7 +42,7 @@ def test_submit_conditional_mc_question_not_required_when_option_not_selected(
     )
     MultipleChoiceOption.objects.create(question=q2, option="Yes", is_correct=True, order=1)
 
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
 
     # User answers Q1=No, so Q2 should NOT be required
     submission_schema = QuestionnaireSubmissionSchema(
@@ -79,7 +79,7 @@ def test_submit_conditional_mc_question_required_when_option_selected(
     )
     MultipleChoiceOption.objects.create(question=q2, option="Yes", is_correct=True, order=1)
 
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
 
     # User answers Q1=Yes, so Q2 SHOULD be required
     submission_schema = QuestionnaireSubmissionSchema(
@@ -117,7 +117,7 @@ def test_submit_conditional_ft_question_not_required_when_option_not_selected(
         depends_on_option=q1_yes,
     )
 
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
 
     # User answers Q1=No, so Q2 should NOT be required
     submission_schema = QuestionnaireSubmissionSchema(
@@ -168,7 +168,7 @@ def test_submit_conditional_section_questions_not_required_when_section_not_appl
         is_mandatory=True,
     )
 
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
 
     # User answers Q1=No, so the section and Q2/Q3 should NOT be required
     submission_schema = QuestionnaireSubmissionSchema(
@@ -209,7 +209,7 @@ def test_submit_conditional_section_questions_required_when_section_applicable(
     )
     MultipleChoiceOption.objects.create(question=q2, option="Detail A", is_correct=True, order=1)
 
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
 
     # User answers Q1=Yes, so the section and Q2 SHOULD be required
     submission_schema = QuestionnaireSubmissionSchema(
@@ -262,7 +262,7 @@ def test_submit_conditional_question_inside_conditional_section(user: RevelUser,
     )
     q3_opt = MultipleChoiceOption.objects.create(question=q3, option="A detail", is_correct=True, order=1)
 
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
 
     # User answers Q1=Yes and Q2=B, so Q3 should NOT be required (Q2_a not selected)
     submission_schema = QuestionnaireSubmissionSchema(

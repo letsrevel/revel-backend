@@ -1,4 +1,4 @@
-"""Tests for file upload question functionality in QuestionnaireService.
+"""Tests for file upload question functionality in SubmissionService.
 
 This module tests:
 - build() includes file upload questions in returned schema
@@ -36,7 +36,7 @@ from questionnaires.schema import (
     MultipleChoiceSubmissionSchema,
     QuestionnaireSubmissionSchema,
 )
-from questionnaires.service import QuestionnaireService, get_questionnaire_schema
+from questionnaires.service import SubmissionService, get_questionnaire_schema
 
 pytestmark = pytest.mark.django_db
 
@@ -106,7 +106,7 @@ def file_upload_question(questionnaire: Questionnaire) -> FileUploadQuestion:
 
 
 class TestBuildWithFileUploadQuestions:
-    """Tests for QuestionnaireService.build() with file upload questions."""
+    """Tests for SubmissionService.build() with file upload questions."""
 
     def test_build_includes_top_level_file_upload_questions(self, questionnaire: Questionnaire) -> None:
         """Test that build() includes top-level file upload questions in schema."""
@@ -121,7 +121,7 @@ class TestBuildWithFileUploadQuestions:
         )
 
         # Act
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         schema = service.build()
 
         # Assert
@@ -148,7 +148,7 @@ class TestBuildWithFileUploadQuestions:
         )
 
         # Act
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         schema = service.build()
 
         # Assert
@@ -180,7 +180,7 @@ class TestBuildWithFileUploadQuestions:
         )
 
         # Act
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         schema = service.build()
 
         # Assert
@@ -220,7 +220,7 @@ class TestBuildWithFileUploadQuestions:
 
 
 class TestSubmitWithFileUploadAnswers:
-    """Tests for QuestionnaireService.submit() with file upload answers."""
+    """Tests for SubmissionService.submit() with file upload answers."""
 
     def test_submit_with_valid_file_upload_answer(
         self,
@@ -231,7 +231,7 @@ class TestSubmitWithFileUploadAnswers:
     ) -> None:
         """Test successful submission with a valid file upload answer."""
         # Arrange
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=questionnaire.id,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
@@ -269,7 +269,7 @@ class TestSubmitWithFileUploadAnswers:
             question="Upload multiple documents",
             max_files=3,
         )
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=questionnaire.id,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
@@ -315,7 +315,7 @@ class TestSubmitWithFileUploadAnswers:
             file_size=13,
         )
 
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=questionnaire.id,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
@@ -340,7 +340,7 @@ class TestSubmitWithFileUploadAnswers:
     ) -> None:
         """Test that submission fails when file ID doesn't exist."""
         # Arrange
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=questionnaire.id,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
@@ -386,7 +386,7 @@ class TestSubmitWithFileUploadAnswers:
             )
             files.append(qf)
 
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=questionnaire.id,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
@@ -417,7 +417,7 @@ class TestSubmitWithFileUploadAnswers:
             allowed_mime_types=["image/jpeg", "image/png"],
         )
 
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=questionnaire.id,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
@@ -448,7 +448,7 @@ class TestSubmitWithFileUploadAnswers:
             allowed_mime_types=["image/jpeg", "image/png"],
         )
 
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=questionnaire.id,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
@@ -480,7 +480,7 @@ class TestSubmitWithFileUploadAnswers:
             allowed_mime_types=[],  # Empty = allow all
         )
 
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=questionnaire.id,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
@@ -525,7 +525,7 @@ class TestSubmitWithFileUploadAnswers:
             file_size=200,
         )
 
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=questionnaire.id,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
@@ -555,7 +555,7 @@ class TestSubmitWithFileUploadAnswers:
             is_mandatory=True,
         )
 
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=questionnaire.id,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
@@ -579,7 +579,7 @@ class TestSubmitWithFileUploadAnswers:
             is_mandatory=True,
         )
 
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=questionnaire.id,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.DRAFT,
@@ -623,7 +623,7 @@ class TestSubmitWithFileUploadAnswers:
             order=3,
         )
 
-        service = QuestionnaireService(questionnaire.id)
+        service = SubmissionService(questionnaire.id)
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=questionnaire.id,
             status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
