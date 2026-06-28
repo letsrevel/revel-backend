@@ -316,11 +316,24 @@ class SubmissionService:
             | {qid for qid, q in fu_questions.items() if q.is_mandatory and qid in applicable_fuq_ids}
         )
 
+        # A multiple-choice answer with no selected options does not *answer* its question:
+        # ``_create_answers`` writes one row per option, so an empty ``options_id`` persists
+        # nothing. Counting it would let a mandatory MC question be marked answered while READY
+        # with no actual selection. Filter empties out of the mandatory set only — optional
+        # questions may still be submitted empty (and DRAFT saves are unaffected, see status
+        # gate below). Free-text (``min_length=1``) and file-upload (``min_length=1``) answers
+        # are non-empty by schema, so only MC needs filtering.
+        answered_question_ids = {
+            *[a.question_id for a in submission_schema.multiple_choice_answers if a.options_id],
+            *[a.question_id for a in submission_schema.free_text_answers],
+            *[a.question_id for a in submission_schema.file_upload_answers],
+        }
+
         if (
-            not mandatory_ids.issubset(submitted_question_ids)
+            not mandatory_ids.issubset(answered_question_ids)
             and submission_schema.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
         ):
-            missing = mandatory_ids - submitted_question_ids
+            missing = mandatory_ids - answered_question_ids
             raise MissingMandatoryAnswerError(
                 f"Mandatory questions missing from submission: {[str(qid) for qid in missing]}"
             )

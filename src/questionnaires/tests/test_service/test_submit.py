@@ -117,6 +117,72 @@ def test_submit_raises_missing_mandatory_error(user: RevelUser, complex_question
     assert QuestionnaireSubmission.objects.count() == 0
 
 
+def test_submit_empty_mc_options_does_not_satisfy_mandatory(
+    user: RevelUser, complex_questionnaire: Questionnaire
+) -> None:
+    """A mandatory MC question submitted with an empty selection is not 'answered' (READY)."""
+    q = complex_questionnaire
+    service = SubmissionService(q.id)
+
+    mcq_top = q.multiplechoicequestion_questions.get(section__isnull=True, is_mandatory=True)
+    mcq_s1 = q.multiplechoicequestion_questions.get(section__name="Section 1", is_mandatory=True)
+    ftq_s2 = q.freetextquestion_questions.get(section__name="Section 2", is_mandatory=True)
+    mcq_s1_opt = mcq_s1.options.get(is_correct=True)
+
+    submission_schema = QuestionnaireSubmissionSchema(
+        questionnaire_id=q.id,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        multiple_choice_answers=[
+            # Mandatory MC submitted with no selected options must not count as answered.
+            MultipleChoiceSubmissionSchema(question_id=mcq_top.id, options_id=[]),
+            MultipleChoiceSubmissionSchema(question_id=mcq_s1.id, options_id=[mcq_s1_opt.id]),
+        ],
+        free_text_answers=[FreeTextSubmissionSchema(question_id=ftq_s2.id, answer="A mandatory answer.")],
+    )
+
+    with pytest.raises(MissingMandatoryAnswerError, match=str(mcq_top.id)):
+        service.submit(user, submission_schema)
+
+    assert QuestionnaireSubmission.objects.count() == 0
+
+
+def test_submit_empty_mc_options_allowed_for_optional_question(
+    user: RevelUser, complex_questionnaire: Questionnaire
+) -> None:
+    """An *optional* MC question may be submitted with an empty selection; it persists nothing."""
+    q = complex_questionnaire
+    optional_mcq = MultipleChoiceQuestion.objects.create(
+        questionnaire=q, question="Optional MCQ", order=3, is_mandatory=False
+    )
+    MultipleChoiceOption.objects.create(question=optional_mcq, option="Opt", is_correct=True, order=1)
+
+    # Instantiate after creating the optional question so the service's prefetch sees it.
+    service = SubmissionService(q.id)
+    mcq_top = q.multiplechoicequestion_questions.get(section__isnull=True, is_mandatory=True)
+    mcq_s1 = q.multiplechoicequestion_questions.get(section__name="Section 1", is_mandatory=True)
+    ftq_s2 = q.freetextquestion_questions.get(section__name="Section 2", is_mandatory=True)
+    mcq_top_opt = mcq_top.options.get(is_correct=True)
+    mcq_s1_opt = mcq_s1.options.get(is_correct=True)
+
+    submission_schema = QuestionnaireSubmissionSchema(
+        questionnaire_id=q.id,
+        status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+        multiple_choice_answers=[
+            MultipleChoiceSubmissionSchema(question_id=mcq_top.id, options_id=[mcq_top_opt.id]),
+            MultipleChoiceSubmissionSchema(question_id=mcq_s1.id, options_id=[mcq_s1_opt.id]),
+            # Optional question, empty selection: allowed, persists no rows.
+            MultipleChoiceSubmissionSchema(question_id=optional_mcq.id, options_id=[]),
+        ],
+        free_text_answers=[FreeTextSubmissionSchema(question_id=ftq_s2.id, answer="A mandatory answer.")],
+    )
+
+    submission = service.submit(user, submission_schema)
+
+    assert submission.status == QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
+    # Only the two real selections persisted; the empty optional answer wrote nothing.
+    assert submission.multiplechoiceanswer_answers.count() == 2
+
+
 def test_submit_raises_cross_questionnaire_error(
     user: RevelUser, complex_questionnaire: Questionnaire, another_questionnaire: Questionnaire
 ) -> None:
