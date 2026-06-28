@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 import structlog
+from django.db import transaction
+from django.db.models import F
 from pydantic import ValidationError as PydanticValidationError
 
 from events.models import Payment, Ticket, TicketTier
@@ -336,9 +338,6 @@ def cancel_ticket_by_user(
         accuracy on a single-digit-ppm failure path. Not worth it given
         webhook self-healing already covers the financial outcome.
     """
-    from django.db import transaction
-    from django.db.models import F
-
     if ticket.user_id != user.id:
         raise CancellationNotOwner()
 
@@ -347,8 +346,6 @@ def cancel_ticket_by_user(
         # reason is guaranteed non-None when can_cancel is False
         assert quote.reason is not None
         raise CancellationBlocked(quote.reason)
-
-    refund_status: str | None = None
 
     with transaction.atomic():
         # Re-fetch the ticket under a row lock and re-check the two state-mutating
@@ -369,52 +366,71 @@ def cancel_ticket_by_user(
             raise CancellationBlocked(CancellationBlockReason.CHECKED_IN)
 
         # Online tickets with refund > 0 → hit Stripe before mutating local state.
-        payment: Payment | None = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
-        if (
-            locked_ticket.tier.payment_method == TicketTier.PaymentMethod.ONLINE
-            and payment is not None
-            and payment.stripe_payment_intent_id
-            and quote.refund_amount > _ZERO
-        ):
-            refund_status = _issue_stripe_refund(locked_ticket, payment, quote.refund_amount, quote.currency)
-
-        # Set pre-save hints used by the TICKET_CANCELLED notification signal handler
-        # so the user sees the refund amount in the same notification that announces
-        # the cancellation (rather than only later via TICKET_REFUNDED on webhook).
-        # Skip when there is no refund — templates gate on `{% if context.refund_amount %}`
-        # and the truthy string "0.00" would render a misleading "Refund of 0..." line.
-        if quote.refund_amount > _ZERO:
-            locked_ticket._refund_amount = str(quote.refund_amount)  # type: ignore[attr-defined]
-            locked_ticket._refund_currency = quote.currency  # type: ignore[attr-defined]
-
-        locked_ticket.status = Ticket.TicketStatus.CANCELLED
-        locked_ticket.cancelled_at = now
-        locked_ticket.cancelled_by = user
-        locked_ticket.cancellation_source = CancellationSource.USER
-        locked_ticket.cancellation_reason = reason or ""
-        locked_ticket.save(
-            update_fields=[
-                "status",
-                "cancelled_at",
-                "cancelled_by",
-                "cancellation_source",
-                "cancellation_reason",
-            ]
-        )
-        ticket = locked_ticket
-
-        TicketTier.objects.filter(pk=locked_ticket.tier_id, quantity_sold__gt=0).update(
-            quantity_sold=F("quantity_sold") - 1
-        )
-
-        enqueue_waitlist_processing(locked_ticket.event_id)
+        refund_status = _refund_if_required(locked_ticket, quote)
+        _finalize_cancellation(locked_ticket, user, reason, now, quote)
 
     return CancellationResult(
-        ticket=ticket,
+        ticket=locked_ticket,
         refund_amount=quote.refund_amount,
         currency=quote.currency,
         refund_status=refund_status,
     )
+
+
+def _refund_if_required(locked_ticket: Ticket, quote: RefundQuote) -> str | None:
+    """Issue a Stripe refund when the locked ticket is an online paid ticket with refund > 0.
+
+    Must run inside ``cancel_ticket_by_user``'s atomic block (it acquires a row lock
+    on the Payment). Returns the refund status, or ``None`` when no refund applies.
+    """
+    payment: Payment | None = Payment.objects.select_for_update().filter(ticket=locked_ticket).first()
+    if (
+        locked_ticket.tier.payment_method == TicketTier.PaymentMethod.ONLINE
+        and payment is not None
+        and payment.stripe_payment_intent_id
+        and quote.refund_amount > _ZERO
+    ):
+        return _issue_stripe_refund(locked_ticket, payment, quote.refund_amount, quote.currency)
+    return None
+
+
+def _finalize_cancellation(
+    locked_ticket: Ticket,
+    user: t.Any,
+    reason: str,
+    now: datetime,
+    quote: RefundQuote,
+) -> None:
+    """Mutate ticket + tier rows for a confirmed cancellation (inside the caller's txn)."""
+    # Set pre-save hints used by the TICKET_CANCELLED notification signal handler
+    # so the user sees the refund amount in the same notification that announces
+    # the cancellation (rather than only later via TICKET_REFUNDED on webhook).
+    # Skip when there is no refund — templates gate on `{% if context.refund_amount %}`
+    # and the truthy string "0.00" would render a misleading "Refund of 0..." line.
+    if quote.refund_amount > _ZERO:
+        locked_ticket._refund_amount = str(quote.refund_amount)  # type: ignore[attr-defined]
+        locked_ticket._refund_currency = quote.currency  # type: ignore[attr-defined]
+
+    locked_ticket.status = Ticket.TicketStatus.CANCELLED
+    locked_ticket.cancelled_at = now
+    locked_ticket.cancelled_by = user
+    locked_ticket.cancellation_source = CancellationSource.USER
+    locked_ticket.cancellation_reason = reason or ""
+    locked_ticket.save(
+        update_fields=[
+            "status",
+            "cancelled_at",
+            "cancelled_by",
+            "cancellation_source",
+            "cancellation_reason",
+        ]
+    )
+
+    TicketTier.objects.filter(pk=locked_ticket.tier_id, quantity_sold__gt=0).update(
+        quantity_sold=F("quantity_sold") - 1
+    )
+
+    enqueue_waitlist_processing(locked_ticket.event_id)
 
 
 def _issue_stripe_refund(ticket: Ticket, payment: t.Any, amount: Decimal, currency: str) -> str:
