@@ -1,4 +1,4 @@
-"""Tests for QuestionnaireService.evaluate_submission() method."""
+"""Tests for SubmissionService.evaluate_submission() method."""
 
 from decimal import Decimal
 
@@ -11,7 +11,7 @@ from questionnaires.models import (
     QuestionnaireSubmission,
 )
 from questionnaires.schema import EvaluationCreateSchema
-from questionnaires.service import QuestionnaireService
+from questionnaires.service import SubmissionService
 
 pytestmark = pytest.mark.django_db
 
@@ -24,7 +24,7 @@ def test_evaluate_submission_create_new(
     submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=questionnaire)
 
     # Create evaluator
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
     payload = EvaluationCreateSchema(
         status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
         score=Decimal("85.50"),
@@ -56,7 +56,7 @@ def test_evaluate_submission_update_existing(
         evaluator=evaluator,
     )
 
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
     payload = EvaluationCreateSchema(
         status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.REJECTED,
         score=Decimal("60.00"),
@@ -82,7 +82,7 @@ def test_evaluate_submission_wrong_questionnaire(
     other_questionnaire = Questionnaire.objects.create(name="Other Questionnaire")
     submission = QuestionnaireSubmission.objects.create(user=user, questionnaire=other_questionnaire)
 
-    service = QuestionnaireService(questionnaire.id)
+    service = SubmissionService(questionnaire.id)
     payload = EvaluationCreateSchema(
         status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED, score=None, comments="Should fail"
     )

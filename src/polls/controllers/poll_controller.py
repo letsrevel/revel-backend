@@ -82,7 +82,7 @@ class PollController(UserAwareController):
 
         The wrapped questionnaire's question/section/option payload is built
         lazily in :meth:`_to_detail` via
-        :class:`questionnaires.service.QuestionnaireService`, so only the
+        :class:`questionnaires.service.SubmissionService`, so only the
         poll's direct relations need prefetching here.
         """
         return qs.select_related("organization", "event", "questionnaire").prefetch_related(
@@ -356,7 +356,7 @@ class PollController(UserAwareController):
         """Build the response payload for :class:`PollDetailSchema` endpoints.
 
         The wrapped questionnaire is built via
-        :class:`questionnaires.service.QuestionnaireService` so the wire format
+        :class:`questionnaires.service.SubmissionService` so the wire format
         (``multiple_choice_questions`` / ``free_text_questions`` /
         ``file_upload_questions``) matches
         :meth:`events.controllers.event_public.attendance.PublicEventController.get_questionnaire`.
@@ -371,7 +371,7 @@ class PollController(UserAwareController):
         the caller pass a value it already resolved (e.g. ``get_poll``, which
         also threads it into ``can_see_poll``) so it is not recomputed here.
         """
-        from questionnaires.service import QuestionnaireService
+        from questionnaires.service import SubmissionService
 
         is_staff = _is_staff if _is_staff is not None else eligibility.is_staff_or_owner(user, poll)
         user_can_see_results = eligibility.can_see_results(user, poll, _is_staff=is_staff)
@@ -385,7 +385,7 @@ class PollController(UserAwareController):
         # so derive the flag from it instead of issuing a redundant exists().
         user_vote = user_vote_service.build_user_vote(user, poll)
         # Seed the shuffle per viewer so the order is stable across page loads (#509).
-        questionnaire_schema = QuestionnaireService(poll.questionnaire_id).build(
+        questionnaire_schema = SubmissionService(poll.questionnaire_id).build(
             shuffle_seed=f"{poll.questionnaire_id}:{user.pk}"
         )
         return {

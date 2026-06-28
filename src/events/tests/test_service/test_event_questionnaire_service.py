@@ -25,7 +25,7 @@ from questionnaires.models import (
     QuestionnaireSubmission,
 )
 from questionnaires.schema import MultipleChoiceSubmissionSchema, QuestionnaireSubmissionSchema
-from questionnaires.service.questionnaire_service import QuestionnaireService
+from questionnaires.service.submission_service import SubmissionService
 
 pytestmark = pytest.mark.django_db
 
@@ -59,7 +59,7 @@ class TestSourceEventMetadata:
         self,
         eq_user: RevelUser,
         eq_event: Event,
-        eq_questionnaire_service: QuestionnaireService,
+        eq_questionnaire_service: SubmissionService,
         eq_org_questionnaire: OrganizationQuestionnaire,
         eq_mcq: MultipleChoiceQuestion,
         eq_option: MultipleChoiceOption,
@@ -99,7 +99,7 @@ class TestEventQuestionnaireSubmissionCreation:
         self,
         eq_user: RevelUser,
         eq_event: Event,
-        eq_questionnaire_service: QuestionnaireService,
+        eq_questionnaire_service: SubmissionService,
         eq_org_questionnaire: OrganizationQuestionnaire,
         eq_mcq: MultipleChoiceQuestion,
         eq_option: MultipleChoiceOption,
@@ -129,7 +129,7 @@ class TestEventQuestionnaireSubmissionCreation:
         self,
         eq_user: RevelUser,
         eq_event: Event,
-        eq_questionnaire_service: QuestionnaireService,
+        eq_questionnaire_service: SubmissionService,
         eq_org_questionnaire: OrganizationQuestionnaire,
         eq_mcq: MultipleChoiceQuestion,
         eq_option: MultipleChoiceOption,
@@ -243,7 +243,7 @@ class TestConditionalUniqueConstraint:
         )
         org_q.events.add(eq_event)
 
-        questionnaire_service = QuestionnaireService(eq_questionnaire.id)
+        questionnaire_service = SubmissionService(eq_questionnaire.id)
 
         submission_schema = QuestionnaireSubmissionSchema(
             questionnaire_id=org_q.questionnaire_id,
@@ -297,7 +297,7 @@ class TestRaceConditionProtection:
         mock_get_or_create: MagicMock,
         eq_user: RevelUser,
         eq_event: Event,
-        eq_questionnaire_service: QuestionnaireService,
+        eq_questionnaire_service: SubmissionService,
         eq_org_questionnaire: OrganizationQuestionnaire,
         eq_mcq: MultipleChoiceQuestion,
         eq_option: MultipleChoiceOption,
@@ -345,13 +345,13 @@ class TestRaceConditionProtection:
 class TestAtomicTransaction:
     """Tests for atomic transaction behavior."""
 
-    @patch("questionnaires.service.questionnaire_service.QuestionnaireService.submit")
+    @patch("questionnaires.service.submission_service.SubmissionService.submit")
     def test_no_tracking_record_when_questionnaire_submit_fails(
         self,
         mock_submit: MagicMock,
         eq_user: RevelUser,
         eq_event: Event,
-        eq_questionnaire_service: QuestionnaireService,
+        eq_questionnaire_service: SubmissionService,
         eq_org_questionnaire: OrganizationQuestionnaire,
         eq_mcq: MultipleChoiceQuestion,
         eq_option: MultipleChoiceOption,

@@ -22,7 +22,7 @@ from events.service import event_questionnaire_service, feedback_service, update
 from events.service.event_questionnaire_service import duplicate_organization_questionnaire, get_questionnaire_summary
 from questionnaires import models as questionnaires_models
 from questionnaires import schema as questionnaire_schema
-from questionnaires.service import QuestionnaireService
+from questionnaires.service import QuestionnaireService, SubmissionService
 
 from .permissions import OrganizationPermission, QuestionnairePermission
 
@@ -470,7 +470,7 @@ class QuestionnaireController(UserAwareController):
         - -submitted_at: Newest submissions first (default)
         """
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
-        service = QuestionnaireService(org_questionnaire.questionnaire_id)
+        service = SubmissionService(org_questionnaire.questionnaire_id)
         qs = service.get_submissions_queryset().filter(
             status=questionnaires_models.QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
         )
@@ -494,7 +494,7 @@ class QuestionnaireController(UserAwareController):
         'evaluate_questionnaire' permission.
         """
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
-        service = QuestionnaireService(org_questionnaire.questionnaire_id)
+        service = SubmissionService(org_questionnaire.questionnaire_id)
         return service.get_submission_detail(submission_id)
 
     @route.post(
@@ -520,7 +520,7 @@ class QuestionnaireController(UserAwareController):
         """
         org_questionnaire = self.get_object_or_exception(self.get_queryset(), pk=org_questionnaire_id)
         feedback_service.validate_not_feedback_questionnaire_for_evaluation(org_questionnaire)
-        service = QuestionnaireService(org_questionnaire.questionnaire_id)
+        service = SubmissionService(org_questionnaire.questionnaire_id)
         return service.evaluate_submission(submission_id, payload, self.user())
 
     # ===== CRUD: UPDATE & DELETE =====

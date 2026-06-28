@@ -1,4 +1,4 @@
-"""Tests for the QuestionnaireService.submit() method."""
+"""Tests for the SubmissionService.submit() method."""
 
 import pytest
 
@@ -18,7 +18,7 @@ from questionnaires.schema import (
     MultipleChoiceSubmissionSchema,
     QuestionnaireSubmissionSchema,
 )
-from questionnaires.service import QuestionnaireService
+from questionnaires.service import SubmissionService
 
 pytestmark = pytest.mark.django_db
 
@@ -26,7 +26,7 @@ pytestmark = pytest.mark.django_db
 def test_submit_success_final(user: RevelUser, complex_questionnaire: Questionnaire) -> None:
     """Test a successful, final submission of a questionnaire."""
     q = complex_questionnaire
-    service = QuestionnaireService(q.id)
+    service = SubmissionService(q.id)
 
     # Get question and option IDs for all mandatory questions
     mcq_top = q.multiplechoicequestion_questions.get(section__isnull=True, is_mandatory=True)
@@ -59,7 +59,7 @@ def test_submit_success_final(user: RevelUser, complex_questionnaire: Questionna
 def test_submit_draft_and_update(user: RevelUser, complex_questionnaire: Questionnaire) -> None:
     """Test creating a draft and then updating it by adding more answers."""
     q = complex_questionnaire
-    service = QuestionnaireService(q.id)
+    service = SubmissionService(q.id)
     mcq_top = q.multiplechoicequestion_questions.get(section__isnull=True)
     mcq_top_opt = mcq_top.options.get(is_correct=True)
 
@@ -96,7 +96,7 @@ def test_submit_draft_and_update(user: RevelUser, complex_questionnaire: Questio
 def test_submit_raises_missing_mandatory_error(user: RevelUser, complex_questionnaire: Questionnaire) -> None:
     """Test that submitting without all mandatory answers raises a MissingMandatoryAnswerError."""
     q = complex_questionnaire
-    service = QuestionnaireService(q.id)
+    service = SubmissionService(q.id)
 
     # Only answer one of the three mandatory questions
     mcq_top = q.multiplechoicequestion_questions.get(section__isnull=True, is_mandatory=True)
@@ -121,7 +121,7 @@ def test_submit_raises_cross_questionnaire_error(
     user: RevelUser, complex_questionnaire: Questionnaire, another_questionnaire: Questionnaire
 ) -> None:
     """Test that submitting an answer for a different questionnaire raises an error."""
-    service = QuestionnaireService(complex_questionnaire.id)
+    service = SubmissionService(complex_questionnaire.id)
 
     # Create a question in the *other* questionnaire
     other_mcq = MultipleChoiceQuestion.objects.create(questionnaire=another_questionnaire, question="Wrong Q")
