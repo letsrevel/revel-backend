@@ -668,6 +668,52 @@ def test_dashboard_rsvps(
     assert data["results"][0]["id"] == str(rsvp2.id)
 
 
+def test_dashboard_rsvps_multi_status_filter(
+    dashboard_client: Client,
+    dashboard_user: RevelUser,
+    organization: Organization,
+) -> None:
+    """Filtering by multiple statuses (e.g. ?status=yes&status=maybe) returns the union, excluding others."""
+    statuses = {
+        EventRSVP.RsvpStatus.YES: "Yes Event",
+        EventRSVP.RsvpStatus.MAYBE: "Maybe Event",
+        EventRSVP.RsvpStatus.NO: "No Event",
+    }
+    rsvps = {}
+    for i, (status, name) in enumerate(statuses.items()):
+        event = Event.objects.create(
+            organization=organization,
+            name=name,
+            slug=f"multi-status-{status}",
+            status="open",
+            start=timezone.now() + timedelta(days=i + 1),
+            end=timezone.now() + timedelta(days=i + 2),
+        )
+        rsvps[status] = EventRSVP.objects.create(event=event, user=dashboard_user, status=status)
+
+    url = reverse("api:dashboard_rsvps")
+
+    # Going + Maybe — the dashboard "upcoming RSVPs" use case — excludes No.
+    response = dashboard_client.get(url, {"status": ["yes", "maybe"]})
+    assert response.status_code == 200
+    data = response.json()
+    returned_ids = {r["id"] for r in data["results"]}
+    assert data["count"] == 2
+    assert returned_ids == {str(rsvps[EventRSVP.RsvpStatus.YES].id), str(rsvps[EventRSVP.RsvpStatus.MAYBE].id)}
+
+    # Single status still works (parses to a one-element list).
+    response = dashboard_client.get(url, {"status": ["no"]})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["count"] == 1
+    assert data["results"][0]["id"] == str(rsvps[EventRSVP.RsvpStatus.NO].id)
+
+    # No status filter → all three statuses returned.
+    response = dashboard_client.get(url)
+    assert response.status_code == 200
+    assert response.json()["count"] == 3
+
+
 def test_dashboard_rsvps_include_past(
     dashboard_client: Client,
     dashboard_user: RevelUser,
