@@ -45,6 +45,7 @@ if t.TYPE_CHECKING:
     from datetime import datetime
 
     from common.models import FileExport
+    from events.filters import SubmissionFilterSchema
 
 # Fields that are NOT copied from an OrganizationQuestionnaire wrapper when
 # duplicating. Everything else in ``_meta.concrete_fields`` is copied so that
@@ -689,3 +690,57 @@ def start_submissions_export(
     # with FileExport.DoesNotExist.
     transaction.on_commit(lambda: generate_questionnaire_export_task.delay(str(export.id)))
     return export
+
+
+def annotate_pending_evaluations(
+    qs: QuerySet[OrganizationQuestionnaire],
+) -> QuerySet[OrganizationQuestionnaire]:
+    """Annotate each org questionnaire with its number of pending evaluations.
+
+    Pending = a READY submission that either has no evaluation yet or whose
+    evaluation is still in PENDING_REVIEW.
+
+    Args:
+        qs: The org-questionnaire queryset to annotate.
+
+    Returns:
+        The same queryset annotated with ``pending_evaluations_count``.
+    """
+    return qs.annotate(
+        pending_evaluations_count=Count(
+            "questionnaire__questionnaire_submissions",
+            filter=Q(
+                questionnaire__questionnaire_submissions__status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY
+            )
+            & (
+                Q(questionnaire__questionnaire_submissions__evaluation__isnull=True)
+                | Q(
+                    questionnaire__questionnaire_submissions__evaluation__status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW
+                )
+            ),
+        )
+    )
+
+
+def list_ready_submissions(
+    questionnaire_id: UUID,
+    params: "SubmissionFilterSchema",
+    order_by: str = "-submitted_at",
+) -> QuerySet[QuestionnaireSubmission]:
+    """Return the READY submissions for a questionnaire, filtered for admin review.
+
+    Args:
+        questionnaire_id: The underlying questionnaire id.
+        params: Submission filter schema (e.g. evaluation_status).
+        order_by: Ordering field for the result (defaults to newest first).
+
+    Returns:
+        A distinct queryset of READY submissions, filtered and ordered.
+    """
+    qs = (
+        SubmissionService(questionnaire_id)
+        .get_submissions_queryset()
+        .filter(status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY)
+    )
+    qs = params.filter(qs)
+    return qs.distinct().order_by(order_by)

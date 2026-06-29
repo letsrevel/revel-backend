@@ -19,10 +19,11 @@ from django.utils import timezone
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
+from events.filters import SubmissionFilterSchema
 from events.models import Event, EventSeries, Organization, OrganizationQuestionnaire
 from events.schema import OrganizationQuestionnaireCreateSchema
 from events.service import event_questionnaire_service
-from questionnaires.models import Questionnaire
+from questionnaires.models import Questionnaire, QuestionnaireEvaluation, QuestionnaireSubmission
 
 pytestmark = pytest.mark.django_db
 
@@ -444,3 +445,141 @@ class TestStartSubmissionsExport:
         assert exc_info.value.status_code == 400
         delay_mock.assert_not_called()
         assert not FileExport.objects.filter(export_type=FileExport.ExportType.QUESTIONNAIRE_SUBMISSIONS).exists()
+
+
+# --------------------------------------------------------------------------- #
+# annotate_pending_evaluations
+# --------------------------------------------------------------------------- #
+
+
+def _make_submission(
+    questionnaire: Questionnaire,
+    user: RevelUser,
+    *,
+    status: str = QuestionnaireSubmission.QuestionnaireSubmissionStatus.READY,
+    evaluation_status: str | None = None,
+) -> QuestionnaireSubmission:
+    """Create a submission (optionally with an evaluation) for the given questionnaire."""
+    submission = QuestionnaireSubmission.objects.create(questionnaire=questionnaire, user=user, status=status)
+    if evaluation_status is not None:
+        QuestionnaireEvaluation.objects.create(submission=submission, status=evaluation_status)
+    return submission
+
+
+class TestAnnotatePendingEvaluations:
+    """Tests for event_questionnaire_service.annotate_pending_evaluations."""
+
+    def test_counts_only_pending_ready_submissions(
+        self,
+        orchestration_org_questionnaire: OrganizationQuestionnaire,
+        orchestration_questionnaire: Questionnaire,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """Pending = READY submissions with no evaluation or a PENDING_REVIEW evaluation."""
+        user = django_user_model.objects.create_user(username="submitter", email="submitter@example.com")
+        # Pending: READY + no evaluation
+        _make_submission(orchestration_questionnaire, user)
+        # Pending: READY + PENDING_REVIEW evaluation
+        _make_submission(
+            orchestration_questionnaire,
+            user,
+            evaluation_status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.PENDING_REVIEW,
+        )
+        # Not pending: READY + APPROVED evaluation
+        _make_submission(
+            orchestration_questionnaire,
+            user,
+            evaluation_status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        )
+        # Not pending: DRAFT submission
+        _make_submission(
+            orchestration_questionnaire,
+            user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.DRAFT,
+        )
+
+        qs = event_questionnaire_service.annotate_pending_evaluations(
+            OrganizationQuestionnaire.objects.filter(pk=orchestration_org_questionnaire.pk)
+        )
+        result = qs.get()
+
+        assert getattr(result, "pending_evaluations_count") == 2
+
+    def test_zero_when_no_pending(
+        self,
+        orchestration_org_questionnaire: OrganizationQuestionnaire,
+    ) -> None:
+        """A questionnaire with no submissions has a pending count of zero."""
+        qs = event_questionnaire_service.annotate_pending_evaluations(
+            OrganizationQuestionnaire.objects.filter(pk=orchestration_org_questionnaire.pk)
+        )
+        assert getattr(qs.get(), "pending_evaluations_count") == 0
+
+
+# --------------------------------------------------------------------------- #
+# list_ready_submissions
+# --------------------------------------------------------------------------- #
+
+
+class TestListReadySubmissions:
+    """Tests for event_questionnaire_service.list_ready_submissions."""
+
+    def test_returns_only_ready_submissions(
+        self,
+        orchestration_questionnaire: Questionnaire,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """DRAFT submissions are excluded; only READY ones are returned."""
+        user = django_user_model.objects.create_user(username="s1", email="s1@example.com")
+        ready = _make_submission(orchestration_questionnaire, user)
+        _make_submission(
+            orchestration_questionnaire,
+            user,
+            status=QuestionnaireSubmission.QuestionnaireSubmissionStatus.DRAFT,
+        )
+
+        result = event_questionnaire_service.list_ready_submissions(
+            orchestration_questionnaire.id, SubmissionFilterSchema()
+        )
+
+        assert list(result) == [ready]
+
+    def test_filters_by_evaluation_status(
+        self,
+        orchestration_questionnaire: Questionnaire,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """The evaluation_status filter narrows the returned submissions."""
+        user = django_user_model.objects.create_user(username="s2", email="s2@example.com")
+        no_eval = _make_submission(orchestration_questionnaire, user)
+        _make_submission(
+            orchestration_questionnaire,
+            user,
+            evaluation_status=QuestionnaireEvaluation.QuestionnaireEvaluationStatus.APPROVED,
+        )
+
+        result = event_questionnaire_service.list_ready_submissions(
+            orchestration_questionnaire.id, SubmissionFilterSchema(evaluation_status="no_evaluation")
+        )
+
+        assert list(result) == [no_eval]
+
+    def test_orders_by_submitted_at(
+        self,
+        orchestration_questionnaire: Questionnaire,
+        django_user_model: type[RevelUser],
+    ) -> None:
+        """order_by controls direction; default is newest-first."""
+        user = django_user_model.objects.create_user(username="s3", email="s3@example.com")
+        first = _make_submission(orchestration_questionnaire, user)
+        second = _make_submission(orchestration_questionnaire, user)
+
+        newest_first = event_questionnaire_service.list_ready_submissions(
+            orchestration_questionnaire.id, SubmissionFilterSchema(), order_by="-submitted_at"
+        )
+        oldest_first = event_questionnaire_service.list_ready_submissions(
+            orchestration_questionnaire.id, SubmissionFilterSchema(), order_by="submitted_at"
+        )
+
+        assert list(newest_first) == [second, first]
+        assert list(oldest_first) == [first, second]
