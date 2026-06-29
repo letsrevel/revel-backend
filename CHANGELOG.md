@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.66.1] - 2026-06-29
+
+### Fixed
+- Recurring events now honor the recurrence rule's timezone, generating DST-correct occurrences; a data migration re-anchors existing non-UTC series so their times no longer drift across daylight-saving boundaries.
+- The dashboard RSVP list can now be filtered by multiple statuses at once.
+- Telegram: banned users are blocked from interacting with the bot, and the bot's `/unsubscribe` now actually stops notifications instead of leaving per-type settings still delivering.
+- Financial documents are no longer silently lost: payout statements and attendee invoices record when their email was sent, surface delivery errors in the admin, retry undelivered emails via a sweep, and mark documents with no possible recipient as terminally undeliverable instead of re-sending forever.
+- A failure sending one referrer's payout statement or email no longer aborts the rest of the payout batch.
+
+### Security
+- Bumped `python-engineio` and `python-socketio` to clear newly disclosed CVEs.
+
 ## [1.66.0] - 2026-06-23
 
 ### Added
