@@ -3,8 +3,15 @@
 The 33 questionnaire routes are organised into focused mixins — core,
 sections, questions, submissions, assignments — that are composed into a single
 ``QuestionnaireController``. Keeping one registered controller (and therefore
-one class name) preserves the OpenAPI ``operationId`` stems, tags and route
-ordering exactly, so the auto-generated frontend client is unaffected.
+one class name) preserves the OpenAPI ``operationId`` stems and tags, so the
+auto-generated frontend client is unaffected.
+
+Routes are grouped by sub-resource rather than kept in their original
+definition order; this only reshuffles the path listing in the generated spec
+(operationIds are unchanged). The one order-sensitive pair — ``POST
+/submissions/export`` must register before ``GET /submissions/{submission_id}``
+because path params compile to a plain ``str`` converter — is kept correct
+inside ``submissions.py``.
 """
 
 from ninja_extra import api_controller
