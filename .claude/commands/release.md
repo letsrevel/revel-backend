@@ -42,8 +42,10 @@ Bump level requested (may be empty): $ARGUMENTS
 
 9. **Push and open the PR:**
    `git push -u origin release/vX.Y.Z`
-   then `gh pr create --base main --head release/vX.Y.Z --title "chore(release): vX.Y.Z"
-   --body-file <file containing exactly the new ## [X.Y.Z] section>`.
+   then write the new `## [X.Y.Z]` CHANGELOG section to a temporary file
+   (e.g. `BODY=$(mktemp)`), pass it via
+   `gh pr create --base main --head release/vX.Y.Z --title "chore(release): vX.Y.Z" --body-file "$BODY"`,
+   then remove it (`rm -f "$BODY"`).
    The PR body is a review copy only — on merge the workflow re-extracts the section from the
    merged `CHANGELOG.md` as the canonical release notes. Print the PR URL.
 
