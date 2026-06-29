@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+# Releases are low-frequency and must be serialized — never run two release jobs at once.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read   # the release/tag is created with the GitHub App token below, not GITHUB_TOKEN
+
+jobs:
+  release:
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.head_ref, 'release/v')
+    runs-on: ubuntu-latest
+    steps:
+      # A GitHub App installation token (NOT the default GITHUB_TOKEN) is required: releases
+      # created with GITHUB_TOKEN do not trigger other workflows, so publish.yaml
+      # (on: release: published) would never run and the Docker image would never build.
+      # Setup: create a GitHub App with "Contents: write", install it on this repo, then set
+      #   vars.RELEASE_APP_ID and secrets.RELEASE_APP_PRIVATE_KEY.
+      - name: Mint GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Checkout the merged commit (full history for tag checks + generate-notes)
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 0
+
+      - name: Resolve and validate versions
+        id: ver
+        run: |
+          set -euo pipefail
+          BRANCH_VERSION="${GITHUB_HEAD_REF#release/v}"
+          PYPROJECT_VERSION="$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')"
+          CHANGELOG_VERSION="$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+
+          echo "branch=$BRANCH_VERSION pyproject=$PYPROJECT_VERSION changelog=$CHANGELOG_VERSION"
+
+          if [[ ! "$BRANCH_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Branch version '$BRANCH_VERSION' is not X.Y.Z (head_ref=$GITHUB_HEAD_REF)"; exit 1
+          fi
+          if [ "$BRANCH_VERSION" != "$PYPROJECT_VERSION" ] || [ "$BRANCH_VERSION" != "$CHANGELOG_VERSION" ]; then
+            echo "::error::Version mismatch — branch=$BRANCH_VERSION pyproject=$PYPROJECT_VERSION changelog=$CHANGELOG_VERSION"; exit 1
+          fi
+          echo "version=$BRANCH_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure tag/release does not already exist
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          V="v${{ steps.ver.outputs.version }}"
+          if git rev-parse "$V" >/dev/null 2>&1; then echo "::error::Tag $V already exists"; exit 1; fi
+          if gh release view "$V" >/dev/null 2>&1; then echo "::error::Release $V already exists"; exit 1; fi
+
+      - name: Build release notes (curated CHANGELOG section + auto footer)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.ver.outputs.version }}"
+          SHA="${{ github.event.pull_request.merge_commit_sha }}"
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" {flag=1; next}
+            flag && /^## \[/ {exit}
+            flag {print}
+          ' CHANGELOG.md > curated.md
+          # Trim leading and trailing blank lines (tac reverses so one leading-trim handles the tail)
+          sed -i -e '/./,$!d' curated.md
+          tac curated.md | sed -e '/./,$!d' | tac > curated.trimmed && mv curated.trimmed curated.md
+          if [ ! -s curated.md ]; then
+            echo "::error::No CHANGELOG section found for $VERSION"; exit 1
+          fi
+          FOOTER="$(gh api "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
+            -f tag_name="v$VERSION" -f target_commitish="$SHA" --jq '.body')"
+          {
+            cat curated.md
+            printf '\n\n---\n\n'
+            printf '%s\n' "$FOOTER"
+          } > release-notes.md
+          echo "---- preview ----"; cat release-notes.md
+
+      - name: Create release (creates tag v$VERSION at the merged commit; publish.yaml then fires)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          V="v${{ steps.ver.outputs.version }}"
+          SHA="${{ github.event.pull_request.merge_commit_sha }}"
+          gh release create "$V" --target "$SHA" --title "$V" --notes-file release-notes.md
