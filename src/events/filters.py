@@ -169,7 +169,7 @@ class OrganizationTokenFilterSchema(FilterSchema):
 class RSVPFilterSchema(FilterSchema):
     """Filter schema for event RSVPs."""
 
-    status: EventRSVP.RsvpStatus | None = None
+    status: t.Annotated[list[EventRSVP.RsvpStatus] | None, FilterLookup(q="status__in")] = None
     user_id: UUID | None = None
     include_past: bool = False
 
