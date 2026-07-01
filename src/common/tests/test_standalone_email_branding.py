@@ -18,8 +18,12 @@ LEGACY = ("#667eea", "#764ba2", "#28a745", "#2196F3", "#3498db")
 def test_standalone_email_branded(tpl: str) -> None:
     ctx: dict[str, t.Any] = {
         "frontend_base_url": "https://letsrevel.io",
-        "filename": "x.pdf", "organization_name": "Org", "message": "hi",
-        "sender_name": "A", "sender_email": "a@b.c", "verification_link": "https://letsrevel.io/v",
+        "filename": "x.pdf",
+        "organization_name": "Org",
+        "message": "hi",
+        "sender_name": "A",
+        "sender_email": "a@b.c",
+        "verification_link": "https://letsrevel.io/v",
         "context": {},
     }
     html = render_to_string(tpl, ctx)

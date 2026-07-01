@@ -98,9 +98,7 @@ def test_revenue_report_logo_in_body() -> None:
     html = render_to_string("reports/revenue_vat_report.html", _CTX)
     assert "revel-logo.png" in html, "Missing brand logo reference"
     body_html = html.split("<body", 1)[1]
-    assert "revel-logo.png" in body_html, (
-        "Brand logo is not in <body> — WeasyPrint would render it invisible"
-    )
+    assert "revel-logo.png" in body_html, "Brand logo is not in <body> — WeasyPrint would render it invisible"
 
 
 @pytest.mark.django_db

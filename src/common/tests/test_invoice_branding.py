@@ -195,9 +195,7 @@ def test_invoice_template_branding(tpl: str, ctx: dict[str, t.Any]) -> None:
 
     # Prove the logo is in <body>, not hidden in <head> (WeasyPrint won't render head content).
     body_html = html.split("<body", 1)[1]
-    assert "revel-logo.png" in body_html, (
-        f"{tpl}: brand logo is not in <body> — WeasyPrint would render it invisible"
-    )
+    assert "revel-logo.png" in body_html, f"{tpl}: brand logo is not in <body> — WeasyPrint would render it invisible"
 
     for legacy in _LEGACY_ACCENTS:
         assert legacy not in html, f"{tpl}: still contains legacy accent {legacy}"

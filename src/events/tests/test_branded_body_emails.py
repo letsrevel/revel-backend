@@ -43,9 +43,10 @@ def test_guest_rsvp_send_email_passes_html_body(settings: t.Any) -> None:
     """send_guest_rsvp_confirmation calls send_email with a non-null html_body."""
     from events.tasks.attendees import send_guest_rsvp_confirmation
 
-    with patch("events.tasks.attendees.SiteSettings") as mock_ss, patch(
-        "events.tasks.attendees.send_email"
-    ) as mock_send:
+    with (
+        patch("events.tasks.attendees.SiteSettings") as mock_ss,
+        patch("events.tasks.attendees.send_email") as mock_send,
+    ):
         site = MagicMock()
         site.frontend_base_url = "https://letsrevel.io"
         mock_ss.get_solo.return_value = site
