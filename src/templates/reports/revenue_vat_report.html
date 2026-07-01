@@ -6,13 +6,15 @@
   <title>Revenue &amp; VAT report</title>
   {% include "invoices/_base_styles.html" %}
   <style>
-    .banner { background: #fff3cd; padding: 8px; margin-bottom: 12px; font-size: 11px; }
+    .banner { background: #f3ecfb; border-left: 3px solid #8C3CDD; padding: 8px 12px; margin-bottom: 12px; font-size: 11px; color: #0D1E1C; }
     .foot { font-size: 9px; color: #666; margin-top: 16px; }
     .items-table td.num, .items-table th.num { text-align: right; white-space: nowrap; }
-    .total-row th { border-top: 2px solid #333; }
+    .total-row th { border-top: 2px solid #8C3CDD; }
+    h2 { font-size: 12pt; font-weight: 700; color: #8C3CDD; margin: 20px 0 8px; letter-spacing: 0.5px; text-transform: uppercase; }
   </style>
 </head>
 <body>
+  {% include "invoices/_brand_header.html" %}
   <div class="banner"><strong>Internal accounting document — not an invoice.</strong> Output (revenue) side only.</div>
   <div class="header">
     <div>
