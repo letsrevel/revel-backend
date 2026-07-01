@@ -1,5 +1,3 @@
-import typing as t
-
 from django.conf import settings
 
 
