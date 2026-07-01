@@ -888,11 +888,13 @@ class TestTicketPdfBranding:
             "font_dir": str(settings.BASE_DIR / "fonts"),
             "brand_logo": str(settings.BASE_DIR / "assets" / "brand" / "revel-logo.png"),
             # Org-centric fields (kept as leads)
+            # Use a distinctive colour so we can assert org colour flows through
+            # to accents and is not replaced by a hard-coded brand purple.
             "logo_url": None,
             "cover_art_url": None,
             "logo_initials": "TE",
-            "primary_color": "#8C3CDD",
-            "secondary_color": "#AB82DB",
+            "primary_color": "#123456",
+            "secondary_color": "#654321",
             # Event / ticket fields
             "event_name": "Test Event",
             "organization_name": "Test Org",
@@ -952,6 +954,31 @@ class TestTicketPdfBranding:
         """Org logo section (logo-section / logo-container) must still be present."""
         html = self._render_ticket_html()
         assert "logo-section" in html, "Org logo section was removed from ticket HTML"
+
+    def test_ticket_html_accent_uses_org_primary_color(self) -> None:
+        """Org primary_color must flow through to accent elements (not hard-coded brand purple)."""
+        html = self._render_ticket_html()
+        assert "#123456" in html, (
+            "Org primary_color (#123456) not found in ticket HTML — accents may be hard-coded"
+        )
+
+    def test_ticket_html_accent_uses_org_secondary_color(self) -> None:
+        """Org secondary_color must flow through to accent-bar gradient (not hard-coded brand lilac)."""
+        html = self._render_ticket_html()
+        assert "#654321" in html, (
+            "Org secondary_color (#654321) not found in ticket HTML — accent-bar may be hard-coded"
+        )
+
+    def test_ticket_html_no_hardcoded_brand_purple_in_org_accents(self) -> None:
+        """Brand purple #8C3CDD must not appear in the ticket when org colour is different.
+
+        Let's Revel branding belongs only in the Powered-by footer
+        (whose text is #aaa, not purple), so #8C3CDD must be absent entirely.
+        """
+        html = self._render_ticket_html()
+        assert "#8C3CDD" not in html, (
+            "#8C3CDD (brand purple) found in ticket HTML — org accent colours are hard-coded"
+        )
 
 
 class TestTicketCancelledStaffTemplateBranching:
