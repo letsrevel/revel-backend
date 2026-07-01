@@ -183,7 +183,7 @@ _TEMPLATES_AND_CONTEXTS: list[tuple[str, dict[str, t.Any]]] = [
 _LEGACY_ACCENTS = ("#667eea", "#764ba2")
 
 
-@pytest.mark.parametrize("tpl,ctx", _TEMPLATES_AND_CONTEXTS, ids=[t[0] for t in _TEMPLATES_AND_CONTEXTS])
+@pytest.mark.parametrize("tpl,ctx", _TEMPLATES_AND_CONTEXTS, ids=[t_[0] for t_ in _TEMPLATES_AND_CONTEXTS])
 def test_invoice_template_branding(tpl: str, ctx: dict[str, t.Any]) -> None:
     """Each invoice template must carry Nata Sans, brand purple, and the wordmark."""
     html = render_to_string(tpl, ctx)
