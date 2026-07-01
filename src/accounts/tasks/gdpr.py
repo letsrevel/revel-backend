@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from accounts.models import RevelUser, UserDataExport
 from accounts.service import gdpr
+from common.models import SiteSettings
 from common.signing import generate_signed_url
 from common.tasks import send_email
 
@@ -43,10 +44,15 @@ def _notify_data_export_failed(user: RevelUser, error: str) -> None:
     data_export.error_message = error
     data_export.save(update_fields=["status", "error_message"])
 
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
+
     # Notify the user that something went wrong
     subject = str(render_to_string("accounts/emails/data_export_failed_subject.txt"))
     body = render_to_string("accounts/emails/data_export_failed_body.txt", {"user": user})
-    html_body = render_to_string("accounts/emails/data_export_failed_body.html", {"user": user})
+    html_body = render_to_string(
+        "accounts/emails/data_export_failed_body.html",
+        {"user": user, "frontend_base_url": frontend_base_url},
+    )
     send_email(to=user.email, subject=subject, body=body, html_body=html_body)
 
     # Notify admins
@@ -61,7 +67,7 @@ def _notify_data_export_failed(user: RevelUser, error: str) -> None:
         )
         html_body = render_to_string(
             "accounts/emails/data_export_failed_admin_body.html",
-            {"user": user, "error_message": data_export.error_message},
+            {"user": user, "error_message": data_export.error_message, "frontend_base_url": frontend_base_url},
         )
         send_email(to=admin.email, subject=subject, body=body, html_body=html_body)
 
@@ -75,12 +81,14 @@ def _notify_user_data_export_ready(data_export: UserDataExport) -> None:
     )
     signed_path = generate_signed_url(data_export.file.name, expires_in=DATA_EXPORT_URL_EXPIRES_IN)
     download_url = settings.BASE_URL + signed_path
+    frontend_base_url = SiteSettings.get_solo().frontend_base_url
     subject = "Your Revel Data Export is Ready"
     body = render_to_string(
         "accounts/emails/data_export_ready_body.txt", {"download_url": download_url, "user": data_export.user}
     )
     html_body = render_to_string(
-        "accounts/emails/data_export_ready_body.html", {"download_url": download_url, "user": data_export.user}
+        "accounts/emails/data_export_ready_body.html",
+        {"download_url": download_url, "user": data_export.user, "frontend_base_url": frontend_base_url},
     )
     send_email(to=data_export.user.email, subject=subject, body=body, html_body=html_body)
 

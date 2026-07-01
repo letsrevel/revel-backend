@@ -1,17 +1,10 @@
-{% load i18n %}<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>{% trans "Verify Your Email" %}</title>
-</head>
-<body>
-    <h2>{% trans "Verify your email" %}</h2>
-    <p>{% blocktrans %}Please verify your email and finish setting up your account.{% endblocktrans %}</p>
-    <p>
-        <a href="{{ action_link }}" style="display: inline-block; padding: 10px 20px; background-color: #007bff; color: #ffffff; text-decoration: none; border-radius: 5px;">
-            {% trans "Verify Email" %}
-        </a>
-    </p>
-    <p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
-</body>
-</html>
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2>{% trans "Verify your email" %}</h2>
+<p>{% blocktrans %}Please verify your email and finish setting up your account.{% endblocktrans %}</p>
+<div class="card">
+  <a href="{{ action_link }}" class="button">{% trans "Verify Email" %}</a>
+</div>
+<p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
+{% endblock %}

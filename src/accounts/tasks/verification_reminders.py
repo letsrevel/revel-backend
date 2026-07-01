@@ -92,6 +92,7 @@ def _send_reminder_email(user: RevelUser, reminder_type: str) -> None:
         template_base = "accounts/emails/email_verification_reminder"
 
     context = {
+        "frontend_base_url": site_settings.frontend_base_url,
         "verification_link": verification_link,
         "deletion_link": deletion_link,
         "user": user,
@@ -130,6 +131,7 @@ def _send_deactivation_email(user: RevelUser) -> None:
 
     subject = render_to_string("accounts/emails/account_deactivated_subject.txt").strip()
     context = {
+        "frontend_base_url": site_settings.frontend_base_url,
         "verification_link": verification_link,
         "deletion_link": deletion_link,
         "user": user,

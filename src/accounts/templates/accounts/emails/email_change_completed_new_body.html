@@ -1,17 +1,11 @@
-{% load i18n %}<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>{% trans "Your Revel email address has been changed" %}</title>
-</head>
-<body>
-    <h2>{% trans "Your Revel email address has been changed" %}</h2>
-    <p>{% blocktrans %}This address (<strong>{{ new_email }}</strong>) is now the primary email on your Revel account. The previous address (<strong>{{ old_email }}</strong>) has been removed and can no longer be used to sign in.{% endblocktrans %}</p>
-
-    <p>{% blocktrans %}For security, every other session has been signed out.{% endblocktrans %}</p>
-
-    <p>{% blocktrans %}If you did not authorise this change, contact support immediately.{% endblocktrans %}</p>
-
-    <p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
-</body>
-</html>
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2>{% trans "Your Revel email address has been changed" %}</h2>
+<div class="card">
+  <p>{% blocktrans %}This address (<strong>{{ new_email }}</strong>) is now the primary email on your Revel account. The previous address (<strong>{{ old_email }}</strong>) has been removed and can no longer be used to sign in.{% endblocktrans %}</p>
+  <p>{% blocktrans %}For security, every other session has been signed out.{% endblocktrans %}</p>
+</div>
+<p>{% blocktrans %}If you did not authorise this change, contact support immediately.{% endblocktrans %}</p>
+<p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
+{% endblock %}
