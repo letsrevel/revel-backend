@@ -1,87 +1,62 @@
-{% load i18n markdown_tags %}<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
-        .container { max-width: 600px; margin: 0 auto; background: white; }
-        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px 20px; text-align: center; }
-        .content { padding: 30px 20px; }
-        .card { background: #f8f9fa; border-left: 4px solid #28a745; padding: 20px; margin: 20px 0; border-radius: 4px; }
-        .info-row { margin: 10px 0; }
-        .label { color: #666; font-weight: 600; }
-        .button { display: inline-block; padding: 14px 28px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white !important; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: 600; }
-        .footer { background: #f8f9fa; padding: 20px; text-align: center; color: #666; font-size: 14px; }
-        .warning { background: #fff3cd; border-left-color: #ffc107; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1 style="margin: 0; font-size: 28px;">🎫 {% if context.ticket_holder_name %}{% trans "New Ticket Registered" %}{% else %}{% trans "Ticket Confirmed" %}{% endif %}</h1>
-        </div>
-        <div class="content">
-            <p>{% trans "Hello" %} {{ user.display_name }},</p>
+{% extends "emails/base.html" %}
+{% load i18n markdown_tags %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
 
-            {% if context.ticket_holder_name %}
-                <p>{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<strong>{{ holder }}</strong> has registered for <strong>{{ event }}</strong>.{% endblocktranslate %}</p>
+{% if context.ticket_holder_name %}
+    <p>{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<strong>{{ holder }}</strong> has registered for <strong>{{ event }}</strong>.{% endblocktranslate %}</p>
 
-                <div class="card">
-                    <h3 style="margin-top: 0; color: #28a745;">{% trans "Ticket Details" %}</h3>
-                    <div class="info-row"><span class="label">{% trans "Holder:" %}</span> {{ context.ticket_holder_name }} ({{ context.ticket_holder_email }})</div>
-                    <div class="info-row"><span class="label">{% trans "Tier:" %}</span> {{ context.tier_name }}</div>
-                    <div class="info-row"><span class="label">{% trans "Status:" %}</span> {{ context.ticket_status }}</div>
-                    <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
-                </div>
-            {% else %}
-                {% if context.ticket_status == "pending" %}
-                    <p style="font-size: 18px;">{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> is pending payment confirmation.{% endblocktranslate %}</p>
-
-                    <div class="card">
-                        <h3 style="margin-top: 0; color: #28a745;">{% trans "Event Details" %}</h3>
-                        <div class="info-row">📅 {{ context.event_start_formatted }}</div>
-                        {% if context.event_location %}<div class="info-row">📍 {% if context.address_url %}<a href="{{ context.address_url }}" style="color: #28a745;">{{ context.event_location }}</a>{% else %}{{ context.event_location }}{% endif %}</div>{% endif %}
-                    </div>
-
-                    <div class="card">
-                        <h3 style="margin-top: 0; color: #28a745;">{% trans "Ticket Information" %}</h3>
-                        <div class="info-row"><span class="label">{% trans "Tier:" %}</span> {{ context.tier_name }}</div>
-                        <div class="info-row"><span class="label">{% trans "Status:" %}</span> {% trans "Pending" %}</div>
-                        <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
-                    </div>
-
-                    <div class="card warning">
-                        <h3 style="margin-top: 0; color: #ffc107;">{% trans "Payment Instructions" %}</h3>
-                        {% if context.manual_payment_instructions %}
-                            <div style="border-left: 3px solid #ffc107; padding-left: 15px; margin: 10px 0; color: #666;">{{ context.manual_payment_instructions|markdown }}</div>
-                        {% else %}
-                            <p>{% trans "Please contact the organizer to complete the payment." %}</p>
-                        {% endif %}
-                    </div>
-                {% else %}
-                    <p style="font-size: 18px;">{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> is confirmed! 🎉{% endblocktranslate %}</p>
-
-                    <div class="card">
-                        <h3 style="margin-top: 0; color: #28a745;">{% trans "Event Details" %}</h3>
-                        <div class="info-row">📅 {{ context.event_start_formatted }}</div>
-                        {% if context.event_location %}<div class="info-row">📍 {% if context.address_url %}<a href="{{ context.address_url }}" style="color: #28a745;">{{ context.event_location }}</a>{% else %}{{ context.event_location }}{% endif %}</div>{% endif %}
-                    </div>
-
-                    <div class="card">
-                        <h3 style="margin-top: 0; color: #28a745;">{% trans "Ticket Information" %}</h3>
-                        <div class="info-row"><span class="label">{% trans "Tier:" %}</span> {{ context.tier_name }}</div>
-                        <div class="info-row"><span class="label">{% trans "Status:" %}</span> {% trans "Active" %}</div>
-                        <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
-                    </div>
-                {% endif %}
-            {% endif %}
-
-            <center>
-                <a href="{{ context.event_url }}" class="button">{% trans "View Event Details" %}</a>
-            </center>
-        </div>
-        {% include "notifications/email/_footer.html" %}
+    <div class="card">
+        <h3 style="margin-top: 0;">{% trans "Ticket Details" %}</h3>
+        <div class="info-row"><span class="label">{% trans "Holder:" %}</span> {{ context.ticket_holder_name }} ({{ context.ticket_holder_email }})</div>
+        <div class="info-row"><span class="label">{% trans "Tier:" %}</span> {{ context.tier_name }}</div>
+        <div class="info-row"><span class="label">{% trans "Status:" %}</span> {{ context.ticket_status }}</div>
+        <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
     </div>
-</body>
-</html>
+{% else %}
+    {% if context.ticket_status == "pending" %}
+        <p style="font-size: 18px;">{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> is pending payment confirmation.{% endblocktranslate %}</p>
+
+        <div class="card">
+            <h3 style="margin-top: 0;">{% trans "Event Details" %}</h3>
+            <div class="info-row">📅 {{ context.event_start_formatted }}</div>
+            {% if context.event_location %}<div class="info-row">📍 {% if context.address_url %}<a href="{{ context.address_url }}">{{ context.event_location }}</a>{% else %}{{ context.event_location }}{% endif %}</div>{% endif %}
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top: 0;">{% trans "Ticket Information" %}</h3>
+            <div class="info-row"><span class="label">{% trans "Tier:" %}</span> {{ context.tier_name }}</div>
+            <div class="info-row"><span class="label">{% trans "Status:" %}</span> {% trans "Pending" %}</div>
+            <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
+        </div>
+
+        <div class="card card--warning">
+            <h3 style="margin-top: 0;">{% trans "Payment Instructions" %}</h3>
+            {% if context.manual_payment_instructions %}
+                <div style="border-left: 3px solid #ddd; padding-left: 15px; margin: 10px 0; color: #666;">{{ context.manual_payment_instructions|markdown }}</div>
+            {% else %}
+                <p>{% trans "Please contact the organizer to complete the payment." %}</p>
+            {% endif %}
+        </div>
+    {% else %}
+        <p style="font-size: 18px;">{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> is confirmed! 🎉{% endblocktranslate %}</p>
+
+        <div class="card">
+            <h3 style="margin-top: 0;">{% trans "Event Details" %}</h3>
+            <div class="info-row">📅 {{ context.event_start_formatted }}</div>
+            {% if context.event_location %}<div class="info-row">📍 {% if context.address_url %}<a href="{{ context.address_url }}">{{ context.event_location }}</a>{% else %}{{ context.event_location }}{% endif %}</div>{% endif %}
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top: 0;">{% trans "Ticket Information" %}</h3>
+            <div class="info-row"><span class="label">{% trans "Tier:" %}</span> {{ context.tier_name }}</div>
+            <div class="info-row"><span class="label">{% trans "Status:" %}</span> {% trans "Active" %}</div>
+            <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
+        </div>
+    {% endif %}
+{% endif %}
+
+<center>
+    <a href="{{ context.event_url }}" class="button">{% trans "View Event Details" %}</a>
+</center>
+{% endblock %}
