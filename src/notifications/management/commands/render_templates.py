@@ -113,6 +113,7 @@ class Command(BaseCommand):
 
         context = {
             "user": user,
+            "frontend_base_url": frontend_base_url,
             "context": {
                 "event_id": str(event.id),
                 "event_name": event.name,

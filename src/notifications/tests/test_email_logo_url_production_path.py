@@ -13,14 +13,17 @@ and always passed even when the real render path did NOT inject the key.  These
 tests call the real methods that the EmailChannel invokes at runtime.
 """
 
+from unittest.mock import patch
 
 import pytest
 
 from accounts.models import RevelUser
+from events.models import Event, PendingEventInvitation
 from notifications.enums import NotificationType
 from notifications.models import Notification
 from notifications.service.digest import NotificationDigest
 from notifications.service.templates.registry import get_template
+from notifications.tasks import send_pending_invitation_email
 
 pytestmark = pytest.mark.django_db
 
@@ -155,4 +158,36 @@ class TestDigestEmailLogoUrl:
         assert 'src="/revel-email-logo.png"' not in html, (
             'Digest logo src is host-relative: src="/revel-email-logo.png" found in rendered HTML. '
             "frontend_base_url is missing from the digest render context."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Pending-invitation path (direct-send task, bypasses the notification channel)
+# ---------------------------------------------------------------------------
+
+
+class TestPendingInvitationEmailLogoUrl:
+    """send_pending_invitation_email builds its own context (not via the channel),
+    so it must inject frontend_base_url itself for the branded base logo to resolve.
+    """
+
+    def test_pending_invitation_logo_src_is_absolute_url(self, public_event: Event) -> None:
+        """Exercise the real task and assert the emailed HTML logo src is absolute.
+
+        Regression guard: this task is a direct-send path separate from the
+        notification-channel / digest fixes. It will FAIL if the task's context
+        dict omits `frontend_base_url` (logo src becomes "/revel-email-logo.png").
+        """
+        pending = PendingEventInvitation.objects.create(event=public_event, email="guest@example.com")
+
+        with patch("common.tasks.send_email") as mock_send:
+            send_pending_invitation_email.apply(args=(str(pending.id),))
+
+        assert mock_send.called, "send_email was not called"
+        html_body = mock_send.call_args.kwargs["html_body"]
+        assert "revel-email-logo.png" in html_body, "Brand logo missing from pending-invitation email"
+        src = _notification_logo_src(html_body)
+        assert src.startswith("http"), (
+            f"Pending-invitation logo src is host-relative: got {src!r}. "
+            "frontend_base_url is missing from the pending-invitation task context."
         )

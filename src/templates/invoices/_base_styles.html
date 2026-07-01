@@ -1,6 +1,7 @@
 {# Shared A4 PDF styles for invoices and payout statements. #}
 {# Include via: {% include "invoices/_base_styles.html" %}    #}
-{# Requires context vars: font_dir (abs path), brand_logo (abs path) #}
+{# Requires context var: font_dir (abs path) — used by the _fonts.html include below. #}
+{# (brand_logo is consumed separately by invoices/_brand_header.html.) #}
 {# Both are injected automatically by render_pdf in invoice_utils.py. #}
 {% include "_fonts.html" %}
 <style>

@@ -34,8 +34,8 @@ def test_account_email_branded(base: str) -> None:
         "masked_new_email": "a***@b.c",
         "old_email": "a@b.c",
         "new_email": "c@d.e",
-        "download_link": "https://letsrevel.io/d",
-        "error": "boom",
+        "download_url": "https://letsrevel.io/d",
+        "error_message": "boom",
         "username": "u",
         "context": {},
     }
@@ -43,3 +43,9 @@ def test_account_email_branded(base: str) -> None:
     assert "revel-email-logo.png" in html, f"{base} not on branded base"
     for legacy in LEGACY:
         assert legacy not in html, f"{base} still has {legacy}"
+    # The two content-bearing templates must actually render their key value
+    # (guards against context-key drift like download_link vs download_url).
+    if base == "data_export_ready":
+        assert "https://letsrevel.io/d" in html, "download_url did not render"
+    if base == "data_export_failed_admin":
+        assert "boom" in html, "error_message did not render"

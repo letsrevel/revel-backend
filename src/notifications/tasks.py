@@ -471,6 +471,7 @@ def send_pending_invitation_email(self: t.Any, pending_invitation_id: str) -> No
         "event_location": event.full_address(),
         "organization_name": event.organization.name,
         "signup_url": f"{frontend_base_url}/auth/register",
+        "frontend_base_url": frontend_base_url,
     }
 
     subject = _("You're invited: %(event_name)s") % {"event_name": event.name}
