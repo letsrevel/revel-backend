@@ -1,0 +1,14 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+
+{% block preheader %}{% blocktranslate %}Referral payout statement {{ document_number }}{% endblocktranslate %}{% endblock %}
+
+{% block content %}
+<h2 style="margin-top:0;">{% blocktranslate %}Referral Payout Statement {{ document_number }}{% endblocktranslate %}</h2>
+
+<div class="card">
+  <p style="margin:0;">{% blocktranslate %}Please find attached your referral payout statement {{ document_number }} for the period {{ period_start }} to {{ period_end }}.{% endblocktranslate %}</p>
+</div>
+
+<p style="color:#666;font-size:14px;">{% trans "This is an automated payout document. Please retain it for your records." %}</p>
+{% endblock %}

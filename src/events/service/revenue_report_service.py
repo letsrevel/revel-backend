@@ -319,14 +319,21 @@ def deliver_scheduled_revenue_reports(now_utc: datetime) -> int:
             recipients = [org.billing_email]
             if org.owner.email and org.owner.email != org.billing_email:
                 recipients.append(org.owner.email)
-            body = render_to_string(
-                "emails/revenue_report.txt",
-                {"org": org, "label": label, "snapshot_date": now_utc.astimezone(tz).date()},
-            )
+            from common.models import SiteSettings
+
+            report_ctx = {
+                "org": org,
+                "label": label,
+                "snapshot_date": now_utc.astimezone(tz).date(),
+                "frontend_base_url": SiteSettings.get_solo().frontend_base_url,
+            }
+            body = render_to_string("emails/revenue_report.txt", report_ctx)
+            html_body = render_to_string("emails/revenue_report.html", report_ctx)
             send_email.delay(
                 to=recipients,
                 subject=f"Revenue & VAT report — {label}",
                 body=body,
+                html_body=html_body,
                 attachment_storage_path=export.file.name,
                 attachment_filename=report_filename(scope),
                 attachment_mime_type="application/zip",

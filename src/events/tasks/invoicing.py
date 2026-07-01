@@ -217,6 +217,8 @@ def send_invoice_email_task(invoice_id: str) -> None:
     # Self-heal a PDF lost to a crash between commit and PDF save (issue #616).
     ensure_invoice_pdf_exists(invoice)
 
+    from django.template.loader import render_to_string
+
     site = SiteSettings.get_solo()
     bcc = [site.platform_invoice_bcc_email] if site.platform_invoice_bcc_email else []
 
@@ -224,20 +226,21 @@ def send_invoice_email_task(invoice_id: str) -> None:
         "invoice_number": invoice.invoice_number,
         "currency": invoice.currency,
     }
-    body = _(
-        "Please find attached the platform fee invoice %(invoice_number)s "
-        "for %(currency)s transactions in the period %(period_start)s to %(period_end)s."
-    ) % {
+    email_ctx = {
         "invoice_number": invoice.invoice_number,
         "currency": invoice.currency,
         "period_start": invoice.period_start.isoformat(),
         "period_end": invoice.period_end.isoformat(),
+        "frontend_base_url": site.frontend_base_url,
     }
+    body = render_to_string("events/emails/platform_fee_invoice_email.txt", email_ctx)
+    html_body = render_to_string("events/emails/platform_fee_invoice_email.html", email_ctx)
 
     send_email(
         to=recipients,
         subject=subject,
         body=body,
+        html_body=html_body,
         bcc=bcc,
         from_email=settings.DEFAULT_BILLING_EMAIL,
         reply_to=[settings.DEFAULT_REPLY_TO_EMAIL],

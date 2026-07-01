@@ -1,0 +1,23 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+
+{% block preheader %}Revenue &amp; VAT report for {{ label }}{% endblock %}
+
+{% block content %}
+<h2 style="margin-top:0;">Revenue &amp; VAT Report</h2>
+
+<p>Hello,</p>
+
+<div class="card">
+  <p style="margin:0;">Your Revel revenue &amp; VAT report for <strong>{{ label }}</strong> is attached as a ZIP (XLSX + PDF).</p>
+</div>
+
+<div class="card--info card" style="background:#eef1ff;border-left-color:#9AB2FF;">
+  <p class="info-row" style="margin:0 0 8px;"><strong>Snapshot date:</strong> {{ snapshot_date }}</p>
+  <p style="margin:0;font-size:14px;color:#555;">If refunds or chargebacks occur later, re-download the current version from your organization dashboard.</p>
+</div>
+
+<p style="color:#666;font-size:14px;">This is an internal accounting document, not an invoice.</p>
+
+<p>— Revel</p>
+{% endblock %}
