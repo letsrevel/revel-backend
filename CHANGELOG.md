@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.67.0] - 2026-07-01
+
+### Added
+- Branded HTML emails for messages that were previously plain-text only: guest RSVP and ticket confirmations, attendee invoice / credit-note / platform-fee / referral-payout delivery emails, and the scheduled revenue report.
+
+### Changed
+- **Let's Revel rebrand**: every outbound email and generated PDF document (invoices, credit notes, payout statements, tickets, revenue/VAT report) restyled to the new Let's Revel brand — purple→crimson gradient with the logo header on emails, and the Nata Sans typeface embedded in PDFs. Tickets keep the organizer's own colors, adding only a subtle "Powered by let's revel." footer.
+- Email sender display name is now `Let's Revel <revel@letsrevel.io>` (address unchanged).
+
+### Fixed
+- The GDPR data-export "failed" notifications (to the user and to admins) now render as proper branded HTML instead of an unstyled, envelope-less fragment.
+
 ## [1.66.1] - 2026-06-29
 
 ### Fixed
