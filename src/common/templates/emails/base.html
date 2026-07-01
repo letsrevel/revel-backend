@@ -1,0 +1,42 @@
+{% load i18n %}<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { margin:0; padding:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; color:#0D1E1C; }
+    .container { max-width:600px; margin:0 auto; background:#fff; }
+    .header { background:linear-gradient(135deg,#8C3CDD 0%,#E6332A 100%); padding:28px 20px; text-align:center; }
+    .content { padding:30px 20px; }
+    .card { background:#f6f2fb; border-left:4px solid #8C3CDD; padding:20px; margin:20px 0; border-radius:4px; }
+    .card--danger { background:#fdeceb; border-left-color:#E6332A; }
+    .card--warning { background:#fef6e7; border-left-color:#F9B233; }
+    .card--info { background:#eef1ff; border-left-color:#9AB2FF; }
+    .info-row { margin:10px 0; }
+    a { color:#8C3CDD; }
+    .button { display:inline-block; padding:14px 28px; background:linear-gradient(135deg,#8C3CDD 0%,#E6332A 100%); color:#fff !important; text-decoration:none; border-radius:6px; margin:20px 0; font-weight:600; }
+    .button--danger { background:#E6332A; }
+    .footer { background:#f6f2fb; padding:20px; text-align:center; color:#666; font-size:14px; }
+    {% block extra_styles %}{% endblock %}
+  </style>
+</head>
+<body>
+  <span style="display:none!important;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">{% block preheader %}{% endblock %}</span>
+  <div class="container">
+    {% block header %}{% include "emails/_brand_header.html" %}{% endblock %}
+    <div class="content">
+      {% block content %}{% endblock %}
+    </div>
+    <div class="footer">
+      {% if context.event_start_formatted %}{% include "notifications/email/_timezone_note.html" %}{% endif %}
+      {{ context.org_signature_html|safe }}
+      <div style="margin-top:20px;padding-top:20px;border-top:1px solid #ddd;">
+        <p style="font-size:12px;color:#999;">
+          {% if context.unsubscribe_link %}<a href="{{ context.unsubscribe_link }}" style="color:#999;text-decoration:underline;">{% trans "Unsubscribe or manage notification preferences" %}</a>{% endif %}
+        </p>
+        <p style="font-size:13px;color:#8C3CDD;margin-top:12px;"><span style="font-weight:400;">let's </span><span style="font-weight:600;">revel.</span></p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

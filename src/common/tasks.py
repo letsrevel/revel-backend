@@ -346,7 +346,7 @@ def notify_malware_detected(
 
 def _notify_user_about_malware(user: RevelUser, subject: str) -> None:
     """Send malware notification email to a user."""
-    context = {"user": user}
+    context = {"user": user, "frontend_base_url": SiteSettings.get_solo().frontend_base_url}
     txt_body = render_to_string("common/emails/malware_detected_user.txt", context)
     html_body = render_to_string("common/emails/malware_detected_user.html", context)
 
@@ -386,6 +386,7 @@ def _notify_superusers_about_malware(
         "field": field,
         "findings": findings,
         "quarantined_file_url": quarantined_file_url,
+        "frontend_base_url": SiteSettings.get_solo().frontend_base_url,
     }
 
     txt_body = render_to_string("common/emails/malware_detected_superuser.txt", context)

@@ -59,9 +59,9 @@ def send_organization_contact_email_verification(
         organization_name=organization_name,
     )
     subject = _("Verify contact email for %(organization_name)s") % {"organization_name": organization_name}
-    verification_link = (
-        SiteSettings.get_solo().frontend_base_url + f"/org/{organization_slug}/verify-contact-email?token={token}"
-    )
+    site_settings = SiteSettings.get_solo()
+    frontend_base_url = site_settings.frontend_base_url
+    verification_link = frontend_base_url + f"/org/{organization_slug}/verify-contact-email?token={token}"
     body = render_to_string(
         "events/emails/organization_contact_email_verification_body.txt",
         {
@@ -76,6 +76,7 @@ def send_organization_contact_email_verification(
             "verification_link": verification_link,
             "organization_name": organization_name,
             "contact_email": email,
+            "frontend_base_url": frontend_base_url,
         },
     )
     send_email(to=email, subject=subject, body=body, html_body=html_body)
@@ -102,9 +103,9 @@ def send_organization_contact_message_email(message_id: str) -> None:
 
     subject_text = message.subject.strip() or _("New contact message")
     subject = f"[{organization.name}] {subject_text}"
-    admin_link = (
-        SiteSettings.get_solo().frontend_base_url + f"/org/{organization.slug}/admin/contact-messages/{message.id}"
-    )
+    site_settings = SiteSettings.get_solo()
+    frontend_base_url = site_settings.frontend_base_url
+    admin_link = frontend_base_url + f"/org/{organization.slug}/admin/contact-messages/{message.id}"
     body = render_to_string(
         "events/emails/organization_contact_message_body.txt",
         {
@@ -123,6 +124,7 @@ def send_organization_contact_message_email(message_id: str) -> None:
             "subject": message.subject,
             "message": message.message,
             "admin_link": admin_link,
+            "frontend_base_url": frontend_base_url,
         },
     )
     send_email(

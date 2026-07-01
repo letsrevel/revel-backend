@@ -262,26 +262,30 @@ def _send_payout_statement_email(
     billing_profile = getattr(referrer, "billing_profile", None)
     recipient = billing_profile.billing_email if billing_profile and billing_profile.billing_email else referrer.email
 
+    from django.template.loader import render_to_string
+
     subject = _("Referral payout statement %(document_number)s (%(currency)s)") % {
         "document_number": statement.document_number,
         "currency": payout.currency,
-    }
-    body = _(
-        "Please find attached your referral payout statement %(document_number)s "
-        "for the period %(period_start)s to %(period_end)s."
-    ) % {
-        "document_number": statement.document_number,
-        "period_start": payout.period_start.isoformat(),
-        "period_end": payout.period_end.isoformat(),
     }
 
     site = SiteSettings.get_solo()
     bcc = [site.platform_invoice_bcc_email] if site.platform_invoice_bcc_email else []
 
+    email_ctx = {
+        "document_number": statement.document_number,
+        "period_start": payout.period_start.isoformat(),
+        "period_end": payout.period_end.isoformat(),
+        "frontend_base_url": site.frontend_base_url,
+    }
+    body = render_to_string("accounts/emails/referral_payout_email.txt", email_ctx)
+    html_body = render_to_string("accounts/emails/referral_payout_email.html", email_ctx)
+
     send_email(
         to=recipient,
         subject=subject,
         body=body,
+        html_body=html_body,
         bcc=bcc,
         from_email=settings.DEFAULT_BILLING_EMAIL,
         reply_to=[settings.DEFAULT_REPLY_TO_EMAIL],

@@ -1,23 +1,12 @@
-{% load i18n %}<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>{% trans "Confirm your new email address" %}</title>
-</head>
-<body>
-    <h2>{% trans "Confirm your new email address" %}</h2>
-    <p>{% blocktrans %}You (or someone using your account) asked to change the email address on your Revel account to this one. To confirm the change, click the button below:{% endblocktrans %}</p>
-
-    <p>
-        <a href="{{ action_link }}" style="display: inline-block; padding: 10px 20px; background-color: #007bff; color: #ffffff; text-decoration: none; border-radius: 5px;">
-            {% trans "Confirm new email" %}
-        </a>
-    </p>
-
-    <p><strong>{% blocktrans %}Important: after you confirm, you will be signed out of every other device and you will need to sign in again using this new email address.{% endblocktrans %}</strong></p>
-
-    <p>{% blocktrans %}If you weren't expecting this email, you can safely ignore it — nothing will change until the link is clicked.{% endblocktrans %}</p>
-
-    <p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
-</body>
-</html>
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<h2>{% trans "Confirm your new email address" %}</h2>
+<p>{% blocktrans %}You (or someone using your account) asked to change the email address on your Revel account to this one. To confirm the change, click the button below:{% endblocktrans %}</p>
+<div class="card">
+  <a href="{{ action_link }}" class="button">{% trans "Confirm new email" %}</a>
+</div>
+<p><strong>{% blocktrans %}Important: after you confirm, you will be signed out of every other device and you will need to sign in again using this new email address.{% endblocktrans %}</strong></p>
+<p>{% blocktrans %}If you weren't expecting this email, you can safely ignore it — nothing will change until the link is clicked.{% endblocktrans %}</p>
+<p>{% blocktrans %}Thank you,<br>The Revel Team{% endblocktrans %}</p>
+{% endblock %}

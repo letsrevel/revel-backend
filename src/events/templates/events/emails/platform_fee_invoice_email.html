@@ -1,0 +1,14 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+
+{% block preheader %}{% blocktranslate %}Platform fee invoice {{ invoice_number }}{% endblocktranslate %}{% endblock %}
+
+{% block content %}
+<h2 style="margin-top:0;">{% blocktranslate %}Platform Fee Invoice {{ invoice_number }}{% endblocktranslate %}</h2>
+
+<div class="card">
+  <p style="margin:0;">{% blocktranslate %}Please find attached the platform fee invoice {{ invoice_number }} for {{ currency }} transactions in the period {{ period_start }} to {{ period_end }}.{% endblocktranslate %}</p>
+</div>
+
+<p style="color:#666;font-size:14px;">{% trans "This is an automated billing document." %}</p>
+{% endblock %}

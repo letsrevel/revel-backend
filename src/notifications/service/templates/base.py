@@ -168,4 +168,5 @@ class NotificationTemplate(ABC):
         return {
             "user": user,
             "context": enriched_context,
+            "frontend_base_url": site_settings.frontend_base_url,
         }

@@ -1,0 +1,14 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+
+{% block preheader %}Credit Note {{ credit_note_number }} — Invoice {{ invoice_number }}{% endblock %}
+
+{% block content %}
+<h2 style="margin-top:0;">Credit Note {{ credit_note_number }}</h2>
+
+<div class="card">
+  <p style="margin:0;">Please find attached credit note <strong>{{ credit_note_number }}</strong> for invoice <strong>{{ invoice_number }}</strong>.</p>
+</div>
+
+<p style="color:#666;font-size:14px;">If you have any questions about this credit note, please contact the event organizer.</p>
+{% endblock %}

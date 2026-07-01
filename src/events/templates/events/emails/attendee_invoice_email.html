@@ -1,0 +1,14 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+
+{% block preheader %}Invoice {{ invoice_number }} — {{ event_name }}{% endblock %}
+
+{% block content %}
+<h2 style="margin-top:0;">Invoice {{ invoice_number }}</h2>
+
+<div class="card">
+  <p style="margin:0;">Please find attached invoice <strong>{{ invoice_number }}</strong> for your purchase at <strong>{{ event_name }}</strong>.</p>
+</div>
+
+<p style="color:#666;font-size:14px;">Thank you for your purchase.</p>
+{% endblock %}

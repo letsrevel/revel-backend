@@ -95,12 +95,16 @@ def send_guest_rsvp_confirmation(email: str, token: str, event_name: str) -> Non
     """
     logger.info("guest_rsvp_confirmation_sending", email=email, event_name=event_name)
     subject = _("Confirm your RSVP to %(event_name)s") % {"event_name": event_name}
-    confirmation_link = SiteSettings.get_solo().frontend_base_url + f"/events/confirm-action?token={token}"
-    body = render_to_string(
-        "events/emails/guest_rsvp_confirmation_body.txt",
-        {"confirmation_link": confirmation_link, "event_name": event_name},
-    )
-    send_email(to=email, subject=subject, body=body)
+    site_settings = SiteSettings.get_solo()
+    confirmation_link = site_settings.frontend_base_url + f"/events/confirm-action?token={token}"
+    ctx = {
+        "confirmation_link": confirmation_link,
+        "event_name": event_name,
+        "frontend_base_url": site_settings.frontend_base_url,
+    }
+    body = render_to_string("events/emails/guest_rsvp_confirmation_body.txt", ctx)
+    html_body = render_to_string("events/emails/guest_rsvp_confirmation_body.html", ctx)
+    send_email(to=email, subject=subject, body=body, html_body=html_body)
     logger.info("guest_rsvp_confirmation_sent", email=email)
 
 
@@ -118,10 +122,15 @@ def send_guest_ticket_confirmation(email: str, token: str, event_name: str, tier
     """
     logger.info("guest_ticket_confirmation_sending", email=email, event_name=event_name, tier_name=tier_name)
     subject = _("Confirm your ticket for %(event_name)s") % {"event_name": event_name}
-    confirmation_link = SiteSettings.get_solo().frontend_base_url + f"/events/confirm-action?token={token}"
-    body = render_to_string(
-        "events/emails/guest_ticket_confirmation_body.txt",
-        {"confirmation_link": confirmation_link, "event_name": event_name, "tier_name": tier_name},
-    )
-    send_email(to=email, subject=subject, body=body)
+    site_settings = SiteSettings.get_solo()
+    confirmation_link = site_settings.frontend_base_url + f"/events/confirm-action?token={token}"
+    ctx = {
+        "confirmation_link": confirmation_link,
+        "event_name": event_name,
+        "tier_name": tier_name,
+        "frontend_base_url": site_settings.frontend_base_url,
+    }
+    body = render_to_string("events/emails/guest_ticket_confirmation_body.txt", ctx)
+    html_body = render_to_string("events/emails/guest_ticket_confirmation_body.html", ctx)
+    send_email(to=email, subject=subject, body=body, html_body=html_body)
     logger.info("guest_ticket_confirmation_sent", email=email)

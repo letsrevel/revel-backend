@@ -1,68 +1,43 @@
-{% load i18n %}<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
-        .container { max-width: 600px; margin: 0 auto; background: white; }
-        .header { background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); color: white; padding: 30px 20px; text-align: center; }
-        .content { padding: 30px 20px; }
-        .card { background: #f8f9fa; border-left: 4px solid #dc3545; padding: 20px; margin: 20px 0; border-radius: 4px; }
-        .info-row { margin: 10px 0; }
-        .label { color: #666; font-weight: 600; }
-        .refund { background: #d4edda; border-left-color: #28a745; }
-        .button { display: inline-block; padding: 14px 28px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white !important; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: 600; }
-        .footer { background: #f8f9fa; padding: 20px; text-align: center; color: #666; font-size: 14px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1 style="margin: 0; font-size: 28px;">❌ {% trans "Ticket Cancelled" %}</h1>
-        </div>
-        <div class="content">
-            <p>{% trans "Hello" %} {{ user.display_name }},</p>
-            <p>{% if context.ticket_holder_name %}{% if context.cancellation_source == "user" %}{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<strong>{{ holder }}</strong> cancelled their ticket for <strong>{{ event }}</strong>.{% endblocktranslate %}{% elif context.cancellation_source == "stripe_dashboard" %}{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<strong>{{ holder }}</strong>'s ticket for <strong>{{ event }}</strong> was refunded via the Stripe dashboard.{% endblocktranslate %}{% else %}{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<strong>{{ holder }}</strong>'s ticket for <strong>{{ event }}</strong> has been cancelled.{% endblocktranslate %}{% endif %}{% else %}{% if context.cancellation_source == "user" %}{% blocktranslate with event=context.event_name %}You cancelled your ticket for <strong>{{ event }}</strong>.{% endblocktranslate %}{% elif context.cancellation_source == "stripe_dashboard" %}{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> has been cancelled and refunded.{% endblocktranslate %}{% else %}{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> has been cancelled.{% endblocktranslate %}{% endif %}{% endif %}</p>
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<p>{% if context.ticket_holder_name %}{% if context.cancellation_source == "user" %}{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<strong>{{ holder }}</strong> cancelled their ticket for <strong>{{ event }}</strong>.{% endblocktranslate %}{% elif context.cancellation_source == "stripe_dashboard" %}{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<strong>{{ holder }}</strong>'s ticket for <strong>{{ event }}</strong> was refunded via the Stripe dashboard.{% endblocktranslate %}{% else %}{% blocktranslate with holder=context.ticket_holder_name event=context.event_name %}<strong>{{ holder }}</strong>'s ticket for <strong>{{ event }}</strong> has been cancelled.{% endblocktranslate %}{% endif %}{% else %}{% if context.cancellation_source == "user" %}{% blocktranslate with event=context.event_name %}You cancelled your ticket for <strong>{{ event }}</strong>.{% endblocktranslate %}{% elif context.cancellation_source == "stripe_dashboard" %}{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> has been cancelled and refunded.{% endblocktranslate %}{% else %}{% blocktranslate with event=context.event_name %}Your ticket for <strong>{{ event }}</strong> has been cancelled.{% endblocktranslate %}{% endif %}{% endif %}</p>
 
-            {% if context.ticket_holder_name %}
-            <div class="card">
-                <h3 style="margin-top: 0; color: #dc3545;">{% trans "Ticket Holder" %}</h3>
-                <div class="info-row">{{ context.ticket_holder_name }} ({{ context.ticket_holder_email }})</div>
-            </div>
-            {% endif %}
+{% if context.ticket_holder_name %}
+<div class="card card--danger">
+    <h3 style="margin-top: 0;">{% trans "Ticket Holder" %}</h3>
+    <div class="info-row">{{ context.ticket_holder_name }} ({{ context.ticket_holder_email }})</div>
+</div>
+{% endif %}
 
-            <div class="card">
-                <h3 style="margin-top: 0; color: #dc3545;">{% trans "Event Details" %}</h3>
-                <div class="info-row">📅 {{ context.event_start_formatted }}</div>
-                {% if context.event_location %}<div class="info-row">📍 {{ context.event_location }}</div>{% endif %}
-            </div>
+<div class="card card--danger">
+    <h3 style="margin-top: 0;">{% trans "Event Details" %}</h3>
+    <div class="info-row">📅 {{ context.event_start_formatted }}</div>
+    {% if context.event_location %}<div class="info-row">📍 {{ context.event_location }}</div>{% endif %}
+</div>
 
-            <div class="card">
-                <h3 style="margin-top: 0; color: #dc3545;">{% trans "Cancelled Ticket" %}</h3>
-                <div class="info-row"><span class="label">{% trans "Tier:" %}</span> {{ context.tier_name }}</div>
-                <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
-            </div>
+<div class="card card--danger">
+    <h3 style="margin-top: 0;">{% trans "Cancelled Ticket" %}</h3>
+    <div class="info-row"><span class="label">{% trans "Tier:" %}</span> {{ context.tier_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Ticket ID:" %}</span> <code>{{ context.ticket_id }}</code></div>
+</div>
 
-            {% if context.cancellation_reason %}
-            <div class="card">
-                <h3 style="margin-top: 0; color: #dc3545;">{% trans "Reason" %}</h3>
-                <p>{{ context.cancellation_reason }}</p>
-            </div>
-            {% endif %}
+{% if context.cancellation_reason %}
+<div class="card card--danger">
+    <h3 style="margin-top: 0;">{% trans "Reason" %}</h3>
+    <p>{{ context.cancellation_reason }}</p>
+</div>
+{% endif %}
 
-            {% if context.refund_amount %}
-            <div class="card refund">
-                <h3 style="margin-top: 0; color: #28a745;">💰 {% trans "Refund Information" %}</h3>
-                <p>{% if context.ticket_holder_name %}{% blocktranslate with amount=context.refund_amount currency=context.payment_currency %}A refund of <strong>{{ amount }} {{ currency }}</strong> has been issued to the ticket holder.{% endblocktranslate %}{% else %}{% blocktranslate with amount=context.refund_amount currency=context.payment_currency %}A refund of <strong>{{ amount }} {{ currency }}</strong> will be processed to your original payment method within 5-10 business days.{% endblocktranslate %}{% endif %}</p>
-            </div>
-            {% endif %}
+{% if context.refund_amount %}
+<div class="card">
+    <h3 style="margin-top: 0;">💰 {% trans "Refund Information" %}</h3>
+    <p>{% if context.ticket_holder_name %}{% blocktranslate with amount=context.refund_amount currency=context.payment_currency %}A refund of <strong>{{ amount }} {{ currency }}</strong> has been issued to the ticket holder.{% endblocktranslate %}{% else %}{% blocktranslate with amount=context.refund_amount currency=context.payment_currency %}A refund of <strong>{{ amount }} {{ currency }}</strong> will be processed to your original payment method within 5-10 business days.{% endblocktranslate %}{% endif %}</p>
+</div>
+{% endif %}
 
-            <center>
-                <a href="{{ context.event_url }}" class="button">{% trans "View Event Details" %}</a>
-            </center>
-        </div>
-        {% include "notifications/email/_footer.html" %}
-    </div>
-</body>
-</html>
+<center>
+    <a href="{{ context.event_url }}" class="button button--danger">{% trans "View Event Details" %}</a>
+</center>
+{% endblock %}

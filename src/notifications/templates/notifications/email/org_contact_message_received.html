@@ -1,23 +1,22 @@
+{% extends "emails/base.html" %}
 {% load i18n %}
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-</head>
-<body>
-    <h2>{% trans "New Contact Message" %}</h2>
+{% block content %}
+<h2>{% trans "New Contact Message" %}</h2>
 
-    <p>{% blocktranslate with sender=context.sender_email org=context.organization_name %}<strong>{{ sender }}</strong> sent a message to <strong>{{ org }}</strong>.{% endblocktranslate %}</p>
+<p>{% blocktranslate with sender=context.sender_email org=context.organization_name %}<strong>{{ sender }}</strong> sent a message to <strong>{{ org }}</strong>.{% endblocktranslate %}</p>
 
-    {% if context.subject %}<p><strong>{% trans "Subject:" %}</strong> {{ context.subject }}</p>{% endif %}
+{% if context.subject %}<p><strong>{% trans "Subject:" %}</strong> {{ context.subject }}</p>{% endif %}
 
-    {% if context.message_preview %}
+{% if context.message_preview %}
+<div class="card card--info">
     <p><strong>{% trans "Message:" %}</strong></p>
     <blockquote style="border-left: 3px solid #ddd; padding-left: 12px; color: #555;">{{ context.message_preview }}</blockquote>
-    {% endif %}
+</div>
+{% endif %}
 
-    <p><a href="{{ context.admin_url }}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">{% trans "View Message" %}</a></p>
+<center>
+    <a href="{{ context.admin_url }}" class="button">{% trans "View Message" %}</a>
+</center>
 
-    <p style="color: #666; font-size: 12px;">{% trans "This is an automated notification from your organization management system." %}</p>
-</body>
-</html>
+<p style="color: #666; font-size: 12px;">{% trans "This is an automated notification from your organization management system." %}</p>
+{% endblock %}

@@ -1,0 +1,7 @@
+{# Brand lockup — logo + "let's revel." wordmark. #}
+{# Include as the FIRST element inside <body> of each invoice template. #}
+{# Requires context var: brand_logo (abs path), injected by render_pdf. #}
+<div class="brand-lockup">
+  <img class="brand-logo" src="file://{{ brand_logo }}" alt="let's revel.">
+  <span class="brand-wordmark">let's revel.</span>
+</div>

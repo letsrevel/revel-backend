@@ -83,6 +83,7 @@ class NotificationDigest:
             "notification_groups": groups,
             "digest_date": timezone.now(),
             "frontend_url": frontend_base_url,
+            "frontend_base_url": frontend_base_url,
             "unsubscribe_link": unsubscribe_link,
         }
 

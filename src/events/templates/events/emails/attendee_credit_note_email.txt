@@ -1,0 +1,1 @@
+Please find attached credit note {{ credit_note_number }} for invoice {{ invoice_number }}.

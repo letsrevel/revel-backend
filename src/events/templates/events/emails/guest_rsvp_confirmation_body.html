@@ -1,0 +1,19 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+
+{% block preheader %}{% blocktranslate %}Confirm your RSVP to {{ event_name }}{% endblocktranslate %}{% endblock %}
+
+{% block content %}
+<h2 style="margin-top:0;">{% trans "Confirm your RSVP" %}</h2>
+
+<p>{% blocktranslate %}You've indicated your interest in attending {{ event_name }}.{% endblocktranslate %}</p>
+
+<div class="card">
+  <p style="margin:0 0 16px;">{% trans "To confirm your RSVP, please click the button below:" %}</p>
+  <a href="{{ confirmation_link }}" class="button">{% trans "Confirm RSVP" %}</a>
+  <p style="margin:16px 0 0;font-size:12px;color:#666;word-break:break-all;">{{ confirmation_link }}</p>
+</div>
+
+<p style="color:#666;font-size:14px;">{% trans "This link will expire in 24 hours." %}</p>
+<p style="color:#666;font-size:14px;">{% trans "If you didn't make this request, you can safely ignore this email." %}</p>
+{% endblock %}

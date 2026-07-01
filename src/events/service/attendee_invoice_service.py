@@ -423,6 +423,7 @@ def _send_org_branded_email(
     body: str,
     attachment_path: str,
     attachment_filename: str,
+    html_body: str | None = None,
 ) -> bool:
     """Send an email branded with the org's billing identity.
 
@@ -458,6 +459,7 @@ def _send_org_branded_email(
         to=to_email,
         subject=subject,
         body=body,
+        html_body=html_body,
         from_email=formataddr((org_billing_name, f"{org_slug}@letsrevel.io")),
         reply_to=[reply_to_email] if reply_to_email else None,
         bcc=[bcc_email] if bcc_email else None,
@@ -476,16 +478,26 @@ def deliver_attendee_invoice(invoice: AttendeeInvoice) -> None:
     recover a document that exhausted its delivery retries, whether it lost the
     PDF or only the email (issue #616). Records the delivery on success.
     """
+    from django.template.loader import render_to_string
+
+    from common.models import SiteSettings
+
     ensure_pdf_exists(invoice)
     if not invoice.pdf_file:
         logger.warning("attendee_invoice_no_pdf", invoice_number=invoice.invoice_number)
         return
 
     event_name = invoice.event.name if invoice.event else "Event"
+    email_ctx = {
+        "invoice_number": invoice.invoice_number,
+        "event_name": event_name,
+        "frontend_base_url": SiteSettings.get_solo().frontend_base_url,
+    }
     sent = _send_org_branded_email(
         invoice=invoice,
         subject=f"Invoice {invoice.invoice_number} — {event_name}",
-        body=f"Please find attached invoice {invoice.invoice_number} for your purchase at {event_name}.",
+        body=render_to_string("events/emails/attendee_invoice_email.txt", email_ctx),
+        html_body=render_to_string("events/emails/attendee_invoice_email.html", email_ctx),
         attachment_path=invoice.pdf_file.name,
         attachment_filename=f"{invoice.invoice_number}.pdf",
     )
@@ -628,6 +640,10 @@ def deliver_credit_note(credit_note: AttendeeInvoiceCreditNote) -> None:
     Self-heals a missing PDF and records the delivery on success so the recovery
     sweep can recover an undelivered credit note (issue #616).
     """
+    from django.template.loader import render_to_string
+
+    from common.models import SiteSettings
+
     ensure_credit_note_pdf_exists(credit_note)
     invoice = credit_note.invoice
     if not credit_note.pdf_file:
@@ -635,12 +651,17 @@ def deliver_credit_note(credit_note: AttendeeInvoiceCreditNote) -> None:
         return
 
     event_name = invoice.event.name if invoice.event else "Event"
+    email_ctx = {
+        "credit_note_number": credit_note.credit_note_number,
+        "invoice_number": invoice.invoice_number,
+        "event_name": event_name,
+        "frontend_base_url": SiteSettings.get_solo().frontend_base_url,
+    }
     sent = _send_org_branded_email(
         invoice=invoice,
         subject=f"Credit Note {credit_note.credit_note_number} — {event_name}",
-        body=(
-            f"Please find attached credit note {credit_note.credit_note_number} for invoice {invoice.invoice_number}."
-        ),
+        body=render_to_string("events/emails/attendee_credit_note_email.txt", email_ctx),
+        html_body=render_to_string("events/emails/attendee_credit_note_email.html", email_ctx),
         attachment_path=credit_note.pdf_file.name,
         attachment_filename=f"{credit_note.credit_note_number}.pdf",
     )

@@ -3,3 +3,5 @@
 
 ---
 {% trans "Unsubscribe or manage notification preferences:" %} {{ context.unsubscribe_link }}
+
+let's revel.

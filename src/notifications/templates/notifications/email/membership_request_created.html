@@ -1,25 +1,22 @@
+{% extends "emails/base.html" %}
 {% load i18n %}
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-</head>
-<body>
-    <h2>{% trans "New Membership Request" %}</h2>
+{% block content %}
+<h2>{% trans "New Membership Request" %}</h2>
 
-    <p>{% blocktranslate with name=context.requester_name org=context.organization_name %}<strong>{{ name }}</strong> has requested to join <strong>{{ org }}</strong>.{% endblocktranslate %}</p>
+<p>{% blocktranslate with name=context.requester_name org=context.organization_name %}<strong>{{ name }}</strong> has requested to join <strong>{{ org }}</strong>.{% endblocktranslate %}</p>
 
-    <h3>{% trans "Request Details:" %}</h3>
-    <ul>
-        <li><strong>{% trans "Name:" %}</strong> {{ context.requester_name }}</li>
-        <li><strong>{% trans "Email:" %}</strong> {{ context.requester_email }}</li>
-        {% if context.request_message %}
-        <li><strong>{% trans "Message:" %}</strong><br>{{ context.request_message }}</li>
-        {% endif %}
-    </ul>
+<div class="card card--info">
+    <h3 style="margin-top: 0;">{% trans "Request Details:" %}</h3>
+    <div class="info-row"><strong>{% trans "Name:" %}</strong> {{ context.requester_name }}</div>
+    <div class="info-row"><strong>{% trans "Email:" %}</strong> {{ context.requester_email }}</div>
+    {% if context.request_message %}
+    <div class="info-row"><strong>{% trans "Message:" %}</strong><br>{{ context.request_message }}</div>
+    {% endif %}
+</div>
 
-    <p><a href="{{ context.frontend_url }}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">{% trans "View Request" %}</a></p>
+<center>
+    <a href="{{ context.frontend_url }}" class="button">{% trans "View Request" %}</a>
+</center>
 
-    <p style="color: #666; font-size: 12px;">{% trans "This is an automated notification from your organization management system." %}</p>
-</body>
-</html>
+<p style="color: #666; font-size: 12px;">{% trans "This is an automated notification from your organization management system." %}</p>
+{% endblock %}
