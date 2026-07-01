@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <title>Ticket - {{ event_name }}</title>
+    {% include "_fonts.html" %}
     <style>
         @page {
             size: A4;
             margin: 0;
         }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-family: 'Nata Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             color: #333;
             margin: 0;
             padding: 0;
@@ -108,7 +109,7 @@
         }
         .info-card {
             background: #f8f9fa;
-            border-left: 4px solid {{ primary_color }};
+            border-left: 4px solid #8C3CDD;
             padding: 15px;
             margin: 15px 0;
             border-radius: 4px;
@@ -131,7 +132,7 @@
         /* Seating Card */
         .seating-card {
             background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border: 2px solid {{ primary_color }};
+            border: 2px solid #8C3CDD;
             border-radius: 8px;
             padding: 15px 20px;
             margin: 15px 0;
@@ -142,7 +143,7 @@
         .seat-icon {
             width: 50px;
             height: 50px;
-            background: {{ primary_color }};
+            background: #8C3CDD;
             border-radius: 8px;
             display: flex;
             align-items: center;
@@ -179,12 +180,13 @@
             text-align: center;
             padding: 20px 30px;
             background: white;
+            border-top: 1px solid #e0e0e0;
         }
         .qr-code-container {
             display: inline-block;
             padding: 15px;
             background: white;
-            border: 2px solid #e0e0e0;
+            border: 2px solid #8C3CDD;
             border-radius: 8px;
         }
         .qr-code-container img {
@@ -193,12 +195,12 @@
         .qr-instruction {
             margin-top: 12px;
             font-size: 11px;
-            color: #666;
+            color: #8C3CDD;
         }
 
         /* Footer Section */
         .footer-section {
-            padding: 20px 30px;
+            padding: 16px 30px;
             background: #f8f9fa;
             border-top: 1px solid #e0e0e0;
             text-align: center;
@@ -213,10 +215,33 @@
             color: #666;
         }
 
+        /* Powered by Let's Revel footer */
+        .brand-footer {
+            padding: 10px 30px 14px;
+            background: #f8f9fa;
+            text-align: center;
+            border-top: 1px solid #e9e9e9;
+        }
+        .brand-footer-inner {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .brand-footer img {
+            height: 18px;
+            width: auto;
+            opacity: 0.55;
+        }
+        .brand-footer-text {
+            font-size: 9px;
+            color: #aaa;
+            letter-spacing: 0.2px;
+        }
+
         /* Decorative elements */
         .accent-bar {
             height: 4px;
-            background: linear-gradient(to right, {{ primary_color }}, {{ secondary_color }});
+            background: linear-gradient(to right, #8C3CDD, #AB82DB);
         }
     </style>
 </head>
@@ -310,6 +335,16 @@
         <div class="footer-section">
             <p>This ticket is valid for one person only and must be presented for entry.</p>
             <p class="ticket-id">{{ ticket_id }}</p>
+        </div>
+
+        <!-- Powered by Let's Revel -->
+        <div class="brand-footer">
+            <div class="brand-footer-inner">
+                {% if brand_logo %}
+                <img src="file://{{ brand_logo }}" alt="let's revel.">
+                {% endif %}
+                <span class="brand-footer-text">Powered by let's revel.</span>
+            </div>
         </div>
     </div>
 </body>

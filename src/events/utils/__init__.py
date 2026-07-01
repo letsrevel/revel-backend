@@ -357,6 +357,9 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
         "seat_label": ticket.seat.label if ticket.seat else None,
         "seat_row": ticket.seat.row if ticket.seat else None,
         "seat_number": ticket.seat.number if ticket.seat else None,
+        # Brand assets (absolute paths for WeasyPrint file:// resolution)
+        "font_dir": str(settings.BASE_DIR / "fonts"),
+        "brand_logo": str(settings.BASE_DIR / "assets" / "brand" / "revel-logo.png"),
     }
 
     # Render and generate PDF

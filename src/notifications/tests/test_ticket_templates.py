@@ -873,6 +873,87 @@ class TestTicketCancelledTemplateBranching:
         assert "You cancelled" not in rendered
 
 
+class TestTicketPdfBranding:
+    """Ticket PDF template must carry Let's Revel branding while remaining organiser-centric."""
+
+    def _render_ticket_html(self) -> str:
+        """Render the ticket HTML template with a minimal but sufficient context."""
+        import typing as t
+
+        from django.conf import settings
+        from django.template.loader import render_to_string
+
+        ctx: dict[str, t.Any] = {
+            # Brand assets injected by create_ticket_pdf
+            "font_dir": str(settings.BASE_DIR / "fonts"),
+            "brand_logo": str(settings.BASE_DIR / "assets" / "brand" / "revel-logo.png"),
+            # Org-centric fields (kept as leads)
+            "logo_url": None,
+            "cover_art_url": None,
+            "logo_initials": "TE",
+            "primary_color": "#8C3CDD",
+            "secondary_color": "#AB82DB",
+            # Event / ticket fields
+            "event_name": "Test Event",
+            "organization_name": "Test Org",
+            "user_display_name": "Test User",
+            "guest_name": "Test User",
+            "tier_name": "General Admission",
+            "start_datetime": "Saturday, July 5, 2025 at 8:00 PM CEST",
+            "address": "Vienna, Austria",
+            "qr_code_base64": "iVBORw0KGgo=",
+            "ticket_id": "00000000-0000-0000-0000-000000000001",
+            "ticket_id_short": "00000000",
+            "venue_name": None,
+            "sector_name": None,
+            "seat_label": None,
+            "seat_row": None,
+            "seat_number": None,
+        }
+        return render_to_string("events/ticket.html", ctx)
+
+    def test_ticket_html_contains_nata_sans(self) -> None:
+        """Ticket template must declare Nata Sans as the body font."""
+        html = self._render_ticket_html()
+        assert "Nata Sans" in html, "Missing 'Nata Sans' in ticket HTML"
+
+    def test_ticket_html_contains_powered_by_wordmark(self) -> None:
+        """Ticket template must carry a 'Powered by let's revel.' footer."""
+        html = self._render_ticket_html()
+        assert "Powered by let's revel." in html, "Missing 'Powered by let's revel.' in ticket HTML"
+
+    def test_ticket_html_contains_brand_logo_reference(self) -> None:
+        """Ticket template must reference revel-logo.png for the brand footer."""
+        html = self._render_ticket_html()
+        assert "revel-logo.png" in html, "Missing revel-logo.png reference in ticket HTML"
+
+    def test_ticket_brand_logo_is_in_body_not_head(self) -> None:
+        """Brand logo must live in <body> — WeasyPrint suppresses anything in <head>."""
+        html = self._render_ticket_html()
+        body_part = html.split("<body", 1)[1]
+        assert "revel-logo.png" in body_part, (
+            "brand logo is not inside <body>; WeasyPrint would suppress it"
+        )
+
+    def test_ticket_powered_by_is_in_body_not_head(self) -> None:
+        """'Powered by' text must live in <body> — WeasyPrint suppresses anything in <head>."""
+        html = self._render_ticket_html()
+        body_part = html.split("<body", 1)[1]
+        assert "Powered by let's revel." in body_part, (
+            "'Powered by let's revel.' is not inside <body>; WeasyPrint would suppress it"
+        )
+
+    def test_ticket_html_has_no_legacy_accent_667eea(self) -> None:
+        """Ticket template must not contain the legacy indigo accent #667eea."""
+        html = self._render_ticket_html()
+        assert "#667eea" not in html, "Legacy accent #667eea still present in ticket HTML"
+
+    def test_ticket_html_keeps_org_logo_section(self) -> None:
+        """Org logo section (logo-section / logo-container) must still be present."""
+        html = self._render_ticket_html()
+        assert "logo-section" in html, "Org logo section was removed from ticket HTML"
+
+
 class TestTicketCancelledStaffTemplateBranching:
     """Staff/owner audience must not see holder-addressed phrasing (issue: organizer received "you cancelled...")."""
 
