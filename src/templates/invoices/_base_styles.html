@@ -1,5 +1,8 @@
 {# Shared A4 PDF styles for invoices and payout statements. #}
 {# Include via: {% include "invoices/_base_styles.html" %}    #}
+{# Requires context vars: font_dir (abs path), brand_logo (abs path) #}
+{# Both are injected automatically by render_pdf in invoice_utils.py. #}
+{% include "_fonts.html" %}
 <style>
   @page {
     size: A4;
@@ -13,7 +16,7 @@
   }
 
   body {
-    font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+    font-family: 'Nata Sans', -apple-system, 'Helvetica Neue', Arial, sans-serif;
     font-size: 10pt;
     color: #1a1a2e;
     line-height: 1.5;
@@ -25,6 +28,26 @@
     justify-content: space-between;
     align-items: flex-start;
     margin-bottom: 50px;
+  }
+
+  .brand-lockup {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    margin-bottom: 16px;
+  }
+
+  .brand-logo {
+    height: 36px;
+    width: auto;
+  }
+
+  .brand-wordmark {
+    font-size: 9pt;
+    font-weight: 600;
+    color: #8C3CDD;
+    letter-spacing: 0.5px;
+    margin-top: 4px;
   }
 
   .supplier-info {
@@ -51,7 +74,7 @@
   .invoice-title {
     font-size: 28pt;
     font-weight: 800;
-    color: #1a1a2e;
+    color: #8C3CDD;
     letter-spacing: 2px;
     margin-bottom: 12px;
   }
@@ -72,7 +95,7 @@
 
   .divider {
     border: none;
-    border-top: 2px solid #1a1a2e;
+    border-top: 2px solid #8C3CDD;
     margin: 0 0 40px 0;
   }
 
@@ -85,7 +108,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1.5px;
-    color: #888;
+    color: #8C3CDD;
     margin-bottom: 8px;
   }
 
@@ -113,9 +136,9 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1px;
-    color: #888;
+    color: #8C3CDD;
     padding: 10px 0;
-    border-bottom: 2px solid #1a1a2e;
+    border-bottom: 2px solid #8C3CDD;
     text-align: left;
   }
 
@@ -173,7 +196,7 @@
     justify-content: space-between;
     align-items: flex-start;
     padding-top: 30px;
-    border-top: 2px solid #1a1a2e;
+    border-top: 2px solid #8C3CDD;
   }
 
   .notes {
@@ -185,7 +208,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 1.5px;
-    color: #888;
+    color: #8C3CDD;
     margin-bottom: 8px;
   }
 
@@ -196,3 +219,9 @@
     font-style: italic;
   }
 </style>
+
+{# Brand header — logo + "let's revel." wordmark, rendered above the doc header. #}
+<div class="brand-lockup">
+  <img class="brand-logo" src="file://{{ brand_logo }}" alt="let's revel.">
+  <span class="brand-wordmark">let's revel.</span>
+</div>

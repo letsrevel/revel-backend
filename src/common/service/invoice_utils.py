@@ -9,6 +9,7 @@ import typing as t
 from decimal import Decimal
 from io import BytesIO
 
+from django.conf import settings
 from django.db import models
 from django.template.loader import render_to_string
 from weasyprint import HTML
@@ -77,6 +78,10 @@ def get_next_sequential_number(
 def render_pdf(template_name: str, context: dict[str, t.Any]) -> bytes:
     """Render a Django template as a PDF via WeasyPrint.
 
+    Automatically injects ``font_dir`` and ``brand_logo`` into the context so
+    every invoice/payout template gets Nata Sans and the brand logo without
+    each caller repeating the path wiring.
+
     Args:
         template_name: Path to the Django template (e.g. ``"invoices/foo.html"``).
         context: Template context dict.
@@ -84,7 +89,12 @@ def render_pdf(template_name: str, context: dict[str, t.Any]) -> bytes:
     Returns:
         The rendered PDF as bytes.
     """
-    html_content = render_to_string(template_name, context)
+    brand_context: dict[str, t.Any] = {
+        "font_dir": str(settings.BASE_DIR / "fonts"),
+        "brand_logo": str(settings.BASE_DIR / "assets" / "brand" / "revel-logo.png"),
+    }
+    brand_context.update(context)
+    html_content = render_to_string(template_name, brand_context)
     pdf_buffer = BytesIO()
     HTML(string=html_content).write_pdf(pdf_buffer)
     return pdf_buffer.getvalue()
