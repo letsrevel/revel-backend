@@ -30,9 +30,9 @@
 <div class="comments">{{ context.evaluation_comments }}</div>
 {% endif %}
 {% if context.evaluation_status == "APPROVED" and context.event_url %}
-<p style="margin-top:20px;padding:15px;background:#fef6e7;border-left:4px solid #F9B233;border-radius:4px;">
+<div class="card card--warning">
     <strong>⚠️ {% trans "Important:" %}</strong> {% if context.requires_ticket %}{% trans "Approval does not mean you are registered. Please secure your ticket to confirm your attendance." %}{% else %}{% trans "Approval does not mean you are registered. Please RSVP to confirm your attendance." %}{% endif %}
-</p>
+</div>
 {% endif %}
 {% if context.event_url %}
 <center>
