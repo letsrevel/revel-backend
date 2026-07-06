@@ -112,11 +112,16 @@ def notify_admin_new_user_joined(self: t.Any, user_id: str, user_email: str, is_
 
 
 @shared_task(bind=True, max_retries=3, name="accounts.tasks.notify_admin_new_user_joined_discord")
-def notify_admin_new_user_joined_discord(self: t.Any) -> dict[str, t.Any]:
+def notify_admin_new_user_joined_discord(self: t.Any, is_guest: bool = False) -> dict[str, t.Any]:
     """Send a PII-free Discord notification to admin when a new user joins.
 
     The message never contains the user's email, name, or id — only the running
-    total count of non-guest users.
+    total count of non-guest users.  The notification is skipped for guest users
+    because the non-guest count would be unchanged.
+
+    Args:
+        self: Celery task instance (automatically passed when bind=True)
+        is_guest: Whether the user who joined is a guest user
 
     Returns:
         Dict with notification result
@@ -124,6 +129,10 @@ def notify_admin_new_user_joined_discord(self: t.Any) -> dict[str, t.Any]:
     Raises:
         Exception: If the Discord webhook call fails after retries.
     """
+    if is_guest:
+        logger.info("discord_notification_skipped_for_guest")
+        return {"status": "skipped", "reason": "guest_user"}
+
     webhook_url = settings.DISCORD_ADMIN_WEBHOOK_URL
     if not webhook_url:
         logger.info("discord_webhook_not_configured")

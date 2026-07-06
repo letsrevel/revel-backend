@@ -80,8 +80,16 @@ def test_pushover_message_includes_referrer_when_present(user: RevelUser, django
 @override_settings(DISCORD_ADMIN_WEBHOOK_URL="")
 def test_discord_skipped_when_not_configured() -> None:
     with patch("accounts.tasks.notifications.httpx.post") as mock_post:
-        result = notify_admin_new_user_joined_discord()
+        result = notify_admin_new_user_joined_discord(is_guest=False)
     assert result == {"status": "skipped", "reason": "discord_webhook_not_configured"}
+    mock_post.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_discord_skipped_for_guest_user() -> None:
+    with patch("accounts.tasks.notifications.httpx.post") as mock_post:
+        result = notify_admin_new_user_joined_discord(is_guest=True)
+    assert result == {"status": "skipped", "reason": "guest_user"}
     mock_post.assert_not_called()
 
 
@@ -93,7 +101,7 @@ def test_discord_message_omits_pii_and_includes_count(user: RevelUser) -> None:
     user.save(update_fields=["first_name", "last_name"])
 
     with patch("accounts.tasks.notifications.httpx.post", return_value=_make_response()) as mock_post:
-        notify_admin_new_user_joined_discord()
+        notify_admin_new_user_joined_discord(is_guest=False)
 
     _, kwargs = mock_post.call_args
     content = kwargs["json"]["content"]
@@ -117,7 +125,7 @@ def test_discord_retries_on_http_error() -> None:
         patch.object(notify_admin_new_user_joined_discord, "retry", side_effect=RuntimeError("retried")) as mock_retry,
         pytest.raises(RuntimeError, match="retried"),
     ):
-        notify_admin_new_user_joined_discord()
+        notify_admin_new_user_joined_discord(is_guest=False)
     mock_retry.assert_called_once()
 
 
@@ -135,14 +143,14 @@ def test_signal_dispatches_both_tasks_on_commit_when_enabled(
             password="x",
         )
     mock_pushover.assert_called_once()
-    mock_discord.assert_called_once()
+    mock_discord.assert_called_once_with(is_guest=False)
 
 
 @pytest.mark.django_db(transaction=True)
-def test_signal_skips_discord_for_guest_user(
+def test_signal_dispatches_discord_with_is_guest_for_guest_user(
     django_user_model: type[RevelUser], enable_user_notifications: None
 ) -> None:
-    """Guests don't count toward the non-guest total, so Discord would show an unchanged count."""
+    """Discord task is dispatched with is_guest=True so it can skip internally."""
     with (
         patch("accounts.signals.notify_admin_new_user_joined.delay") as mock_pushover,
         patch("accounts.signals.notify_admin_new_user_joined_discord.delay") as mock_discord,
@@ -154,7 +162,7 @@ def test_signal_skips_discord_for_guest_user(
             guest=True,
         )
     mock_pushover.assert_called_once()
-    mock_discord.assert_not_called()
+    mock_discord.assert_called_once_with(is_guest=True)
 
 
 @pytest.mark.django_db(transaction=True)

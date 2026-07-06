@@ -21,9 +21,7 @@ def notify_admin_on_user_creation(
     Standalone notification system that runs alongside the main notification
     system. Checks SiteSettings.notify_user_joined and dispatches Celery tasks
     to send Pushover and Discord notifications if enabled. The Discord task
-    is only dispatched for non-guest users; the generic "new user" message
-    counts non-guest users only, so firing it for a guest signup would show
-    an unchanged count.
+    skips guest users internally since the non-guest count would be unchanged.
 
     Args:
         sender: The model class (RevelUser)
@@ -50,8 +48,7 @@ def notify_admin_on_user_creation(
 
     def _dispatch() -> None:
         notify_admin_new_user_joined.delay(user_id=user_id, user_email=user_email, is_guest=is_guest)
-        if not is_guest:
-            notify_admin_new_user_joined_discord.delay()
+        notify_admin_new_user_joined_discord.delay(is_guest=is_guest)
 
     transaction.on_commit(_dispatch)
 
