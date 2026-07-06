@@ -1,3 +1,5 @@
+import threading
+
 import structlog
 from django.contrib.gis.geos import Point
 from IP2Location import IP2Location
@@ -6,27 +8,33 @@ from geo import conf
 
 logger = structlog.get_logger(__name__)
 
-_DB: IP2Location | None = None
-_DB_MTIME: float | None = None
+# In the default FILE_IO mode, IP2Location reads records through a single shared
+# file cursor (seek + read), which is not thread-safe. Under Gunicorn's gthread
+# workers, concurrent requests on one shared instance corrupt each other's reads.
+# We therefore keep one handle per thread. The database pages stay in the shared
+# OS page cache (loaded once), so this costs only a cheap file descriptor per
+# thread — not a copy of the ~168 MB database. See issue #637.
+_local = threading.local()
 
 
 def get_ip2location() -> IP2Location:
-    """Initializes and returns the IP2Location database object.
+    """Return a thread-local IP2Location database handle.
 
-    Uses file modification time to detect when a new database has been downloaded
-    and automatically reloads it.
+    Each thread gets its own file descriptor because FILE_IO mode is not
+    thread-safe. Uses the database file's modification time to detect when a new
+    database has been downloaded, reloading the calling thread's handle.
     """
-    global _DB, _DB_MTIME
-
     # Get current file modification time
     current_mtime = conf.IP2LOCATION_DB_PATH.stat().st_mtime
 
-    # Reload if database hasn't been loaded or file has changed
-    if _DB is None or _DB_MTIME is None or current_mtime != _DB_MTIME:
-        _DB = IP2Location(conf.IP2LOCATION_DB_PATH)
-        _DB_MTIME = current_mtime
+    # Reload if this thread hasn't loaded the database or the file has changed
+    db: IP2Location | None = getattr(_local, "db", None)
+    if db is None or _local.mtime != current_mtime:
+        db = IP2Location(conf.IP2LOCATION_DB_PATH)
+        _local.db = db
+        _local.mtime = current_mtime
 
-    return _DB
+    return db
 
 
 def resolve_ip_to_point(ip: str) -> Point | None:
