@@ -34,6 +34,10 @@ def test_get_ip2location_is_thread_local(monkeypatch: MonkeyPatch) -> None:
 
     monkeypatch.setattr("geo.ip2.IP2Location", FakeDB)
 
+    fake_path = MagicMock()
+    fake_path.stat.return_value.st_mtime = 1.0
+    monkeypatch.setattr("geo.ip2.conf.IP2LOCATION_DB_PATH", fake_path)
+
     n_threads = 5
     barrier = threading.Barrier(n_threads)
     results: dict[int, tuple[t.Any, t.Any]] = {}
