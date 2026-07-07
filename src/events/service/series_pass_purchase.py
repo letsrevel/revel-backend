@@ -1,9 +1,11 @@
 """Request-scoped purchase workflow for series passes. Mirrors BatchTicketService."""
 
 import typing as t
+from decimal import Decimal
 
 import structlog
-from django.db import transaction
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
@@ -45,6 +47,39 @@ class SeriesPassPurchaseService:
             if not is_member:
                 raise HttpError(403, str(_("This pass is for members only.")))
 
+    def _has_active_held_pass(self) -> bool:
+        return (
+            HeldSeriesPass.objects.filter(series_pass=self.series_pass, user=self.user)
+            .exclude(status=HeldSeriesPass.Status.CANCELLED)
+            .exists()
+        )
+
+    def _create_held_pass(self, price: Decimal) -> HeldSeriesPass:
+        """Create the HeldSeriesPass row, mapping a concurrent-purchase race to a 409.
+
+        Two concurrent purchases by the same user can both pass the pre-lock duplicate
+        check above. The loser then fails here instead, either via ``full_clean()``
+        (usual case: the winner already committed, so ``validate_constraints`` catches
+        the conditional unique constraint before the INSERT) or, in the tightest race, a
+        raw ``IntegrityError`` from Postgres itself (winner commits between our
+        ``full_clean()`` and the INSERT — the transaction is poisoned afterwards, so we
+        can't re-query; this table's only unique constraint is the duplicate-pass one,
+        so attributing the error to it is safe).
+        """
+        try:
+            return HeldSeriesPass.objects.create(
+                series_pass=self.series_pass,
+                user=self.user,
+                price_paid=price,
+                status=HeldSeriesPass.Status.PENDING,
+            )
+        except ValidationError as exc:
+            if self._has_active_held_pass():
+                raise SeriesPassNotPurchasableError(str(_("You already hold this pass."))) from exc
+            raise
+        except IntegrityError as exc:
+            raise SeriesPassNotPurchasableError(str(_("You already hold this pass."))) from exc
+
     @transaction.atomic
     def purchase(self, billing_info: "BuyerBillingInfoSchema | None" = None) -> HeldSeriesPass | str:
         """Purchase the pass. Returns checkout URL (online) or the HeldSeriesPass."""
@@ -53,11 +88,7 @@ class SeriesPassPurchaseService:
         quote = series_pass_service.get_quote(self.series_pass)
         if not quote.purchasable:
             raise SeriesPassNotPurchasableError(quote.reason or str(_("This pass cannot be purchased.")))
-        if (
-            HeldSeriesPass.objects.filter(series_pass=self.series_pass, user=self.user)
-            .exclude(status=HeldSeriesPass.Status.CANCELLED)
-            .exists()
-        ):
+        if self._has_active_held_pass():
             raise SeriesPassNotPurchasableError(str(_("You already hold this pass.")))
 
         now = timezone.now()
@@ -76,12 +107,7 @@ class SeriesPassPurchaseService:
             if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
                 raise HttpError(429, str(_("Event {name} is sold out.")).format(name=link.event.name))
 
-        held_pass = HeldSeriesPass.objects.create(
-            series_pass=self.series_pass,
-            user=self.user,
-            price_paid=quote.price,
-            status=HeldSeriesPass.Status.PENDING,
-        )
+        held_pass = self._create_held_pass(quote.price)
         method = self.series_pass.payment_method
         is_free = method == TicketTier.PaymentMethod.FREE or quote.price <= 0
         ticket_status = Ticket.TicketStatus.ACTIVE if is_free else Ticket.TicketStatus.PENDING

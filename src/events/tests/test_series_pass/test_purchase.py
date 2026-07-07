@@ -3,9 +3,10 @@
 import typing as t
 from datetime import timedelta
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+from django.db import IntegrityError
 from django.utils import timezone
 from ninja.errors import HttpError
 
@@ -319,5 +320,46 @@ class TestNotPurchasable:
     def test_not_enough_remaining_events_raises_409(self, under_min_pass: SeriesPass, revel_user: RevelUser) -> None:
         with pytest.raises(SeriesPassNotPurchasableError):
             SeriesPassPurchaseService(under_min_pass, revel_user).purchase()
+
+        assert not HeldSeriesPass.objects.exists()
+
+
+class TestConcurrentPurchaseRace:
+    """Regression tests: a losing concurrent purchase must map to 409, never a raw 500."""
+
+    def test_validation_error_from_full_clean_maps_to_409(
+        self, purchasable_free_pass: SeriesPass, revel_user: RevelUser
+    ) -> None:
+        # Simulate the winner of the race: a real held pass already exists.
+        SeriesPassPurchaseService(purchasable_free_pass, revel_user).purchase()
+
+        # Bypass the early duplicate precheck once, so the loser reaches HeldSeriesPass.create()
+        # and hits full_clean()'s validate_constraints() against the real, already-committed row.
+        real_filter = HeldSeriesPass.objects.filter
+        call_count = 0
+
+        def fake_filter(*args: object, **kwargs: object) -> t.Any:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                mock_qs = MagicMock()
+                mock_qs.exclude.return_value.exists.return_value = False
+                return mock_qs
+            return real_filter(*args, **kwargs)
+
+        with patch.object(HeldSeriesPass.objects, "filter", side_effect=fake_filter):
+            with pytest.raises(SeriesPassNotPurchasableError):
+                SeriesPassPurchaseService(purchasable_free_pass, revel_user).purchase()
+
+        assert HeldSeriesPass.objects.filter(series_pass=purchasable_free_pass, user=revel_user).count() == 1
+
+    def test_integrity_error_maps_to_409(self, purchasable_free_pass: SeriesPass, revel_user: RevelUser) -> None:
+        with patch.object(
+            HeldSeriesPass.objects,
+            "create",
+            side_effect=IntegrityError("duplicate key value violates unique constraint"),
+        ):
+            with pytest.raises(SeriesPassNotPurchasableError):
+                SeriesPassPurchaseService(purchasable_free_pass, revel_user).purchase()
 
         assert not HeldSeriesPass.objects.exists()
