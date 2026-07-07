@@ -16,6 +16,7 @@ from events.exceptions import SeriesPassNotPurchasableError
 from events.models import HeldSeriesPass, OrganizationMember, SeriesPass, SeriesPassTierLink, Ticket, TicketTier
 from events.service import series_pass_service
 from events.service.blacklist_service import check_user_hard_blacklisted
+from notifications.signals.series_pass import send_series_pass_purchased
 
 if t.TYPE_CHECKING:
     from events.schema.ticket import BuyerBillingInfoSchema
@@ -130,6 +131,7 @@ class SeriesPassPurchaseService:
         if is_free:
             held_pass.status = HeldSeriesPass.Status.ACTIVE
             held_pass.save(update_fields=["status"])
+            transaction.on_commit(lambda: send_series_pass_purchased(held_pass.id))
             return held_pass
         if method == TicketTier.PaymentMethod.OFFLINE:
             return held_pass

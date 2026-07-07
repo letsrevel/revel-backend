@@ -2154,6 +2154,24 @@ msgid "RSVP Cancelled: %(event)s"
 msgstr "RSVP storniert: %(event)s"
 
 #, python-format
+msgid "Series pass purchased: %(pass)s (%(series)s)"
+msgstr "Pass gekauft: %(pass)s (%(series)s)"
+
+#, python-format
+msgid "Series pass purchased - %(pass)s"
+msgstr "Pass gekauft - %(pass)s"
+
+#, python-format
+msgid "%(pass)s now covers %(count)d new event"
+msgid_plural "%(pass)s now covers %(count)d new events"
+msgstr[0] "%(pass)s deckt jetzt %(count)d neues Event ab"
+msgstr[1] "%(pass)s deckt jetzt %(count)d neue Events ab"
+
+#, python-format
+msgid "Your series pass has new events - %(pass)s"
+msgstr "Dein Pass hat neue Events - %(pass)s"
+
+#, python-format
 msgid "%(count)d new event scheduled for %(series)s"
 msgid_plural "%(count)d new events scheduled for %(series)s"
 msgstr[0] "%(count)d neues Event für %(series)s geplant"
@@ -3103,6 +3121,63 @@ msgstr[1] "%(counter)s neue Events wurden für %(series)s geplant."
 
 msgid "View the series:"
 msgstr "Zur Serie:"
+
+#, python-format
+msgid ""
+"Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
+"strong> now covers <strong>%(counter)s</strong> new event."
+msgid_plural ""
+"Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
+"strong> now covers <strong>%(counter)s</strong> new events."
+msgstr[0] ""
+"Dein Pass <strong>%(pass_name)s</strong> für <strong>%(series)s</strong> "
+"deckt jetzt <strong>%(counter)s</strong> neues Event ab."
+msgstr[1] ""
+"Dein Pass <strong>%(pass_name)s</strong> für <strong>%(series)s</strong> "
+"deckt jetzt <strong>%(counter)s</strong> neue Events ab."
+
+msgid "New Events"
+msgstr "Neue Events"
+
+#, python-format
+msgid ""
+"Your series pass %(pass_name)s for %(series)s now covers %(counter)s new "
+"event."
+msgid_plural ""
+"Your series pass %(pass_name)s for %(series)s now covers %(counter)s new "
+"events."
+msgstr[0] "Dein Pass %(pass_name)s für %(series)s deckt jetzt %(counter)s neues Event ab."
+msgstr[1] "Dein Pass %(pass_name)s für %(series)s deckt jetzt %(counter)s neue Events ab."
+
+msgid "New Events:"
+msgstr "Neue Events:"
+
+#, python-format
+msgid ""
+"Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
+"strong> is now active."
+msgstr ""
+"Dein Pass <strong>%(pass_name)s</strong> für <strong>%(series)s</strong> "
+"ist jetzt aktiv."
+
+msgid "Pass Details"
+msgstr "Passdetails"
+
+msgid "Pass:"
+msgstr "Pass:"
+
+msgid "Events covered:"
+msgstr "Abgedeckte Events:"
+
+msgid "Price paid:"
+msgstr "Bezahlter Preis:"
+
+#, python-format
+msgid "Your series pass %(pass_name)s for %(series)s is now active."
+msgstr "Dein Pass %(pass_name)s für %(series)s ist jetzt aktiv."
+
+msgid "Pass Details:"
+msgstr "Passdetails:"
 
 msgid "Read More"
 msgstr "Mehr lesen"

@@ -1,0 +1,5 @@
+{% load i18n %}{% blocktranslate with pass_name=context.pass_name series=context.series_name count counter=context.new_event_count %}Your series pass **{{ pass_name }}** for **{{ series }}** now covers {{ counter }} new event.{% plural %}Your series pass **{{ pass_name }}** for **{{ series }}** now covers {{ counter }} new events.{% endblocktranslate %}
+
+{% if context.new_event_names %}**{% trans "New Events:" %}**
+{% for name in context.new_event_names %}- {{ name }}
+{% endfor %}{% endif %}

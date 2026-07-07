@@ -80,6 +80,10 @@ class NotificationType(TextChoices):
     # Series notifications
     SERIES_EVENTS_GENERATED = "series_events_generated"  # Digest: N events generated for a series
 
+    # Series pass notifications
+    SERIES_PASS_PURCHASED = "series_pass_purchased"  # Notify holder + org staff/owners when a pass activates
+    SERIES_PASS_EXTENDED = "series_pass_extended"  # Notify holder when their pass gains newly-covered events
+
 
 class DeliveryChannel(TextChoices):
     """Notification delivery channels."""

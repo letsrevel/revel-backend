@@ -1,5 +1,6 @@
 """Stripe webhook event handlers."""
 
+import functools
 import typing as t
 import uuid
 from decimal import Decimal
@@ -17,6 +18,7 @@ from events.exceptions import InvalidStripeWebhookSignatureError
 from events.models import HeldSeriesPass, Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import from_stripe_amount, to_stripe_amount
+from notifications.signals.series_pass import send_series_pass_purchased
 
 logger = structlog.get_logger(__name__)
 
@@ -258,11 +260,17 @@ class StripeEventHandler:
             ticket.save(update_fields=["status"])
 
         # Activate any series pass bought in this session (idempotent).
-        # .update() intentionally skips signals — the purchase notification is
-        # sent from the same webhook flow in Task 9 via an explicit call, not a signal.
-        HeldSeriesPass.objects.filter(stripe_session_id=session_id, status=HeldSeriesPass.Status.PENDING).update(
-            status=HeldSeriesPass.Status.ACTIVE
+        # .update() intentionally skips signals — ids are captured beforehand so the
+        # purchase notification can be sent explicitly (once, on commit) below.
+        activated_pass_ids = list(
+            HeldSeriesPass.objects.filter(
+                stripe_session_id=session_id, status=HeldSeriesPass.Status.PENDING
+            ).values_list("id", flat=True)
         )
+        if activated_pass_ids:
+            HeldSeriesPass.objects.filter(id__in=activated_pass_ids).update(status=HeldSeriesPass.Status.ACTIVE)
+            for held_pass_id in activated_pass_ids:
+                transaction.on_commit(functools.partial(send_series_pass_purchased, held_pass_id))
 
         # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
         logger.info(
