@@ -61,6 +61,12 @@ def test_event_not_open_rejected(event_series: EventSeries, closed_event: Event)
         series_pass_service.validate_events_coverable(event_series, [closed_event])
 
 
+def test_event_from_different_series_rejected(event_series: EventSeries, foreign_event: Event) -> None:
+    """An event belonging to a different series fails the coverage gate."""
+    with pytest.raises(SeriesPassCoverageError, match="does not belong to this series"):
+        series_pass_service.validate_events_coverable(event_series, [foreign_event])
+
+
 def test_event_requires_ticket_false_rejected(event_series: EventSeries, no_ticket_event: Event) -> None:
     """An RSVP-only event (requires_ticket=False) fails the coverage gate."""
     with pytest.raises(SeriesPassCoverageError, match="require a ticket"):

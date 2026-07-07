@@ -128,3 +128,26 @@ def other_event_tier(other_event: Event) -> TicketTier:
         currency="EUR",
         payment_method=TicketTier.PaymentMethod.ONLINE,
     )
+
+
+@pytest.fixture
+def foreign_series(organization: Organization) -> EventSeries:
+    """An EventSeries in the same organization, distinct from event_series."""
+    return EventSeries.objects.create(organization=organization, name="Different Series", slug="different-series")
+
+
+@pytest.fixture
+def foreign_event(organization: Organization, foreign_series: EventSeries) -> Event:
+    """An event belonging to foreign_series (not event_series)."""
+    return Event.objects.create(
+        organization=organization,
+        name="Foreign Event",
+        slug="foreign-event",
+        event_type=Event.EventType.PUBLIC,
+        visibility=Event.Visibility.PUBLIC,
+        event_series=foreign_series,
+        max_attendees=100,
+        start=timezone.now(),
+        status=Event.EventStatus.OPEN,
+        requires_ticket=True,
+    )
