@@ -5,6 +5,11 @@ name: Dependency checks
 #   - pip-audit:    fails on known CVEs in pinned dependencies
 # The nightly workflow (nightly-audit.yml) re-runs both against main so
 # newly-disclosed advisories surface within ~24h even without a PR.
+#
+# Both jobs are REQUIRED status checks on main. PRs that don't touch the
+# `paths:` below get a passing no-op status from deps-noop.yaml instead —
+# its `paths-ignore:` must stay the exact complement of the `paths:` here,
+# and workflow name + job ids must match verbatim.
 
 on:
   workflow_dispatch: {}
