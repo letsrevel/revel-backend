@@ -63,3 +63,7 @@ class SeriesPassCoverageError(Exception):
 
 class SeriesPassNotPurchasableError(Exception):
     """Raised when a series pass cannot be purchased right now."""
+
+
+class SeriesPassHasHoldersError(Exception):
+    """Raised when deleting a SeriesPass or removing tier-link coverage would strand non-cancelled holders."""

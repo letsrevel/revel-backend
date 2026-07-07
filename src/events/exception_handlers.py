@@ -35,6 +35,7 @@ from events.exceptions import (
     PendingMembershipRequestExistsError,
     RevenueReportCadenceOwnerOnlyError,
     SeriesPassCoverageError,
+    SeriesPassHasHoldersError,
     SeriesPassNotPurchasableError,
     StripeNotConnectedError,
     TicketAlreadyCancelledError,
@@ -103,6 +104,8 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     SeriesPassCoverageError: make_simple_handler(400),
     # Series pass exists but can't be purchased right now (sold out, sales window, etc.) → 409.
     SeriesPassNotPurchasableError: make_simple_handler(409),
+    # Deleting a pass / removing tier-link coverage would strand a non-cancelled holder → 409.
+    SeriesPassHasHoldersError: make_simple_handler(409),
 }
 
 

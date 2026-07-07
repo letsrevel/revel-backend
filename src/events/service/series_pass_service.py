@@ -11,11 +11,13 @@ from uuid import UUID
 
 from django.db import transaction
 from django.db.models import F, Q
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.exceptions import SeriesPassCoverageError
+from events.exceptions import SeriesPassCoverageError, SeriesPassHasHoldersError
 from events.models import (
     Event,
     EventSeries,
@@ -28,8 +30,10 @@ from events.models import (
     TicketTier,
 )
 from events.models.ticket import CancellationSource
+from events.schema.series_pass import SeriesPassCreateSchema
 from events.service import cancellation_service
 from events.tasks import materialize_series_pass_holders
+from notifications.signals.series_pass import send_series_pass_purchased
 
 _ZERO = Decimal("0.00")
 
@@ -158,17 +162,13 @@ def add_tier_links(
     return created
 
 
-def create_series_pass(
-    series: EventSeries,
-    payload: t.Any,  # ponytail: typed as t.Any until SeriesPassCreateSchema lands in Task 15
-) -> SeriesPass:
+def create_series_pass(series: EventSeries, payload: SeriesPassCreateSchema) -> SeriesPass:
     """Create a SeriesPass and its tier links in a single transaction.
 
     Args:
         series: The EventSeries the pass belongs to.
-        payload: A ``SeriesPassCreateSchema``-shaped object exposing
-            ``model_dump(exclude={"tier_links"})`` for the pass fields and
-            ``tier_links_as_inputs`` (``list[TierLinkInput]``) for the links.
+        payload: The admin-supplied create payload; its ``tier_links`` are converted
+            to ``TierLinkInput`` pairs via ``tier_links_as_inputs``.
 
     Returns:
         The created SeriesPass with its tier links attached.
@@ -294,4 +294,82 @@ def cancel_held_pass(
         held_pass.status = HeldSeriesPass.Status.CANCELLED
         held_pass.save(update_fields=["status"])
 
+    return held_pass
+
+
+def delete_series_pass(series_pass: SeriesPass) -> None:
+    """Permanently delete a SeriesPass, provided no non-cancelled holder exists.
+
+    ``HeldSeriesPass.series_pass`` (and ``Ticket.held_pass``) are ``on_delete=PROTECT``
+    by design, to preserve the purchase/attendance audit trail — so even a pass whose
+    only holders are CANCELLED can still be undeletable (e.g. a cancelled holder can
+    keep past-event/checked-in tickets, which ``cancel_held_pass`` deliberately leaves
+    untouched). Rather than force-purging that history, a lingering ``ProtectedError``
+    is surfaced as the same 409 the explicit non-cancelled check raises.
+
+    Args:
+        series_pass: The SeriesPass to delete.
+
+    Raises:
+        SeriesPassHasHoldersError: If any non-cancelled held pass exists, or deleting
+            would violate a protected FK from historical holder/ticket records.
+    """
+    if series_pass.held_passes.exclude(status=HeldSeriesPass.Status.CANCELLED).exists():
+        raise SeriesPassHasHoldersError(str(_("Cannot delete a series pass with active or pending holders.")))
+    try:
+        series_pass.delete()
+    except ProtectedError as exc:
+        raise SeriesPassHasHoldersError(str(_("Cannot delete a series pass with historical holder records."))) from exc
+
+
+def remove_tier_link(series_pass: SeriesPass, tier_link: SeriesPassTierLink) -> None:
+    """Remove a covered event from a SeriesPass, provided no non-cancelled holder exists.
+
+    Removing coverage from a pass already sold to someone would orphan their
+    materialized ticket for that event, so it's blocked in v1.
+
+    Args:
+        series_pass: The SeriesPass the link belongs to.
+        tier_link: The SeriesPassTierLink to remove.
+
+    Raises:
+        SeriesPassHasHoldersError: If any held pass (other than CANCELLED) exists.
+    """
+    if series_pass.held_passes.exclude(status=HeldSeriesPass.Status.CANCELLED).exists():
+        raise SeriesPassHasHoldersError(
+            str(_("Cannot remove coverage from a series pass with active or pending holders."))
+        )
+    tier_link.delete()
+
+
+@transaction.atomic
+def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
+    """Offline-payment confirmation: flip a PENDING held pass and its tickets to ACTIVE.
+
+    Mirrors ``ticket_service.confirm_ticket_payment``'s offline-confirmation role, but
+    for a whole series pass: every PENDING ticket materialized from ``held_pass`` (all of
+    them, by construction — offline/free purchases never create a mix of statuses) is
+    activated alongside the pass itself, then the purchase notification fires (offline
+    passes must not notify until the organizer confirms payment).
+
+    Args:
+        held_pass: The held pass to confirm. Must have ``series_pass`` selected.
+
+    Returns:
+        The same HeldSeriesPass instance, now ACTIVE.
+
+    Raises:
+        HttpError 400: If the pass isn't paid OFFLINE, or the held pass isn't PENDING.
+    """
+    if held_pass.series_pass.payment_method != TicketTier.PaymentMethod.OFFLINE:
+        raise HttpError(400, str(_("This series pass is not paid offline.")))
+    if held_pass.status != HeldSeriesPass.Status.PENDING:
+        raise HttpError(400, str(_("This held pass is not pending.")))
+
+    held_pass.status = HeldSeriesPass.Status.ACTIVE
+    held_pass.save(update_fields=["status"])
+    Ticket.objects.filter(held_pass=held_pass, status=Ticket.TicketStatus.PENDING).update(
+        status=Ticket.TicketStatus.ACTIVE
+    )
+    transaction.on_commit(lambda: send_series_pass_purchased(held_pass.id))
     return held_pass

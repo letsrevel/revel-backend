@@ -1561,6 +1561,28 @@ msgstr ""
 "Les événements soumis à un questionnaire d'admission ne peuvent pas être "
 "couverts par un pass de série."
 
+msgid "Cannot delete a series pass with active or pending holders."
+msgstr ""
+"Impossible de supprimer un pass de série avec des détenteurs actifs ou en "
+"attente."
+
+msgid "Cannot delete a series pass with historical holder records."
+msgstr ""
+"Impossible de supprimer un pass de série avec des enregistrements de "
+"détenteurs historiques."
+
+msgid ""
+"Cannot remove coverage from a series pass with active or pending holders."
+msgstr ""
+"Impossible de retirer la couverture d'un pass de série avec des détenteurs "
+"actifs ou en attente."
+
+msgid "This series pass is not paid offline."
+msgstr "Ce pass de série n'est pas payé hors ligne."
+
+msgid "This held pass is not pending."
+msgstr "Ce pass détenu n'est pas en attente."
+
 msgid "Payment processing failed. Please try again later."
 msgstr "Le traitement du paiement a échoué. Réessaie plus tard."
 
@@ -3157,8 +3179,12 @@ msgid ""
 msgid_plural ""
 "Your series pass %(pass_name)s for %(series)s now covers %(counter)s new "
 "events."
-msgstr[0] "Ton abonnement %(pass_name)s pour %(series)s couvre désormais %(counter)s nouvel événement."
-msgstr[1] "Ton abonnement %(pass_name)s pour %(series)s couvre désormais %(counter)s nouveaux événements."
+msgstr[0] ""
+"Ton abonnement %(pass_name)s pour %(series)s couvre désormais %(counter)s "
+"nouvel événement."
+msgstr[1] ""
+"Ton abonnement %(pass_name)s pour %(series)s couvre désormais %(counter)s "
+"nouveaux événements."
 
 msgid "New Events:"
 msgstr "Nouveaux événements :"

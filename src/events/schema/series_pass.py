@@ -1,13 +1,21 @@
-"""Series pass schemas: public listing, quote, checkout, and held-pass display."""
+"""Series pass schemas: public listing, quote, checkout, held-pass display, and admin management."""
 
+import typing as t
 from decimal import Decimal
 from uuid import UUID
 
 from django.utils import timezone
 from ninja import ModelSchema, Schema
+from pydantic import AwareDatetime, Field
 
+from accounts.schema import MemberUserSchema
+from common.schema import OneToOneFiftyString, StrippedString
 from events.models import HeldSeriesPass, SeriesPass
 from events.models.ticket import TicketTier
+from events.schema.ticket import Currencies
+
+if t.TYPE_CHECKING:
+    from events.service.series_pass_service import TierLinkInput
 
 
 class SeriesPassSchema(ModelSchema):
@@ -94,3 +102,68 @@ class SeriesPassCheckoutResponseSchema(Schema):
 
     checkout_url: str | None = None
     held_pass: HeldSeriesPassSchema | None = None
+
+
+class SeriesPassTierLinkInputSchema(Schema):
+    """One (event, tier) pair to cover with a series pass."""
+
+    event_id: UUID
+    tier_id: UUID
+
+
+class SeriesPassCreateSchema(Schema):
+    """Admin payload to create a series pass and its initial coverage."""
+
+    name: OneToOneFiftyString
+    description: StrippedString | None = None
+    price: Decimal = Field(..., ge=0)
+    pro_rata_discount: Decimal = Field(..., ge=0)
+    currency: Currencies = Field(default="EUR", max_length=3)
+    payment_method: TicketTier.PaymentMethod = TicketTier.PaymentMethod.ONLINE
+    purchasable_by: TicketTier.PurchasableBy = TicketTier.PurchasableBy.PUBLIC
+    visibility: SeriesPass.Visibility = SeriesPass.Visibility.PUBLIC
+    sales_start_at: AwareDatetime | None = None
+    sales_end_at: AwareDatetime | None = None
+    total_quantity: int | None = None
+    tier_links: list[SeriesPassTierLinkInputSchema] = Field(default_factory=list)
+
+    @property
+    def tier_links_as_inputs(self) -> "list[TierLinkInput]":
+        """Convert ``tier_links`` to the plain (event_id, tier_id) pairs the service expects."""
+        return [{"event_id": link.event_id, "tier_id": link.tier_id} for link in self.tier_links]
+
+
+class SeriesPassUpdateSchema(Schema):
+    """All-optional twin of ``SeriesPassCreateSchema`` for partial updates (``exclude_unset``).
+
+    Coverage (``tier_links``) isn't editable here — use the dedicated tier-links endpoints.
+    """
+
+    name: OneToOneFiftyString | None = None
+    description: StrippedString | None = None
+    price: Decimal | None = Field(None, ge=0)
+    pro_rata_discount: Decimal | None = Field(None, ge=0)
+    currency: Currencies | None = None
+    payment_method: TicketTier.PaymentMethod | None = None
+    purchasable_by: TicketTier.PurchasableBy | None = None
+    visibility: SeriesPass.Visibility | None = None
+    sales_start_at: AwareDatetime | None = None
+    sales_end_at: AwareDatetime | None = None
+    total_quantity: int | None = None
+
+
+class HeldSeriesPassAdminSchema(ModelSchema):
+    """Admin-facing view of a held series pass: holder identity, status, and price paid."""
+
+    status: HeldSeriesPass.Status
+    user: MemberUserSchema
+
+    class Meta:
+        model = HeldSeriesPass
+        fields = ["id", "price_paid", "created_at"]
+
+
+class HeldSeriesPassCancelSchema(Schema):
+    """Optional free-text reason for an admin-initiated held series pass cancellation."""
+
+    reason: str | None = None

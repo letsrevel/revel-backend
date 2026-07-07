@@ -1,55 +1,31 @@
 """Tests for the series pass enable-time coverage gate (events/service/series_pass_service.py)."""
 
 from decimal import Decimal
-from uuid import UUID
 
 import pytest
 from django.core.exceptions import ValidationError
-from pydantic import BaseModel
 
 from events.exceptions import SeriesPassCoverageError
 from events.models import Event, EventSeries, OrganizationQuestionnaire, SeriesPass, SeriesPassTierLink, TicketTier
+from events.schema.series_pass import SeriesPassCreateSchema, SeriesPassTierLinkInputSchema
 from events.service import series_pass_service
-from events.service.series_pass_service import TierLinkInput
 
 pytestmark = pytest.mark.django_db
 
 
-class _TierLinkPayload(BaseModel):
-    """Minimal stand-in for the per-link portion of the future SeriesPassCreateSchema."""
-
-    event_id: UUID
-    tier_id: UUID
-
-
-class _SeriesPassPayload(BaseModel):
-    """Minimal stand-in for the future SeriesPassCreateSchema (lands in Task 15)."""
-
-    name: str
-    price: Decimal
-    pro_rata_discount: Decimal
-    currency: str = "EUR"
-    payment_method: str = TicketTier.PaymentMethod.FREE
-    tier_links: list[_TierLinkPayload]
-
-    @property
-    def tier_links_as_inputs(self) -> list[TierLinkInput]:
-        """Adapt ``tier_links`` to the ``TierLinkInput`` shape ``add_tier_links`` expects."""
-        return [{"event_id": link.event_id, "tier_id": link.tier_id} for link in self.tier_links]
-
-
 @pytest.fixture
-def series_pass_payload(event: Event, ticket_tier: TicketTier) -> _SeriesPassPayload:
+def series_pass_payload(event: Event, ticket_tier: TicketTier) -> SeriesPassCreateSchema:
     """A creation payload covering ``event`` via ``ticket_tier``."""
-    return _SeriesPassPayload(
+    return SeriesPassCreateSchema(
         name="Season Ticket",
         price=Decimal("36.00"),
         pro_rata_discount=Decimal("6.00"),
-        tier_links=[_TierLinkPayload(event_id=event.id, tier_id=ticket_tier.id)],
+        payment_method=TicketTier.PaymentMethod.FREE,
+        tier_links=[SeriesPassTierLinkInputSchema(event_id=event.id, tier_id=ticket_tier.id)],
     )
 
 
-def test_recurring_series_rejected(recurring_series: EventSeries, series_pass_payload: _SeriesPassPayload) -> None:
+def test_recurring_series_rejected(recurring_series: EventSeries, series_pass_payload: SeriesPassCreateSchema) -> None:
     """A recurring series can never carry a series pass, regardless of the covered events."""
     with pytest.raises(SeriesPassCoverageError, match="recurring"):
         series_pass_service.create_series_pass(recurring_series, series_pass_payload)
@@ -123,7 +99,7 @@ def test_currency_mismatch_rejected(series_pass: SeriesPass, event: Event) -> No
         series_pass_service.add_tier_links(series_pass, [{"event_id": event.id, "tier_id": mismatched_tier.id}])
 
 
-def test_create_series_pass_happy_path(event_series: EventSeries, series_pass_payload: _SeriesPassPayload) -> None:
+def test_create_series_pass_happy_path(event_series: EventSeries, series_pass_payload: SeriesPassCreateSchema) -> None:
     """create_series_pass builds the pass and its tier links in one call."""
     created = series_pass_service.create_series_pass(event_series, series_pass_payload)
     assert created.pk is not None
