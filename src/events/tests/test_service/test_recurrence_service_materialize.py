@@ -131,6 +131,26 @@ class TestMaterializeOccurrence:
         ga_tier = next(t for t in tiers if t.name == "General Admission")
         assert ga_tier.quantity_sold == 0  # Reset
 
+    @patch("notifications.service.notification_helpers.notify_series_events_generated")
+    def test_waitlist_cutoff_date_shifted_from_template(
+        self,
+        mock_notify: t.Any,
+        active_series: EventSeries,
+    ) -> None:
+        """Occurrences shift the template's waitlist_cutoff_date by the start delta (#645)."""
+        template = active_series.template_event
+        assert template is not None
+        template.waitlist_open = True
+        template.waitlist_time_window = timedelta(hours=24)
+        template.waitlist_cutoff_date = template.start - timedelta(days=2)
+        template.save(update_fields=["waitlist_open", "waitlist_time_window", "waitlist_cutoff_date"])
+
+        dt = timezone.make_aware(datetime(2026, 4, 13, 10, 0))
+
+        event = recurrence_service.materialize_occurrence(active_series, dt, index=0)
+
+        assert event.waitlist_cutoff_date == template.waitlist_cutoff_date + (dt - template.start)
+
     def test_raises_value_error_when_no_template(
         self,
         event_series: EventSeries,

@@ -459,6 +459,31 @@ class TestDuplicateEvent:
         assert new_event.check_in_starts_at == original_checkin_start + timedelta(days=7)
         assert new_event.check_in_ends_at == original_checkin_end + timedelta(days=7)
 
+    def test_duplicate_event_shifts_waitlist_cutoff_date(self, organization: Organization) -> None:
+        """waitlist_cutoff_date must shift with the start date, not be copied verbatim (#645)."""
+        original_start = timezone.now() + timedelta(days=1)
+        original_cutoff = original_start - timedelta(hours=12)
+
+        template = Event.objects.create(
+            organization=organization,
+            name="Waitlist Template",
+            start=original_start,
+            end=original_start + timedelta(hours=3),
+            waitlist_open=True,
+            waitlist_time_window=timedelta(hours=24),
+            waitlist_cutoff_date=original_cutoff,
+            requires_ticket=False,
+        )
+
+        new_start = original_start + timedelta(days=30)
+        new_event = event_service.duplicate_event(
+            template_event=template,
+            new_name="Shifted Waitlist Event",
+            new_start=new_start,
+        )
+
+        assert new_event.waitlist_cutoff_date == original_cutoff + timedelta(days=30)
+
     def test_duplicate_event_copies_ticket_tiers(self, public_event: Event) -> None:
         """Test that ticket tiers are duplicated with shifted dates."""
         # Create a tier with dates
