@@ -158,6 +158,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         self,
         event_id: UUID,
         params: t.Annotated[filters.TicketFilterSchema, Query(...)],
+        source: t.Annotated[t.Literal["pass", "direct"] | None, Query(None)] = None,
         order_by: TicketOrdering = "-created_at",
     ) -> QuerySet[models.Ticket]:
         """List tickets for an event with optional filters.
@@ -165,6 +166,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         Supports filtering by:
         - status: Filter by ticket status (PENDING, ACTIVE, CANCELLED, CHECKED_IN)
         - tier__payment_method: Filter by payment method (ONLINE, OFFLINE, AT_THE_DOOR, FREE)
+        - source: Filter by origin ("pass" for series-pass-derived tickets, "direct" for standalone purchases)
 
         Ordering (prefix with '-' for descending):
         - created_at: Purchase date (default: -created_at, newest first)
@@ -178,6 +180,10 @@ class EventAdminTicketsController(EventAdminBaseController):
         # Use full() for AdminTicketSchema (includes user, tier, venue, sector, seat, payment)
         # with_org_membership() prefetches user's membership for "Make Member" feature
         qs = models.Ticket.objects.full().with_org_membership(event.organization_id).filter(event=event)
+        if source == "pass":
+            qs = qs.filter(held_pass__isnull=False)
+        elif source == "direct":
+            qs = qs.filter(held_pass__isnull=True)
         qs = params.filter(qs).annotate(effective_price_paid=EFFECTIVE_PRICE_PAID)
         # "-id" is a stable tiebreaker so pagination stays deterministic across equal sort keys.
         return qs.distinct().order_by(TICKET_ORDER_FIELDS[order_by], "-id")

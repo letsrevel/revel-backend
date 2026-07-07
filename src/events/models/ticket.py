@@ -542,12 +542,16 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
             "tier__venue",
             "tier__venue__city",
             "tier__sector",
+            "tier__event",
+            "tier__event__organization",
             "venue",
             "venue__city",
             "seat",
             "user",
             "payment",
             "discount_code",
+            "held_pass",
+            "held_pass__series_pass",
         ).prefetch_related("tier__restricted_to_membership_tiers")
 
     def with_org_membership(self, organization_id: UUID) -> t.Self:
