@@ -2,7 +2,7 @@
 
 This document maps every user journey through the Revel platform, organized by persona. Its purpose is to serve as the source of truth for Playwright E2E test cases on the frontend. Each journey describes the **what** and **why** from the user's perspective — the exact UI steps and assertions will live in the test suite.
 
-> **Last updated**: 2026-06-23 (v1.65.0)
+> **Last updated**: 2026-07-07 (v1.67.1)
 
 ---
 
@@ -177,6 +177,7 @@ Revel is a privacy-focused, community-first event management and ticketing platf
 - See: empty state for events/invitations (if no activity yet)
 - Filter events by: owner, staff, member, RSVP, ticketed, invited, subscribed, **bookmarked**
 - Bookmarked **unlisted** events surface in the `bookmarked` facet even though they stay hidden from discovery
+- Dashboard RSVP list (`GET /api/dashboard/rsvps`) accepts **multiple statuses** at once (`?status=yes&status=maybe` → union) — lets the UI count Going + Maybe while excluding declined; no `status` param returns all (upcoming only by default)
 
 ### 3.2 Profile Management
 - Navigate to `/account/profile`
@@ -642,7 +643,7 @@ DRAFT → OPEN → CLOSED
 - View all RSVPs with status
 - Create RSVP on behalf of user
 - Update RSVP status
-- Search and filter
+- Search and filter (status filter accepts multiple values — `?status=yes&status=maybe`)
 
 ### 10.7 Manage Invitations
 - Create direct invitations (to registered users)
@@ -915,7 +916,9 @@ FOOD, MAIN_COURSE, SIDE_DISH, DESSERT, DRINK, ALCOHOL, NON_ALCOHOLIC, SUPPLIES, 
   - **Transactional emails always deliver immediately**, bypassing the digest: `PAYMENT_CONFIRMATION`, `TICKET_CREATED`, `TICKET_CANCELLED`, `TICKET_REFUNDED`
   - **Digest** is grouped by human-readable type label; each item carries a body, timestamp, and a "View details" link, styled to match the transactional emails
 - **Telegram**: Via connected Telegram account (unavailable when `FEATURE_TELEGRAM` is off — linking endpoints 404)
+  - Globally-banned users are blocked from interacting with the bot; the bot's `/unsubscribe` command actually stops notifications (was a no-op on per-type settings)
 - All event times in notifications/emails render in the **event's own timezone**
+- **Let's Revel branding**: every outbound email (including previously plain-text ones: guest RSVP/ticket confirmations, invoice/credit-note/payout/revenue-report delivery) and generated PDF carries the Let's Revel brand; sender display name is `Let's Revel <revel@letsrevel.io>`. Tickets keep the organizer's own colors, adding only a "Powered by let's revel." footer
 
 ### 15.2 Notification Types (non-exhaustive)
 - Account: registration welcome, email verified, email change in-flight/completed, password reset
@@ -1176,6 +1179,8 @@ First-class recurring series with rolling-window materialization:
 - Stripe transfer executed → payout status: PAID
 - Statement PDF emailed to referrer
 - If Stripe transfer fails: status set to FAILED
+- A failure generating or emailing one referrer's statement never aborts the rest of the payout batch
+- Statement email delivery is tracked (see [Journey 22.7](#227-delivery-reliability-behind-the-scenes) — same sweep covers payout statements)
 
 ### 21.6 View Payout History
 - Navigate to `/account/referral/payouts`
@@ -1234,6 +1239,11 @@ First-class recurring series with rolling-window materialization:
 - If invoice is ISSUED: credit note created with refunded amounts
 - If total credits >= invoice total: invoice marked as CANCELLED
 - Credit note PDF generated and emailed
+
+### 22.7 Delivery Reliability (Behind the Scenes)
+- Financial documents (attendee invoices, credit notes, payout statements) record when their email was sent; delivery errors surface in the admin
+- A periodic sweep retries undelivered documents
+- Documents with no possible recipient are marked **terminally undeliverable** instead of being re-swept forever
 
 ---
 
@@ -1370,6 +1380,7 @@ Configured via environment variables. The anonymous `GET /version` returns a `fe
 - The backend boots and runs on a self-hosted box **without** ClamAV, Telegram, or the full geo dataset, tailored via the feature flags above
 - Cities-CSV fallback to a bundled `worldcities.mini.csv` so a fresh container doesn't crash-loop on the city-load migration
 - `provision_stripe_webhooks --format json` for machine-readable webhook setup; dedicated self-hosting docs section
+- `bootstrap_admin` interactive first-run command: creates the initial superuser (username pinned to the email, matching public-API accounts) and the first organization, then prints admin-panel and frontend URLs
 - The platform host's own Stripe account can be bound to a single organization (superuser admin action), letting the host sell tickets directly
 
 ### UNLISTED Visibility
@@ -1456,9 +1467,9 @@ The following questions represent gaps in my understanding that I could not reso
 
 ### Technical / Testing
 
-21. **Demo mode**: Should E2E tests use the seeded demo data, or create their own test data via API calls? Is there a test seed script?
+21. ~~**Demo mode**: Should E2E tests use the seeded demo data, or create their own test data via API calls? Is there a test seed script?~~ **Resolved (2026-07-07)** — hybrid: tests run against a local backend in `DEMO_MODE` loaded with the deterministic `bootstrap_events` dataset (13 users / 12 events; see `src/events/management/commands/README.md`), logging in via the demo-account dropdown. Read-only journeys assert against seeded fixtures; mutating journeys either revert their own state or create their own data through the UI (as the recurring-series spec already does). `manage.py reset_events` (demo-mode-only) is the recovery hatch. Note: `make seed` is the *randomized* faker seeder — not for E2E.
 
-22. **Stripe testing**: For payment E2E tests, should we use Stripe test mode? Are there test card numbers configured?
+22. ~~**Stripe testing**: For payment E2E tests, should we use Stripe test mode? Are there test card numbers configured?~~ **Resolved (2026-07-07)** — Stripe checkout E2E is deferred (needs test mode + webhook forwarding in the loop). Paid flows are covered via **offline / at-the-door tiers** (PENDING → staff confirms → ACTIVE) and free tiers first; online Stripe checkout becomes its own later effort.
 
 23. **Email testing**: Is there a Mailhog/Mailpit instance in dev for intercepting emails? How should E2E tests verify email content?
 
@@ -1484,19 +1495,30 @@ The following questions represent gaps in my understanding that I could not reso
 
 ### Prioritization
 
-27. **If you could only write 10 E2E test suites, which user journeys would they cover?** Rank by business criticality.
+27. ~~**If you could only write 10 E2E test suites, which user journeys would they cover?** Rank by business criticality.~~ **Resolved (2026-07-07)** — agreed priority (happy paths first, unhappy where cheap):
+    - **P0**: auth (login/logout, registration → check-email; unhappy: bad creds, weak password) · guest discovery (browse/filter, event detail, org page) · RSVP flow (YES → attendee view → change to NO, potluck auto-release) · free-tier ticket (purchase → dashboard) · organizer create-event (draft → open → publicly visible, with free tier)
+    - **P1**: invitation-token claim · questionnaire fill → auto-eval → RSVP unlocked · guest RSVP · member management · announcements · dashboard facets
+    - **P2**: offline payment confirm · discount codes · waitlist · self-service cancellation · unhappy paths (sold out, deadlines, ineligible)
 
 28. **Are there any known broken flows or flaky areas that should be tested first?**
 
-29. **What existing Playwright tests exist on the frontend?** Are there page objects already defined?
+29. ~~**What existing Playwright tests exist on the frontend?** Are there page objects already defined?~~ **Resolved (2026-07-07)** — 8 specs in `revel-frontend/tests/e2e/` (~1030 lines): 2 CSP/FOUC regression tests (brand, dark-mode), and 6 journey smokes (login-navbar, polls admin + voter, recurring-series dashboard, duration-input, subscriptions) that run against a **demo-seeded local backend** via the demo-account dropdown (`alice.owner@example.com`, `charlie.member@example.com`, org `revel-events-collective`). **No shared infrastructure exists**: no page objects, no fixtures, no `storageState` auth setup — login helpers are copy-pasted per spec, and the `E2E_ADMIN_AUTH`/`E2E_MEMBER_AUTH` gates reference a fixture that was never built (those specs always skip). E2E is not wired into CI.
 
 30. **Do you want tests for all three languages, or just English?**
 
 ---
 
+## E2E Test Strategy (agreed 2026-07-07 — not yet implemented)
+
+- **Where tests run**: locally first, against a dev backend (`make run`) in `DEMO_MODE` with the `bootstrap_events` dataset; frontend via Playwright's build+preview `webServer` (`PUBLIC_API_URL=http://localhost:8000`). Specs keep the existing self-skip guard when no demo backend is reachable. CI wiring is a deliberate follow-up (compose up Postgres/Redis + backend, run `bootstrap_events`, then Playwright) — nothing in the contract blocks it.
+- **Browsers**: journey specs run on **Chromium + Mobile Chrome** only; the FOUC/CSP regression specs keep the full 5-project matrix.
+- **Payments**: Stripe checkout deferred; paid flows via offline/at-the-door tiers (see Q22).
+- **Data discipline**: read-only journeys use seeded fixtures; mutating journeys revert their own state or create their own data through the UI (see Q21).
+- **Infra**: kept minimal for now — extract the copy-pasted demo-login helper into one shared module when the next spec lands; page objects / `storageState` personas come after the journey suites prove the shape.
+
 ## Next Steps
 
-1. Answer the gap-fill questions above
+1. Answer the remaining gap-fill questions above
 2. Update this document with answers
-3. Derive concrete Playwright test suites from each journey
-4. Prioritize test implementation order based on criticality ranking
+3. Derive concrete Playwright test suites from each journey (per the agreed P0/P1/P2 ranking in Q27)
+4. Implement per the E2E Test Strategy section — run contract first, then P0 suites in order
