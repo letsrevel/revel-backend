@@ -1,0 +1,38 @@
+# No-op twin of deps.yaml — GitHub's documented pattern for path-filtered
+# required checks ("Handling skipped but required checks").
+#
+# `licensecheck` and `pip-audit` are required status checks on main, but
+# deps.yaml only runs on PRs that touch the dependency graph. A required
+# check that never reports blocks the PR forever ("Expected — Waiting for
+# status"). This workflow fires on the exact complement of deps.yaml's
+# `paths:` and reports instantly-passing jobs under the same names, so the
+# required contexts always resolve.
+#
+# INVARIANT: the `paths-ignore:` list below must stay the exact complement
+# of the `paths:` list in deps.yaml, and the workflow name + job ids must
+# match deps.yaml verbatim. Drift either double-runs the real checks
+# (harmless) or leaves PRs blocked (not harmless).
+
+name: Dependency checks
+
+on:
+  pull_request:
+    paths-ignore:
+      - pyproject.toml
+      - uv.lock
+      - Makefile
+      - .github/workflows/deps.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  licensecheck:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "No dependency-graph changes in this PR — licensecheck not needed."
+
+  pip-audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "No dependency-graph changes in this PR — pip-audit not needed."

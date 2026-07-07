@@ -11,11 +11,20 @@ Two checks guard the `revel-backend` dependency graph:
 Both run in two contexts:
 
 - **PR / push to `main`** — `.github/workflows/deps.yaml` runs both on any change
-  that touches `pyproject.toml`, `uv.lock`, or the workflow itself.
+  that touches `pyproject.toml`, `uv.lock`, `Makefile`, or the workflow itself.
 - **Nightly, `03:17 UTC`** — `.github/workflows/nightly-audit.yml` re-runs both
   against `main` and opens-or-bumps a GitHub issue (labels: `security`,
   `dependencies`) on failure, so newly-disclosed advisories surface within ~24h
   without a PR.
+
+Both PR jobs (`licensecheck`, `pip-audit`) are **required status checks** on
+`main`. Because `deps.yaml` is path-filtered, PRs that don't touch the dep
+graph get their passing status from the no-op twin
+`.github/workflows/deps-noop.yaml` instead (same workflow name, same job ids,
+inverse `paths-ignore:` filter — GitHub's documented pattern for skipped-but-
+required checks). **Keep the two path lists exact complements** when adding or
+removing a watched file, or non-dep PRs will hang on "Expected — Waiting for
+status to be reported".
 
 ## Local reproduction
 
