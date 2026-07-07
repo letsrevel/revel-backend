@@ -29,6 +29,7 @@ from events.models import (
 )
 from events.models.ticket import CancellationSource
 from events.service import cancellation_service
+from events.tasks import materialize_series_pass_holders
 
 _ZERO = Decimal("0.00")
 
@@ -121,12 +122,19 @@ def validate_events_coverable(series: EventSeries, events: t.Sequence[Event]) ->
 
 
 @transaction.atomic
-def add_tier_links(series_pass: SeriesPass, links: list[TierLinkInput]) -> list[SeriesPassTierLink]:
+def add_tier_links(
+    series_pass: SeriesPass, links: list[TierLinkInput], materialize: bool = True
+) -> list[SeriesPassTierLink]:
     """Create and full-clean tier links for a series pass, after the coverage gate.
 
     Args:
         series_pass: The SeriesPass to attach links to.
         links: Event/tier id pairs to link.
+        materialize: When True (default) and links were created, dispatch
+            Task 10's Celery materialization so existing ACTIVE holders are
+            granted free tickets for the newly-covered events. Pass False for
+            the initial-creation path (``create_series_pass``), where there
+            are no holders yet.
 
     Returns:
         The created ``SeriesPassTierLink`` instances, in input order.
@@ -144,6 +152,9 @@ def add_tier_links(series_pass: SeriesPass, links: list[TierLinkInput]) -> list[
         tier_link.full_clean()
         tier_link.save()
         created.append(tier_link)
+    if materialize and created:
+        event_ids = [str(link.event_id) for link in created]
+        transaction.on_commit(lambda: materialize_series_pass_holders.delay(str(series_pass.id), event_ids))
     return created
 
 
@@ -172,7 +183,8 @@ def create_series_pass(
         series_pass = SeriesPass(event_series=series, **payload.model_dump(exclude={"tier_links"}))
         series_pass.full_clean()
         series_pass.save()
-        add_tier_links(series_pass, payload.tier_links_as_inputs)
+        # materialize=False: no holders can exist yet for a pass that is only just being created.
+        add_tier_links(series_pass, payload.tier_links_as_inputs, materialize=False)
     return series_pass
 
 

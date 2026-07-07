@@ -35,6 +35,7 @@ from events.tasks.organization import (
 from events.tasks.payments import cleanup_expired_payments, cleanup_ticket_file_cache
 from events.tasks.recurrence import generate_recurring_events_task, generate_single_series_events_task
 from events.tasks.revenue import generate_revenue_report_task, send_scheduled_revenue_reports_task
+from events.tasks.series_pass import materialize_series_pass_holders
 from events.tasks.stripe_webhooks import prune_stripe_webhook_events
 from events.tasks.subscriptions import expire_subscriptions_past_grace
 from events.tasks.waitlist import (
@@ -61,6 +62,7 @@ __all__ = [
     "generate_recurring_events_task",
     "generate_revenue_report_task",
     "generate_single_series_events_task",
+    "materialize_series_pass_holders",
     "notify_admin_new_organization_discord",
     "notify_admin_new_organization_pushover",
     "nudge_open_waitlists_task",
