@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.67.1] - 2026-07-07
+
+### Fixed
+- IP-based geolocation no longer returns garbage results or logs parser warnings under concurrent requests: each worker thread now gets its own IP2Location database handle instead of sharing one non-thread-safe file cursor.
+- Admins are no longer pinged on Discord when a guest account is created — the new-user notification now fires only for real user signups.
+
 ## [1.67.0] - 2026-07-01
 
 ### Added
