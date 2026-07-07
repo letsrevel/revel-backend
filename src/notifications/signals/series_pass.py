@@ -9,7 +9,7 @@ Celery materialization task rather than Django signal receivers — mirrors the
 import typing as t
 from uuid import UUID
 
-from events.models import Event, HeldSeriesPass
+from events.models import Event, HeldSeriesPass, Ticket
 from notifications.enums import NotificationType
 from notifications.service.eligibility import get_staff_for_notification
 from notifications.signals import notification_requested
@@ -26,7 +26,7 @@ def _build_purchased_context(held_pass: HeldSeriesPass) -> dict[str, t.Any]:
         "series_name": series_pass.event_series.name,
         "organization_id": str(organization.id),
         "organization_name": organization.name,
-        "event_count": series_pass.tier_links.count(),
+        "event_count": held_pass.tickets.exclude(status=Ticket.TicketStatus.CANCELLED).count(),
         "price_paid": str(held_pass.price_paid),
         "currency": series_pass.currency,
     }

@@ -213,6 +213,52 @@ class TestFreePassPurchaseNotifications:
         assert len(staff_notifications) == 1
         assert staff_notifications[0].context["holder_email"] == holder.email
 
+    def test_mid_season_purchase_counts_only_granted_tickets(
+        self,
+        organization: Organization,
+        event_series: EventSeries,
+        holder: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Mid-season buyers get tickets only for future events; notification must reflect actual grant count."""
+        # Create series pass with 1 past event and 2 future events
+        series_pass = SeriesPass.objects.create(
+            event_series=event_series,
+            name="Mid-Season Pass",
+            price=Decimal("0.00"),
+            pro_rata_discount=Decimal("0.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.FREE,
+        )
+
+        # Past event
+        past_event, past_tier = _make_future_event_and_tier(
+            organization, event_series, "Past Event", "past-event", -1, TicketTier.PaymentMethod.FREE
+        )
+        SeriesPassTierLink.objects.create(series_pass=series_pass, event=past_event, tier=past_tier)
+
+        # Future events
+        future_event_1, future_tier_1 = _make_future_event_and_tier(
+            organization, event_series, "Future Event 1", "future-event-1", 5, TicketTier.PaymentMethod.FREE
+        )
+        SeriesPassTierLink.objects.create(series_pass=series_pass, event=future_event_1, tier=future_tier_1)
+
+        future_event_2, future_tier_2 = _make_future_event_and_tier(
+            organization, event_series, "Future Event 2", "future-event-2", 10, TicketTier.PaymentMethod.FREE
+        )
+        SeriesPassTierLink.objects.create(series_pass=series_pass, event=future_event_2, tier=future_tier_2)
+
+        # Purchase the pass
+        with django_capture_on_commit_callbacks(execute=True):
+            SeriesPassPurchaseService(series_pass, holder).purchase()
+
+        # Verify notification counts only the 2 future tickets, not the 3 total tier links
+        holder_notifications = list(
+            Notification.objects.filter(user=holder, notification_type=NotificationType.SERIES_PASS_PURCHASED)
+        )
+        assert len(holder_notifications) == 1
+        assert holder_notifications[0].context["event_count"] == 2
+
 
 class TestWebhookActivationNotifications:
     """Webhook activation of an online pass sends SERIES_PASS_PURCHASED."""
