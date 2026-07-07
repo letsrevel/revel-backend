@@ -21,6 +21,7 @@ class TestSeriesPassModels:
         assert sp.is_active is True
         assert sp.payment_method == TicketTier.PaymentMethod.ONLINE
         assert sp.purchasable_by == TicketTier.PurchasableBy.PUBLIC
+        assert sp.visibility == SeriesPass.Visibility.PUBLIC
 
     def test_at_the_door_rejected(self, event_series: EventSeries) -> None:
         sp = SeriesPass(

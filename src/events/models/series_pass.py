@@ -20,6 +20,12 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
 
     event_series = models.ForeignKey(EventSeries, on_delete=models.CASCADE, related_name="series_passes")
     name = models.CharField(max_length=255, db_index=True)
+    visibility = models.CharField(
+        choices=VisibilityMixin.Visibility.choices,
+        default=VisibilityMixin.Visibility.PUBLIC,
+        max_length=20,
+        db_index=True,
+    )
     description = MarkdownField(null=True, blank=True)
     price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
     pro_rata_discount = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(0)])
