@@ -3,6 +3,7 @@
 import typing as t
 from decimal import Decimal
 from unittest.mock import patch
+from uuid import uuid4
 
 import orjson
 import pytest
@@ -377,6 +378,21 @@ def test_add_series_pass_tier_links_creates_and_dispatches_materialization(
     assert response.status_code == 200
     assert SeriesPassTierLink.objects.filter(series_pass=series_pass, event=event, tier=ticket_tier).exists()
     mock_delay.assert_called_once()
+
+
+def test_add_series_pass_tier_links_with_nonexistent_tier_returns_400_not_500(
+    organization_owner_client: Client, series_pass: SeriesPass, event: Event
+) -> None:
+    """A tier id that doesn't exist must 400 (SeriesPassTierLink.clean() dereferencing
+    ``self.tier`` used to raise RelatedObjectDoesNotExist, escaping full_clean as a 500."""
+    url = reverse(
+        "api:add_series_pass_tier_links", kwargs={"series_id": series_pass.event_series_id, "pass_id": series_pass.pk}
+    )
+    payload = [{"event_id": str(event.id), "tier_id": str(uuid4())}]
+
+    response = _post_json(organization_owner_client, url, payload)
+
+    assert response.status_code == 400
 
 
 def test_remove_series_pass_tier_link_without_holders_deletes(

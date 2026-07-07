@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.gis.db import models
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import MinValueValidator
 
@@ -104,18 +105,25 @@ class SeriesPassTierLink(TimeStampedModel):
     def clean(self) -> None:
         """Validate the tier/event/series/currency/seating consistency contract."""
         super().clean()
-        if self.tier.event_id != self.event_id:
-            raise DjangoValidationError({"tier": "Tier must belong to the covered event."})
-        if self.event.event_series_id != self.series_pass.event_series_id:
-            raise DjangoValidationError({"event": "Event must belong to the pass's series."})
-        if self.tier.currency != self.series_pass.currency:
-            raise DjangoValidationError({"tier": "Tier currency must match the pass currency."})
-        if self.tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE:
-            raise DjangoValidationError({"tier": "Assigned-seating tiers cannot back a series pass."})
-        if self.tier.price_type == TicketTier.PriceType.PWYC:
-            # A pass has one fixed price; PWYC per-ticket price semantics don't
-            # compose with materialized pass tickets (nothing is paid per ticket).
-            raise DjangoValidationError({"tier": "Pay What You Can tiers cannot back a series pass."})
+        try:
+            if self.tier.event_id != self.event_id:
+                raise DjangoValidationError({"tier": "Tier must belong to the covered event."})
+            if self.event.event_series_id != self.series_pass.event_series_id:
+                raise DjangoValidationError({"event": "Event must belong to the pass's series."})
+            if self.tier.currency != self.series_pass.currency:
+                raise DjangoValidationError({"tier": "Tier currency must match the pass currency."})
+            if self.tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE:
+                raise DjangoValidationError({"tier": "Assigned-seating tiers cannot back a series pass."})
+            if self.tier.price_type == TicketTier.PriceType.PWYC:
+                # A pass has one fixed price; PWYC per-ticket price semantics don't
+                # compose with materialized pass tickets (nothing is paid per ticket).
+                raise DjangoValidationError({"tier": "Pay What You Can tiers cannot back a series pass."})
+        except ObjectDoesNotExist:
+            # A nonexistent tier/event/series id: clean_fields() (run by full_clean()
+            # just before clean()) already recorded the FK-existence check as a
+            # ValidationError, so return and let full_clean() report that as a clean
+            # 400 instead of this dereference escaping as an unhandled 500.
+            return
 
 
 class HeldSeriesPass(TimeStampedModel):

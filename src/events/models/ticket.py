@@ -674,9 +674,13 @@ class Ticket(TimeStampedModel):
         blank=True,
         help_text="Amount discounted from the original tier price.",
     )
+    # RESTRICT (not PROTECT): a cascading user.delete() must still succeed — this
+    # ticket is already being cascade-deleted via Ticket.user from the same origin,
+    # which satisfies the restriction — while a direct held_pass.delete() (no wider
+    # cascade in play) is still blocked, preserving the purchase/attendance audit trail.
     held_pass = models.ForeignKey(
         "events.HeldSeriesPass",
-        on_delete=models.PROTECT,
+        on_delete=models.RESTRICT,
         null=True,
         blank=True,
         related_name="tickets",

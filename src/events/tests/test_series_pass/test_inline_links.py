@@ -180,6 +180,34 @@ def test_update_event_with_series_pass_links_happy_path_dispatches_materializati
     mock_delay.assert_called_once_with(str(series_pass.id), [str(event.id)])
 
 
+def test_update_event_re_sending_existing_series_pass_link_is_a_noop_and_other_fields_apply(
+    owner_client: Client,
+    event: Event,
+    series_pass: SeriesPass,
+    ticket_tier: TicketTier,
+) -> None:
+    """PUTting an event's already-existing series_pass_links back is idempotent.
+
+    Before the fix, re-sending the exact same, already-linked (series_pass, tier) pair
+    hit the unique constraint as a ValidationError, 400ing the WHOLE PUT and rolling
+    back unrelated field changes (e.g. a rename) submitted in the same request.
+    """
+    SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=ticket_tier)
+
+    url = reverse("api:edit_event", kwargs={"event_id": event.pk})
+    payload = {
+        "name": "Renamed While Re-linking",
+        "series_pass_links": [{"series_pass_id": str(series_pass.id), "tier_id": str(ticket_tier.id)}],
+    }
+
+    response = owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    event.refresh_from_db()
+    assert event.name == "Renamed While Re-linking"
+    assert SeriesPassTierLink.objects.filter(series_pass=series_pass, event=event).count() == 1
+
+
 def test_update_event_with_series_pass_links_wrong_series_404(
     owner_client: Client, event: Event, foreign_series_pass: SeriesPass
 ) -> None:

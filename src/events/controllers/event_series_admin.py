@@ -14,7 +14,7 @@ from common.throttling import WriteThrottle
 from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 from events import models, schema
-from events.service import update_db_instance
+from events.service import event_series_service, update_db_instance
 
 from .permissions import EventSeriesPermission
 
@@ -59,10 +59,12 @@ class EventSeriesAdminController(UserAwareController):
         """Permanently delete an event series (admin only).
 
         Removes the series. Events in the series are not deleted but become standalone.
-        Requires 'delete_event_series' permission (typically organization owners only).
+        409s if any of the series' passes has a held-pass record (even a cancelled one) —
+        cancel or delete its passes first. Requires 'delete_event_series' permission
+        (typically organization owners only).
         """
         series = self.get_one(series_id)
-        series.delete()
+        event_series_service.delete_event_series(series)
         return 204, None
 
     @route.post(

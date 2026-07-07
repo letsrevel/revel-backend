@@ -41,6 +41,22 @@ class RecurringEventCreateSchema(Schema):
             )
         return value
 
+    @field_validator("event")
+    @classmethod
+    def _template_series_pass_links_unsupported(cls, value: EventCreateSchema) -> EventCreateSchema:
+        """Reject inline ``series_pass_links`` on a recurring template.
+
+        The controller silently excludes ``series_pass_links`` from the template's
+        ``event_data`` before calling ``create_recurring_event_series`` — series passes
+        are meaningless on a template, since the coverage gate
+        (``validate_events_coverable``) already rejects series passes on recurring
+        series. Silently dropping a client-supplied field would look like a no-op
+        success when the client's intent was ignored, so we reject it explicitly.
+        """
+        if value.series_pass_links:
+            raise ValueError("Series passes are not supported on recurring series.")
+        return value
+
 
 class TemplateEditSchema(Schema):
     """Schema for editing a recurring series template event.

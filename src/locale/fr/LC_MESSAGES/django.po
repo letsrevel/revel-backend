@@ -1381,6 +1381,13 @@ msgstr ""
 "Une ou plusieurs séries d'événements n'existent pas ou n'appartiennent pas à "
 "cette organisation."
 
+msgid ""
+"Cannot delete a series with sold series passes; cancel or delete its passes "
+"first."
+msgstr ""
+"Impossible de supprimer une série comportant des pass de série vendus ; "
+"annule ou supprime d'abord ses pass."
+
 msgid "An event with this slug already exists in your organization."
 msgstr "Un événement avec ce slug existe déjà dans ton organisation."
 
@@ -1560,6 +1567,14 @@ msgid ""
 msgstr ""
 "Les événements soumis à un questionnaire d'admission ne peuvent pas être "
 "couverts par un pass de série."
+
+msgid "One or more events do not exist."
+msgstr "Un ou plusieurs événements n'existent pas."
+
+#, python-format
+msgid "Event '%s' is already covered by this pass via a different tier."
+msgstr ""
+"L'événement '%s' est déjà couvert par ce pass via une catégorie différente."
 
 msgid "Cannot delete a series pass with active or pending holders."
 msgstr ""

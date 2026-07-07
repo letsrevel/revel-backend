@@ -12,7 +12,7 @@ from uuid import UUID
 import structlog
 from django.db import transaction
 from django.db.models import F, Q
-from django.db.models.deletion import ProtectedError
+from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -134,6 +134,13 @@ def add_tier_links(
 ) -> list[SeriesPassTierLink]:
     """Create and full-clean tier links for a series pass, after the coverage gate.
 
+    Idempotent per (event, tier): re-sending a pair that's already linked with the
+    SAME tier is a silent no-op (so re-PUTting an event's ``series_pass_links``, or
+    re-POSTing the same extend payload, doesn't 400 the whole request on a unique-
+    constraint violation). Re-covering an already-linked event with a DIFFERENT tier
+    is rejected instead of silently repointing coverage, which could strand tickets
+    already materialized under the old tier.
+
     Args:
         series_pass: The SeriesPass to attach links to.
         links: Event/tier id pairs to link.
@@ -144,17 +151,40 @@ def add_tier_links(
             are no holders yet.
 
     Returns:
-        The created ``SeriesPassTierLink`` instances, in input order.
+        The newly-created ``SeriesPassTierLink`` instances, in input order.
+        Excludes any input pair that was already linked with the same tier
+        (idempotent no-op).
 
     Raises:
-        SeriesPassCoverageError: If any covered event fails the coverage gate.
+        SeriesPassCoverageError: If any requested event id doesn't exist, any
+            covered event fails the coverage gate, or an already-covered event
+            is re-linked to a different tier.
         django.core.exceptions.ValidationError: If a link fails model-level
             validation (tier/event/series/currency/seat-mode mismatch).
     """
-    events = list(Event.objects.filter(pk__in=[link["event_id"] for link in links]))
+    requested_event_ids = {link["event_id"] for link in links}
+    events = list(Event.objects.filter(pk__in=requested_event_ids))
+    if len(events) != len(requested_event_ids):
+        raise SeriesPassCoverageError(str(_("One or more events do not exist.")))
     validate_events_coverable(series_pass.event_series, events)
+
+    events_by_id = {event.id: event for event in events}
+    existing_tier_by_event_id = dict(
+        series_pass.tier_links.filter(event_id__in=requested_event_ids).values_list("event_id", "tier_id")
+    )
+
     created: list[SeriesPassTierLink] = []
     for link in links:
+        existing_tier_id = existing_tier_by_event_id.get(link["event_id"])
+        if existing_tier_id is not None:
+            if existing_tier_id != link["tier_id"]:
+                raise SeriesPassCoverageError(
+                    str(
+                        _("Event '%s' is already covered by this pass via a different tier.")
+                        % events_by_id[link["event_id"]].name
+                    )
+                )
+            continue  # Same (event, tier) already linked — idempotent no-op.
         tier_link = SeriesPassTierLink(series_pass=series_pass, event_id=link["event_id"], tier_id=link["tier_id"])
         tier_link.full_clean()
         tier_link.save()
@@ -392,25 +422,27 @@ def cancel_held_pass(
 def delete_series_pass(series_pass: SeriesPass) -> None:
     """Permanently delete a SeriesPass, provided no non-cancelled holder exists.
 
-    ``HeldSeriesPass.series_pass`` (and ``Ticket.held_pass``) are ``on_delete=PROTECT``
-    by design, to preserve the purchase/attendance audit trail — so even a pass whose
-    only holders are CANCELLED can still be undeletable (e.g. a cancelled holder can
-    keep past-event/checked-in tickets, which ``cancel_held_pass`` deliberately leaves
-    untouched). Rather than force-purging that history, a lingering ``ProtectedError``
-    is surfaced as the same 409 the explicit non-cancelled check raises.
+    ``HeldSeriesPass.series_pass`` is ``on_delete=PROTECT`` by design, to preserve the
+    purchase/attendance audit trail — so even a pass whose only holders are CANCELLED
+    can still be undeletable (e.g. a cancelled holder can keep past-event/checked-in
+    tickets, which ``cancel_held_pass`` deliberately leaves untouched). Rather than
+    force-purging that history, a lingering ``ProtectedError`` is surfaced as the same
+    409 the explicit non-cancelled check raises. ``Ticket.held_pass`` is
+    ``on_delete=RESTRICT`` instead (not PROTECT), so it can raise the sibling
+    ``RestrictedError`` here too — see the field's comment in ``events/models/ticket.py``.
 
     Args:
         series_pass: The SeriesPass to delete.
 
     Raises:
         SeriesPassHasHoldersError: If any non-cancelled held pass exists, or deleting
-            would violate a protected FK from historical holder/ticket records.
+            would violate a protected/restricted FK from historical holder/ticket records.
     """
     if series_pass.held_passes.exclude(status=HeldSeriesPass.Status.CANCELLED).exists():
         raise SeriesPassHasHoldersError(str(_("Cannot delete a series pass with active or pending holders.")))
     try:
         series_pass.delete()
-    except ProtectedError as exc:
+    except (ProtectedError, RestrictedError) as exc:
         raise SeriesPassHasHoldersError(str(_("Cannot delete a series pass with historical holder records."))) from exc
 
 
