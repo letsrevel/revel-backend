@@ -30,7 +30,7 @@ def test_check_in_pwyc_offline_pending_with_price(
     pending_pwyc_offline_ticket: Ticket,
 ) -> None:
     """Pending PWYC offline ticket with price_paid provided — checks in and saves price."""
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": pending_pwyc_offline_ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": pending_pwyc_offline_ticket.pk})
     response = organization_owner_client.post(
         url,
         data=json.dumps({"price_paid": "12.50"}),
@@ -53,7 +53,7 @@ def test_check_in_pwyc_offline_pending_without_price(
     pending_pwyc_offline_ticket: Ticket,
 ) -> None:
     """Pending PWYC offline ticket without price_paid — 400 error."""
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": pending_pwyc_offline_ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": pending_pwyc_offline_ticket.pk})
     response = organization_owner_client.post(url, content_type="application/json")
 
     assert response.status_code == 400
@@ -77,7 +77,7 @@ def test_check_in_pwyc_at_door_active_with_price(
         status=Ticket.TicketStatus.ACTIVE,
     )
 
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": ticket.pk})
     response = organization_owner_client.post(
         url,
         data=json.dumps({"price_paid": "25.00"}),
@@ -105,7 +105,7 @@ def test_check_in_pwyc_at_door_active_without_price(
         status=Ticket.TicketStatus.ACTIVE,
     )
 
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": ticket.pk})
     response = organization_owner_client.post(url, content_type="application/json")
 
     assert response.status_code == 400
@@ -129,7 +129,7 @@ def test_check_in_pwyc_price_already_set(
         price_paid=Decimal("10.00"),
     )
 
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": ticket.pk})
     response = organization_owner_client.post(url, content_type="application/json")
 
     assert response.status_code == 200
@@ -154,7 +154,7 @@ def test_check_in_pwyc_price_already_set_accepts_override(
         price_paid=Decimal("10.00"),
     )
 
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": ticket.pk})
     response = organization_owner_client.post(
         url,
         data=json.dumps({"price_paid": "20.00"}),
@@ -173,7 +173,7 @@ def test_check_in_non_pwyc_rejects_price_paid(
     pending_offline_ticket: Ticket,
 ) -> None:
     """Non-PWYC pending offline ticket — rejects price_paid in payload."""
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": pending_offline_ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": pending_offline_ticket.pk})
     response = organization_owner_client.post(
         url,
         data=json.dumps({"price_paid": "25.00"}),
@@ -191,7 +191,7 @@ def test_check_in_non_pwyc_no_price_works(
     active_online_ticket: Ticket,
 ) -> None:
     """Non-PWYC active ticket — checks in normally without price_paid."""
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": active_online_ticket.pk})
     response = organization_owner_client.post(url, content_type="application/json")
 
     assert response.status_code == 200

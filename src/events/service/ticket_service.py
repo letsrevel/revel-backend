@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import Count, F, Max, Q
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import formats, timezone
 from django.utils.translation import gettext_lazy as _
@@ -421,6 +422,31 @@ def _check_in_closed_message(event: Event) -> str:
             ended_at=_format_in_event_tz(ends_at, event)
         )
     return str(_("Check-in is not currently open for this event."))
+
+
+SERIES_QR_PREFIX = "series:"
+
+
+def resolve_check_in_ticket_id(event: Event, code: str) -> UUID:
+    """Resolve a scanned code (ticket UUID or ``series:<held-pass-uuid>``) to a ticket id.
+
+    Malformed UUIDs 404 here so the ORM never raises on a bad lookup value.
+    """
+    if code.startswith(SERIES_QR_PREFIX):
+        try:
+            held_pass_id = UUID(code[len(SERIES_QR_PREFIX) :])
+        except ValueError:
+            raise Http404("Invalid pass code.") from None
+        ticket = get_object_or_404(
+            Ticket.objects.exclude(status=Ticket.TicketStatus.CANCELLED),
+            held_pass_id=held_pass_id,
+            event=event,
+        )
+        return ticket.id
+    try:
+        return UUID(code)
+    except ValueError:
+        raise Http404("Invalid ticket code.") from None
 
 
 def check_in_ticket(

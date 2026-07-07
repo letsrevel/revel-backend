@@ -305,7 +305,7 @@ class EventAdminTicketsController(EventAdminBaseController):
         )
 
     @route.post(
-        "/tickets/{ticket_id}/check-in",
+        "/tickets/{code}/check-in",
         url_name="check_in_ticket",
         response={200: schema.CheckInResponseSchema, 400: ValidationErrorResponse},
         permissions=[EventPermission("check_in_attendees")],
@@ -313,11 +313,12 @@ class EventAdminTicketsController(EventAdminBaseController):
     def check_in_ticket(
         self,
         event_id: UUID,
-        ticket_id: UUID,
+        code: str,
         payload: t.Annotated[schema.ConfirmPaymentSchema | None, Body(None)] = None,
     ) -> models.Ticket:
-        """Check in an attendee by scanning their ticket."""
+        """Check in an attendee by scanning their ticket or series pass QR."""
         event = self.get_one(event_id)
+        ticket_id = ticket_service.resolve_check_in_ticket_id(event, code)
         return ticket_service.check_in_ticket(
             event, ticket_id, self.user(), price_paid=payload.price_paid if payload else None
         )
