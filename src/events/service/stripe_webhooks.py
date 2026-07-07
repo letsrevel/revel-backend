@@ -709,6 +709,15 @@ class StripeEventHandler:
         canceled_tickets = []
         affected_event_ids: set[uuid.UUID] = set()
 
+        # Cancel any series pass stranded by the dead checkout FIRST, releasing its
+        # quantity_sold so the buyer can purchase again — pass row before tier rows,
+        # matching SeriesPassPurchaseService.purchase's lock order to avoid
+        # deadlocking against a concurrent purchase on the same pass. Imported here
+        # to avoid a cycle (series_pass_service -> events.tasks -> services).
+        from events.service.series_pass_service import expire_stranded_held_passes
+
+        expire_stranded_held_passes({p.stripe_session_id for p in pending_payments})
+
         for payment in pending_payments:
             # Update payment status to failed
             payment.status = Payment.PaymentStatus.FAILED
@@ -726,13 +735,6 @@ class StripeEventHandler:
             )
             affected_event_ids.add(ticket.event_id)
             canceled_tickets.append(ticket)
-
-        # Cancel any series pass stranded by the dead checkout, releasing its
-        # quantity_sold so the buyer can purchase again. Imported here to avoid a
-        # cycle (series_pass_service -> events.tasks -> services).
-        from events.service.series_pass_service import expire_stranded_held_passes
-
-        expire_stranded_held_passes({p.stripe_session_id for p in pending_payments})
 
         # One enqueue per event regardless of how many tickets cancelled inside it.
         for event_id in affected_event_ids:

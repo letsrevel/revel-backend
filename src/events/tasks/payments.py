@@ -50,6 +50,13 @@ def cleanup_expired_payments() -> int:
     )
 
     with transaction.atomic():
+        # Cancel any series pass whose checkout these payments belonged to first
+        # (releasing SeriesPass.quantity_sold so the buyer can purchase again),
+        # THEN release tier capacity — pass row before tier rows, matching
+        # SeriesPassPurchaseService.purchase's lock order to avoid deadlocking
+        # against a concurrent purchase on the same pass.
+        expire_stranded_held_passes(expired_session_ids)
+
         # Atomically decrement the quantity_sold for each affected tier.
         for tier_id, count_to_release in tickets_to_release_by_tier.items():
             TicketTier.objects.select_for_update().filter(pk=tier_id).update(
@@ -61,10 +68,6 @@ def cleanup_expired_payments() -> int:
 
         # Now delete the associated pending tickets
         Ticket.objects.filter(pk__in=ticket_ids_to_delete, status=Ticket.TicketStatus.PENDING).delete()
-
-        # Cancel any series pass whose checkout these payments belonged to,
-        # releasing SeriesPass.quantity_sold so the buyer can purchase again.
-        expire_stranded_held_passes(expired_session_ids)
 
     logger.info(f"Successfully cleaned up {len(payment_ids_to_delete)} expired payments.")
     return len(payment_ids_to_delete)

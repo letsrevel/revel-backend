@@ -86,3 +86,13 @@ def test_mark_offline_ticket_refunded_rejects_pass_ticket(
 
     pass_ticket.refresh_from_db()
     assert pass_ticket.status == Ticket.TicketStatus.PENDING
+
+
+def test_unconfirm_ticket_payment_rejects_pass_ticket(pass_ticket: Ticket) -> None:
+    with pytest.raises(HttpError) as exc_info:
+        ticket_service.unconfirm_ticket_payment(pass_ticket)
+    assert exc_info.value.status_code == 400
+    assert "series pass" in str(exc_info.value)
+
+    pass_ticket.refresh_from_db()
+    assert pass_ticket.status == Ticket.TicketStatus.PENDING

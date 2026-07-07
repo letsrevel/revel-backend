@@ -396,7 +396,12 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
 
     Returns:
         The re-fetched ticket with full() relations for serialization.
+
+    Raises:
+        HttpError 400: If the ticket belongs to a series pass.
     """
+    _reject_series_pass_ticket(ticket)
+
     ticket.status = Ticket.TicketStatus.PENDING
     ticket.price_paid = None
     ticket.save(update_fields=["status", "price_paid"])

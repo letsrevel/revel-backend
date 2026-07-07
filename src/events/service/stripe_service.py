@@ -861,15 +861,15 @@ def _cleanup_expired_batch(payment: Payment) -> None:
     batch_payments = Payment.objects.filter(stripe_session_id=session_id)
     ticket_ids = list(batch_payments.values_list("ticket_id", flat=True))
 
+    # Pass row before tier rows (SeriesPassPurchaseService.purchase's lock order).
+    expire_stranded_held_passes([session_id])
+
     # Release capacity per tier before the rows disappear.
     _release_batch_tier_capacity(ticket_ids)
 
     # Clean up all tickets and payments in this batch
     batch_payments.delete()
     Ticket.objects.filter(id__in=ticket_ids).delete()
-
-    # Cancel any series pass stranded by this dead checkout session.
-    expire_stranded_held_passes([session_id])
 
 
 def resume_pending_checkout(
@@ -975,15 +975,15 @@ def cancel_pending_checkout(
     # spans multiple events; a plain batch has one).
     event_ids = set(Ticket.objects.filter(id__in=ticket_ids).values_list("event_id", flat=True))
 
+    # Pass row before tier rows (SeriesPassPurchaseService.purchase's lock order).
+    expire_stranded_held_passes([payment.stripe_session_id])
+
     # Release capacity per tier before the rows disappear.
     _release_batch_tier_capacity(ticket_ids)
 
     # Delete all tickets and payments in this batch
     batch_payments.delete()
     Ticket.objects.filter(id__in=ticket_ids).delete()
-
-    # Cancel any series pass stranded by the abandoned checkout session.
-    expire_stranded_held_passes([payment.stripe_session_id])
 
     for event_id in event_ids:
         enqueue_waitlist_processing(event_id)

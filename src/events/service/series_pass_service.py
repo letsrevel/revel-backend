@@ -336,6 +336,14 @@ def cancel_held_pass(
     was_pending = held_pass.status == HeldSeriesPass.Status.PENDING
     now = timezone.now()
     with transaction.atomic():
+        # Pass row first, tier rows after (deadlock discipline — see
+        # SeriesPassPurchaseService.purchase, the only other writer that locks both).
+        held_pass.status = HeldSeriesPass.Status.CANCELLED
+        held_pass.save(update_fields=["status"])
+        SeriesPass.objects.filter(pk=held_pass.series_pass_id, quantity_sold__gt=0).update(
+            quantity_sold=F("quantity_sold") - 1
+        )
+
         tickets = (
             Ticket.objects.filter(held_pass=held_pass, event__start__gt=now)
             .exclude(status__in=[Ticket.TicketStatus.CANCELLED, Ticket.TicketStatus.CHECKED_IN])
@@ -374,12 +382,6 @@ def cancel_held_pass(
             TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
-
-        held_pass.status = HeldSeriesPass.Status.CANCELLED
-        held_pass.save(update_fields=["status"])
-        SeriesPass.objects.filter(pk=held_pass.series_pass_id, quantity_sold__gt=0).update(
-            quantity_sold=F("quantity_sold") - 1
-        )
 
     if was_pending and held_pass.stripe_session_id:
         _expire_stripe_session(held_pass)
