@@ -45,6 +45,7 @@ class CancellationBlockReason(models.TextChoices):
     NOT_PERMITTED = "not_permitted", "Self-service cancellation disabled for this tier"
     PAST_DEADLINE = "past_deadline", "Past the cancellation deadline"
     NOT_OWNER = "not_owner", "Only the ticket holder can cancel this ticket"
+    PART_OF_SERIES_PASS = "part_of_series_pass", "Ticket belongs to a series pass"
 
 
 class TicketTierQuerySet(models.QuerySet["TicketTier"]):
@@ -669,6 +670,14 @@ class Ticket(TimeStampedModel):
         blank=True,
         help_text="Amount discounted from the original tier price.",
     )
+    held_pass = models.ForeignKey(
+        "events.HeldSeriesPass",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="tickets",
+        help_text="Set when this ticket was materialized from a series pass purchase.",
+    )
 
     refund_policy_snapshot = models.JSONField(
         null=True,
@@ -719,6 +728,11 @@ class Ticket(TimeStampedModel):
                 fields=["event", "seat"],
                 condition=models.Q(seat__isnull=False) & ~models.Q(status="cancelled"),
                 name="unique_ticket_event_seat",
+            ),
+            models.UniqueConstraint(
+                fields=["held_pass", "event"],
+                condition=models.Q(held_pass__isnull=False) & ~models.Q(status="cancelled"),
+                name="unique_held_pass_ticket_per_event",
             ),
         ]
         ordering = ["-created_at"]
