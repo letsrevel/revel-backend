@@ -147,6 +147,15 @@ from .ticket import (
     UserTicketSchema,
 )
 
+# Series pass schemas
+from .series_pass import (
+    HeldSeriesPassSchema,
+    SeriesPassCheckoutResponseSchema,
+    SeriesPassQuoteSchema,
+    SeriesPassSchema,
+    SeriesPassSeriesInfoSchema,
+)
+
 # RSVP schemas
 from .rsvp import (
     EventRSVPSchema,
@@ -467,6 +476,12 @@ __all__ = [
     "TicketTierSchema",
     "TicketTierUpdateSchema",
     "UserTicketSchema",
+    # Series pass
+    "HeldSeriesPassSchema",
+    "SeriesPassCheckoutResponseSchema",
+    "SeriesPassQuoteSchema",
+    "SeriesPassSchema",
+    "SeriesPassSeriesInfoSchema",
     # RSVP
     "EventRSVPSchema",
     "EventUserStatusResponse",
