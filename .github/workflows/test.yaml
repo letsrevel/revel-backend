@@ -2,23 +2,15 @@ name: Test
 
 on:
   workflow_dispatch: {}
+  # No path filter: all jobs in this workflow are required status checks on
+  # main, and a path-filtered workflow that doesn't fire leaves its required
+  # contexts stuck on "Expected — Waiting for status", blocking the PR.
+  # (The old filter also had dead globs — `./**/*.yaml` never matches because
+  # GitHub matches paths without the leading `./` — and blind spots: template,
+  # locale, and fixture changes skipped the suite entirely.)
   push:
     branches: [main]
-    paths:
-      - .github/workflows/test.yaml
-      - src/**/*.py
-      - pyproject.toml
-      - uv.lock
-      - ./**/*.yml
-      - ./**/*.yaml
-  pull_request:
-    paths:
-      - .github/workflows/test.yaml
-      - src/**/*.py
-      - pyproject.toml
-      - uv.lock
-      - ./**/*.yml
-      - ./**/*.yaml
+  pull_request: {}
 
 permissions:
   id-token: write
