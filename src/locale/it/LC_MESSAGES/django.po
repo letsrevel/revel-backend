@@ -1468,11 +1468,11 @@ msgstr "Non puoi acquistare da questa organizzazione."
 msgid "This pass is for members only."
 msgstr "Questo abbonamento è riservato ai soci."
 
-msgid "This pass cannot be purchased."
-msgstr "Questo abbonamento non può essere acquistato."
-
 msgid "You already hold this pass."
 msgstr "Possiedi già questo abbonamento."
+
+msgid "This pass cannot be purchased."
+msgstr "Questo abbonamento non può essere acquistato."
 
 #, python-brace-format
 msgid "Event {name} is sold out."
@@ -1536,6 +1536,9 @@ msgstr "Hai già un biglietto"
 
 msgid "This ticket tier cannot be purchased online."
 msgstr "Questo livello di biglietto non può essere acquistato online."
+
+msgid "This pass cannot be purchased online."
+msgstr "Questo abbonamento non può essere acquistato online."
 
 msgid "No pending payment found."
 msgstr "Nessun pagamento in sospeso trovato."

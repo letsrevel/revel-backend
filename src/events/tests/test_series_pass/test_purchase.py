@@ -235,7 +235,6 @@ class TestOnlinePathPurchase:
     ) -> None:
         with patch(
             "events.service.stripe_service.create_series_pass_checkout_session",
-            create=True,
             return_value="https://checkout.stripe.com/session/xyz",
         ) as mock_checkout:
             result = SeriesPassPurchaseService(purchasable_online_pass, revel_user).purchase()

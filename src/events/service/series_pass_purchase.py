@@ -133,12 +133,9 @@ class SeriesPassPurchaseService:
             return held_pass
         if method == TicketTier.PaymentMethod.OFFLINE:
             return held_pass
-        # ONLINE — Task 5 wires the Stripe session. ponytail: attr-defined until it lands.
+        # ONLINE
         from events.service import stripe_service
 
-        return t.cast(
-            "HeldSeriesPass | str",
-            stripe_service.create_series_pass_checkout_session(  # type: ignore[attr-defined]
-                held_pass=held_pass, tickets=tickets, billing_info=billing_info
-            ),
+        return stripe_service.create_series_pass_checkout_session(
+            held_pass=held_pass, tickets=tickets, billing_info=billing_info
         )
