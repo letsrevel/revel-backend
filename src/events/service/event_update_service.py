@@ -1,7 +1,9 @@
 """Event update service.
 
-Owns the side-effecting workflows for editing an event:
+Owns the side-effecting workflows for creating and editing an event:
 
+- ``create_event``: creates the event, then links any inline
+  ``series_pass_links`` (see ``update_event``'s note on the same field).
 - ``update_event``: applies an ``EventEditSchema`` payload, marks series
   occurrences as ``is_modified`` when a real field change occurs, and
   triggers waitlist side effects on capacity / waitlist-open transitions.
@@ -21,12 +23,14 @@ module so all the side effects stay in one place.
 import typing as t
 
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 
 from accounts.models import RevelUser
 from common.utils import update_db_instance
 from events import models
-from events.schema import EventEditSchema
+from events.schema import EventCreateSchema, EventEditSchema, SeriesPassLinkInputSchema
+from events.service import series_pass_service
 from events.service.waitlist_service import enqueue_waitlist_processing, revoke_all_pending_offers
 from events.utils.schedule import EventScheduleSession
 
@@ -38,6 +42,55 @@ class SlugAlreadyExistsError(Exception):
         """Initialise the error with the slug that collided."""
         super().__init__(f"Event slug '{slug}' already exists in this organization.")
         self.slug = slug
+
+
+def _link_series_passes(event: models.Event, links: list[SeriesPassLinkInputSchema] | None) -> None:
+    """Create a ``SeriesPassTierLink`` for each requested (series pass, tier) pair.
+
+    Each entry covers ``event`` via ``tier_id``, using one ``add_tier_links`` call per
+    pass so the coverage gate and materialization dispatch stay scoped per pass. The
+    ``event_series`` filter on the ``SeriesPass`` lookup 404s a pass from the wrong
+    series (or any pass at all, when ``event`` has no series) before the coverage gate
+    or model validation ever runs.
+
+    Args:
+        event: The event the links attach to (already persisted, with its final
+            ``event_series``).
+        links: The requested links, or ``None``/empty when the client omitted the field.
+
+    Raises:
+        django.http.Http404: If a ``series_pass_id`` doesn't resolve to a ``SeriesPass``
+            on ``event.event_series``.
+        events.exceptions.SeriesPassCoverageError: If ``event`` fails the coverage gate.
+        django.core.exceptions.ValidationError: If ``tier_id`` fails model validation.
+    """
+    if not links:
+        return
+    for link in links:
+        # Filter by ``event_series_id`` (not the ``event_series`` FK descriptor): the
+        # latter can serve a stale cached object after ``update_db_instance`` changes
+        # ``event_series_id`` via a plain ``setattr``, which doesn't invalidate Django's
+        # forward-FK cache.
+        series_pass = get_object_or_404(
+            models.SeriesPass, pk=link.series_pass_id, event_series_id=event.event_series_id
+        )
+        series_pass_service.add_tier_links(series_pass, [{"event_id": event.id, "tier_id": link.tier_id}])
+
+
+@transaction.atomic
+def create_event(organization: models.Organization, payload: EventCreateSchema) -> models.Event:
+    """Create an event and link any inline ``series_pass_links``.
+
+    Args:
+        organization: The organization the event belongs to.
+        payload: The validated create payload.
+
+    Returns:
+        The newly created ``Event``.
+    """
+    event = models.Event.objects.create(organization=organization, **payload.model_dump(exclude={"series_pass_links"}))
+    _link_series_passes(event, payload.series_pass_links)
+    return event
 
 
 @transaction.atomic
@@ -91,7 +144,8 @@ def update_event(
     old_effective_capacity = event.effective_capacity
     was_waitlist_open = event.waitlist_open
 
-    updated_event = update_db_instance(event, payload)
+    updated_event = update_db_instance(event, payload, exclude={"series_pass_links"})
+    _link_series_passes(updated_event, payload.series_pass_links)
 
     # Mark occurrences as modified only when a persisted field actually
     # changed. Comparing against the pre-update snapshot avoids marking

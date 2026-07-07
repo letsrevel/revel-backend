@@ -65,7 +65,9 @@ class OrganizationAdminRecurringEventsController(OrganizationAdminBaseController
             series_description=payload.series_description,
             auto_publish=payload.auto_publish,
             generation_window_weeks=payload.generation_window_weeks,
-            event_data=payload.event.model_dump(exclude={"event_series_id"}),
+            # series_pass_links is meaningless on a recurring template: the coverage gate
+            # (validate_events_coverable) already rejects series passes on recurring series.
+            event_data=payload.event.model_dump(exclude={"event_series_id", "series_pass_links"}),
         )
         return 201, series
 

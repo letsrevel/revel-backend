@@ -92,6 +92,7 @@ from .event import (
     EventScheduleUpdateSchema,
     EventStatusUpdatePayload,
     MinimalEventSchema,
+    SeriesPassLinkInputSchema,
     TagUpdateSchema,
 )
 
@@ -415,6 +416,7 @@ __all__ = [
     "EventScheduleUpdateSchema",
     "EventStatusUpdatePayload",
     "MinimalEventSchema",
+    "SeriesPassLinkInputSchema",
     "TagUpdateSchema",
     # Ticket and payment
     "AdminCancelTicketSchema",

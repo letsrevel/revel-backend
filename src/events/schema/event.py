@@ -20,6 +20,13 @@ from .organization import MinimalOrganizationSchema
 from .venue import VenueSchema
 
 
+class SeriesPassLinkInputSchema(Schema):
+    """One (series pass, tier) pair to link when creating/editing an event."""
+
+    series_pass_id: UUID
+    tier_id: UUID
+
+
 class EventEditSchema(CityEditMixin):
     name: OneToOneFiftyString | None = None
     address_visibility: ResourceVisibility = ResourceVisibility.PUBLIC
@@ -47,6 +54,7 @@ class EventEditSchema(CityEditMixin):
         None, description="Deadline for submitting invitation requests or questionnaires"
     )
     can_attend_without_login: bool = False
+    series_pass_links: list[SeriesPassLinkInputSchema] | None = None
 
 
 class EventCreateSchema(EventEditSchema):
