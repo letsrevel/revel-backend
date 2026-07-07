@@ -1462,6 +1462,22 @@ msgstr "membership_tier_id è obbligatorio quando grants_membership è True."
 msgid "A file must be provided when resource_type is 'file'."
 msgstr "È necessario fornire un file quando resource_type è 'file'."
 
+msgid "You cannot purchase from this organization."
+msgstr "Non puoi acquistare da questa organizzazione."
+
+msgid "This pass is for members only."
+msgstr "Questo abbonamento è riservato ai soci."
+
+msgid "This pass cannot be purchased."
+msgstr "Questo abbonamento non può essere acquistato."
+
+msgid "You already hold this pass."
+msgstr "Possiedi già questo abbonamento."
+
+#, python-brace-format
+msgid "Event {name} is sold out."
+msgstr "L'evento {name} è esaurito."
+
 msgid "This pass is not on sale."
 msgstr "Questo abbonamento non è in vendita."
 
@@ -1472,7 +1488,8 @@ msgid "Sales have ended."
 msgstr "Le vendite sono terminate."
 
 msgid "Not enough remaining events; buy a regular ticket instead."
-msgstr "Non abbastanza eventi rimanenti; acquista invece un biglietto regolare."
+msgstr ""
+"Non abbastanza eventi rimanenti; acquista invece un biglietto regolare."
 
 msgid "This pass is sold out."
 msgstr "Questo abbonamento è esaurito."

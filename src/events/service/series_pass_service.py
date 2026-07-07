@@ -1,7 +1,7 @@
-"""Series pass service: enable-time coverage gate and tier link creation.
+"""Series pass service: enable-time coverage gate, quotes, and ticket materialization.
 
-Quotes, materialization dispatch, and cancellation land in later tasks of the
-series-passes plan (issue #644).
+Purchase orchestration lives in ``series_pass_purchase``. Cancellation lands in a
+later task of the series-passes plan (issue #644).
 """
 
 import dataclasses
@@ -16,7 +16,15 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from events.exceptions import SeriesPassCoverageError
-from events.models import Event, EventSeries, OrganizationQuestionnaire, SeriesPass, SeriesPassTierLink
+from events.models import (
+    Event,
+    EventSeries,
+    HeldSeriesPass,
+    OrganizationQuestionnaire,
+    SeriesPass,
+    SeriesPassTierLink,
+    Ticket,
+)
 
 _ZERO = Decimal("0.00")
 
@@ -162,3 +170,43 @@ def create_series_pass(
         series_pass.save()
         add_tier_links(series_pass, payload.tier_links_as_inputs)
     return series_pass
+
+
+def materialize_tickets(
+    held_pass: HeldSeriesPass,
+    links: t.Sequence[SeriesPassTierLink],
+    status: Ticket.TicketStatus,
+) -> list[Ticket]:
+    """bulk_create one ticket per link, skipping events already ticketed for this pass.
+
+    bulk_create bypasses post_save signals by design — per-ticket notifications must
+    never fire for pass tickets (spec §Notifications).
+
+    Args:
+        held_pass: The HeldSeriesPass the tickets are materialized for.
+        links: The tier links to materialize tickets for.
+        status: The status to create the tickets with (ACTIVE for free, PENDING otherwise).
+
+    Returns:
+        The created Ticket instances (excludes any skipped as already-ticketed).
+    """
+    existing_event_ids = set(
+        Ticket.objects.filter(held_pass=held_pass)
+        .exclude(status=Ticket.TicketStatus.CANCELLED)
+        .values_list("event_id", flat=True)
+    )
+    guest_name = held_pass.user.get_full_name() or held_pass.user.username
+    tickets = [
+        Ticket(
+            event_id=link.event_id,
+            tier_id=link.tier_id,
+            user=held_pass.user,
+            held_pass=held_pass,
+            status=status,
+            guest_name=guest_name,
+            refund_policy_snapshot=None,
+        )
+        for link in links
+        if link.event_id not in existing_event_ids
+    ]
+    return Ticket.objects.bulk_create(tickets)

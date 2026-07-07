@@ -1500,6 +1500,22 @@ msgstr ""
 "Un fichier doit être fourni lorsque le type de ressource (resource_type) est "
 "'file'."
 
+msgid "You cannot purchase from this organization."
+msgstr "Tu ne peux pas acheter auprès de cette organisation."
+
+msgid "This pass is for members only."
+msgstr "Cet abonnement est réservé aux membres."
+
+msgid "This pass cannot be purchased."
+msgstr "Cet abonnement ne peut pas être acheté."
+
+msgid "You already hold this pass."
+msgstr "Tu possèdes déjà cet abonnement."
+
+#, python-brace-format
+msgid "Event {name} is sold out."
+msgstr "L'événement {name} est complet."
+
 msgid "This pass is not on sale."
 msgstr "Cet abonnement n'est pas en vente."
 
@@ -1510,7 +1526,8 @@ msgid "Sales have ended."
 msgstr "Les ventes se sont terminées."
 
 msgid "Not enough remaining events; buy a regular ticket instead."
-msgstr "Pas assez d'événements restants; acheter un billet régulier à la place."
+msgstr ""
+"Pas assez d'événements restants; acheter un billet régulier à la place."
 
 msgid "This pass is sold out."
 msgstr "Cet abonnement est épuisé."
