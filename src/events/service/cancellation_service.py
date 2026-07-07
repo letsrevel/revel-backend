@@ -151,6 +151,11 @@ def _load_snapshot(ticket: Ticket) -> RefundPolicy | None:
 
 
 def _block_reason(ticket: Ticket, now: datetime) -> CancellationBlockReason | None:
+    if ticket.held_pass_id is not None:
+        # Series-pass tickets are never user-cancellable, regardless of ticket state
+        # (including an already-cancelled pass ticket) — only the organizer can cancel
+        # the whole pass via series_pass_service.cancel_held_pass.
+        return CancellationBlockReason.PART_OF_SERIES_PASS
     if ticket.status == Ticket.TicketStatus.CANCELLED:
         return CancellationBlockReason.ALREADY_CANCELLED
     if ticket.status == Ticket.TicketStatus.CHECKED_IN:

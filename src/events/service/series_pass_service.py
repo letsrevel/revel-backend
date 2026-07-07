@@ -1,7 +1,6 @@
-"""Series pass service: enable-time coverage gate, quotes, and ticket materialization.
+"""Series pass service: gate, quotes, ticket materialization, and cancellation.
 
-Purchase orchestration lives in ``series_pass_purchase``. Cancellation lands in a
-later task of the series-passes plan (issue #644).
+Purchase orchestration lives in ``series_pass_purchase``.
 """
 
 import dataclasses
@@ -11,20 +10,25 @@ from decimal import Decimal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from accounts.models import RevelUser
 from events.exceptions import SeriesPassCoverageError
 from events.models import (
     Event,
     EventSeries,
     HeldSeriesPass,
     OrganizationQuestionnaire,
+    Payment,
     SeriesPass,
     SeriesPassTierLink,
     Ticket,
+    TicketTier,
 )
+from events.models.ticket import CancellationSource
+from events.service import cancellation_service
 
 _ZERO = Decimal("0.00")
 
@@ -210,3 +214,72 @@ def materialize_tickets(
         if link.event_id not in existing_event_ids
     ]
     return Ticket.objects.bulk_create(tickets)
+
+
+def cancel_held_pass(
+    held_pass: HeldSeriesPass,
+    cancelled_by: RevelUser,
+    reason: str | None = None,
+) -> HeldSeriesPass:
+    """Organizer-initiated cancellation of an entire series pass.
+
+    Cancels every future, non-checked-in ticket materialized from ``held_pass``;
+    past-event and checked-in tickets are left untouched. Refunds any online,
+    successfully-paid ticket, decrements each cancelled ticket's tier
+    ``quantity_sold``, then marks the pass itself CANCELLED.
+
+    Args:
+        held_pass: The HeldSeriesPass to cancel.
+        cancelled_by: The organizer/staff user performing the cancellation.
+        reason: Optional free-text reason recorded on each cancelled ticket.
+
+    Returns:
+        The same HeldSeriesPass instance, now with status CANCELLED.
+
+    Note:
+        Mirrors ``cancel_ticket_by_user``'s trade-off: Stripe refunds run
+        **inside** this transaction, so a Stripe failure rolls back every ticket/tier
+        mutation too. Each refund is keyed by ``idempotency_key=f"refund:{ticket.id}"``,
+        so a retry cannot double-charge, and Stripe's ``charge.refunded`` webhook
+        self-heals the financial state even without one.
+    """
+    now = timezone.now()
+    with transaction.atomic():
+        tickets = (
+            Ticket.objects.filter(held_pass=held_pass, event__start__gt=now)
+            .exclude(status__in=[Ticket.TicketStatus.CANCELLED, Ticket.TicketStatus.CHECKED_IN])
+            .select_related("payment", "tier", "event", "event__organization")
+            .select_for_update(of=("self",))
+        )
+        for ticket in tickets:
+            payment: Payment | None = getattr(ticket, "payment", None)
+            if (
+                ticket.tier.payment_method == TicketTier.PaymentMethod.ONLINE
+                and payment is not None
+                and payment.status == Payment.PaymentStatus.SUCCEEDED
+                and payment.stripe_payment_intent_id
+            ):
+                cancellation_service._issue_stripe_refund(ticket, payment, payment.amount, payment.currency)
+
+            ticket.status = Ticket.TicketStatus.CANCELLED
+            ticket.cancelled_at = now
+            ticket.cancelled_by = cancelled_by
+            ticket.cancellation_source = CancellationSource.ORGANIZER
+            ticket.cancellation_reason = reason or ""
+            ticket.save(
+                update_fields=[
+                    "status",
+                    "cancelled_at",
+                    "cancelled_by",
+                    "cancellation_source",
+                    "cancellation_reason",
+                ]
+            )
+            TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(
+                quantity_sold=F("quantity_sold") - 1
+            )
+
+        held_pass.status = HeldSeriesPass.Status.CANCELLED
+        held_pass.save(update_fields=["status"])
+
+    return held_pass
