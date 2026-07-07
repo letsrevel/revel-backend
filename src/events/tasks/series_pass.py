@@ -51,7 +51,12 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
 
     for holder_id in holder_ids:
         with transaction.atomic():
-            held_pass = HeldSeriesPass.objects.select_related("user").get(pk=holder_id)
+            # of=("self",): lock the pass row only, not the joined user row. The lock
+            # makes the ACTIVE re-check authoritative — without it a concurrent
+            # cancel_held_pass could commit CANCELLED between this check and the
+            # bulk_create below, leaving a cancelled (and refunded) pass holding a
+            # live ACTIVE ticket. Lock order pass -> tiers matches cancel_held_pass.
+            held_pass = HeldSeriesPass.objects.select_for_update(of=("self",)).select_related("user").get(pk=holder_id)
             if held_pass.status != HeldSeriesPass.Status.ACTIVE:
                 # Re-check inside the loop: a concurrent cancellation may have
                 # landed between the snapshot above and this holder's turn.

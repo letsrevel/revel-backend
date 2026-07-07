@@ -6,6 +6,8 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -228,6 +230,27 @@ class TestMaterializeSeriesPassHolders:
             materialize_series_pass_holders(str(series_pass.id), new_event_ids)
 
         assert not Ticket.objects.filter(held_pass=cancelled_holder).exists()
+
+    def test_holder_reread_takes_row_lock(
+        self,
+        series_pass: SeriesPass,
+        new_event_ids: list[str],
+        active_holder: HeldSeriesPass,
+    ) -> None:
+        """The per-holder re-read must lock the pass row (SELECT ... FOR UPDATE OF):
+        without it a concurrent cancel_held_pass can commit CANCELLED between the
+        ACTIVE re-check and bulk_create, leaving a cancelled pass with a live ticket."""
+        with patch("notifications.signals.series_pass.send_series_pass_extended"):
+            with CaptureQueriesContext(connection) as ctx:
+                materialize_series_pass_holders(str(series_pass.id), new_event_ids)
+
+        table = HeldSeriesPass._meta.db_table
+        locking_rereads = [
+            query["sql"]
+            for query in ctx.captured_queries
+            if f'FROM "{table}"' in query["sql"] and "FOR UPDATE OF" in query["sql"]
+        ]
+        assert locking_rereads, "holder re-read must take a row lock on the held pass"
 
     def test_each_extended_holder_notified_with_created_event_ids(
         self,

@@ -261,6 +261,65 @@ def materialize_tickets(
     return Ticket.objects.bulk_create(tickets)
 
 
+def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
+    """Grant tickets for covered future events the pass missed while PENDING.
+
+    A pass extension (``materialize_series_pass_holders``) only processes ACTIVE
+    holders, so a buyer mid-checkout misses any event linked to the pass between
+    purchase and activation. Both activation paths (the ``checkout.session.completed``
+    webhook and the offline ``confirm_held_pass_payment``) call this to catch up.
+
+    Must run inside a transaction (locks tier rows). Capacity-checked per tier:
+    full tiers are skipped and logged, mirroring the extension task.
+
+    Args:
+        held_pass: The just-activated pass. Must have ``user`` available.
+
+    Returns:
+        The Tickets created (empty if the pass already covers every future event).
+    """
+    now = timezone.now()
+    ticketed_event_ids = set(
+        Ticket.objects.filter(held_pass=held_pass)
+        .exclude(status=Ticket.TicketStatus.CANCELLED)
+        .values_list("event_id", flat=True)
+    )
+    missing_links = list(
+        SeriesPassTierLink.objects.filter(series_pass_id=held_pass.series_pass_id, event__start__gte=now)
+        .exclude(event_id__in=ticketed_event_ids)
+        .select_related("event")
+    )
+    if not missing_links:
+        return []
+    # Lock the mapped tiers in pk order (deadlock discipline, mirrors
+    # SeriesPassPurchaseService.purchase and the extension task).
+    locked = {
+        tier.pk: tier
+        for tier in TicketTier.objects.select_for_update()
+        .filter(pk__in=[link.tier_id for link in missing_links])
+        .order_by("pk")
+    }
+    grantable: list[SeriesPassTierLink] = []
+    for link in missing_links:
+        tier = locked[link.tier_id]
+        if tier.total_quantity is not None and tier.quantity_sold >= tier.total_quantity:
+            logger.info(
+                "series_pass_backfill_skipped_full_tier",
+                held_pass_id=str(held_pass.id),
+                event_id=str(link.event_id),
+                tier_id=str(link.tier_id),
+            )
+            continue
+        grantable.append(link)
+    created = materialize_tickets(held_pass, grantable, Ticket.TicketStatus.ACTIVE)
+    if created:
+        # One ticket per tier by construction (each covered event has its own tier link).
+        TicketTier.objects.filter(pk__in=[ticket.tier_id for ticket in created]).update(
+            quantity_sold=F("quantity_sold") + 1
+        )
+    return created
+
+
 def expire_stranded_held_passes(session_ids: t.Collection[str]) -> int:
     """Cancel PENDING held passes whose Stripe checkout session is dead.
 
@@ -284,9 +343,18 @@ def expire_stranded_held_passes(session_ids: t.Collection[str]) -> int:
     if not ids:
         return 0
     stranded = list(HeldSeriesPass.objects.filter(stripe_session_id__in=ids, status=HeldSeriesPass.Status.PENDING))
+    cancelled = 0
     for held_pass in stranded:
-        held_pass.status = HeldSeriesPass.Status.CANCELLED
-        held_pass.save(update_fields=["status"])
+        # Atomic claim: overlapping expiry routes (beat sweep, payment_intent.canceled
+        # webhook, user cancel_pending_checkout) can each snapshot the same PENDING
+        # pass — only the route that wins this conditional UPDATE may decrement the
+        # pass counter, or concurrent claims would double-release it.
+        claimed = HeldSeriesPass.objects.filter(pk=held_pass.pk, status=HeldSeriesPass.Status.PENDING).update(
+            status=HeldSeriesPass.Status.CANCELLED
+        )
+        if claimed != 1:
+            continue
+        cancelled += 1
         SeriesPass.objects.filter(pk=held_pass.series_pass_id, quantity_sold__gt=0).update(
             quantity_sold=F("quantity_sold") - 1
         )
@@ -296,7 +364,7 @@ def expire_stranded_held_passes(session_ids: t.Collection[str]) -> int:
             series_pass_id=str(held_pass.series_pass_id),
             stripe_session_id=held_pass.stripe_session_id,
         )
-    return len(stranded)
+    return cancelled
 
 
 def _expire_stripe_session(held_pass: HeldSeriesPass) -> None:
@@ -363,9 +431,20 @@ def cancel_held_pass(
     if held_pass.status == HeldSeriesPass.Status.CANCELLED:
         return held_pass
 
-    was_pending = held_pass.status == HeldSeriesPass.Status.PENDING
     now = timezone.now()
     with transaction.atomic():
+        # Re-read under a row lock and re-check the status: the caller's instance is
+        # unlocked, so a concurrent cancel (or expiry route) may have committed
+        # CANCELLED after the fast-path check above — cancelling again would
+        # double-decrement the pass counter and re-release tier capacity.
+        held_pass = (
+            HeldSeriesPass.objects.select_for_update(of=("self",))
+            .select_related("series_pass", "user")
+            .get(pk=held_pass.pk)
+        )
+        if held_pass.status == HeldSeriesPass.Status.CANCELLED:
+            return held_pass
+        was_pending = held_pass.status == HeldSeriesPass.Status.PENDING
         # Pass row first, tier rows after (deadlock discipline — see
         # SeriesPassPurchaseService.purchase, the only other writer that locks both).
         held_pass.status = HeldSeriesPass.Status.CANCELLED
@@ -487,6 +566,15 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
     """
     if held_pass.series_pass.payment_method != TicketTier.PaymentMethod.OFFLINE:
         raise HttpError(400, str(_("This series pass is not paid offline.")))
+
+    # Re-read under a row lock and re-check PENDING: the caller's instance is
+    # unlocked, so two concurrent confirms (or a confirm/cancel interleave) could
+    # both pass an unlocked check and double-send the purchase notification.
+    held_pass = (
+        HeldSeriesPass.objects.select_for_update(of=("self",))
+        .select_related("series_pass", "user")
+        .get(pk=held_pass.pk)
+    )
     if held_pass.status != HeldSeriesPass.Status.PENDING:
         raise HttpError(400, str(_("This held pass is not pending.")))
 
@@ -495,5 +583,8 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
     Ticket.objects.filter(held_pass=held_pass, status=Ticket.TicketStatus.PENDING).update(
         status=Ticket.TicketStatus.ACTIVE
     )
+    # Catch up on events linked to the pass while it sat PENDING (the extension
+    # task only materializes for ACTIVE holders).
+    backfill_missing_tickets(held_pass)
     transaction.on_commit(lambda: send_series_pass_purchased(held_pass.id))
     return held_pass

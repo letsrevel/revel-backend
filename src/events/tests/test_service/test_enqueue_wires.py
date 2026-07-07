@@ -404,7 +404,9 @@ def test_cancel_pending_checkout_enqueues_waitlist(
 
     expected_event_id = ticket.event_id
 
-    with mock.patch("events.service.stripe_service.enqueue_waitlist_processing") as mocked:
+    # cancel_pending_checkout lives in events.service.pending_checkout (re-exported
+    # via stripe_service), so the wire must be patched where it is looked up.
+    with mock.patch("events.service.pending_checkout.enqueue_waitlist_processing") as mocked:
         cancel_pending_checkout(str(payment.id), organization_owner_user)
 
     mocked.assert_called_once_with(expected_event_id)

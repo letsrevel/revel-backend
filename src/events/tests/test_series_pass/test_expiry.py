@@ -7,12 +7,14 @@ Three expiry routes share ``expire_stranded_held_passes``: the
 CANCELLED, restore tier + pass counters, and let the buyer purchase again.
 """
 
+import typing as t
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 import stripe
+from django.db.models import F
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -27,7 +29,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
-from events.service import stripe_service
+from events.service import series_pass_service, stripe_service
 from events.service.series_pass_purchase import SeriesPassPurchaseService
 from events.service.stripe_webhooks import StripeEventHandler
 from events.tasks.payments import cleanup_expired_payments
@@ -205,6 +207,168 @@ def _canceled_intent_event(payment_intent_id: str) -> MagicMock:
     mock_event.data = MagicMock()
     mock_event.data.object = intent_data
     return mock_event
+
+
+class TestExpireStrandedClaim:
+    """Overlapping expiry routes may only release the pass counter once (atomic claim)."""
+
+    def test_double_expiry_releases_pass_counter_exactly_once(
+        self,
+        online_pass_two_tiers: tuple[SeriesPass, list[TicketTier]],
+        revel_user: RevelUser,
+    ) -> None:
+        series_pass, _ = online_pass_two_tiers
+        held_pass = _purchase(series_pass, revel_user, "cs_double_claim")
+
+        first = series_pass_service.expire_stranded_held_passes(["cs_double_claim"])
+        second = series_pass_service.expire_stranded_held_passes(["cs_double_claim"])
+
+        assert (first, second) == (1, 0)
+        held_pass.refresh_from_db()
+        assert held_pass.status == HeldSeriesPass.Status.CANCELLED
+        series_pass.refresh_from_db()
+        assert series_pass.quantity_sold == 0
+
+    def test_lost_claim_between_snapshot_and_update_does_not_double_decrement(
+        self,
+        online_pass_two_tiers: tuple[SeriesPass, list[TicketTier]],
+        revel_user: RevelUser,
+    ) -> None:
+        """Race shape: this route snapshots the PENDING pass, then a concurrent route
+        (webhook / user cancel) commits the cancel + counter release first. Losing the
+        conditional-UPDATE claim must skip the decrement."""
+        series_pass, _ = online_pass_two_tiers
+        held_pass = _purchase(series_pass, revel_user, "cs_lost_claim")
+        SeriesPass.objects.filter(pk=series_pass.pk).update(quantity_sold=2)  # as if another holder exists
+
+        # The concurrent route wins: pass CANCELLED, counter released (2 -> 1).
+        HeldSeriesPass.objects.filter(pk=held_pass.pk).update(status=HeldSeriesPass.Status.CANCELLED)
+        SeriesPass.objects.filter(pk=series_pass.pk).update(quantity_sold=F("quantity_sold") - 1)
+
+        manager = HeldSeriesPass.objects
+        real_filter = manager.filter
+
+        def stale_snapshot_filter(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            if "stripe_session_id__in" in kwargs:
+                # Simulate the snapshot having been taken while the pass was still PENDING.
+                return real_filter(pk=held_pass.pk)
+            return real_filter(*args, **kwargs)
+
+        with patch.object(manager, "filter", side_effect=stale_snapshot_filter):
+            cancelled = series_pass_service.expire_stranded_held_passes(["cs_lost_claim"])
+
+        assert cancelled == 0
+        series_pass.refresh_from_db()
+        assert series_pass.quantity_sold == 1  # released exactly once, by the winner
+
+
+class TestScopedSessionCleanup:
+    """Session cleanup must only touch PENDING payments/tickets (review finding F11).
+
+    Verified sequence: a pass covers a past and a future event; the organizer cancels
+    the PENDING pass (future ticket -> CANCELLED + tier released + payment FAILED;
+    past ticket untouched, its payment stays PENDING). The buyer then cancels the
+    remaining pending payment — the old unscoped cleanup re-released the FAILED
+    subset's tier (crossing zero -> IntegrityError 500) and hard-deleted the
+    CANCELLED audit ticket.
+    """
+
+    def _organizer_then_buyer_setup(
+        self,
+        online_pass_two_tiers: tuple[SeriesPass, list[TicketTier]],
+        revel_user: RevelUser,
+        organization_owner_user: RevelUser,
+        session_id: str,
+    ) -> tuple[SeriesPass, list[TicketTier], HeldSeriesPass, Ticket, Payment]:
+        series_pass, tiers = online_pass_two_tiers
+        held_pass = _purchase(series_pass, revel_user, session_id)
+
+        # One covered event slips into the past before the organizer cancels.
+        Event.objects.filter(pk=tiers[0].event_id).update(start=timezone.now() - timedelta(days=1))
+
+        with patch("stripe.checkout.Session.expire"):
+            series_pass_service.cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
+
+        future_ticket = Ticket.objects.get(held_pass=held_pass, tier=tiers[1])
+        assert future_ticket.status == Ticket.TicketStatus.CANCELLED
+        past_payment = Payment.objects.get(stripe_session_id=session_id, status=Payment.PaymentStatus.PENDING)
+        return series_pass, tiers, held_pass, future_ticket, past_payment
+
+    def test_buyer_cancel_after_organizer_cancel_preserves_audit_and_counters(
+        self,
+        online_pass_two_tiers: tuple[SeriesPass, list[TicketTier]],
+        revel_user: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        series_pass, tiers, held_pass, future_ticket, past_payment = self._organizer_then_buyer_setup(
+            online_pass_two_tiers, revel_user, organization_owner_user, "cs_scoped_cancel"
+        )
+
+        # Must not raise (old code: tier double-release crossed zero -> IntegrityError).
+        cancelled = stripe_service.cancel_pending_checkout(str(past_payment.id), revel_user)
+        assert cancelled == 1
+
+        # The organizer's CANCELLED audit ticket survives with its cancellation fields.
+        future_ticket.refresh_from_db()
+        assert future_ticket.status == Ticket.TicketStatus.CANCELLED
+        assert future_ticket.cancelled_at is not None
+        # The pending past-event ticket and its payment are gone; the FAILED payment survives.
+        assert not Ticket.objects.filter(pk=past_payment.ticket_id).exists()
+        assert not Payment.objects.filter(pk=past_payment.pk).exists()
+        assert Payment.objects.filter(
+            stripe_session_id="cs_scoped_cancel", status=Payment.PaymentStatus.FAILED
+        ).exists()
+        # Each tier released exactly once.
+        for tier in tiers:
+            tier.refresh_from_db()
+            assert tier.quantity_sold == 0
+
+    def test_cleanup_expired_batch_after_organizer_cancel_preserves_audit_and_counters(
+        self,
+        online_pass_two_tiers: tuple[SeriesPass, list[TicketTier]],
+        revel_user: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        series_pass, tiers, held_pass, future_ticket, past_payment = self._organizer_then_buyer_setup(
+            online_pass_two_tiers, revel_user, organization_owner_user, "cs_scoped_batch"
+        )
+
+        stripe_service._cleanup_expired_batch(past_payment)
+
+        future_ticket.refresh_from_db()
+        assert future_ticket.status == Ticket.TicketStatus.CANCELLED
+        assert not Ticket.objects.filter(pk=past_payment.ticket_id).exists()
+        assert Payment.objects.filter(stripe_session_id="cs_scoped_batch", status=Payment.PaymentStatus.FAILED).exists()
+        for tier in tiers:
+            tier.refresh_from_db()
+            assert tier.quantity_sold == 0
+
+    def test_release_batch_tier_capacity_floors_at_zero(
+        self,
+        online_pass_two_tiers: tuple[SeriesPass, list[TicketTier]],
+        revel_user: RevelUser,
+    ) -> None:
+        """count can exceed quantity_sold; the decrement must floor at zero instead of
+        blowing the PositiveIntegerField CHECK constraint."""
+        _, tiers = online_pass_two_tiers
+        tier = tiers[0]
+        tier.quantity_sold = 1
+        tier.save(update_fields=["quantity_sold"])
+        tickets = [
+            Ticket.objects.create(
+                event=tier.event,
+                tier=tier,
+                user=revel_user,
+                status=Ticket.TicketStatus.PENDING,
+                guest_name=f"Guest {i}",
+            )
+            for i in range(2)
+        ]
+
+        stripe_service._release_batch_tier_capacity([ticket.id for ticket in tickets])
+
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 0
 
 
 class TestPaymentIntentCanceledWebhook:

@@ -328,7 +328,9 @@ class TestCancelHeldPassCounters:
     def test_double_cancel_is_idempotent(
         self, online_pass_setup: _PassSetup, online_series_pass: SeriesPass, organization_owner_user: RevelUser
     ) -> None:
-        SeriesPass.objects.filter(pk=online_series_pass.pk).update(quantity_sold=1)
+        # quantity_sold=2 (as if another holder exists) pins the no-double-decrement
+        # assertion: with 1 the floor guard alone would mask a second decrement.
+        SeriesPass.objects.filter(pk=online_series_pass.pk).update(quantity_sold=2)
 
         with patch("stripe.Refund.create") as mock_create:
             mock_create.return_value.id = "re_x"
@@ -339,7 +341,30 @@ class TestCancelHeldPassCounters:
         # Second call is a no-op: no extra refunds, no double counter decrement.
         assert mock_create.call_count == 2
         online_series_pass.refresh_from_db()
-        assert online_series_pass.quantity_sold == 0
+        assert online_series_pass.quantity_sold == 1
+        for tier in online_pass_setup.future_tiers:
+            tier.refresh_from_db()
+            assert tier.quantity_sold == 0
+
+    def test_cancel_with_stale_instance_rechecks_status_under_lock(
+        self, online_pass_setup: _PassSetup, online_series_pass: SeriesPass, organization_owner_user: RevelUser
+    ) -> None:
+        """Concurrent-cancel shape: the second caller holds a stale instance that still
+        says ACTIVE, so it passes the unlocked fast-path check — the locked re-read
+        must catch the committed CANCELLED and no-op (no second decrement/refunds)."""
+        SeriesPass.objects.filter(pk=online_series_pass.pk).update(quantity_sold=2)
+        stale = HeldSeriesPass.objects.select_related("series_pass", "user").get(pk=online_pass_setup.held_pass.pk)
+
+        with patch("stripe.Refund.create") as mock_create:
+            mock_create.return_value.id = "re_x"
+            cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user)
+            assert stale.status == HeldSeriesPass.Status.ACTIVE  # stale in memory
+            result = cancel_held_pass(stale, cancelled_by=organization_owner_user)
+
+        assert result.status == HeldSeriesPass.Status.CANCELLED
+        assert mock_create.call_count == 2  # only the first call refunded
+        online_series_pass.refresh_from_db()
+        assert online_series_pass.quantity_sold == 1
         for tier in online_pass_setup.future_tiers:
             tier.refresh_from_db()
             assert tier.quantity_sold == 0

@@ -270,18 +270,7 @@ class StripeEventHandler:
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.save(update_fields=["status"])
 
-        # Activate any series pass bought in this session (idempotent).
-        # .update() intentionally skips signals — ids are captured beforehand so the
-        # purchase notification can be sent explicitly (once, on commit) below.
-        activated_pass_ids = list(
-            HeldSeriesPass.objects.filter(
-                stripe_session_id=session_id, status=HeldSeriesPass.Status.PENDING
-            ).values_list("id", flat=True)
-        )
-        if activated_pass_ids:
-            HeldSeriesPass.objects.filter(id__in=activated_pass_ids).update(status=HeldSeriesPass.Status.ACTIVE)
-            for held_pass_id in activated_pass_ids:
-                transaction.on_commit(functools.partial(send_series_pass_purchased, held_pass_id))
+        self._activate_series_passes(session_id)
 
         # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
         logger.info(
@@ -292,6 +281,32 @@ class StripeEventHandler:
             total_amount=float(sum(p.amount for p in payments)),
             currency=payments[0].currency,
         )
+
+    @staticmethod
+    def _activate_series_passes(session_id: str) -> None:
+        """Activate any series pass bought in this session (idempotent).
+
+        ``.update()`` intentionally skips signals — ids are captured beforehand so
+        the purchase notification can be sent explicitly (once, on commit). Each
+        activated pass is then backfilled: the extension task only materializes
+        tickets for ACTIVE holders, so without this a mid-checkout buyer would
+        miss any extension linked while the pass sat PENDING.
+        """
+        # Imported here to avoid a cycle (series_pass_service -> events.tasks -> services).
+        from events.service.series_pass_service import backfill_missing_tickets
+
+        activated_pass_ids = list(
+            HeldSeriesPass.objects.filter(
+                stripe_session_id=session_id, status=HeldSeriesPass.Status.PENDING
+            ).values_list("id", flat=True)
+        )
+        if not activated_pass_ids:
+            return
+        HeldSeriesPass.objects.filter(id__in=activated_pass_ids).update(status=HeldSeriesPass.Status.ACTIVE)
+        for held_pass in HeldSeriesPass.objects.filter(id__in=activated_pass_ids).select_related("series_pass", "user"):
+            backfill_missing_tickets(held_pass)
+        for held_pass_id in activated_pass_ids:
+            transaction.on_commit(functools.partial(send_series_pass_purchased, held_pass_id))
 
     @transaction.atomic
     def handle_account_updated(self, event: stripe.Event) -> None:
