@@ -20,6 +20,7 @@ from events.models import (
     EventSeries,
     HeldSeriesPass,
     Organization,
+    OrganizationMember,
     SeriesPass,
     SeriesPassTierLink,
     TicketTier,
@@ -267,6 +268,29 @@ class TestVisibility:
         assert client.get(quote_url).status_code == 404
         assert organization_owner_client.get(quote_url).status_code == 200
 
+    def test_members_only_pass_visible_to_member_hidden_from_non_member(
+        self,
+        organization: Organization,
+        event_series: EventSeries,
+        series_pass: SeriesPass,
+        revel_user: RevelUser,
+        revel_user_client: Client,
+        other_user_client: Client,
+    ) -> None:
+        series_pass.visibility = SeriesPass.Visibility.MEMBERS_ONLY
+        series_pass.save(update_fields=["visibility"])
+        OrganizationMember.objects.create(organization=organization, user=revel_user)
+
+        list_url = reverse("api:list_series_passes", kwargs={"series_id": event_series.id})
+
+        member_response = revel_user_client.get(list_url)
+        assert member_response.status_code == 200
+        assert {item["id"] for item in member_response.json()} == {str(series_pass.id)}
+
+        non_member_response = other_user_client.get(list_url)
+        assert non_member_response.status_code == 200
+        assert non_member_response.json() == []
+
 
 # ---- Quote math ----
 
@@ -441,6 +465,60 @@ class TestFileDownloads:
         url = reverse("api:series_pass_pdf_download", kwargs={"held_pass_id": held_pass.id})
         response = other_user_client.get(url)
         assert response.status_code == 404
+
+    def test_pdf_download_cached_redirects_without_regenerating(
+        self, revel_user_client: Client, held_pass: HeldSeriesPass
+    ) -> None:
+        url = reverse("api:series_pass_pdf_download", kwargs={"held_pass_id": held_pass.id})
+        with (
+            patch("events.service.series_pass_file_service.is_cache_valid", return_value=True),
+            patch(
+                "events.controllers.series_pass.get_file_url",
+                return_value="https://cdn.example.com/signed/pass.pdf",
+            ),
+            patch("events.service.series_pass_file_service.get_or_generate_pass_pdf") as mock_generate,
+        ):
+            response = revel_user_client.get(url)
+
+        assert response.status_code == 302
+        assert response["Location"] == "https://cdn.example.com/signed/pass.pdf"
+        mock_generate.assert_not_called()
+
+    def test_pdf_download_redirects_after_generating_when_signed_url_available(
+        self, revel_user_client: Client, held_pass: HeldSeriesPass
+    ) -> None:
+        url = reverse("api:series_pass_pdf_download", kwargs={"held_pass_id": held_pass.id})
+        with (
+            patch("events.service.series_pass_file_service.is_cache_valid", return_value=False),
+            patch("events.service.series_pass_file_service.get_or_generate_pass_pdf", return_value=b"%PDF-mock"),
+            patch(
+                "events.controllers.series_pass.get_file_url",
+                return_value="https://cdn.example.com/signed/pass.pdf",
+            ),
+        ):
+            response = revel_user_client.get(url)
+
+        assert response.status_code == 302
+        assert response["Location"] == "https://cdn.example.com/signed/pass.pdf"
+
+    def test_pkpass_download_owner_gets_bytes(
+        self, revel_user_client: Client, held_pass: HeldSeriesPass, settings: t.Any
+    ) -> None:
+        settings.APPLE_WALLET_PASS_TYPE_ID = "pass.com.example.test"
+        settings.APPLE_WALLET_TEAM_ID = "TEAM123"
+        settings.APPLE_WALLET_CERT_PATH = "/path/cert.pem"
+        settings.APPLE_WALLET_KEY_PATH = "/path/key.pem"
+        settings.APPLE_WALLET_WWDR_CERT_PATH = "/path/wwdr.pem"
+
+        url = reverse("api:series_pass_apple_wallet_pass", kwargs={"held_pass_id": held_pass.id})
+        with patch("events.service.series_pass_file_service.get_or_generate_pass_pkpass", return_value=b"PK-mock"):
+            response = revel_user_client.get(url)
+
+        assert response.status_code == 200
+        assert response["Content-Type"] == "application/vnd.apple.pkpass"
+        assert "Content-Disposition" in response
+        assert ".pkpass" in response["Content-Disposition"]
+        assert response.content == b"PK-mock"
 
     def test_pkpass_unconfigured_returns_503(
         self, revel_user_client: Client, held_pass: HeldSeriesPass, settings: t.Any
