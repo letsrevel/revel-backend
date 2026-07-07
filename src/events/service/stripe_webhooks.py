@@ -14,7 +14,7 @@ from django.db.models import F
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
 from events.exceptions import InvalidStripeWebhookSignatureError
-from events.models import Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
+from events.models import HeldSeriesPass, Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import from_stripe_amount, to_stripe_amount
 
@@ -256,6 +256,13 @@ class StripeEventHandler:
             ticket = payment.ticket
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.save(update_fields=["status"])
+
+        # Activate any series pass bought in this session (idempotent).
+        # .update() intentionally skips signals — the purchase notification is
+        # sent from the same webhook flow in Task 9 via an explicit call, not a signal.
+        HeldSeriesPass.objects.filter(stripe_session_id=session_id, status=HeldSeriesPass.Status.PENDING).update(
+            status=HeldSeriesPass.Status.ACTIVE
+        )
 
         # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
         logger.info(

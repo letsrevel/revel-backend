@@ -63,6 +63,9 @@ def _send_payment_confirmation(payment: Payment) -> None:
         payment: The successful payment instance
     """
     ticket = payment.ticket
+    if ticket.held_pass_id is not None:
+        return  # Series pass tickets get one pass-level notification (see notifications/signals/series_pass.py)
+
     event = ticket.event
 
     # Build frontend URL
