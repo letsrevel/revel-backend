@@ -689,7 +689,9 @@ msgstr ""
 
 msgid ""
 "This is an automated payout document. Please retain it for your records."
-msgstr "Dies ist ein automatisches Auszahlungsdokument. Bitte hebe es für deine Unterlagen auf."
+msgstr ""
+"Dies ist ein automatisches Auszahlungsdokument. Bitte hebe es für deine "
+"Unterlagen auf."
 
 msgid "Home"
 msgstr "Startseite"
@@ -1485,6 +1487,34 @@ msgstr "membership_tier_id ist erforderlich, wenn grants_membership True ist."
 
 msgid "A file must be provided when resource_type is 'file'."
 msgstr "Eine Datei muss bereitgestellt werden, wenn resource_type 'file' ist."
+
+msgid "Series passes are not supported on recurring series."
+msgstr "Serienpässe werden für wiederkehrende Serien nicht unterstützt."
+
+#, python-format
+msgid "Event '%s' does not belong to this series."
+msgstr "Event '%s' gehört nicht zu dieser Serie."
+
+#, python-format
+msgid "Event '%s' is not open."
+msgstr "Event '%s' ist nicht geöffnet."
+
+#, python-format
+msgid "Event '%s' does not require a ticket."
+msgstr "Event '%s' erfordert kein Ticket."
+
+#, python-format
+msgid "Event '%s' is invitation-only and cannot be covered by a series pass."
+msgstr ""
+"Event '%s' ist nur auf Einladung zugänglich und kann nicht durch einen "
+"Serienpass abgedeckt werden."
+
+msgid ""
+"Events gated by an admission questionnaire cannot be covered by a series "
+"pass."
+msgstr ""
+"Events, die durch einen Zulassungsfragebogen gesperrt sind, können nicht "
+"durch einen Serienpass abgedeckt werden."
 
 msgid "Payment processing failed. Please try again later."
 msgstr "Zahlung fehlgeschlagen. Bitte versuche es später erneut."

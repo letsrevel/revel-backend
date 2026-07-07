@@ -5,12 +5,74 @@ from django.utils import timezone
 
 from accounts.models import RevelUser
 from conftest import RevelUserFactory
-from events.models import Event, EventSeries, Organization, SeriesPass, TicketTier
+from events.models import Event, EventSeries, Organization, RecurrenceRule, SeriesPass, TicketTier
 
 
 @pytest.fixture
 def event_series(organization: Organization) -> EventSeries:
     return EventSeries.objects.create(organization=organization, name="Weekly Classes", slug="weekly-classes")
+
+
+@pytest.fixture
+def recurring_series(organization: Organization) -> EventSeries:
+    """An EventSeries wired to a RecurrenceRule (series passes are not supported on these)."""
+    rule = RecurrenceRule.objects.create(
+        frequency=RecurrenceRule.Frequency.WEEKLY,
+        interval=1,
+        weekdays=[0],
+        dtstart=timezone.now(),
+    )
+    return EventSeries.objects.create(
+        organization=organization, name="Recurring Classes", slug="recurring-classes", recurrence_rule=rule
+    )
+
+
+@pytest.fixture
+def private_event(organization: Organization, event_series: EventSeries) -> Event:
+    return Event.objects.create(
+        organization=organization,
+        name="Private Event",
+        slug="private-event",
+        event_type=Event.EventType.PRIVATE,
+        visibility=Event.Visibility.PRIVATE,
+        event_series=event_series,
+        max_attendees=100,
+        start=timezone.now(),
+        status=Event.EventStatus.OPEN,
+        requires_ticket=True,
+    )
+
+
+@pytest.fixture
+def closed_event(organization: Organization, event_series: EventSeries) -> Event:
+    return Event.objects.create(
+        organization=organization,
+        name="Closed Event",
+        slug="closed-event",
+        event_type=Event.EventType.PUBLIC,
+        visibility=Event.Visibility.PUBLIC,
+        event_series=event_series,
+        max_attendees=100,
+        start=timezone.now(),
+        status=Event.EventStatus.DRAFT,
+        requires_ticket=True,
+    )
+
+
+@pytest.fixture
+def no_ticket_event(organization: Organization, event_series: EventSeries) -> Event:
+    return Event.objects.create(
+        organization=organization,
+        name="RSVP Event",
+        slug="rsvp-event",
+        event_type=Event.EventType.PUBLIC,
+        visibility=Event.Visibility.PUBLIC,
+        event_series=event_series,
+        max_attendees=100,
+        start=timezone.now(),
+        status=Event.EventStatus.OPEN,
+        requires_ticket=False,
+    )
 
 
 @pytest.fixture

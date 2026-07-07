@@ -34,6 +34,8 @@ from events.exceptions import (
     OrganizationTokenStaffGrantForbidden,
     PendingMembershipRequestExistsError,
     RevenueReportCadenceOwnerOnlyError,
+    SeriesPassCoverageError,
+    SeriesPassNotPurchasableError,
     StripeNotConnectedError,
     TicketAlreadyCancelledError,
     TooManyItemsError,
@@ -97,6 +99,10 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     DuplicateDiscountCodeError: make_static_handler(409, _("A discount code with this code already exists.")),
     # Mutually exclusive period selectors (month + quarter together) → 422.
     InvalidPeriodError: make_simple_handler(422),
+    # Series pass enable-time coverage gate — bad input, so 400.
+    SeriesPassCoverageError: make_simple_handler(400),
+    # Series pass exists but can't be purchased right now (sold out, sales window, etc.) → 409.
+    SeriesPassNotPurchasableError: make_simple_handler(409),
 }
 
 
