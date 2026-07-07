@@ -220,6 +220,95 @@ def test_update_series_pass_updates_price_exclude_unset_honored(
     assert series_pass.name == "Season Ticket"
 
 
+def _update_url(series_pass: SeriesPass) -> str:
+    return reverse(
+        "api:update_series_pass", kwargs={"series_id": series_pass.event_series_id, "pass_id": series_pass.pk}
+    )
+
+
+def test_update_series_pass_currency_change_with_tier_links_returns_400(
+    organization_owner_client: Client, series_pass: SeriesPass, event: Event, ticket_tier: TicketTier
+) -> None:
+    """Tier links were validated against the pass currency — it's frozen once coverage exists."""
+    SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=ticket_tier)
+
+    response = _patch_json(organization_owner_client, _update_url(series_pass), {"currency": "USD"})
+
+    assert response.status_code == 400
+    series_pass.refresh_from_db()
+    assert series_pass.currency == "EUR"
+
+
+def test_update_series_pass_currency_change_without_tier_links_succeeds(
+    organization_owner_client: Client, series_pass: SeriesPass
+) -> None:
+    response = _patch_json(organization_owner_client, _update_url(series_pass), {"currency": "USD"})
+
+    assert response.status_code == 200
+    series_pass.refresh_from_db()
+    assert series_pass.currency == "USD"
+
+
+def test_update_series_pass_payment_method_change_with_pending_holder_returns_400(
+    organization_owner_client: Client, series_pass: SeriesPass, revel_user: RevelUser
+) -> None:
+    """Holders purchased under the original payment semantics — method is frozen."""
+    HeldSeriesPass.objects.create(
+        series_pass=series_pass, user=revel_user, status=HeldSeriesPass.Status.PENDING, price_paid=series_pass.price
+    )
+
+    response = _patch_json(organization_owner_client, _update_url(series_pass), {"payment_method": "offline"})
+
+    assert response.status_code == 400
+    series_pass.refresh_from_db()
+    assert series_pass.payment_method == TicketTier.PaymentMethod.FREE
+
+
+def test_update_series_pass_payment_method_change_with_only_cancelled_holder_succeeds(
+    organization_owner_client: Client, series_pass: SeriesPass, revel_user: RevelUser
+) -> None:
+    HeldSeriesPass.objects.create(
+        series_pass=series_pass, user=revel_user, status=HeldSeriesPass.Status.CANCELLED, price_paid=series_pass.price
+    )
+
+    response = _patch_json(organization_owner_client, _update_url(series_pass), {"payment_method": "offline"})
+
+    assert response.status_code == 200
+    series_pass.refresh_from_db()
+    assert series_pass.payment_method == TicketTier.PaymentMethod.OFFLINE
+
+
+def test_update_series_pass_price_change_with_links_and_holders_succeeds(
+    organization_owner_client: Client,
+    series_pass: SeriesPass,
+    event: Event,
+    ticket_tier: TicketTier,
+    revel_user: RevelUser,
+) -> None:
+    """Price/discount stay mutable — held passes keep their locked-in price_paid."""
+    SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=ticket_tier)
+    HeldSeriesPass.objects.create(
+        series_pass=series_pass, user=revel_user, status=HeldSeriesPass.Status.ACTIVE, price_paid=series_pass.price
+    )
+
+    response = _patch_json(organization_owner_client, _update_url(series_pass), {"price": "99.00"})
+
+    assert response.status_code == 200
+    series_pass.refresh_from_db()
+    assert series_pass.price == Decimal("99.00")
+
+
+def test_update_series_pass_to_at_the_door_returns_400(
+    organization_owner_client: Client, series_pass: SeriesPass
+) -> None:
+    """At-the-door is unsupported for passes — also rejected on PATCH, not just create."""
+    response = _patch_json(organization_owner_client, _update_url(series_pass), {"payment_method": "at_the_door"})
+
+    assert response.status_code == 400
+    series_pass.refresh_from_db()
+    assert series_pass.payment_method == TicketTier.PaymentMethod.FREE
+
+
 # ---- Delete ----
 
 

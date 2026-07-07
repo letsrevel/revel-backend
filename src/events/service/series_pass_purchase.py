@@ -92,6 +92,13 @@ class SeriesPassPurchaseService:
         if self._has_active_held_pass():
             raise SeriesPassNotPurchasableError(str(_("You already hold this pass.")))
 
+        # Re-assert the total_quantity cap under a row lock — the quote above checked
+        # it unlocked (fast path), so two concurrent buyers could both pass it. Lock
+        # order is pass row first, then tiers by pk; every writer must match it.
+        locked_pass = SeriesPass.objects.select_for_update().get(pk=self.series_pass.pk)
+        if locked_pass.total_quantity is not None and locked_pass.quantity_sold >= locked_pass.total_quantity:
+            raise SeriesPassNotPurchasableError(str(_("This pass is sold out.")))
+
         now = timezone.now()
         future_links: list[SeriesPassTierLink] = list(
             self.series_pass.tier_links.filter(event__start__gte=now).select_related("event").order_by("tier_id")

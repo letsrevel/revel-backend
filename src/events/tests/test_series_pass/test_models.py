@@ -85,6 +85,20 @@ class TestSeriesPassModels:
         with pytest.raises(ValidationError):
             link.full_clean()
 
+    def test_tier_link_rejects_pwyc_tier(self, series_pass: SeriesPass, event: Event) -> None:
+        """PWYC price semantics don't compose with pass tickets (nothing is paid per ticket)."""
+        pwyc_tier = TicketTier.objects.create(
+            event=event,
+            name="PWYC Tier",
+            price=Decimal("0.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            price_type=TicketTier.PriceType.PWYC,
+        )
+        link = SeriesPassTierLink(series_pass=series_pass, event=event, tier=pwyc_tier)
+        with pytest.raises(ValidationError):
+            link.full_clean()
+
     @pytest.mark.parametrize(
         "purchasable_by",
         [TicketTier.PurchasableBy.INVITED, TicketTier.PurchasableBy.INVITED_AND_MEMBERS],

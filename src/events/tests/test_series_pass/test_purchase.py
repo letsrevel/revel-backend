@@ -362,3 +362,45 @@ class TestConcurrentPurchaseRace:
                 SeriesPassPurchaseService(purchasable_free_pass, revel_user).purchase()
 
         assert not HeldSeriesPass.objects.exists()
+
+
+class TestTotalQuantityCap:
+    def test_second_buyer_after_sell_out_raises_409(
+        self, purchasable_free_pass: SeriesPass, revel_user: RevelUser, revel_user_factory: t.Any
+    ) -> None:
+        purchasable_free_pass.total_quantity = 1
+        purchasable_free_pass.save(update_fields=["total_quantity"])
+        SeriesPassPurchaseService(purchasable_free_pass, revel_user).purchase()
+
+        second_user = revel_user_factory(username="second_buyer@example.com", email="second_buyer@example.com")
+        with pytest.raises(SeriesPassNotPurchasableError):
+            SeriesPassPurchaseService(purchasable_free_pass, second_user).purchase()
+
+        assert HeldSeriesPass.objects.count() == 1
+
+    def test_locked_recheck_catches_stale_quote(self, purchasable_free_pass: SeriesPass, revel_user: RevelUser) -> None:
+        """Two concurrent buyers can both pass the unlocked quote check; the loser must
+        be stopped by the re-check under the pass row lock."""
+        from events.service import series_pass_service
+
+        purchasable_free_pass.total_quantity = 1
+        purchasable_free_pass.save(update_fields=["total_quantity"])
+
+        stale_quote = series_pass_service.SeriesPassQuote(
+            price=Decimal("15.00"),
+            passed_events=1,
+            remaining_events=3,
+            currency="EUR",
+            purchasable=True,
+            reason=None,
+        )
+        # The winner committed between our quote and our locks.
+        SeriesPass.objects.filter(pk=purchasable_free_pass.pk).update(quantity_sold=1)
+
+        with patch.object(series_pass_service, "get_quote", return_value=stale_quote):
+            with pytest.raises(SeriesPassNotPurchasableError):
+                SeriesPassPurchaseService(purchasable_free_pass, revel_user).purchase()
+
+        assert not HeldSeriesPass.objects.exists()
+        purchasable_free_pass.refresh_from_db()
+        assert purchasable_free_pass.quantity_sold == 1

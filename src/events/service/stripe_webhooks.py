@@ -256,6 +256,17 @@ class StripeEventHandler:
             payment.save(update_fields=["status", "stripe_payment_intent_id", "raw_response"])
 
             ticket = payment.ticket
+            if ticket.status == Ticket.TicketStatus.CANCELLED:
+                # Defense-in-depth: a late payment on a checkout whose ticket was
+                # cancelled in the meantime (e.g. organizer cancelled a pending
+                # series pass) must not resurrect the ticket. Payment bookkeeping
+                # above still runs — the money was captured and needs a refund.
+                logger.warning(
+                    "stripe_session_completed_cancelled_ticket_skipped",
+                    session_id=session_id,
+                    ticket_id=str(ticket.id),
+                )
+                continue
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.save(update_fields=["status"])
 
@@ -715,6 +726,13 @@ class StripeEventHandler:
             )
             affected_event_ids.add(ticket.event_id)
             canceled_tickets.append(ticket)
+
+        # Cancel any series pass stranded by the dead checkout, releasing its
+        # quantity_sold so the buyer can purchase again. Imported here to avoid a
+        # cycle (series_pass_service -> events.tasks -> services).
+        from events.service.series_pass_service import expire_stranded_held_passes
+
+        expire_stranded_held_passes({p.stripe_session_id for p in pending_payments})
 
         # One enqueue per event regardless of how many tickets cancelled inside it.
         for event_id in affected_event_ids:

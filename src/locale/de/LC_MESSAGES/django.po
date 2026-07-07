@@ -1500,6 +1500,9 @@ msgstr "Du besitzt diesen Pass bereits."
 msgid "This pass cannot be purchased."
 msgstr "Dieser Pass kann nicht gekauft werden."
 
+msgid "This pass is sold out."
+msgstr "Dieser Pass ist ausverkauft."
+
 #, python-brace-format
 msgid "Event {name} is sold out."
 msgstr "Event {name} ist ausverkauft."
@@ -1516,9 +1519,6 @@ msgstr "Der Verkauf hat beendet."
 msgid "Not enough remaining events; buy a regular ticket instead."
 msgstr ""
 "Nicht genug verbleibende Events; kaufen Sie stattdessen ein normales Ticket."
-
-msgid "This pass is sold out."
-msgstr "Dieser Pass ist ausverkauft."
 
 msgid "Series passes are not supported on recurring series."
 msgstr "Serienpässe werden für wiederkehrende Serien nicht unterstützt."
@@ -1549,16 +1549,20 @@ msgstr ""
 "durch einen Serienpass abgedeckt werden."
 
 msgid "Cannot delete a series pass with active or pending holders."
-msgstr "Ein Serienpass mit aktiven oder ausstehenden Inhabern kann nicht gelöscht werden."
+msgstr ""
+"Ein Serienpass mit aktiven oder ausstehenden Inhabern kann nicht gelöscht "
+"werden."
 
 msgid "Cannot delete a series pass with historical holder records."
-msgstr "Ein Serienpass mit historischen Inhaberdatensätzen kann nicht gelöscht werden."
+msgstr ""
+"Ein Serienpass mit historischen Inhaberdatensätzen kann nicht gelöscht "
+"werden."
 
 msgid ""
 "Cannot remove coverage from a series pass with active or pending holders."
 msgstr ""
-"Die Abdeckung eines Serienpasses mit aktiven oder ausstehenden Inhabern "
-"kann nicht entfernt werden."
+"Die Abdeckung eines Serienpasses mit aktiven oder ausstehenden Inhabern kann "
+"nicht entfernt werden."
 
 msgid "This series pass is not paid offline."
 msgstr "Dieser Serienpass wird nicht offline bezahlt."
@@ -1678,6 +1682,13 @@ msgstr ""
 "Plattformgebühren erforderlich. Bitte lege deinen Rechnungsnamen, dein Land "
 "und deine Rechnungsadresse in den Rechnungseinstellungen deiner Organisation "
 "fest."
+
+msgid ""
+"This ticket is part of a series pass. Manage it through the series pass "
+"instead."
+msgstr ""
+"Dieses Ticket ist Teil eines Serienpasses. Verwalte es stattdessen über den "
+"Serienpass."
 
 msgid "Price paid is not allowed for fixed-price tiers."
 msgstr "Der gezahlte Preis ist für Festpreisstufen nicht zulässig."

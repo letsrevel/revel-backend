@@ -9,6 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
+import structlog
 from django.db import transaction
 from django.db.models import F, Q
 from django.db.models.deletion import ProtectedError
@@ -34,6 +35,8 @@ from events.schema.series_pass import SeriesPassCreateSchema
 from events.service import cancellation_service
 from events.tasks import materialize_series_pass_holders
 from notifications.signals.series_pass import send_series_pass_purchased
+
+logger = structlog.get_logger(__name__)
 
 _ZERO = Decimal("0.00")
 
@@ -228,6 +231,70 @@ def materialize_tickets(
     return Ticket.objects.bulk_create(tickets)
 
 
+def expire_stranded_held_passes(session_ids: t.Collection[str]) -> int:
+    """Cancel PENDING held passes whose Stripe checkout session is dead.
+
+    Shared by every online-payment expiry route (the ``cleanup_expired_payments``
+    beat task, the resume/cancel-checkout batch cleanup, and the
+    ``payment_intent.canceled`` webhook) so an abandoned or expired pass checkout
+    never strands the buyer: the pass flips to CANCELLED (freeing the conditional
+    unique constraint for a re-purchase) and ``SeriesPass.quantity_sold`` is
+    floor-decremented.
+
+    Tier counters are intentionally NOT touched here — each expiry route already
+    releases tier capacity per ticket.
+
+    Args:
+        session_ids: Stripe checkout session ids whose payments expired/died.
+
+    Returns:
+        The number of held passes cancelled.
+    """
+    ids = [sid for sid in session_ids if sid]
+    if not ids:
+        return 0
+    stranded = list(HeldSeriesPass.objects.filter(stripe_session_id__in=ids, status=HeldSeriesPass.Status.PENDING))
+    for held_pass in stranded:
+        held_pass.status = HeldSeriesPass.Status.CANCELLED
+        held_pass.save(update_fields=["status"])
+        SeriesPass.objects.filter(pk=held_pass.series_pass_id, quantity_sold__gt=0).update(
+            quantity_sold=F("quantity_sold") - 1
+        )
+        logger.info(
+            "series_pass_stranded_checkout_expired",
+            held_pass_id=str(held_pass.id),
+            series_pass_id=str(held_pass.series_pass_id),
+            stripe_session_id=held_pass.stripe_session_id,
+        )
+    return len(stranded)
+
+
+def _expire_stripe_session(held_pass: HeldSeriesPass) -> None:
+    """Best-effort expiry of the pass's pending Stripe Checkout session.
+
+    Prevents a buyer completing payment on a session whose pass the organizer just
+    cancelled. Already-expired/completed sessions raise ``InvalidRequestError`` —
+    tolerated (logged): the pass is cancelled either way and the
+    ``checkout.session.completed`` handler refuses to resurrect cancelled tickets.
+    """
+    import stripe
+    from django.conf import settings
+
+    expire_kwargs: dict[str, t.Any] = {}
+    org_stripe_account = held_pass.series_pass.event_series.organization.stripe_account_id
+    if org_stripe_account and org_stripe_account != settings.STRIPE_ACCOUNT:
+        expire_kwargs["stripe_account"] = org_stripe_account
+    try:
+        stripe.checkout.Session.expire(held_pass.stripe_session_id, **expire_kwargs)
+    except stripe.error.StripeError as exc:
+        logger.warning(
+            "series_pass_session_expire_failed",
+            held_pass_id=str(held_pass.id),
+            stripe_session_id=held_pass.stripe_session_id,
+            error=str(exc),
+        )
+
+
 def cancel_held_pass(
     held_pass: HeldSeriesPass,
     cancelled_by: RevelUser,
@@ -236,9 +303,17 @@ def cancel_held_pass(
     """Organizer-initiated cancellation of an entire series pass.
 
     Cancels every future, non-checked-in ticket materialized from ``held_pass``;
-    past-event and checked-in tickets are left untouched. Refunds any online,
-    successfully-paid ticket, decrements each cancelled ticket's tier
-    ``quantity_sold``, then marks the pass itself CANCELLED.
+    past-event and checked-in tickets are left untouched. Refunds any
+    successfully-paid ticket (a pass paid online may be mapped to offline/free
+    tiers — the Payment row, not the tier's payment method, is authoritative),
+    decrements each cancelled ticket's tier ``quantity_sold`` and the pass's own
+    ``quantity_sold``, then marks the pass itself CANCELLED. Cancelling an
+    already-CANCELLED pass is an idempotent no-op.
+
+    For a PENDING pass with a live Stripe checkout session, the pending Payment
+    rows are marked FAILED (so the payment-expiry sweep can't re-release the tier
+    capacity this cancellation already freed) and the session is expired at
+    Stripe after commit, so a late buyer payment can't slip through.
 
     Args:
         held_pass: The HeldSeriesPass to cancel.
@@ -255,6 +330,10 @@ def cancel_held_pass(
         so a retry cannot double-charge, and Stripe's ``charge.refunded`` webhook
         self-heals the financial state even without one.
     """
+    if held_pass.status == HeldSeriesPass.Status.CANCELLED:
+        return held_pass
+
+    was_pending = held_pass.status == HeldSeriesPass.Status.PENDING
     now = timezone.now()
     with transaction.atomic():
         tickets = (
@@ -266,12 +345,17 @@ def cancel_held_pass(
         for ticket in tickets:
             payment: Payment | None = getattr(ticket, "payment", None)
             if (
-                ticket.tier.payment_method == TicketTier.PaymentMethod.ONLINE
-                and payment is not None
+                payment is not None
                 and payment.status == Payment.PaymentStatus.SUCCEEDED
                 and payment.stripe_payment_intent_id
             ):
                 cancellation_service._issue_stripe_refund(ticket, payment, payment.amount, payment.currency)
+            elif payment is not None and payment.status == Payment.PaymentStatus.PENDING:
+                # Never-completed checkout: fail the payment so the expiry sweep
+                # (which only processes PENDING payments) can't decrement this
+                # ticket's tier a second time after we release it below.
+                payment.status = Payment.PaymentStatus.FAILED
+                payment.save(update_fields=["status"])
 
             ticket.status = Ticket.TicketStatus.CANCELLED
             ticket.cancelled_at = now
@@ -293,6 +377,12 @@ def cancel_held_pass(
 
         held_pass.status = HeldSeriesPass.Status.CANCELLED
         held_pass.save(update_fields=["status"])
+        SeriesPass.objects.filter(pk=held_pass.series_pass_id, quantity_sold__gt=0).update(
+            quantity_sold=F("quantity_sold") - 1
+        )
+
+    if was_pending and held_pass.stripe_session_id:
+        _expire_stripe_session(held_pass)
 
     return held_pass
 

@@ -5,17 +5,19 @@ Covers both the service-level resolver (``resolve_check_in_ticket_id``) and the
 """
 
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from django.http import Http404
 from django.test.client import Client
 from django.urls import reverse
 from django.utils import timezone
+from ninja.errors import HttpError
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-from events.models import Event, HeldSeriesPass, SeriesPass, Ticket, TicketTier
-from events.service.ticket_service import resolve_check_in_ticket_id
+from events.models import Event, EventSeries, HeldSeriesPass, SeriesPass, Ticket, TicketTier
+from events.service.ticket_service import check_in_ticket, resolve_check_in_ticket_id
 
 pytestmark = pytest.mark.django_db
 
@@ -189,3 +191,117 @@ def test_check_in_garbage_code_404_endpoint(owner_client: Client, event: Event) 
     response = owner_client.post(url, content_type="application/json")
 
     assert response.status_code == 404
+
+
+# --- Pass-aware payment semantics at check-in ---
+# The PASS's payment method is authoritative for PENDING pass tickets, not the
+# mapped tier's; PWYC tier price semantics never apply to pass tickets.
+
+
+def _make_pass(event_series: EventSeries, name: str, payment_method: str) -> SeriesPass:
+    return SeriesPass.objects.create(
+        event_series=event_series,
+        name=name,
+        price=Decimal("30.00"),
+        pro_rata_discount=Decimal("5.00"),
+        currency="EUR",
+        payment_method=payment_method,
+    )
+
+
+def _make_held_pass(series_pass: SeriesPass, user: RevelUser, status: str) -> HeldSeriesPass:
+    return HeldSeriesPass.objects.create(
+        series_pass=series_pass, user=user, status=status, price_paid=series_pass.price
+    )
+
+
+class TestPassTicketCheckInPaymentSemantics:
+    def test_pending_offline_pass_ticket_checks_in_even_on_online_tier(
+        self,
+        event: Event,
+        event_series: EventSeries,
+        ticket_tier: TicketTier,
+        revel_user: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """Offline pass, ONLINE mapped tier: payment collected at the door -> allowed."""
+        offline_pass = _make_pass(event_series, "Offline Pass", TicketTier.PaymentMethod.OFFLINE)
+        held = _make_held_pass(offline_pass, revel_user, HeldSeriesPass.Status.PENDING)
+        ticket = Ticket.objects.create(
+            event=event,
+            tier=ticket_tier,  # ONLINE tier
+            user=revel_user,
+            held_pass=held,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name="Pass Holder",
+        )
+
+        result = check_in_ticket(event, ticket.id, organization_owner_user)
+
+        assert result.status == Ticket.TicketStatus.CHECKED_IN
+
+    def test_pending_online_pass_ticket_rejected_even_on_offline_tier(
+        self,
+        event: Event,
+        event_series: EventSeries,
+        revel_user: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """Online pass, OFFLINE mapped tier: payment must complete online first -> 400."""
+        offline_tier = TicketTier.objects.create(
+            event=event,
+            name="Offline Mapped Tier",
+            price=Decimal("10.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+        )
+        online_pass = _make_pass(event_series, "Online Pass", TicketTier.PaymentMethod.ONLINE)
+        held = _make_held_pass(online_pass, revel_user, HeldSeriesPass.Status.PENDING)
+        ticket = Ticket.objects.create(
+            event=event,
+            tier=offline_tier,
+            user=revel_user,
+            held_pass=held,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name="Pass Holder",
+        )
+
+        with pytest.raises(HttpError) as exc_info:
+            check_in_ticket(event, ticket.id, organization_owner_user)
+        assert exc_info.value.status_code == 400
+
+        ticket.refresh_from_db()
+        assert ticket.status == Ticket.TicketStatus.PENDING
+
+    def test_pwyc_mapped_pass_ticket_demands_no_price(
+        self,
+        event: Event,
+        event_series: EventSeries,
+        revel_user: RevelUser,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """A pass ticket on a PWYC offline tier needs no price_paid — the pass was paid."""
+        pwyc_tier = TicketTier.objects.create(
+            event=event,
+            name="PWYC Tier",
+            price=Decimal("0.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+            price_type=TicketTier.PriceType.PWYC,
+        )
+        free_pass = _make_pass(event_series, "PWYC-mapped Pass", TicketTier.PaymentMethod.FREE)
+        held = _make_held_pass(free_pass, revel_user, HeldSeriesPass.Status.ACTIVE)
+        ticket = Ticket.objects.create(
+            event=event,
+            tier=pwyc_tier,
+            user=revel_user,
+            held_pass=held,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name="Pass Holder",
+        )
+
+        result = check_in_ticket(event, ticket.id, organization_owner_user, price_paid=None)
+
+        assert result.status == Ticket.TicketStatus.CHECKED_IN
+        result.refresh_from_db()
+        assert result.price_paid is None

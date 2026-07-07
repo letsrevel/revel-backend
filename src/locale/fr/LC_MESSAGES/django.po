@@ -1512,6 +1512,9 @@ msgstr "Tu possèdes déjà cet abonnement."
 msgid "This pass cannot be purchased."
 msgstr "Cet abonnement ne peut pas être acheté."
 
+msgid "This pass is sold out."
+msgstr "Cet abonnement est épuisé."
+
 #, python-brace-format
 msgid "Event {name} is sold out."
 msgstr "L'événement {name} est complet."
@@ -1528,9 +1531,6 @@ msgstr "Les ventes se sont terminées."
 msgid "Not enough remaining events; buy a regular ticket instead."
 msgstr ""
 "Pas assez d'événements restants; acheter un billet régulier à la place."
-
-msgid "This pass is sold out."
-msgstr "Cet abonnement est épuisé."
 
 msgid "Series passes are not supported on recurring series."
 msgstr ""
@@ -1691,6 +1691,13 @@ msgstr ""
 "Les informations de facturation sont requises pour les ventes de tickets en "
 "ligne avec frais de plateforme. Configure ton nom, pays et adresse de "
 "facturation dans les paramètres de facturation de ton organisation."
+
+msgid ""
+"This ticket is part of a series pass. Manage it through the series pass "
+"instead."
+msgstr ""
+"Ce billet fait partie d'un pass de série. Gère-le plutôt via le pass de "
+"série."
 
 msgid "Price paid is not allowed for fixed-price tiers."
 msgstr "Le prix payé n'est pas autorisé pour les catégories à prix fixe."

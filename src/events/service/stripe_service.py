@@ -1,6 +1,8 @@
 import typing as t
+from collections import Counter
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from uuid import UUID
 
 import stripe
 import structlog
@@ -835,21 +837,39 @@ def create_series_pass_checkout_session(
     return t.cast(str, session.url)
 
 
+def _release_batch_tier_capacity(ticket_ids: list[UUID]) -> None:
+    """Decrement ``quantity_sold`` per tier for the given tickets (grouped per tier_id).
+
+    A batch purchase puts every ticket on one tier, but a series-pass checkout spans
+    one tier per covered event — decrementing a single tier by the whole batch count
+    would over-release it (possibly below zero) and leak the others.
+    """
+    tickets_per_tier: Counter[UUID] = Counter(
+        Ticket.objects.filter(id__in=ticket_ids, tier_id__isnull=False).values_list("tier_id", flat=True)
+    )
+    for tier_id, count in tickets_per_tier.items():
+        TicketTier.objects.filter(pk=tier_id).update(quantity_sold=F("quantity_sold") - count)
+
+
 @transaction.atomic
 def _cleanup_expired_batch(payment: Payment) -> None:
     """Clean up an expired payment batch (all tickets with same session_id)."""
-    batch_payments = Payment.objects.filter(stripe_session_id=payment.stripe_session_id)
-    ticket_count = batch_payments.count()
+    # Imported here to avoid a cycle (series_pass_service -> events.tasks -> services).
+    from events.service.series_pass_service import expire_stranded_held_passes
+
+    session_id = payment.stripe_session_id
+    batch_payments = Payment.objects.filter(stripe_session_id=session_id)
     ticket_ids = list(batch_payments.values_list("ticket_id", flat=True))
+
+    # Release capacity per tier before the rows disappear.
+    _release_batch_tier_capacity(ticket_ids)
 
     # Clean up all tickets and payments in this batch
     batch_payments.delete()
     Ticket.objects.filter(id__in=ticket_ids).delete()
 
-    # Decrement quantity sold
-    tier = payment.ticket.tier
-    if tier:
-        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=F("quantity_sold") - ticket_count)
+    # Cancel any series pass stranded by this dead checkout session.
+    expire_stranded_held_passes([session_id])
 
 
 def resume_pending_checkout(
@@ -943,24 +963,30 @@ def cancel_pending_checkout(
     if payment.status != Payment.PaymentStatus.PENDING:
         raise HttpError(400, str(_("Only pending payments can be cancelled.")))
 
+    # Imported here to avoid a cycle (series_pass_service -> events.tasks -> services).
+    from events.service.series_pass_service import expire_stranded_held_passes
+
     # Find all payments in this batch (same session_id)
     batch_payments = Payment.objects.filter(stripe_session_id=payment.stripe_session_id)
     ticket_count = batch_payments.count()
     ticket_ids = list(batch_payments.values_list("ticket_id", flat=True))
 
-    # Capture event_id before the ticket rows are deleted.
-    event_id = payment.ticket.event_id
+    # Capture event ids before the ticket rows are deleted (a series-pass batch
+    # spans multiple events; a plain batch has one).
+    event_ids = set(Ticket.objects.filter(id__in=ticket_ids).values_list("event_id", flat=True))
+
+    # Release capacity per tier before the rows disappear.
+    _release_batch_tier_capacity(ticket_ids)
 
     # Delete all tickets and payments in this batch
     batch_payments.delete()
     Ticket.objects.filter(id__in=ticket_ids).delete()
 
-    # Decrement quantity sold
-    tier = payment.ticket.tier
-    if tier:
-        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=F("quantity_sold") - ticket_count)
+    # Cancel any series pass stranded by the abandoned checkout session.
+    expire_stranded_held_passes([payment.stripe_session_id])
 
-    enqueue_waitlist_processing(event_id)
+    for event_id in event_ids:
+        enqueue_waitlist_processing(event_id)
 
     logger.info(
         "pending_checkout_cancelled",

@@ -58,7 +58,7 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
         return f"{self.name} for series {self.event_series.name}"
 
     def clean(self) -> None:
-        """Reject unsupported payment methods and inconsistent purchasable_by values."""
+        """Reject unsupported payment methods, inconsistent purchasable_by values, and unsafe field changes."""
         super().clean()
         if self.payment_method == TicketTier.PaymentMethod.AT_THE_DOOR:
             raise DjangoValidationError({"payment_method": "At-the-door payment is not supported for series passes."})
@@ -67,6 +67,23 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
             TicketTier.PurchasableBy.INVITED_AND_MEMBERS,
         ):
             raise DjangoValidationError({"purchasable_by": "Series passes cannot be invitation-restricted."})
+        if self.pk:
+            old = SeriesPass.objects.filter(pk=self.pk).values("currency", "payment_method").first()
+            if old is None:
+                return
+            # Tier links are validated against the pass currency at link time;
+            # changing it afterwards would silently break that contract.
+            if self.currency != old["currency"] and self.tier_links.exists():
+                raise DjangoValidationError({"currency": "Currency cannot be changed once the pass covers events."})
+            # Held passes were purchased (and their tickets materialized) under
+            # the original payment semantics; switching mid-flight would corrupt
+            # confirmation/refund flows for existing holders.
+            if self.payment_method != old["payment_method"] and (
+                self.held_passes.exclude(status=HeldSeriesPass.Status.CANCELLED).exists()
+            ):
+                raise DjangoValidationError(
+                    {"payment_method": "Payment method cannot be changed while the pass has holders."}
+                )
 
 
 class SeriesPassTierLink(TimeStampedModel):
@@ -95,6 +112,10 @@ class SeriesPassTierLink(TimeStampedModel):
             raise DjangoValidationError({"tier": "Tier currency must match the pass currency."})
         if self.tier.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE:
             raise DjangoValidationError({"tier": "Assigned-seating tiers cannot back a series pass."})
+        if self.tier.price_type == TicketTier.PriceType.PWYC:
+            # A pass has one fixed price; PWYC per-ticket price semantics don't
+            # compose with materialized pass tickets (nothing is paid per ticket).
+            raise DjangoValidationError({"tier": "Pay What You Can tiers cannot back a series pass."})
 
 
 class HeldSeriesPass(TimeStampedModel):

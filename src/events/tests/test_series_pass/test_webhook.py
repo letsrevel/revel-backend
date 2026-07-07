@@ -126,6 +126,32 @@ class TestSeriesPassWebhookActivation:
         for ticket in Ticket.objects.filter(held_pass=held_pass):
             assert ticket.status == Ticket.TicketStatus.ACTIVE
 
+    def test_completed_session_does_not_resurrect_cancelled_ticket(
+        self,
+        stripe_connected_organization: Organization,
+        event_series: EventSeries,
+        revel_user: RevelUser,
+        django_capture_on_commit_callbacks: object,
+    ) -> None:
+        """A late payment on a checkout whose ticket was cancelled in the meantime must
+        keep the ticket CANCELLED (payment bookkeeping still runs)."""
+        held_pass = _purchase_pending_pass(stripe_connected_organization, event_series, revel_user, "cs_pass_late")
+        tickets = list(Ticket.objects.filter(held_pass=held_pass).order_by("created_at"))
+        cancelled_ticket, other_ticket = tickets[0], tickets[1]
+        Ticket.objects.filter(pk=cancelled_ticket.pk).update(status=Ticket.TicketStatus.CANCELLED)
+
+        event = _completed_checkout_event("cs_pass_late")
+        with django_capture_on_commit_callbacks(execute=True):  # type: ignore[operator]
+            StripeEventHandler(event).handle_checkout_session_completed(event)
+
+        cancelled_ticket.refresh_from_db()
+        assert cancelled_ticket.status == Ticket.TicketStatus.CANCELLED
+        other_ticket.refresh_from_db()
+        assert other_ticket.status == Ticket.TicketStatus.ACTIVE
+        # Payment bookkeeping unchanged: both payments recorded as SUCCEEDED.
+        for payment in Payment.objects.filter(stripe_session_id="cs_pass_late"):
+            assert payment.status == Payment.PaymentStatus.SUCCEEDED
+
     def test_duplicate_delivery_is_idempotent(
         self,
         stripe_connected_organization: Organization,

@@ -304,6 +304,168 @@ class TestCancelHeldPassOnlinePaid:
         assert mock_create.call_count == 2
 
 
+class TestCancelHeldPassCounters:
+    def test_cancel_decrements_pass_quantity_sold_and_frees_repurchase(
+        self, online_pass_setup: _PassSetup, online_series_pass: SeriesPass, organization_owner_user: RevelUser
+    ) -> None:
+        SeriesPass.objects.filter(pk=online_series_pass.pk).update(quantity_sold=1)
+
+        with patch("stripe.Refund.create") as mock_create:
+            mock_create.return_value.id = "re_x"
+            cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user)
+
+        online_series_pass.refresh_from_db()
+        assert online_series_pass.quantity_sold == 0
+        # The conditional unique constraint no longer blocks a re-purchase.
+        new_held = HeldSeriesPass.objects.create(
+            series_pass=online_series_pass,
+            user=online_pass_setup.held_pass.user,
+            price_paid=Decimal("20.00"),
+            status=HeldSeriesPass.Status.PENDING,
+        )
+        assert new_held.pk != online_pass_setup.held_pass.pk
+
+    def test_double_cancel_is_idempotent(
+        self, online_pass_setup: _PassSetup, online_series_pass: SeriesPass, organization_owner_user: RevelUser
+    ) -> None:
+        SeriesPass.objects.filter(pk=online_series_pass.pk).update(quantity_sold=1)
+
+        with patch("stripe.Refund.create") as mock_create:
+            mock_create.return_value.id = "re_x"
+            cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user)
+            result = cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user)
+
+        assert result.status == HeldSeriesPass.Status.CANCELLED
+        # Second call is a no-op: no extra refunds, no double counter decrement.
+        assert mock_create.call_count == 2
+        online_series_pass.refresh_from_db()
+        assert online_series_pass.quantity_sold == 0
+        for tier in online_pass_setup.future_tiers:
+            tier.refresh_from_db()
+            assert tier.quantity_sold == 0
+
+
+class TestCancelHeldPassOfflineTierRefund:
+    def test_online_paid_pass_on_offline_tier_still_refunded(
+        self,
+        organization: Organization,
+        event_series: EventSeries,
+        revel_user: RevelUser,
+        held_pass: HeldSeriesPass,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """The Payment row, not the mapped tier's payment method, gates the refund."""
+        event = _make_event(
+            organization, event_series, "Offline Tier Event", "offline-tier-event", timezone.now() + timedelta(days=2)
+        )
+        tier = _make_tier(event, "Offline Tier", payment_method=TicketTier.PaymentMethod.OFFLINE)
+        ticket = Ticket.objects.create(
+            event=event,
+            tier=tier,
+            user=revel_user,
+            held_pass=held_pass,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name=revel_user.get_display_name(),
+        )
+        _make_payment(ticket, Decimal("9.00"))
+
+        with patch("stripe.Refund.create") as mock_create:
+            mock_create.return_value.id = "re_offline_tier"
+            cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
+
+        assert mock_create.call_count == 1
+        assert mock_create.call_args.kwargs["amount"] == 900
+        payment = Payment.objects.get(ticket=ticket)
+        assert payment.stripe_refund_id == "re_offline_tier"
+
+
+class TestCancelPendingOnlinePass:
+    @pytest.fixture
+    def pending_online_setup(
+        self,
+        organization: Organization,
+        event_series: EventSeries,
+        online_series_pass: SeriesPass,
+        revel_user: RevelUser,
+    ) -> tuple[HeldSeriesPass, Ticket, Payment]:
+        organization.stripe_account_id = "acct_org_cancel"
+        organization.save(update_fields=["stripe_account_id"])
+        held_pass = HeldSeriesPass.objects.create(
+            series_pass=online_series_pass,
+            user=revel_user,
+            price_paid=Decimal("20.00"),
+            status=HeldSeriesPass.Status.PENDING,
+            stripe_session_id="cs_pending_cancel",
+        )
+        event = _make_event(
+            organization, event_series, "Pending Event", "pending-event", timezone.now() + timedelta(days=2)
+        )
+        tier = _make_tier(event, "Pending Tier")
+        tier.quantity_sold = 1
+        tier.save(update_fields=["quantity_sold"])
+        ticket = Ticket.objects.create(
+            event=event,
+            tier=tier,
+            user=revel_user,
+            held_pass=held_pass,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name=revel_user.get_display_name(),
+        )
+        payment = Payment.objects.create(
+            ticket=ticket,
+            user=revel_user,
+            stripe_session_id="cs_pending_cancel",
+            amount=Decimal("20.00"),
+            platform_fee=Decimal("0.50"),
+            currency="EUR",
+            status=Payment.PaymentStatus.PENDING,
+        )
+        return held_pass, ticket, payment
+
+    def test_cancel_pending_pass_expires_stripe_session_with_connected_account(
+        self,
+        pending_online_setup: tuple[HeldSeriesPass, Ticket, Payment],
+        organization_owner_user: RevelUser,
+    ) -> None:
+        held_pass, ticket, payment = pending_online_setup
+
+        with (
+            patch("stripe.checkout.Session.expire") as mock_expire,
+            patch("stripe.Refund.create") as mock_refund,
+        ):
+            cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
+
+        mock_expire.assert_called_once_with("cs_pending_cancel", stripe_account="acct_org_cancel")
+        mock_refund.assert_not_called()
+
+        held_pass.refresh_from_db()
+        assert held_pass.status == HeldSeriesPass.Status.CANCELLED
+        ticket.refresh_from_db()
+        assert ticket.status == Ticket.TicketStatus.CANCELLED
+        # Pending payment is failed so the expiry sweep can't double-release the tier.
+        payment.refresh_from_db()
+        assert payment.status == Payment.PaymentStatus.FAILED
+        ticket.tier.refresh_from_db()
+        assert ticket.tier.quantity_sold == 0
+
+    def test_cancel_pending_pass_tolerates_already_expired_session(
+        self,
+        pending_online_setup: tuple[HeldSeriesPass, Ticket, Payment],
+        organization_owner_user: RevelUser,
+    ) -> None:
+        held_pass, _, _ = pending_online_setup
+
+        import stripe as stripe_module
+
+        with patch(
+            "stripe.checkout.Session.expire",
+            side_effect=stripe_module.error.InvalidRequestError("already expired", param=None),
+        ):
+            result = cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
+
+        assert result.status == HeldSeriesPass.Status.CANCELLED
+
+
 class TestCancelHeldPassFree:
     def test_free_pass_cancel_issues_no_refunds(
         self,

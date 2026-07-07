@@ -20,9 +20,14 @@ def cleanup_expired_payments() -> int:
     """Finds and deletes expired payments that are still in a 'pending' state.
 
     Releases their associated ticket reservation by decrementing the tier's
-    quantity_sold counter.
+    quantity_sold counter, and cancels any series pass stranded by the expired
+    checkout (releasing its quantity_sold too).
     This task is idempotent and safe to run periodically.
     """
+    # Imported here: events.tasks.__init__ imports this module while
+    # series_pass_service itself imports events.tasks (materialization task).
+    from events.service.series_pass_service import expire_stranded_held_passes
+
     # Find payments for tickets that are still pending and whose Stripe session has expired.
     expired_payments_qs = Payment.objects.filter(
         status=Payment.PaymentStatus.PENDING, expires_at__lt=timezone.now()
@@ -34,6 +39,7 @@ def cleanup_expired_payments() -> int:
     # Collect IDs and tier counts before the transaction to avoid holding locks for too long
     payment_ids_to_delete = list(expired_payments_qs.values_list("id", flat=True))
     ticket_ids_to_delete = list(expired_payments_qs.values_list("ticket_id", flat=True))
+    expired_session_ids = set(expired_payments_qs.values_list("stripe_session_id", flat=True))
     tickets_to_release_by_tier: Counter[UUID] = Counter(
         expired_payments_qs.filter(ticket__tier_id__isnull=False).values_list("ticket__tier_id", flat=True)
     )
@@ -55,6 +61,10 @@ def cleanup_expired_payments() -> int:
 
         # Now delete the associated pending tickets
         Ticket.objects.filter(pk__in=ticket_ids_to_delete, status=Ticket.TicketStatus.PENDING).delete()
+
+        # Cancel any series pass whose checkout these payments belonged to,
+        # releasing SeriesPass.quantity_sold so the buyer can purchase again.
+        expire_stranded_held_passes(expired_session_ids)
 
     logger.info(f"Successfully cleaned up {len(payment_ids_to_delete)} expired payments.")
     return len(payment_ids_to_delete)
