@@ -1500,8 +1500,24 @@ msgstr ""
 "Un fichier doit être fourni lorsque le type de ressource (resource_type) est "
 "'file'."
 
+msgid "This pass is not on sale."
+msgstr "Cet abonnement n'est pas en vente."
+
+msgid "Sales have not started yet."
+msgstr "Les ventes n'ont pas encore commencé."
+
+msgid "Sales have ended."
+msgstr "Les ventes se sont terminées."
+
+msgid "Not enough remaining events; buy a regular ticket instead."
+msgstr "Pas assez d'événements restants; acheter un billet régulier à la place."
+
+msgid "This pass is sold out."
+msgstr "Cet abonnement est épuisé."
+
 msgid "Series passes are not supported on recurring series."
-msgstr "Les pass de série ne sont pas pris en charge pour les séries récurrentes."
+msgstr ""
+"Les pass de série ne sont pas pris en charge pour les séries récurrentes."
 
 #, python-format
 msgid "Event '%s' does not belong to this series."

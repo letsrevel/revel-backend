@@ -1488,6 +1488,21 @@ msgstr "membership_tier_id ist erforderlich, wenn grants_membership True ist."
 msgid "A file must be provided when resource_type is 'file'."
 msgstr "Eine Datei muss bereitgestellt werden, wenn resource_type 'file' ist."
 
+msgid "This pass is not on sale."
+msgstr "Dieser Pass ist nicht zum Verkauf verfügbar."
+
+msgid "Sales have not started yet."
+msgstr "Der Verkauf hat noch nicht begonnen."
+
+msgid "Sales have ended."
+msgstr "Der Verkauf hat beendet."
+
+msgid "Not enough remaining events; buy a regular ticket instead."
+msgstr "Nicht genug verbleibende Events; kaufen Sie stattdessen ein normales Ticket."
+
+msgid "This pass is sold out."
+msgstr "Dieser Pass ist ausverkauft."
+
 msgid "Series passes are not supported on recurring series."
 msgstr "Serienpässe werden für wiederkehrende Serien nicht unterstützt."
 

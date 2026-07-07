@@ -4,15 +4,63 @@ Quotes, materialization dispatch, and cancellation land in later tasks of the
 series-passes plan (issue #644).
 """
 
+import dataclasses
 import typing as t
+from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from events.exceptions import SeriesPassCoverageError
 from events.models import Event, EventSeries, OrganizationQuestionnaire, SeriesPass, SeriesPassTierLink
+
+_ZERO = Decimal("0.00")
+
+
+@dataclasses.dataclass(frozen=True)
+class SeriesPassQuote:
+    """Current pro-rata price and purchasability for a series pass."""
+
+    price: Decimal
+    passed_events: int
+    remaining_events: int
+    currency: str
+    purchasable: bool
+    reason: str | None
+
+
+def get_quote(series_pass: SeriesPass, now: datetime | None = None) -> SeriesPassQuote:
+    """Current pro-rata price and purchasability for a pass. Pure given ``now``."""
+    now = now or timezone.now()
+    links = series_pass.tier_links.select_related("event")
+    passed = sum(1 for link in links if link.event.start < now)
+    remaining = links.count() - passed
+    price = max(series_pass.price - passed * series_pass.pro_rata_discount, _ZERO).quantize(Decimal("0.01"))
+
+    reason: str | None = None
+    if not series_pass.is_active:
+        reason = str(_("This pass is not on sale."))
+    elif series_pass.sales_start_at and now < series_pass.sales_start_at:
+        reason = str(_("Sales have not started yet."))
+    elif series_pass.sales_end_at and now > series_pass.sales_end_at:
+        reason = str(_("Sales have ended."))
+    elif remaining < 2:
+        reason = str(_("Not enough remaining events; buy a regular ticket instead."))
+    elif series_pass.total_quantity is not None and series_pass.quantity_sold >= series_pass.total_quantity:
+        reason = str(_("This pass is sold out."))
+
+    return SeriesPassQuote(
+        price=price,
+        passed_events=passed,
+        remaining_events=remaining,
+        currency=series_pass.currency,
+        purchasable=reason is None,
+        reason=reason,
+    )
 
 
 class TierLinkInput(t.TypedDict):
