@@ -259,6 +259,24 @@ def _get_branding_assets(event: "models.Event") -> tuple[t.Any | None, t.Any | N
     return logo_file, cover_art_file, branding_source_name
 
 
+def apple_wallet_configured() -> bool:
+    """Whether Apple Wallet pass generation is configured server-wide.
+
+    Single source of truth for the 5-setting check, shared by
+    ``Ticket.apple_pass_available`` and the series-pass pkpass download endpoint.
+
+    Returns:
+        True if every required ``APPLE_WALLET_*`` setting is set.
+    """
+    return bool(
+        settings.APPLE_WALLET_PASS_TYPE_ID
+        and settings.APPLE_WALLET_TEAM_ID
+        and settings.APPLE_WALLET_CERT_PATH
+        and settings.APPLE_WALLET_KEY_PATH
+        and settings.APPLE_WALLET_WWDR_CERT_PATH
+    )
+
+
 def _file_to_data_uri(file_field: t.Any) -> str | None:
     """Convert a Django FileField/ImageField to a base64 data URI.
 
@@ -288,6 +306,33 @@ def _file_to_data_uri(file_field: t.Any) -> str | None:
         return None
 
 
+def _qr_code_base64(payload: str) -> str:
+    """Render ``payload`` as a QR code PNG, base64-encoded (no data-URI prefix).
+
+    Args:
+        payload: The raw string to encode (e.g. a ticket id or a held pass's ``qr_payload``).
+
+    Returns:
+        Base64-encoded PNG bytes. Callers needing a data URI must prefix it themselves —
+        both PDF templates already add their own ``data:image/png;base64,`` prefix.
+    """
+    import qrcode
+
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(payload)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buffered = BytesIO()
+    img.save(buffered, "PNG")
+    return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+
 def create_ticket_pdf(ticket: "Ticket") -> bytes:
     """Generates a PDF version of a ticket using weasyprint.
 
@@ -297,25 +342,11 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
     Returns:
         The PDF content as bytes.
     """
-    import qrcode
     from weasyprint import HTML
 
     event = ticket.event
 
-    # Generate QR Code from the ticket's UUID
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(str(ticket.id))
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-
-    buffered = BytesIO()
-    img.save(buffered, "PNG")
-    qr_code_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    qr_code_base64 = _qr_code_base64(str(ticket.id))
 
     # Get branding assets with fallback priority: Event > EventSeries > Organization
     logo_file, cover_art_file, branding_source_name = _get_branding_assets(event)
@@ -379,27 +410,15 @@ def create_series_pass_pdf(held_pass: "HeldSeriesPass") -> bytes:
     Returns:
         The PDF content as bytes.
     """
-    import qrcode
     from weasyprint import HTML
 
     series_pass = held_pass.series_pass
     event_series = series_pass.event_series
     organization = event_series.organization
 
-    # QR payload matches the check-in resolution contract: "series:<held_pass.id>".
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(f"series:{held_pass.id}")
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-
-    buffered = BytesIO()
-    img.save(buffered, "PNG")
-    qr_code_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    # held_pass.qr_payload is the single source of truth for the check-in contract
+    # (see ticket_service.resolve_check_in_ticket_id).
+    qr_code_base64 = _qr_code_base64(held_pass.qr_payload)
 
     links = list(series_pass.tier_links.select_related("event").order_by("event__start"))
     covered_events = [

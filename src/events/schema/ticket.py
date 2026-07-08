@@ -149,8 +149,23 @@ class TicketDiscountCodeSchema(ModelSchema):
 class TicketSeriesPassSchema(Schema):
     """Minimal series-pass info for tickets materialized from a held series pass."""
 
-    id: UUID
+    held_pass_id: UUID
+    series_pass_id: UUID
     name: str
+
+
+def _resolve_ticket_series_pass(obj: Ticket) -> TicketSeriesPassSchema | None:
+    """Resolve the series pass a ticket was materialized from, if any.
+
+    Shared by ``AdminTicketSchema`` and ``UserTicketSchema`` — both expose the same
+    ``series_pass`` shape.
+    """
+    held_pass = obj.held_pass
+    if held_pass is None:
+        return None
+    return TicketSeriesPassSchema(
+        held_pass_id=held_pass.id, series_pass_id=held_pass.series_pass_id, name=held_pass.series_pass.name
+    )
 
 
 class AdminTicketSchema(ModelSchema):
@@ -192,13 +207,7 @@ class AdminTicketSchema(ModelSchema):
         memberships = getattr(obj.user, "org_membership_list", None)
         return memberships[0] if memberships else None
 
-    @staticmethod
-    def resolve_series_pass(obj: Ticket) -> TicketSeriesPassSchema | None:
-        """Resolve the series pass this ticket was materialized from, if any."""
-        held_pass = obj.held_pass
-        if held_pass is None:
-            return None
-        return TicketSeriesPassSchema(id=held_pass.id, name=held_pass.series_pass.name)
+    resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
 
 
 class UserTicketSchema(ModelSchema):
@@ -252,13 +261,7 @@ class UserTicketSchema(ModelSchema):
         """Resolve cached pkpass file to signed URL."""
         return get_file_url(obj.pkpass_file)
 
-    @staticmethod
-    def resolve_series_pass(obj: Ticket) -> TicketSeriesPassSchema | None:
-        """Resolve the series pass this ticket was materialized from, if any."""
-        held_pass = obj.held_pass
-        if held_pass is None:
-            return None
-        return TicketSeriesPassSchema(id=held_pass.id, name=held_pass.series_pass.name)
+    resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
 
 
 class CheckInRequestSchema(Schema):

@@ -2,15 +2,16 @@
 
 import typing as t
 from collections import Counter
+from datetime import datetime
 from uuid import UUID
 
 import structlog
 from celery import shared_task
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import F, Max, Q
 from django.utils import timezone
 
-from events.models import Payment, Ticket, TicketTier
+from events.models import HeldSeriesPass, Payment, Ticket, TicketTier
 
 logger = structlog.get_logger(__name__)
 
@@ -79,20 +80,13 @@ class TicketFileCacheCleanupResult(t.TypedDict):
     cleaned: int
 
 
-@shared_task(name="events.cleanup_ticket_file_cache")
-def cleanup_ticket_file_cache() -> TicketFileCacheCleanupResult:
+def _sweep_ticket_files(now: datetime) -> list[UUID]:
     """Delete cached PDF/pkpass files for tickets whose events have ended.
 
-    Frees storage for past events since cached files are no longer needed.
-    Files can always be regenerated on demand if needed.
-
     Returns:
-        Dict with count of cleaned tickets.
+        The pks of tickets whose cached files were cleared.
     """
-    now = timezone.now()
-    tickets_with_files = Ticket.objects.filter(
-        event__end__lt=now,
-    ).filter(Q(pdf_file__gt="") | Q(pkpass_file__gt=""))
+    tickets_with_files = Ticket.objects.filter(event__end__lt=now).filter(Q(pdf_file__gt="") | Q(pkpass_file__gt=""))
 
     cleaned_pks: list[UUID] = []
     for ticket in tickets_with_files.only("pk", "pdf_file", "pkpass_file"):
@@ -113,4 +107,58 @@ def cleanup_ticket_file_cache() -> TicketFileCacheCleanupResult:
         )
         logger.info("cleanup_ticket_file_cache_done", cleaned=len(cleaned_pks))
 
-    return {"cleaned": len(cleaned_pks)}
+    return cleaned_pks
+
+
+def _sweep_series_pass_files(now: datetime) -> list[UUID]:
+    """Delete cached PDF/pkpass files for held series passes whose covered events have all ended.
+
+    Gated by the LAST covered event's end (``Max("series_pass__tier_links__event__end")``),
+    mirroring the per-ticket ``event__end`` cutoff — a pass still covering an upcoming event
+    stays downloadable even if it also covers past ones.
+
+    Returns:
+        The pks of held passes whose cached files were cleared.
+    """
+    passes_with_files = (
+        HeldSeriesPass.objects.annotate(last_event_end=Max("series_pass__tier_links__event__end"))
+        .filter(last_event_end__lt=now)
+        .filter(Q(pdf_file__gt="") | Q(pkpass_file__gt=""))
+    )
+
+    cleaned_pks: list[UUID] = []
+    for held_pass in passes_with_files.only("pk", "pdf_file", "pkpass_file"):
+        try:
+            if held_pass.pdf_file:
+                held_pass.pdf_file.delete(save=False)
+            if held_pass.pkpass_file:
+                held_pass.pkpass_file.delete(save=False)
+            cleaned_pks.append(held_pass.pk)
+        except OSError:
+            logger.warning("Failed to clean cached files for series pass %s", held_pass.pk, exc_info=True)
+
+    if cleaned_pks:
+        HeldSeriesPass.objects.filter(pk__in=cleaned_pks).update(
+            pdf_file="",
+            pkpass_file="",
+            file_content_hash=None,
+        )
+        logger.info("cleanup_series_pass_file_cache_done", cleaned=len(cleaned_pks))
+
+    return cleaned_pks
+
+
+@shared_task(name="events.cleanup_ticket_file_cache")
+def cleanup_ticket_file_cache() -> TicketFileCacheCleanupResult:
+    """Delete cached PDF/pkpass files for tickets and series passes whose events have ended.
+
+    Frees storage for past events since cached files are no longer needed. Files can
+    always be regenerated on demand if needed.
+
+    Returns:
+        Dict with the total count of tickets and held passes cleaned.
+    """
+    now = timezone.now()
+    cleaned_ticket_pks = _sweep_ticket_files(now)
+    cleaned_pass_pks = _sweep_series_pass_files(now)
+    return {"cleaned": len(cleaned_ticket_pks) + len(cleaned_pass_pks)}

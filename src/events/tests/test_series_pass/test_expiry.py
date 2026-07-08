@@ -38,18 +38,6 @@ pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
-def stripe_connected_organization(organization: Organization) -> Organization:
-    """Organization with Stripe account connected."""
-    organization.stripe_account_id = "acct_test123"
-    organization.stripe_charges_enabled = True
-    organization.stripe_details_submitted = True
-    organization.platform_fee_percent = Decimal("3.00")
-    organization.platform_fee_fixed = Decimal("0.50")
-    organization.save()
-    return organization
-
-
-@pytest.fixture
 def online_pass_two_tiers(
     stripe_connected_organization: Organization, event_series: EventSeries
 ) -> tuple[SeriesPass, list[TicketTier]]:

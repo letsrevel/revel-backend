@@ -810,9 +810,10 @@ def create_series_pass_checkout_session(
     if billing_info:
         billing_snapshot = _build_billing_snapshot(billing_info, False, False)
 
+    tier_map = TicketTier.objects.in_bulk([ticket.tier_id for ticket in tickets])
     payments = []
     for i, ticket in enumerate(tickets):
-        rate = get_effective_vat_rate(ticket.tier.vat_rate, org.vat_rate)
+        rate = get_effective_vat_rate(tier_map[ticket.tier_id].vat_rate, org.vat_rate)
         ticket_vat = calculate_vat_inclusive(shares[i], rate)
         payments.append(
             Payment(

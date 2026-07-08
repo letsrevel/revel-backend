@@ -221,7 +221,7 @@ class ApplePassGenerator:
             ticket_price=format_price(held_pass.price_paid, series_pass.currency),
             colors=get_theme_colors(),
             logo_image=logo_image,
-            barcode_message=f"series:{held_pass.id}",
+            barcode_message=held_pass.qr_payload,
             relevant_date=event_start,
             expiration_date=event_end + PASS_EXPIRATION_GRACE_PERIOD,
             venue_name=venue_name,

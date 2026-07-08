@@ -4,6 +4,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.core.files.base import ContentFile
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -12,9 +13,13 @@ from events.models import (
     AttendeeVisibilityFlag,
     Event,
     EventRSVP,
+    EventSeries,
     GeneralUserPreferences,
+    HeldSeriesPass,
     Organization,
     Payment,
+    SeriesPass,
+    SeriesPassTierLink,
     Ticket,
     TicketTier,
 )
@@ -561,6 +566,194 @@ class TestCleanupTicketFileCache:
         # ticket2 should still have its file (deletion failed)
         assert ticket2.pdf_file
         assert ticket2.file_content_hash is not None
+
+
+class TestCleanupSeriesPassFileCacheSweep:
+    """Tests for cleanup_ticket_file_cache's HeldSeriesPass sweep (same task, no new beat row).
+
+    A held pass is only swept once every event its pass covers has ended, gated by the
+    LAST covered event's end (not the first) — a pass still covering an upcoming event
+    stays downloadable even if it also covers past events.
+    """
+
+    @pytest.fixture
+    def user(self, revel_user_factory: RevelUserFactory) -> RevelUser:
+        return revel_user_factory()
+
+    @pytest.fixture
+    def org(self, user: RevelUser) -> Organization:
+        return Organization.objects.create(name="Pass Cache Org", slug="pass-cache-org", owner=user)
+
+    @pytest.fixture
+    def event_series(self, org: Organization) -> EventSeries:
+        return EventSeries.objects.create(organization=org, name="Pass Cache Series", slug="pass-cache-series")
+
+    def _make_covered_event(
+        self,
+        org: Organization,
+        event_series: EventSeries,
+        series_pass: SeriesPass,
+        suffix: str,
+        start: t.Any,
+        end: t.Any,
+    ) -> None:
+        """Create an event + tier and link it to series_pass."""
+        event = Event.objects.create(
+            organization=org,
+            event_series=event_series,
+            name=f"Cache Event {suffix}",
+            slug=f"cache-event-{suffix}",
+            start=start,
+            end=end,
+            requires_ticket=True,
+            status=Event.EventStatus.OPEN,
+        )
+        tier = TicketTier.objects.create(event=event, name=f"Cache Tier {suffix}", price=0, currency="EUR")
+        SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=tier)
+
+    @pytest.fixture
+    def past_series_pass(self, org: Organization, event_series: EventSeries) -> SeriesPass:
+        """A pass whose only covered event has already ended."""
+        now = timezone.now()
+        series_pass = SeriesPass.objects.create(
+            event_series=event_series,
+            name="Past Pass",
+            price=Decimal("10.00"),
+            pro_rata_discount=Decimal("1.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.FREE,
+        )
+        self._make_covered_event(
+            org, event_series, series_pass, "past", now - timedelta(days=2), now - timedelta(days=1)
+        )
+        return series_pass
+
+    @pytest.fixture
+    def ongoing_series_pass(self, org: Organization, event_series: EventSeries) -> SeriesPass:
+        """A pass covering one past and one future event — not fully over yet."""
+        now = timezone.now()
+        series_pass = SeriesPass.objects.create(
+            event_series=event_series,
+            name="Ongoing Pass",
+            price=Decimal("20.00"),
+            pro_rata_discount=Decimal("2.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.FREE,
+        )
+        self._make_covered_event(
+            org, event_series, series_pass, "ongoing-past", now - timedelta(days=2), now - timedelta(days=1)
+        )
+        self._make_covered_event(
+            org, event_series, series_pass, "ongoing-future", now + timedelta(days=7), now + timedelta(days=7, hours=2)
+        )
+        return series_pass
+
+    def _create_held_pass_with_files(
+        self,
+        series_pass: SeriesPass,
+        user: RevelUser,
+        *,
+        has_pdf: bool = False,
+        has_pkpass: bool = False,
+    ) -> HeldSeriesPass:
+        """Helper to create a held pass and attach cached files directly (no real PDF/pkpass generation)."""
+        held_pass = HeldSeriesPass.objects.create(
+            series_pass=series_pass,
+            user=user,
+            status=HeldSeriesPass.Status.ACTIVE,
+            price_paid=series_pass.price,
+        )
+        if has_pdf:
+            held_pass.pdf_file.save("pass.pdf", ContentFile(b"%PDF-cached"), save=False)
+        if has_pkpass:
+            held_pass.pkpass_file.save("pass.pkpass", ContentFile(b"PK-cached"), save=False)
+        if has_pdf or has_pkpass:
+            held_pass.file_content_hash = "cached-hash"
+            held_pass.save()
+        return held_pass
+
+    def test_cleans_pass_whose_last_covered_event_ended(self, past_series_pass: SeriesPass, user: RevelUser) -> None:
+        held_pass = self._create_held_pass_with_files(past_series_pass, user, has_pdf=True, has_pkpass=True)
+
+        result = cleanup_ticket_file_cache()
+
+        assert result == {"cleaned": 1}
+        held_pass.refresh_from_db()
+        assert not held_pass.pdf_file
+        assert not held_pass.pkpass_file
+        assert held_pass.file_content_hash is None
+
+    def test_skips_pass_with_upcoming_covered_event(self, ongoing_series_pass: SeriesPass, user: RevelUser) -> None:
+        """The pass covers a past AND a future event — its LAST event hasn't ended, so it's untouched."""
+        held_pass = self._create_held_pass_with_files(ongoing_series_pass, user, has_pdf=True, has_pkpass=True)
+
+        result = cleanup_ticket_file_cache()
+
+        assert result == {"cleaned": 0}
+        held_pass.refresh_from_db()
+        assert held_pass.pdf_file
+        assert held_pass.pkpass_file
+
+    def test_skips_pass_without_files(self, past_series_pass: SeriesPass, user: RevelUser) -> None:
+        self._create_held_pass_with_files(past_series_pass, user)
+
+        result = cleanup_ticket_file_cache()
+
+        assert result == {"cleaned": 0}
+
+    def test_continues_processing_when_one_pass_fails(
+        self, past_series_pass: SeriesPass, user: RevelUser, revel_user_factory: RevelUserFactory
+    ) -> None:
+        """Should continue cleaning remaining held passes when one pass's file deletion fails."""
+        held_pass1 = self._create_held_pass_with_files(past_series_pass, user, has_pdf=True)
+        other_user = revel_user_factory()
+        held_pass2 = self._create_held_pass_with_files(past_series_pass, other_user, has_pdf=True)
+
+        with patch.object(
+            HeldSeriesPass.pdf_file.field.attr_class,  # type: ignore[attr-defined]
+            "delete",
+            side_effect=OSError("disk error"),
+        ):
+            result = cleanup_ticket_file_cache()
+
+        # Both fail (same patched delete), but the loop must not raise partway through.
+        assert result == {"cleaned": 0}
+        held_pass1.refresh_from_db()
+        held_pass2.refresh_from_db()
+        assert held_pass1.pdf_file
+        assert held_pass2.pdf_file
+
+    def test_counts_tickets_and_passes_together(
+        self,
+        past_series_pass: SeriesPass,
+        user: RevelUser,
+        org: Organization,
+        event_series: EventSeries,
+    ) -> None:
+        """The combined 'cleaned' counter spans both tickets and held passes in one run."""
+        now = timezone.now()
+        past_event = Event.objects.create(
+            organization=org,
+            event_series=event_series,
+            name="Direct Past Event",
+            slug="direct-past-event",
+            start=now - timedelta(days=2),
+            end=now - timedelta(days=1),
+            requires_ticket=True,
+            status=Event.EventStatus.CLOSED,
+        )
+        past_tier = TicketTier.objects.create(event=past_event, name="Direct Past Tier", price=0)
+        ticket = Ticket.objects.create(
+            event=past_event, user=user, tier=past_tier, status=Ticket.TicketStatus.ACTIVE, guest_name="Direct"
+        )
+        ticket.pdf_file.save("ticket.pdf", ContentFile(b"%PDF-cached"), save=False)
+        ticket.file_content_hash = "cached-hash"
+        ticket.save()
+        self._create_held_pass_with_files(past_series_pass, user, has_pdf=True)
+
+        result = cleanup_ticket_file_cache()
+
+        assert result == {"cleaned": 2}
 
 
 class TestGenerateRecurringEventsTask:

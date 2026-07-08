@@ -110,14 +110,15 @@ def test_my_tickets_pass_ticket_carries_series_pass(
     held_pass: HeldSeriesPass,
     series_pass: SeriesPass,
 ) -> None:
-    """A pass-derived ticket exposes {id, name}; a direct ticket exposes null."""
+    """A pass-derived ticket exposes {held_pass_id, series_pass_id, name}; a direct ticket exposes null."""
     url = reverse("api:dashboard_tickets")
     response = revel_user_client.get(url)
     assert response.status_code == 200
     by_id = {item["id"]: item for item in response.json()["results"]}
 
     assert by_id[str(pass_ticket.id)]["series_pass"] == {
-        "id": str(held_pass.id),
+        "held_pass_id": str(held_pass.id),
+        "series_pass_id": str(series_pass.id),
         "name": series_pass.name,
     }
     assert by_id[str(plain_ticket.id)]["series_pass"] is None
@@ -201,7 +202,11 @@ def test_admin_list_tickets_filter_by_source(
     assert response.status_code == 200
     data = response.json()
     assert {item["id"] for item in data["results"]} == {str(pass_ticket.id)}
-    assert data["results"][0]["series_pass"] == {"id": str(held_pass.id), "name": series_pass.name}
+    assert data["results"][0]["series_pass"] == {
+        "held_pass_id": str(held_pass.id),
+        "series_pass_id": str(series_pass.id),
+        "name": series_pass.name,
+    }
 
     response = owner_client.get(url, {"source": "direct"})
     assert response.status_code == 200

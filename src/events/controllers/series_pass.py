@@ -3,7 +3,6 @@
 import typing as t
 from uuid import UUID
 
-from django.conf import settings
 from django.db.models import Prefetch, QuerySet
 from django.http import HttpResponse, HttpResponseRedirect
 from ninja import Body
@@ -19,6 +18,7 @@ from common.throttling import WriteThrottle
 from events import models, schema
 from events.service import series_pass_file_service, series_pass_service
 from events.service.series_pass_purchase import SeriesPassPurchaseService
+from events.utils import apple_wallet_configured
 
 
 class _CheckoutResult(t.TypedDict):
@@ -37,38 +37,9 @@ class _CheckoutResult(t.TypedDict):
     held_pass: models.HeldSeriesPass | None
 
 
-def _apple_pass_available() -> bool:
-    """Whether Apple Wallet is configured server-wide (mirrors ``Ticket.apple_pass_available``)."""
-    return bool(
-        settings.APPLE_WALLET_PASS_TYPE_ID
-        and settings.APPLE_WALLET_TEAM_ID
-        and settings.APPLE_WALLET_CERT_PATH
-        and settings.APPLE_WALLET_KEY_PATH
-        and settings.APPLE_WALLET_WWDR_CERT_PATH
-    )
-
-
 @api_controller("/series-passes", auth=OptionalAuth(), tags=["Series Passes"])
 class SeriesPassController(UserAwareController):
     """Public endpoints for browsing, quoting, purchasing, and downloading series passes."""
-
-    def _pass_is_visible(self, series_pass: models.SeriesPass) -> bool:
-        """Pass-level visibility, given the series it belongs to is already visible.
-
-        v1 simplification: mirrors ``TicketTier``'s tier-visibility convention (PUBLIC/UNLISTED
-        visible to everyone, MEMBERS_ONLY requires an active membership, STAFF_ONLY/PRIVATE are
-        staff/owner-only) without the invitation-based branch — ``SeriesPass.clean()`` already
-        rejects INVITED/INVITED_AND_MEMBERS, so no invitation-linked visibility exists to replicate.
-        """
-        user = self.maybe_user()
-        org = series_pass.event_series.organization
-        if not user.is_anonymous and (user.is_superuser or user.is_staff or org.is_owner_or_staff(user)):
-            return True
-        if series_pass.visibility in models.SeriesPass.Visibility.publicly_accessible():
-            return True
-        if series_pass.visibility == models.SeriesPass.Visibility.MEMBERS_ONLY and not user.is_anonymous:
-            return models.OrganizationMember.objects.for_visibility().filter(user=user, organization=org).exists()
-        return False
 
     def _get_visible_pass(self, pass_id: UUID) -> models.SeriesPass:
         """Fetch a series pass, 404ing unless both its series and the pass itself are visible."""
@@ -85,7 +56,7 @@ class SeriesPassController(UserAwareController):
         )
         if not series_is_visible:
             raise NotFound()
-        if not self._pass_is_visible(series_pass):
+        if not series_pass_service.pass_visible_to_user(series_pass, self.maybe_user()):
             raise NotFound()
         return series_pass
 
@@ -115,8 +86,8 @@ class SeriesPassController(UserAwareController):
             models.EventSeries,
             self.get_object_or_exception(models.EventSeries.objects.for_user(self.maybe_user()), pk=series_id),
         )
-        passes = series.series_passes.filter(is_active=True).select_related("event_series__organization")
-        return [series_pass for series_pass in passes if self._pass_is_visible(series_pass)]
+        passes = series.series_passes.filter(is_active=True)
+        return series_pass_service.visible_passes(passes, series.organization, self.maybe_user())
 
     @route.get("/{pass_id}/quote", url_name="get_series_pass_quote", response=schema.SeriesPassQuoteSchema)
     def get_series_pass_quote(self, pass_id: UUID) -> schema.SeriesPassQuoteSchema:
@@ -151,7 +122,10 @@ class SeriesPassController(UserAwareController):
         the held pass is created once payment succeeds (see the Stripe webhook).
 
         **Error Cases:**
-        - 403: Blacklisted, or the pass is members-only and the user isn't a member.
+        - 403: Blacklisted, or ``purchasable_by`` is members-only and the user isn't a member
+          (the pass is visible, but not purchasable, to non-members).
+        - 404: The pass itself isn't visible to the user (e.g. a MEMBERS_ONLY-*visibility*
+          pass and the user isn't a member) — raised earlier, by ``_get_visible_pass``.
         - 409: Not currently purchasable (sold out, outside sales window, already held).
         - 429: A covered future event's tier just sold out.
         """
@@ -218,7 +192,7 @@ class SeriesPassController(UserAwareController):
             self.get_object_or_exception(models.HeldSeriesPass.objects.filter(user=self.user()), pk=held_pass_id),
         )
 
-        if not _apple_pass_available():
+        if not apple_wallet_configured():
             raise HttpError(503, "Apple Wallet is not configured")
 
         pkpass_bytes = series_pass_file_service.get_or_generate_pass_pkpass(held_pass)

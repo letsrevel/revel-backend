@@ -14,6 +14,18 @@ def event_series(organization: Organization) -> EventSeries:
 
 
 @pytest.fixture
+def stripe_connected_organization(organization: Organization) -> Organization:
+    """Organization with Stripe account connected."""
+    organization.stripe_account_id = "acct_test123"
+    organization.stripe_charges_enabled = True
+    organization.stripe_details_submitted = True
+    organization.platform_fee_percent = Decimal("3.00")
+    organization.platform_fee_fixed = Decimal("0.50")
+    organization.save()
+    return organization
+
+
+@pytest.fixture
 def recurring_series(organization: Organization) -> EventSeries:
     """An EventSeries wired to a RecurrenceRule (series passes are not supported on these)."""
     rule = RecurrenceRule.objects.create(

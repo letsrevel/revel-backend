@@ -127,8 +127,12 @@ class SeriesPassPurchaseService:
         ticket_status = Ticket.TicketStatus.ACTIVE if is_free else Ticket.TicketStatus.PENDING
         tickets = series_pass_service.materialize_tickets(held_pass, future_links, ticket_status)
 
-        for link in future_links:
-            TicketTier.objects.filter(pk=link.tier_id).update(quantity_sold=F("quantity_sold") + 1)
+        if future_links:
+            # Distinct per link by construction (one tier per covered event) — a single
+            # UPDATE increments them all instead of one query per link.
+            TicketTier.objects.filter(pk__in=[link.tier_id for link in future_links]).update(
+                quantity_sold=F("quantity_sold") + 1
+            )
         SeriesPass.objects.filter(pk=self.series_pass.pk).update(quantity_sold=F("quantity_sold") + 1)
 
         logger.info(

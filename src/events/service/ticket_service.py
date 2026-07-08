@@ -26,6 +26,7 @@ from events.models import (
     Event,
     EventInvitation,
     EventRSVP,
+    HeldSeriesPass,
     MembershipTier,
     Organization,
     OrganizationMember,
@@ -445,17 +446,14 @@ def _check_in_closed_message(event: Event) -> str:
     return str(_("Check-in is not currently open for this event."))
 
 
-SERIES_QR_PREFIX = "series:"
-
-
 def resolve_check_in_ticket_id(event: Event, code: str) -> UUID:
     """Resolve a scanned code (ticket UUID or ``series:<held-pass-uuid>``) to a ticket id.
 
     Malformed UUIDs 404 here so the ORM never raises on a bad lookup value.
     """
-    if code.startswith(SERIES_QR_PREFIX):
+    if code.startswith(HeldSeriesPass.QR_PREFIX):
         try:
-            held_pass_id = UUID(code[len(SERIES_QR_PREFIX) :])
+            held_pass_id = UUID(code[len(HeldSeriesPass.QR_PREFIX) :])
         except ValueError:
             raise Http404("Invalid pass code.") from None
         ticket = get_object_or_404(

@@ -1,3 +1,5 @@
+import typing as t
+
 from django.conf import settings
 from django.contrib.gis.db import models
 from django.core.exceptions import ObjectDoesNotExist
@@ -129,6 +131,8 @@ class SeriesPassTierLink(TimeStampedModel):
 class HeldSeriesPass(TimeStampedModel):
     """A user's purchased series pass. Its id is the QR payload (``series:<uuid>``)."""
 
+    QR_PREFIX: t.ClassVar[str] = "series:"
+
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         ACTIVE = "active", "Active"
@@ -156,3 +160,13 @@ class HeldSeriesPass(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"HeldSeriesPass {self.id} ({self.user_id})"
+
+    @property
+    def qr_payload(self) -> str:
+        """QR/barcode payload for this held pass.
+
+        Check-in contract: ``ticket_service.resolve_check_in_ticket_id`` strips
+        ``QR_PREFIX`` back off a scanned code to resolve the held pass id, so this
+        is the single source of truth every generator (PDF, Apple Wallet) must use.
+        """
+        return f"{self.QR_PREFIX}{self.id}"

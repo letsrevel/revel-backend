@@ -11,6 +11,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import structlog
+from django.contrib.auth.models import AnonymousUser
 from django.db import transaction
 from django.db.models import F, Q
 from django.db.models.deletion import ProtectedError, RestrictedError
@@ -24,6 +25,8 @@ from events.models import (
     Event,
     EventSeries,
     HeldSeriesPass,
+    Organization,
+    OrganizationMember,
     OrganizationQuestionnaire,
     Payment,
     SeriesPass,
@@ -82,6 +85,66 @@ def get_quote(series_pass: SeriesPass, now: datetime | None = None) -> SeriesPas
         purchasable=reason is None,
         reason=reason,
     )
+
+
+def pass_visible_to_user(series_pass: SeriesPass, user: RevelUser | AnonymousUser) -> bool:
+    """Pass-level visibility, given the series it belongs to is already visible.
+
+    v1 simplification: mirrors ``TicketTier``'s tier-visibility convention (PUBLIC/UNLISTED
+    visible to everyone, MEMBERS_ONLY requires an active membership, STAFF_ONLY/PRIVATE are
+    staff/owner-only) without the invitation-based branch — ``SeriesPass.clean()`` already
+    rejects INVITED/INVITED_AND_MEMBERS, so no invitation-linked visibility exists to replicate.
+
+    Args:
+        series_pass: The pass to check (``event_series__organization`` should be
+            select_related to avoid an extra query).
+        user: The requesting user, possibly anonymous.
+
+    Returns:
+        Whether the pass is visible to the user.
+    """
+    org = series_pass.event_series.organization
+    if not user.is_anonymous and (user.is_superuser or user.is_staff or org.is_owner_or_staff(user)):
+        return True
+    if series_pass.visibility in SeriesPass.Visibility.publicly_accessible():
+        return True
+    if series_pass.visibility == SeriesPass.Visibility.MEMBERS_ONLY and not user.is_anonymous:
+        return OrganizationMember.objects.for_visibility().filter(user=user, organization=org).exists()
+    return False
+
+
+def visible_passes(
+    passes: t.Iterable[SeriesPass], org: Organization, user: RevelUser | AnonymousUser
+) -> list[SeriesPass]:
+    """Filter a list of series passes (all belonging to ``org``) by visibility to ``user``.
+
+    ``pass_visible_to_user`` re-derives the owner/staff and active-membership checks on
+    every call; running it per pass over a list would cost up to two extra queries per
+    pass. Here both checks are computed once for the whole list.
+
+    Args:
+        passes: The passes to filter. Must all belong to ``org``.
+        org: The organization the passes belong to.
+        user: The requesting user, possibly anonymous.
+
+    Returns:
+        The subset of ``passes`` visible to ``user``, in input order.
+    """
+    is_privileged = not user.is_anonymous and (user.is_superuser or user.is_staff or org.is_owner_or_staff(user))
+    is_member = (
+        not is_privileged
+        and not user.is_anonymous
+        and (OrganizationMember.objects.for_visibility().filter(user=user, organization=org).exists())
+    )
+
+    def _visible(series_pass: SeriesPass) -> bool:
+        if is_privileged:
+            return True
+        if series_pass.visibility in SeriesPass.Visibility.publicly_accessible():
+            return True
+        return series_pass.visibility == SeriesPass.Visibility.MEMBERS_ONLY and is_member
+
+    return [series_pass for series_pass in passes if _visible(series_pass)]
 
 
 class TierLinkInput(t.TypedDict):
@@ -187,8 +250,7 @@ def add_tier_links(
                 )
             continue  # Same (event, tier) already linked — idempotent no-op.
         tier_link = SeriesPassTierLink(series_pass=series_pass, event_id=link["event_id"], tier_id=link["tier_id"])
-        tier_link.full_clean()
-        tier_link.save()
+        tier_link.save()  # TimeStampedModel.save() already full_cleans.
         created.append(tier_link)
     if materialize and created:
         event_ids = [str(link.event_id) for link in created]
@@ -215,8 +277,7 @@ def create_series_pass(series: EventSeries, payload: SeriesPassCreateSchema) -> 
     """
     with transaction.atomic():
         series_pass = SeriesPass(event_series=series, **payload.model_dump(exclude={"tier_links"}))
-        series_pass.full_clean()
-        series_pass.save()
+        series_pass.save()  # TimeStampedModel.save() already full_cleans.
         # materialize=False: no holders can exist yet for a pass that is only just being created.
         add_tier_links(series_pass, payload.tier_links_as_inputs, materialize=False)
     return series_pass

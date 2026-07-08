@@ -13,6 +13,7 @@ from django.utils.functional import cached_property
 
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
+from events.utils import apple_wallet_configured
 
 from .mixins import VisibilityMixin
 from .organization import MembershipTier, OrganizationMember
@@ -783,13 +784,7 @@ class Ticket(TimeStampedModel):
     @cached_property
     def apple_pass_available(self) -> bool:
         """Check if apple pass is available."""
-        return bool(
-            settings.APPLE_WALLET_PASS_TYPE_ID
-            and settings.APPLE_WALLET_TEAM_ID
-            and settings.APPLE_WALLET_CERT_PATH
-            and settings.APPLE_WALLET_KEY_PATH
-            and settings.APPLE_WALLET_WWDR_CERT_PATH
-        )
+        return apple_wallet_configured()
 
 
 def _get_payment_default_expiry() -> datetime:

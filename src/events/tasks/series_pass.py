@@ -75,9 +75,12 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
                     continue
                 grantable.append(link)
             created = series_pass_service.materialize_tickets(held_pass, grantable, Ticket.TicketStatus.ACTIVE)
-            for ticket in created:
-                TicketTier.objects.filter(pk=ticket.tier_id).update(quantity_sold=F("quantity_sold") + 1)
             if created:
+                # One ticket per tier by construction (each covered event has its own tier
+                # link) — a single UPDATE increments them all instead of one query per ticket.
+                TicketTier.objects.filter(pk__in=[ticket.tier_id for ticket in created]).update(
+                    quantity_sold=F("quantity_sold") + 1
+                )
                 # functools.partial binds held_pass.id/event_ids eagerly (not a late-binding
                 # closure over the loop variables), matching the engineering-notes guidance
                 # for dispatching per-iteration on_commit callbacks from inside a loop.
