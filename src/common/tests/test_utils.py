@@ -1,5 +1,6 @@
 import sys
 import typing as t
+from contextlib import contextmanager
 from io import BytesIO
 from unittest import mock
 
@@ -12,6 +13,27 @@ from PIL import Image
 
 from common.models import Tag
 from common.utils import get_or_create_with_race_protection, strip_exif
+
+
+@contextmanager
+def force_first_lookup_miss(manager: t.Any) -> t.Iterator[None]:
+    """Make ``manager.filter(...).first()`` miss on its first call, then behave normally.
+
+    Used to simulate a race where a concurrent winner has already committed before our
+    create attempt, but our own pre-check ran too early to see it.
+    """
+    call_count = 0
+    real_filter = manager.filter
+
+    def fake_filter(*args: t.Any, **kwargs: t.Any) -> t.Any:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return manager.none()
+        return real_filter(*args, **kwargs)
+
+    with mock.patch.object(manager, "filter", side_effect=fake_filter):
+        yield
 
 
 @pytest.fixture
@@ -93,19 +115,55 @@ class TestGetOrCreateWithRaceProtection:
 
     @pytest.mark.django_db
     def test_recovers_from_validationerror_race(self) -> None:
-        """A ValidationError from a racing duplicate is caught and the winner re-fetched."""
+        """A ValidationError from a racing duplicate is caught and the winner re-fetched.
 
-        def racing_create(**defaults: t.Any) -> None:
-            # Simulate the race: a concurrent request commits the row (bulk_create
-            # bypasses full_clean), then our full_clean's validate_constraints fails.
-            Tag.objects.bulk_create([Tag(**defaults)])
+        The winner is committed *before* our create attempt (mirroring a concurrent
+        request's already-committed row), and our own pre-check is forced to miss it
+        once so we still attempt the create, which fails with the ValidationError
+        full_clean's validate_constraints raises when the racing row is already there.
+        """
+        existing = Tag.objects.create(name="race-tag-c")
+
+        def failing_create(**defaults: t.Any) -> None:
             raise ValidationError("Tag with this Name already exists.")
 
-        with mock.patch.object(Tag.objects, "create", side_effect=racing_create):
+        with (
+            force_first_lookup_miss(Tag.objects),
+            mock.patch.object(Tag.objects, "create", side_effect=failing_create),
+        ):
             tag, created = get_or_create_with_race_protection(Tag, Q(name="race-tag-c"), {"name": "race-tag-c"})
 
         assert created is False
-        assert tag.name == "race-tag-c"
+        assert tag.pk == existing.pk
+
+    @pytest.mark.django_db
+    def test_recovers_from_integrityerror_race_without_poisoning_transaction(self) -> None:
+        """A genuine DB-level IntegrityError race is recovered via a savepoint.
+
+        The "concurrent winner" row is committed to the ambient transaction *before*
+        our own create attempt begins (mirroring a real race, where the winner commits
+        in an independent transaction). Our own pre-check is forced to miss it (first
+        call only) so we still attempt the create; full_clean is disabled for that
+        attempt so it skips validate_unique and reaches the database for real, making
+        the race surface as a raw IntegrityError from the unique index rather than a
+        Django-level ValidationError. Without wrapping the create attempt in its own
+        savepoint, that IntegrityError aborts the ambient (test) transaction, and the
+        recovery re-fetch raises TransactionManagementError instead of returning the
+        winner.
+        """
+        existing = Tag.objects.create(name="race-tag-e")
+
+        with (
+            force_first_lookup_miss(Tag.objects),
+            mock.patch.object(Tag, "full_clean", return_value=None),
+        ):
+            tag, created = get_or_create_with_race_protection(Tag, Q(name="race-tag-e"), {"name": "race-tag-e"})
+
+        assert created is False
+        assert tag.pk == existing.pk
+
+        # The ambient transaction must still be usable after the recovery.
+        assert Tag.objects.filter(name="race-tag-e").count() == 1
 
     @pytest.mark.django_db
     def test_reraises_non_race_validationerror(self) -> None:
