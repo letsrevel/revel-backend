@@ -1,4 +1,5 @@
 import typing as t
+from decimal import Decimal
 from uuid import UUID
 
 from django.shortcuts import get_object_or_404
@@ -20,6 +21,25 @@ from events.service.batch_ticket_service import BatchTicketService
 from events.service.event_manager import EventManager, EventUserEligibility
 
 from .base import EventPublicBaseController
+
+
+class _CancellationResult(t.TypedDict):
+    """Raw payload matching ``response=schema.TicketCancellationResponseSchema``.
+
+    Returned as a plain dict rather than a pre-built ``TicketCancellationResponseSchema``:
+    ninja always re-validates whatever a route returns against its declared ``response``
+    schema, wrapping it in a fresh resolver-aware getter. Handing it an already-built
+    ``UserTicketSchema`` would make that revalidation pass run ``UserTicketSchema``'s
+    resolvers (``series_pass``, ``payment``, ``pdf_url``, ``pkpass_url``) against the
+    *schema* instance instead of the ``Ticket`` model they expect. A raw dict keeps
+    ``ticket`` as the ORM instance all the way to that single validation pass, so the
+    resolvers see what they expect.
+    """
+
+    ticket: models.Ticket
+    refund_amount: Decimal
+    currency: str
+    refund_status: models.Payment.RefundStatus | None
 
 
 @api_controller("/events", auth=OptionalAuth(), tags=["Events"])
@@ -420,9 +440,10 @@ class EventPublicTicketsController(EventPublicBaseController):
             raise HttpError(502, str(_("Refund failed. Please try again later."))) from exc
 
         fresh = models.Ticket.objects.full().get(pk=result.ticket.pk)
-        return schema.TicketCancellationResponseSchema(
-            ticket=schema.UserTicketSchema.from_orm(fresh),
-            refund_amount=result.refund_amount,
-            currency=result.currency,
-            refund_status=(models.Payment.RefundStatus(result.refund_status) if result.refund_status else None),
-        )
+        cancellation_result: _CancellationResult = {
+            "ticket": fresh,
+            "refund_amount": result.refund_amount,
+            "currency": result.currency,
+            "refund_status": (models.Payment.RefundStatus(result.refund_status) if result.refund_status else None),
+        }
+        return cancellation_result
