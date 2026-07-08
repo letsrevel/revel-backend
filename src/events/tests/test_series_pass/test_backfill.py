@@ -230,6 +230,9 @@ class TestBackfillMissingTickets:
         created = series_pass_service.backfill_missing_tickets(result)
 
         assert [ticket.event_id for ticket in created] == [open_event.id]
+        # Free of charge — a backfilled ticket must never inherit the mapped tier's
+        # price in revenue/VAT reports (#644).
+        assert all(ticket.price_paid == Decimal("0.00") for ticket in created)
         full_tier.refresh_from_db()
         assert full_tier.quantity_sold == 1  # unchanged — skipped, not granted
         open_tier.refresh_from_db()

@@ -143,6 +143,9 @@ class TestMaterializeSeriesPassHolders:
             assert {ticket.event_id for ticket in tickets} == {e.id for e in new_events}
             assert all(ticket.status == Ticket.TicketStatus.ACTIVE for ticket in tickets)
             assert not Payment.objects.filter(ticket__in=tickets).exists()
+            # Free of charge — must never fall back to the mapped tier's price in
+            # revenue/VAT reports (#644).
+            assert all(ticket.price_paid == Decimal("0.00") for ticket in tickets)
 
     def test_tier_quantity_sold_incremented_per_materialized_ticket(
         self,

@@ -1,6 +1,7 @@
 """Celery tasks for series pass materialization."""
 
 import functools
+from decimal import Decimal
 from uuid import UUID
 
 import structlog
@@ -74,7 +75,11 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
                     skipped.append((held_pass.id, link.event_id))
                     continue
                 grantable.append(link)
-            created = series_pass_service.materialize_tickets(held_pass, grantable, Ticket.TicketStatus.ACTIVE)
+            # Free of charge — holders paid for the season, so extended tickets never
+            # inherit the mapped tier's price (keeps revenue/VAT reports honest, #644).
+            created = series_pass_service.materialize_tickets(
+                held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=Decimal("0.00")
+            )
             if created:
                 # One ticket per tier by construction (each covered event has its own tier
                 # link) — a single UPDATE increments them all instead of one query per ticket.

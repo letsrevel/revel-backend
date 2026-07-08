@@ -24,6 +24,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
+from events.service import series_pass_service
 from events.service.series_pass_purchase import SeriesPassPurchaseService
 
 pytestmark = pytest.mark.django_db
@@ -184,6 +185,9 @@ class TestFreePathPurchase:
         assert len(tickets) == 3
         assert {ticket.event_id for ticket in tickets} == {e.id for e in future_events}
         assert all(ticket.status == Ticket.TicketStatus.ACTIVE for ticket in tickets)
+        # Free pass, real money never changes hands — must never fall back to the
+        # mapped tier's price in revenue/VAT reports (#644).
+        assert all(ticket.price_paid == Decimal("0.00") for ticket in tickets)
         assert not Ticket.objects.filter(held_pass=held_pass, event=past_event).exists()
 
         expected_guest_name = revel_user.get_full_name() or revel_user.username
@@ -227,6 +231,34 @@ class TestOfflinePathPurchase:
         tickets = list(Ticket.objects.filter(held_pass=held_pass))
         assert len(tickets) == 3
         assert all(t.status == Ticket.TicketStatus.PENDING for t in tickets)
+        # Not settled yet — confirm_held_pass_payment fills this in per-ticket (#644).
+        assert all(t.price_paid is None for t in tickets)
+
+
+class TestOfflineConfirmPriceDistribution:
+    def test_confirm_distributes_price_paid_penny_exact_across_tickets(
+        self, purchasable_offline_pass: SeriesPass, revel_user: RevelUser
+    ) -> None:
+        """held_pass.price_paid (25.00 — 30.00 minus one passed event's 5.00 discount,
+        a non-dividing amount over the 3 confirmed tickets) must land on the tickets
+        penny-exact, never NULL — a NULL would make revenue/VAT reports fall back to
+        the mapped tier's full price instead of what was actually paid (#644)."""
+        held_pass = SeriesPassPurchaseService(purchasable_offline_pass, revel_user).purchase()
+        assert isinstance(held_pass, HeldSeriesPass)
+        assert held_pass.price_paid == Decimal("25.00")
+
+        with patch("events.service.series_pass_service.send_series_pass_purchased"):
+            confirmed = series_pass_service.confirm_held_pass_payment(held_pass)
+
+        tickets = list(Ticket.objects.filter(held_pass=confirmed))
+        assert len(tickets) == 3
+        assert all(ticket.status == Ticket.TicketStatus.ACTIVE for ticket in tickets)
+        prices = [ticket.price_paid for ticket in tickets if ticket.price_paid is not None]
+        assert len(prices) == 3  # none left NULL
+        assert sum(prices, Decimal("0.00")) == Decimal("25.00")
+        # 25.00 doesn't divide evenly by 3 — confirms a real per-ticket distribution,
+        # not a coincidental equal split.
+        assert len(set(prices)) > 1
 
 
 class TestOnlinePathPurchase:
@@ -247,6 +279,9 @@ class TestOnlinePathPurchase:
         tickets = kwargs["tickets"]
         assert len(tickets) == 3
         assert all(ticket.status == Ticket.TicketStatus.PENDING for ticket in tickets)
+        # Regression: ONLINE tickets stay NULL forever — Payment.amount is the
+        # authoritative per-ticket source of truth, never tier.price (#644).
+        assert all(ticket.price_paid is None for ticket in tickets)
 
 
 class TestAllOrNothingCapacity:

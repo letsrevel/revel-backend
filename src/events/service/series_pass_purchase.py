@@ -125,7 +125,14 @@ class SeriesPassPurchaseService:
         method = self.series_pass.payment_method
         is_free = method == TicketTier.PaymentMethod.FREE or quote.price <= 0
         ticket_status = Ticket.TicketStatus.ACTIVE if is_free else Ticket.TicketStatus.PENDING
-        tickets = series_pass_service.materialize_tickets(held_pass, future_links, ticket_status)
+        # Free tickets settle at 0.00 now. A paid OFFLINE ticket's price isn't known
+        # per-ticket until confirm_held_pass_payment distributes held_pass.price_paid
+        # across them; a paid ONLINE ticket never gets one — Payment.amount is
+        # authoritative (#644).
+        ticket_price_paid = Decimal("0.00") if is_free else None
+        tickets = series_pass_service.materialize_tickets(
+            held_pass, future_links, ticket_status, price_paid=ticket_price_paid
+        )
 
         if future_links:
             # Distinct per link by construction (one tier per covered event) — a single

@@ -37,6 +37,7 @@ from events.models import (
 from events.models.ticket import CancellationSource
 from events.schema.series_pass import SeriesPassCreateSchema
 from events.service import cancellation_service
+from events.service.vat_service import distribute_amount_across_items
 from events.tasks import materialize_series_pass_holders
 from notifications.signals.series_pass import send_series_pass_cancelled, send_series_pass_purchased
 
@@ -287,6 +288,7 @@ def materialize_tickets(
     held_pass: HeldSeriesPass,
     links: t.Sequence[SeriesPassTierLink],
     status: Ticket.TicketStatus,
+    price_paid: Decimal | None = None,
 ) -> list[Ticket]:
     """bulk_create one ticket per link, skipping events already ticketed for this pass.
 
@@ -297,6 +299,11 @@ def materialize_tickets(
         held_pass: The HeldSeriesPass the tickets are materialized for.
         links: The tier links to materialize tickets for.
         status: The status to create the tickets with (ACTIVE for free, PENDING otherwise).
+        price_paid: Recorded on every created ticket. Pass ``Decimal("0.00")`` when no
+            money changes hands for this batch (free passes, extension/backfill grants).
+            Leave ``None`` (the default) when the price isn't settled yet — an OFFLINE
+            purchase fills it in per-ticket in ``confirm_held_pass_payment``, and an
+            ONLINE purchase never sets it, since ``Payment.amount`` is authoritative.
 
     Returns:
         The created Ticket instances (excludes any skipped as already-ticketed).
@@ -316,6 +323,7 @@ def materialize_tickets(
             status=status,
             guest_name=guest_name,
             refund_policy_snapshot=None,
+            price_paid=price_paid,
         )
         for link in links
         if link.event_id not in existing_event_ids
@@ -330,6 +338,10 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
     holders, so a buyer mid-checkout misses any event linked to the pass between
     purchase and activation. Both activation paths (the ``checkout.session.completed``
     webhook and the offline ``confirm_held_pass_payment``) call this to catch up.
+
+    Free of charge — the buyer's payment already covered the events linked when they
+    purchased, so every granted ticket's ``price_paid`` is ``0.00``, never the mapped
+    tier's price.
 
     Must run inside a transaction (locks tier rows). Capacity-checked per tier:
     full tiers are skipped and logged, mirroring the extension task.
@@ -373,7 +385,7 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
             )
             continue
         grantable.append(link)
-    created = materialize_tickets(held_pass, grantable, Ticket.TicketStatus.ACTIVE)
+    created = materialize_tickets(held_pass, grantable, Ticket.TicketStatus.ACTIVE, price_paid=_ZERO)
     if created:
         # One ticket per tier by construction (each covered event has its own tier link).
         TicketTier.objects.filter(pk__in=[ticket.tier_id for ticket in created]).update(
@@ -633,6 +645,11 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
     activated alongside the pass itself, then the purchase notification fires (offline
     passes must not notify until the organizer confirms payment).
 
+    Each activated ticket's ``price_paid`` is set to its share of ``held_pass.price_paid``
+    (via ``distribute_amount_across_items``), so per-ticket admin views and tax-facing
+    revenue reports reflect what the buyer actually paid rather than the mapped tier's
+    full price.
+
     Args:
         held_pass: The held pass to confirm. Must have ``series_pass`` selected.
 
@@ -658,9 +675,21 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
 
     held_pass.status = HeldSeriesPass.Status.ACTIVE
     held_pass.save(update_fields=["status"])
-    Ticket.objects.filter(held_pass=held_pass, status=Ticket.TicketStatus.PENDING).update(
-        status=Ticket.TicketStatus.ACTIVE
+
+    # .update() can't assign a different price_paid per row, so pull the PENDING
+    # tickets and set each one's share individually. Ordered by event start (then pk)
+    # so the distribution — and which ticket absorbs any rounding remainder — is
+    # deterministic regardless of query/insertion order.
+    pending_tickets: list[Ticket] = list(
+        Ticket.objects.filter(held_pass=held_pass, status=Ticket.TicketStatus.PENDING).order_by("event__start", "pk")
     )
+    if pending_tickets:
+        shares = distribute_amount_across_items(held_pass.price_paid, len(pending_tickets))
+        for ticket, share in zip(pending_tickets, shares, strict=True):
+            ticket.status = Ticket.TicketStatus.ACTIVE
+            ticket.price_paid = share
+        Ticket.objects.bulk_update(pending_tickets, ["status", "price_paid"])
+
     # Catch up on events linked to the pass while it sat PENDING (the extension
     # task only materializes for ACTIVE holders).
     backfill_missing_tickets(held_pass)

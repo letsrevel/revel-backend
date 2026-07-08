@@ -185,6 +185,35 @@ def test_offline_zero_refund_still_increments_refunded_count(
 
 
 @pytest.mark.django_db
+def test_zero_price_paid_ticket_on_offline_tier_reports_zero_not_tier_price(
+    org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
+) -> None:
+    """A series-pass-materialized ticket mapped onto an OFFLINE tier (a FREE pass, or an
+    extension/backfill grant) records its real ``price_paid`` of 0 — the aggregator must
+    report 0 turnover for it, never the mapped tier's full price (#644)."""
+    org, event, _, user = org_event_tier
+    offline_tier = TicketTier.objects.create(
+        event=event,
+        name="Door",
+        price=Decimal("60.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.OFFLINE,
+    )
+    Ticket.objects.create(
+        event=event,
+        tier=offline_tier,
+        user=user,
+        status=Ticket.TicketStatus.ACTIVE,
+        guest_name="Pass Holder",
+        price_paid=Decimal("0.00"),
+    )
+    data = svc.build_revenue_report_data(_scope(org))
+    section = next(s for s in data.sections if s.currency == "EUR")
+    assert section.net_taxable_turnover == Decimal("0.00")
+    assert section.sold_count == 1
+
+
+@pytest.mark.django_db
 def test_empty_period_returns_empty_sections(
     org_event_tier: tuple[Organization, Event, TicketTier, RevelUser],
 ) -> None:
