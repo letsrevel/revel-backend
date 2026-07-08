@@ -8,7 +8,7 @@ import pytest
 from django.db import transaction
 
 from accounts.models import RevelUser
-from events.models import Payment, Ticket, TicketTier
+from events.models import EventSeries, HeldSeriesPass, Organization, Payment, SeriesPass, Ticket, TicketTier
 from notifications.enums import DeliveryChannel, NotificationType
 from notifications.models import Notification, NotificationPreference
 from telegram.models import TelegramUser
@@ -250,6 +250,188 @@ class TestPaymentRefundNotificationAmount:
         contexts = [call.kwargs["context"] for call in send_mock.call_args_list]
         assert any("20.00" in c["refund_amount"] for c in contexts), contexts
         assert all("40.00" not in c["refund_amount"] for c in contexts), contexts
+
+
+def _make_active_held_pass(organization: Organization, user: RevelUser, slug: str) -> HeldSeriesPass:
+    """A minimal ACTIVE HeldSeriesPass to set as Ticket.held_pass in guard tests.
+
+    Bypasses the purchase/coverage machinery entirely (no tier links, no
+    materialization) since these tests only need ``Ticket.held_pass_id`` to be
+    non-null to exercise the notification guards in isolation.
+    """
+    event_series = EventSeries.objects.create(organization=organization, name=f"Guard Series {slug}", slug=slug)
+    series_pass = SeriesPass.objects.create(
+        event_series=event_series,
+        name="Guard Pass",
+        price=Decimal("0.00"),
+        pro_rata_discount=Decimal("0.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.FREE,
+    )
+    return HeldSeriesPass.objects.create(
+        series_pass=series_pass, user=user, price_paid=Decimal("0.00"), status=HeldSeriesPass.Status.ACTIVE
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+class TestSeriesPassTicketNotificationGuard:
+    """Ticket.held_pass_id gates notifications/signals/ticket.py's post_save receiver (#644).
+
+    Guards must suppress per-ticket notifications for pass tickets without
+    over-suppressing them for regular (held_pass=None) tickets.
+    """
+
+    def test_pass_ticket_activation_sends_no_ticket_notifications(
+        self, public_event: t.Any, member_user: RevelUser, organization: Organization
+    ) -> None:
+        held_pass = _make_active_held_pass(organization, member_user, "guard-activation")
+        tier = TicketTier.objects.create(
+            event=public_event,
+            name="Guard Offline Tier",
+            price=Decimal("10.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+        )
+        ticket = Ticket.objects.create(
+            event=public_event,
+            tier=tier,
+            user=member_user,
+            held_pass=held_pass,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name=member_user.get_display_name(),
+        )
+        with patch("notifications.signals.ticket.notification_requested.send") as send_mock:
+            with transaction.atomic():
+                ticket.status = Ticket.TicketStatus.ACTIVE
+                ticket.save()
+        send_mock.assert_not_called()
+
+    def test_regular_ticket_activation_still_sends_ticket_notifications(
+        self, public_event: t.Any, member_user: RevelUser
+    ) -> None:
+        """Regression: a REGULAR (non-pass) ticket must still notify on activation."""
+        tier = TicketTier.objects.create(
+            event=public_event,
+            name="Guard Offline Tier Regular",
+            price=Decimal("10.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.OFFLINE,
+        )
+        ticket = Ticket.objects.create(
+            event=public_event,
+            tier=tier,
+            user=member_user,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name=member_user.get_display_name(),
+        )
+        with patch("notifications.signals.ticket.notification_requested.send") as send_mock:
+            with transaction.atomic():
+                ticket.status = Ticket.TicketStatus.ACTIVE
+                ticket.save()
+        updated_calls = [
+            call
+            for call in send_mock.call_args_list
+            if call.kwargs["notification_type"] == NotificationType.TICKET_UPDATED
+        ]
+        assert len(updated_calls) >= 1
+
+    def test_pass_ticket_cancellation_sends_no_ticket_notifications(
+        self, public_event: t.Any, member_user: RevelUser, organization: Organization
+    ) -> None:
+        held_pass = _make_active_held_pass(organization, member_user, "guard-cancellation")
+        tier = TicketTier.objects.create(
+            event=public_event,
+            name="Guard Online Tier",
+            price=Decimal("10.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        ticket = Ticket.objects.create(
+            event=public_event,
+            tier=tier,
+            user=member_user,
+            held_pass=held_pass,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name=member_user.get_display_name(),
+        )
+        with patch("notifications.signals.ticket.notification_requested.send") as send_mock:
+            with transaction.atomic():
+                ticket.status = Ticket.TicketStatus.CANCELLED
+                ticket.save()
+        send_mock.assert_not_called()
+
+    def test_regular_ticket_cancellation_still_sends_ticket_cancelled(
+        self, public_event: t.Any, member_user: RevelUser
+    ) -> None:
+        """Regression: a REGULAR (non-pass) ticket must still notify on cancellation."""
+        tier = TicketTier.objects.create(
+            event=public_event,
+            name="Guard Online Tier Regular",
+            price=Decimal("10.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        ticket = Ticket.objects.create(
+            event=public_event,
+            tier=tier,
+            user=member_user,
+            status=Ticket.TicketStatus.ACTIVE,
+            guest_name=member_user.get_display_name(),
+        )
+        with patch("notifications.signals.ticket.notification_requested.send") as send_mock:
+            with transaction.atomic():
+                ticket.status = Ticket.TicketStatus.CANCELLED
+                ticket.save()
+        cancelled_calls = [
+            call
+            for call in send_mock.call_args_list
+            if call.kwargs["notification_type"] == NotificationType.TICKET_CANCELLED
+        ]
+        assert len(cancelled_calls) >= 1
+
+
+@pytest.mark.django_db(transaction=True)
+class TestSeriesPassRefundNotificationGuard:
+    """Payment.held_pass-ticket refunds skip the per-ticket TICKET_REFUNDED notification (#644).
+
+    The regular-ticket (held_pass=None) case is already covered by
+    ``TestPaymentRefundNotificationAmount`` above, which never sets held_pass and
+    must keep passing unmodified.
+    """
+
+    def test_pass_ticket_refund_sends_no_ticket_refunded(
+        self, public_event: t.Any, member_user: RevelUser, organization: Organization
+    ) -> None:
+        held_pass = _make_active_held_pass(organization, member_user, "guard-refund")
+        tier = TicketTier.objects.create(
+            event=public_event,
+            name="Guard Refund Tier",
+            price=Decimal("40.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        ticket = Ticket.objects.create(
+            guest_name=member_user.get_display_name(),
+            event=public_event,
+            user=member_user,
+            tier=tier,
+            held_pass=held_pass,
+            status=Ticket.TicketStatus.ACTIVE,
+        )
+        payment = Payment.objects.create(
+            ticket=ticket,
+            user=member_user,
+            amount=Decimal("40.00"),
+            platform_fee=Decimal("0.00"),
+            currency="EUR",
+            status=Payment.PaymentStatus.SUCCEEDED,
+            stripe_session_id=f"cs_test_{ticket.id}",
+        )
+        with patch("notifications.signals.payment.notification_requested.send") as send_mock:
+            with transaction.atomic():
+                payment.status = Payment.PaymentStatus.REFUNDED
+                payment.save()
+        send_mock.assert_not_called()
 
 
 class TestEventCancelledNotificationReason:

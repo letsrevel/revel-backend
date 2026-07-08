@@ -4,6 +4,7 @@ Purchase orchestration lives in ``series_pass_purchase``.
 """
 
 import dataclasses
+import functools
 import typing as t
 from datetime import datetime
 from decimal import Decimal
@@ -34,7 +35,7 @@ from events.models.ticket import CancellationSource
 from events.schema.series_pass import SeriesPassCreateSchema
 from events.service import cancellation_service
 from events.tasks import materialize_series_pass_holders
-from notifications.signals.series_pass import send_series_pass_purchased
+from notifications.signals.series_pass import send_series_pass_cancelled, send_series_pass_purchased
 
 logger = structlog.get_logger(__name__)
 
@@ -408,6 +409,12 @@ def cancel_held_pass(
     ``quantity_sold``, then marks the pass itself CANCELLED. Cancelling an
     already-CANCELLED pass is an idempotent no-op.
 
+    Per-ticket saves in the loop below never emit per-ticket TICKET_CANCELLED
+    notifications (``notifications/signals/ticket.py`` gates on ``held_pass_id``);
+    instead, a single SERIES_PASS_CANCELLED notification fires to the holder and
+    org staff/owners once the cancellation actually commits, carrying the total
+    refunded amount and cancelled-ticket count.
+
     For a PENDING pass with a live Stripe checkout session, the pending Payment
     rows are marked FAILED (so the payment-expiry sweep can't re-release the tier
     capacity this cancellation already freed) and the session is expired at
@@ -432,6 +439,8 @@ def cancel_held_pass(
         return held_pass
 
     now = timezone.now()
+    refunded_total = _ZERO
+    cancelled_count = 0
     with transaction.atomic():
         # Re-read under a row lock and re-check the status: the caller's instance is
         # unlocked, so a concurrent cancel (or expiry route) may have committed
@@ -467,6 +476,7 @@ def cancel_held_pass(
                 and payment.stripe_payment_intent_id
             ):
                 cancellation_service._issue_stripe_refund(ticket, payment, payment.amount, payment.currency)
+                refunded_total += payment.amount
             elif payment is not None and payment.status == Payment.PaymentStatus.PENDING:
                 # Never-completed checkout: fail the payment so the expiry sweep
                 # (which only processes PENDING payments) can't decrement this
@@ -491,9 +501,16 @@ def cancel_held_pass(
             TicketTier.objects.filter(pk=ticket.tier_id, quantity_sold__gt=0).update(
                 quantity_sold=F("quantity_sold") - 1
             )
+            cancelled_count += 1
 
     if was_pending and held_pass.stripe_session_id:
         _expire_stripe_session(held_pass)
+
+    # Only reached when this call actually performed the cancellation (both early
+    # returns above exit the function first), so a repeat cancel can't double-notify.
+    transaction.on_commit(
+        functools.partial(send_series_pass_cancelled, held_pass.pk, refunded_total, cancelled_count, reason or "")
+    )
 
     return held_pass
 

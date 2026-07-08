@@ -1376,8 +1376,8 @@ msgid ""
 "Cannot delete a series with sold series passes; cancel or delete its passes "
 "first."
 msgstr ""
-"Eine Serie mit verkauften Serienpässen kann nicht gelöscht werden; "
-"storniere oder lösche zuerst ihre Pässe."
+"Eine Serie mit verkauften Serienpässen kann nicht gelöscht werden; storniere "
+"oder lösche zuerst ihre Pässe."
 
 msgid "An event with this slug already exists in your organization."
 msgstr "Ein Event mit diesem Slug existiert bereits in deiner Organisation."
@@ -1492,6 +1492,24 @@ msgstr ""
 msgid "membership_tier_id is required when grants_membership is True."
 msgstr "membership_tier_id ist erforderlich, wenn grants_membership True ist."
 
+msgid "No pending payment found."
+msgstr "Keine ausstehende Zahlung gefunden."
+
+msgid "Checkout session has expired. Please start a new purchase."
+msgstr "Die Checkout-Sitzung ist abgelaufen. Bitte starte einen neuen Kauf."
+
+msgid "Checkout session is no longer valid."
+msgstr "Die Checkout-Sitzung ist nicht mehr gültig."
+
+msgid "Checkout session not found."
+msgstr "Checkout-Sitzung nicht gefunden."
+
+msgid "Payment not found."
+msgstr "Zahlung nicht gefunden."
+
+msgid "Only pending payments can be cancelled."
+msgstr "Nur ausstehende Zahlungen können storniert werden."
+
 msgid "A file must be provided when resource_type is 'file'."
 msgstr "Eine Datei muss bereitgestellt werden, wenn resource_type 'file' ist."
 
@@ -1561,8 +1579,7 @@ msgstr "Ein oder mehrere Events existieren nicht."
 #, python-format
 msgid "Event '%s' is already covered by this pass via a different tier."
 msgstr ""
-"Event '%s' wird von diesem Pass bereits über eine andere Kategorie "
-"abgedeckt."
+"Event '%s' wird von diesem Pass bereits über eine andere Kategorie abgedeckt."
 
 msgid "Cannot delete a series pass with active or pending holders."
 msgstr ""
@@ -1604,24 +1621,6 @@ msgstr "Diese Ticket-Kategorie kann nicht online gekauft werden."
 
 msgid "This pass cannot be purchased online."
 msgstr "Dieser Pass kann nicht online gekauft werden."
-
-msgid "No pending payment found."
-msgstr "Keine ausstehende Zahlung gefunden."
-
-msgid "Checkout session has expired. Please start a new purchase."
-msgstr "Die Checkout-Sitzung ist abgelaufen. Bitte starte einen neuen Kauf."
-
-msgid "Checkout session is no longer valid."
-msgstr "Die Checkout-Sitzung ist nicht mehr gültig."
-
-msgid "Checkout session not found."
-msgstr "Checkout-Sitzung nicht gefunden."
-
-msgid "Payment not found."
-msgstr "Zahlung nicht gefunden."
-
-msgid "Only pending payments can be cancelled."
-msgstr "Nur ausstehende Zahlungen können storniert werden."
 
 msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
 msgstr ""
@@ -2215,6 +2214,14 @@ msgstr[1] "%(pass)s deckt jetzt %(count)d neue Events ab"
 #, python-format
 msgid "Your series pass has new events - %(pass)s"
 msgstr "Dein Pass hat neue Events - %(pass)s"
+
+#, python-format
+msgid "Series pass cancelled: %(pass)s (%(series)s)"
+msgstr "Pass storniert: %(pass)s (%(series)s)"
+
+#, python-format
+msgid "Series pass cancelled - %(pass)s"
+msgstr "Pass storniert - %(pass)s"
 
 #, python-format
 msgid "%(count)d new event scheduled for %(series)s"
@@ -3170,6 +3177,27 @@ msgstr "Zur Serie:"
 #, python-format
 msgid ""
 "Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
+"strong> has been cancelled."
+msgstr ""
+"Dein Pass <strong>%(pass_name)s</strong> für <strong>%(series)s</strong> "
+"wurde storniert."
+
+msgid "Pass:"
+msgstr "Pass:"
+
+msgid "Tickets cancelled:"
+msgstr "Stornierte Tickets:"
+
+msgid "Refunded:"
+msgstr "Erstattet:"
+
+#, python-format
+msgid "Your series pass %(pass_name)s for %(series)s has been cancelled."
+msgstr "Dein Pass %(pass_name)s für %(series)s wurde storniert."
+
+#, python-format
+msgid ""
+"Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
 "strong> now covers <strong>%(counter)s</strong> new event."
 msgid_plural ""
 "Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
@@ -3211,9 +3239,6 @@ msgstr ""
 
 msgid "Pass Details"
 msgstr "Passdetails"
-
-msgid "Pass:"
-msgstr "Pass:"
 
 msgid "Events covered:"
 msgstr "Abgedeckte Events:"

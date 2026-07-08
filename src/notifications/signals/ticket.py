@@ -439,6 +439,11 @@ def handle_ticket_notifications(sender: type[Ticket], instance: Ticket, created:
 
     Visibility flags are handled by events.signals to avoid duplication.
     """
+    if instance.held_pass_id is not None:
+        # Series pass tickets get pass-level notifications instead of per-ticket
+        # created/activated/cancelled ones (see notifications/signals/series_pass.py).
+        # CHECKED_IN isn't handled by this module either way, so nothing is lost here.
+        return
 
     def send_notifications() -> None:
         if created:

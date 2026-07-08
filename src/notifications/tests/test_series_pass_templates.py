@@ -35,10 +35,11 @@ from notifications.enums import NotificationType
 from notifications.models import Notification
 from notifications.service.templates.registry import get_template, is_template_registered
 from notifications.service.templates.series_pass_templates import (
+    SeriesPassCancelledTemplate,
     SeriesPassExtendedTemplate,
     SeriesPassPurchasedTemplate,
 )
-from notifications.signals.series_pass import send_series_pass_extended
+from notifications.signals.series_pass import send_series_pass_cancelled, send_series_pass_extended
 
 pytestmark = pytest.mark.django_db
 
@@ -384,6 +385,58 @@ class TestSendSeriesPassExtendedHelper:
         assert notifications[0].context["new_event_count"] == 1
 
 
+class TestSendSeriesPassCancelledHelper:
+    """Direct unit test of the dispatch helper `cancel_held_pass` schedules on commit."""
+
+    def test_sends_cancelled_notification_to_holder_and_staff(
+        self,
+        free_series_pass: SeriesPass,
+        holder: RevelUser,
+        organization: Organization,
+        staff_member: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        with django_capture_on_commit_callbacks(execute=True):
+            SeriesPassPurchaseService(free_series_pass, holder).purchase()
+        held_pass = HeldSeriesPass.objects.get(series_pass=free_series_pass, user=holder)
+
+        send_series_pass_cancelled(held_pass.id, Decimal("15.00"), 2, "event dropped")
+
+        holder_notifications = list(
+            Notification.objects.filter(user=holder, notification_type=NotificationType.SERIES_PASS_CANCELLED)
+        )
+        assert len(holder_notifications) == 1
+        assert holder_notifications[0].context["cancelled_ticket_count"] == 2
+        assert holder_notifications[0].context["refunded_total"] == "15.00"
+        assert holder_notifications[0].context["reason"] == "event dropped"
+
+        owner_notifications = Notification.objects.filter(
+            user=organization.owner, notification_type=NotificationType.SERIES_PASS_CANCELLED
+        )
+        assert owner_notifications.count() == 1
+
+        staff_notifications = list(
+            Notification.objects.filter(user=staff_member, notification_type=NotificationType.SERIES_PASS_CANCELLED)
+        )
+        assert len(staff_notifications) == 1
+        assert staff_notifications[0].context["holder_email"] == holder.email
+
+    def test_empty_reason_is_preserved_as_empty_string(
+        self,
+        free_series_pass: SeriesPass,
+        holder: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        with django_capture_on_commit_callbacks(execute=True):
+            SeriesPassPurchaseService(free_series_pass, holder).purchase()
+        held_pass = HeldSeriesPass.objects.get(series_pass=free_series_pass, user=holder)
+
+        send_series_pass_cancelled(held_pass.id, Decimal("0.00"), 1, "")
+
+        notification = Notification.objects.get(user=holder, notification_type=NotificationType.SERIES_PASS_CANCELLED)
+        assert notification.context["reason"] == ""
+
+
 # --- Template rendering tests ---
 
 
@@ -422,8 +475,27 @@ def _make_extended_notification(user: RevelUser) -> Notification:
     )
 
 
+def _make_cancelled_notification(user: RevelUser, reason: str = "event dropped") -> Notification:
+    """Build a SERIES_PASS_CANCELLED notification with a valid context."""
+    context = {
+        "pass_id": "pass-id",
+        "pass_name": "Season Pass",
+        "series_id": "series-id",
+        "series_name": "Weekly Classes",
+        "organization_id": "org-id",
+        "organization_name": "Acme Org",
+        "cancelled_ticket_count": 2,
+        "refunded_total": "15.00",
+        "currency": "EUR",
+        "reason": reason,
+    }
+    return Notification.objects.create(
+        user=user, notification_type=NotificationType.SERIES_PASS_CANCELLED, context=context
+    )
+
+
 class TestSeriesPassTemplatesRegistration:
-    """Both types must resolve to their registered template instance."""
+    """All three types must resolve to their registered template instance."""
 
     def test_purchased_template_registered(self) -> None:
         assert is_template_registered(NotificationType.SERIES_PASS_PURCHASED)
@@ -432,6 +504,10 @@ class TestSeriesPassTemplatesRegistration:
     def test_extended_template_registered(self) -> None:
         assert is_template_registered(NotificationType.SERIES_PASS_EXTENDED)
         assert isinstance(get_template(NotificationType.SERIES_PASS_EXTENDED), SeriesPassExtendedTemplate)
+
+    def test_cancelled_template_registered(self) -> None:
+        assert is_template_registered(NotificationType.SERIES_PASS_CANCELLED)
+        assert isinstance(get_template(NotificationType.SERIES_PASS_CANCELLED), SeriesPassCancelledTemplate)
 
 
 class TestSeriesPassPurchasedTemplateRendering:
@@ -500,3 +576,46 @@ class TestSeriesPassExtendedTemplateRendering:
         html_body = template.get_email_html_body(notification)
         assert html_body is not None
         assert "Extra Class 1" in html_body
+
+
+class TestSeriesPassCancelledTemplateRendering:
+    """Title/body/subject must surface the pass/series names, counts, and reason."""
+
+    def test_in_app_title_and_body(self, holder: RevelUser) -> None:
+        notification = _make_cancelled_notification(holder)
+        template = SeriesPassCancelledTemplate()
+
+        title = template.get_in_app_title(notification)
+        assert "Season Pass" in title
+        assert "Weekly Classes" in title
+
+        body = template.get_in_app_body(notification)
+        assert "Season Pass" in body
+        assert "Weekly Classes" in body
+        assert "15.00" in body
+        assert "event dropped" in body
+
+    def test_in_app_body_omits_reason_when_blank(self, holder: RevelUser) -> None:
+        notification = _make_cancelled_notification(holder, reason="")
+        template = SeriesPassCancelledTemplate()
+
+        body = template.get_in_app_body(notification)
+        assert "Season Pass" in body
+        assert "Reason" not in body
+
+    def test_email_subject_and_body(self, holder: RevelUser) -> None:
+        notification = _make_cancelled_notification(holder)
+        template = SeriesPassCancelledTemplate()
+
+        subject = template.get_email_subject(notification)
+        assert "Season Pass" in subject
+
+        text_body = template.get_email_text_body(notification)
+        assert "Season Pass" in text_body
+        assert "Weekly Classes" in text_body
+        assert "15.00" in text_body
+
+        html_body = template.get_email_html_body(notification)
+        assert html_body is not None
+        assert "Season Pass" in html_body
+        assert "15.00" in html_body

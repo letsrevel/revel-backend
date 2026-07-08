@@ -46,6 +46,25 @@ class SeriesPassExtendedTemplate(NotificationTemplate):
         return _("Your series pass has new events - %(pass)s") % {"pass": pass_name}
 
 
+class SeriesPassCancelledTemplate(NotificationTemplate):
+    """Template for SERIES_PASS_CANCELLED notification (to holder + org staff/owners)."""
+
+    def get_in_app_title(self, notification: Notification) -> str:
+        """Get title for in-app display."""
+        pass_name = notification.context.get("pass_name", "your pass")
+        series_name = notification.context.get("series_name", "the series")
+        return _("Series pass cancelled: %(pass)s (%(series)s)") % {
+            "pass": pass_name,
+            "series": series_name,
+        }
+
+    def get_email_subject(self, notification: Notification) -> str:
+        """Get email subject."""
+        pass_name = notification.context.get("pass_name", "your pass")
+        return _("Series pass cancelled - %(pass)s") % {"pass": pass_name}
+
+
 # Register templates
 register_template(NotificationType.SERIES_PASS_PURCHASED, SeriesPassPurchasedTemplate())
 register_template(NotificationType.SERIES_PASS_EXTENDED, SeriesPassExtendedTemplate())
+register_template(NotificationType.SERIES_PASS_CANCELLED, SeriesPassCancelledTemplate())

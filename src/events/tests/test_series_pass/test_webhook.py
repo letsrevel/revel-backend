@@ -256,3 +256,107 @@ class TestPerTicketConfirmationSuppression:
         ]
         assert len(confirmation_calls) == 1
         assert confirmation_calls[0].kwargs["user"] == revel_user
+
+
+class TestPerTicketNotificationSuppression:
+    """Series-pass tickets skip per-ticket TICKET_* notifications on activation (#644).
+
+    ``handle_checkout_session_completed`` flips each pass ticket PENDING->ACTIVE via
+    a per-instance ``.save()`` (not bulk_create), which would otherwise fan out a
+    staff TICKET_CREATED and a holder "activated" TICKET_UPDATED per covered event.
+    """
+
+    @patch("notifications.signals.notification_requested.send")
+    def test_pass_activation_sends_zero_ticket_notifications_and_one_purchased(
+        self,
+        mock_notification_signal: Mock,
+        stripe_connected_organization: Organization,
+        event_series: EventSeries,
+        revel_user: RevelUser,
+        django_capture_on_commit_callbacks: object,
+    ) -> None:
+        held_pass = _purchase_pending_pass(stripe_connected_organization, event_series, revel_user, "cs_pass_flood")
+        assert Ticket.objects.filter(held_pass=held_pass).count() == 2  # sanity: 2-event pass
+
+        event = _completed_checkout_event("cs_pass_flood")
+        with django_capture_on_commit_callbacks(execute=True):  # type: ignore[operator]
+            StripeEventHandler(event).handle_checkout_session_completed(event)
+
+        per_ticket_types = {
+            NotificationType.TICKET_CREATED,
+            NotificationType.TICKET_UPDATED,
+            NotificationType.TICKET_CANCELLED,
+            NotificationType.TICKET_REFUNDED,
+        }
+        offending_calls = [
+            call
+            for call in mock_notification_signal.call_args_list
+            if call.kwargs["notification_type"] in per_ticket_types
+        ]
+        assert offending_calls == []
+
+        purchased_calls = [
+            call
+            for call in mock_notification_signal.call_args_list
+            if call.kwargs["notification_type"] == NotificationType.SERIES_PASS_PURCHASED
+            and call.kwargs["user"] == revel_user
+        ]
+        assert len(purchased_calls) == 1
+
+    @patch("notifications.signals.notification_requested.send")
+    def test_regular_ticket_activation_still_sends_ticket_created(
+        self,
+        mock_notification_signal: Mock,
+        stripe_connected_organization: Organization,
+        event_series: EventSeries,
+        revel_user: RevelUser,
+        django_capture_on_commit_callbacks: object,
+    ) -> None:
+        """Regression: a REGULAR (non-pass) ticket must still notify staff on activation."""
+        event = Event.objects.create(
+            organization=stripe_connected_organization,
+            name="Regular Flood Regression Event",
+            slug="regular-flood-regression-event",
+            event_type=Event.EventType.PUBLIC,
+            visibility=Event.Visibility.PUBLIC,
+            event_series=event_series,
+            max_attendees=100,
+            start=timezone.now() + timedelta(days=1),
+            status=Event.EventStatus.OPEN,
+            requires_ticket=True,
+        )
+        tier = TicketTier.objects.create(
+            event=event,
+            name="Regular Flood Tier",
+            price=Decimal("15.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        ticket = Ticket.objects.create(
+            event=event,
+            tier=tier,
+            user=revel_user,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name=revel_user.get_display_name(),
+        )
+        Payment.objects.create(
+            ticket=ticket,
+            user=revel_user,
+            stripe_session_id="cs_regular_flood",
+            amount=Decimal("15.00"),
+            platform_fee=Decimal("1.00"),
+            currency="EUR",
+            status=Payment.PaymentStatus.PENDING,
+            raw_response={},
+        )
+
+        webhook_event = _completed_checkout_event("cs_regular_flood")
+        with django_capture_on_commit_callbacks(execute=True):  # type: ignore[operator]
+            StripeEventHandler(webhook_event).handle_checkout_session_completed(webhook_event)
+
+        created_calls = [
+            call
+            for call in mock_notification_signal.call_args_list
+            if call.kwargs["notification_type"] == NotificationType.TICKET_CREATED
+        ]
+        assert len(created_calls) >= 1

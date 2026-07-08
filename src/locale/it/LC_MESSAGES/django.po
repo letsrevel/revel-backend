@@ -1466,6 +1466,24 @@ msgstr ""
 msgid "membership_tier_id is required when grants_membership is True."
 msgstr "membership_tier_id è obbligatorio quando grants_membership è True."
 
+msgid "No pending payment found."
+msgstr "Nessun pagamento in sospeso trovato."
+
+msgid "Checkout session has expired. Please start a new purchase."
+msgstr "La sessione di checkout è scaduta. Avvia un nuovo acquisto."
+
+msgid "Checkout session is no longer valid."
+msgstr "La sessione di checkout non è più valida."
+
+msgid "Checkout session not found."
+msgstr "Sessione di checkout non trovata."
+
+msgid "Payment not found."
+msgstr "Pagamento non trovato."
+
+msgid "Only pending payments can be cancelled."
+msgstr "Solo i pagamenti in sospeso possono essere annullati."
+
 msgid "A file must be provided when resource_type is 'file'."
 msgstr "È necessario fornire un file quando resource_type è 'file'."
 
@@ -1534,8 +1552,7 @@ msgstr "Uno o più eventi non esistono."
 
 #, python-format
 msgid "Event '%s' is already covered by this pass via a different tier."
-msgstr ""
-"L'evento '%s' è già coperto da questo pass tramite un livello diverso."
+msgstr "L'evento '%s' è già coperto da questo pass tramite un livello diverso."
 
 msgid "Cannot delete a series pass with active or pending holders."
 msgstr ""
@@ -1574,24 +1591,6 @@ msgstr "Questo livello di biglietto non può essere acquistato online."
 
 msgid "This pass cannot be purchased online."
 msgstr "Questo abbonamento non può essere acquistato online."
-
-msgid "No pending payment found."
-msgstr "Nessun pagamento in sospeso trovato."
-
-msgid "Checkout session has expired. Please start a new purchase."
-msgstr "La sessione di checkout è scaduta. Avvia un nuovo acquisto."
-
-msgid "Checkout session is no longer valid."
-msgstr "La sessione di checkout non è più valida."
-
-msgid "Checkout session not found."
-msgstr "Sessione di checkout non trovata."
-
-msgid "Payment not found."
-msgstr "Pagamento non trovato."
-
-msgid "Only pending payments can be cancelled."
-msgstr "Solo i pagamenti in sospeso possono essere annullati."
 
 msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
 msgstr ""
@@ -2175,6 +2174,14 @@ msgstr[1] "%(pass)s ora copre %(count)d nuovi eventi"
 #, python-format
 msgid "Your series pass has new events - %(pass)s"
 msgstr "Il tuo abbonamento ha nuovi eventi - %(pass)s"
+
+#, python-format
+msgid "Series pass cancelled: %(pass)s (%(series)s)"
+msgstr "Abbonamento annullato: %(pass)s (%(series)s)"
+
+#, python-format
+msgid "Series pass cancelled - %(pass)s"
+msgstr "Abbonamento annullato - %(pass)s"
 
 #, python-format
 msgid "%(count)d new event scheduled for %(series)s"
@@ -3132,6 +3139,27 @@ msgstr "Visualizza la serie:"
 #, python-format
 msgid ""
 "Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
+"strong> has been cancelled."
+msgstr ""
+"Il tuo abbonamento <strong>%(pass_name)s</strong> per <strong>%(series)s</"
+"strong> è stato annullato."
+
+msgid "Pass:"
+msgstr "Abbonamento:"
+
+msgid "Tickets cancelled:"
+msgstr "Biglietti annullati:"
+
+msgid "Refunded:"
+msgstr "Rimborsato:"
+
+#, python-format
+msgid "Your series pass %(pass_name)s for %(series)s has been cancelled."
+msgstr "Il tuo abbonamento %(pass_name)s per %(series)s è stato annullato."
+
+#, python-format
+msgid ""
+"Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
 "strong> now covers <strong>%(counter)s</strong> new event."
 msgid_plural ""
 "Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
@@ -3173,9 +3201,6 @@ msgstr ""
 
 msgid "Pass Details"
 msgstr "Dettagli abbonamento"
-
-msgid "Pass:"
-msgstr "Abbonamento:"
 
 msgid "Events covered:"
 msgstr "Eventi coperti:"

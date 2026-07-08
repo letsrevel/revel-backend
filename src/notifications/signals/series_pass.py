@@ -7,6 +7,7 @@ Celery materialization task rather than Django signal receivers — mirrors the
 """
 
 import typing as t
+from decimal import Decimal
 from uuid import UUID
 
 from events.models import Event, HeldSeriesPass, Ticket
@@ -107,3 +108,65 @@ def send_series_pass_extended(held_pass_id: UUID, event_ids: list[UUID]) -> None
         notification_type=NotificationType.SERIES_PASS_EXTENDED,
         context=context,
     )
+
+
+def _build_cancelled_context(
+    held_pass: HeldSeriesPass, refunded_total: Decimal, cancelled_count: int, reason: str
+) -> dict[str, t.Any]:
+    """Build notification context for SERIES_PASS_CANCELLED."""
+    series_pass = held_pass.series_pass
+    organization = series_pass.event_series.organization
+    return {
+        "pass_id": str(series_pass.id),
+        "pass_name": series_pass.name,
+        "series_id": str(series_pass.event_series_id),
+        "series_name": series_pass.event_series.name,
+        "organization_id": str(organization.id),
+        "organization_name": organization.name,
+        "cancelled_ticket_count": cancelled_count,
+        "refunded_total": str(refunded_total),
+        "currency": series_pass.currency,
+        "reason": reason,
+    }
+
+
+def send_series_pass_cancelled(held_pass_id: UUID, refunded_total: Decimal, cancelled_count: int, reason: str) -> None:
+    """Notify the pass holder and org staff/owners that a series pass was cancelled.
+
+    Call after ``series_pass_service.cancel_held_pass`` actually performs the
+    cancellation — never on its idempotent no-op path (an already-CANCELLED pass),
+    so a repeat cancel can't double-notify.
+
+    Args:
+        held_pass_id: The id of the now-CANCELLED HeldSeriesPass.
+        refunded_total: Sum of the amounts refunded across the tickets this call cancelled.
+        cancelled_count: Number of tickets cancelled by this call.
+        reason: Free-text cancellation reason (may be empty).
+    """
+    held_pass = HeldSeriesPass.objects.select_related("series_pass__event_series__organization", "user").get(
+        pk=held_pass_id
+    )
+    context = _build_cancelled_context(held_pass, refunded_total, cancelled_count, reason)
+
+    notification_requested.send(
+        sender=HeldSeriesPass,
+        user=held_pass.user,
+        notification_type=NotificationType.SERIES_PASS_CANCELLED,
+        context=context,
+    )
+
+    staff_context = {
+        **context,
+        "holder_name": held_pass.user.get_display_name(),
+        "holder_email": held_pass.user.email,
+    }
+    organization_id = held_pass.series_pass.event_series.organization_id
+    staff_and_owners = get_staff_for_notification(organization_id, NotificationType.SERIES_PASS_CANCELLED)
+    for staff_user in staff_and_owners:
+        if staff_user.notification_preferences.is_notification_type_enabled(NotificationType.SERIES_PASS_CANCELLED):
+            notification_requested.send(
+                sender=HeldSeriesPass,
+                user=staff_user,
+                notification_type=NotificationType.SERIES_PASS_CANCELLED,
+                context=staff_context,
+            )

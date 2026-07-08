@@ -31,6 +31,8 @@ from events.models import (
 from events.models.ticket import CancellationBlockReason, CancellationSource
 from events.service import cancellation_service
 from events.service.series_pass_service import cancel_held_pass
+from notifications.enums import NotificationType
+from notifications.models import Notification
 
 pytestmark = pytest.mark.django_db
 
@@ -548,3 +550,81 @@ class TestCancelHeldPassFree:
         for tier in tiers:
             tier.refresh_from_db()
             assert tier.quantity_sold == 0
+
+
+class TestCancelHeldPassNotifications:
+    """cancel_held_pass suppresses per-ticket floods and fires one SERIES_PASS_CANCELLED (#644)."""
+
+    def test_cancel_sends_no_per_ticket_notifications(
+        self,
+        online_pass_setup: _PassSetup,
+        organization_owner_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        per_ticket_types = {
+            NotificationType.TICKET_CREATED,
+            NotificationType.TICKET_UPDATED,
+            NotificationType.TICKET_CANCELLED,
+            NotificationType.TICKET_REFUNDED,
+        }
+        with (
+            patch("stripe.Refund.create") as mock_create,
+            patch("notifications.signals.notification_requested.send") as mock_send,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            mock_create.return_value.id = "re_notif"
+            cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user, reason="test reason")
+
+        offending_calls = [
+            call for call in mock_send.call_args_list if call.kwargs["notification_type"] in per_ticket_types
+        ]
+        assert offending_calls == []
+
+    def test_cancel_sends_one_series_pass_cancelled_to_holder_and_owner_with_correct_totals(
+        self,
+        online_pass_setup: _PassSetup,
+        organization_owner_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        with (
+            patch("stripe.Refund.create") as mock_create,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            mock_create.return_value.id = "re_notif"
+            cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user, reason="event dropped")
+
+        holder = online_pass_setup.held_pass.user
+        holder_notifications = list(
+            Notification.objects.filter(user=holder, notification_type=NotificationType.SERIES_PASS_CANCELLED)
+        )
+        assert len(holder_notifications) == 1
+        context = holder_notifications[0].context
+        # Only the 2 future, non-checked-in, non-past tickets are cancelled/refunded.
+        assert context["cancelled_ticket_count"] == 2
+        assert context["refunded_total"] == "20.00"  # 8.00 + 12.00, see online_pass_setup
+        assert context["reason"] == "event dropped"
+
+        owner_notifications = Notification.objects.filter(
+            user=organization_owner_user, notification_type=NotificationType.SERIES_PASS_CANCELLED
+        )
+        assert owner_notifications.count() == 1
+
+    def test_repeat_cancel_does_not_resend_notification(
+        self,
+        online_pass_setup: _PassSetup,
+        organization_owner_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        with (
+            patch("stripe.Refund.create") as mock_create,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            mock_create.return_value.id = "re_notif"
+            cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user)
+            cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user)
+
+        holder = online_pass_setup.held_pass.user
+        assert (
+            Notification.objects.filter(user=holder, notification_type=NotificationType.SERIES_PASS_CANCELLED).count()
+            == 1
+        )
