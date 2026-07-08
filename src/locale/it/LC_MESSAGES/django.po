@@ -3700,6 +3700,15 @@ msgstr "Eventi"
 msgid "Event Series"
 msgstr "Serie di eventi"
 
+msgid "Series Passes"
+msgstr "Pass stagionali"
+
+msgid "Held Series Passes"
+msgstr "Pass stagionali posseduti"
+
+msgid "Series Pass Tier Links"
+msgstr "Collegamenti livello pass stagionale"
+
 msgid "Tickets"
 msgstr "Biglietti"
 

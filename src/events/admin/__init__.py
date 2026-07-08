@@ -47,6 +47,11 @@ from events.admin.preferences import (
 )
 from events.admin.questionnaire import EventQuestionnaireSubmissionAdmin
 from events.admin.reserved_slug_token import ReservedSlugTokenAdmin
+from events.admin.series_pass import (
+    HeldSeriesPassAdmin,
+    SeriesPassAdmin,
+    SeriesPassTierLinkAdmin,
+)
 from events.admin.stripe_webhook_event import StripeWebhookEventAdmin
 from events.admin.subscription import (
     MembershipPaymentAdmin,
@@ -118,6 +123,10 @@ __all__ = [
     "DiscountCodeAdmin",
     # Reserved slugs
     "ReservedSlugTokenAdmin",
+    # Series passes
+    "SeriesPassAdmin",
+    "SeriesPassTierLinkAdmin",
+    "HeldSeriesPassAdmin",
     # Subscriptions
     "MembershipPaymentAdmin",
     "MembershipSubscriptionAdmin",

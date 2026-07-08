@@ -154,12 +154,17 @@ def test_check_in_via_plain_ticket_uuid_regression(owner_client: Client, event: 
     assert plain_ticket.status == Ticket.TicketStatus.CHECKED_IN
 
 
-def test_check_in_series_qr_malformed_uuid_404_endpoint(owner_client: Client, event: Event) -> None:
-    """A malformed pass code 404s at the endpoint (not a 500)."""
+def test_check_in_series_qr_malformed_uuid_422_endpoint(owner_client: Client, event: Event) -> None:
+    """A malformed pass code fails the path param's shape validation (not a 500).
+
+    The ``code`` path param is now bounded/shaped (bare or ``series:``-prefixed canonical
+    UUID) via ninja's ``Path(...)``, so garbage never reaches the view/resolver — it's
+    rejected at request parsing with a 422, not the resolver's 404.
+    """
     url = _check_in_url(event, "series:not-a-uuid")
     response = owner_client.post(url, content_type="application/json")
 
-    assert response.status_code == 404
+    assert response.status_code == 422
 
 
 def test_check_in_pass_qr_uncovered_event_404_endpoint(
@@ -185,12 +190,12 @@ def test_check_in_cancelled_pass_ticket_404_endpoint(
     assert response.status_code == 404
 
 
-def test_check_in_garbage_code_404_endpoint(owner_client: Client, event: Event) -> None:
-    """A plain garbage string (not UUID, no prefix) 404s at the endpoint."""
+def test_check_in_garbage_code_422_endpoint(owner_client: Client, event: Event) -> None:
+    """A plain garbage string (not UUID, no prefix) fails path param validation, 422."""
     url = _check_in_url(event, "not-a-uuid-or-prefix")
     response = owner_client.post(url, content_type="application/json")
 
-    assert response.status_code == 404
+    assert response.status_code == 422
 
 
 # --- Pass-aware payment semantics at check-in ---

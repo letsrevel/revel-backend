@@ -3739,6 +3739,15 @@ msgstr "Events"
 msgid "Event Series"
 msgstr "Eventreihen"
 
+msgid "Series Passes"
+msgstr "Serienpässe"
+
+msgid "Held Series Passes"
+msgstr "Gehaltene Serienpässe"
+
+msgid "Series Pass Tier Links"
+msgstr "Serienpass-Kategorie-Zuordnungen"
+
 msgid "Tickets"
 msgstr "Tickets"
 

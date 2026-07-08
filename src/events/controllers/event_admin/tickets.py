@@ -4,7 +4,7 @@ from uuid import UUID
 from django.db.models import QuerySet
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
-from ninja import Body, Query
+from ninja import Body, Path, Query
 from ninja_extra import api_controller, route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
 from ninja_extra.searching import Searching, searching
@@ -44,6 +44,12 @@ TicketOrdering = t.Literal[
 # All three operands are already joined via Ticket.objects.full(), but the COALESCE
 # itself must be annotated so it appears in the SELECT list (required for SELECT DISTINCT).
 EFFECTIVE_PRICE_PAID = Coalesce("payment__amount", "price_paid", "tier__price")
+
+# Check-in codes are either a bare canonical ticket UUID (36 chars) or a series pass
+# QR payload, HeldSeriesPass.QR_PREFIX ("series:") + canonical UUID (43 chars) — see
+# ticket_service.resolve_check_in_ticket_id(). Bounding length/shape here rejects garbage
+# before it reaches the resolver (422 instead of an unbounded str hitting the ORM/service).
+CHECK_IN_CODE_PATTERN = r"^(series:)?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 
 # Maps the public ``order_by`` value to the actual queryset ordering field.
 TICKET_ORDER_FIELDS: dict[TicketOrdering, str] = {
@@ -180,10 +186,8 @@ class EventAdminTicketsController(EventAdminBaseController):
         # Use full() for AdminTicketSchema (includes user, tier, venue, sector, seat, payment)
         # with_org_membership() prefetches user's membership for "Make Member" feature
         qs = models.Ticket.objects.full().with_org_membership(event.organization_id).filter(event=event)
-        if source == "pass":
-            qs = qs.filter(held_pass__isnull=False)
-        elif source == "direct":
-            qs = qs.filter(held_pass__isnull=True)
+        if source is not None:
+            qs = qs.filter(held_pass__isnull=(source == "direct"))
         qs = params.filter(qs).annotate(effective_price_paid=EFFECTIVE_PRICE_PAID)
         # "-id" is a stable tiebreaker so pagination stays deterministic across equal sort keys.
         return qs.distinct().order_by(TICKET_ORDER_FIELDS[order_by], "-id")
@@ -319,7 +323,7 @@ class EventAdminTicketsController(EventAdminBaseController):
     def check_in_ticket(
         self,
         event_id: UUID,
-        code: str,
+        code: t.Annotated[str, Path(..., min_length=36, max_length=43, pattern=CHECK_IN_CODE_PATTERN)],
         payload: t.Annotated[schema.ConfirmPaymentSchema | None, Body(None)] = None,
     ) -> models.Ticket:
         """Check in an attendee by scanning their ticket or series pass QR."""

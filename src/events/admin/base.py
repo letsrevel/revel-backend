@@ -247,3 +247,10 @@ class WaitlistOfferInline(TabularInline):  # type: ignore[misc]
     fields = ("user", "status", "expires_at", "is_cutoff_batch", "batch_id", "created_at")
     readonly_fields = ("created_at", "batch_id")
     show_change_link = True
+
+
+class SeriesPassTierLinkInline(TabularInline):  # type: ignore[misc]
+    model = models.SeriesPassTierLink
+    extra = 1
+    autocomplete_fields = ["event", "tier"]
+    fields = ["event", "tier"]
