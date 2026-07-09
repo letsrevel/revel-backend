@@ -76,24 +76,14 @@ licensecheck:
 # `ensurepip`, so CI fails with exit 127. --disable-pip skips the venv bootstrap
 # (safe because --no-deps means pip-audit doesn't need pip to resolve anything).
 #
-# --ignore-vuln rationale (re-review quarterly):
-#   CVE-2025-69872 (diskcache): no fix published. Transitive via `instructor`
-#       (LLM client lib). Attack requires write access to the local cache
-#       directory; if an attacker already has that level of filesystem access
-#       on our backend host, they have much larger problems. Revisit when a
-#       diskcache release ships a fix. Tracked privately: GHSA-mcv5-9q6c-vg2g.
-#   CVE-2026-49452 (weasyprint): no fix published (68.1 still affected). CSS
-#       injection via HTML presentational hints, exploitable only with
-#       `presentational_hints=True`; we never pass it (WeasyPrint defaults to
-#       False), and all PDF HTML comes from autoescaped Django templates, so
-#       attacker markup can't reach the renderer anyway. Bump + drop when a
-#       fixed release ships. Tracked privately: GHSA-jhhc-3hcp-qhm5.
+# No --ignore-vuln entries currently: CVE-2026-49452 (weasyprint) is fixed in
+# 69.0, and CVE-2025-69872 (diskcache) dropped out of the graph when instructor
+# stopped pulling diskcache. Re-add a documented ignore only if a vuln with no
+# viable fix reappears.
 .PHONY: audit
 audit:
 	@uv export --quiet --locked --format requirements-txt --no-emit-project --no-hashes --group dev -o .audit-reqs.txt
-	@trap 'rm -f .audit-reqs.txt' EXIT; uv run pip-audit --strict --no-deps --disable-pip -r .audit-reqs.txt \
-		--ignore-vuln CVE-2025-69872 \
-		--ignore-vuln CVE-2026-49452
+	@trap 'rm -f .audit-reqs.txt' EXIT; uv run pip-audit --strict --no-deps --disable-pip -r .audit-reqs.txt
 
 .PHONY: deps-check
 deps-check: licensecheck audit
