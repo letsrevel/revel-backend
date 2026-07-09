@@ -44,10 +44,21 @@ jobs:
             exit 1
           fi
 
+      # Cached .deb install: skips `apt update` on cache hit, which both saves
+      # ~30-60s and removes exposure to flaky Ubuntu mirrors (a mirror stall
+      # once cost a shard 5m34s). curl/gnupg/jq/unzip/software-properties-common
+      # were dropped — they ship preinstalled on ubuntu-24.04 runners.
       - name: Install system deps
-        run: |
-          sudo apt update
-          sudo apt install -y curl gnupg software-properties-common jq unzip gdal-bin libgdal-dev gettext
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
+        with:
+          packages: gdal-bin libgdal-dev gettext
+          version: 1.0
+
+      # GeoDjango locates gdal/geos via ctypes.util.find_library → the ldconfig
+      # cache. A cache-hit restore drops the .so files in place without dpkg's
+      # ldconfig trigger, so rebuild the cache explicitly.
+      - name: Rebuild linker cache
+        run: sudo ldconfig
 
       - name: Export GDAL path
         run: |
@@ -113,10 +124,16 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      # See the notes on the checks job — cached to dodge apt mirror flakiness;
+      # ldconfig rebuilt because a cache-hit restore skips dpkg's trigger.
       - name: Install system deps
-        run: |
-          sudo apt update
-          sudo apt install -y curl gnupg software-properties-common jq unzip gdal-bin libgdal-dev gettext
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
+        with:
+          packages: gdal-bin libgdal-dev gettext
+          version: 1.0
+
+      - name: Rebuild linker cache
+        run: sudo ldconfig
 
       - name: Export GDAL path
         run: |
@@ -139,10 +156,10 @@ jobs:
       - name: Spin up docker
         run: docker compose -f docker-compose-ci.yml up -d
 
-      # Each shard runs ~1/N of the tests. With no `.test_durations` file
-      # present, pytest-split falls back to splitting by test count, which is
-      # uneven. Regenerate it by running `pytest --store-durations` locally (or
-      # in a dedicated job) and commit the result. Coverage data is dropped
+      # pytest-split balances shards by runtime using the committed
+      # `.test_durations` file; refresh it occasionally with
+      # `make store-durations` (staleness degrades gracefully — tests missing
+      # from the file are distributed by count). Coverage data is dropped
       # without a report — the `coverage` job combines all shards and enforces
       # the 90% gate. `strategy.job-total` is the GH-provided matrix size, so
       # `--splits` always matches the number of runners.
