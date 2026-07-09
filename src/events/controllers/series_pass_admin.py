@@ -69,7 +69,7 @@ class SeriesPassAdminController(UserAwareController):
 
     @route.get(
         "/",
-        url_name="list_series_passes",
+        url_name="admin_list_series_passes",
         response=list[schema.SeriesPassAdminSchema],
         throttle=UserDefaultThrottle(),
     )

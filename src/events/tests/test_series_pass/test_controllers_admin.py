@@ -207,7 +207,7 @@ def test_create_series_pass_with_event_from_another_series_returns_400(
 
 def test_list_series_passes_by_stranger_returns_404(stranger_client: Client, event_series: EventSeries) -> None:
     """A user with no relationship to the org gets 404 (private org filtered out of for_user)."""
-    url = reverse("api:list_series_passes", kwargs={"series_id": event_series.pk})
+    url = reverse("api:admin_list_series_passes", kwargs={"series_id": event_series.pk})
     assert stranger_client.get(url).status_code == 404
 
 
@@ -229,7 +229,7 @@ def test_list_series_passes_returns_management_fields_coverage_and_holder_count(
         holder = revel_user_factory(username=f"list_holder{i}@example.com", email=f"list_holder{i}@example.com")
         HeldSeriesPass.objects.create(series_pass=series_pass, user=holder, status=status, price_paid=Decimal("36.00"))
 
-    url = reverse("api:list_series_passes", kwargs={"series_id": series_pass.event_series_id})
+    url = reverse("api:admin_list_series_passes", kwargs={"series_id": series_pass.event_series_id})
     response = organization_owner_client.get(url)
 
     assert response.status_code == 200
@@ -258,7 +258,7 @@ def test_list_series_passes_query_count_does_not_grow_with_passes_or_coverage(
 ) -> None:
     """More passes, coverage rows, and holders must not add per-row queries (prefetch + annotation)."""
     SeriesPassTierLink.objects.create(series_pass=series_pass, event=event, tier=ticket_tier)
-    url = reverse("api:list_series_passes", kwargs={"series_id": series_pass.event_series_id})
+    url = reverse("api:admin_list_series_passes", kwargs={"series_id": series_pass.event_series_id})
 
     with CaptureQueriesContext(connection) as baseline:
         assert organization_owner_client.get(url).status_code == 200
@@ -287,7 +287,16 @@ def test_list_series_passes_query_count_does_not_grow_with_passes_or_coverage(
 
     assert response.status_code == 200
     assert len(response.json()) == 2
-    assert len(grown) == len(baseline)
+
+    def app_queries(ctx: CaptureQueriesContext) -> list[str]:
+        """Drop django-silk's own logging inserts and savepoint bookkeeping — profiler noise, not app queries."""
+        return [
+            q["sql"]
+            for q in ctx.captured_queries
+            if "silk_" not in q["sql"] and not q["sql"].startswith(("SAVEPOINT", "RELEASE SAVEPOINT"))
+        ]
+
+    assert len(app_queries(grown)) == len(app_queries(baseline))
 
 
 def test_create_and_update_series_pass_respond_with_admin_schema(
