@@ -1,0 +1,59 @@
+name: Setup backend environment
+description: >
+  Shared CI setup: uv + dependencies, system packages, Django environment
+  file, and geo fixture. Used by the checks/test jobs in test.yaml and the
+  refresh-test-durations workflow — edit here, not in the jobs.
+
+inputs:
+  compile-translations:
+    description: >
+      Compile .po → .mo catalogs (ADR-0011: .mo files are not committed).
+      Needed by jobs that run the test suite; i18n tests assert translated
+      strings.
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install a specific version of uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: "0.6.10"
+        enable-cache: true
+
+    - name: Install dependencies
+      shell: bash
+      run: uv sync
+
+    # Trimmed to what the suite actually needs — curl/gnupg/jq/unzip/
+    # software-properties-common ship preinstalled on ubuntu-24.04 runners.
+    # Retries + timeouts bound the occasional mirror stall (one once cost a
+    # shard 5m34s). Deliberately NOT cached via cache-apt-pkgs-action: it
+    # skips `apt-get update` (404s on stale indexes), mishandles virtual
+    # packages like libblas.so.3, and swallows install failures into a
+    # poisoned cache.
+    - name: Install system deps
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+          gdal-bin libgdal-dev gettext
+
+    - name: Recreate environment file
+      shell: bash
+      run: cp .env.example .env
+
+    - name: Disable observability
+      shell: bash
+      run: echo "FEATURE_OBSERVABILITY=False" >> .env
+
+    - name: Add worldcities.csv  # required so migrations can run
+      shell: bash
+      working-directory: src
+      run: cp geo/data/worldcities.mini.csv geo/data/worldcities.csv
+
+    - name: Compile translations
+      if: ${{ inputs.compile-translations == 'true' }}
+      shell: bash
+      working-directory: src
+      run: uv run python manage.py compilemessages

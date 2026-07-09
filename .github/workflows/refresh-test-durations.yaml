@@ -41,35 +41,10 @@ jobs:
           ref: main
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Install a specific version of uv
-        uses: astral-sh/setup-uv@v7
+      - name: Setup backend environment
+        uses: ./.github/actions/setup-backend
         with:
-          version: "0.6.10"
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync
-
-      # Same environment as the test job in test.yaml — see the notes there.
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
-            gdal-bin libgdal-dev gettext
-
-      - name: Recreate environment file
-        run: cp .env.example .env
-
-      - name: Disable observability
-        run: echo "FEATURE_OBSERVABILITY=False" >> .env
-
-      - name: Add worldcities.csv  # we need this so migrations can run
-        working-directory: src
-        run: cp geo/data/worldcities.mini.csv geo/data/worldcities.csv
-
-      - name: Compile translations  # .mo not committed (ADR-0011); i18n tests assert translated strings
-        working-directory: src
-        run: uv run python manage.py compilemessages
+          compile-translations: "true"
 
       - name: Spin up docker
         run: docker compose -f docker-compose-ci.yml up -d

@@ -27,14 +27,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install a specific version of uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.6.10"
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync
+      - name: Setup backend environment
+        uses: ./.github/actions/setup-backend
 
       - name: Check uv.lock
         run: |
@@ -43,33 +37,6 @@ jobs:
             git diff uv.lock
             exit 1
           fi
-
-      # Trimmed to what the suite actually needs — curl/gnupg/jq/unzip/
-      # software-properties-common ship preinstalled on ubuntu-24.04 runners.
-      # Retries + timeouts bound the occasional mirror stall (one once cost a
-      # shard 5m34s). Deliberately NOT cached via cache-apt-pkgs-action: it
-      # skips `apt-get update` (404s on stale indexes), mishandles virtual
-      # packages like libblas.so.3, and swallows install failures into a
-      # poisoned cache.
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
-            gdal-bin libgdal-dev gettext
-
-      - name: Export GDAL path
-        run: |
-          echo "GDAL_LIBRARY_PATH=$(gdal-config --libs | grep -o '/[^ ]*libgdal[^ ]*\.so')" >> $GITHUB_ENV
-
-      - name: Recreate environment file
-        run: cp .env.example .env
-
-      - name: Disable observability
-        run: echo "FEATURE_OBSERVABILITY=False" >> .env
-
-      - name: Add worldcities.csv  # required for migrations introspection
-        working-directory: src
-        run: cp geo/data/worldcities.mini.csv geo/data/worldcities.csv
 
       - name: Restore mypy cache
         uses: actions/cache@v5
@@ -112,39 +79,10 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install a specific version of uv
-        uses: astral-sh/setup-uv@v7
+      - name: Setup backend environment
+        uses: ./.github/actions/setup-backend
         with:
-          version: "0.6.10"
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync
-
-      # See the notes on the checks job — trimmed list, retries for mirror stalls.
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
-            gdal-bin libgdal-dev gettext
-
-      - name: Export GDAL path
-        run: |
-          echo "GDAL_LIBRARY_PATH=$(gdal-config --libs | grep -o '/[^ ]*libgdal[^ ]*\.so')" >> $GITHUB_ENV
-
-      - name: Recreate environment file
-        run: cp .env.example .env
-
-      - name: Disable observability for tests
-        run: echo "FEATURE_OBSERVABILITY=False" >> .env
-
-      - name: Add worldcities.csv  # we need this so migrations can run
-        working-directory: src
-        run: cp geo/data/worldcities.mini.csv geo/data/worldcities.csv
-
-      - name: Compile translations  # .mo not committed (ADR-0011); i18n tests assert translated strings
-        working-directory: src
-        run: uv run python manage.py compilemessages
+          compile-translations: "true"
 
       - name: Spin up docker
         run: docker compose -f docker-compose-ci.yml up -d
