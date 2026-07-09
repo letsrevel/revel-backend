@@ -1,0 +1,22 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<p>{% blocktranslate with pass_name=context.pass_name series=context.series_name %}Your series pass <strong>{{ pass_name }}</strong> for <strong>{{ series }}</strong> has been cancelled.{% endblocktranslate %}</p>
+
+<div class="card">
+    <h3 style="margin-top: 0;">{% trans "Cancellation Details" %}</h3>
+    <div class="info-row"><span class="label">{% trans "Pass:" %}</span> {{ context.pass_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Series:" %}</span> {{ context.series_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Organization:" %}</span> {{ context.organization_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Tickets cancelled:" %}</span> {{ context.cancelled_ticket_count }}</div>
+    {% if context.reason %}<div class="info-row"><span class="label">{% trans "Reason:" %}</span> {{ context.reason }}</div>{% endif %}
+</div>
+
+{% if context.refunded_total != "0.00" %}
+<div class="card">
+    <h3 style="margin-top: 0;">💰 {% trans "Refund Information" %}</h3>
+    <p>{% if context.holder_name %}{% blocktranslate with amount=context.refunded_total currency=context.currency %}A refund of <strong>{{ amount }} {{ currency }}</strong> has been issued to the pass holder.{% endblocktranslate %}{% else %}{% blocktranslate with amount=context.refunded_total currency=context.currency %}A refund of <strong>{{ amount }} {{ currency }}</strong> will be processed to your original payment method within 5-10 business days.{% endblocktranslate %}{% endif %}</p>
+</div>
+{% endif %}
+{% endblock %}

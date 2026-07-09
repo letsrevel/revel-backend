@@ -19,9 +19,10 @@ from zoneinfo import ZoneInfo
 
 import structlog
 from django.conf import settings
+from django.utils import timezone
 
-from events.models import Ticket
-from events.utils import get_event_timezone
+from events.models import HeldSeriesPass, Ticket
+from events.utils import get_event_timezone, get_organization_timezone
 from wallet.apple.formatting import (
     PassColors,
     format_date_compact,
@@ -130,6 +131,101 @@ class ApplePassGenerator:
         except Exception as e:
             logger.error("pass_generation_failed", ticket_id=str(ticket.id), error=str(e))
             raise ApplePassGeneratorError(f"Failed to generate pass: {e}")
+
+    def generate_series_pass(self, held_pass: HeldSeriesPass) -> bytes:
+        """Generate a .pkpass file for a series pass.
+
+        Args:
+            held_pass: The series pass to generate a wallet pass for.
+
+        Returns:
+            The .pkpass file as bytes.
+
+        Raises:
+            ApplePassGeneratorError: If pass generation fails.
+        """
+        try:
+            pass_data = self._build_series_pass_data(held_pass)
+            files = self._generate_files(pass_data)
+
+            manifest = self.signer.create_manifest(files)
+            files["manifest.json"] = manifest
+            files["signature"] = self.signer.sign_manifest(manifest)
+
+            pkpass_bytes = self._create_archive(files)
+
+            logger.info(
+                "series_pass_generated",
+                held_pass_id=str(held_pass.id),
+                series_pass_id=str(held_pass.series_pass_id),
+                size=len(pkpass_bytes),
+            )
+
+            return pkpass_bytes
+
+        except ApplePassSignerError:
+            raise
+        except Exception as e:
+            logger.error("series_pass_generation_failed", held_pass_id=str(held_pass.id), error=str(e))
+            raise ApplePassGeneratorError(f"Failed to generate pass: {e}")
+
+    def _build_series_pass_data(self, held_pass: HeldSeriesPass) -> PassData:
+        """Build PassData from a HeldSeriesPass model.
+
+        A series pass has no single covered event, so event-shaped fields are
+        derived from the covered events as a whole: ``event_start``/
+        ``relevant_date`` use the soonest upcoming covered event (falling back
+        to the most recent past one once all events have elapsed), while
+        ``event_end``/``expiration_date`` use the latest-ending covered event
+        so the pass stays valid until the series is fully over. Branding
+        (logo) and address use the same representative event, mirroring
+        ``_build_pass_data``'s per-event resolution.
+        """
+        series_pass = held_pass.series_pass
+        event_series = series_pass.event_series
+        org = event_series.organization
+
+        events = [link.event for link in series_pass.tier_links.select_related("event").all()]
+        now = timezone.now()
+        upcoming = sorted((event for event in events if event.end >= now), key=lambda event: event.start)
+        representative_event = upcoming[0] if upcoming else (max(events, key=lambda event: event.start, default=None))
+
+        if representative_event is not None:
+            logo_image = resolve_cover_art(representative_event) or generate_fallback_logo(org)
+            venue = representative_event.venue
+            address = (venue.full_address() if venue else None) or representative_event.address or None
+            venue_name = venue.name if venue else None
+            event_tz = get_event_timezone(representative_event)
+            event_start = representative_event.start
+        else:
+            # Defensive fallback: a purchasable series pass always covers at least
+            # two events, so this only guards against an edge case with none.
+            logo_image = generate_fallback_logo(org)
+            address = None
+            venue_name = None
+            event_tz = get_organization_timezone(org)
+            event_start = held_pass.created_at
+
+        event_end = max((event.end for event in events), default=event_start)
+
+        return PassData(
+            serial_number=str(held_pass.id),
+            description=f"Series Pass for {event_series.name}",
+            organization_name=org.name,
+            event_name=series_pass.name,
+            event_start=event_start,
+            event_end=event_end,
+            event_tz=event_tz,
+            address=address,
+            ticket_tier="Series Pass",
+            ticket_price=format_price(held_pass.price_paid, series_pass.currency),
+            colors=get_theme_colors(),
+            logo_image=logo_image,
+            barcode_message=held_pass.qr_payload,
+            relevant_date=event_start,
+            expiration_date=event_end + PASS_EXPIRATION_GRACE_PERIOD,
+            venue_name=venue_name,
+        )
 
     def _build_pass_data(self, ticket: Ticket) -> PassData:
         """Build PassData from a Ticket model."""

@@ -147,6 +147,49 @@ class TestCancelMyTicket:
         assert ticket.cancellation_reason == "double-booked"
         assert payment.refund_status == Payment.RefundStatus.PENDING
 
+    def test_ticket_payload_resolves_pdf_url_from_orm(
+        self,
+        online_cancellable_tier: TicketTier,
+        ticket_factory: t.Callable[..., Ticket],
+        payment_factory: t.Callable[..., Payment],
+    ) -> None:
+        """``UserTicketSchema.resolve_pdf_url`` must run against the ORM ``Ticket``, not a schema.
+
+        ninja re-validates whatever a route returns against its declared ``response`` schema. If
+        the controller hands it an already-built ``UserTicketSchema`` instance (instead of the raw
+        ``Ticket`` model), that revalidation pass calls ``resolve_pdf_url(obj)`` with ``obj`` being
+        the *schema* instance, which has no ``pdf_file`` attribute (only ``pdf_url``). ninja's
+        DjangoGetter treats the resulting AttributeError as "missing", silently falling back to
+        the field's default (``None``) instead of raising - masking the bug whenever ``pdf_url``
+        would be ``None`` anyway. Giving the ticket a real cached PDF makes the correct value
+        non-None, so the bug is observable: it would silently vanish under re-validation.
+        """
+        ticket = ticket_factory(
+            tier=online_cancellable_tier,
+            refund_policy_snapshot=online_cancellable_tier.refund_policy,
+        )
+        payment_factory(ticket, amount=Decimal("40.00"), stripe_payment_intent_id="pi_ok")
+        ticket.pdf_file.name = "tickets/pdf/test-ticket.pdf"
+        ticket.save(update_fields=["pdf_file"])
+
+        client = _authed(ticket.user)
+        url = reverse("api:cancel_my_ticket", kwargs={"ticket_id": str(ticket.id)})
+        with patch("stripe.Refund.create") as mock:
+            mock.return_value = MagicMock(id="re_ok")
+            resp = client.post(url, data={"reason": "test"}, content_type="application/json")
+        assert resp.status_code == 200
+        cancelled_ticket_payload = resp.json()["ticket"]
+
+        assert cancelled_ticket_payload["pdf_url"] is not None
+
+        # Also pin the full contract against GET /dashboard/tickets, which always serializes
+        # the raw ORM ticket.
+        dashboard_resp = client.get(reverse("api:dashboard_tickets"), {"status": "cancelled"})
+        assert dashboard_resp.status_code == 200
+        results = dashboard_resp.json()["results"]
+        matching = next(r for r in results if r["id"] == str(ticket.id))
+        assert cancelled_ticket_payload == matching
+
     def test_free_ticket_no_stripe_call(
         self,
         tier_factory: t.Callable[..., TicketTier],

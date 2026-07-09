@@ -1,0 +1,15 @@
+{% extends "emails/base.html" %}
+{% load i18n %}
+{% block content %}
+<p>{% trans "Hello" %} {{ user.display_name }},</p>
+<p>{% blocktranslate with pass_name=context.pass_name series=context.series_name %}Your series pass <strong>{{ pass_name }}</strong> for <strong>{{ series }}</strong> is now active.{% endblocktranslate %}</p>
+
+<div class="card">
+    <h3 style="margin-top: 0;">{% trans "Pass Details" %}</h3>
+    <div class="info-row"><span class="label">{% trans "Pass:" %}</span> {{ context.pass_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Series:" %}</span> {{ context.series_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Organization:" %}</span> {{ context.organization_name }}</div>
+    <div class="info-row"><span class="label">{% trans "Events covered:" %}</span> {{ context.event_count }}</div>
+    <div class="info-row"><span class="label">{% trans "Price paid:" %}</span> {{ context.price_paid }} {{ context.currency }}</div>
+</div>
+{% endblock %}

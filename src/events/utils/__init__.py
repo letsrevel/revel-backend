@@ -23,7 +23,7 @@ from django.utils.dateformat import format as date_format
 if t.TYPE_CHECKING:
     from accounts.models import RevelUser
     from events import models
-    from events.models import Organization, Ticket
+    from events.models import HeldSeriesPass, Organization, Ticket
 
 logger = structlog.get_logger(__name__)
 
@@ -259,6 +259,24 @@ def _get_branding_assets(event: "models.Event") -> tuple[t.Any | None, t.Any | N
     return logo_file, cover_art_file, branding_source_name
 
 
+def apple_wallet_configured() -> bool:
+    """Whether Apple Wallet pass generation is configured server-wide.
+
+    Single source of truth for the 5-setting check, shared by
+    ``Ticket.apple_pass_available`` and the series-pass pkpass download endpoint.
+
+    Returns:
+        True if every required ``APPLE_WALLET_*`` setting is set.
+    """
+    return bool(
+        settings.APPLE_WALLET_PASS_TYPE_ID
+        and settings.APPLE_WALLET_TEAM_ID
+        and settings.APPLE_WALLET_CERT_PATH
+        and settings.APPLE_WALLET_KEY_PATH
+        and settings.APPLE_WALLET_WWDR_CERT_PATH
+    )
+
+
 def _file_to_data_uri(file_field: t.Any) -> str | None:
     """Convert a Django FileField/ImageField to a base64 data URI.
 
@@ -288,6 +306,33 @@ def _file_to_data_uri(file_field: t.Any) -> str | None:
         return None
 
 
+def _qr_code_base64(payload: str) -> str:
+    """Render ``payload`` as a QR code PNG, base64-encoded (no data-URI prefix).
+
+    Args:
+        payload: The raw string to encode (e.g. a ticket id or a held pass's ``qr_payload``).
+
+    Returns:
+        Base64-encoded PNG bytes. Callers needing a data URI must prefix it themselves —
+        both PDF templates already add their own ``data:image/png;base64,`` prefix.
+    """
+    import qrcode
+
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(payload)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buffered = BytesIO()
+    img.save(buffered, "PNG")
+    return base64.b64encode(buffered.getvalue()).decode("utf-8")
+
+
 def create_ticket_pdf(ticket: "Ticket") -> bytes:
     """Generates a PDF version of a ticket using weasyprint.
 
@@ -297,25 +342,11 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
     Returns:
         The PDF content as bytes.
     """
-    import qrcode
     from weasyprint import HTML
 
     event = ticket.event
 
-    # Generate QR Code from the ticket's UUID
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(str(ticket.id))
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-
-    buffered = BytesIO()
-    img.save(buffered, "PNG")
-    qr_code_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    qr_code_base64 = _qr_code_base64(str(ticket.id))
 
     # Get branding assets with fallback priority: Event > EventSeries > Organization
     logo_file, cover_art_file, branding_source_name = _get_branding_assets(event)
@@ -364,5 +395,78 @@ def create_ticket_pdf(ticket: "Ticket") -> bytes:
 
     # Render and generate PDF
     html_string = render_to_string("events/ticket.html", context=context_data)
+    html = HTML(string=html_string)
+    return t.cast(bytes, html.write_pdf())
+
+
+def create_series_pass_pdf(held_pass: "HeldSeriesPass") -> bytes:
+    """Generates a PDF version of a series pass using weasyprint.
+
+    Args:
+        held_pass: The HeldSeriesPass, expected to have ``series_pass`` (and its
+            ``event_series``/``organization``) and covered-event tier links
+            prefetched to avoid N+1 queries.
+
+    Returns:
+        The PDF content as bytes.
+    """
+    from weasyprint import HTML
+
+    series_pass = held_pass.series_pass
+    event_series = series_pass.event_series
+    organization = event_series.organization
+
+    # held_pass.qr_payload is the single source of truth for the check-in contract
+    # (see ticket_service.resolve_check_in_ticket_id).
+    qr_code_base64 = _qr_code_base64(held_pass.qr_payload)
+
+    links = list(series_pass.tier_links.select_related("event").order_by("event__start"))
+    covered_events = [
+        {"name": link.event.name, "start": format_event_datetime(link.event.start, link.event)} for link in links
+    ]
+
+    # Branding: a series pass has no single "event" of its own, so reuse the
+    # existing Event > EventSeries > Organization fallback keyed off the
+    # earliest covered event (all covered events share the same series).
+    if links:
+        logo_file, cover_art_file, branding_source_name = _get_branding_assets(links[0].event)
+    else:
+        logo_file = (
+            event_series.logo_thumbnail or event_series.logo or organization.logo_thumbnail or organization.logo
+        )
+        cover_art_file = (
+            event_series.cover_art_social
+            or event_series.cover_art
+            or organization.cover_art_social
+            or organization.cover_art
+        )
+        branding_source_name = event_series.name
+
+    logo_data_uri = _file_to_data_uri(logo_file)
+    cover_art_data_uri = _file_to_data_uri(cover_art_file)
+
+    color_source_id = str(event_series.id) if (event_series.logo or event_series.cover_art) else str(organization.id)
+    primary_color, secondary_color = _uuid_to_color(color_source_id)
+    logo_initials = _get_logo_initials(branding_source_name)
+
+    context_data = {
+        "series_name": event_series.name,
+        "pass_name": series_pass.name,
+        "organization_name": organization.name,
+        "user_display_name": held_pass.user.get_display_name(),
+        "covered_events": covered_events,
+        "qr_code_base64": qr_code_base64,
+        "pass_id": str(held_pass.id),
+        "pass_id_short": str(held_pass.id)[:8].upper(),
+        "logo_url": logo_data_uri,
+        "cover_art_url": cover_art_data_uri,
+        "logo_initials": logo_initials,
+        "primary_color": primary_color,
+        "secondary_color": secondary_color,
+        "font_dir": str(settings.BASE_DIR / "fonts"),
+        "brand_logo": str(settings.BASE_DIR / "assets" / "brand" / "revel-logo.png"),
+    }
+
+    html_string = render_to_string("events/series_pass.html", context=context_data)
     html = HTML(string=html_string)
     return t.cast(bytes, html.write_pdf())

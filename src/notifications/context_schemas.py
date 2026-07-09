@@ -507,6 +507,55 @@ class SeriesEventsGeneratedContext(BaseNotificationContext):
     series_url: str
 
 
+# ===== Series Pass Contexts =====
+
+
+class SeriesPassPurchasedContext(BaseNotificationContext):
+    """Context for SERIES_PASS_PURCHASED notification (to the holder + org staff/owners)."""
+
+    pass_id: str
+    pass_name: str
+    series_id: str
+    series_name: str
+    organization_id: str
+    organization_name: str
+    event_count: int
+    price_paid: str
+    currency: str
+    holder_name: t.NotRequired[str]
+    holder_email: t.NotRequired[str]
+
+
+class SeriesPassExtendedContext(BaseNotificationContext):
+    """Context for SERIES_PASS_EXTENDED notification (to the pass holder)."""
+
+    pass_id: str
+    pass_name: str
+    series_id: str
+    series_name: str
+    organization_id: str
+    organization_name: str
+    new_event_count: int
+    new_event_names: list[str]
+
+
+class SeriesPassCancelledContext(BaseNotificationContext):
+    """Context for SERIES_PASS_CANCELLED notification (to the holder + org staff/owners)."""
+
+    pass_id: str
+    pass_name: str
+    series_id: str
+    series_name: str
+    organization_id: str
+    organization_name: str
+    cancelled_ticket_count: int
+    refunded_total: str
+    currency: str
+    reason: str
+    holder_name: t.NotRequired[str]
+    holder_email: t.NotRequired[str]
+
+
 # Context type registry
 NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContext]] = {
     NotificationType.TICKET_CREATED: TicketCreatedContext,
@@ -551,6 +600,9 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.NEW_EVENT_FROM_FOLLOWED_ORG: NewEventFromFollowedOrgContext,
     NotificationType.NEW_EVENT_FROM_FOLLOWED_SERIES: NewEventFromFollowedSeriesContext,
     NotificationType.SERIES_EVENTS_GENERATED: SeriesEventsGeneratedContext,
+    NotificationType.SERIES_PASS_PURCHASED: SeriesPassPurchasedContext,
+    NotificationType.SERIES_PASS_EXTENDED: SeriesPassExtendedContext,
+    NotificationType.SERIES_PASS_CANCELLED: SeriesPassCancelledContext,
 }
 
 

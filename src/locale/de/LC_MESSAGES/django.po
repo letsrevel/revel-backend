@@ -689,7 +689,9 @@ msgstr ""
 
 msgid ""
 "This is an automated payout document. Please retain it for your records."
-msgstr "Dies ist ein automatisches Auszahlungsdokument. Bitte hebe es für deine Unterlagen auf."
+msgstr ""
+"Dies ist ein automatisches Auszahlungsdokument. Bitte hebe es für deine "
+"Unterlagen auf."
 
 msgid "Home"
 msgstr "Startseite"
@@ -1370,6 +1372,13 @@ msgstr ""
 "Eine oder mehrere Event-Serien existieren nicht oder gehören nicht zu dieser "
 "Organisation."
 
+msgid ""
+"Cannot delete a series with sold series passes; cancel or delete its passes "
+"first."
+msgstr ""
+"Eine Serie mit verkauften Serienpässen kann nicht gelöscht werden; storniere "
+"oder lösche zuerst ihre Pässe."
+
 msgid "An event with this slug already exists in your organization."
 msgstr "Ein Event mit diesem Slug existiert bereits in deiner Organisation."
 
@@ -1483,25 +1492,6 @@ msgstr ""
 msgid "membership_tier_id is required when grants_membership is True."
 msgstr "membership_tier_id ist erforderlich, wenn grants_membership True ist."
 
-msgid "A file must be provided when resource_type is 'file'."
-msgstr "Eine Datei muss bereitgestellt werden, wenn resource_type 'file' ist."
-
-msgid "Payment processing failed. Please try again later."
-msgstr "Zahlung fehlgeschlagen. Bitte versuche es später erneut."
-
-msgid "This organization is not configured to accept payments."
-msgstr ""
-"Diese Organisation ist nicht für die Annahme von Zahlungen konfiguriert."
-
-msgid "This ticket tier cannot be purchased."
-msgstr "Diese Ticket-Kategorie kann nicht gekauft werden."
-
-msgid "You already have a ticket"
-msgstr "Du hast bereits ein Ticket"
-
-msgid "This ticket tier cannot be purchased online."
-msgstr "Diese Ticket-Kategorie kann nicht online gekauft werden."
-
 msgid "No pending payment found."
 msgstr "Keine ausstehende Zahlung gefunden."
 
@@ -1519,6 +1509,118 @@ msgstr "Zahlung nicht gefunden."
 
 msgid "Only pending payments can be cancelled."
 msgstr "Nur ausstehende Zahlungen können storniert werden."
+
+msgid "A file must be provided when resource_type is 'file'."
+msgstr "Eine Datei muss bereitgestellt werden, wenn resource_type 'file' ist."
+
+msgid "You cannot purchase from this organization."
+msgstr "Du kannst bei dieser Organisation nichts kaufen."
+
+msgid "This pass is for members only."
+msgstr "Dieser Pass ist nur für Mitglieder."
+
+msgid "You already hold this pass."
+msgstr "Du besitzt diesen Pass bereits."
+
+msgid "This pass cannot be purchased."
+msgstr "Dieser Pass kann nicht gekauft werden."
+
+msgid "This pass is sold out."
+msgstr "Dieser Pass ist ausverkauft."
+
+#, python-brace-format
+msgid "Event {name} is sold out."
+msgstr "Event {name} ist ausverkauft."
+
+msgid "This pass is not on sale."
+msgstr "Dieser Pass ist nicht zum Verkauf verfügbar."
+
+msgid "Sales have not started yet."
+msgstr "Der Verkauf hat noch nicht begonnen."
+
+msgid "Sales have ended."
+msgstr "Der Verkauf hat beendet."
+
+msgid "Not enough remaining events; buy a regular ticket instead."
+msgstr ""
+"Nicht genug verbleibende Events; kaufen Sie stattdessen ein normales Ticket."
+
+msgid "Series passes are not supported on recurring series."
+msgstr "Serienpässe werden für wiederkehrende Serien nicht unterstützt."
+
+#, python-format
+msgid "Event '%s' does not belong to this series."
+msgstr "Event '%s' gehört nicht zu dieser Serie."
+
+#, python-format
+msgid "Event '%s' is not open."
+msgstr "Event '%s' ist nicht geöffnet."
+
+#, python-format
+msgid "Event '%s' does not require a ticket."
+msgstr "Event '%s' erfordert kein Ticket."
+
+#, python-format
+msgid "Event '%s' is invitation-only and cannot be covered by a series pass."
+msgstr ""
+"Event '%s' ist nur auf Einladung zugänglich und kann nicht durch einen "
+"Serienpass abgedeckt werden."
+
+msgid ""
+"Events gated by an admission questionnaire cannot be covered by a series "
+"pass."
+msgstr ""
+"Events, die durch einen Zulassungsfragebogen gesperrt sind, können nicht "
+"durch einen Serienpass abgedeckt werden."
+
+msgid "One or more events do not exist."
+msgstr "Ein oder mehrere Events existieren nicht."
+
+#, python-format
+msgid "Event '%s' is already covered by this pass via a different tier."
+msgstr ""
+"Event '%s' wird von diesem Pass bereits über eine andere Kategorie abgedeckt."
+
+msgid "Cannot delete a series pass with active or pending holders."
+msgstr ""
+"Ein Serienpass mit aktiven oder ausstehenden Inhabern kann nicht gelöscht "
+"werden."
+
+msgid "Cannot delete a series pass with historical holder records."
+msgstr ""
+"Ein Serienpass mit historischen Inhaberdatensätzen kann nicht gelöscht "
+"werden."
+
+msgid ""
+"Cannot remove coverage from a series pass with active or pending holders."
+msgstr ""
+"Die Abdeckung eines Serienpasses mit aktiven oder ausstehenden Inhabern kann "
+"nicht entfernt werden."
+
+msgid "This series pass is not paid offline."
+msgstr "Dieser Serienpass wird nicht offline bezahlt."
+
+msgid "This held pass is not pending."
+msgstr "Dieser gehaltene Pass ist nicht ausstehend."
+
+msgid "Payment processing failed. Please try again later."
+msgstr "Zahlung fehlgeschlagen. Bitte versuche es später erneut."
+
+msgid "This organization is not configured to accept payments."
+msgstr ""
+"Diese Organisation ist nicht für die Annahme von Zahlungen konfiguriert."
+
+msgid "This ticket tier cannot be purchased."
+msgstr "Diese Ticket-Kategorie kann nicht gekauft werden."
+
+msgid "You already have a ticket"
+msgstr "Du hast bereits ein Ticket"
+
+msgid "This ticket tier cannot be purchased online."
+msgstr "Diese Ticket-Kategorie kann nicht online gekauft werden."
+
+msgid "This pass cannot be purchased online."
+msgstr "Dieser Pass kann nicht online gekauft werden."
 
 msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
 msgstr ""
@@ -1595,6 +1697,13 @@ msgstr ""
 "Plattformgebühren erforderlich. Bitte lege deinen Rechnungsnamen, dein Land "
 "und deine Rechnungsadresse in den Rechnungseinstellungen deiner Organisation "
 "fest."
+
+msgid ""
+"This ticket is part of a series pass. Manage it through the series pass "
+"instead."
+msgstr ""
+"Dieses Ticket ist Teil eines Serienpasses. Verwalte es stattdessen über den "
+"Serienpass."
 
 msgid "Price paid is not allowed for fixed-price tiers."
 msgstr "Der gezahlte Preis ist für Festpreisstufen nicht zulässig."
@@ -2087,6 +2196,32 @@ msgstr "RSVP storniert: %(event)s (%(user)s)"
 #, python-format
 msgid "RSVP Cancelled: %(event)s"
 msgstr "RSVP storniert: %(event)s"
+
+#, python-format
+msgid "Series pass purchased: %(pass)s (%(series)s)"
+msgstr "Pass gekauft: %(pass)s (%(series)s)"
+
+#, python-format
+msgid "Series pass purchased - %(pass)s"
+msgstr "Pass gekauft - %(pass)s"
+
+#, python-format
+msgid "%(pass)s now covers %(count)d new event"
+msgid_plural "%(pass)s now covers %(count)d new events"
+msgstr[0] "%(pass)s deckt jetzt %(count)d neues Event ab"
+msgstr[1] "%(pass)s deckt jetzt %(count)d neue Events ab"
+
+#, python-format
+msgid "Your series pass has new events - %(pass)s"
+msgstr "Dein Pass hat neue Events - %(pass)s"
+
+#, python-format
+msgid "Series pass cancelled: %(pass)s (%(series)s)"
+msgstr "Pass storniert: %(pass)s (%(series)s)"
+
+#, python-format
+msgid "Series pass cancelled - %(pass)s"
+msgstr "Pass storniert - %(pass)s"
 
 #, python-format
 msgid "%(count)d new event scheduled for %(series)s"
@@ -3039,6 +3174,113 @@ msgstr[1] "%(counter)s neue Events wurden für %(series)s geplant."
 msgid "View the series:"
 msgstr "Zur Serie:"
 
+#, python-format
+msgid ""
+"Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
+"strong> has been cancelled."
+msgstr ""
+"Dein Pass <strong>%(pass_name)s</strong> für <strong>%(series)s</strong> "
+"wurde storniert."
+
+msgid "Pass:"
+msgstr "Pass:"
+
+msgid "Tickets cancelled:"
+msgstr "Stornierte Tickets:"
+
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
+"pass holder."
+msgstr ""
+"Eine Rückerstattung von <strong>%(amount)s %(currency)s</strong> wurde an "
+"den Passinhaber ausgestellt."
+
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
+"your original payment method within 5-10 business days."
+msgstr ""
+"Eine Rückerstattung von <strong>%(amount)s %(currency)s</strong> wird "
+"innerhalb von 5–10 Werktagen über deine ursprüngliche Zahlungsmethode "
+"abgewickelt."
+
+#, python-format
+msgid "Your series pass %(pass_name)s for %(series)s has been cancelled."
+msgstr "Dein Pass %(pass_name)s für %(series)s wurde storniert."
+
+#, python-format
+msgid "A refund of %(amount)s %(currency)s has been issued to the pass holder."
+msgstr ""
+"Eine Rückerstattung von %(amount)s %(currency)s wurde an den Passinhaber "
+"ausgestellt."
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s will be processed to your original "
+"payment method within 5-10 business days."
+msgstr ""
+"Eine Rückerstattung von %(amount)s %(currency)s wird innerhalb von 5–10 "
+"Werktagen über deine ursprüngliche Zahlungsmethode abgewickelt."
+
+#, python-format
+msgid ""
+"Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
+"strong> now covers <strong>%(counter)s</strong> new event."
+msgid_plural ""
+"Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
+"strong> now covers <strong>%(counter)s</strong> new events."
+msgstr[0] ""
+"Dein Pass <strong>%(pass_name)s</strong> für <strong>%(series)s</strong> "
+"deckt jetzt <strong>%(counter)s</strong> neues Event ab."
+msgstr[1] ""
+"Dein Pass <strong>%(pass_name)s</strong> für <strong>%(series)s</strong> "
+"deckt jetzt <strong>%(counter)s</strong> neue Events ab."
+
+msgid "New Events"
+msgstr "Neue Events"
+
+#, python-format
+msgid ""
+"Your series pass %(pass_name)s for %(series)s now covers %(counter)s new "
+"event."
+msgid_plural ""
+"Your series pass %(pass_name)s for %(series)s now covers %(counter)s new "
+"events."
+msgstr[0] ""
+"Dein Pass %(pass_name)s für %(series)s deckt jetzt %(counter)s neues Event "
+"ab."
+msgstr[1] ""
+"Dein Pass %(pass_name)s für %(series)s deckt jetzt %(counter)s neue Events "
+"ab."
+
+msgid "New Events:"
+msgstr "Neue Events:"
+
+#, python-format
+msgid ""
+"Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
+"strong> is now active."
+msgstr ""
+"Dein Pass <strong>%(pass_name)s</strong> für <strong>%(series)s</strong> ist "
+"jetzt aktiv."
+
+msgid "Pass Details"
+msgstr "Passdetails"
+
+msgid "Events covered:"
+msgstr "Abgedeckte Events:"
+
+msgid "Price paid:"
+msgstr "Bezahlter Preis:"
+
+#, python-format
+msgid "Your series pass %(pass_name)s for %(series)s is now active."
+msgstr "Dein Pass %(pass_name)s für %(series)s ist jetzt aktiv."
+
+msgid "Pass Details:"
+msgstr "Passdetails:"
+
 msgid "Read More"
 msgstr "Mehr lesen"
 
@@ -3098,15 +3340,6 @@ msgstr ""
 "den Ticketinhaber ausgestellt."
 
 #, python-format
-msgid ""
-"A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
-"your original payment method within 5-10 business days."
-msgstr ""
-"Eine Rückerstattung von <strong>%(amount)s %(currency)s</strong> wird "
-"innerhalb von 5–10 Werktagen über deine ursprüngliche Zahlungsmethode "
-"abgewickelt."
-
-#, python-format
 msgid "%(holder)s cancelled their ticket for %(event)s."
 msgstr "%(holder)s hat das eigene Ticket für %(event)s storniert."
 
@@ -3145,14 +3378,6 @@ msgid ""
 msgstr ""
 "Eine Rückerstattung von %(amount)s %(currency)s wurde an den Ticketinhaber "
 "ausgestellt."
-
-#, python-format
-msgid ""
-"A refund of %(amount)s %(currency)s will be processed to your original "
-"payment method within 5-10 business days."
-msgstr ""
-"Eine Rückerstattung von %(amount)s %(currency)s wird innerhalb von 5–10 "
-"Werktagen über deine ursprüngliche Zahlungsmethode abgewickelt."
 
 #, python-format
 msgid "You have been checked in for <strong>%(event)s</strong>!"
@@ -3524,6 +3749,15 @@ msgstr "Events"
 
 msgid "Event Series"
 msgstr "Eventreihen"
+
+msgid "Series Passes"
+msgstr "Serienpässe"
+
+msgid "Held Series Passes"
+msgstr "Gehaltene Serienpässe"
+
+msgid "Series Pass Tier Links"
+msgstr "Serienpass-Kategorie-Zuordnungen"
 
 msgid "Tickets"
 msgstr "Tickets"

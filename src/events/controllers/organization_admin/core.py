@@ -12,7 +12,7 @@ from common.thumbnails.service import delete_image_with_derivatives
 from common.utils import safe_save_uploaded_file
 from events import models, schema
 from events.controllers.permissions import IsOrganizationOwner, IsOrganizationStaff, OrganizationPermission
-from events.service import organization_service, stripe_service
+from events.service import event_service, organization_service, stripe_service
 
 from .base import OrganizationAdminBaseController
 
@@ -230,4 +230,4 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
     def create_event(self, slug: str, payload: schema.EventCreateSchema) -> models.Event:
         """Create a new event."""
         organization = self.get_one(slug)
-        return models.Event.objects.create(organization=organization, **payload.model_dump())
+        return event_service.create_event(organization, payload)

@@ -55,3 +55,15 @@ class DuplicateDiscountCodeError(Exception):
 
 class InvalidPeriodError(Exception):
     """Raised when month and quarter period filters are combined."""
+
+
+class SeriesPassCoverageError(Exception):
+    """Raised when a series/event cannot carry a series pass (enable-time gate)."""
+
+
+class SeriesPassNotPurchasableError(Exception):
+    """Raised when a series pass cannot be purchased right now."""
+
+
+class SeriesPassHasHoldersError(Exception):
+    """Raised when deleting a SeriesPass or removing tier-link coverage would strand non-cancelled holders."""

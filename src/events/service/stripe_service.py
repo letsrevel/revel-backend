@@ -28,15 +28,29 @@ from common.service.stripe_connect_service import (
 from common.service.stripe_connect_service import (
     sync_account_status,
 )
-from events.models import Event, Organization, Payment, Ticket, TicketTier
+from events.models import Event, HeldSeriesPass, Organization, Payment, Ticket, TicketTier
 from events.models.attendee_invoice import BuyerBillingSnapshot
+
+# Re-exported: the pending-checkout batch cleanup lives in its own module (file-length
+# limit) but callers and tests keep addressing it via the stripe_service namespace.
+from events.service.pending_checkout import (
+    _cleanup_expired_batch as _cleanup_expired_batch,
+)
+from events.service.pending_checkout import (
+    _release_batch_tier_capacity as _release_batch_tier_capacity,
+)
+from events.service.pending_checkout import (
+    cancel_pending_checkout as cancel_pending_checkout,
+)
+from events.service.pending_checkout import (
+    resume_pending_checkout as resume_pending_checkout,
+)
 from events.service.vat_service import (
     calculate_platform_fee_vat,
     calculate_vat_inclusive,
     distribute_amount_across_items,
     get_effective_vat_rate,
 )
-from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import to_stripe_amount
 
 if t.TYPE_CHECKING:
@@ -660,138 +674,177 @@ def create_batch_checkout_session(
     return t.cast(str, session.url)
 
 
-@transaction.atomic
-def _cleanup_expired_batch(payment: Payment) -> None:
-    """Clean up an expired payment batch (all tickets with same session_id)."""
-    batch_payments = Payment.objects.filter(stripe_session_id=payment.stripe_session_id)
-    ticket_count = batch_payments.count()
-    ticket_ids = list(batch_payments.values_list("ticket_id", flat=True))
-
-    # Clean up all tickets and payments in this batch
-    batch_payments.delete()
-    Ticket.objects.filter(id__in=ticket_ids).delete()
-
-    # Decrement quantity sold
-    tier = payment.ticket.tier
-    if tier:
-        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=F("quantity_sold") - ticket_count)
-
-
-def resume_pending_checkout(
-    payment_id: str,
+def _create_series_pass_stripe_session(
+    *,
+    held_pass: HeldSeriesPass,
+    org: Organization,
     user: RevelUser,
-) -> str:
-    """Resume a pending Stripe checkout session by payment ID.
+    tickets: list[Ticket],
+    total: Decimal,
+    application_fee_amount: int,
+    expires_at: datetime,
+    site: SiteSettings,
+) -> Session:
+    """Build session data and create a Stripe Checkout Session for a series pass.
 
-    Retrieves the existing Stripe checkout URL for a pending payment.
-    Cleans up expired sessions and all tickets in the same batch.
+    Returns:
+        The created Stripe Session object.
+
+    Raises:
+        HttpError: If Stripe API call fails.
+    """
+    series_pass = held_pass.series_pass
+    series = series_pass.event_series
+    ticket_ids = ",".join(str(ticket.id) for ticket in tickets)
+
+    frontend_base_url = site.frontend_base_url
+    series_url = f"{frontend_base_url}/events/{org.slug}/series/{series.slug}"
+    session_data = dict(  # noqa: C408
+        customer_email=user.email,
+        line_items=[
+            {
+                "price_data": {
+                    "currency": series_pass.currency.lower(),
+                    "product_data": {
+                        "name": f"Season pass: {series_pass.name} — {series.name}",
+                    },
+                    "unit_amount": to_stripe_amount(total, series_pass.currency),
+                },
+                "quantity": 1,
+            }
+        ],
+        mode="payment",
+        success_url=f"{series_url}?payment_success=true",
+        cancel_url=f"{series_url}?payment_cancelled=true",
+        payment_intent_data={
+            "application_fee_amount": application_fee_amount,
+        },
+        stripe_account=org.stripe_account_id,
+        metadata={
+            "held_pass_id": str(held_pass.id),
+            "user_id": str(user.id),
+            "ticket_ids": ticket_ids,
+        },
+        expires_at=int(expires_at.timestamp()),
+    )
+
+    # If the organization is using the platform's own Stripe account,
+    # remove connected account parameters (no fee to ourselves)
+    if settings.STRIPE_ACCOUNT == org.stripe_account_id:
+        session_data.pop("stripe_account")
+        session_data["payment_intent_data"].pop("application_fee_amount")  # type: ignore[union-attr, arg-type]
+
+    try:
+        return Session.create(**session_data)  # type: ignore[arg-type]
+    except Exception as e:
+        logger.error("stripe_series_pass_session_creation_failed", error=str(e), held_pass_id=str(held_pass.id))
+        raise HttpError(500, str(_("Payment processing failed. Please try again later."))) from e
+
+
+@transaction.atomic
+def create_series_pass_checkout_session(
+    *,
+    held_pass: HeldSeriesPass,
+    tickets: list[Ticket],
+    billing_info: "BuyerBillingInfoSchema | None" = None,
+) -> str:
+    """Create a Stripe Checkout Session for a series pass purchase.
+
+    One Stripe session at the pass's total price; N Payment rows split the total
+    across tickets (per-ticket share, not per-ticket price — a series pass has a
+    single price covering all its tickets).
 
     Args:
-        payment_id: The UUID of the pending payment.
-        user: The user who initiated the purchase.
+        held_pass: The PENDING HeldSeriesPass being paid for.
+        tickets: The PENDING tickets materialized for this pass.
+        billing_info: Optional buyer billing info for attendee invoicing.
 
     Returns:
         The Stripe checkout URL.
 
     Raises:
-        HttpError: 404 if payment not found, not owned by user, or session expired.
+        HttpError: If Stripe API call fails or organization not configured, or the
+            pass price is not purchasable online.
     """
-    # Find the payment and verify ownership
-    payment = (
-        Payment.objects.filter(
-            id=payment_id,
-            user=user,
-            status=Payment.PaymentStatus.PENDING,
-        )
-        .select_related("ticket__event__organization", "ticket__tier")
-        .first()
+    series_pass = held_pass.series_pass
+    org = series_pass.event_series.organization
+    user = held_pass.user
+
+    if not org.is_stripe_connected:
+        raise HttpError(400, str(_("This organization is not configured to accept payments.")))
+
+    total = held_pass.price_paid
+    if total <= 0:
+        raise HttpError(400, str(_("This pass cannot be purchased online.")))
+
+    net_fee = (total * org.platform_fee_percent / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, series_pass.currency)
+    net_fee_total = net_fee + fixed_fee
+
+    site = SiteSettings.get_solo()
+    total_fee_vat = calculate_platform_fee_vat(net_fee_total, org, site.platform_vat_country, site.platform_vat_rate)
+    application_fee_amount = to_stripe_amount(total_fee_vat.fee_gross, series_pass.currency)
+
+    expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
+
+    session = _create_series_pass_stripe_session(
+        held_pass=held_pass,
+        org=org,
+        user=user,
+        tickets=tickets,
+        total=total,
+        application_fee_amount=application_fee_amount,
+        expires_at=expires_at,
+        site=site,
     )
 
-    if not payment:
-        raise HttpError(404, str(_("No pending payment found.")))
+    shares = distribute_amount_across_items(total, len(tickets))
+    fee_gross_shares = distribute_amount_across_items(total_fee_vat.fee_gross, len(tickets))
+    fee_vat_shares = distribute_amount_across_items(total_fee_vat.fee_vat, len(tickets))
 
-    event = payment.ticket.event
+    # billing_info is out of scope for pass v1: no attendee VAT re-resolution, just a
+    # snapshot for attendee invoicing.
+    # ponytail: attendee reverse-charge VAT for passes deferred; upgrade = mirror
+    # _maybe_resolve_attendee_vat per-tier
+    billing_snapshot: BuyerBillingSnapshot | None = None
+    if billing_info:
+        billing_snapshot = _build_billing_snapshot(billing_info, False, False)
 
-    # Check if the payment has expired - cleanup commits in its own transaction
-    if payment.has_expired():
-        _cleanup_expired_batch(payment)
-        raise HttpError(404, str(_("Checkout session has expired. Please start a new purchase.")))
-
-    # Retrieve and return the Stripe session URL
-    try:
-        session = Session.retrieve(
-            payment.stripe_session_id,
-            stripe_account=event.organization.stripe_account_id
-            if event.organization.stripe_account_id != settings.STRIPE_ACCOUNT
-            else None,
+    tier_map = TicketTier.objects.in_bulk([ticket.tier_id for ticket in tickets])
+    payments = []
+    for i, ticket in enumerate(tickets):
+        rate = get_effective_vat_rate(tier_map[ticket.tier_id].vat_rate, org.vat_rate)
+        ticket_vat = calculate_vat_inclusive(shares[i], rate)
+        payments.append(
+            Payment(
+                ticket=ticket,
+                user=user,
+                stripe_session_id=session.id,
+                amount=shares[i],
+                platform_fee=fee_gross_shares[i],
+                currency=series_pass.currency,
+                status=Payment.PaymentStatus.PENDING,
+                raw_response={},
+                expires_at=expires_at,
+                # Ticket sale VAT breakdown
+                net_amount=ticket_vat.net_amount,
+                vat_amount=ticket_vat.vat_amount,
+                vat_rate=ticket_vat.vat_rate,
+                # Platform fee VAT breakdown (distributed to avoid penny errors)
+                platform_fee_net=fee_gross_shares[i] - fee_vat_shares[i],
+                platform_fee_vat=fee_vat_shares[i],
+                platform_fee_vat_rate=total_fee_vat.fee_vat_rate,
+                platform_fee_reverse_charge=total_fee_vat.reverse_charge,
+                # Buyer billing snapshot for attendee invoicing
+                buyer_billing_snapshot=billing_snapshot,
+            )
         )
-        if session.url:
-            return session.url
-        raise HttpError(404, str(_("Checkout session is no longer valid.")))
-    except stripe.error.InvalidRequestError:
-        raise HttpError(404, str(_("Checkout session not found.")))
+    Payment.objects.bulk_create(payments)
 
+    held_pass.stripe_session_id = session.id
+    held_pass.save(update_fields=["stripe_session_id"])
 
-@transaction.atomic
-def cancel_pending_checkout(
-    payment_id: str,
-    user: RevelUser,
-) -> int:
-    """Cancel a pending Stripe checkout and delete associated tickets.
+    if billing_info and billing_info.save_to_profile:
+        _save_billing_to_profile(user, billing_info)
 
-    Deletes all payments and tickets in the same batch (same stripe_session_id).
-
-    Args:
-        payment_id: The UUID of the pending payment to cancel.
-        user: The user who owns the payment.
-
-    Returns:
-        Number of tickets cancelled.
-
-    Raises:
-        HttpError: 404 if payment not found or not owned by user.
-        HttpError: 400 if payment is not in PENDING status.
-    """
-    # Find the payment and verify ownership
-    payment = (
-        Payment.objects.filter(
-            id=payment_id,
-            user=user,
-        )
-        .select_related("ticket__tier")
-        .first()
-    )
-
-    if not payment:
-        raise HttpError(404, str(_("Payment not found.")))
-
-    if payment.status != Payment.PaymentStatus.PENDING:
-        raise HttpError(400, str(_("Only pending payments can be cancelled.")))
-
-    # Find all payments in this batch (same session_id)
-    batch_payments = Payment.objects.filter(stripe_session_id=payment.stripe_session_id)
-    ticket_count = batch_payments.count()
-    ticket_ids = list(batch_payments.values_list("ticket_id", flat=True))
-
-    # Capture event_id before the ticket rows are deleted.
-    event_id = payment.ticket.event_id
-
-    # Delete all tickets and payments in this batch
-    batch_payments.delete()
-    Ticket.objects.filter(id__in=ticket_ids).delete()
-
-    # Decrement quantity sold
-    tier = payment.ticket.tier
-    if tier:
-        TicketTier.objects.filter(pk=tier.pk).update(quantity_sold=F("quantity_sold") - ticket_count)
-
-    enqueue_waitlist_processing(event_id)
-
-    logger.info(
-        "pending_checkout_cancelled",
-        payment_id=payment_id,
-        user_id=str(user.id),
-        tickets_cancelled=ticket_count,
-    )
-
-    return ticket_count
+    return t.cast(str, session.url)

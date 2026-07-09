@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import orjson
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -5,7 +7,8 @@ from django.test.client import Client
 from django.urls import reverse
 
 from common.utils import assert_image_equal
-from events.models import EventSeries, OrganizationStaff
+from conftest import RevelUserFactory
+from events.models import EventSeries, HeldSeriesPass, OrganizationStaff, SeriesPass, TicketTier
 
 pytestmark = pytest.mark.django_db
 
@@ -82,6 +85,38 @@ def test_delete_event_series_by_staff_with_permission(
     response = organization_staff_client.delete(url)
     assert response.status_code == 204
     assert not EventSeries.objects.filter(pk=event_series.pk).exists()
+
+
+def test_delete_event_series_with_series_pass_holder_returns_409(
+    organization_owner_client: Client, event_series: EventSeries, revel_user_factory: RevelUserFactory
+) -> None:
+    """A series pass's holder record blocks series deletion, even a CANCELLED one.
+
+    ``EventSeries -> SeriesPass`` cascades (CASCADE), but ``HeldSeriesPass.series_pass``
+    is PROTECT (audit trail) — so any held pass, however cancelled, must surface as a
+    409, not the unhandled ``ProtectedError`` -> 500 this used to be.
+    """
+    series_pass = SeriesPass.objects.create(
+        event_series=event_series,
+        name="Season Ticket",
+        price=Decimal("36.00"),
+        pro_rata_discount=Decimal("6.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.FREE,
+    )
+    holder = revel_user_factory(username="series_holder@example.com", email="series_holder@example.com")
+    HeldSeriesPass.objects.create(
+        series_pass=series_pass,
+        user=holder,
+        status=HeldSeriesPass.HeldSeriesPassStatus.CANCELLED,
+        price_paid=series_pass.price,
+    )
+
+    url = reverse("api:delete_event_series", kwargs={"series_id": event_series.pk})
+    response = organization_owner_client.delete(url)
+
+    assert response.status_code == 409
+    assert EventSeries.objects.filter(pk=event_series.pk).exists()
 
 
 def test_delete_event_series_by_staff_without_permission(

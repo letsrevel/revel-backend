@@ -29,6 +29,8 @@ from events.controllers.organization_admin import ORGANIZATION_ADMIN_CONTROLLERS
 from events.controllers.permissions import PermissionController
 from events.controllers.potluck import PotluckController
 from events.controllers.questionnaire import QuestionnaireController
+from events.controllers.series_pass import SeriesPassController
+from events.controllers.series_pass_admin import SeriesPassAdminController
 from events.controllers.stripe_webhook import StripeWebhookController
 from events.controllers.user_preferences import UserPreferencesController
 from geo.controllers.cities import CityController
@@ -133,6 +135,8 @@ api.register_controllers(
     PermissionController,
     EventSeriesController,
     EventSeriesAdminController,
+    SeriesPassController,
+    SeriesPassAdminController,
     PotluckController,
     QuestionnaireController,
     QuestionnaireFileController,

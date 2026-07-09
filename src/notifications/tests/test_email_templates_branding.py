@@ -14,12 +14,13 @@ LEGACY = ("#667eea", "#764ba2", "#28a745", "#4CAF50", "#dc3545", "#2196F3", "#ff
 @pytest.mark.parametrize("ntype", list(NotificationType))
 def test_email_template_extends_base_and_has_no_legacy_hex(ntype: NotificationType) -> None:
     tpl = f"notifications/email/{ntype.value}.html"
-    # Provide events_count as a number so blocktranslate count works in series_events_generated.
-    # All other context keys default to falsy values which templates handle via {% if %} guards.
+    # Provide events_count/new_event_count as numbers so blocktranslate count works in
+    # series_events_generated / series_pass_extended. All other context keys default to
+    # falsy values which templates handle via {% if %} guards.
     ctx: dict[str, t.Any] = {
         "frontend_base_url": "https://letsrevel.io",
         "user": None,
-        "context": {"events_count": 1},
+        "context": {"events_count": 1, "new_event_count": 1},
     }
     try:
         html = render_to_string(tpl, ctx)

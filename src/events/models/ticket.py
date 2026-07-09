@@ -13,6 +13,7 @@ from django.utils.functional import cached_property
 
 from common.fields import MarkdownField, ProtectedFileField
 from common.models import TimeStampedModel
+from events.utils import apple_wallet_configured
 
 from .mixins import VisibilityMixin
 from .organization import MembershipTier, OrganizationMember
@@ -45,6 +46,7 @@ class CancellationBlockReason(models.TextChoices):
     NOT_PERMITTED = "not_permitted", "Self-service cancellation disabled for this tier"
     PAST_DEADLINE = "past_deadline", "Past the cancellation deadline"
     NOT_OWNER = "not_owner", "Only the ticket holder can cancel this ticket"
+    PART_OF_SERIES_PASS = "part_of_series_pass", "Ticket belongs to a series pass"
 
 
 class TicketTierQuerySet(models.QuerySet["TicketTier"]):
@@ -541,12 +543,16 @@ class TicketQuerySet(models.QuerySet["Ticket"]):
             "tier__venue",
             "tier__venue__city",
             "tier__sector",
+            "tier__event",
+            "tier__event__organization",
             "venue",
             "venue__city",
             "seat",
             "user",
             "payment",
             "discount_code",
+            "held_pass",
+            "held_pass__series_pass",
         ).prefetch_related("tier__restricted_to_membership_tiers")
 
     def with_org_membership(self, organization_id: UUID) -> t.Self:
@@ -669,6 +675,18 @@ class Ticket(TimeStampedModel):
         blank=True,
         help_text="Amount discounted from the original tier price.",
     )
+    # RESTRICT (not PROTECT): a cascading user.delete() must still succeed — this
+    # ticket is already being cascade-deleted via Ticket.user from the same origin,
+    # which satisfies the restriction — while a direct held_pass.delete() (no wider
+    # cascade in play) is still blocked, preserving the purchase/attendance audit trail.
+    held_pass = models.ForeignKey(
+        "events.HeldSeriesPass",
+        on_delete=models.RESTRICT,
+        null=True,
+        blank=True,
+        related_name="tickets",
+        help_text="Set when this ticket was materialized from a series pass purchase.",
+    )
 
     refund_policy_snapshot = models.JSONField(
         null=True,
@@ -720,6 +738,11 @@ class Ticket(TimeStampedModel):
                 condition=models.Q(seat__isnull=False) & ~models.Q(status="cancelled"),
                 name="unique_ticket_event_seat",
             ),
+            models.UniqueConstraint(
+                fields=["held_pass", "event"],
+                condition=models.Q(held_pass__isnull=False) & ~models.Q(status="cancelled"),
+                name="unique_held_pass_ticket_per_event",
+            ),
         ]
         ordering = ["-created_at"]
 
@@ -761,13 +784,7 @@ class Ticket(TimeStampedModel):
     @cached_property
     def apple_pass_available(self) -> bool:
         """Check if apple pass is available."""
-        return bool(
-            settings.APPLE_WALLET_PASS_TYPE_ID
-            and settings.APPLE_WALLET_TEAM_ID
-            and settings.APPLE_WALLET_CERT_PATH
-            and settings.APPLE_WALLET_KEY_PATH
-            and settings.APPLE_WALLET_WWDR_CERT_PATH
-        )
+        return apple_wallet_configured()
 
 
 def _get_payment_default_expiry() -> datetime:

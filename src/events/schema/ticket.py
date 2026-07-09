@@ -146,6 +146,28 @@ class TicketDiscountCodeSchema(ModelSchema):
         fields = ["id", "code", "discount_type", "discount_value", "currency"]
 
 
+class TicketSeriesPassSchema(Schema):
+    """Minimal series-pass info for tickets materialized from a held series pass."""
+
+    held_pass_id: UUID
+    series_pass_id: UUID
+    name: str
+
+
+def _resolve_ticket_series_pass(obj: Ticket) -> TicketSeriesPassSchema | None:
+    """Resolve the series pass a ticket was materialized from, if any.
+
+    Shared by ``AdminTicketSchema`` and ``UserTicketSchema`` — both expose the same
+    ``series_pass`` shape.
+    """
+    held_pass = obj.held_pass
+    if held_pass is None:
+        return None
+    return TicketSeriesPassSchema(
+        held_pass_id=held_pass.id, series_pass_id=held_pass.series_pass_id, name=held_pass.series_pass.name
+    )
+
+
 class AdminTicketSchema(ModelSchema):
     """Schema for pending tickets in admin interface.
 
@@ -163,6 +185,7 @@ class AdminTicketSchema(ModelSchema):
     discount_code: TicketDiscountCodeSchema | None = None
     discount_amount: Decimal | None = None
     offline_refund_amount: Decimal | None = None
+    series_pass: TicketSeriesPassSchema | None = None
 
     class Meta:
         model = Ticket
@@ -184,6 +207,8 @@ class AdminTicketSchema(ModelSchema):
         memberships = getattr(obj.user, "org_membership_list", None)
         return memberships[0] if memberships else None
 
+    resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
+
 
 class UserTicketSchema(ModelSchema):
     """Schema for user's own tickets with event details.
@@ -203,6 +228,7 @@ class UserTicketSchema(ModelSchema):
     discount_amount: Decimal | None = None
     pdf_url: str | None = None
     pkpass_url: str | None = None
+    series_pass: TicketSeriesPassSchema | None = None
 
     class Meta:
         model = Ticket
@@ -234,6 +260,8 @@ class UserTicketSchema(ModelSchema):
     def resolve_pkpass_url(obj: Ticket) -> str | None:
         """Resolve cached pkpass file to signed URL."""
         return get_file_url(obj.pkpass_file)
+
+    resolve_series_pass: t.ClassVar = staticmethod(_resolve_ticket_series_pass)
 
 
 class CheckInRequestSchema(Schema):

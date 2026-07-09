@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import Count, F, Max, Q
+from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import formats, timezone
 from django.utils.translation import gettext_lazy as _
@@ -25,6 +26,7 @@ from events.models import (
     Event,
     EventInvitation,
     EventRSVP,
+    HeldSeriesPass,
     MembershipTier,
     Organization,
     OrganizationMember,
@@ -326,6 +328,20 @@ def get_user_event_status(event: Event, user: RevelUser) -> UserEventStatus | Ev
     )
 
 
+def _reject_series_pass_ticket(ticket: Ticket) -> None:
+    """400 when a per-ticket payment/cancellation flow is pointed at a series-pass ticket.
+
+    Pass tickets carry no per-ticket payment of their own — confirmation, cancellation
+    and refunds must go through the pass-level endpoints so the pass and its counters
+    stay consistent.
+
+    Raises:
+        HttpError 400: If the ticket was materialized from a series pass.
+    """
+    if ticket.held_pass_id is not None:
+        raise HttpError(400, str(_("This ticket is part of a series pass. Manage it through the series pass instead.")))
+
+
 @transaction.atomic
 def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) -> Ticket:
     """Confirm payment for a pending offline/at-the-door ticket and activate it.
@@ -345,9 +361,11 @@ def confirm_ticket_payment(ticket: Ticket, price_paid: Decimal | None = None) ->
         (e.g. accepting a lower amount or granting a discount).
 
     Raises:
-        HttpError 400: If price_paid is missing for PWYC without existing price,
-            or provided for fixed-price.
+        HttpError 400: If the ticket belongs to a series pass, price_paid is missing
+            for PWYC without existing price, or provided for fixed-price.
     """
+    _reject_series_pass_ticket(ticket)
+
     is_pwyc = ticket.tier.price_type == TicketTier.PriceType.PWYC
 
     if not is_pwyc and price_paid is not None:
@@ -379,7 +397,12 @@ def unconfirm_ticket_payment(ticket: Ticket) -> Ticket:
 
     Returns:
         The re-fetched ticket with full() relations for serialization.
+
+    Raises:
+        HttpError 400: If the ticket belongs to a series pass.
     """
+    _reject_series_pass_ticket(ticket)
+
     ticket.status = Ticket.TicketStatus.PENDING
     ticket.price_paid = None
     ticket.save(update_fields=["status", "price_paid"])
@@ -423,6 +446,39 @@ def _check_in_closed_message(event: Event) -> str:
     return str(_("Check-in is not currently open for this event."))
 
 
+def resolve_check_in_ticket_id(event: Event, code: str) -> UUID:
+    """Resolve a scanned code (ticket UUID or ``series:<held-pass-uuid>``) to a ticket id.
+
+    Malformed UUIDs 404 here so the ORM never raises on a bad lookup value.
+    """
+    if code.startswith(HeldSeriesPass.QR_PREFIX):
+        try:
+            held_pass_id = UUID(code[len(HeldSeriesPass.QR_PREFIX) :])
+        except ValueError:
+            raise Http404("Invalid pass code.") from None
+        ticket = get_object_or_404(
+            Ticket.objects.exclude(status=Ticket.TicketStatus.CANCELLED),
+            held_pass_id=held_pass_id,
+            event=event,
+        )
+        return ticket.id
+    try:
+        return UUID(code)
+    except ValueError:
+        raise Http404("Invalid ticket code.") from None
+
+
+def _pending_check_in_allowed(ticket: Ticket) -> bool:
+    """Whether a PENDING ticket may be checked in (payment collected at the door).
+
+    For series-pass tickets the PASS's payment method is authoritative, not the
+    mapped tier's — a pass paid online can be mapped to an offline tier and vice versa.
+    """
+    if ticket.held_pass is not None:
+        return ticket.held_pass.series_pass.payment_method == TicketTier.PaymentMethod.OFFLINE
+    return ticket.tier.payment_method == TicketTier.PaymentMethod.OFFLINE
+
+
 def check_in_ticket(
     event: Event, ticket_id: UUID, checked_in_by: RevelUser, price_paid: Decimal | None = None
 ) -> Ticket:
@@ -443,20 +499,18 @@ def check_in_ticket(
     """
     # Get the ticket
     ticket = get_object_or_404(
-        Ticket.objects.select_related("user", "tier"),
+        Ticket.objects.select_related("user", "tier", "held_pass__series_pass"),
         pk=ticket_id,
         event=event,
     )
 
     # Check if ticket status is valid for check-in
     # ACTIVE tickets can be checked in directly.
-    # PENDING tickets are only allowed for OFFLINE payment method (payment will be collected at check-in).
+    # PENDING tickets are only allowed when payment is collected at the door
+    # (see _pending_check_in_allowed for the series-pass vs tier distinction).
     # AT_THE_DOOR tickets are now created as ACTIVE, so no special handling needed.
     if ticket.status != Ticket.TicketStatus.ACTIVE:
-        if not (
-            ticket.status == Ticket.TicketStatus.PENDING
-            and ticket.tier.payment_method == TicketTier.PaymentMethod.OFFLINE
-        ):
+        if not (ticket.status == Ticket.TicketStatus.PENDING and _pending_check_in_allowed(ticket)):
             # Determine appropriate error message based on ticket status
             if ticket.status == Ticket.TicketStatus.CHECKED_IN:
                 error_message = str(_("This ticket has already been checked in."))
@@ -472,10 +526,16 @@ def check_in_ticket(
     if not event.is_check_in_open():
         raise HttpError(400, _check_in_closed_message(event))
 
-    # PWYC price_paid handling
-    is_pwyc_offsite = ticket.tier.price_type == TicketTier.PriceType.PWYC and ticket.tier.payment_method in (
-        TicketTier.PaymentMethod.OFFLINE,
-        TicketTier.PaymentMethod.AT_THE_DOOR,
+    # PWYC price_paid handling. Pass tickets never carry a per-ticket price (the pass
+    # itself was paid), so the mapped tier's PWYC semantics don't apply to them.
+    is_pwyc_offsite = (
+        ticket.held_pass_id is None
+        and ticket.tier.price_type == TicketTier.PriceType.PWYC
+        and ticket.tier.payment_method
+        in (
+            TicketTier.PaymentMethod.OFFLINE,
+            TicketTier.PaymentMethod.AT_THE_DOOR,
+        )
     )
 
     if not is_pwyc_offsite and price_paid is not None:
@@ -726,7 +786,10 @@ def cancel_offline_ticket(
 
     Raises:
         TicketAlreadyCancelledError: If the ticket is already CANCELLED.
+        HttpError 400: If the ticket belongs to a series pass.
     """
+    _reject_series_pass_ticket(ticket)
+
     locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
     if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
         raise TicketAlreadyCancelledError
@@ -813,8 +876,11 @@ def mark_offline_ticket_refunded(
 
     Raises:
         TicketAlreadyCancelledError: If the ticket is already CANCELLED.
-        HttpError 400: If ``refund_amount`` is negative or exceeds the amount paid.
+        HttpError 400: If the ticket belongs to a series pass, or ``refund_amount``
+            is negative or exceeds the amount paid.
     """
+    _reject_series_pass_ticket(ticket)
+
     locked_ticket = Ticket.objects.select_for_update().select_related("tier").get(pk=ticket.pk)
     if locked_ticket.status == Ticket.TicketStatus.CANCELLED:
         raise TicketAlreadyCancelledError

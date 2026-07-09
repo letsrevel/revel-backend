@@ -46,7 +46,7 @@ def test_check_in_success(organization_owner_client: Client, event: Event, activ
     event.check_in_ends_at = now + timedelta(hours=1)
     event.save()
 
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": active_online_ticket.pk})
 
     response = organization_owner_client.post(url, content_type="application/json")
 
@@ -81,7 +81,7 @@ def test_check_in_already_checked_in(
     active_online_ticket.checked_in_at = now
     active_online_ticket.save()
 
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": active_online_ticket.pk})
 
     response = organization_owner_client.post(url, content_type="application/json")
 
@@ -103,7 +103,7 @@ def test_check_in_window_not_open(
     event.check_in_ends_at = now + timedelta(hours=2)
     event.save()
 
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": active_online_ticket.pk})
 
     response = organization_owner_client.post(url, content_type="application/json")
 
@@ -131,7 +131,7 @@ def test_check_in_staff_with_permission(
     event.check_in_ends_at = now + timedelta(hours=1)
     event.save()
 
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": active_online_ticket.pk})
 
     response = organization_staff_client.post(url, content_type="application/json")
 
@@ -151,7 +151,7 @@ def test_check_in_staff_without_permission(
     staff_member.permissions = perms
     staff_member.save()
 
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": active_online_ticket.pk})
 
     response = organization_staff_client.post(url, content_type="application/json")
 
@@ -163,7 +163,7 @@ def test_check_in_requires_authentication(event: Event, active_online_ticket: Ti
     from django.test.client import Client
 
     client = Client()
-    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "ticket_id": active_online_ticket.pk})
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": active_online_ticket.pk})
 
     response = client.post(url, content_type="application/json")
 

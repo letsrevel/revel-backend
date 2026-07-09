@@ -42,6 +42,7 @@ from .questionnaire import EventQuestionnaireSubmission, OrganizationQuestionnai
 from .recurrence_rule import RecurrenceRule
 from .reserved_slug_token import ReservedSlugToken
 from .rsvp import EventRSVP
+from .series_pass import HeldSeriesPass, SeriesPass, SeriesPassTierLink
 from .stripe_webhook_event import StripeWebhookEvent
 from .subscription import (
     MembershipPayment,
@@ -128,4 +129,8 @@ __all__ = [
     "PlatformFeeInvoice",
     # Stripe webhooks
     "StripeWebhookEvent",
+    # Series Passes
+    "HeldSeriesPass",
+    "SeriesPass",
+    "SeriesPassTierLink",
 ]

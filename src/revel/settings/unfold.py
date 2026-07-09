@@ -212,6 +212,21 @@ UNFOLD = {
                         "link": reverse_lazy("admin:events_eventseries_changelist"),
                     },
                     {
+                        "title": _("Series Passes"),
+                        "icon": "card_membership",
+                        "link": reverse_lazy("admin:events_seriespass_changelist"),
+                    },
+                    {
+                        "title": _("Held Series Passes"),
+                        "icon": "local_activity",
+                        "link": reverse_lazy("admin:events_heldseriespass_changelist"),
+                    },
+                    {
+                        "title": _("Series Pass Tier Links"),
+                        "icon": "link",
+                        "link": reverse_lazy("admin:events_seriespasstierlink_changelist"),
+                    },
+                    {
                         "title": _("Tickets"),
                         "icon": "confirmation_number",
                         "link": reverse_lazy("admin:events_ticket_changelist"),

@@ -8,6 +8,7 @@ Shared helpers live in ``_recurring_events_helpers.py``.
 
 import typing as t
 from unittest.mock import patch
+from uuid import uuid4
 
 import orjson
 import pytest
@@ -246,6 +247,34 @@ class TestCreateRecurringEvent:
         url = reverse("api:create_recurring_event", kwargs={"slug": organization.slug})
         payload = _create_recurring_event_payload()
         payload["event"]["status"] = "open"
+
+        # Act
+        response = organization_owner_client.post(
+            url,
+            data=orjson.dumps(payload),
+            content_type="application/json",
+        )
+
+        # Assert
+        assert response.status_code == 422
+        assert not EventSeries.objects.filter(organization=organization).exists()
+
+    def test_rejects_series_pass_links_on_template(
+        self,
+        organization_owner_client: Client,
+        organization: Organization,
+    ) -> None:
+        """Sending inline ``series_pass_links`` on the template must return 422.
+
+        Series passes are meaningless on a recurring template — the controller
+        silently drops the field before calling the service (a recurring series
+        always fails the coverage gate anyway) — so reject it explicitly instead
+        of silently ignoring the client's intent.
+        """
+        # Arrange
+        url = reverse("api:create_recurring_event", kwargs={"slug": organization.slug})
+        payload = _create_recurring_event_payload()
+        payload["event"]["series_pass_links"] = [{"series_pass_id": str(uuid4()), "tier_id": str(uuid4())}]
 
         # Act
         response = organization_owner_client.post(

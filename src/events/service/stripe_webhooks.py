@@ -1,5 +1,6 @@
 """Stripe webhook event handlers."""
 
+import functools
 import typing as t
 import uuid
 from decimal import Decimal
@@ -14,9 +15,10 @@ from django.db.models import F
 from accounts.models import RevelUser
 from common.models import StripeConnectMixin
 from events.exceptions import InvalidStripeWebhookSignatureError
-from events.models import Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
+from events.models import HeldSeriesPass, Organization, Payment, StripeWebhookEvent, Ticket, TicketTier
 from events.service.waitlist_service import enqueue_waitlist_processing
 from events.utils.currency import from_stripe_amount, to_stripe_amount
+from notifications.signals.series_pass import send_series_pass_purchased
 
 logger = structlog.get_logger(__name__)
 
@@ -254,8 +256,21 @@ class StripeEventHandler:
             payment.save(update_fields=["status", "stripe_payment_intent_id", "raw_response"])
 
             ticket = payment.ticket
+            if ticket.status == Ticket.TicketStatus.CANCELLED:
+                # Defense-in-depth: a late payment on a checkout whose ticket was
+                # cancelled in the meantime (e.g. organizer cancelled a pending
+                # series pass) must not resurrect the ticket. Payment bookkeeping
+                # above still runs — the money was captured and needs a refund.
+                logger.warning(
+                    "stripe_session_completed_cancelled_ticket_skipped",
+                    session_id=session_id,
+                    ticket_id=str(ticket.id),
+                )
+                continue
             ticket.status = Ticket.TicketStatus.ACTIVE
             ticket.save(update_fields=["status"])
+
+        self._activate_series_passes(session_id)
 
         # Notifications are now handled by Payment post_save signal in notifications/signals/payment.py
         logger.info(
@@ -266,6 +281,34 @@ class StripeEventHandler:
             total_amount=float(sum(p.amount for p in payments)),
             currency=payments[0].currency,
         )
+
+    @staticmethod
+    def _activate_series_passes(session_id: str) -> None:
+        """Activate any series pass bought in this session (idempotent).
+
+        ``.update()`` intentionally skips signals — ids are captured beforehand so
+        the purchase notification can be sent explicitly (once, on commit). Each
+        activated pass is then backfilled: the extension task only materializes
+        tickets for ACTIVE holders, so without this a mid-checkout buyer would
+        miss any extension linked while the pass sat PENDING.
+        """
+        # Imported here to avoid a cycle (series_pass_service -> events.tasks -> services).
+        from events.service.series_pass_service import backfill_missing_tickets
+
+        activated_pass_ids = list(
+            HeldSeriesPass.objects.filter(
+                stripe_session_id=session_id, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING
+            ).values_list("id", flat=True)
+        )
+        if not activated_pass_ids:
+            return
+        HeldSeriesPass.objects.filter(id__in=activated_pass_ids).update(
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
+        )
+        for held_pass in HeldSeriesPass.objects.filter(id__in=activated_pass_ids).select_related("series_pass", "user"):
+            backfill_missing_tickets(held_pass)
+        for held_pass_id in activated_pass_ids:
+            transaction.on_commit(functools.partial(send_series_pass_purchased, held_pass_id))
 
     @transaction.atomic
     def handle_account_updated(self, event: stripe.Event) -> None:
@@ -682,6 +725,15 @@ class StripeEventHandler:
         raw_response = dict(event)
         canceled_tickets = []
         affected_event_ids: set[uuid.UUID] = set()
+
+        # Cancel any series pass stranded by the dead checkout FIRST, releasing its
+        # quantity_sold so the buyer can purchase again — pass row before tier rows,
+        # matching SeriesPassPurchaseService.purchase's lock order to avoid
+        # deadlocking against a concurrent purchase on the same pass. Imported here
+        # to avoid a cycle (series_pass_service -> events.tasks -> services).
+        from events.service.series_pass_service import expire_stranded_held_passes
+
+        expire_stranded_held_passes({p.stripe_session_id for p in pending_payments})
 
         for payment in pending_payments:
             # Update payment status to failed

@@ -15,6 +15,7 @@ from events.service.duplication import duplicate_event
 from events.service.event_update_service import (
     SLUG_ALREADY_EXISTS_MESSAGE,
     SlugAlreadyExistsError,
+    create_event,
     update_event,
     update_event_schedule,
     update_slug,
@@ -40,6 +41,7 @@ __all__ = [
     "approve_invitation_request",
     "calculate_calendar_date_range",
     "claim_invitation",
+    "create_event",
     "create_event_token",
     "create_invitation_request",
     "duplicate_event",
