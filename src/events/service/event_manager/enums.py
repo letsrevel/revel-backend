@@ -103,7 +103,7 @@ class Reasons(StrEnum):
 
     @property
     def code(self) -> ReasonCode:
-        """Return the stable machine-readable code for this reason.
+        """The stable machine-readable code for this reason.
 
         Pairs with the translated ``reason`` string so API consumers can switch
         on a stable identifier instead of matching localized prose.

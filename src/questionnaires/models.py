@@ -330,7 +330,7 @@ class QuestionnaireSubmission(TimeStampedModel):
 
     @property
     def source_event(self) -> SubmissionSourceEventMetadata | None:
-        """Get the source event metadata if available."""
+        """The source event metadata if available."""
         if self.metadata and "source_event" in self.metadata:
             return t.cast(SubmissionSourceEventMetadata, self.metadata["source_event"])
         return None

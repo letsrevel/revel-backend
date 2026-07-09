@@ -103,21 +103,21 @@ class ApplePassSigner:
 
     @property
     def certificate(self) -> x509.Certificate:
-        """Get the Pass Type ID certificate, loading if necessary."""
+        """The Pass Type ID certificate, loading if necessary."""
         if self._certificate is None:
             self._certificate = self._load_certificate(self.cert_path)
         return self._certificate
 
     @property
     def private_key(self) -> t.Any:
-        """Get the private key, loading if necessary."""
+        """The private key, loading if necessary."""
         if self._private_key is None:
             self._private_key = self._load_private_key(self.key_path, self.key_password)
         return self._private_key
 
     @property
     def wwdr_certificate(self) -> x509.Certificate:
-        """Get the Apple WWDR intermediate certificate, loading if necessary."""
+        """The Apple WWDR intermediate certificate, loading if necessary."""
         if self._wwdr_certificate is None:
             self._wwdr_certificate = self._load_certificate(self.wwdr_cert_path)
         return self._wwdr_certificate
