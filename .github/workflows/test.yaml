@@ -157,9 +157,9 @@ jobs:
         run: docker compose -f docker-compose-ci.yml up -d
 
       # pytest-split balances shards by runtime using the committed
-      # `.test_durations` file; refresh it occasionally with
-      # `make store-durations` (staleness degrades gracefully — tests missing
-      # from the file are distributed by count). Coverage data is dropped
+      # `.test_durations` file; refreshed weekly by refresh-test-durations.yaml
+      # (or manually via `make store-durations`; staleness degrades gracefully —
+      # tests missing from the file are distributed by count). Coverage data is dropped
       # without a report — the `coverage` job combines all shards and enforces
       # the 90% gate. `strategy.job-total` is the GH-provided matrix size, so
       # `--splits` always matches the number of runners.
