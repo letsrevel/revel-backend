@@ -30,6 +30,7 @@ graph LR
 | [Permissions & Roles](permissions.md) | Organization roles, event-level access control |
 | [Eligibility Pipeline](eligibility-pipeline.md) | The gate-by-gate system that determines event access |
 | [Advanced Waitlist](waitlist.md) | Batched, time-limited offers with reserved capacity for waitlist members |
+| [Series Passes](series-passes.md) | Season tickets covering every event in a series, with pro-rata pricing |
 | [Protected Files](protected-files.md) | HMAC-signed URLs with Caddy (and why not S3) |
 | [Notifications](notifications.md) | Multi-channel delivery: in-app, email, Telegram |
 | [File Security](security.md) | EXIF stripping, ClamAV malware scanning, quarantine |

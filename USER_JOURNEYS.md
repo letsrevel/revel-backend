@@ -35,6 +35,7 @@ This document maps every user journey through the Revel platform, organized by p
 - [Journey 23: Membership Subscriptions](#journey-23-membership-subscriptions)
 - [Journey 24: Polls](#journey-24-polls)
 - [Journey 25: Revenue & VAT Reporting](#journey-25-revenue--vat-reporting)
+- [Journey 26: Series Passes (Season Tickets)](#journey-26-series-passes-season-tickets)
 - [Cross-Cutting Concerns](#cross-cutting-concerns)
 - [Gap-Fill Interview Questions](#gap-fill-interview-questions)
 
@@ -404,6 +405,7 @@ Depends on tier's seat_assignment_mode:
 ### 6.10 Check-In
 - Arrive at event
 - Staff scans QR code or searches by name
+- The check-in code is a string: a plain ticket UUID **or** a `series:<uuid>` series-pass QR, resolved to that event's pass ticket (see [Journey 26](#journey-26-series-passes-season-tickets))
 - Ticket status: ACTIVE → CHECKED_IN
 - For PWYC offline tickets: price_paid recorded at check-in
 - Check-in window enforced (check_in_starts_at to check_in_ends_at)
@@ -420,7 +422,7 @@ Opt-in per tier via `allow_user_cancellation`, `cancellation_deadline_hours`, an
 - **Preview**: `GET /events/tickets/{id}/cancellation-preview` returns the policy windows + a live refund quote for this ticket
 - **Cancel**: `POST /events/tickets/{id}/cancel` works for free, offline, at-the-door, and online (Stripe) tickets
   - Online tickets trigger a Stripe refund (per-`Payment`, partial-amount aware)
-  - Blocked cases return `409 CancellationBlockedErrorSchema` with a stable `code` (already cancelled, checked-in, event started, past deadline, etc.)
+  - Blocked cases return `409 CancellationBlockedErrorSchema` with a stable `code` (already cancelled, checked-in, event started, past deadline, part of a series pass, etc.)
 - Cancelling an already-cancelled ticket returns **409**
 - Receive a `TICKET_CANCELLED` / `TICKET_REFUNDED` notification (immediate transactional email); copy branches on `cancellation_source` (user-initiated / organizer / stripe_dashboard)
 - Refund notifications report the actual `refund_amount` (partial-refund accurate), not the full ticket price
@@ -1328,6 +1330,48 @@ First-class recurring series with rolling-window materialization:
 
 ### 25.4 Per-Event Revenue
 - `GET /event-admin/{event_id}/tickets/revenue` → `EventFinancialsSchema` (see [Journey 10.15](#1015-event-revenue-per-event)) — VAT detail, online + offline refunds tracked
+
+---
+
+## Journey 26: Series Passes (Season Tickets)
+
+> Buy once, attend the whole series. A pass on an `EventSeries` materializes a real ticket for every covered event, priced pro-rata (`price − passed_events × pro_rata_discount`, floored at 0) and purchasable while ≥2 covered events remain. Non-recurring series only; no assigned-seating/PWYC tiers; no series/event ADMISSION questionnaires.
+
+### 26.1 Configure a Pass (Organizer)
+- `POST /event-series-admin/{series_id}/passes` — name, price, pro-rata discount, payment method (online/offline/free — no at-the-door), visibility, sales window, optional holder cap
+- Each covered event maps to **one existing ticket tier** (tier link); pass holders consume that tier's capacity — one shared pool with direct sales
+- Update/delete via `PATCH`/`DELETE /{pass_id}`; deleting a pass (or removing a tier link) with non-cancelled holders → 409
+- Requires `edit_event_series`
+
+### 26.2 Browse & Quote (Buyer)
+- `GET /series-passes/event-series/{series_id}` — visible passes (visibility-filtered)
+- `GET /series-passes/{pass_id}/quote` — current pro-rata price, passed/remaining event counts, purchasability + reason
+
+### 26.3 Purchase
+- `POST /series-passes/{pass_id}/checkout` (authenticated)
+- Blacklist + members-only checks, then all-or-nothing capacity check across every covered future event (one sold-out tier → 429)
+- Free → pass ACTIVE immediately; offline → PENDING until staff confirms (`POST .../held/{held_pass_id}/confirm-payment`); online → one Stripe session, price split penny-exact into per-event `Payment` rows honoring each tier's VAT rate
+- One non-cancelled pass per user per product; duplicate purchase races → 409
+- Single `SERIES_PASS_PURCHASED` notification (per-ticket emails suppressed)
+
+### 26.4 Holder Experience
+- `GET /series-passes/me` — my passes; per-pass PDF and Apple Wallet downloads (`/me/{held_pass_id}/pdf` · `/pkpass`), QR payload `series:<uuid>`
+- Check-in scans the pass QR at any covered event — resolved to that event's materialized ticket (see [6.10](#610-check-in))
+- Pass tickets appear in `/dashboard/tickets` but **cannot be self-cancelled** (`PART_OF_SERIES_PASS`)
+
+### 26.5 Extend Coverage (Organizer)
+- Events added to the series later are not auto-covered: extend via `POST .../passes/{pass_id}/tier-links` or inline `series_pass_links` on event create/update
+- Celery task materializes tickets for active holders **free of charge**, idempotently; full tiers are skipped and reported
+- Holders get `SERIES_PASS_EXTENDED`
+
+### 26.6 Cancellation & Refunds
+- Organizer cancels a covered event → each holder refunded their per-event payment share
+- Organizer cancels a whole pass (`POST .../held/{held_pass_id}/cancel`) → refunds all remaining events, expires a live Stripe session, releases tier + pass capacity; holder + staff get `SERIES_PASS_CANCELLED` with the refunded amount
+- Abandoned online checkouts expire the stranded PENDING pass and restore capacity (payment-cleanup sweeps + webhooks)
+
+### 26.7 Organizer Visibility
+- `GET .../passes/{pass_id}/holders` — holder list (searchable)
+- Attendee/ticket lists filter by origin: `?source=pass|direct`; ticket rows expose their originating `series_pass`
 
 ---
 
