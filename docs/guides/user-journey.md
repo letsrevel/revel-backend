@@ -194,6 +194,10 @@ The ticket acquisition flow depends on the payment method configured for the tic
         API-->>U: Ticket issued
     ```
 
+### Series Passes (Season Tickets)
+
+For event series, attendees can buy a [series pass](../architecture/series-passes.md) instead of individual tickets: one purchase (pro-rata priced by how many covered events remain) materializes a real ticket for every covered event, all drawn from the same tier capacity as direct sales. The pass has its own QR (`series:<uuid>`) accepted at check-in for any covered event, plus its own PDF and Apple Wallet downloads.
+
 ### Managing Potluck Items
 
 For potluck-style events, attendees can:

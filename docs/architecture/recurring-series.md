@@ -185,6 +185,7 @@ Each candidate is then filtered through their `NotificationPreference` (users wh
 
 ## Related reading
 
+- [Series Passes](series-passes.md) — season tickets sold on an `EventSeries` (non-recurring series only).
 - [Notifications](notifications.md) — the `SERIES_EVENTS_GENERATED` digest channel architecture.
 - [Service Layer](service-layer.md) — `recurrence_service.py` follows the function-based pattern with row-locked, atomic generation.
 - [Engineering Notes](../engineering-notes.md) — Celery `on_commit` and PgBouncer `.iterator()` gotchas relevant to the generation task.

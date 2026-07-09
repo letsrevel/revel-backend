@@ -70,6 +70,7 @@ nav:
       - Eligibility Pipeline: architecture/eligibility-pipeline.md
       - Advanced Waitlist: architecture/waitlist.md
       - Recurring Series: architecture/recurring-series.md
+      - Series Passes: architecture/series-passes.md
       - Protected Files (HMAC): architecture/protected-files.md
       - File Security: architecture/security.md
       - Notifications: architecture/notifications.md

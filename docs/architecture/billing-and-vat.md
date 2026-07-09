@@ -89,6 +89,8 @@ platform_fee_vat_rate, platform_fee_reverse_charge
 
 For batch purchases (multiple tickets in one Stripe session), `distribute_amount_across_items()` splits the total platform fee across tickets without rounding drift — extra pennies go to the first item(s), and the sum is guaranteed to match the total exactly.
 
+[Series pass](series-passes.md) checkouts use the same helper three ways: one Stripe session at the pass price is split into per-event `Payment` shares, platform-fee shares, and platform-fee-VAT shares — each Payment's VAT computed from its own ticket's tier rate.
+
 ## VIES Integration
 
 ### Service: `events.service.vies_service`
