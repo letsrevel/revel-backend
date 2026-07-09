@@ -335,7 +335,7 @@ class Event(
 
     @property
     def effective_apply_deadline(self) -> datetime:
-        """Return the apply deadline, falling back to event start if not set."""
+        """The apply deadline, falling back to event start if not set."""
         return self.apply_before or self.start
 
     can_attend_without_login = models.BooleanField(
@@ -419,7 +419,7 @@ class Event(
 
     @property
     def effective_capacity(self) -> int:
-        """Get the effective capacity considering both max_attendees and venue capacity.
+        """The effective capacity considering both max_attendees and venue capacity.
 
         Returns the minimum of max_attendees and venue.capacity when both are set,
         or whichever is set if only one exists. Returns 0 (unlimited) if neither is set.
