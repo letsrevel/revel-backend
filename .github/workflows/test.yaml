@@ -27,14 +27,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install a specific version of uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          version: "0.6.10"
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync
+      - name: Setup backend environment
+        uses: ./.github/actions/setup-backend
 
       - name: Check uv.lock
         run: |
@@ -43,25 +37,6 @@ jobs:
             git diff uv.lock
             exit 1
           fi
-
-      - name: Install system deps
-        run: |
-          sudo apt update
-          sudo apt install -y curl gnupg software-properties-common jq unzip gdal-bin libgdal-dev gettext
-
-      - name: Export GDAL path
-        run: |
-          echo "GDAL_LIBRARY_PATH=$(gdal-config --libs | grep -o '/[^ ]*libgdal[^ ]*\.so')" >> $GITHUB_ENV
-
-      - name: Recreate environment file
-        run: cp .env.example .env
-
-      - name: Disable observability
-        run: echo "FEATURE_OBSERVABILITY=False" >> .env
-
-      - name: Add worldcities.csv  # required for migrations introspection
-        working-directory: src
-        run: cp geo/data/worldcities.mini.csv geo/data/worldcities.csv
 
       - name: Restore mypy cache
         uses: actions/cache@v5
@@ -104,45 +79,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Install a specific version of uv
-        uses: astral-sh/setup-uv@v7
+      - name: Setup backend environment
+        uses: ./.github/actions/setup-backend
         with:
-          version: "0.6.10"
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync
-
-      - name: Install system deps
-        run: |
-          sudo apt update
-          sudo apt install -y curl gnupg software-properties-common jq unzip gdal-bin libgdal-dev gettext
-
-      - name: Export GDAL path
-        run: |
-          echo "GDAL_LIBRARY_PATH=$(gdal-config --libs | grep -o '/[^ ]*libgdal[^ ]*\.so')" >> $GITHUB_ENV
-
-      - name: Recreate environment file
-        run: cp .env.example .env
-
-      - name: Disable observability for tests
-        run: echo "FEATURE_OBSERVABILITY=False" >> .env
-
-      - name: Add worldcities.csv  # we need this so migrations can run
-        working-directory: src
-        run: cp geo/data/worldcities.mini.csv geo/data/worldcities.csv
-
-      - name: Compile translations  # .mo not committed (ADR-0011); i18n tests assert translated strings
-        working-directory: src
-        run: uv run python manage.py compilemessages
+          compile-translations: "true"
 
       - name: Spin up docker
         run: docker compose -f docker-compose-ci.yml up -d
 
-      # Each shard runs ~1/N of the tests. With no `.test_durations` file
-      # present, pytest-split falls back to splitting by test count, which is
-      # uneven. Regenerate it by running `pytest --store-durations` locally (or
-      # in a dedicated job) and commit the result. Coverage data is dropped
+      # pytest-split balances shards by runtime using the committed
+      # `.test_durations` file; refreshed weekly by refresh-test-durations.yaml
+      # (or manually via `make store-durations`; staleness degrades gracefully —
+      # tests missing from the file are distributed by count). Coverage data is dropped
       # without a report — the `coverage` job combines all shards and enforces
       # the 90% gate. `strategy.job-total` is the GH-provided matrix size, so
       # `--splits` always matches the number of runners.

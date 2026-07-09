@@ -43,6 +43,14 @@ test-integration: compilemessages
 test-failed: compilemessages
 	uv run pytest --cov=src --cov-report=term --cov-report=html --cov-branch -v --last-failed src/ && uv run coverage html --skip-covered
 
+# Refresh .test_durations (used by pytest-split to time-balance CI shards).
+# CI refreshes it weekly (refresh-test-durations.yaml); use this for a manual
+# refresh. Staleness degrades gracefully — tests missing from the file are
+# distributed by count.
+.PHONY: store-durations
+store-durations: compilemessages
+	uv run pytest -n auto --store-durations --clean-durations src/
+
 
 .PHONY: bandit
 bandit:
