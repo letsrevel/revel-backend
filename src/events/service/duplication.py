@@ -41,6 +41,7 @@ _EXCLUDED_FROM_COPY: frozenset[str] = frozenset(
         "apply_before",
         "check_in_starts_at",
         "check_in_ends_at",
+        "waitlist_cutoff_date",
     }
 )
 
@@ -49,6 +50,7 @@ _SHIFTED_DATE_FIELDS: tuple[str, ...] = (
     "apply_before",
     "check_in_starts_at",
     "check_in_ends_at",
+    "waitlist_cutoff_date",
 )
 
 # Tier fields that are NOT copied from the template tier:
