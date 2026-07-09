@@ -144,7 +144,7 @@ Revel combines the ticketing power of platforms like Eventbrite with the communi
 
 Revel is built with a modern and robust backend, designed for performance and scalability.
 
-*   **🐍 Backend:** Python 3.13+ with **[Django 5.2 LTS](https://docs.djangoproject.com/en/5.2/)**
+*   **🐍 Backend:** Python 3.14+ with **[Django 5.2 LTS](https://docs.djangoproject.com/en/5.2/)**
 *   **🚀 API:** **[Django Ninja](https://django-ninja.dev/)** and **[Django Ninja Extra](https://eadwincode.github.io/django-ninja-extra/)** for a fast, modern, and auto-documenting REST API.
 *   **🐘 Database:** **PostgreSQL** with **PostGIS** for powerful geo-features.
 *   **⚙️ Async Tasks:** **Celery** with **Redis** for background jobs (emails, evaluations).
