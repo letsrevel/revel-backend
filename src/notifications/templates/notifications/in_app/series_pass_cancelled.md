@@ -5,6 +5,8 @@
 - {% trans "Series:" %} {{ context.series_name }}
 - {% trans "Organization:" %} {{ context.organization_name }}
 - {% trans "Tickets cancelled:" %} {{ context.cancelled_ticket_count }}
-- {% trans "Refunded:" %} {{ context.refunded_total }} {{ context.currency }}
 {% if context.reason %}- {% trans "Reason:" %} {{ context.reason }}
+{% endif %}
+{% if context.refunded_total != "0.00" %}
+{% if context.holder_name %}💰 {% blocktranslate with amount=context.refunded_total currency=context.currency %}A refund of **{{ amount }} {{ currency }}** has been issued to the pass holder.{% endblocktranslate %}{% else %}💰 {% blocktranslate with amount=context.refunded_total currency=context.currency %}A refund of **{{ amount }} {{ currency }}** will be processed within 5-10 business days.{% endblocktranslate %}{% endif %}
 {% endif %}

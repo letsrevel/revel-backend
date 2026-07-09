@@ -3141,8 +3141,8 @@ msgid ""
 "Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
 "strong> has been cancelled."
 msgstr ""
-"Il tuo pass stagionale <strong>%(pass_name)s</strong> per <strong>%(series)s</"
-"strong> è stato annullato."
+"Il tuo pass stagionale <strong>%(pass_name)s</strong> per "
+"<strong>%(series)s</strong> è stato annullato."
 
 msgid "Pass:"
 msgstr "Pass:"
@@ -3150,12 +3150,38 @@ msgstr "Pass:"
 msgid "Tickets cancelled:"
 msgstr "Biglietti annullati:"
 
-msgid "Refunded:"
-msgstr "Rimborsato:"
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
+"pass holder."
+msgstr ""
+"Un rimborso di <strong>%(amount)s %(currency)s</strong> è stato emesso al "
+"titolare del pass."
+
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
+"your original payment method within 5-10 business days."
+msgstr ""
+"Un rimborso di <strong>%(amount)s %(currency)s</strong> verrà elaborato sul "
+"tuo metodo di pagamento originale entro 5-10 giorni lavorativi."
 
 #, python-format
 msgid "Your series pass %(pass_name)s for %(series)s has been cancelled."
 msgstr "Il tuo pass stagionale %(pass_name)s per %(series)s è stato annullato."
+
+#, python-format
+msgid "A refund of %(amount)s %(currency)s has been issued to the pass holder."
+msgstr ""
+"Un rimborso di %(amount)s %(currency)s è stato emesso al titolare del pass."
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s will be processed to your original "
+"payment method within 5-10 business days."
+msgstr ""
+"Un rimborso di %(amount)s %(currency)s verrà elaborato sul tuo metodo di "
+"pagamento originale entro 5-10 giorni lavorativi."
 
 #, python-format
 msgid ""
@@ -3165,11 +3191,13 @@ msgid_plural ""
 "Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
 "strong> now covers <strong>%(counter)s</strong> new events."
 msgstr[0] ""
-"Il tuo pass stagionale <strong>%(pass_name)s</strong> per <strong>%(series)s</"
-"strong> ora copre <strong>%(counter)s</strong> nuovo evento."
+"Il tuo pass stagionale <strong>%(pass_name)s</strong> per "
+"<strong>%(series)s</strong> ora copre <strong>%(counter)s</strong> nuovo "
+"evento."
 msgstr[1] ""
-"Il tuo pass stagionale <strong>%(pass_name)s</strong> per <strong>%(series)s</"
-"strong> ora copre <strong>%(counter)s</strong> nuovi eventi."
+"Il tuo pass stagionale <strong>%(pass_name)s</strong> per "
+"<strong>%(series)s</strong> ora copre <strong>%(counter)s</strong> nuovi "
+"eventi."
 
 msgid "New Events"
 msgstr "Nuovi eventi"
@@ -3182,11 +3210,11 @@ msgid_plural ""
 "Your series pass %(pass_name)s for %(series)s now covers %(counter)s new "
 "events."
 msgstr[0] ""
-"Il tuo pass stagionale %(pass_name)s per %(series)s ora copre %(counter)s nuovo "
-"evento."
+"Il tuo pass stagionale %(pass_name)s per %(series)s ora copre %(counter)s "
+"nuovo evento."
 msgstr[1] ""
-"Il tuo pass stagionale %(pass_name)s per %(series)s ora copre %(counter)s nuovi "
-"eventi."
+"Il tuo pass stagionale %(pass_name)s per %(series)s ora copre %(counter)s "
+"nuovi eventi."
 
 msgid "New Events:"
 msgstr "Nuovi eventi:"
@@ -3196,8 +3224,8 @@ msgid ""
 "Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
 "strong> is now active."
 msgstr ""
-"Il tuo pass stagionale <strong>%(pass_name)s</strong> per <strong>%(series)s</"
-"strong> è ora attivo."
+"Il tuo pass stagionale <strong>%(pass_name)s</strong> per "
+"<strong>%(series)s</strong> è ora attivo."
 
 msgid "Pass Details"
 msgstr "Dettagli del pass"
@@ -3275,14 +3303,6 @@ msgstr ""
 "titolare del biglietto."
 
 #, python-format
-msgid ""
-"A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
-"your original payment method within 5-10 business days."
-msgstr ""
-"Un rimborso di <strong>%(amount)s %(currency)s</strong> verrà elaborato sul "
-"tuo metodo di pagamento originale entro 5-10 giorni lavorativi."
-
-#, python-format
 msgid "%(holder)s cancelled their ticket for %(event)s."
 msgstr "%(holder)s ha annullato il proprio biglietto per %(event)s."
 
@@ -3321,14 +3341,6 @@ msgid ""
 msgstr ""
 "Un rimborso di %(amount)s %(currency)s è stato emesso al titolare del "
 "biglietto."
-
-#, python-format
-msgid ""
-"A refund of %(amount)s %(currency)s will be processed to your original "
-"payment method within 5-10 business days."
-msgstr ""
-"Un rimborso di %(amount)s %(currency)s verrà elaborato sul tuo metodo di "
-"pagamento originale entro 5-10 giorni lavorativi."
 
 #, python-format
 msgid "You have been checked in for <strong>%(event)s</strong>!"

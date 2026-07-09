@@ -475,7 +475,12 @@ def _make_extended_notification(user: RevelUser) -> Notification:
     )
 
 
-def _make_cancelled_notification(user: RevelUser, reason: str = "event dropped") -> Notification:
+def _make_cancelled_notification(
+    user: RevelUser,
+    reason: str = "event dropped",
+    refunded_total: str = "15.00",
+    staff_copy: bool = False,
+) -> Notification:
     """Build a SERIES_PASS_CANCELLED notification with a valid context."""
     context = {
         "pass_id": "pass-id",
@@ -485,10 +490,13 @@ def _make_cancelled_notification(user: RevelUser, reason: str = "event dropped")
         "organization_id": "org-id",
         "organization_name": "Acme Org",
         "cancelled_ticket_count": 2,
-        "refunded_total": "15.00",
+        "refunded_total": refunded_total,
         "currency": "EUR",
         "reason": reason,
     }
+    if staff_copy:
+        context["holder_name"] = "Pass Holder"
+        context["holder_email"] = "holder@example.com"
     return Notification.objects.create(
         user=user, notification_type=NotificationType.SERIES_PASS_CANCELLED, context=context
     )
@@ -619,3 +627,43 @@ class TestSeriesPassCancelledTemplateRendering:
         assert html_body is not None
         assert "Season Pass" in html_body
         assert "15.00" in html_body
+
+    def test_holder_copy_uses_pending_refund_wording(self, holder: RevelUser) -> None:
+        """The refund is PENDING when the notification fires — never state it as settled."""
+        notification = _make_cancelled_notification(holder)
+        template = SeriesPassCancelledTemplate()
+
+        for body in (
+            template.get_in_app_body(notification),
+            template.get_email_text_body(notification),
+            template.get_email_html_body(notification),
+        ):
+            assert body is not None
+            assert "will be processed" in body
+            assert "has been issued" not in body
+
+    def test_staff_copy_says_refund_issued_to_pass_holder(self, holder: RevelUser) -> None:
+        notification = _make_cancelled_notification(holder, staff_copy=True)
+        template = SeriesPassCancelledTemplate()
+
+        for body in (
+            template.get_in_app_body(notification),
+            template.get_email_text_body(notification),
+            template.get_email_html_body(notification),
+        ):
+            assert body is not None
+            assert "has been issued to the pass holder" in body
+            assert "will be processed" not in body
+
+    def test_zero_refund_omits_refund_section(self, holder: RevelUser) -> None:
+        """Free/offline passes refund nothing — no refund sentence should render."""
+        notification = _make_cancelled_notification(holder, refunded_total="0.00")
+        template = SeriesPassCancelledTemplate()
+
+        for body in (
+            template.get_in_app_body(notification),
+            template.get_email_text_body(notification),
+            template.get_email_html_body(notification),
+        ):
+            assert body is not None
+            assert "A refund" not in body

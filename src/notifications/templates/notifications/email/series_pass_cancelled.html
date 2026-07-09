@@ -10,7 +10,13 @@
     <div class="info-row"><span class="label">{% trans "Series:" %}</span> {{ context.series_name }}</div>
     <div class="info-row"><span class="label">{% trans "Organization:" %}</span> {{ context.organization_name }}</div>
     <div class="info-row"><span class="label">{% trans "Tickets cancelled:" %}</span> {{ context.cancelled_ticket_count }}</div>
-    <div class="info-row"><span class="label">{% trans "Refunded:" %}</span> {{ context.refunded_total }} {{ context.currency }}</div>
     {% if context.reason %}<div class="info-row"><span class="label">{% trans "Reason:" %}</span> {{ context.reason }}</div>{% endif %}
 </div>
+
+{% if context.refunded_total != "0.00" %}
+<div class="card">
+    <h3 style="margin-top: 0;">💰 {% trans "Refund Information" %}</h3>
+    <p>{% if context.holder_name %}{% blocktranslate with amount=context.refunded_total currency=context.currency %}A refund of <strong>{{ amount }} {{ currency }}</strong> has been issued to the pass holder.{% endblocktranslate %}{% else %}{% blocktranslate with amount=context.refunded_total currency=context.currency %}A refund of <strong>{{ amount }} {{ currency }}</strong> will be processed to your original payment method within 5-10 business days.{% endblocktranslate %}{% endif %}</p>
+</div>
+{% endif %}
 {% endblock %}

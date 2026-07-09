@@ -3188,12 +3188,40 @@ msgstr "Pass:"
 msgid "Tickets cancelled:"
 msgstr "Stornierte Tickets:"
 
-msgid "Refunded:"
-msgstr "Erstattet:"
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> has been issued to the "
+"pass holder."
+msgstr ""
+"Eine Rückerstattung von <strong>%(amount)s %(currency)s</strong> wurde an "
+"den Passinhaber ausgestellt."
+
+#, python-format
+msgid ""
+"A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
+"your original payment method within 5-10 business days."
+msgstr ""
+"Eine Rückerstattung von <strong>%(amount)s %(currency)s</strong> wird "
+"innerhalb von 5–10 Werktagen über deine ursprüngliche Zahlungsmethode "
+"abgewickelt."
 
 #, python-format
 msgid "Your series pass %(pass_name)s for %(series)s has been cancelled."
 msgstr "Dein Pass %(pass_name)s für %(series)s wurde storniert."
+
+#, python-format
+msgid "A refund of %(amount)s %(currency)s has been issued to the pass holder."
+msgstr ""
+"Eine Rückerstattung von %(amount)s %(currency)s wurde an den Passinhaber "
+"ausgestellt."
+
+#, python-format
+msgid ""
+"A refund of %(amount)s %(currency)s will be processed to your original "
+"payment method within 5-10 business days."
+msgstr ""
+"Eine Rückerstattung von %(amount)s %(currency)s wird innerhalb von 5–10 "
+"Werktagen über deine ursprüngliche Zahlungsmethode abgewickelt."
 
 #, python-format
 msgid ""
@@ -3312,15 +3340,6 @@ msgstr ""
 "den Ticketinhaber ausgestellt."
 
 #, python-format
-msgid ""
-"A refund of <strong>%(amount)s %(currency)s</strong> will be processed to "
-"your original payment method within 5-10 business days."
-msgstr ""
-"Eine Rückerstattung von <strong>%(amount)s %(currency)s</strong> wird "
-"innerhalb von 5–10 Werktagen über deine ursprüngliche Zahlungsmethode "
-"abgewickelt."
-
-#, python-format
 msgid "%(holder)s cancelled their ticket for %(event)s."
 msgstr "%(holder)s hat das eigene Ticket für %(event)s storniert."
 
@@ -3359,14 +3378,6 @@ msgid ""
 msgstr ""
 "Eine Rückerstattung von %(amount)s %(currency)s wurde an den Ticketinhaber "
 "ausgestellt."
-
-#, python-format
-msgid ""
-"A refund of %(amount)s %(currency)s will be processed to your original "
-"payment method within 5-10 business days."
-msgstr ""
-"Eine Rückerstattung von %(amount)s %(currency)s wird innerhalb von 5–10 "
-"Werktagen über deine ursprüngliche Zahlungsmethode abgewickelt."
 
 #, python-format
 msgid "You have been checked in for <strong>%(event)s</strong>!"
