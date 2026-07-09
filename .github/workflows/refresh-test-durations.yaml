@@ -55,7 +55,11 @@ jobs:
         uses: awalsh128/cache-apt-pkgs-action@v1.6.3
         with:
           packages: gdal-bin libgdal-dev gettext
-          version: 1.0
+          version: "1.1"  # bump to invalidate the cache
+          # BLAS/LAPACK (pulled in by libgdal) are exposed through
+          # update-alternatives symlinks created by their postinst scripts;
+          # a bare file restore never creates them and GDAL fails to load.
+          execute_install_scripts: true
 
       - name: Rebuild linker cache
         run: sudo ldconfig
