@@ -10,7 +10,7 @@
 [![Docs](https://img.shields.io/badge/docs-docs.letsrevel.io-blue?style=for-the-badge&logo=readthedocs&logoColor=white)](https://docs.letsrevel.io)
 
 <!-- Tooling / meta -->
-![Python](https://img.shields.io/badge/python-3.13%2B-3776AB.svg?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/python-3.14%2B-3776AB.svg?logo=python&logoColor=white)
 ![Ruff](https://img.shields.io/badge/lint-ruff-46aef7?logo=ruff&logoColor=white)
 ![mypy strict](https://img.shields.io/badge/types-mypy-informational.svg)
 
@@ -162,7 +162,7 @@ We intentionally stay on Django 5.2 LTS rather than upgrading to Django 6.x. Our
 
 ## 🏁 Quick Start (Development)
 
-Get a local development environment running in minutes. You'll need `make`, `Docker`, Python 3.13+, and [UV](https://docs.astral.sh/uv/getting-started/installation/).
+Get a local development environment running in minutes. You'll need `make`, `Docker`, Python 3.14+, and [UV](https://docs.astral.sh/uv/getting-started/installation/).
 
 1.  **Clone the repository:**
     ```bash

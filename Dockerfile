@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS builder
 
 # ── install WeasyPrint dependencies ──────────────────────────────────────────
 RUN apt-get update \
@@ -66,7 +66,7 @@ RUN uv run python src/manage.py collectstatic --noinput
 
 # ─────────────────────────────────────────────
 
-FROM python:3.13-slim-bookworm AS runtime
+FROM python:3.14-slim-bookworm AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 

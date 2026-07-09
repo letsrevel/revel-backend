@@ -14,11 +14,11 @@ classifiers = [
     "Framework :: Django :: 5.2",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Internet :: WWW/HTTP",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
 ]
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "aiogram>=3.20.0.post0",
     "celery>=5.6.3",
@@ -121,7 +121,9 @@ dev = [
     "pytest-split>=0.10.0",
 ]
 sentinel = [
-    "torch>=2.8.0",
+    # torch 2.8 ships no cp314 wheel (only cp313/cp313t); 2.9+ is required to
+    # resolve under Python 3.14.
+    "torch>=2.9.0",
     "transformers>=4.55.2",
 ]
 
@@ -175,7 +177,7 @@ exclude = [
 # Same as Black.
 line-length = 120
 
-target-version = "py313"
+target-version = "py314"
 
 [tool.ruff.lint]
 # Allow unused variables when underscore-prefixed.

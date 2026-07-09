@@ -10,7 +10,7 @@ Before you begin, make sure the following tools are installed on your machine:
 |------|---------|---------|
 | **Make** | Any | Task runner for development commands |
 | **Docker** | 20+ | Runs PostgreSQL, Redis, ClamAV, Mailpit |
-| **Python** | 3.13+ | Runtime for the Django application |
+| **Python** | 3.14+ | Runtime for the Django application |
 | **UV** | Latest | Dependency management (replaces pip) |
 
 !!! note "Installing UV"
