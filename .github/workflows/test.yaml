@@ -44,25 +44,18 @@ jobs:
             exit 1
           fi
 
-      # Cached .deb install: skips `apt update` on cache hit, which both saves
-      # ~30-60s and removes exposure to flaky Ubuntu mirrors (a mirror stall
-      # once cost a shard 5m34s). curl/gnupg/jq/unzip/software-properties-common
-      # were dropped — they ship preinstalled on ubuntu-24.04 runners.
+      # Trimmed to what the suite actually needs — curl/gnupg/jq/unzip/
+      # software-properties-common ship preinstalled on ubuntu-24.04 runners.
+      # Retries + timeouts bound the occasional mirror stall (one once cost a
+      # shard 5m34s). Deliberately NOT cached via cache-apt-pkgs-action: it
+      # skips `apt-get update` (404s on stale indexes), mishandles virtual
+      # packages like libblas.so.3, and swallows install failures into a
+      # poisoned cache.
       - name: Install system deps
-        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
-        with:
-          packages: gdal-bin libgdal-dev gettext
-          version: "1.1"  # bump to invalidate the cache
-          # BLAS/LAPACK (pulled in by libgdal) are exposed through
-          # update-alternatives symlinks created by their postinst scripts;
-          # a bare file restore never creates them and GDAL fails to load.
-          execute_install_scripts: true
-
-      # GeoDjango locates gdal/geos via ctypes.util.find_library → the ldconfig
-      # cache. A cache-hit restore drops the .so files in place without dpkg's
-      # ldconfig trigger, so rebuild the cache explicitly.
-      - name: Rebuild linker cache
-        run: sudo ldconfig
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+            gdal-bin libgdal-dev gettext
 
       - name: Export GDAL path
         run: |
@@ -128,20 +121,12 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
-      # See the notes on the checks job — cached to dodge apt mirror flakiness;
-      # ldconfig rebuilt because a cache-hit restore skips dpkg's trigger.
+      # See the notes on the checks job — trimmed list, retries for mirror stalls.
       - name: Install system deps
-        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
-        with:
-          packages: gdal-bin libgdal-dev gettext
-          version: "1.1"  # bump to invalidate the cache
-          # BLAS/LAPACK (pulled in by libgdal) are exposed through
-          # update-alternatives symlinks created by their postinst scripts;
-          # a bare file restore never creates them and GDAL fails to load.
-          execute_install_scripts: true
-
-      - name: Rebuild linker cache
-        run: sudo ldconfig
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y -o Acquire::Retries=3 -o Acquire::http::Timeout=30 \
+            gdal-bin libgdal-dev gettext
 
       - name: Export GDAL path
         run: |
