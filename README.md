@@ -10,7 +10,7 @@
 [![Docs](https://img.shields.io/badge/docs-docs.letsrevel.io-blue?style=for-the-badge&logo=readthedocs&logoColor=white)](https://docs.letsrevel.io)
 
 <!-- Tooling / meta -->
-![Python](https://img.shields.io/badge/python-3.13%2B-3776AB.svg?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/python-3.14%2B-3776AB.svg?logo=python&logoColor=white)
 ![Ruff](https://img.shields.io/badge/lint-ruff-46aef7?logo=ruff&logoColor=white)
 ![mypy strict](https://img.shields.io/badge/types-mypy-informational.svg)
 
@@ -144,7 +144,7 @@ Revel combines the ticketing power of platforms like Eventbrite with the communi
 
 Revel is built with a modern and robust backend, designed for performance and scalability.
 
-*   **🐍 Backend:** Python 3.13+ with **[Django 5.2 LTS](https://docs.djangoproject.com/en/5.2/)**
+*   **🐍 Backend:** Python 3.14+ with **[Django 5.2 LTS](https://docs.djangoproject.com/en/5.2/)**
 *   **🚀 API:** **[Django Ninja](https://django-ninja.dev/)** and **[Django Ninja Extra](https://eadwincode.github.io/django-ninja-extra/)** for a fast, modern, and auto-documenting REST API.
 *   **🐘 Database:** **PostgreSQL** with **PostGIS** for powerful geo-features.
 *   **⚙️ Async Tasks:** **Celery** with **Redis** for background jobs (emails, evaluations).
@@ -162,7 +162,7 @@ We intentionally stay on Django 5.2 LTS rather than upgrading to Django 6.x. Our
 
 ## 🏁 Quick Start (Development)
 
-Get a local development environment running in minutes. You'll need `make`, `Docker`, Python 3.13+, and [UV](https://docs.astral.sh/uv/getting-started/installation/).
+Get a local development environment running in minutes. You'll need `make`, `Docker`, Python 3.14+, and [UV](https://docs.astral.sh/uv/getting-started/installation/).
 
 1.  **Clone the repository:**
     ```bash

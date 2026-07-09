@@ -18,7 +18,7 @@ runs:
     - name: Install a specific version of uv
       uses: astral-sh/setup-uv@v7
       with:
-        version: "0.6.10"
+        version: "0.11.18"
         enable-cache: true
 
     - name: Install dependencies

@@ -27,7 +27,7 @@ class Command(BaseCommand):
             try:
                 app_module = importlib.import_module(app)
                 migrations_path = Path(app_module.__path__[0]) / "migrations"
-            except (ModuleNotFoundError, AttributeError):
+            except ModuleNotFoundError, AttributeError:
                 continue
 
             for file in migrations_path.glob("[0-9]*_*.py"):
@@ -45,7 +45,7 @@ class Command(BaseCommand):
         for app, names in applied.items():
             try:
                 migrations_path = Path(importlib.import_module(app).__path__[0]) / "migrations"
-            except (ModuleNotFoundError, AttributeError):
+            except ModuleNotFoundError, AttributeError:
                 continue
 
             code_migrations = {f.stem for f in migrations_path.glob("[0-9]*_*.py")} | replaced_migrations.get(

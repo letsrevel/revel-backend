@@ -123,7 +123,7 @@ Revel is a Django-based event management & ticketing platform.
 
 ### Stack
 Django 5+ / Django Ninja · PostgreSQL + PostGIS · Celery + Redis · JWT (custom user model) ·
-Docker Compose (Postgres, Redis, ClamAV). Python 3.13+. **UV** for deps (never pip).
+Docker Compose (Postgres, Redis, ClamAV). Python 3.14+. **UV** for deps (never pip).
 
 ### Key config files
 `pyproject.toml` (deps + ruff/mypy/pytest), `Makefile`, `compose.yaml`, `src/revel/settings/`.

@@ -285,7 +285,7 @@ def _get_organization_owner(app: str, model: str, pk: str) -> RevelUser | None:
     try:
         model_class = apps.get_model(app, model)
         instance = model_class.objects.get(pk=pk)
-    except (LookupError, ObjectDoesNotExist):
+    except LookupError, ObjectDoesNotExist:
         logger.debug("organization_owner_resolution_failed", app=app, model=model, pk=pk)
         return None
 

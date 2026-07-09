@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS builder
+FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS builder
 
 # ── install WeasyPrint dependencies ──────────────────────────────────────────
 RUN apt-get update \
@@ -14,6 +14,10 @@ RUN apt-get update \
       libffi-dev \
       gdal-bin \
       libgdal-dev \
+      # C toolchain: zopfli (transitive, mkdocs-minify) ships no cp314 wheel yet,
+      # so it is built from sdist during `uv sync`. Builder stage only — the
+      # runtime image copies the built venv and stays slim.
+      build-essential \
       # libmagic for python-magic (MIME type detection)
       libmagic1 \
       # gettext provides msgfmt for `manage.py compilemessages` (.po -> .mo).
@@ -66,7 +70,7 @@ RUN uv run python src/manage.py collectstatic --noinput
 
 # ─────────────────────────────────────────────
 
-FROM python:3.13-slim-bookworm AS runtime
+FROM python:3.14-slim-bookworm AS runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
 

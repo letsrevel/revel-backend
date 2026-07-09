@@ -62,7 +62,7 @@ Revel is an event management and ticketing platform designed with community at i
 
 | Layer | Technology |
 |-------|-----------|
-| **Backend** | Python 3.13+ / Django 5.2 LTS |
+| **Backend** | Python 3.14+ / Django 5.2 LTS |
 | **API** | Django Ninja + Django Ninja Extra |
 | **Database** | PostgreSQL with PostGIS |
 | **Async Tasks** | Celery with Redis |

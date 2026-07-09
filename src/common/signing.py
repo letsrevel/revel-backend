@@ -124,7 +124,7 @@ def verify_signature(path: str, exp: str, sig: str) -> bool:
     """
     try:
         expires = int(exp)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False
 
     # Check expiration first (cheap operation)

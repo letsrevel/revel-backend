@@ -90,7 +90,7 @@ def handle_event(event: stripe.Event) -> None:
                 livemode=bool(getattr(event, "livemode", False)),
                 payload=dict(event),
             )
-    except (IntegrityError, DjangoValidationError):
+    except IntegrityError, DjangoValidationError:
         # IntegrityError = DB unique violation (race past full_clean);
         # ValidationError = TimeStampedModel.save's full_clean caught the
         # duplicate first. Either way: redelivery — retry the post-commit

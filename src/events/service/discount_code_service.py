@@ -96,7 +96,7 @@ def create_discount_code(
     try:
         with transaction.atomic():
             dc = DiscountCode.objects.create(organization=organization, **data)
-    except (IntegrityError, ValidationError):
+    except IntegrityError, ValidationError:
         if DiscountCode.objects.filter(organization=organization, code=data["code"]).exists():
             raise DuplicateDiscountCodeError
         raise
