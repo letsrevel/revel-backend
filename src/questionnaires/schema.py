@@ -274,7 +274,7 @@ def resolve_requires_evaluation(obj: QuestionnaireSubmission) -> bool:
         return existing
     try:
         return bool(obj.questionnaire.org_questionnaires.requires_evaluation)
-    except (AttributeError, ObjectDoesNotExist):
+    except AttributeError, ObjectDoesNotExist:
         return True
 
 

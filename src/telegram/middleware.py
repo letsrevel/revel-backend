@@ -186,7 +186,7 @@ class AuthorizationMiddleware(BaseMiddleware):
         assert event.data is not None
         try:
             entity_id = uuid.UUID(event.data.rsplit(":", 1)[1])
-        except (ValueError, IndexError):
+        except ValueError, IndexError:
             logger.warning("malformed_callback_data", callback_data=event.data)
             return False
 

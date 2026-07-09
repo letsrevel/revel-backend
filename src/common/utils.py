@@ -99,7 +99,7 @@ def get_or_create_with_race_protection(
     try:
         with transaction.atomic():
             return manager.create(**defaults), True
-    except (IntegrityError, ValidationError):
+    except IntegrityError, ValidationError:
         # Race condition: another request created the row between our check and
         # create. Depending on timing this raises IntegrityError (INSERT) or
         # ValidationError (full_clean's validate_constraints, when the racing row
