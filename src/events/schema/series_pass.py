@@ -69,7 +69,7 @@ class HeldSeriesPassSchema(ModelSchema):
     passes serializes without N+1s.
     """
 
-    status: HeldSeriesPass.Status
+    status: HeldSeriesPass.HeldSeriesPassStatus
     series_pass: SeriesPassSchema
     series: SeriesPassSeriesInfoSchema
     remaining_event_count: int
@@ -95,6 +95,64 @@ class HeldSeriesPassSchema(ModelSchema):
         """Count not-yet-started covered events. Requires ``series_pass__tier_links__event`` prefetched."""
         now = timezone.now()
         return sum(1 for link in obj.series_pass.tier_links.all() if link.event.start >= now)
+
+
+class SeriesPassTierLinkAdminSchema(Schema):
+    """Coverage row: the covered event and the tier backing it."""
+
+    event_id: UUID
+    event_name: str
+    event_start: AwareDatetime
+    tier_id: UUID
+    tier_name: str
+
+
+class SeriesPassAdminSchema(ModelSchema):
+    """Organizer-facing series pass: public fields plus management state and coverage.
+
+    Query expectations: annotate ``holder_count`` (active+pending holders) and prefetch
+    ``tier_links`` with ``event``/``tier`` selected (see the admin controller's
+    ``get_passes_queryset``) — the coverage resolver iterates the prefetched links in
+    Python, so a list serializes without N+1s.
+    """
+
+    payment_method: TicketTier.PaymentMethod
+    purchasable_by: TicketTier.PurchasableBy
+    visibility: SeriesPass.Visibility
+    holder_count: int
+    tier_links: list[SeriesPassTierLinkAdminSchema]
+
+    class Meta:
+        model = SeriesPass
+        fields = [
+            "id",
+            "name",
+            "description",
+            "price",
+            "pro_rata_discount",
+            "currency",
+            "payment_method",
+            "purchasable_by",
+            "sales_start_at",
+            "sales_end_at",
+            "visibility",
+            "is_active",
+            "total_quantity",
+        ]
+
+    @staticmethod
+    def resolve_tier_links(obj: SeriesPass) -> list[SeriesPassTierLinkAdminSchema]:
+        """Serialize prefetched coverage. Requires ``tier_links`` prefetched with event/tier."""
+        return [
+            SeriesPassTierLinkAdminSchema(
+                event_id=link.event_id,
+                event_name=link.event.name,
+                event_start=link.event.start,
+                tier_id=link.tier_id,
+                tier_name=link.tier.name,
+            )
+            for link in obj.tier_links.all()
+        ]
 
 
 class SeriesPassCheckoutResponseSchema(Schema):
@@ -155,7 +213,7 @@ class SeriesPassUpdateSchema(Schema):
 class HeldSeriesPassAdminSchema(ModelSchema):
     """Admin-facing view of a held series pass: holder identity, status, and price paid."""
 
-    status: HeldSeriesPass.Status
+    status: HeldSeriesPass.HeldSeriesPassStatus
     user: MemberUserSchema
 
     class Meta:

@@ -194,7 +194,7 @@ class TestFreePassPurchaseNotifications:
             SeriesPassPurchaseService(free_series_pass, holder).purchase()
 
         held_pass = HeldSeriesPass.objects.get(series_pass=free_series_pass, user=holder)
-        assert held_pass.status == HeldSeriesPass.Status.ACTIVE
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
 
         holder_notifications = list(
             Notification.objects.filter(user=holder, notification_type=NotificationType.SERIES_PASS_PURCHASED)
@@ -284,7 +284,7 @@ class TestWebhookActivationNotifications:
             SeriesPassPurchaseService(online_series_pass, holder).purchase()
 
         held_pass = HeldSeriesPass.objects.get(series_pass=online_series_pass, user=holder)
-        assert held_pass.status == HeldSeriesPass.Status.PENDING
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
         assert not Notification.objects.filter(
             user=holder, notification_type=NotificationType.SERIES_PASS_PURCHASED
         ).exists()
@@ -294,7 +294,7 @@ class TestWebhookActivationNotifications:
             StripeEventHandler(event).handle_checkout_session_completed(event)
 
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.ACTIVE
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
 
         holder_notifications = Notification.objects.filter(
             user=holder, notification_type=NotificationType.SERIES_PASS_PURCHASED
@@ -349,7 +349,7 @@ class TestOfflinePurchaseSendsNothing:
             SeriesPassPurchaseService(offline_series_pass, holder).purchase()
 
         held_pass = HeldSeriesPass.objects.get(series_pass=offline_series_pass, user=holder)
-        assert held_pass.status == HeldSeriesPass.Status.PENDING
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
 
         assert not Notification.objects.filter(
             user=holder, notification_type=NotificationType.SERIES_PASS_PURCHASED

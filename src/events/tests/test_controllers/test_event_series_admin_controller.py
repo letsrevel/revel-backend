@@ -106,7 +106,10 @@ def test_delete_event_series_with_series_pass_holder_returns_409(
     )
     holder = revel_user_factory(username="series_holder@example.com", email="series_holder@example.com")
     HeldSeriesPass.objects.create(
-        series_pass=series_pass, user=holder, status=HeldSeriesPass.Status.CANCELLED, price_paid=series_pass.price
+        series_pass=series_pass,
+        user=holder,
+        status=HeldSeriesPass.HeldSeriesPassStatus.CANCELLED,
+        price_paid=series_pass.price,
     )
 
     url = reverse("api:delete_event_series", kwargs={"series_id": event_series.pk})

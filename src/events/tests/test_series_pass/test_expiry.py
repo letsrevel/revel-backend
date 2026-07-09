@@ -84,7 +84,9 @@ def _purchase(series_pass: SeriesPass, user: RevelUser, session_id: str) -> Held
     mock_session.url = f"https://checkout.stripe.com/pay/{session_id}"
     with patch("stripe.checkout.Session.create", return_value=mock_session):
         SeriesPassPurchaseService(series_pass, user).purchase()
-    return HeldSeriesPass.objects.get(series_pass=series_pass, user=user, status=HeldSeriesPass.Status.PENDING)
+    return HeldSeriesPass.objects.get(
+        series_pass=series_pass, user=user, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING
+    )
 
 
 class TestBeatTaskExpiry:
@@ -110,7 +112,7 @@ class TestBeatTaskExpiry:
         assert cleaned == 2
 
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.CANCELLED
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
         series_pass.refresh_from_db()
         assert series_pass.quantity_sold == 0
         for tier in tiers:
@@ -121,7 +123,7 @@ class TestBeatTaskExpiry:
         # The buyer is no longer blocked by the conditional unique constraint.
         new_pass = _purchase(series_pass, revel_user, "cs_expiry_retry")
         assert new_pass.pk != held_pass.pk
-        assert new_pass.status == HeldSeriesPass.Status.PENDING
+        assert new_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
 
     def test_beat_task_leaves_unexpired_pass_checkouts_alone(
         self,
@@ -135,7 +137,7 @@ class TestBeatTaskExpiry:
         assert cleaned == 0
 
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.PENDING
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
 
 
 class TestCleanupExpiredBatch:
@@ -157,7 +159,7 @@ class TestCleanupExpiredBatch:
             tier.refresh_from_db()
             assert tier.quantity_sold == 0
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.CANCELLED
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
         series_pass.refresh_from_db()
         assert series_pass.quantity_sold == 0
         assert not Payment.objects.filter(stripe_session_id="cs_expiry_batch").exists()
@@ -179,7 +181,7 @@ class TestCleanupExpiredBatch:
             tier.refresh_from_db()
             assert tier.quantity_sold == 0
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.CANCELLED
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
         series_pass.refresh_from_db()
         assert series_pass.quantity_sold == 0
         assert not Ticket.objects.filter(held_pass=held_pass).exists()
@@ -213,7 +215,7 @@ class TestExpireStrandedClaim:
 
         assert (first, second) == (1, 0)
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.CANCELLED
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
         series_pass.refresh_from_db()
         assert series_pass.quantity_sold == 0
 
@@ -230,7 +232,7 @@ class TestExpireStrandedClaim:
         SeriesPass.objects.filter(pk=series_pass.pk).update(quantity_sold=2)  # as if another holder exists
 
         # The concurrent route wins: pass CANCELLED, counter released (2 -> 1).
-        HeldSeriesPass.objects.filter(pk=held_pass.pk).update(status=HeldSeriesPass.Status.CANCELLED)
+        HeldSeriesPass.objects.filter(pk=held_pass.pk).update(status=HeldSeriesPass.HeldSeriesPassStatus.CANCELLED)
         SeriesPass.objects.filter(pk=series_pass.pk).update(quantity_sold=F("quantity_sold") - 1)
 
         manager = HeldSeriesPass.objects
@@ -373,7 +375,7 @@ class TestPaymentIntentCanceledWebhook:
         StripeEventHandler(event).handle_payment_intent_canceled(event)
 
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.CANCELLED
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
         series_pass.refresh_from_db()
         assert series_pass.quantity_sold == 0
         for tier in tiers:

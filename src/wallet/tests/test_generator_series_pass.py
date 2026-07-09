@@ -90,7 +90,7 @@ def held_pass(series_pass: SeriesPass, member_user: RevelUser, covered_events: l
     return HeldSeriesPass.objects.create(
         series_pass=series_pass,
         user=member_user,
-        status=HeldSeriesPass.Status.ACTIVE,
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
         price_paid=Decimal("50.00"),
     )
 
@@ -134,7 +134,10 @@ class TestBuildSeriesPassData:
         past = _covered_event(organization, event_series, series_pass, "Past Show", "past-show", timedelta(days=-7))
         upcoming = _covered_event(organization, event_series, series_pass, "Next Show", "next-show", timedelta(days=3))
         held = HeldSeriesPass.objects.create(
-            series_pass=series_pass, user=member_user, status=HeldSeriesPass.Status.ACTIVE, price_paid=Decimal("30")
+            series_pass=series_pass,
+            user=member_user,
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+            price_paid=Decimal("30"),
         )
 
         generator = ApplePassGenerator(signer=mock_signer)
@@ -155,7 +158,10 @@ class TestBuildSeriesPassData:
         _covered_event(organization, event_series, series_pass, "Old One", "old-one", timedelta(days=-14))
         latest = _covered_event(organization, event_series, series_pass, "Old Two", "old-two", timedelta(days=-7))
         held = HeldSeriesPass.objects.create(
-            series_pass=series_pass, user=member_user, status=HeldSeriesPass.Status.ACTIVE, price_paid=Decimal("30")
+            series_pass=series_pass,
+            user=member_user,
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+            price_paid=Decimal("30"),
         )
 
         generator = ApplePassGenerator(signer=mock_signer)
@@ -172,7 +178,10 @@ class TestBuildSeriesPassData:
     ) -> None:
         """Defensive: a pass with no tier links still builds valid PassData."""
         held = HeldSeriesPass.objects.create(
-            series_pass=series_pass, user=member_user, status=HeldSeriesPass.Status.ACTIVE, price_paid=Decimal("0")
+            series_pass=series_pass,
+            user=member_user,
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+            price_paid=Decimal("0"),
         )
 
         generator = ApplePassGenerator(signer=mock_signer)

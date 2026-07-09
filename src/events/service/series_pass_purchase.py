@@ -51,7 +51,7 @@ class SeriesPassPurchaseService:
     def _has_active_held_pass(self) -> bool:
         return (
             HeldSeriesPass.objects.filter(series_pass=self.series_pass, user=self.user)
-            .exclude(status=HeldSeriesPass.Status.CANCELLED)
+            .exclude(status=HeldSeriesPass.HeldSeriesPassStatus.CANCELLED)
             .exists()
         )
 
@@ -72,7 +72,7 @@ class SeriesPassPurchaseService:
                 series_pass=self.series_pass,
                 user=self.user,
                 price_paid=price,
-                status=HeldSeriesPass.Status.PENDING,
+                status=HeldSeriesPass.HeldSeriesPassStatus.PENDING,
             )
         except ValidationError as exc:
             if self._has_active_held_pass():
@@ -153,7 +153,7 @@ class SeriesPassPurchaseService:
         )
 
         if is_free:
-            held_pass.status = HeldSeriesPass.Status.ACTIVE
+            held_pass.status = HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
             held_pass.save(update_fields=["status"])
             transaction.on_commit(lambda: send_series_pass_purchased(held_pass.id))
             return held_pass

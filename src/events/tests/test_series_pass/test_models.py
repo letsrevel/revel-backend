@@ -119,4 +119,4 @@ class TestSeriesPassModels:
 
     def test_held_pass_defaults(self, series_pass: SeriesPass, revel_user: t.Any) -> None:
         hp = HeldSeriesPass.objects.create(series_pass=series_pass, user=revel_user, price_paid=Decimal("36.00"))
-        assert hp.status == HeldSeriesPass.Status.PENDING
+        assert hp.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING

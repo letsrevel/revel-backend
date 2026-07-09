@@ -39,7 +39,7 @@ def held_pass(series_pass: SeriesPass, revel_user: RevelUser) -> HeldSeriesPass:
     return HeldSeriesPass.objects.create(
         series_pass=series_pass,
         user=revel_user,
-        status=HeldSeriesPass.Status.ACTIVE,
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
         price_paid=series_pass.price,
     )
 
@@ -163,7 +163,7 @@ def test_my_tickets_query_count_does_not_grow_with_pass_tickets(
     second_held_pass = HeldSeriesPass.objects.create(
         series_pass=second_pass,
         user=held_pass.user,
-        status=HeldSeriesPass.Status.ACTIVE,
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
         price_paid=second_pass.price,
     )
     _create_extra_pass_ticket(event_series, second_held_pass, "a")

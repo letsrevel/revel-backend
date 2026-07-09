@@ -178,7 +178,7 @@ class TestFreePathPurchase:
 
         assert isinstance(held_pass, HeldSeriesPass)
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.ACTIVE
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
         assert held_pass.user_id == revel_user.id
 
         tickets = list(Ticket.objects.filter(held_pass=held_pass))
@@ -226,7 +226,7 @@ class TestOfflinePathPurchase:
 
         assert isinstance(held_pass, HeldSeriesPass)
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.PENDING
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
 
         tickets = list(Ticket.objects.filter(held_pass=held_pass))
         assert len(tickets) == 3
@@ -343,7 +343,7 @@ class TestNotPurchasable:
             series_pass=purchasable_free_pass,
             user=revel_user,
             price_paid=Decimal("30.00"),
-            status=HeldSeriesPass.Status.ACTIVE,
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
         )
 
         with pytest.raises(SeriesPassNotPurchasableError):

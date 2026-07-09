@@ -105,7 +105,7 @@ class TestSeriesPassWebhookActivation:
             StripeEventHandler(event).handle_checkout_session_completed(event)
 
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.ACTIVE
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
 
         for payment in payments:
             payment.refresh_from_db()
@@ -159,7 +159,7 @@ class TestSeriesPassWebhookActivation:
             StripeEventHandler(replay_event).handle_checkout_session_completed(replay_event)
 
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.ACTIVE
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
 
 
 class TestPerTicketConfirmationSuppression:

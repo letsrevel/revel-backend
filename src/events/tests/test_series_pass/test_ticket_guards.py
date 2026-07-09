@@ -45,7 +45,7 @@ def pass_ticket(event: Event, offline_tier: TicketTier, offline_pass: SeriesPass
     held = HeldSeriesPass.objects.create(
         series_pass=offline_pass,
         user=revel_user,
-        status=HeldSeriesPass.Status.PENDING,
+        status=HeldSeriesPass.HeldSeriesPassStatus.PENDING,
         price_paid=offline_pass.price,
     )
     return Ticket.objects.create(

@@ -7,76 +7,43 @@ All schemas are re-exported here for backward compatibility.
 """
 
 # Mixins and utilities
-from .mixins import (
-    CityEditMixin,
-    SocialMediaSchemaEditMixin,
-    SocialMediaSchemaRetrieveMixin,
+# Announcement schemas
+from .announcement import (
+    AnnouncementCreateSchema,
+    AnnouncementListSchema,
+    AnnouncementPublicSchema,
+    AnnouncementScheduleSchema,
+    AnnouncementSchema,
+    AnnouncementUpdateSchema,
+    RecipientCountSchema,
 )
 
-# Organization schemas
-from .organization import (
-    ApproveMembershipRequestSchema,
-    MemberAddSchema,
-    MembershipTierCreateSchema,
-    MembershipTierSchema,
-    MembershipTierUpdateSchema,
-    MinimalOrganizationMemberSchema,
-    MinimalOrganizationSchema,
-    OrganizationAdminDetailSchema,
-    OrganizationContactMessageCreateSchema,
-    OrganizationContactMessageSchema,
-    OrganizationCreateSchema,
-    OrganizationEditSchema,
-    OrganizationInListSchema,
-    OrganizationMemberSchema,
-    OrganizationMembershipRequestCreateSchema,
-    OrganizationMembershipRequestRetrieve,
-    OrganizationMemberUpdateSchema,
-    OrganizationPermissionsSchema,
-    OrganizationRetrieveSchema,
-    OrganizationStaffSchema,
-    OrganizationTokenCreateSchema,
-    OrganizationTokenSchema,
-    OrganizationTokenUpdateSchema,
-    OrganizationBillingInfoSchema,
-    OrganizationBillingInfoUpdateSchema,
-    StaffAddSchema,
-    VATIdUpdateSchema,
-    VerifyOrganizationContactEmailJWTPayloadSchema,
+# Blacklist schemas
+from .blacklist import (
+    BlacklistCreateSchema,
+    BlacklistEntrySchema,
+    BlacklistUpdateSchema,
+    WhitelistEntrySchema,
+    WhitelistRequestCreateSchema,
+    WhitelistRequestSchema,
+)
+from .bookmark import EventBookmarkSchema
+
+# Dietary schemas
+from .dietary import (
+    AggregatedDietaryPreferenceSchema,
+    AggregatedDietaryRestrictionSchema,
+    EventDietarySummarySchema,
 )
 
-# Event series schemas
-from .event_series import (
-    EventSeriesEditSchema,
-    EventSeriesInListSchema,
-    EventSeriesRetrieveSchema,
-    MinimalEventSeriesSchema,
-)
-
-# Venue schemas
-from .venue import (
-    Coordinate2D,
-    MinimalSeatSchema,
-    PolygonShape,
-    SectorAvailabilitySchema,
-    VenueAvailabilitySchema,
-    VenueCreateSchema,
-    VenueDetailSchema,
-    VenueSchema,
-    VenueSeatBulkCreateSchema,
-    VenueSeatBulkDeleteSchema,
-    VenueSeatBulkUpdateItemSchema,
-    VenueSeatBulkUpdateSchema,
-    VenueSeatInputSchema,
-    VenueSeatSchema,
-    VenueSeatUpdateSchema,
-    VenueSectorCreateSchema,
-    VenueSectorSchema,
-    VenueSectorUpdateSchema,
-    VenueSectorWithSeatsSchema,
-    VenueUpdateSchema,
-    VenueWithSeatsSchema,
-    point_in_polygon,
+# Discount code schemas
+from .discount_code import (
+    DiscountCodeCreateSchema,
+    DiscountCodeDeleteResponse,
+    DiscountCodeSchema,
+    DiscountCodeUpdateSchema,
+    DiscountCodeValidationResponse,
+    DiscountCodeValidationSchema,
 )
 
 # Event schemas
@@ -96,6 +63,216 @@ from .event import (
     TagUpdateSchema,
 )
 
+# Event series schemas
+from .event_series import (
+    EventSeriesEditSchema,
+    EventSeriesInListSchema,
+    EventSeriesRetrieveSchema,
+    MinimalEventSeriesSchema,
+)
+
+# Export schemas
+from .export import (
+    FileExportSchema,
+)
+
+# Financials schemas
+from .financials import (
+    CurrencyFinancialsSchema,
+    EventFinancialsSchema,
+    OrganizationFinancialsSchema,
+    RateBucketSchema,
+)
+
+# Follow schemas
+from .follow import (
+    EventSeriesFollowCreateSchema,
+    EventSeriesFollowSchema,
+    EventSeriesFollowStatusSchema,
+    EventSeriesFollowUpdateSchema,
+    MinimalEventSeriesFollowSchema,
+    MinimalOrganizationFollowSchema,
+    OrganizationFollowCreateSchema,
+    OrganizationFollowSchema,
+    OrganizationFollowStatusSchema,
+    OrganizationFollowUpdateSchema,
+)
+
+# Invitation schemas
+from .invitation import (
+    CombinedInvitationListSchema,
+    DirectInvitationCreateSchema,
+    DirectInvitationResponseSchema,
+    EventInvitationListSchema,
+    EventInvitationRequestCreateSchema,
+    EventInvitationRequestInternalSchema,
+    EventInvitationRequestSchema,
+    EventTokenCreateSchema,
+    EventTokenSchema,
+    EventTokenUpdateSchema,
+    InvitationBaseSchema,
+    InvitationSchema,
+    MyEventInvitationSchema,
+    PendingEventInvitationListSchema,
+)
+
+# Invoice schemas
+from .invoice import (
+    AttendeeInvoiceCreditNoteSchema,
+    AttendeeInvoiceDetailSchema,
+    AttendeeInvoiceSchema,
+    InvoiceDownloadURLSchema,
+    InvoiceLineItemSchema,
+    InvoicingModeUpdateSchema,
+    PlatformFeeCreditNoteSchema,
+    PlatformFeeInvoiceSchema,
+    UpdateAttendeeInvoiceSchema,
+)
+
+# Misc schemas
+from .misc import (
+    AdditionalResourceCreateSchema,
+    AdditionalResourceSchema,
+    AdditionalResourceUpdateSchema,
+)
+from .mixins import (
+    CityEditMixin,
+    SocialMediaSchemaEditMixin,
+    SocialMediaSchemaRetrieveMixin,
+)
+
+# Organization schemas
+from .organization import (
+    ApproveMembershipRequestSchema,
+    MemberAddSchema,
+    MembershipTierCreateSchema,
+    MembershipTierSchema,
+    MembershipTierUpdateSchema,
+    MinimalOrganizationMemberSchema,
+    MinimalOrganizationSchema,
+    OrganizationAdminDetailSchema,
+    OrganizationBillingInfoSchema,
+    OrganizationBillingInfoUpdateSchema,
+    OrganizationContactMessageCreateSchema,
+    OrganizationContactMessageSchema,
+    OrganizationCreateSchema,
+    OrganizationEditSchema,
+    OrganizationInListSchema,
+    OrganizationMemberSchema,
+    OrganizationMembershipRequestCreateSchema,
+    OrganizationMembershipRequestRetrieve,
+    OrganizationMemberUpdateSchema,
+    OrganizationPermissionsSchema,
+    OrganizationRetrieveSchema,
+    OrganizationStaffSchema,
+    OrganizationTokenCreateSchema,
+    OrganizationTokenSchema,
+    OrganizationTokenUpdateSchema,
+    StaffAddSchema,
+    VATIdUpdateSchema,
+    VerifyOrganizationContactEmailJWTPayloadSchema,
+)
+
+# Potluck schemas
+from .potluck import (
+    PotluckItemCreateSchema,
+    PotluckItemRetrieveSchema,
+)
+
+# Preferences schemas
+from .preferences import (
+    GeneralUserPreferencesSchema,
+    GeneralUserPreferencesUpdateSchema,
+)
+
+# Pronoun schemas
+from .pronouns import (
+    EventPronounDistributionSchema,
+    PronounCountSchema,
+)
+
+# Questionnaire schemas
+from .questionnaire import (
+    EventAssignmentSchema,
+    EventSeriesAssignmentSchema,
+    McOptionStatSchema,
+    McQuestionStatSchema,
+    OrganizationQuestionnaireCreateSchema,
+    OrganizationQuestionnaireInListSchema,
+    OrganizationQuestionnaireSchema,
+    OrganizationQuestionnaireUpdateSchema,
+    QuestionnaireDuplicateSchema,
+    QuestionnaireSummarySchema,
+    ScoreStatsSchema,
+    StatusBreakdownSchema,
+)
+
+# Recurrence rule schemas
+from .recurrence_rule import (
+    RecurrenceRuleCreateSchema,
+    RecurrenceRuleSchema,
+    RecurrenceRuleUpdateSchema,
+)
+
+# Recurring event schemas
+from .recurring_event import (
+    CancelOccurrenceSchema,
+    EventSeriesDriftSchema,
+    EventSeriesRecurrenceDetailSchema,
+    EventSeriesRecurrenceUpdateSchema,
+    GenerateSeriesEventsSchema,
+    RecurringEventCreateSchema,
+    TemplateEditSchema,
+)
+
+# Revenue report schemas
+from .revenue_report import RevenueReportRequestSchema
+
+# RSVP schemas
+from .rsvp import (
+    EventRSVPSchema,
+    EventUserStatusResponse,
+    RSVPCreateSchema,
+    RSVPDetailSchema,
+    RSVPUpdateSchema,
+    TierRemainingTicketsSchema,
+    UserRSVPSchema,
+    WaitlistEntrySchema,
+)
+
+# Series pass schemas
+from .series_pass import (
+    HeldSeriesPassAdminSchema,
+    HeldSeriesPassCancelSchema,
+    HeldSeriesPassSchema,
+    SeriesPassAdminSchema,
+    SeriesPassCheckoutResponseSchema,
+    SeriesPassCreateSchema,
+    SeriesPassQuoteSchema,
+    SeriesPassSchema,
+    SeriesPassSeriesInfoSchema,
+    SeriesPassTierLinkAdminSchema,
+    SeriesPassTierLinkInputSchema,
+    SeriesPassUpdateSchema,
+)
+
+# Subscription schemas
+from .subscription import (
+    CancelSubscriptionSchema,
+    MyMembershipSchema,
+    MySubscriptionSchema,
+    PaymentRecordSchema,
+    PlanCreateSchema,
+    PlanSchema,
+    PlanUpdateSchema,
+    RefundSchema,
+    SubscriptionCreateSchema,
+    SubscriptionSchema,
+)
+from .subscription import (
+    PaymentSchema as MembershipPaymentSchema,
+)
+
 # Ticket and payment schemas
 from .ticket import (
     AdminCancelTicketSchema,
@@ -107,10 +284,6 @@ from .ticket import (
     BuyerBillingInfoSchema,
     CancellationBlockedErrorSchema,
     CancellationPreviewSchema,
-    VATPreviewItemSchema,
-    VATPreviewLineItemSchema,
-    VATPreviewRequestSchema,
-    VATPreviewResponseSchema,
     CheckInRequestSchema,
     CheckInResponseSchema,
     ConfirmPaymentSchema,
@@ -145,196 +318,36 @@ from .ticket import (
     TicketTierSchema,
     TicketTierUpdateSchema,
     UserTicketSchema,
+    VATPreviewItemSchema,
+    VATPreviewLineItemSchema,
+    VATPreviewRequestSchema,
+    VATPreviewResponseSchema,
 )
 
-# Series pass schemas
-from .series_pass import (
-    HeldSeriesPassAdminSchema,
-    HeldSeriesPassCancelSchema,
-    HeldSeriesPassSchema,
-    SeriesPassCheckoutResponseSchema,
-    SeriesPassCreateSchema,
-    SeriesPassQuoteSchema,
-    SeriesPassSchema,
-    SeriesPassSeriesInfoSchema,
-    SeriesPassTierLinkInputSchema,
-    SeriesPassUpdateSchema,
-)
-
-# RSVP schemas
-from .rsvp import (
-    EventRSVPSchema,
-    EventUserStatusResponse,
-    RSVPCreateSchema,
-    RSVPDetailSchema,
-    RSVPUpdateSchema,
-    TierRemainingTicketsSchema,
-    UserRSVPSchema,
-    WaitlistEntrySchema,
-)
-
-# Invitation schemas
-from .invitation import (
-    CombinedInvitationListSchema,
-    DirectInvitationCreateSchema,
-    DirectInvitationResponseSchema,
-    EventInvitationListSchema,
-    EventInvitationRequestCreateSchema,
-    EventInvitationRequestInternalSchema,
-    EventInvitationRequestSchema,
-    EventTokenCreateSchema,
-    EventTokenSchema,
-    EventTokenUpdateSchema,
-    InvitationBaseSchema,
-    InvitationSchema,
-    MyEventInvitationSchema,
-    PendingEventInvitationListSchema,
-)
-
-# Potluck schemas
-from .potluck import (
-    PotluckItemCreateSchema,
-    PotluckItemRetrieveSchema,
-)
-
-# Questionnaire schemas
-from .questionnaire import (
-    EventAssignmentSchema,
-    EventSeriesAssignmentSchema,
-    McOptionStatSchema,
-    McQuestionStatSchema,
-    OrganizationQuestionnaireCreateSchema,
-    OrganizationQuestionnaireInListSchema,
-    OrganizationQuestionnaireSchema,
-    OrganizationQuestionnaireUpdateSchema,
-    QuestionnaireDuplicateSchema,
-    QuestionnaireSummarySchema,
-    ScoreStatsSchema,
-    StatusBreakdownSchema,
-)
-
-# Misc schemas
-from .misc import (
-    AdditionalResourceCreateSchema,
-    AdditionalResourceSchema,
-    AdditionalResourceUpdateSchema,
-)
-
-# Preferences schemas
-from .preferences import (
-    GeneralUserPreferencesSchema,
-    GeneralUserPreferencesUpdateSchema,
-)
-
-# Blacklist schemas
-from .blacklist import (
-    BlacklistCreateSchema,
-    BlacklistEntrySchema,
-    BlacklistUpdateSchema,
-    WhitelistEntrySchema,
-    WhitelistRequestCreateSchema,
-    WhitelistRequestSchema,
-)
-
-# Dietary schemas
-from .dietary import (
-    AggregatedDietaryPreferenceSchema,
-    AggregatedDietaryRestrictionSchema,
-    EventDietarySummarySchema,
-)
-
-# Pronoun schemas
-from .pronouns import (
-    EventPronounDistributionSchema,
-    PronounCountSchema,
-)
-
-from .bookmark import EventBookmarkSchema
-
-# Follow schemas
-from .follow import (
-    EventSeriesFollowCreateSchema,
-    EventSeriesFollowSchema,
-    EventSeriesFollowStatusSchema,
-    EventSeriesFollowUpdateSchema,
-    MinimalEventSeriesFollowSchema,
-    MinimalOrganizationFollowSchema,
-    OrganizationFollowCreateSchema,
-    OrganizationFollowSchema,
-    OrganizationFollowStatusSchema,
-    OrganizationFollowUpdateSchema,
-)
-
-# Discount code schemas
-from .discount_code import (
-    DiscountCodeCreateSchema,
-    DiscountCodeDeleteResponse,
-    DiscountCodeSchema,
-    DiscountCodeUpdateSchema,
-    DiscountCodeValidationResponse,
-    DiscountCodeValidationSchema,
-)
-
-# Invoice schemas
-from .invoice import (
-    AttendeeInvoiceCreditNoteSchema,
-    AttendeeInvoiceDetailSchema,
-    AttendeeInvoiceSchema,
-    InvoiceDownloadURLSchema,
-    InvoiceLineItemSchema,
-    InvoicingModeUpdateSchema,
-    PlatformFeeCreditNoteSchema,
-    PlatformFeeInvoiceSchema,
-    UpdateAttendeeInvoiceSchema,
-)
-
-# Export schemas
-from .export import (
-    FileExportSchema,
-)
-
-# Recurrence rule schemas
-from .recurrence_rule import (
-    RecurrenceRuleCreateSchema,
-    RecurrenceRuleSchema,
-    RecurrenceRuleUpdateSchema,
-)
-
-# Recurring event schemas
-from .recurring_event import (
-    CancelOccurrenceSchema,
-    EventSeriesDriftSchema,
-    EventSeriesRecurrenceDetailSchema,
-    EventSeriesRecurrenceUpdateSchema,
-    GenerateSeriesEventsSchema,
-    RecurringEventCreateSchema,
-    TemplateEditSchema,
-)
-
-# Subscription schemas
-from .subscription import (
-    CancelSubscriptionSchema,
-    MyMembershipSchema,
-    MySubscriptionSchema,
-    PaymentRecordSchema,
-    PaymentSchema as MembershipPaymentSchema,
-    PlanCreateSchema,
-    PlanSchema,
-    PlanUpdateSchema,
-    RefundSchema,
-    SubscriptionCreateSchema,
-    SubscriptionSchema,
-)
-
-# Announcement schemas
-from .announcement import (
-    AnnouncementCreateSchema,
-    AnnouncementListSchema,
-    AnnouncementPublicSchema,
-    AnnouncementScheduleSchema,
-    AnnouncementSchema,
-    AnnouncementUpdateSchema,
-    RecipientCountSchema,
+# Venue schemas
+from .venue import (
+    Coordinate2D,
+    MinimalSeatSchema,
+    PolygonShape,
+    SectorAvailabilitySchema,
+    VenueAvailabilitySchema,
+    VenueCreateSchema,
+    VenueDetailSchema,
+    VenueSchema,
+    VenueSeatBulkCreateSchema,
+    VenueSeatBulkDeleteSchema,
+    VenueSeatBulkUpdateItemSchema,
+    VenueSeatBulkUpdateSchema,
+    VenueSeatInputSchema,
+    VenueSeatSchema,
+    VenueSeatUpdateSchema,
+    VenueSectorCreateSchema,
+    VenueSectorSchema,
+    VenueSectorUpdateSchema,
+    VenueSectorWithSeatsSchema,
+    VenueUpdateSchema,
+    VenueWithSeatsSchema,
+    point_in_polygon,
 )
 
 # Waitlist (advanced) schemas
@@ -344,17 +357,6 @@ from .waitlist import (
     WaitlistOfferSchema,
     WaitlistSettingsSchema,
     WaitlistSettingsUpdateSchema,
-)
-
-# Revenue report schemas
-from .revenue_report import RevenueReportRequestSchema
-
-# Financials schemas
-from .financials import (
-    CurrencyFinancialsSchema,
-    EventFinancialsSchema,
-    OrganizationFinancialsSchema,
-    RateBucketSchema,
 )
 
 __all__ = [
@@ -485,11 +487,13 @@ __all__ = [
     "HeldSeriesPassAdminSchema",
     "HeldSeriesPassCancelSchema",
     "HeldSeriesPassSchema",
+    "SeriesPassAdminSchema",
     "SeriesPassCheckoutResponseSchema",
     "SeriesPassCreateSchema",
     "SeriesPassQuoteSchema",
     "SeriesPassSchema",
     "SeriesPassSeriesInfoSchema",
+    "SeriesPassTierLinkAdminSchema",
     "SeriesPassTierLinkInputSchema",
     "SeriesPassUpdateSchema",
     # RSVP

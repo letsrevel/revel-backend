@@ -44,9 +44,9 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
         )
     )
     holder_ids = list(
-        HeldSeriesPass.objects.filter(series_pass=series_pass, status=HeldSeriesPass.Status.ACTIVE).values_list(
-            "id", flat=True
-        )
+        HeldSeriesPass.objects.filter(
+            series_pass=series_pass, status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
+        ).values_list("id", flat=True)
     )
     skipped: list[tuple[UUID, UUID]] = []
 
@@ -58,7 +58,7 @@ def materialize_series_pass_holders(series_pass_id: str, event_ids: list[str]) -
             # bulk_create below, leaving a cancelled (and refunded) pass holding a
             # live ACTIVE ticket. Lock order pass -> tiers matches cancel_held_pass.
             held_pass = HeldSeriesPass.objects.select_for_update(of=("self",)).select_related("user").get(pk=holder_id)
-            if held_pass.status != HeldSeriesPass.Status.ACTIVE:
+            if held_pass.status != HeldSeriesPass.HeldSeriesPassStatus.ACTIVE:
                 # Re-check inside the loop: a concurrent cancellation may have
                 # landed between the snapshot above and this holder's turn.
                 continue

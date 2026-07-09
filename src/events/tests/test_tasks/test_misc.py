@@ -660,7 +660,7 @@ class TestCleanupSeriesPassFileCacheSweep:
         held_pass = HeldSeriesPass.objects.create(
             series_pass=series_pass,
             user=user,
-            status=HeldSeriesPass.Status.ACTIVE,
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
             price_paid=series_pass.price,
         )
         if has_pdf:

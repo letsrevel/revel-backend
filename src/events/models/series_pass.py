@@ -82,7 +82,7 @@ class SeriesPass(TimeStampedModel, VisibilityMixin):
             # the original payment semantics; switching mid-flight would corrupt
             # confirmation/refund flows for existing holders.
             if self.payment_method != old["payment_method"] and (
-                self.held_passes.exclude(status=HeldSeriesPass.Status.CANCELLED).exists()
+                self.held_passes.exclude(status=HeldSeriesPass.HeldSeriesPassStatus.CANCELLED).exists()
             ):
                 raise DjangoValidationError(
                     {"payment_method": "Payment method cannot be changed while the pass has holders."}
@@ -133,14 +133,16 @@ class HeldSeriesPass(TimeStampedModel):
 
     QR_PREFIX: t.ClassVar[str] = "series:"
 
-    class Status(models.TextChoices):
+    class HeldSeriesPassStatus(models.TextChoices):
         PENDING = "pending", "Pending"
         ACTIVE = "active", "Active"
         CANCELLED = "cancelled", "Cancelled"
 
     series_pass = models.ForeignKey(SeriesPass, on_delete=models.PROTECT, related_name="held_passes")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="held_series_passes")
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True)
+    status = models.CharField(
+        max_length=20, choices=HeldSeriesPassStatus.choices, default=HeldSeriesPassStatus.PENDING, db_index=True
+    )
     price_paid = models.DecimalField(max_digits=10, decimal_places=2)
     stripe_session_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
 

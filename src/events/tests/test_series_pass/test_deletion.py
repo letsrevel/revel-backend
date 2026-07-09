@@ -31,7 +31,7 @@ class TestHeldPassDeletionSemantics:
         held_pass = HeldSeriesPass.objects.create(
             series_pass=series_pass,
             user=revel_user,
-            status=HeldSeriesPass.Status.ACTIVE,
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
             price_paid=series_pass.price,
         )
         ticket = Ticket.objects.create(
@@ -61,7 +61,7 @@ class TestHeldPassDeletionSemantics:
         held_pass = HeldSeriesPass.objects.create(
             series_pass=series_pass,
             user=revel_user,
-            status=HeldSeriesPass.Status.ACTIVE,
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
             price_paid=series_pass.price,
         )
         Ticket.objects.create(

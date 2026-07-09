@@ -44,7 +44,7 @@ def held_pass(series_pass: SeriesPass, revel_user: RevelUser) -> HeldSeriesPass:
     return HeldSeriesPass.objects.create(
         series_pass=series_pass,
         user=revel_user,
-        status=HeldSeriesPass.Status.ACTIVE,
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
         price_paid=series_pass.price,
     )
 
@@ -231,7 +231,7 @@ class TestPassTicketCheckInPaymentSemantics:
     ) -> None:
         """Offline pass, ONLINE mapped tier: payment collected at the door -> allowed."""
         offline_pass = _make_pass(event_series, "Offline Pass", TicketTier.PaymentMethod.OFFLINE)
-        held = _make_held_pass(offline_pass, revel_user, HeldSeriesPass.Status.PENDING)
+        held = _make_held_pass(offline_pass, revel_user, HeldSeriesPass.HeldSeriesPassStatus.PENDING)
         ticket = Ticket.objects.create(
             event=event,
             tier=ticket_tier,  # ONLINE tier
@@ -261,7 +261,7 @@ class TestPassTicketCheckInPaymentSemantics:
             payment_method=TicketTier.PaymentMethod.OFFLINE,
         )
         online_pass = _make_pass(event_series, "Online Pass", TicketTier.PaymentMethod.ONLINE)
-        held = _make_held_pass(online_pass, revel_user, HeldSeriesPass.Status.PENDING)
+        held = _make_held_pass(online_pass, revel_user, HeldSeriesPass.HeldSeriesPassStatus.PENDING)
         ticket = Ticket.objects.create(
             event=event,
             tier=offline_tier,
@@ -295,7 +295,7 @@ class TestPassTicketCheckInPaymentSemantics:
             price_type=TicketTier.PriceType.PWYC,
         )
         free_pass = _make_pass(event_series, "PWYC-mapped Pass", TicketTier.PaymentMethod.FREE)
-        held = _make_held_pass(free_pass, revel_user, HeldSeriesPass.Status.ACTIVE)
+        held = _make_held_pass(free_pass, revel_user, HeldSeriesPass.HeldSeriesPassStatus.ACTIVE)
         ticket = Ticket.objects.create(
             event=event,
             tier=pwyc_tier,

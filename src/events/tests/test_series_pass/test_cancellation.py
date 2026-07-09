@@ -98,7 +98,7 @@ def held_pass(online_series_pass: SeriesPass, revel_user: RevelUser) -> HeldSeri
         series_pass=online_series_pass,
         user=revel_user,
         price_paid=Decimal("20.00"),
-        status=HeldSeriesPass.Status.ACTIVE,
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
     )
 
 
@@ -252,7 +252,7 @@ class TestCancelHeldPassOnlinePaid:
                 online_pass_setup.held_pass, cancelled_by=organization_owner_user, reason="event dropped"
             )
 
-        assert result.status == HeldSeriesPass.Status.CANCELLED
+        assert result.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
         for ticket in online_pass_setup.future_tickets:
             ticket.refresh_from_db()
             assert ticket.status == Ticket.TicketStatus.CANCELLED
@@ -323,7 +323,7 @@ class TestCancelHeldPassCounters:
             series_pass=online_series_pass,
             user=online_pass_setup.held_pass.user,
             price_paid=Decimal("20.00"),
-            status=HeldSeriesPass.Status.PENDING,
+            status=HeldSeriesPass.HeldSeriesPassStatus.PENDING,
         )
         assert new_held.pk != online_pass_setup.held_pass.pk
 
@@ -339,7 +339,7 @@ class TestCancelHeldPassCounters:
             cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user)
             result = cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user)
 
-        assert result.status == HeldSeriesPass.Status.CANCELLED
+        assert result.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
         # Second call is a no-op: no extra refunds, no double counter decrement.
         assert mock_create.call_count == 2
         online_series_pass.refresh_from_db()
@@ -360,10 +360,10 @@ class TestCancelHeldPassCounters:
         with patch("stripe.Refund.create") as mock_create:
             mock_create.return_value.id = "re_x"
             cancel_held_pass(online_pass_setup.held_pass, cancelled_by=organization_owner_user)
-            assert stale.status == HeldSeriesPass.Status.ACTIVE  # stale in memory
+            assert stale.status == HeldSeriesPass.HeldSeriesPassStatus.ACTIVE  # stale in memory
             result = cancel_held_pass(stale, cancelled_by=organization_owner_user)
 
-        assert result.status == HeldSeriesPass.Status.CANCELLED
+        assert result.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
         assert mock_create.call_count == 2  # only the first call refunded
         online_series_pass.refresh_from_db()
         assert online_series_pass.quantity_sold == 1
@@ -421,7 +421,7 @@ class TestCancelPendingOnlinePass:
             series_pass=online_series_pass,
             user=revel_user,
             price_paid=Decimal("20.00"),
-            status=HeldSeriesPass.Status.PENDING,
+            status=HeldSeriesPass.HeldSeriesPassStatus.PENDING,
             stripe_session_id="cs_pending_cancel",
         )
         event = _make_event(
@@ -466,7 +466,7 @@ class TestCancelPendingOnlinePass:
         mock_refund.assert_not_called()
 
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.CANCELLED
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
         ticket.refresh_from_db()
         assert ticket.status == Ticket.TicketStatus.CANCELLED
         # Pending payment is failed so the expiry sweep can't double-release the tier.
@@ -490,7 +490,7 @@ class TestCancelPendingOnlinePass:
         ):
             result = cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
 
-        assert result.status == HeldSeriesPass.Status.CANCELLED
+        assert result.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
 
 
 class TestCancelHeldPassFree:
@@ -514,7 +514,7 @@ class TestCancelHeldPassFree:
             series_pass=free_pass,
             user=revel_user,
             price_paid=Decimal("0.00"),
-            status=HeldSeriesPass.Status.ACTIVE,
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
         )
         events = [
             _make_event(organization, event_series, f"Free {i}", f"free-{i}", now + timedelta(days=i + 1))
@@ -542,7 +542,7 @@ class TestCancelHeldPassFree:
             result = cancel_held_pass(held_pass, cancelled_by=organization_owner_user)
 
         assert mock_create.call_count == 0
-        assert result.status == HeldSeriesPass.Status.CANCELLED
+        assert result.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
         for ticket in tickets:
             ticket.refresh_from_db()
             assert ticket.status == Ticket.TicketStatus.CANCELLED

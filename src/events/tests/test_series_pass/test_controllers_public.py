@@ -202,7 +202,7 @@ def held_pass(series_pass: SeriesPass, revel_user: RevelUser) -> HeldSeriesPass:
     return HeldSeriesPass.objects.create(
         series_pass=series_pass,
         user=revel_user,
-        status=HeldSeriesPass.Status.ACTIVE,
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
         price_paid=series_pass.price,
     )
 
@@ -374,10 +374,16 @@ class TestMyPasses:
         series_pass: SeriesPass,
     ) -> None:
         own = HeldSeriesPass.objects.create(
-            series_pass=series_pass, user=revel_user, status=HeldSeriesPass.Status.ACTIVE, price_paid=series_pass.price
+            series_pass=series_pass,
+            user=revel_user,
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+            price_paid=series_pass.price,
         )
         HeldSeriesPass.objects.create(
-            series_pass=series_pass, user=other_user, status=HeldSeriesPass.Status.ACTIVE, price_paid=series_pass.price
+            series_pass=series_pass,
+            user=other_user,
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+            price_paid=series_pass.price,
         )
 
         response = revel_user_client.get(reverse("api:list_my_series_passes"))
@@ -417,7 +423,10 @@ class TestMyPasses:
             tier = _make_tier(evt, f"Tier {suffix}")
             SeriesPassTierLink.objects.create(series_pass=pass_, event=evt, tier=tier)
             return HeldSeriesPass.objects.create(
-                series_pass=pass_, user=revel_user, status=HeldSeriesPass.Status.ACTIVE, price_paid=pass_.price
+                series_pass=pass_,
+                user=revel_user,
+                status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+                price_paid=pass_.price,
             )
 
         _make_held_pass("a")

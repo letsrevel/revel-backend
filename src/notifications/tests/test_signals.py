@@ -269,7 +269,10 @@ def _make_active_held_pass(organization: Organization, user: RevelUser, slug: st
         payment_method=TicketTier.PaymentMethod.FREE,
     )
     return HeldSeriesPass.objects.create(
-        series_pass=series_pass, user=user, price_paid=Decimal("0.00"), status=HeldSeriesPass.Status.ACTIVE
+        series_pass=series_pass,
+        user=user,
+        price_paid=Decimal("0.00"),
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
     )
 
 

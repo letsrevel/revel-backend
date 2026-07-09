@@ -297,12 +297,14 @@ class StripeEventHandler:
 
         activated_pass_ids = list(
             HeldSeriesPass.objects.filter(
-                stripe_session_id=session_id, status=HeldSeriesPass.Status.PENDING
+                stripe_session_id=session_id, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING
             ).values_list("id", flat=True)
         )
         if not activated_pass_ids:
             return
-        HeldSeriesPass.objects.filter(id__in=activated_pass_ids).update(status=HeldSeriesPass.Status.ACTIVE)
+        HeldSeriesPass.objects.filter(id__in=activated_pass_ids).update(
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
+        )
         for held_pass in HeldSeriesPass.objects.filter(id__in=activated_pass_ids).select_related("series_pass", "user"):
             backfill_missing_tickets(held_pass)
         for held_pass_id in activated_pass_ids:

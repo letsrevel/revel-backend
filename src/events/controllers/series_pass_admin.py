@@ -3,7 +3,7 @@
 import typing as t
 from uuid import UUID
 
-from django.db.models import QuerySet
+from django.db.models import Count, Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from ninja import Body
 from ninja_extra import api_controller, route
@@ -40,10 +40,53 @@ class SeriesPassAdminController(UserAwareController):
         """Fetch a series pass scoped to ``series``."""
         return get_object_or_404(models.SeriesPass, pk=pass_id, event_series=series)
 
+    def get_passes_queryset(self, series: models.EventSeries) -> QuerySet[models.SeriesPass]:
+        """Admin pass queryset: coverage prefetched and active+pending holders annotated.
+
+        Satisfies ``SeriesPassAdminSchema``'s query expectations, so lists and re-fetched
+        single instances serialize without N+1s.
+        """
+        return (
+            models.SeriesPass.objects.filter(event_series=series)
+            .prefetch_related(
+                Prefetch(
+                    "tier_links",
+                    queryset=models.SeriesPassTierLink.objects.select_related("event", "tier").order_by("event__start"),
+                )
+            )
+            .annotate(
+                holder_count=Count(
+                    "held_passes",
+                    filter=Q(
+                        held_passes__status__in=[
+                            models.HeldSeriesPass.HeldSeriesPassStatus.PENDING,
+                            models.HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+                        ]
+                    ),
+                )
+            )
+        )
+
+    @route.get(
+        "/",
+        url_name="list_series_passes",
+        response=list[schema.SeriesPassAdminSchema],
+        throttle=UserDefaultThrottle(),
+    )
+    def list_series_passes(self, series_id: UUID) -> QuerySet[models.SeriesPass]:
+        """List a series' passes with management state, coverage, and holder counts (admin only).
+
+        ``holder_count`` counts ACTIVE and PENDING holders; ``tier_links`` lists the
+        covered events (by start date) with the tier backing each. Requires
+        'edit_event_series' permission.
+        """
+        series = self.get_one(series_id)
+        return self.get_passes_queryset(series)
+
     @route.post(
         "/",
         url_name="create_series_pass",
-        response={200: schema.SeriesPassSchema, 400: ValidationErrorResponse},
+        response={200: schema.SeriesPassAdminSchema, 400: ValidationErrorResponse},
     )
     def create_series_pass(self, series_id: UUID, payload: schema.SeriesPassCreateSchema) -> models.SeriesPass:
         """Create a series pass and its initial coverage (admin only).
@@ -54,12 +97,13 @@ class SeriesPassAdminController(UserAwareController):
         permission.
         """
         series = self.get_one(series_id)
-        return series_pass_service.create_series_pass(series, payload)
+        created = series_pass_service.create_series_pass(series, payload)
+        return self.get_passes_queryset(series).get(pk=created.pk)
 
     @route.patch(
         "/{pass_id}",
         url_name="update_series_pass",
-        response={200: schema.SeriesPassSchema, 400: ValidationErrorResponse},
+        response={200: schema.SeriesPassAdminSchema, 400: ValidationErrorResponse},
     )
     def update_series_pass(
         self, series_id: UUID, pass_id: UUID, payload: schema.SeriesPassUpdateSchema
@@ -72,7 +116,8 @@ class SeriesPassAdminController(UserAwareController):
         """
         series = self.get_one(series_id)
         series_pass = self.get_pass(series, pass_id)
-        return update_db_instance(series_pass, payload)
+        update_db_instance(series_pass, payload)
+        return self.get_passes_queryset(series).get(pk=pass_id)
 
     @route.delete("/{pass_id}", url_name="delete_series_pass", response={204: None})
     def delete_series_pass(self, series_id: UUID, pass_id: UUID) -> tuple[int, None]:

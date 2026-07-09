@@ -87,7 +87,7 @@ def active_holder(series_pass: SeriesPass, revel_user: RevelUser) -> HeldSeriesP
         series_pass=series_pass,
         user=revel_user,
         price_paid=Decimal("36.00"),
-        status=HeldSeriesPass.Status.ACTIVE,
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
     )
 
 
@@ -98,7 +98,7 @@ def other_active_holder(series_pass: SeriesPass, revel_user_factory: RevelUserFa
         series_pass=series_pass,
         user=user,
         price_paid=Decimal("36.00"),
-        status=HeldSeriesPass.Status.ACTIVE,
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
     )
 
 
@@ -109,7 +109,7 @@ def pending_holder(series_pass: SeriesPass, revel_user_factory: RevelUserFactory
         series_pass=series_pass,
         user=user,
         price_paid=Decimal("36.00"),
-        status=HeldSeriesPass.Status.PENDING,
+        status=HeldSeriesPass.HeldSeriesPassStatus.PENDING,
     )
 
 
@@ -120,7 +120,7 @@ def cancelled_holder(series_pass: SeriesPass, revel_user_factory: RevelUserFacto
         series_pass=series_pass,
         user=user,
         price_paid=Decimal("36.00"),
-        status=HeldSeriesPass.Status.CANCELLED,
+        status=HeldSeriesPass.HeldSeriesPassStatus.CANCELLED,
     )
 
 

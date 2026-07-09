@@ -416,16 +416,18 @@ def expire_stranded_held_passes(session_ids: t.Collection[str]) -> int:
     ids = [sid for sid in session_ids if sid]
     if not ids:
         return 0
-    stranded = list(HeldSeriesPass.objects.filter(stripe_session_id__in=ids, status=HeldSeriesPass.Status.PENDING))
+    stranded = list(
+        HeldSeriesPass.objects.filter(stripe_session_id__in=ids, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING)
+    )
     cancelled = 0
     for held_pass in stranded:
         # Atomic claim: overlapping expiry routes (beat sweep, payment_intent.canceled
         # webhook, user cancel_pending_checkout) can each snapshot the same PENDING
         # pass — only the route that wins this conditional UPDATE may decrement the
         # pass counter, or concurrent claims would double-release it.
-        claimed = HeldSeriesPass.objects.filter(pk=held_pass.pk, status=HeldSeriesPass.Status.PENDING).update(
-            status=HeldSeriesPass.Status.CANCELLED
-        )
+        claimed = HeldSeriesPass.objects.filter(
+            pk=held_pass.pk, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING
+        ).update(status=HeldSeriesPass.HeldSeriesPassStatus.CANCELLED)
         if claimed != 1:
             continue
         cancelled += 1
@@ -508,7 +510,7 @@ def cancel_held_pass(
         so a retry cannot double-charge, and Stripe's ``charge.refunded`` webhook
         self-heals the financial state even without one.
     """
-    if held_pass.status == HeldSeriesPass.Status.CANCELLED:
+    if held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED:
         return held_pass
 
     now = timezone.now()
@@ -524,12 +526,12 @@ def cancel_held_pass(
             .select_related("series_pass", "user")
             .get(pk=held_pass.pk)
         )
-        if held_pass.status == HeldSeriesPass.Status.CANCELLED:
+        if held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED:
             return held_pass
-        was_pending = held_pass.status == HeldSeriesPass.Status.PENDING
+        was_pending = held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
         # Pass row first, tier rows after (deadlock discipline — see
         # SeriesPassPurchaseService.purchase, the only other writer that locks both).
-        held_pass.status = HeldSeriesPass.Status.CANCELLED
+        held_pass.status = HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
         held_pass.save(update_fields=["status"])
         SeriesPass.objects.filter(pk=held_pass.series_pass_id, quantity_sold__gt=0).update(
             quantity_sold=F("quantity_sold") - 1
@@ -607,7 +609,7 @@ def delete_series_pass(series_pass: SeriesPass) -> None:
         SeriesPassHasHoldersError: If any non-cancelled held pass exists, or deleting
             would violate a protected/restricted FK from historical holder/ticket records.
     """
-    if series_pass.held_passes.exclude(status=HeldSeriesPass.Status.CANCELLED).exists():
+    if series_pass.held_passes.exclude(status=HeldSeriesPass.HeldSeriesPassStatus.CANCELLED).exists():
         raise SeriesPassHasHoldersError(str(_("Cannot delete a series pass with active or pending holders.")))
     try:
         series_pass.delete()
@@ -628,7 +630,7 @@ def remove_tier_link(series_pass: SeriesPass, tier_link: SeriesPassTierLink) -> 
     Raises:
         SeriesPassHasHoldersError: If any held pass (other than CANCELLED) exists.
     """
-    if series_pass.held_passes.exclude(status=HeldSeriesPass.Status.CANCELLED).exists():
+    if series_pass.held_passes.exclude(status=HeldSeriesPass.HeldSeriesPassStatus.CANCELLED).exists():
         raise SeriesPassHasHoldersError(
             str(_("Cannot remove coverage from a series pass with active or pending holders."))
         )
@@ -670,10 +672,10 @@ def confirm_held_pass_payment(held_pass: HeldSeriesPass) -> HeldSeriesPass:
         .select_related("series_pass", "user")
         .get(pk=held_pass.pk)
     )
-    if held_pass.status != HeldSeriesPass.Status.PENDING:
+    if held_pass.status != HeldSeriesPass.HeldSeriesPassStatus.PENDING:
         raise HttpError(400, str(_("This held pass is not pending.")))
 
-    held_pass.status = HeldSeriesPass.Status.ACTIVE
+    held_pass.status = HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
     held_pass.save(update_fields=["status"])
 
     # .update() can't assign a different price_paid per row, so pull the PENDING

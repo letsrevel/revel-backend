@@ -107,7 +107,9 @@ def _purchase_online(series_pass: SeriesPass, user: RevelUser, session_id: str) 
     mock_session.url = f"https://checkout.stripe.com/pay/{session_id}"
     with patch("stripe.checkout.Session.create", return_value=mock_session):
         SeriesPassPurchaseService(series_pass, user).purchase()
-    return HeldSeriesPass.objects.get(series_pass=series_pass, user=user, status=HeldSeriesPass.Status.PENDING)
+    return HeldSeriesPass.objects.get(
+        series_pass=series_pass, user=user, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING
+    )
 
 
 def _completed_checkout_event(session_id: str) -> MagicMock:
@@ -145,7 +147,7 @@ class TestWebhookActivationBackfill:
             StripeEventHandler(event).handle_checkout_session_completed(event)
 
         held_pass.refresh_from_db()
-        assert held_pass.status == HeldSeriesPass.Status.ACTIVE
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.ACTIVE
         backfilled = Ticket.objects.get(held_pass=held_pass, event=new_event)
         assert backfilled.status == Ticket.TicketStatus.ACTIVE
         assert backfilled.tier_id == new_tier.id
@@ -185,7 +187,7 @@ class TestOfflineConfirmBackfill:
         result = SeriesPassPurchaseService(series_pass, revel_user).purchase()
         assert isinstance(result, HeldSeriesPass)
         held_pass = result
-        assert held_pass.status == HeldSeriesPass.Status.PENDING
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
 
         new_event, new_tier, _ = _make_covered_event(organization, event_series, series_pass, "ob-new")
         with patch("notifications.signals.series_pass.send_series_pass_extended"):
@@ -275,7 +277,7 @@ class TestConfirmHeldPassPaymentLockedRecheck:
             with django_capture_on_commit_callbacks(execute=True):
                 series_pass_service.confirm_held_pass_payment(result)
 
-            assert stale.status == HeldSeriesPass.Status.PENDING  # stale in memory
+            assert stale.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING  # stale in memory
             with pytest.raises(HttpError) as exc_info:
                 series_pass_service.confirm_held_pass_payment(stale)
 

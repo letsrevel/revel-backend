@@ -85,7 +85,7 @@ def held_pass(online_series_pass: SeriesPass, revel_user: RevelUser) -> HeldSeri
         series_pass=online_series_pass,
         user=revel_user,
         price_paid=online_series_pass.price,
-        status=HeldSeriesPass.Status.PENDING,
+        status=HeldSeriesPass.HeldSeriesPassStatus.PENDING,
     )
 
 
@@ -115,7 +115,7 @@ class TestCreateSeriesPassCheckoutSession:
             series_pass=online_series_pass,
             user=revel_user,
             price_paid=Decimal("0.00"),
-            status=HeldSeriesPass.Status.PENDING,
+            status=HeldSeriesPass.HeldSeriesPassStatus.PENDING,
         )
 
         with pytest.raises(HttpError) as exc_info:
@@ -266,7 +266,7 @@ class TestSeriesPassPurchaseServiceOnlinePath:
 
         assert result == "https://checkout.stripe.com/pay/cs_e2e"
         held_pass = HeldSeriesPass.objects.get(series_pass=series_pass, user=revel_user)
-        assert held_pass.status == HeldSeriesPass.Status.PENDING
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
         tickets = list(Ticket.objects.filter(held_pass=held_pass))
         assert len(tickets) == 3
         assert all(t.status == Ticket.TicketStatus.PENDING for t in tickets)

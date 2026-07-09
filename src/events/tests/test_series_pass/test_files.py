@@ -130,7 +130,7 @@ def held_pass(fs_series_pass: SeriesPass, owner: RevelUser, tier_links: list[Ser
     return HeldSeriesPass.objects.create(
         series_pass=fs_series_pass,
         user=owner,
-        status=HeldSeriesPass.Status.ACTIVE,
+        status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
         price_paid=Decimal("40.00"),
     )
 
