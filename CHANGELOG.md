@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.68.0] - 2026-07-09
+
+### Added
+- **Series Passes (season tickets)**: organizers can sell a single pass covering every event in an event series, with pro-rata pricing — `price − passed_events × pro_rata_discount` (clamped at 0), purchasable while at least 2 covered events remain.
+  - `SeriesPass` product on an event series (price, pro-rata discount, online/offline/free payment methods, visibility, sales window, optional holder cap), linked to one existing ticket tier per covered event; pass purchases consume that tier's capacity.
+  - Purchase materializes a per-event ticket for every future covered event, all-or-nothing under capacity locks; online passes use a single Stripe checkout with the price split penny-exact across events, honoring each tier's VAT rate.
+  - Public API: `/series-passes/*` (list, quote, checkout, my-passes, PDF and Apple Wallet downloads). Admin API: `/event-series-admin/{series_id}/passes/*` (CRUD, tier links, holders, offline confirmation, cancellation).
+  - Organizers can extend a pass to later-added events (endpoint or inline `series_pass_links` on event create/update); active holders get the new event's ticket free of charge.
+  - Cancelling a covered event refunds each holder's share of that event; cancelling a whole pass refunds all remaining events and releases capacity. Holders cannot self-cancel individual pass tickets.
+  - Pass-level PDF and Apple Wallet pass with the covered-events list; new `series_pass_purchased` / `series_pass_extended` notifications (de/fr/it), replacing per-ticket emails for pass purchases.
+  - Attendee/ticket listings can filter by origin (`?source=pass|direct`) and ticket schemas expose the originating `series_pass`.
+
+### Changed
+- **Breaking**: check-in endpoint path renamed from `POST /event-admin/{event_id}/tickets/{ticket_id}/check-in` to `.../tickets/{code}/check-in` — the parameter is now a string code accepting either a plain ticket UUID or a `series:<uuid>` series-pass QR payload.
+
+### Fixed
+- Duplicating an event (and materializing recurring-series occurrences) now shifts `waitlist_cutoff_date` along with the other date fields instead of copying the template's absolute timestamp — copies no longer start with an already-closed waitlist or fail validation when duplicated to an earlier date.
+
 ## [1.67.1] - 2026-07-07
 
 ### Fixed
