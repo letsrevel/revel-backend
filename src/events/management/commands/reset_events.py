@@ -15,7 +15,14 @@ from accounts.models import (
     ReferralPayoutStatement,
     RevelUser,
 )
-from events.models import EventSeries, MembershipSubscription, Organization, RecurrenceRule
+from events.models import (
+    EventSeries,
+    HeldSeriesPass,
+    MembershipSubscription,
+    Organization,
+    RecurrenceRule,
+    Ticket,
+)
 from questionnaires.models import Questionnaire
 
 
@@ -108,6 +115,18 @@ class Command(BaseCommand):
             # subscriptions directly.
             MembershipSubscription.objects.all().delete()
             self.stdout.write(self.style.SUCCESS("✓ Deleted membership subscriptions"))
+
+            # Break the SeriesPass ← HeldSeriesPass PROTECT and the
+            # Ticket → HeldSeriesPass RESTRICT FKs. The Organization cascade
+            # reaches EventSeries → SeriesPass, but HeldSeriesPass PROTECTs its
+            # series_pass, which aborts the whole cascade if any held pass
+            # exists. Materialized pass tickets also RESTRICT their held_pass,
+            # so delete those tickets first, then the held passes. Production
+            # teardown goes through the series-pass service; the demo-reset path
+            # can shortcut by deleting them directly.
+            Ticket.objects.filter(held_pass__isnull=False).delete()
+            HeldSeriesPass.objects.all().delete()
+            self.stdout.write(self.style.SUCCESS("✓ Deleted series-pass holders"))
 
             # Delete all organizations (cascade will handle related objects)
             Organization.objects.all().delete()

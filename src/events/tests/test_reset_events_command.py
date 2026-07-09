@@ -12,13 +12,20 @@ from unittest.mock import patch
 import pytest
 from django.core.management import call_command
 from django.test import override_settings
+from django.utils import timezone
 
 from accounts.models import RevelUser
 from events.models import (
+    Event,
+    EventSeries,
+    HeldSeriesPass,
     MembershipSubscription,
     MembershipSubscriptionPlan,
     MembershipTier,
     Organization,
+    SeriesPass,
+    Ticket,
+    TicketTier,
 )
 
 pytestmark = pytest.mark.django_db
@@ -104,3 +111,57 @@ class TestResetEventsCommand:
         # The subscriber user used a non-@letsrevel.io address, so they should
         # also have been swept up by the demo-user cleanup.
         assert not RevelUser.objects.filter(pk=demo_subscriber.pk).exists()
+
+    @override_settings(DEMO_MODE=True)
+    def test_succeeds_with_held_series_pass(
+        self,
+        demo_organization: Organization,
+        demo_subscriber: RevelUser,
+    ) -> None:
+        """Regression for the ``HeldSeriesPass.series_pass`` PROTECT / ``Ticket.held_pass`` RESTRICT chain.
+
+        A purchased series pass previously aborted the Organization cascade: the
+        cascade reaches ``EventSeries → SeriesPass``, but ``HeldSeriesPass``
+        PROTECTs its ``series_pass``. Materialized pass tickets additionally
+        RESTRICT their ``held_pass``. The demo-reset path must delete those
+        tickets and the held passes before deleting organizations.
+        """
+        series = EventSeries.objects.create(organization=demo_organization, name="Weekly", slug="weekly")
+        series_pass = SeriesPass.objects.create(
+            event_series=series,
+            name="Season Ticket",
+            price=Decimal("36.00"),
+            pro_rata_discount=Decimal("6.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        held_pass = HeldSeriesPass.objects.create(
+            series_pass=series_pass,
+            user=demo_subscriber,
+            status=HeldSeriesPass.HeldSeriesPassStatus.ACTIVE,
+            price_paid=Decimal("36.00"),
+        )
+        event = Event.objects.create(
+            organization=demo_organization,
+            name="Class 1",
+            slug="class-1",
+            event_series=series,
+            start=timezone.now(),
+        )
+        tier = TicketTier.objects.create(event=event, name="Tier", price=Decimal("10.00"), currency="EUR")
+        ticket = Ticket.objects.create(
+            event=event,
+            user=demo_subscriber,
+            tier=tier,
+            guest_name="Demo Subscriber",
+            held_pass=held_pass,
+        )
+
+        with patch("events.management.commands.reset_events.call_command") as mocked_call:
+            call_command("reset_events", "--no-input")
+            mocked_call.assert_called_once_with("bootstrap_events")
+
+        assert not Organization.objects.filter(pk=demo_organization.pk).exists()
+        assert not HeldSeriesPass.objects.filter(pk=held_pass.pk).exists()
+        assert not Ticket.objects.filter(pk=ticket.pk).exists()
+        assert not SeriesPass.objects.filter(pk=series_pass.pk).exists()
