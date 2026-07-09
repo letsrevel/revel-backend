@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.69.0] - 2026-07-09
+
+### Changed
+- Runtime upgraded to Python 3.14 (from 3.13); Docker images, CI, and local setup now target 3.14.
+
+### Fixed
+- `reset_events` management command now deletes held series passes before tearing down the organization, so the reset no longer fails on lingering pass holds.
+
 ## [1.68.0] - 2026-07-09
 
 ### Added
