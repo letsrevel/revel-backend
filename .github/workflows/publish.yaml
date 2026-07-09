@@ -81,11 +81,17 @@ jobs:
         continue-on-error: true
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_BACKEND_WEBHOOK_URL }}
+          VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
         run: |
           if [ -z "$DISCORD_WEBHOOK_URL" ]; then
             echo "DISCORD_BACKEND_WEBHOOK_URL not set, skipping notification"
             exit 0
           fi
+          # Build the JSON with jq so the interpolated values are escaped, not
+          # spliced into the shell/JSON as GitHub Actions expressions.
+          payload=$(jq -n --arg v "$VERSION" --arg url "$RELEASE_URL" \
+            '{content: "📦 `ghcr.io/letsrevel/revel:\($v)` is published and ready to deploy — \($url)"}')
           curl -sf --max-time 10 -X POST "$DISCORD_WEBHOOK_URL" \
             -H "Content-Type: application/json" \
-            -d "{\"content\": \"📦 \`ghcr.io/letsrevel/revel:${{ steps.version.outputs.version }}\` is published and ready to deploy — ${{ github.event.release.html_url }}\"}"
+            -d "$payload"

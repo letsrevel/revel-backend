@@ -23,6 +23,12 @@ on:
 permissions:
   contents: read
 
+# Serialize runs: a manual dispatch overlapping the weekly cron would race on
+# the shared branch push and PR creation. Let the newest run win.
+concurrency:
+  group: refresh-test-durations
+  cancel-in-progress: true
+
 jobs:
   refresh:
     name: Regenerate .test_durations
@@ -35,6 +41,9 @@ jobs:
         with:
           app-id: ${{ vars.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # Least privilege: only what checkout + branch push + PR creation need.
+          permission-contents: write
+          permission-pull-requests: write
 
       - uses: actions/checkout@v6
         with:
