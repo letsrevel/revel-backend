@@ -709,19 +709,28 @@ class TestCleanupSeriesPassFileCacheSweep:
         other_user = revel_user_factory()
         held_pass2 = self._create_held_pass_with_files(past_series_pass, other_user, has_pdf=True)
 
+        call_count = 0
+
+        def delete_side_effect(save: bool = True) -> None:
+            nonlocal call_count
+            call_count += 1
+            # Fail on the first pass's delete
+            if call_count == 1:
+                raise OSError("disk error")
+
         with patch.object(
             HeldSeriesPass.pdf_file.field.attr_class,  # type: ignore[attr-defined]
             "delete",
-            side_effect=OSError("disk error"),
+            side_effect=delete_side_effect,
         ):
             result = cleanup_ticket_file_cache()
 
-        # Both fail (same patched delete), but the loop must not raise partway through.
-        assert result == {"cleaned": 0}
+        # 1 out of 2 should succeed: the first delete fails, the loop continues.
+        assert result == {"cleaned": 1}
         held_pass1.refresh_from_db()
         held_pass2.refresh_from_db()
-        assert held_pass1.pdf_file
-        assert held_pass2.pdf_file
+        # Exactly one pass keeps its file (the one whose delete raised); order-agnostic.
+        assert sum(1 for hp in (held_pass1, held_pass2) if hp.pdf_file) == 1
 
     def test_counts_tickets_and_passes_together(
         self,

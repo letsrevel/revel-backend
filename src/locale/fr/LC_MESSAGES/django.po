@@ -1529,23 +1529,23 @@ msgid "You cannot purchase from this organization."
 msgstr "Tu ne peux pas acheter auprès de cette organisation."
 
 msgid "This pass is for members only."
-msgstr "Cet abonnement est réservé aux membres."
+msgstr "Ce pass est réservé aux membres."
 
 msgid "You already hold this pass."
-msgstr "Tu possèdes déjà cet abonnement."
+msgstr "Tu possèdes déjà ce pass."
 
 msgid "This pass cannot be purchased."
-msgstr "Cet abonnement ne peut pas être acheté."
+msgstr "Ce pass ne peut pas être acheté."
 
 msgid "This pass is sold out."
-msgstr "Cet abonnement est épuisé."
+msgstr "Ce pass est épuisé."
 
 #, python-brace-format
 msgid "Event {name} is sold out."
 msgstr "L'événement {name} est complet."
 
 msgid "This pass is not on sale."
-msgstr "Cet abonnement n'est pas en vente."
+msgstr "Ce pass n'est pas en vente."
 
 msgid "Sales have not started yet."
 msgstr "Les ventes n'ont pas encore commencé."
@@ -1632,7 +1632,7 @@ msgid "This ticket tier cannot be purchased online."
 msgstr "Cette catégorie de ticket ne peut pas être achetée en ligne."
 
 msgid "This pass cannot be purchased online."
-msgstr "Cet abonnement ne peut pas être acheté en ligne."
+msgstr "Ce pass ne peut pas être acheté en ligne."
 
 msgid "Cannot delete a plan with existing subscriptions. Archive it instead."
 msgstr ""
@@ -2207,11 +2207,11 @@ msgstr "Réponse annulée : %(event)s"
 
 #, python-format
 msgid "Series pass purchased: %(pass)s (%(series)s)"
-msgstr "Abonnement acheté : %(pass)s (%(series)s)"
+msgstr "Pass de série acheté : %(pass)s (%(series)s)"
 
 #, python-format
 msgid "Series pass purchased - %(pass)s"
-msgstr "Abonnement acheté - %(pass)s"
+msgstr "Pass de série acheté - %(pass)s"
 
 #, python-format
 msgid "%(pass)s now covers %(count)d new event"
@@ -2221,15 +2221,15 @@ msgstr[1] "%(pass)s couvre désormais %(count)d nouveaux événements"
 
 #, python-format
 msgid "Your series pass has new events - %(pass)s"
-msgstr "Ton abonnement a de nouveaux événements - %(pass)s"
+msgstr "Ton pass de série a de nouveaux événements - %(pass)s"
 
 #, python-format
 msgid "Series pass cancelled: %(pass)s (%(series)s)"
-msgstr "Abonnement annulé : %(pass)s (%(series)s)"
+msgstr "Pass de série annulé : %(pass)s (%(series)s)"
 
 #, python-format
 msgid "Series pass cancelled - %(pass)s"
-msgstr "Abonnement annulé - %(pass)s"
+msgstr "Pass de série annulé - %(pass)s"
 
 #, python-format
 msgid "%(count)d new event scheduled for %(series)s"
@@ -3190,11 +3190,11 @@ msgid ""
 "Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
 "strong> has been cancelled."
 msgstr ""
-"Ton abonnement <strong>%(pass_name)s</strong> pour <strong>%(series)s</"
+"Ton pass de série <strong>%(pass_name)s</strong> pour <strong>%(series)s</"
 "strong> a été annulé."
 
 msgid "Pass:"
-msgstr "Abonnement :"
+msgstr "Pass :"
 
 msgid "Tickets cancelled:"
 msgstr "Billets annulés :"
@@ -3204,7 +3204,7 @@ msgstr "Remboursé :"
 
 #, python-format
 msgid "Your series pass %(pass_name)s for %(series)s has been cancelled."
-msgstr "Ton abonnement %(pass_name)s pour %(series)s a été annulé."
+msgstr "Ton pass de série %(pass_name)s pour %(series)s a été annulé."
 
 #, python-format
 msgid ""
@@ -3214,10 +3214,10 @@ msgid_plural ""
 "Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
 "strong> now covers <strong>%(counter)s</strong> new events."
 msgstr[0] ""
-"Ton abonnement <strong>%(pass_name)s</strong> pour <strong>%(series)s</"
+"Ton pass de série <strong>%(pass_name)s</strong> pour <strong>%(series)s</"
 "strong> couvre désormais <strong>%(counter)s</strong> nouvel événement."
 msgstr[1] ""
-"Ton abonnement <strong>%(pass_name)s</strong> pour <strong>%(series)s</"
+"Ton pass de série <strong>%(pass_name)s</strong> pour <strong>%(series)s</"
 "strong> couvre désormais <strong>%(counter)s</strong> nouveaux événements."
 
 msgid "New Events"
@@ -3231,10 +3231,10 @@ msgid_plural ""
 "Your series pass %(pass_name)s for %(series)s now covers %(counter)s new "
 "events."
 msgstr[0] ""
-"Ton abonnement %(pass_name)s pour %(series)s couvre désormais %(counter)s "
+"Ton pass de série %(pass_name)s pour %(series)s couvre désormais %(counter)s "
 "nouvel événement."
 msgstr[1] ""
-"Ton abonnement %(pass_name)s pour %(series)s couvre désormais %(counter)s "
+"Ton pass de série %(pass_name)s pour %(series)s couvre désormais %(counter)s "
 "nouveaux événements."
 
 msgid "New Events:"
@@ -3245,11 +3245,11 @@ msgid ""
 "Your series pass <strong>%(pass_name)s</strong> for <strong>%(series)s</"
 "strong> is now active."
 msgstr ""
-"Ton abonnement <strong>%(pass_name)s</strong> pour <strong>%(series)s</"
+"Ton pass de série <strong>%(pass_name)s</strong> pour <strong>%(series)s</"
 "strong> est maintenant actif."
 
 msgid "Pass Details"
-msgstr "Détails de l'abonnement"
+msgstr "Détails du pass"
 
 msgid "Events covered:"
 msgstr "Événements couverts :"
@@ -3259,10 +3259,10 @@ msgstr "Prix payé :"
 
 #, python-format
 msgid "Your series pass %(pass_name)s for %(series)s is now active."
-msgstr "Ton abonnement %(pass_name)s pour %(series)s est maintenant actif."
+msgstr "Ton pass de série %(pass_name)s pour %(series)s est maintenant actif."
 
 msgid "Pass Details:"
-msgstr "Détails de l'abonnement :"
+msgstr "Détails du pass :"
 
 msgid "Read More"
 msgstr "En savoir plus"

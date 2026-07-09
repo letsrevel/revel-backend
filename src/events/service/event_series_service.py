@@ -5,6 +5,7 @@ Recurring-specific series operations (pause/resume/generate/propagate) live in
 EventSeries, whether or not it has a recurrence rule.
 """
 
+from django.db import transaction
 from django.db.models import ProtectedError
 from django.utils.translation import gettext_lazy as _
 
@@ -29,7 +30,11 @@ def delete_event_series(series: EventSeries) -> None:
             the series' passes' historical holder records.
     """
     try:
-        series.delete()
+        # EventSeries.delete() nulls its PROTECT-ing FKs in a separate UPDATE before the
+        # cascade; atomic() keeps both as one unit so a ProtectedError mid-cascade can't
+        # leave the series stripped of template_event/recurrence_rule outside ATOMIC_REQUESTS.
+        with transaction.atomic():
+            series.delete()
     except ProtectedError as exc:
         raise SeriesPassHasHoldersError(
             str(_("Cannot delete a series with sold series passes; cancel or delete its passes first."))
