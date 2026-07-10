@@ -88,7 +88,9 @@ def create_global_bans() -> None:
     """
     logger.info("Creating global bans...")
 
-    GlobalBan.objects.create(ban_type=GlobalBan.BanType.EMAIL, value="banned.user@example.com")
-    GlobalBan.objects.create(ban_type=GlobalBan.BanType.DOMAIN, value="banned.example")
+    # Idempotent so re-seeding (e.g. reset_events → bootstrap_events) doesn't collide with the
+    # (ban_type, normalized_value) uniqueness constraint and abort the reset mid-wipe (issue #665).
+    GlobalBan.objects.get_or_create(ban_type=GlobalBan.BanType.EMAIL, value="banned.user@example.com")
+    GlobalBan.objects.get_or_create(ban_type=GlobalBan.BanType.DOMAIN, value="banned.example")
 
     logger.info("Created 2 global bans (1 email, 1 domain)")
