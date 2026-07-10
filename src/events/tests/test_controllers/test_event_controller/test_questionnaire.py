@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from events.models import (
     Event,
+    EventQuestionnaireSubmission,
     OrganizationQuestionnaire,
 )
 from questionnaires.models import (
@@ -153,6 +154,27 @@ def test_submit_questionnaire_missing_mandatory_fails(
     response = nonmember_client.post(url, data=orjson.dumps(payload), content_type="application/json")
     assert response.status_code == 400
     assert "You are missing mandatory answers" in response.json()["detail"]
+
+
+def test_submit_missing_mandatory_does_not_burn_attempt(
+    nonmember_client: Client, public_event: Event, event_questionnaire: Questionnaire
+) -> None:
+    """A rejected (missing-mandatory) READY submission must not persist anything.
+
+    An admission "attempt" is the existence of an EventQuestionnaireSubmission row, so the
+    submit endpoint rolling back before creating one is what protects the limited
+    ``max_attempts``. Regression guard for #670.
+    """
+    url = reverse(
+        "api:submit_questionnaire",
+        kwargs={"event_id": public_event.pk, "questionnaire_id": event_questionnaire.pk},
+    )
+    payload = {"questionnaire_id": str(event_questionnaire.pk), "status": "ready"}
+    response = nonmember_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+    assert response.status_code == 400
+    # Neither the submission nor the attempt-tracking row may be written.
+    assert QuestionnaireSubmission.objects.count() == 0
+    assert EventQuestionnaireSubmission.objects.count() == 0
 
 
 def test_submit_questionnaire_anonymous_fails(

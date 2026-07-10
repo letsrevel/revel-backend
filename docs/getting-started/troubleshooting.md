@@ -244,3 +244,12 @@ Flags that affect development behavior:
 
 !!! danger "Production safety"
     `DEMO_MODE` and `SYSTEM_TESTING` must be `False` in production. `DEMO_MODE` defaults to `True` when `DEBUG=True`, so it's safe in development, but always verify production `.env` files.
+
+!!! warning "Silk deadlocks under parallel E2E runs"
+    Django Silk's middleware writes a request row to Postgres on every request. When the frontend
+    E2E suite drives a local `make run` backend with several parallel Playwright workers, those
+    concurrent inserts can deadlock in Postgres and surface as sporadic 500s on unrelated
+    endpoints (e.g. `POST /api/account/verify`). Run the backend with **`SILK_PROFILER=False`**
+    for E2E / parallel-load runs — the profiler is a dev-only convenience and is fully gated off
+    by this flag (middleware, app, and URLs). The durable fix belongs in the E2E harness that
+    launches the backend (see `letsrevel/revel-frontend#596`); this is tracked in #671.
