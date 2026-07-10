@@ -4,6 +4,53 @@ Common gotchas and their solutions. Most of these surface during initial setup o
 
 ---
 
+## macOS: "Could not find the GDAL library" (Homebrew native libs)
+
+**Symptom** — on macOS, `make run` / `make test` / any `manage.py` command crashes at startup with one of:
+
+```
+django.core.exceptions.ImproperlyConfigured: Could not find the GDAL library
+    (tried "gdal", "GDAL", "gdal3.10.0", ...). Is GDAL installed?
+```
+```
+OSError: cannot load library 'libgobject-2.0-0': dlopen(libgobject-2.0-0, ...)
+    ... ctypes.util.find_library() did not manage to locate a library
+```
+
+**Cause** — the backend loads several Homebrew-installed native libraries at import time:
+GDAL and GEOS (GeoDjango / PostGIS) and glib/pango/harfbuzz/fontconfig/cairo (WeasyPrint PDF
+rendering). These live under `$(brew --prefix)/lib` (`/opt/homebrew/lib` on Apple Silicon).
+A **macOS system update** can change how `dyld` / Python's `ctypes.util.find_library` probe for
+libraries, after which that directory is no longer searched — so the libs "disappear" even though
+Homebrew still has them installed. GDAL fails first (it's imported earliest); once it's fixed the
+same failure resurfaces for WeasyPrint's `libgobject`.
+
+**Why the obvious fixes don't work** — `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` fixes it in a
+bare shell, but **not** through `make`: `/usr/bin/make` and `/bin/sh` are SIP-protected system
+binaries, and macOS **strips all `DYLD_*` variables** from the environment when a protected binary
+launches. So exporting `DYLD_*` in `~/.zshrc` or the `Makefile` is silently dropped before the
+Django process starts. Django's `GDAL_LIBRARY_PATH` setting would fix GDAL/GEOS but not WeasyPrint,
+which has no equivalent knob.
+
+**Fix (one symlink, SIP-proof, works everywhere)** — expose Homebrew's lib dir on `dyld`'s
+*built-in default fallback path* (`$HOME/lib`), which needs no environment variable and therefore
+survives SIP for `make`, subagents, and direct `uv run` alike:
+
+```bash
+ln -s "$(brew --prefix)/lib" ~/lib
+```
+
+That single symlink resolves GDAL, GEOS, and all of WeasyPrint's native dependencies at once.
+To undo it: `rm ~/lib`.
+
+!!! note "Why `$HOME/lib` specifically"
+    macOS `dyld` consults a fixed default fallback list — `$HOME/lib:/usr/local/lib:/lib:/usr/lib` —
+    when a library isn't found by its install name. These directories are searched **without** any
+    `DYLD_*` variable, so unlike the `DYLD_FALLBACK_LIBRARY_PATH` env var they are not stripped by
+    SIP. `~/lib` is user-scoped and trivially reversible; `/usr/local/lib` would work too.
+
+---
+
 ## Geo Data Files
 
 The geo app requires two data files in `src/geo/data/`:

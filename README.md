@@ -181,6 +181,11 @@ Get a local development environment running in minutes. You'll need `make`, `Doc
     make setup
     ```
 
+    > **macOS note:** if startup crashes with `Could not find the GDAL library` or a
+    > `libgobject-2.0` `dlopen` error (often after a macOS update), expose Homebrew's libs on
+    > dyld's default fallback path: `ln -s "$(brew --prefix)/lib" ~/lib`. See
+    > [Troubleshooting](docs/getting-started/troubleshooting.md#macos-could-not-find-the-gdal-library-homebrew-native-libs).
+
 4.  **You're ready!**
     *   The API is running at `http://localhost:8000`
     *   Interactive API docs (Swagger UI) are at `http://localhost:8000/api/docs`
