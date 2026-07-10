@@ -5,9 +5,10 @@ from django.db.models import Prefetch, QuerySet
 from ninja import Query
 from ninja_extra import route
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
-from ninja_extra.searching import Searching, searching
+from ninja_extra.searching import searching
 
 from common.authentication import I18nJWTAuth
+from common.controllers import DistinctSearching
 from common.schema import ValidationErrorResponse
 from common.throttling import UserDefaultThrottle, WriteThrottle
 from events import filters
@@ -31,7 +32,7 @@ class QuestionnaireCoreMixin(QuestionnaireControllerBase):
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["questionnaire__name", "events__name", "event_series__name"])
+    @searching(DistinctSearching, search_fields=["questionnaire__name", "events__name", "event_series__name"])
     def list_org_questionnaires(
         self,
         params: t.Annotated[filters.QuestionnaireFilterSchema, Query(...)],

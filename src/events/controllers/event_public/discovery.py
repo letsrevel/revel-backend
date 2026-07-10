@@ -10,9 +10,10 @@ from ninja_extra import (
     route,
 )
 from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseSchema, paginate
-from ninja_extra.searching import Searching, searching
+from ninja_extra.searching import searching
 
 from common.authentication import I18nJWTAuth, OptionalAuth
+from common.controllers import DistinctSearching
 from common.schema import ResponseMessage
 from common.throttling import WriteThrottle
 from events import filters, models, schema
@@ -33,7 +34,7 @@ class EventPublicDiscoveryController(EventPublicBaseController):
     @route.get("/", url_name="list_events", response=PaginatedResponseSchema[schema.EventInListSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(
-        Searching,
+        DistinctSearching,
         search_fields=[
             "name",
             "description",

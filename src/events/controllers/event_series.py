@@ -11,7 +11,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from common.authentication import I18nJWTAuth, OptionalAuth
-from common.controllers import UserAwareController
+from common.controllers import DistinctSearching, UserAwareController
 from common.throttling import WriteThrottle
 from events import filters, models, schema
 from events.service import follow_service
@@ -35,7 +35,7 @@ class EventSeriesController(UserAwareController):
         response=PaginatedResponseSchema[schema.EventSeriesInListSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["name", "description", "organization__name", "tags__tag__name"])
+    @searching(DistinctSearching, search_fields=["name", "description", "organization__name", "tags__tag__name"])
     def list_event_series(
         self,
         params: t.Annotated[filters.EventSeriesFilterSchema, Query(...)],
