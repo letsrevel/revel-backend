@@ -16,7 +16,7 @@ from .questionnaires import create_questionnaires
 from .relationships import create_follows, create_user_relationships
 from .tags import create_tags
 from .tickets import create_ticket_tiers
-from .users import create_users
+from .users import create_global_bans, create_users
 from .venues import create_venues
 
 __all__ = [
@@ -27,6 +27,7 @@ __all__ = [
     "create_event_series",
     "create_events",
     "create_follows",
+    "create_global_bans",
     "create_organizations",
     "create_payments_and_invoice",
     "create_referral_payouts",

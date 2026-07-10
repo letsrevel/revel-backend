@@ -5,7 +5,7 @@ import random
 
 import structlog
 
-from accounts.models import RevelUser
+from accounts.models import GlobalBan, RevelUser
 
 from .base import BootstrapState
 
@@ -77,3 +77,18 @@ def create_users(state: BootstrapState) -> None:
         state.users[key] = user
 
     logger.info(f"Created {len(state.users)} users")
+
+
+def create_global_bans() -> None:
+    """Seed a banned email and a banned domain so the registration-blocked journey is E2E-reachable.
+
+    Neither value matches any seeded user, so the deactivation signal is a no-op — the rows exist
+    purely so a fresh registration with ``banned.user@example.com`` (or any ``@banned.example``
+    address) is rejected by the global-ban check.
+    """
+    logger.info("Creating global bans...")
+
+    GlobalBan.objects.create(ban_type=GlobalBan.BanType.EMAIL, value="banned.user@example.com")
+    GlobalBan.objects.create(ban_type=GlobalBan.BanType.DOMAIN, value="banned.example")
+
+    logger.info("Created 2 global bans (1 email, 1 domain)")

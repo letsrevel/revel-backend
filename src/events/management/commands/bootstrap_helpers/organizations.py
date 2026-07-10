@@ -16,6 +16,14 @@ def create_organizations(state: BootstrapState) -> None:
     logger.info("Creating organizations...")
 
     # Organization Alpha - Public organization with Stripe Connect
+    connected_stripe_id = config("CONNECTED_TEST_STRIPE_ID", default=None)
+    if not connected_stripe_id:
+        logger.warning(
+            "!!! Org Alpha (revel-events-collective) seeded WITHOUT a Stripe account "
+            "(CONNECTED_TEST_STRIPE_ID is unset) — it will LOOK Stripe-connected but every "
+            "online-tier checkout will fail at session creation. Set CONNECTED_TEST_STRIPE_ID "
+            "and re-bootstrap before running online-checkout / E2E flows."
+        )
     org_alpha = events_models.Organization.objects.create(
         name="Revel Events Collective",
         slug="revel-events-collective",
@@ -38,7 +46,7 @@ that bring communities together.
 - Private gatherings
 """,
         city=state.cities["vienna"],
-        stripe_account_id=config("CONNECTED_TEST_STRIPE_ID", default=None),
+        stripe_account_id=connected_stripe_id,
         stripe_charges_enabled=True,
         stripe_details_submitted=True,
     )
