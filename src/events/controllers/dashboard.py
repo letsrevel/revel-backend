@@ -16,7 +16,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 from ninja_extra.searching import Searching, searching
 
 from common.authentication import I18nJWTAuth
-from common.controllers import UserAwareController
+from common.controllers import DistinctSearching, UserAwareController
 from common.signing import get_file_url
 from common.throttling import UserDefaultThrottle
 from events import filters, models, schema
@@ -50,7 +50,7 @@ class DashboardController(UserAwareController):
         response=PaginatedResponseSchema[schema.OrganizationRetrieveSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["name", "description", "tags__tag__name"])
+    @searching(DistinctSearching, search_fields=["name", "description", "tags__tag__name"])
     def dashboard_organizations(
         self,
         params: t.Annotated[filters.DashboardOrganizationsFiltersSchema, Query(...)],
@@ -66,7 +66,7 @@ class DashboardController(UserAwareController):
     @route.get("/events", url_name="dashboard_events", response=PaginatedResponseSchema[schema.EventInListSchema])
     @paginate(PageNumberPaginationExtra, page_size=20)
     @searching(
-        Searching,
+        DistinctSearching,
         search_fields=[
             "name",
             "description",
@@ -147,7 +147,7 @@ class DashboardController(UserAwareController):
         response=PaginatedResponseSchema[schema.EventSeriesRetrieveSchema],
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
-    @searching(Searching, search_fields=["name", "description", "tags__tag__name"])
+    @searching(DistinctSearching, search_fields=["name", "description", "tags__tag__name"])
     def dashboard_event_series(
         self,
         params: t.Annotated[filters.DashboardEventSeriesFiltersSchema, Query(...)],
