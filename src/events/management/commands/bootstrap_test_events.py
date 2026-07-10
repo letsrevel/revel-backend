@@ -72,6 +72,7 @@ class Command(BaseCommand):
             email="test.random@example.com",
             first_name="Random",
             last_name="Tester",
+            email_verified=True,
         )
 
         # Organization-specific users
@@ -81,6 +82,7 @@ class Command(BaseCommand):
             email="test.admin@example.com",
             first_name="Test",
             last_name="Admin",
+            email_verified=True,
         )
 
         self.staff_user = RevelUser.objects.create_user(
@@ -89,6 +91,7 @@ class Command(BaseCommand):
             email="test.staff@example.com",
             first_name="Test",
             last_name="Staff",
+            email_verified=True,
         )
 
         self.member_user = RevelUser.objects.create_user(
@@ -97,6 +100,7 @@ class Command(BaseCommand):
             email="test.member@example.com",
             first_name="Test",
             last_name="Member",
+            email_verified=True,
         )
 
         logger.info("Created 4 test users")

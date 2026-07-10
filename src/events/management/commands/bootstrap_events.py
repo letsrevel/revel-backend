@@ -19,6 +19,7 @@ from .bootstrap_helpers import (
     create_event_series,
     create_events,
     create_follows,
+    create_global_bans,
     create_organizations,
     create_payments_and_invoice,
     create_potluck_items,
@@ -58,6 +59,9 @@ class Command(BaseCommand):
 
         # Create users
         create_users(state)
+
+        # Seed global bans (banned email + domain) for the registration-blocked E2E journey
+        create_global_bans()
 
         # Create organizations
         create_organizations(state)

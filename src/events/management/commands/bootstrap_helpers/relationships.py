@@ -362,22 +362,22 @@ def create_follows(state: BootstrapState) -> None:
     )
 
     # Event series follows
-    # attendee_1 follows the tech talk series (member of beta org but explicitly following series)
-    if "tech_talk_series" in state.event_series:
-        EventSeriesFollow.objects.create(
-            user=state.users["attendee_1"],
-            event_series=state.event_series["tech_talk_series"],
-            notify_new_events=True,
-            is_public=False,
-        )
+    # attendee_1 follows the tech talk series (member of beta org but explicitly following series).
+    # Access the series directly (no `if ... in` guard) so a future key mismatch raises loudly
+    # instead of silently seeding zero follows.
+    EventSeriesFollow.objects.create(
+        user=state.users["attendee_1"],
+        event_series=state.event_series["tech_talks"],
+        notify_new_events=True,
+        is_public=False,
+    )
 
     # attendee_2 follows a series they're interested in
-    if "tech_talk_series" in state.event_series:
-        EventSeriesFollow.objects.create(
-            user=state.users["attendee_2"],
-            event_series=state.event_series["tech_talk_series"],
-            notify_new_events=True,
-            is_public=True,  # Public follow
-        )
+    EventSeriesFollow.objects.create(
+        user=state.users["attendee_2"],
+        event_series=state.event_series["tech_talks"],
+        notify_new_events=True,
+        is_public=True,  # Public follow
+    )
 
     logger.info("Created follow relationships")
