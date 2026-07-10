@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.69.1] - 2026-07-10
+
+### Fixed
+- Search results no longer contain duplicates when the search term matches on a multiplying relation (e.g. tags): an event with 3 matching tags used to appear 3× in events, event-series, organization, dashboard, and questionnaire listings.
+
+### Security
+- Upgraded Django 5.2.15 → 5.2.16 to patch three known vulnerabilities (`PYSEC-2026-2090`, `PYSEC-2026-2091`, `PYSEC-2026-2092`).
+
 ## [1.69.0] - 2026-07-09
 
 ### Changed
