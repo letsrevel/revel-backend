@@ -22,6 +22,10 @@ class DistinctSearching(Searching):
     ) -> t.Union[QuerySet[t.Any], t.List[t.Any]]:
         """Apply the base search filter, then de-duplicate querysets with `.distinct()`."""
         result = super().searching_queryset(items, searching_input)
-        if isinstance(result, QuerySet):
+        # The base class returns `items` unchanged when there is no search term, so only the
+        # search filter can introduce the multiplying join — only then is `.distinct()` needed.
+        # Applying it unconditionally would defeat the callers' "materialize IDs to avoid an
+        # expensive COUNT(*) on a DISTINCT subquery" pagination optimization on every request.
+        if result is not items and isinstance(result, QuerySet):
             return result.distinct()
         return result
