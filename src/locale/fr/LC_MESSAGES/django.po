@@ -909,8 +909,8 @@ msgstr "Ce lien d'invitation a atteint son nombre maximum d'utilisations."
 msgid "Questionnaire not found for this event."
 msgstr "Questionnaire introuvable pour cet événement."
 
-msgid "Token not found or expired."
-msgstr "Jeton introuvable ou expiré."
+msgid "Token not found."
+msgstr "Jeton introuvable."
 
 msgid "The token is invalid or expired."
 msgstr "Le jeton est invalide ou expiré."
