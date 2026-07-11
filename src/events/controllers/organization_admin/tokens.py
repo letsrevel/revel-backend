@@ -102,7 +102,9 @@ class OrganizationAdminTokensController(OrganizationAdminBaseController):
         """
         organization = self.get_one(slug)
         return params.filter(
-            models.OrganizationToken.objects.filter(organization=organization).select_related("organization")
+            models.OrganizationToken.objects.filter(organization=organization).select_related(
+                "organization", "membership_tier"
+            )
         ).distinct()
 
     @route.post(

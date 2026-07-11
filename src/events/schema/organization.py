@@ -307,6 +307,7 @@ class OrganizationTokenSchema(ModelSchema):
     organization_name: str
     organization_slug: str
     organization_logo_url: str | None = None
+    membership_tier_name: str | None = None
 
     class Meta:
         model = models.OrganizationToken
@@ -338,6 +339,11 @@ class OrganizationTokenSchema(ModelSchema):
     def resolve_organization_logo_url(obj: models.OrganizationToken) -> str | None:
         """Return the token's organization logo thumbnail URL, if any (public, unsigned)."""
         return get_image_field_url(obj.organization, "logo_thumbnail")
+
+    @staticmethod
+    def resolve_membership_tier_name(obj: models.OrganizationToken) -> str | None:
+        """Return the granted membership tier's name, if the token targets a specific tier."""
+        return obj.membership_tier.name if obj.membership_tier else None
 
 
 class OrganizationTokenBaseSchema(Schema):

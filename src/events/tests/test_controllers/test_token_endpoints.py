@@ -38,6 +38,12 @@ def test_get_event_token_returns_token_details(
     assert data["name"] == "Test Token"
     assert data["event"] is not None
     assert data["grants_invitation"] is True
+    # Public-safe event details so the pre-claim page can render the event (#679).
+    assert data["event_name"] == event.name
+    assert data["event_slug"] == event.slug
+    assert data["organization_slug"] == event.organization.slug
+    assert data["event_start"] is not None
+    assert "event_cover_url" in data  # present (null when the event has no cover art)
 
 
 def test_get_event_token_shows_ticket_tier_when_present(
@@ -117,6 +123,8 @@ def test_get_organization_token_returns_token_details(
     assert data["organization_name"] == organization.name
     assert data["organization_slug"] == organization.slug
     assert "organization_logo_url" in data  # present (null when the org has no logo)
+    # Target membership tier name for the pre-claim page (#677).
+    assert data["membership_tier_name"] == default_tier.name
 
 
 def test_get_organization_token_shows_staff_status(

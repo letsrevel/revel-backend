@@ -226,7 +226,7 @@ def get_organization_token(token: str) -> OrganizationToken | None:
     exhausted (``uses < max_uses``, or ``max_uses == 0`` for unlimited).
     """
     return (
-        OrganizationToken.objects.select_related("organization")
+        OrganizationToken.objects.select_related("organization", "membership_tier")
         .filter(
             Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
             Q(max_uses=0) | Q(uses__lt=F("max_uses")),
