@@ -113,6 +113,10 @@ def test_get_organization_token_returns_token_details(
     assert data["name"] == "Member Invite"
     assert data["organization"] is not None
     assert data["grants_membership"] is True
+    # Public-safe org details so the pre-claim page can render which org is inviting (#675).
+    assert data["organization_name"] == organization.name
+    assert data["organization_slug"] == organization.slug
+    assert "organization_logo_url" in data  # present (null when the org has no logo)
 
 
 def test_get_organization_token_shows_staff_status(
