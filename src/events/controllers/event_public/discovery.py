@@ -20,7 +20,7 @@ from events import filters, models, schema
 from events.service import event_service, stripe_service
 from events.service import guest as guest_service
 
-from .base import EventPublicBaseController
+from .base import TOKEN_GONE_MESSAGES, EventPublicBaseController
 
 
 @api_controller("/events", auth=OptionalAuth(), tags=["Events"])
@@ -118,9 +118,15 @@ class EventPublicDiscoveryController(EventPublicBaseController):
     @route.get(
         "/tokens/{token_id}",
         url_name="get_event_token",
-        response={200: schema.EventTokenSchema, 404: ResponseMessage},
+        response={
+            200: schema.EventTokenSchema,
+            410: schema.EventTokenRejectionSchema,
+            404: ResponseMessage,
+        },
     )
-    def get_event_token_details(self, token_id: str) -> tuple[int, models.EventToken | ResponseMessage]:
+    def get_event_token_details(
+        self, token_id: str
+    ) -> tuple[int, models.EventToken | schema.EventTokenRejectionSchema | ResponseMessage]:
         """Preview an event token to see what access it grants.
 
         This endpoint allows users to see token details before deciding whether to claim it.
@@ -177,11 +183,23 @@ class EventPublicDiscoveryController(EventPublicBaseController):
            - Optional ticket tier auto-assignment
 
         **Error Cases:**
+        - 410: Token exists but is no longer servable (expired or used up); the body carries a
+          machine-readable `reason` plus display fields for the pre-claim page.
         - 404: Token doesn't exist or has been deleted
         """
         if token := event_service.get_event_token(token_id):
             return 200, token
-        return 404, ResponseMessage(message=str(_("Token not found or expired.")))
+        rejection = event_service.get_token_rejection_reason(token_id)
+        if rejection is None:
+            return 404, ResponseMessage(message=str(_("Token not found.")))
+        event = get_object_or_404(models.Event.objects.select_related("organization"), pk=rejection.event_id)
+        return 410, schema.EventTokenRejectionSchema(
+            message=str(TOKEN_GONE_MESSAGES[rejection.reason]),
+            reason=rejection.reason,
+            event_name=event.name,
+            event_slug=event.slug,
+            organization_slug=event.organization.slug,
+        )
 
     @route.post(
         "/claim-invitation/{token}",

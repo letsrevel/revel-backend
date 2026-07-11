@@ -13,7 +13,7 @@ from events.service.tokens import TokenRejection
 from questionnaires.models import Questionnaire
 from questionnaires.service import SubmissionService
 
-_TOKEN_GONE_MESSAGES = {
+TOKEN_GONE_MESSAGES = {
     "expired": _("This invitation link has expired."),
     "used_up": _("This invitation link has reached its maximum number of uses."),
 }
@@ -57,7 +57,7 @@ class EventPublicBaseController(UserAwareController):
             return
         if event_id is not None and event_id != self._token_rejection.event_id:
             return
-        raise HttpError(410, str(_TOKEN_GONE_MESSAGES[self._token_rejection.reason]))
+        raise HttpError(410, str(TOKEN_GONE_MESSAGES[self._token_rejection.reason]))
 
     def get_one(self, event_id: UUID) -> models.Event:
         """Wrapper helper."""

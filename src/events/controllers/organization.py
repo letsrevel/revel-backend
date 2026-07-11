@@ -3,6 +3,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db.models import QuerySet
+from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja import Query
 from ninja.errors import HttpError
@@ -240,9 +241,15 @@ class OrganizationController(UserAwareController):
     @route.get(
         "/tokens/{token_id}",
         url_name="get_organization_token",
-        response={200: schema.OrganizationTokenSchema, 404: ResponseMessage},
+        response={
+            200: schema.OrganizationTokenSchema,
+            410: schema.OrganizationTokenRejectionSchema,
+            404: ResponseMessage,
+        },
     )
-    def get_organization_token_details(self, token_id: str) -> tuple[int, models.OrganizationToken | ResponseMessage]:
+    def get_organization_token_details(
+        self, token_id: str
+    ) -> tuple[int, models.OrganizationToken | schema.OrganizationTokenRejectionSchema | ResponseMessage]:
         """Preview an organization token to see what access it grants.
 
         This endpoint allows users to see token details before deciding whether to claim it.
@@ -303,11 +310,22 @@ class OrganizationController(UserAwareController):
            - Should be shared privately (not publicly)
 
         **Error Cases:**
+        - 410: Token exists but is no longer servable (expired or used up); the body carries a
+          machine-readable `reason` plus display fields for the pre-claim page.
         - 404: Token doesn't exist or has been deleted
         """
         if token := organization_service.get_organization_token(token_id):
             return 200, token
-        return 404, ResponseMessage(message="Token not found or expired.")
+        rejection = organization_service.get_org_token_rejection_reason(token_id)
+        if rejection is None:
+            return 404, ResponseMessage(message=str(_("Token not found.")))
+        organization = get_object_or_404(models.Organization, pk=rejection.organization_id)
+        return 410, schema.OrganizationTokenRejectionSchema(
+            message=str(_ORG_TOKEN_GONE_MESSAGES[rejection.reason]),
+            reason=rejection.reason,
+            organization_name=organization.name,
+            organization_slug=organization.slug,
+        )
 
     @route.post(
         "/claim-invitation/{token}",

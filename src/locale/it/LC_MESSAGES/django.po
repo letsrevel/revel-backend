@@ -891,8 +891,8 @@ msgstr "Questo link di invito ha raggiunto il numero massimo di utilizzi."
 msgid "Questionnaire not found for this event."
 msgstr "Questionario non trovato per questo evento."
 
-msgid "Token not found or expired."
-msgstr "Token non trovato o scaduto."
+msgid "Token not found."
+msgstr "Token non trovato."
 
 msgid "The token is invalid or expired."
 msgstr "Il token non è valido o è scaduto."

@@ -903,8 +903,8 @@ msgstr "Dieser Einladungslink hat die maximale Anzahl an Nutzungen erreicht."
 msgid "Questionnaire not found for this event."
 msgstr "Fragebogen für dieses Event nicht gefunden."
 
-msgid "Token not found or expired."
-msgstr "Token nicht gefunden oder abgelaufen."
+msgid "Token not found."
+msgstr "Token nicht gefunden."
 
 msgid "The token is invalid or expired."
 msgstr "Der Token ist ungültig oder abgelaufen."
