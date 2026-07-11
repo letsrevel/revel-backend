@@ -330,6 +330,24 @@ class MembershipRequestCreatedContext(BaseNotificationContext):
     request_message: t.NotRequired[str]
 
 
+class MembershipRequestApprovedContext(BaseNotificationContext):
+    """Context for MEMBERSHIP_REQUEST_APPROVED notification (to the applicant).
+
+    A request decision is not a role change, so it does not carry the ``role``/``action``
+    keys of ``MembershipContext`` — only the organization the applicant was admitted to.
+    """
+
+    organization_id: str
+    organization_name: str
+
+
+class MembershipRequestRejectedContext(BaseNotificationContext):
+    """Context for MEMBERSHIP_REQUEST_REJECTED notification (to the applicant)."""
+
+    organization_id: str
+    organization_name: str
+
+
 # ===== Account Contexts =====
 
 
@@ -585,8 +603,8 @@ NOTIFICATION_CONTEXT_SCHEMAS: dict[NotificationType, type[BaseNotificationContex
     NotificationType.MEMBERSHIP_PROMOTED: MembershipContext,
     NotificationType.MEMBERSHIP_REMOVED: MembershipContext,
     NotificationType.MEMBERSHIP_REQUEST_CREATED: MembershipRequestCreatedContext,
-    NotificationType.MEMBERSHIP_REQUEST_APPROVED: MembershipContext,
-    NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipContext,
+    NotificationType.MEMBERSHIP_REQUEST_APPROVED: MembershipRequestApprovedContext,
+    NotificationType.MEMBERSHIP_REQUEST_REJECTED: MembershipRequestRejectedContext,
     NotificationType.ACCOUNT_BANNED: AccountBannedContext,
     NotificationType.ORG_ANNOUNCEMENT: OrgAnnouncementContext,
     NotificationType.ORG_CONTACT_MESSAGE_RECEIVED: OrgContactMessageReceivedContext,
