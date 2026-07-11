@@ -117,6 +117,8 @@ def test_get_organization_token_returns_token_details(
     assert data["organization_name"] == organization.name
     assert data["organization_slug"] == organization.slug
     assert "organization_logo_url" in data  # present (null when the org has no logo)
+    # Target membership tier name for the pre-claim page (#677).
+    assert data["membership_tier_name"] == default_tier.name
 
 
 def test_get_organization_token_shows_staff_status(
