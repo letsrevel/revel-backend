@@ -346,6 +346,19 @@ class OrganizationTokenSchema(ModelSchema):
         return obj.membership_tier.name if obj.membership_tier else None
 
 
+class OrganizationTokenRejectionSchema(Schema):
+    """Returned with 410 Gone when an org token exists but is no longer servable.
+
+    Lets the unauthenticated pre-claim page tell "expired" from "used up" and still
+    render which organization the dead link pointed at.
+    """
+
+    message: str
+    reason: t.Literal["expired", "used_up"]
+    organization_name: str
+    organization_slug: str
+
+
 class OrganizationTokenBaseSchema(Schema):
     name: OneToOneFiftyString | None = None
     max_uses: int = 1

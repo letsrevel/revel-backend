@@ -1,5 +1,6 @@
 """Invitation and event token schemas."""
 
+import typing as t
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
@@ -186,6 +187,20 @@ class EventTokenSchema(ModelSchema):
     def resolve_event_cover_url(obj: models.EventToken) -> str | None:
         """Return the event's social cover-art URL, if any (public, unsigned)."""
         return get_image_field_url(obj.event, "cover_art_social")
+
+
+class EventTokenRejectionSchema(Schema):
+    """Returned with 410 Gone when an event token exists but is no longer servable.
+
+    Lets the unauthenticated pre-claim page tell "expired" from "used up" and still
+    render which event the dead link pointed at.
+    """
+
+    message: str
+    reason: t.Literal["expired", "used_up"]
+    event_name: str
+    event_slug: str
+    organization_slug: str
 
 
 class EventTokenBaseSchema(Schema):

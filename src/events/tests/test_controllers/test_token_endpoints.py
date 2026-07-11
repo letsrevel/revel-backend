@@ -9,7 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from accounts.models import RevelUser
-from events.models import Event, EventToken, Organization, TicketTier
+from events.models import Event, EventToken, MembershipTier, Organization, OrganizationToken, TicketTier
 from events.service import event_service, organization_service
 
 pytestmark = pytest.mark.django_db
@@ -78,10 +78,10 @@ def test_get_event_token_returns_404_for_invalid_token(client: Client) -> None:
     assert response.status_code == 404
 
 
-def test_get_event_token_returns_404_for_expired_token(
+def test_get_event_token_returns_410_for_expired_token(
     client: Client, event: Event, organization_owner_user: RevelUser
 ) -> None:
-    """Test that GET /events/tokens/{token_id} returns 404 for expired token."""
+    """GET /events/tokens/{token_id} returns 410 with a machine-readable reason for expired tokens."""
     # Arrange
     token = event_service.create_event_token(event=event, issuer=organization_owner_user, duration=-60)
     url = reverse("api:get_event_token", kwargs={"token_id": token.id})
@@ -90,7 +90,40 @@ def test_get_event_token_returns_404_for_expired_token(
     response = client.get(url)
 
     # Assert
-    assert response.status_code == 404
+    assert response.status_code == 410
+    data = response.json()
+    assert data["reason"] == "expired"
+    assert "expired" in data["message"].lower()
+    assert data["event_name"] == event.name
+    assert data["event_slug"] == event.slug
+    assert data["organization_slug"] == event.organization.slug
+
+
+def test_get_event_token_returns_410_for_used_up_token(
+    client: Client, event: Event, organization_owner_user: RevelUser
+) -> None:
+    """GET /events/tokens/{token_id} returns 410 with reason 'used_up' for exhausted tokens."""
+    # Arrange -- token that has reached its max_uses
+    token = EventToken.objects.create(
+        event=event,
+        issuer=organization_owner_user,
+        expires_at=timezone.now() + timedelta(hours=1),
+        max_uses=3,
+        uses=3,
+    )
+    url = reverse("api:get_event_token", kwargs={"token_id": token.id})
+
+    # Act
+    response = client.get(url)
+
+    # Assert
+    assert response.status_code == 410
+    data = response.json()
+    assert data["reason"] == "used_up"
+    assert "maximum number of uses" in data["message"].lower()
+    assert data["event_name"] == event.name
+    assert data["event_slug"] == event.slug
+    assert data["organization_slug"] == event.organization.slug
 
 
 # --- Tests for GET /organizations/tokens/{token_id} ---
@@ -163,6 +196,60 @@ def test_get_organization_token_returns_404_for_invalid_token(client: Client) ->
 
     # Assert
     assert response.status_code == 404
+
+
+def test_get_organization_token_returns_410_for_expired_token(
+    client: Client, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """GET /organizations/tokens/{token_id} returns 410 with reason 'expired' for expired tokens."""
+    # Arrange
+    default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+    token = OrganizationToken.objects.create(
+        organization=organization,
+        issuer=organization_owner_user,
+        membership_tier=default_tier,
+        expires_at=timezone.now() - timedelta(hours=1),
+    )
+    url = reverse("api:get_organization_token", kwargs={"token_id": token.id})
+
+    # Act
+    response = client.get(url)
+
+    # Assert
+    assert response.status_code == 410
+    data = response.json()
+    assert data["reason"] == "expired"
+    assert "expired" in data["message"].lower()
+    assert data["organization_name"] == organization.name
+    assert data["organization_slug"] == organization.slug
+
+
+def test_get_organization_token_returns_410_for_used_up_token(
+    client: Client, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """GET /organizations/tokens/{token_id} returns 410 with reason 'used_up' for exhausted tokens."""
+    # Arrange
+    default_tier = MembershipTier.objects.get(organization=organization, name="General membership")
+    token = OrganizationToken.objects.create(
+        organization=organization,
+        issuer=organization_owner_user,
+        membership_tier=default_tier,
+        expires_at=timezone.now() + timedelta(hours=1),
+        max_uses=3,
+        uses=3,
+    )
+    url = reverse("api:get_organization_token", kwargs={"token_id": token.id})
+
+    # Act
+    response = client.get(url)
+
+    # Assert
+    assert response.status_code == 410
+    data = response.json()
+    assert data["reason"] == "used_up"
+    assert "maximum number of uses" in data["message"].lower()
+    assert data["organization_name"] == organization.name
+    assert data["organization_slug"] == organization.slug
 
 
 # --- Tests for ticket_tier_id validation ---
