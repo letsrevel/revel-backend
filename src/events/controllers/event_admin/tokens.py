@@ -181,7 +181,11 @@ class EventAdminTokensController(EventAdminBaseController):
         - Audit who created which tokens and when
         """
         self.get_one(event_id)
-        qs = models.EventToken.objects.filter(event_id=event_id).prefetch_related("ticket_tiers")
+        qs = (
+            models.EventToken.objects.filter(event_id=event_id)
+            .select_related("event", "event__organization")
+            .prefetch_related("ticket_tiers")
+        )
         return params.filter(qs).distinct()
 
     @route.post(

@@ -142,7 +142,7 @@ def get_event_token(token: str) -> EventToken | None:
         The EventToken if found and still valid, None otherwise.
     """
     return (
-        EventToken.objects.select_related("event")
+        EventToken.objects.select_related("event", "event__organization")
         .prefetch_related("ticket_tiers")
         .filter(
             Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),

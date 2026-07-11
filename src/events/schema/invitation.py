@@ -10,6 +10,7 @@ from common.schema import OneToOneFiftyString, StrippedString
 from events import models
 
 from .event import EventInListSchema
+from .mixins import get_image_field_url
 from .ticket import TicketTierSchema
 
 
@@ -137,6 +138,14 @@ class EventInvitationRequestInternalSchema(EventInvitationRequestSchema):
 
 class EventTokenSchema(ModelSchema):
     ticket_tiers: list[TicketTierSchema] = Field(default_factory=list)
+    # Additive, public-safe event details so the pre-claim token preview (unauthenticated)
+    # can render which event the invitee is joining without a second lookup.
+    # ``event`` stays a bare UUID to keep the event-admin token list contract unchanged.
+    event_name: str
+    event_slug: str
+    organization_slug: str
+    event_start: AwareDatetime
+    event_cover_url: str | None = None
 
     class Meta:
         model = models.EventToken
@@ -152,6 +161,31 @@ class EventTokenSchema(ModelSchema):
             "invitation_payload",
             "created_at",
         ]
+
+    @staticmethod
+    def resolve_event_name(obj: models.EventToken) -> str:
+        """Return the token's event name."""
+        return obj.event.name
+
+    @staticmethod
+    def resolve_event_slug(obj: models.EventToken) -> str:
+        """Return the token's event slug."""
+        return obj.event.slug
+
+    @staticmethod
+    def resolve_organization_slug(obj: models.EventToken) -> str:
+        """Return the slug of the event's organization (for FE navigation)."""
+        return obj.event.organization.slug
+
+    @staticmethod
+    def resolve_event_start(obj: models.EventToken) -> AwareDatetime:
+        """Return the event start time."""
+        return obj.event.start
+
+    @staticmethod
+    def resolve_event_cover_url(obj: models.EventToken) -> str | None:
+        """Return the event's social cover-art URL, if any (public, unsigned)."""
+        return get_image_field_url(obj.event, "cover_art_social")
 
 
 class EventTokenBaseSchema(Schema):
