@@ -473,6 +473,143 @@ def test_delete_membership_tier_of_another_organization_fails(
     assert MembershipTier.objects.filter(id=other_tier.id).exists()
 
 
+# ---- Membership Tier Reorder Tests ----
+
+
+def test_membership_tier_list_exposes_display_order(
+    organization_staff_client: Client, organization: Organization
+) -> None:
+    """The tier list serializer exposes display_order so the FE can render/persist ordering."""
+    MembershipTier.objects.create(organization=organization, name="Alpha")
+    MembershipTier.objects.create(organization=organization, name="Beta")
+
+    url = reverse("api:list_membership_tiers", kwargs={"slug": organization.slug})
+    response = organization_staff_client.get(url)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert all("display_order" in tier for tier in data)
+
+
+def test_reorder_membership_tiers_by_owner(organization_owner_client: Client, organization: Organization) -> None:
+    """Test that an organization owner can reorder membership tiers successfully.
+
+    A default tier is created by a signal, so the submitted list must cover all tiers.
+    """
+    MembershipTier.objects.create(organization=organization, name="Gold")
+    MembershipTier.objects.create(organization=organization, name="Silver")
+    # Submit all tier IDs in reverse of their current (name) ordering.
+    current = list(MembershipTier.objects.filter(organization=organization).values_list("id", flat=True))
+    desired_order = [str(pk) for pk in reversed(current)]
+    url = reverse("api:reorder_membership_tiers", kwargs={"slug": organization.slug})
+
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"tier_ids": desired_order}), content_type="application/json"
+    )
+
+    assert response.status_code == 204
+    reordered = list(MembershipTier.objects.filter(organization=organization).order_by("display_order"))
+    assert [str(tier.pk) for tier in reordered] == desired_order
+    assert [tier.display_order for tier in reordered] == list(range(len(desired_order)))
+
+
+def test_reorder_membership_tiers_by_staff_with_permission(
+    organization_staff_client: Client, organization: Organization, staff_member: OrganizationStaff
+) -> None:
+    """Test that staff with manage_members permission can reorder tiers."""
+    perms = staff_member.permissions
+    perms["default"]["manage_members"] = True
+    staff_member.permissions = perms
+    staff_member.save()
+
+    MembershipTier.objects.create(organization=organization, name="Gold")
+    MembershipTier.objects.create(organization=organization, name="Silver")
+    current = list(MembershipTier.objects.filter(organization=organization).values_list("id", flat=True))
+    desired_order = [str(pk) for pk in reversed(current)]
+    url = reverse("api:reorder_membership_tiers", kwargs={"slug": organization.slug})
+
+    response = organization_staff_client.patch(
+        url, data=orjson.dumps({"tier_ids": desired_order}), content_type="application/json"
+    )
+
+    assert response.status_code == 204
+    reordered = list(MembershipTier.objects.filter(organization=organization).order_by("display_order"))
+    assert [str(tier.pk) for tier in reordered] == desired_order
+
+
+def test_reorder_membership_tiers_by_staff_without_permission(
+    organization_staff_client: Client, organization: Organization, staff_member: OrganizationStaff
+) -> None:
+    """Test that staff without manage_members permission cannot reorder tiers."""
+    perms = staff_member.permissions
+    perms["default"]["manage_members"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+
+    gold = MembershipTier.objects.create(organization=organization, name="Gold")
+    silver = MembershipTier.objects.create(organization=organization, name="Silver")
+    desired_order = [str(silver.pk), str(gold.pk)]
+    url = reverse("api:reorder_membership_tiers", kwargs={"slug": organization.slug})
+
+    response = organization_staff_client.patch(
+        url, data=orjson.dumps({"tier_ids": desired_order}), content_type="application/json"
+    )
+
+    assert response.status_code == 403
+
+
+def test_reorder_membership_tiers_subset_fails(organization_owner_client: Client, organization: Organization) -> None:
+    """Test that submitting a subset of the org's tier IDs returns 400."""
+    gold = MembershipTier.objects.create(organization=organization, name="Gold")
+    MembershipTier.objects.create(organization=organization, name="Silver")
+    url = reverse("api:reorder_membership_tiers", kwargs={"slug": organization.slug})
+
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"tier_ids": [str(gold.pk)]}), content_type="application/json"
+    )
+
+    assert response.status_code == 400
+
+
+def test_reorder_membership_tiers_foreign_tier_fails(
+    organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
+) -> None:
+    """Test that including a tier ID from another organization returns 400."""
+    gold = MembershipTier.objects.create(organization=organization, name="Gold")
+    silver = MembershipTier.objects.create(organization=organization, name="Silver")
+    other_org = Organization.objects.create(name="Other Org", slug="other-org", owner=organization_owner_user)
+    foreign = MembershipTier.objects.create(organization=other_org, name="Foreign")
+    desired_order = [str(silver.pk), str(gold.pk), str(foreign.pk)]
+    url = reverse("api:reorder_membership_tiers", kwargs={"slug": organization.slug})
+
+    response = organization_owner_client.patch(
+        url, data=orjson.dumps({"tier_ids": desired_order}), content_type="application/json"
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "client_fixture,expected_status_code", [("member_client", 403), ("nonmember_client", 404), ("client", 401)]
+)
+def test_reorder_membership_tiers_unauthorized(
+    request: pytest.FixtureRequest,
+    client_fixture: str,
+    expected_status_code: int,
+    organization: Organization,
+) -> None:
+    """Test that unauthorized users cannot reorder membership tiers."""
+    client: Client = request.getfixturevalue(client_fixture)
+    gold = MembershipTier.objects.create(organization=organization, name="Gold")
+    silver = MembershipTier.objects.create(organization=organization, name="Silver")
+    desired_order = [str(silver.pk), str(gold.pk)]
+    url = reverse("api:reorder_membership_tiers", kwargs={"slug": organization.slug})
+
+    response = client.patch(url, data=orjson.dumps({"tier_ids": desired_order}), content_type="application/json")
+
+    assert response.status_code == expected_status_code
+
+
 # ---- Organization Member Update Tests ----
 
 

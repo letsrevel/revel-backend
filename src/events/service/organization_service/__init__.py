@@ -26,6 +26,7 @@ from events.service.organization_service.membership import (
     reject_membership_request,
     remove_member,
     remove_staff,
+    reorder_membership_tiers,
     update_member,
     update_staff_permissions,
 )
@@ -65,6 +66,7 @@ __all__ = [
     "reject_membership_request",
     "remove_member",
     "remove_staff",
+    "reorder_membership_tiers",
     "update_contact_email",
     "update_member",
     "update_organization",

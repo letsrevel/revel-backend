@@ -1476,6 +1476,12 @@ msgstr "Du darfst keine Mitgliedschaft für diese Organisation beantragen."
 msgid "User is already a member of this organization."
 msgstr "Anwender:in ist bereits Mitglied dieser Organisation."
 
+msgid "Tier IDs must match all tiers for this organization exactly."
+msgstr ""
+"Die IDs müssen exakt allen Mitgliedschaftsstufen dieser Organisation "
+"entsprechen."
+"Die Stufen-IDs müssen genau mit allen Stufen für dieses Event übereinstimmen."
+
 msgid "User is already a staff member of this organization."
 msgstr "Anwender:in ist bereits Staff-Mitglied dieser Organisation."
 

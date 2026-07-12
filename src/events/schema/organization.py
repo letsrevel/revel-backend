@@ -249,7 +249,7 @@ class MembershipTierSchema(ModelSchema):
 
     class Meta:
         model = models.MembershipTier
-        fields = ["id", "name", "description"]
+        fields = ["id", "name", "description", "display_order"]
 
 
 class MembershipTierCreateSchema(Schema):

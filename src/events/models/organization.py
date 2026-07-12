@@ -576,6 +576,7 @@ class MembershipTier(TimeStampedModel):
         on_delete=models.CASCADE,
         related_name="tiers",
     )
+    display_order = models.PositiveIntegerField(default=0, db_index=True)
 
     class Meta:
         constraints = [
@@ -584,7 +585,10 @@ class MembershipTier(TimeStampedModel):
                 name="unique_organization_tier_name",
             )
         ]
-        ordering = ["name"]
+        ordering = ["organization", "display_order", "name"]
+        indexes = [
+            models.Index(fields=["organization", "display_order"]),
+        ]
 
     def __str__(self) -> str:
         return f"{self.organization.name} - {self.name}"

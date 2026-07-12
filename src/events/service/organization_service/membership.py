@@ -1,5 +1,7 @@
 """Organization membership concerns: membership requests, members, and staff."""
 
+from uuid import UUID
+
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
@@ -189,6 +191,26 @@ def update_member(
         member.save(update_fields=updated_fields)
 
     return member
+
+
+@transaction.atomic
+def reorder_membership_tiers(organization: Organization, tier_ids: list[UUID]) -> None:
+    """Reorder an organization's membership tiers by setting display_order from list position.
+
+    Args:
+        organization: The organization whose tiers are being reordered.
+        tier_ids: Ordered list of tier UUIDs representing the desired display order.
+
+    Raises:
+        HttpError 400: If tier_ids don't match the organization's tiers exactly.
+    """
+    existing_ids = set(MembershipTier.objects.filter(organization=organization).values_list("id", flat=True))
+
+    if set(tier_ids) != existing_ids:
+        raise HttpError(400, str(_("Tier IDs must match all tiers for this organization exactly.")))
+
+    tiers_to_update = [MembershipTier(pk=tier_id, display_order=index) for index, tier_id in enumerate(tier_ids)]
+    MembershipTier.objects.bulk_update(tiers_to_update, ["display_order"])
 
 
 def add_staff(
