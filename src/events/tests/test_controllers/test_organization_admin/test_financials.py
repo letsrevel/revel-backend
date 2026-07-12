@@ -74,9 +74,18 @@ def test_financials_currency_filter(
     assert [t["currency"] for t in body["totals"]] == ["USD"]
 
 
-def test_financials_requires_manage_organization(
+def test_financials_forbidden_for_member(
     member_client: Client,
     organization: Organization,
 ) -> None:
     response = member_client.get(_url(organization))
+    assert response.status_code == 403
+
+
+def test_financials_forbidden_for_staff(
+    organization_staff_client: Client,
+    organization: Organization,
+) -> None:
+    """Financials are owner-only; even a staff member is denied."""
+    response = organization_staff_client.get(_url(organization))
     assert response.status_code == 403

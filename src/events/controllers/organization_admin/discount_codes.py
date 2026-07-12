@@ -22,7 +22,7 @@ from .base import OrganizationAdminBaseController
     auth=I18nJWTAuth(),
     tags=["Organization Admin"],
     throttle=WriteThrottle(),
-    permissions=[OrganizationPermission("manage_events")],
+    permissions=[OrganizationPermission("manage_tickets")],
 )
 class OrganizationAdminDiscountCodesController(OrganizationAdminBaseController):
     """Organization discount code management endpoints."""
