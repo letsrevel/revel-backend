@@ -134,8 +134,8 @@ run:
 # Override concurrency with GUNICORN_WORKERS / GUNICORN_THREADS.
 .PHONY: run-e2e
 run-e2e:
-	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d pgbouncer; \
-	uv run python src/manage.py generate_test_jwts; \
+	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer && \
+	uv run python src/manage.py generate_test_jwts && \
 	cd src && DB_USE_PGBOUNCER=True DB_PORT=6432 uv run gunicorn revel.wsgi:application \
 		--worker-class gthread \
 		--workers $${GUNICORN_WORKERS:-4} \
