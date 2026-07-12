@@ -95,7 +95,7 @@ class OrganizationAdminResourcesController(OrganizationAdminBaseController):
         "/resources/{resource_id}",
         url_name="delete_organization_resource",
         response={204: None},
-        permissions=[OrganizationPermission("manage_organization")],
+        permissions=[OrganizationPermission("edit_organization")],
     )
     def delete_resource(self, slug: str, resource_id: UUID) -> tuple[int, None]:
         """Delete a resource from the organization."""

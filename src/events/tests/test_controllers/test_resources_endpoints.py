@@ -466,6 +466,21 @@ class TestAdminResourceEndpoints:
         assert response.status_code == 204
         assert not models.AdditionalResource.objects.filter(id=public_resource.id).exists()
 
+    def test_delete_resource_by_staff_with_edit_organization(
+        self,
+        organization_staff_client: Client,
+        staff_member: models.OrganizationStaff,
+        organization: models.Organization,
+        public_resource: models.AdditionalResource,
+    ) -> None:
+        """A staff member granted edit_organization can delete a resource (regression for #683)."""
+        url = reverse(
+            "api:delete_organization_resource", kwargs={"slug": organization.slug, "resource_id": public_resource.id}
+        )
+        response = organization_staff_client.delete(url)
+        assert response.status_code == 204
+        assert not models.AdditionalResource.objects.filter(id=public_resource.id).exists()
+
     def test_non_admin_cannot_create_resource(
         self, member_client: Client, organization: models.Organization, create_payload: dict[str, t.Any]
     ) -> None:

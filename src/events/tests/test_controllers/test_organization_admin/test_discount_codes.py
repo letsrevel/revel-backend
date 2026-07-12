@@ -6,7 +6,7 @@ Tests cover:
 - Getting discount code detail (exists, not found, wrong organization)
 - Updating discount codes (partial update, M2M update)
 - Deleting discount codes (hard-delete when unused, otherwise deactivate)
-- Permission checks (owner, staff with manage_events, staff without, non-staff)
+- Permission checks (owner, staff with manage_tickets, staff without, non-staff)
 """
 
 import uuid
@@ -36,20 +36,41 @@ pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
-def manage_events_staff(
+def manage_tickets_staff(
     organization: Organization, organization_staff_user: RevelUser, staff_member: OrganizationStaff
 ) -> OrganizationStaff:
-    """Staff member with manage_events permission (required by discount codes controller)."""
+    """Staff member with manage_tickets permission (required by discount codes controller)."""
     perms = staff_member.permissions
-    perms["default"]["manage_events"] = True
+    perms["default"]["manage_tickets"] = True
     staff_member.permissions = perms
     staff_member.save()
     return staff_member
 
 
 @pytest.fixture
-def manage_events_staff_client(organization_staff_user: RevelUser, manage_events_staff: OrganizationStaff) -> Client:
-    """API client for a staff member with manage_events permission."""
+def manage_tickets_staff_client(organization_staff_user: RevelUser, manage_tickets_staff: OrganizationStaff) -> Client:
+    """API client for a staff member with manage_tickets permission."""
+    from ninja_jwt.tokens import RefreshToken
+
+    refresh = RefreshToken.for_user(organization_staff_user)
+    return Client(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")  # type: ignore[attr-defined]
+
+
+@pytest.fixture
+def no_tickets_staff(
+    organization: Organization, organization_staff_user: RevelUser, staff_member: OrganizationStaff
+) -> OrganizationStaff:
+    """Staff member without manage_tickets permission (manage_tickets defaults to True)."""
+    perms = staff_member.permissions
+    perms["default"]["manage_tickets"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+    return staff_member
+
+
+@pytest.fixture
+def no_tickets_staff_client(organization_staff_user: RevelUser, no_tickets_staff: OrganizationStaff) -> Client:
+    """API client for a staff member without manage_tickets permission."""
     from ninja_jwt.tokens import RefreshToken
 
     refresh = RefreshToken.for_user(organization_staff_user)
@@ -208,29 +229,27 @@ class TestListDiscountCodes:
         assert data["count"] == 1
         assert data["results"][0]["code"] == "SAVE20"
 
-    def test_list_by_staff_with_manage_events(
+    def test_list_by_staff_with_manage_tickets(
         self,
-        manage_events_staff_client: Client,
+        manage_tickets_staff_client: Client,
         organization: Organization,
         dc_percentage: DiscountCode,
     ) -> None:
-        """Staff with manage_events permission should access the list."""
+        """Staff with manage_tickets permission should access the list."""
         url = reverse("api:list_discount_codes", kwargs={"slug": organization.slug})
-        response = manage_events_staff_client.get(url)
+        response = manage_tickets_staff_client.get(url)
 
         assert response.status_code == 200
         assert response.json()["count"] == 1
 
     def test_list_by_staff_without_permission_forbidden(
         self,
-        organization_staff_client: Client,
+        no_tickets_staff_client: Client,
         organization: Organization,
-        staff_member: OrganizationStaff,
     ) -> None:
-        """Staff without manage_events permission should get 403."""
-        # staff_member has edit_organization=True but not manage_events
+        """Staff without manage_tickets permission should get 403."""
         url = reverse("api:list_discount_codes", kwargs={"slug": organization.slug})
-        response = organization_staff_client.get(url)
+        response = no_tickets_staff_client.get(url)
 
         assert response.status_code == 403
 
@@ -323,12 +342,12 @@ class TestCreateDiscountCode:
         assert data["event_ids"] == [str(event.id)]
         assert data["tier_ids"] == [str(event_ticket_tier.id)]
 
-    def test_create_by_staff_with_manage_events(
+    def test_create_by_staff_with_manage_tickets(
         self,
-        manage_events_staff_client: Client,
+        manage_tickets_staff_client: Client,
         organization: Organization,
     ) -> None:
-        """Staff with manage_events permission should be able to create codes."""
+        """Staff with manage_tickets permission should be able to create codes."""
         url = reverse("api:create_discount_code", kwargs={"slug": organization.slug})
         payload = {
             "code": "STAFFCODE",
@@ -336,7 +355,7 @@ class TestCreateDiscountCode:
             "discount_value": "5.00",
         }
 
-        response = manage_events_staff_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+        response = manage_tickets_staff_client.post(url, data=orjson.dumps(payload), content_type="application/json")
 
         assert response.status_code == 201
 
@@ -419,18 +438,18 @@ class TestGetDiscountCode:
 
         assert response.status_code == 404
 
-    def test_get_by_staff_with_manage_events(
+    def test_get_by_staff_with_manage_tickets(
         self,
-        manage_events_staff_client: Client,
+        manage_tickets_staff_client: Client,
         organization: Organization,
         dc_percentage: DiscountCode,
     ) -> None:
-        """Staff with manage_events should see discount code details."""
+        """Staff with manage_tickets should see discount code details."""
         url = reverse(
             "api:get_discount_code",
             kwargs={"slug": organization.slug, "code_id": dc_percentage.id},
         )
-        response = manage_events_staff_client.get(url)
+        response = manage_tickets_staff_client.get(url)
 
         assert response.status_code == 200
 
@@ -521,20 +540,20 @@ class TestUpdateDiscountCode:
 
         assert response.status_code == 404
 
-    def test_update_by_staff_with_manage_events(
+    def test_update_by_staff_with_manage_tickets(
         self,
-        manage_events_staff_client: Client,
+        manage_tickets_staff_client: Client,
         organization: Organization,
         dc_percentage: DiscountCode,
     ) -> None:
-        """Staff with manage_events should be able to update codes."""
+        """Staff with manage_tickets should be able to update codes."""
         url = reverse(
             "api:update_discount_code",
             kwargs={"slug": organization.slug, "code_id": dc_percentage.id},
         )
         payload = {"max_uses": 50}
 
-        response = manage_events_staff_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
+        response = manage_tickets_staff_client.patch(url, data=orjson.dumps(payload), content_type="application/json")
 
         assert response.status_code == 200
         assert response.json()["max_uses"] == 50
@@ -596,18 +615,18 @@ class TestDeleteDiscountCode:
 
         assert response.status_code == 404
 
-    def test_delete_by_staff_with_manage_events(
+    def test_delete_by_staff_with_manage_tickets(
         self,
-        manage_events_staff_client: Client,
+        manage_tickets_staff_client: Client,
         organization: Organization,
         dc_fixed: DiscountCode,
     ) -> None:
-        """Staff with manage_events should be able to delete codes."""
+        """Staff with manage_tickets should be able to delete codes."""
         url = reverse(
             "api:delete_discount_code",
             kwargs={"slug": organization.slug, "code_id": dc_fixed.id},
         )
-        response = manage_events_staff_client.delete(url)
+        response = manage_tickets_staff_client.delete(url)
 
         assert response.status_code == 200
         assert response.json() == {"action": "deleted"}

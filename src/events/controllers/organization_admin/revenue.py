@@ -12,7 +12,7 @@ from common.authentication import I18nJWTAuth
 from common.models import FileExport
 from common.throttling import ExportThrottle, UserDefaultThrottle
 from events import schema
-from events.controllers.permissions import OrganizationPermission
+from events.controllers.permissions import IsOrganizationOwner
 from events.exceptions import InvalidPeriodError
 from events.schema.export import FileExportSchema
 from events.schema.financials import OrganizationFinancialsSchema
@@ -25,7 +25,7 @@ from .base import OrganizationAdminBaseController
     "/organization-admin/{slug}",
     auth=I18nJWTAuth(),
     tags=["Organization Admin"],
-    permissions=[OrganizationPermission("manage_organization")],
+    permissions=[IsOrganizationOwner()],
 )
 class OrganizationAdminRevenueController(OrganizationAdminBaseController):
     """Generate and poll downloadable revenue & VAT report bundles."""
