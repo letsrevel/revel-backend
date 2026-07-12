@@ -17,10 +17,25 @@ These are the commands you will use most often during day-to-day development.
 |---------|-------------|
 | `make setup` | Complete one-time setup: installs deps, copies `.env.example`, starts Docker, bootstraps database, starts server |
 | `make run` | Start the Django development server (also generates test JWTs) |
+| `make run-e2e` | Start a prod-like gunicorn server behind PgBouncer for frontend E2E under load (see below) |
 | `make check` | Run **all** code quality checks (see below) |
 | `make test` | Run the full pytest suite in parallel (`pytest -n auto`) with coverage reporting |
 | `make test-linear` | Run the full test suite sequentially (single process, useful for debugging) |
 | `make test-failed` | Re-run only previously failed tests |
+
+!!! tip "`make run-e2e` — prod-like server for E2E under load"
+    Parallel frontend E2E runs can open enough concurrent connections to a plain `make run`
+    backend to exhaust Postgres (`FATAL: sorry, too many clients already`). `make run-e2e`
+    reproduces the production runtime instead: it starts the **PgBouncer** pooler from
+    `docker-compose-e2e.yml` and runs **gunicorn** (gthread workers, mirroring infra's
+    command) routed through it on port `6432`. This matches where the pressure actually comes
+    from — `ATOMIC_REQUESTS` pins one connection per in-flight request across every gunicorn
+    worker/thread — and multiplexes those onto a small server pool.
+
+    Only this target opts into PgBouncer (via `DB_USE_PGBOUNCER=True DB_PORT=6432` set inline);
+    `make run` and `make test` stay on a direct `5432` connection. Unlike `make run`, gunicorn
+    does not serve Django static files, so admin/Swagger pages are unstyled — irrelevant for
+    frontend E2E, which only hits `/api/*`. Tune load with `GUNICORN_WORKERS` / `GUNICORN_THREADS`.
 
 ## Code Quality and Formatting
 

@@ -1,0 +1,40 @@
+# E2E overlay: adds a PgBouncer connection pooler in front of Postgres, mirroring the
+# production topology (infra/docker-compose.yml). Heavy local load — e.g. parallel frontend
+# Playwright workers driving a gunicorn backend — otherwise exhausts Postgres connections
+# (`FATAL: sorry, too many clients already`).
+#
+# Use as an overlay so pgbouncer shares the network with the main stack's `postgres`:
+#   docker compose -f compose.yaml -f docker-compose-e2e.yml up -d pgbouncer
+# `make run-e2e` does this for you and starts the server pointed at 6432.
+#
+# Postgres stays directly reachable on 5432; nothing routes through pgbouncer unless a
+# client explicitly connects to 6432 with DB_USE_PGBOUNCER=True.
+
+services:
+  pgbouncer:
+    image: edoburu/pgbouncer
+    restart: unless-stopped
+    environment:
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: postgres
+      DB_NAME: ${DB_NAME}
+      LISTEN_PORT: 6432
+      AUTH_TYPE: scram-sha-256
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 25
+      RESERVE_POOL_SIZE: 5
+      ADMIN_USERS: ${DB_USER}
+    ports:
+      - "127.0.0.1:6432:6432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6432"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    mem_limit: 256m
+    cpus: 0.5
