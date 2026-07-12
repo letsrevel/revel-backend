@@ -151,8 +151,19 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     ) -> tuple[int, models.MembershipTier]:
         """Create a new membership tier for the organization."""
         organization = self.get_one(slug)
-        tier = models.MembershipTier.objects.create(organization=organization, **payload.model_dump())
+        tier = organization_service.create_membership_tier(organization, payload)
         return 201, tier
+
+    @route.patch(
+        "/membership-tiers/reorder",
+        url_name="reorder_membership_tiers",
+        response={204: None},
+    )
+    def reorder_membership_tiers(self, slug: str, payload: schema.ReorderSchema) -> tuple[int, None]:
+        """Reorder membership tiers for an organization."""
+        organization = self.get_one(slug)
+        organization_service.reorder_membership_tiers(organization, payload.tier_ids)
+        return 204, None
 
     @route.put(
         "/membership-tiers/{tier_id}",

@@ -1,6 +1,10 @@
 """Organization membership concerns: membership requests, members, and staff."""
 
+import typing as t
+from uuid import UUID
+
 from django.db import transaction
+from django.db.models import Max
 from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -17,6 +21,9 @@ from events.models import (
     OrganizationStaff,
     PermissionsSchema,
 )
+
+if t.TYPE_CHECKING:
+    from events.schema import MembershipTierCreateSchema
 
 # Intentional cross-module use of a private helper: the name is pinned by
 # events/migrations/0001_initial.py (referenced as a field `default=`), so it
@@ -189,6 +196,48 @@ def update_member(
         member.save(update_fields=updated_fields)
 
     return member
+
+
+@transaction.atomic
+def create_membership_tier(organization: Organization, payload: "MembershipTierCreateSchema") -> MembershipTier:
+    """Create a membership tier, appending it at the bottom of the organization's ordering.
+
+    Model ordering is ["organization", "display_order", "name"], so a new tier left at
+    display_order 0 would sort to the top (see #514). We lock the organization row first so
+    concurrent creates for the same org serialize and cannot read the same max; ATOMIC_REQUESTS
+    keeps the lock until the request commits, after the tier is persisted below.
+
+    Args:
+        organization: The organization to create the tier for.
+        payload: The validated ``MembershipTierCreateSchema`` payload.
+
+    Returns:
+        The created ``MembershipTier``, appended after any existing tiers.
+    """
+    Organization.objects.select_for_update().filter(pk=organization.pk).first()
+    current_max = MembershipTier.objects.filter(organization=organization).aggregate(m=Max("display_order"))["m"]
+    display_order = 0 if current_max is None else current_max + 1
+    return MembershipTier.objects.create(organization=organization, display_order=display_order, **payload.model_dump())
+
+
+@transaction.atomic
+def reorder_membership_tiers(organization: Organization, tier_ids: list[UUID]) -> None:
+    """Reorder an organization's membership tiers by setting display_order from list position.
+
+    Args:
+        organization: The organization whose tiers are being reordered.
+        tier_ids: Ordered list of tier UUIDs representing the desired display order.
+
+    Raises:
+        HttpError 400: If tier_ids don't match the organization's tiers exactly.
+    """
+    existing_ids = set(MembershipTier.objects.filter(organization=organization).values_list("id", flat=True))
+
+    if set(tier_ids) != existing_ids:
+        raise HttpError(400, str(_("Tier IDs must match all tiers for this organization exactly.")))
+
+    tiers_to_update = [MembershipTier(pk=tier_id, display_order=index) for index, tier_id in enumerate(tier_ids)]
+    MembershipTier.objects.bulk_update(tiers_to_update, ["display_order"])
 
 
 def add_staff(

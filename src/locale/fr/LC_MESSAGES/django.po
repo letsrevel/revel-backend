@@ -1487,6 +1487,13 @@ msgstr "Tu n'es pas autorisé·e à demander l'adhésion à cette organisation."
 msgid "User is already a member of this organization."
 msgstr "L'utilisateur·rice est déjà membre de cette organisation."
 
+msgid "Tier IDs must match all tiers for this organization exactly."
+msgstr ""
+"Les identifiants doivent correspondre exactement à tous les niveaux "
+"d'adhésion de cette organisation."
+"Les identifiants de catégories doivent correspondre exactement à toutes les "
+"catégories de cet événement."
+
 msgid "User is already a staff member of this organization."
 msgstr "L'utilisateur·rice est déjà membre du staff de cette organisation."
 
