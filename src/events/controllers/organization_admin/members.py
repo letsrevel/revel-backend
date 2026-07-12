@@ -151,7 +151,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
     ) -> tuple[int, models.MembershipTier]:
         """Create a new membership tier for the organization."""
         organization = self.get_one(slug)
-        tier = models.MembershipTier.objects.create(organization=organization, **payload.model_dump())
+        tier = organization_service.create_membership_tier(organization, payload)
         return 201, tier
 
     @route.patch(

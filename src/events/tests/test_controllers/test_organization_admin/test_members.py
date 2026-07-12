@@ -4,6 +4,7 @@ import uuid
 
 import orjson
 import pytest
+from django.db.models import Max
 from django.test.client import Client
 from django.urls import reverse
 
@@ -265,6 +266,24 @@ def test_create_membership_tier_by_owner(organization_owner_client: Client, orga
 
     # Verify it was created in DB
     assert MembershipTier.objects.filter(organization=organization, name="VIP").exists()
+
+
+def test_create_membership_tier_appends_at_bottom(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """New tiers get the next display_order so they append at the bottom, not jump to the top (#514)."""
+    existing_max = MembershipTier.objects.filter(organization=organization).aggregate(m=Max("display_order"))["m"] or 0
+    url = reverse("api:create_membership_tier", kwargs={"slug": organization.slug})
+
+    response = organization_owner_client.post(
+        url, data=orjson.dumps({"name": "Appended"}), content_type="application/json"
+    )
+
+    assert response.status_code == 201
+    tier = MembershipTier.objects.get(organization=organization, name="Appended")
+    assert tier.display_order == existing_max + 1
+    # It sorts last under the model's default ordering.
+    assert MembershipTier.objects.filter(organization=organization).last() == tier
 
 
 def test_create_membership_tier_by_staff_with_permission(
