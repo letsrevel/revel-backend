@@ -30,7 +30,20 @@ class RootPermission(BasePermission):
         return True
 
 
-class EventSeriesPermission(RootPermission):
+class PermissionMapPermission(RootPermission):
+    """Base for permissions whose ``action`` is resolved against ``PermissionMap``.
+
+    Constraining ``action`` to :data:`~events.models.PermissionKey` makes mypy (and the
+    IDE) reject any key that is not a real ``PermissionMap`` field — a bogus key can never
+    be granted, so it would silently deny all non-owner staff (see #683).
+    """
+
+    def __init__(self, action: models.PermissionKey) -> None:
+        """Store the map-backed action."""
+        super().__init__(action=action)
+
+
+class EventSeriesPermission(PermissionMapPermission):
     def has_object_permission(
         self,
         request: HttpRequest,
@@ -41,7 +54,7 @@ class EventSeriesPermission(RootPermission):
         return obj.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
-class EventPermission(RootPermission):
+class EventPermission(PermissionMapPermission):
     def has_object_permission(
         self,
         request: HttpRequest,
@@ -52,7 +65,7 @@ class EventPermission(RootPermission):
         return obj.organization.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
-class OrganizationPermission(RootPermission):
+class OrganizationPermission(PermissionMapPermission):
     def has_object_permission(
         self,
         request: HttpRequest,
@@ -63,7 +76,7 @@ class OrganizationPermission(RootPermission):
         return obj.has_org_permission(t.cast(UUID, request.user.id), self.action)
 
 
-class QuestionnairePermission(RootPermission):
+class QuestionnairePermission(PermissionMapPermission):
     def has_object_permission(
         self,
         request: HttpRequest,
@@ -71,7 +84,9 @@ class QuestionnairePermission(RootPermission):
         obj: models.OrganizationQuestionnaire,
     ) -> bool:
         """Can edit organization."""
-        return OrganizationPermission(self.action).has_object_permission(request, controller, obj.organization)
+        # self.action is a PermissionKey by construction, but stored as str on the base.
+        action = t.cast(models.PermissionKey, self.action)
+        return OrganizationPermission(action).has_object_permission(request, controller, obj.organization)
 
 
 class IsOrganizationOwner(RootPermission):

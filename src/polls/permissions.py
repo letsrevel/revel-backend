@@ -14,15 +14,16 @@ from django.http import HttpRequest
 from ninja_extra import ControllerBase
 from ninja_extra.exceptions import PermissionDenied
 
-from events.controllers.permissions import RootPermission
+from events.controllers.permissions import PermissionMapPermission, RootPermission
 from polls.models import Poll
 
 
-class PollPermission(RootPermission):
+class PollPermission(PermissionMapPermission):
     """Generic poll-action permission.
 
     Delegates to ``Poll.organization.has_org_permission(user_id, action)``
     using the action passed at construction time (e.g. ``"manage_polls"``).
+    The ``action`` is constrained to a real ``PermissionMap`` key (see #683).
     """
 
     def has_object_permission(

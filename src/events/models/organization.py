@@ -459,6 +459,37 @@ class Organization(
         return False
 
 
+# Canonical set of staff-permission keys. Every ``PermissionMap`` field below must appear
+# here (and vice versa) so that ``OrganizationPermission("...")`` and the other map-resolving
+# permission classes only accept real keys — a bogus key can never be granted, so it would
+# silently deny all non-owner staff (see #683). The two are kept in sync by a unit test.
+PermissionKey = t.Literal[
+    "view_organization_details",
+    "create_event",
+    "create_event_series",
+    "edit_event_series",
+    "delete_event_series",
+    "edit_event",
+    "delete_event",
+    "open_event",
+    "manage_tickets",
+    "close_event",
+    "manage_event",
+    "check_in_attendees",
+    "invite_to_event",
+    "edit_organization",
+    "manage_members",
+    "manage_potluck",
+    "create_questionnaire",
+    "edit_questionnaire",
+    "delete_questionnaire",
+    "evaluate_questionnaire",
+    "send_announcements",
+    "manage_subscriptions",
+    "manage_polls",
+]
+
+
 class PermissionMap(BaseModel):
     view_organization_details: bool = True
     create_event: bool = False
