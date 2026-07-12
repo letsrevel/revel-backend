@@ -26,6 +26,24 @@ class TestManageMembersAndStaff:
         assert data["count"] == 1
         assert data["results"][0]["user"]["email"] == member_user.email
 
+    def test_list_members_by_staff_without_manage_members(
+        self, organization_staff_client: Client, organization: Organization, member_user: RevelUser
+    ) -> None:
+        """Any staff can list members even without manage_members (read relaxed to staff)."""
+        OrganizationMember.objects.create(organization=organization, user=member_user)
+        url = reverse("api:list_organization_members", kwargs={"slug": organization.slug})
+        response = organization_staff_client.get(url)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["count"] == 1
+        assert data["results"][0]["user"]["email"] == member_user.email
+
+    def test_list_members_by_member_forbidden(self, member_client: Client, organization: Organization) -> None:
+        """A regular member (non-staff) cannot list members."""
+        url = reverse("api:list_organization_members", kwargs={"slug": organization.slug})
+        response = member_client.get(url)
+        assert response.status_code == 403
+
     def test_list_staff(
         self, organization_owner_client: Client, organization: Organization, staff_member: OrganizationStaff
     ) -> None:

@@ -41,6 +41,7 @@ class OrganizationAdminMembersController(OrganizationAdminBaseController):
         "/members",
         url_name="list_organization_members",
         response=PaginatedResponseSchema[schema.OrganizationMemberSchema],
+        permissions=[IsOrganizationStaff()],
         throttle=UserDefaultThrottle(),
     )
     @paginate(PageNumberPaginationExtra, page_size=20)
