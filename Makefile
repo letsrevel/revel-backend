@@ -127,6 +127,25 @@ run:
 	uv run python src/manage.py generate_test_jwts; \
 	uv run python src/manage.py runserver
 
+# Prod-like server for frontend E2E: gunicorn (gthread, mirrors infra's command) behind
+# PgBouncer, so parallel Playwright workers don't exhaust Postgres connections. Brings the
+# pooler up, then routes the server through it via DB_USE_PGBOUNCER/DB_PORT set inline
+# (os.environ wins over .env), leaving `make test` and `make run` on direct 5432.
+# Override concurrency with GUNICORN_WORKERS / GUNICORN_THREADS.
+.PHONY: run-e2e
+run-e2e:
+	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer && \
+	uv run python src/manage.py generate_test_jwts && \
+	cd src && DB_USE_PGBOUNCER=True DB_PORT=6432 uv run gunicorn revel.wsgi:application \
+		--worker-class gthread \
+		--workers $${GUNICORN_WORKERS:-4} \
+		--threads $${GUNICORN_THREADS:-4} \
+		--bind 127.0.0.1:8000 \
+		--max-requests 4000 \
+		--max-requests-jitter 400 \
+		--timeout 60 \
+		--graceful-timeout 30
+
 .PHONY: jwt
 jwt:
 	@if [ -z "$(EMAIL)" ]; then \
