@@ -279,7 +279,10 @@ def test_yes_to_maybe_on_full_event(event: Event, revel_user_factory: RevelUserF
     me = revel_user_factory()
     EventRSVP.objects.create(event=event, user=me, status=EventRSVP.RsvpStatus.YES)  # event now full
 
-    rsvp = EventManager(me, event).rsvp(EventRSVP.RsvpStatus.MAYBE)
+    # YES -> MAYBE frees a seat and enqueues the next waitlist batch; mock it (parity with
+    # test_yes_to_no_on_full_event_frees_seat) so the test doesn't dispatch a real task.
+    with mock.patch("events.service.event_manager.manager.enqueue_waitlist_processing"):
+        rsvp = EventManager(me, event).rsvp(EventRSVP.RsvpStatus.MAYBE)
 
     assert rsvp.status == EventRSVP.RsvpStatus.MAYBE
 
