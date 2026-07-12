@@ -353,7 +353,11 @@ class TestGuestServiceLayer:
         guest_event.save()
 
         token = guest_service.create_guest_rsvp_token(existing_guest_user, guest_event.id, "yes")
-        EventRSVP.objects.create(user=existing_guest_user, event=guest_event, status="yes")
+        # Fill the single seat with a *different* user so the guest's YES confirmation is a
+        # genuine new seat-claim that fails the capacity check (the guest has no prior RSVP,
+        # so it isn't a downgrade). See #691.
+        filler = RevelUser.objects.create_user(username="filler_guest", email="filler_guest@example.com")
+        EventRSVP.objects.create(user=filler, event=guest_event, status="yes")
 
         # Act & Assert
         with pytest.raises(UserIsIneligibleError):
