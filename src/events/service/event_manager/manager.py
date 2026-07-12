@@ -69,11 +69,18 @@ class EventManager:
         if has_yes_rsvp:
             bypass_eligibility_checks = True
 
-        eligibility = self.check_eligibility(bypass=bypass_eligibility_checks)
+        # Capacity/availability only gates seat-claiming writes (a brand-new YES).
+        # NO/MAYBE never consume a seat, and downgrades (YES -> NO/MAYBE) free one, so
+        # they must go through even on a full event — otherwise attendees can't free
+        # their seat exactly when a waitlist is waiting for it (#691). Every other
+        # eligibility gate still applies to NO/MAYBE.
+        claims_seat = answer == EventRSVP.RsvpStatus.YES and not has_yes_rsvp
+        eligibility = self.check_eligibility(bypass=bypass_eligibility_checks, skip_availability=not claims_seat)
         if not eligibility.allowed:
             raise UserIsIneligibleError("The user is not eligible for this event.", eligibility=eligibility)
 
-        self._assert_capacity(use_tickets=False, tier=None)
+        if claims_seat:
+            self._assert_capacity(use_tickets=False, tier=None)
 
         rsvp, _created = EventRSVP.objects.update_or_create(
             user=self.user,
@@ -119,15 +126,23 @@ class EventManager:
         # when there's no work, so this is cheap when idempotent.
         enqueue_waitlist_processing(self.event.id)
 
-    def check_eligibility(self, bypass: bool = False, raise_on_false: bool = False) -> EventUserEligibility:
+    def check_eligibility(
+        self, bypass: bool = False, raise_on_false: bool = False, skip_availability: bool = False
+    ) -> EventUserEligibility:
         """Call the eligibility check.
+
+        Args:
+            bypass: When True, skip all eligibility gates.
+            raise_on_false: When True, raise ``UserIsIneligibleError`` if not eligible.
+            skip_availability: When True, skip the capacity/availability gate (for RSVP
+                writes that don't claim a seat).
 
         Returns:
             EventUserEligibility
         Raises:
             UserIsIneligibleError if the user is not eligible for this event and raise_on_false is True
         """
-        eligibility = self.eligibility_service.check_eligibility(bypass=bypass)
+        eligibility = self.eligibility_service.check_eligibility(bypass=bypass, skip_availability=skip_availability)
         if not eligibility.allowed and raise_on_false:
             raise UserIsIneligibleError(
                 message=eligibility.reason or _("You are not eligible."), eligibility=eligibility

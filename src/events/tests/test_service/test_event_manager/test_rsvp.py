@@ -1,11 +1,13 @@
 """Tests for RSVP functionality and RSVP deadline gate."""
 
 from datetime import timedelta
+from unittest import mock
 
 import pytest
 from django.utils import timezone
 
 from accounts.models import RevelUser
+from conftest import RevelUserFactory
 from events.models import (
     Event,
     EventInvitation,
@@ -236,3 +238,97 @@ def test_user_with_maybe_rsvp_cannot_change_to_yes_after_requirements_change(
     # RSVP should still be MAYBE
     rsvp = EventRSVP.objects.get(user=public_user, event=public_event)
     assert rsvp.status == EventRSVP.RsvpStatus.MAYBE
+
+
+# --- Test Cases for RSVP Changes on a Full Event (issue #691) ---
+
+
+def _configure_rsvp_event(event: Event, *, max_attendees: int = 1) -> None:
+    """Turn ``event`` into an RSVP-only, waitlist-open event with the given capacity."""
+    event.end = event.start + timedelta(hours=2)
+    event.requires_ticket = False
+    event.max_attendees = max_attendees
+    event.waitlist_open = True
+    event.waitlist_time_window = timedelta(hours=24)
+    event.save()
+
+
+def _make_full_rsvp_event(event: Event, factory: RevelUserFactory) -> None:
+    """Configure a 1-seat RSVP event and fill it with someone else's YES (at capacity)."""
+    _configure_rsvp_event(event)
+    EventRSVP.objects.create(event=event, user=factory(), status=EventRSVP.RsvpStatus.YES)
+
+
+def test_yes_to_no_on_full_event_frees_seat(event: Event, revel_user_factory: RevelUserFactory) -> None:
+    """A YES holder can downgrade to NO on a full event, freeing their seat (#691)."""
+    _configure_rsvp_event(event)
+    me = revel_user_factory()
+    EventRSVP.objects.create(event=event, user=me, status=EventRSVP.RsvpStatus.YES)  # event now full
+
+    with mock.patch("events.service.event_manager.manager.enqueue_waitlist_processing") as enqueue_mock:
+        rsvp = EventManager(me, event).rsvp(EventRSVP.RsvpStatus.NO)
+
+    assert rsvp.status == EventRSVP.RsvpStatus.NO
+    # Freeing a seat must trigger the next waitlist batch.
+    enqueue_mock.assert_called_once_with(event.id)
+
+
+def test_yes_to_maybe_on_full_event(event: Event, revel_user_factory: RevelUserFactory) -> None:
+    """A YES holder can downgrade to MAYBE on a full event (#691)."""
+    _configure_rsvp_event(event)
+    me = revel_user_factory()
+    EventRSVP.objects.create(event=event, user=me, status=EventRSVP.RsvpStatus.YES)  # event now full
+
+    # YES -> MAYBE frees a seat and enqueues the next waitlist batch; mock it (parity with
+    # test_yes_to_no_on_full_event_frees_seat) so the test doesn't dispatch a real task.
+    with mock.patch("events.service.event_manager.manager.enqueue_waitlist_processing"):
+        rsvp = EventManager(me, event).rsvp(EventRSVP.RsvpStatus.MAYBE)
+
+    assert rsvp.status == EventRSVP.RsvpStatus.MAYBE
+
+
+def test_maybe_to_no_on_full_event(event: Event, revel_user_factory: RevelUserFactory) -> None:
+    """A MAYBE holder can change to NO on a full event — neither answer consumes a seat (#691)."""
+    _make_full_rsvp_event(event, revel_user_factory)
+    me = revel_user_factory()
+    EventRSVP.objects.create(event=event, user=me, status=EventRSVP.RsvpStatus.MAYBE)
+
+    rsvp = EventManager(me, event).rsvp(EventRSVP.RsvpStatus.NO)
+
+    assert rsvp.status == EventRSVP.RsvpStatus.NO
+
+
+def test_new_no_rsvp_on_full_event_allowed(event: Event, revel_user_factory: RevelUserFactory) -> None:
+    """A new NO RSVP (e.g. declining) is not seat-consuming and must pass on a full event (#691)."""
+    _make_full_rsvp_event(event, revel_user_factory)
+    me = revel_user_factory()
+
+    rsvp = EventManager(me, event).rsvp(EventRSVP.RsvpStatus.NO)
+
+    assert rsvp.status == EventRSVP.RsvpStatus.NO
+
+
+def test_new_yes_rsvp_on_full_event_still_rejected(event: Event, revel_user_factory: RevelUserFactory) -> None:
+    """Regression guard: a brand-new YES on a full event is still capacity-gated (#691)."""
+    _make_full_rsvp_event(event, revel_user_factory)
+    me = revel_user_factory()
+
+    with pytest.raises(UserIsIneligibleError) as exc_info:
+        EventManager(me, event).rsvp(EventRSVP.RsvpStatus.YES)
+
+    assert exc_info.value.eligibility.reason_code == Reasons.EVENT_IS_FULL.code
+    assert not EventRSVP.objects.filter(event=event, user=me).exists()
+
+
+def test_maybe_to_yes_on_full_event_still_rejected(event: Event, revel_user_factory: RevelUserFactory) -> None:
+    """Regression guard: MAYBE -> YES claims a seat, so it is still capacity-gated on a full event (#691)."""
+    _make_full_rsvp_event(event, revel_user_factory)
+    me = revel_user_factory()
+    EventRSVP.objects.create(event=event, user=me, status=EventRSVP.RsvpStatus.MAYBE)
+
+    with pytest.raises(UserIsIneligibleError) as exc_info:
+        EventManager(me, event).rsvp(EventRSVP.RsvpStatus.YES)
+
+    assert exc_info.value.eligibility.reason_code == Reasons.EVENT_IS_FULL.code
+    # The RSVP must remain MAYBE — the failed upgrade must not have changed it.
+    assert EventRSVP.objects.get(event=event, user=me).status == EventRSVP.RsvpStatus.MAYBE

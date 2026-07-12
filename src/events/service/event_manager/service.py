@@ -19,7 +19,7 @@ from events.models import (
 )
 from questionnaires.models import Questionnaire, QuestionnaireSubmission
 
-from .gates import ELIGIBILITY_GATES, BaseEligibilityGate
+from .gates import ELIGIBILITY_GATES, AvailabilityGate, BaseEligibilityGate
 from .types import EventUserEligibility
 
 
@@ -140,10 +140,16 @@ class EligibilityService:
 
         self._gates: list[BaseEligibilityGate] = [gate(self) for gate in ELIGIBILITY_GATES]
 
-    def check_eligibility(self, bypass: bool = False) -> EventUserEligibility:
+    def check_eligibility(self, bypass: bool = False, skip_availability: bool = False) -> EventUserEligibility:
         """Check eligibility using the fully prefetched, in-memory data.
 
         This method SHOULD make ZERO database queries.
+
+        Args:
+            bypass: When True, skip all gates and return an allowed result.
+            skip_availability: When True, skip the capacity/availability gate. Used for
+                RSVP writes that don't claim a seat (NO/MAYBE), which must not be blocked
+                by a full event — every other eligibility gate still applies.
 
         Returns:
             EventUserEligibility with the result of the eligibility check.
@@ -152,6 +158,8 @@ class EligibilityService:
             return EventUserEligibility(allowed=True, event_id=self.event.pk)
 
         for gate in self._gates:
+            if skip_availability and isinstance(gate, AvailabilityGate):
+                continue
             if result := gate.check():
                 return result
 
