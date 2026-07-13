@@ -7,7 +7,7 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events import schema
-from events.exceptions import RevenueReportCadenceOwnerOnlyError
+from events.exceptions import MembershipPolicyManageSubscriptionsOnlyError, RevenueReportCadenceOwnerOnlyError
 from events.models import Organization
 from events.service.organization_service.contact import (
     create_and_send_contact_email_verification,
@@ -19,6 +19,16 @@ from events.utils.reserved_slug_tokens import find_reserved_token
 # the service that raises ``RevenueReportCadenceOwnerOnlyError`` so the per-app
 # exception handlers render an identical, translatable ``{"detail": ...}`` body.
 REVENUE_CADENCE_OWNER_ONLY_MESSAGE = _("Only the organization owner can change the revenue report cadence.")
+
+# Same pattern for the membership subscription-policy guard: those fields belong to the
+# subscription domain (gated by ``manage_subscriptions``), so staff with only
+# ``edit_organization`` must not change them through the org-edit endpoint.
+MEMBERSHIP_POLICY_MANAGE_SUBSCRIPTIONS_MESSAGE = _(
+    "Only staff who can manage subscriptions can change the membership subscription policy."
+)
+
+# Subscription-policy fields on ``OrganizationEditSchema`` guarded by ``manage_subscriptions``.
+_MEMBERSHIP_POLICY_FIELDS = ("membership_grace_period_days", "membership_refund_policy")
 
 
 @transaction.atomic
@@ -105,6 +115,12 @@ def update_organization(
     owner-only, consistent with the owner-only org revenue endpoints. ``edit_organization``
     is staff-grantable, so a non-owner attempting to change the cadence is rejected here
     regardless of which permission got them to this endpoint.
+
+    The membership subscription-policy fields (``membership_grace_period_days``,
+    ``membership_refund_policy``) belong to the subscription domain, which is gated by
+    ``manage_subscriptions`` everywhere else. A staffer with only ``edit_organization`` is
+    rejected here if they try to change them, so the org-edit endpoint can't be used to
+    bypass that permission. The owner implicitly holds every permission.
     """
     from events.service import update_db_instance
 
@@ -118,6 +134,12 @@ def update_organization(
         and organization.owner_id != requester.pk
     ):
         raise RevenueReportCadenceOwnerOnlyError
+
+    changes_membership_policy = any(
+        field in data and data[field] != getattr(organization, field) for field in _MEMBERSHIP_POLICY_FIELDS
+    )
+    if changes_membership_policy and not organization.has_org_permission(requester.pk, "manage_subscriptions"):
+        raise MembershipPolicyManageSubscriptionsOnlyError
 
     # Apply cadence from payload (if present) before the billing_email check,
     # so the check reflects the intended post-save state.

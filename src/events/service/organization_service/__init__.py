@@ -14,6 +14,7 @@ from events.service.organization_service.contact import (
     verify_contact_email,
 )
 from events.service.organization_service.lifecycle import (
+    MEMBERSHIP_POLICY_MANAGE_SUBSCRIPTIONS_MESSAGE,
     REVENUE_CADENCE_OWNER_ONLY_MESSAGE,
     create_organization,
     update_organization,
@@ -47,6 +48,7 @@ from events.service.organization_service.tokens import (
 
 __all__ = [
     "GRANT_INVARIANT_MESSAGE",
+    "MEMBERSHIP_POLICY_MANAGE_SUBSCRIPTIONS_MESSAGE",
     "MEMBERSHIP_TIER_REQUIRED_MESSAGE",
     "REVENUE_CADENCE_OWNER_ONLY_MESSAGE",
     "STAFF_GRANT_FORBIDDEN_MESSAGE",

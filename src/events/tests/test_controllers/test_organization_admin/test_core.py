@@ -325,6 +325,63 @@ def test_owner_can_change_revenue_cadence(organization_owner_client: Client, org
     assert organization.revenue_report_cadence == Organization.RevenueReportCadence.MONTHLY
 
 
+def test_staff_with_edit_permission_cannot_change_membership_policy(
+    organization_staff_client: Client, organization: Organization, staff_member: OrganizationStaff
+) -> None:
+    """membership policy belongs to manage_subscriptions: edit_organization alone gets a 403 (issue #695)."""
+    perms = staff_member.permissions
+    perms["default"]["edit_organization"] = True
+    perms["default"]["manage_subscriptions"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {"visibility": "public", "membership_grace_period_days": 0}
+    response = organization_staff_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 403
+    organization.refresh_from_db()
+    assert organization.membership_grace_period_days == 7
+
+
+def test_staff_with_manage_subscriptions_can_change_membership_policy(
+    organization_staff_client: Client, organization: Organization, staff_member: OrganizationStaff
+) -> None:
+    """Staff with manage_subscriptions can change membership policy via the org-edit endpoint (issue #695)."""
+    perms = staff_member.permissions
+    perms["default"]["edit_organization"] = True
+    perms["default"]["manage_subscriptions"] = True
+    staff_member.permissions = perms
+    staff_member.save()
+
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {"visibility": "public", "membership_grace_period_days": 3, "membership_refund_policy": "Case by case."}
+    response = organization_staff_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    organization.refresh_from_db()
+    assert organization.membership_grace_period_days == 3
+    assert organization.membership_refund_policy == "Case by case."
+
+
+def test_edit_staff_resubmitting_unchanged_membership_policy_is_allowed(
+    organization_staff_client: Client, organization: Organization, staff_member: OrganizationStaff
+) -> None:
+    """The guard only rejects actual changes: resubmitting current values does not 403 (issue #695)."""
+    perms = staff_member.permissions
+    perms["default"]["edit_organization"] = True
+    perms["default"]["manage_subscriptions"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    # Send the fields at their current default values (grace=7, refund="") → no change → allowed.
+    payload = {"visibility": "public", "membership_grace_period_days": 7, "membership_refund_policy": ""}
+    response = organization_staff_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+
+
 @pytest.mark.parametrize(
     "client_fixture,expected_status_code",
     [("member_client", 403), ("nonmember_client", 403), ("client", 401)],

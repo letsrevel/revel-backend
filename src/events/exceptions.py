@@ -33,6 +33,10 @@ class RevenueReportCadenceOwnerOnlyError(Exception):
     """Raised when a non-owner attempts to change an organization's ``revenue_report_cadence``."""
 
 
+class MembershipPolicyManageSubscriptionsOnlyError(Exception):
+    """Raised when a staffer lacking ``manage_subscriptions`` attempts to change membership subscription policy."""
+
+
 class TicketAlreadyCancelledError(Exception):
     """Raised when attempting to cancel/refund a ticket that is already in CANCELLED state."""
 
