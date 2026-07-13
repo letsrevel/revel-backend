@@ -38,6 +38,37 @@ def test_update_organization_by_owner(organization_owner_client: Client, organiz
     assert organization.description == "New description by owner"
 
 
+def test_update_membership_subscription_policy(organization_owner_client: Client, organization: Organization) -> None:
+    """membership_grace_period_days and membership_refund_policy are writable via PUT (issue #695)."""
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {
+        "visibility": "public",
+        "membership_grace_period_days": 14,
+        "membership_refund_policy": "Full refund within 7 days.",
+    }
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    organization.refresh_from_db()
+    assert organization.membership_grace_period_days == 14
+    assert organization.membership_refund_policy == "Full refund within 7 days."
+
+
+def test_update_membership_grace_period_rejects_negative(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """A negative grace period is rejected at the schema boundary (issue #695)."""
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {"visibility": "public", "membership_grace_period_days": -1}
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 422
+    organization.refresh_from_db()
+    assert organization.membership_grace_period_days == 7
+
+
 def test_upload_organization_logo_by_owner(
     organization_owner_client: Client, organization: Organization, png_file: SimpleUploadedFile, png_bytes: bytes
 ) -> None:
@@ -325,6 +356,8 @@ class TestGetOrganizationAdmin:
         organization.stripe_account_id = "acct_test123"
         organization.stripe_charges_enabled = True
         organization.stripe_details_submitted = True
+        organization.membership_grace_period_days = 30
+        organization.membership_refund_policy = "No refunds."
         organization.save()
 
         url = reverse("api:get_organization_admin", kwargs={"slug": organization.slug})
@@ -332,6 +365,10 @@ class TestGetOrganizationAdmin:
 
         assert response.status_code == 200
         data = response.json()
+
+        # Membership subscription policy fields (issue #695)
+        assert data["membership_grace_period_days"] == 30
+        assert data["membership_refund_policy"] == "No refunds."
 
         # Verify basic fields
         assert data["id"] == str(organization.id)
