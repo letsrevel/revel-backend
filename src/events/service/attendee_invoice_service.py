@@ -289,6 +289,20 @@ EDITABLE_DRAFT_FIELDS = frozenset(
     }
 )
 
+# NOT NULL string columns whose schema fields are nullable: the FE sends `null`
+# for a cleared optional field, so coerce None -> "" to respect the DB constraint.
+_NOT_NULL_STRING_FIELDS = frozenset(
+    {
+        "buyer_name",
+        "buyer_vat_id",
+        "buyer_vat_country",
+        "buyer_address",
+        "buyer_email",
+        "currency",
+        "discount_code_text",
+    }
+)
+
 
 def update_draft_invoice(
     invoice: AttendeeInvoice,
@@ -330,6 +344,11 @@ def update_draft_invoice(
             )
             for item in update_data["line_items"]
         ]
+
+    # Coerce None -> "" for NOT NULL string columns (FE sends null for cleared fields).
+    for field in _NOT_NULL_STRING_FIELDS:
+        if field in update_data and update_data[field] is None:
+            update_data[field] = ""
 
     for field, value in update_data.items():
         setattr(invoice, field, value)

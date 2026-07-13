@@ -579,6 +579,16 @@ class TestUpdateDraftInvoice:
         }
         update_draft_invoice(inv, data)  # Should not raise
 
+    def test_null_buyer_field_coerced_to_empty_string(
+        self, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """Regression (#700): a null buyer field must be coerced to "" (NOT NULL column)."""
+        inv = _create_draft(organization, event, member_user)
+        updated = update_draft_invoice(inv, {"buyer_vat_id": None})
+        assert updated.buyer_vat_id == ""
+        updated.refresh_from_db()
+        assert updated.buyer_vat_id == ""
+
 
 # ---------------------------------------------------------------------------
 # issue_draft_invoice
