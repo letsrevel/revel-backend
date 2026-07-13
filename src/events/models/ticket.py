@@ -810,6 +810,13 @@ class Payment(TimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="payments")
     # Not unique: batch purchases share the same session_id across multiple tickets
     stripe_session_id = models.CharField(max_length=255, db_index=True)
+    # Groups the Payment rows created together in one checkout "reserve" step.
+    # Set at reserve time (before the Stripe session exists) and used as the
+    # sibling-grouping key by the interactive cancel/resume/cleanup paths, since
+    # stripe_session_id is "" until the session endpoint stamps it. See #632.
+    # Nullable: legacy rows are backfilled (migration 0095); every new online
+    # checkout Payment sets it in code.
+    reservation_id = models.UUIDField(null=True, blank=True, db_index=True, editable=False)
     stripe_payment_intent_id = models.CharField(
         max_length=255, null=True, blank=True, db_index=True, help_text="Stripe PaymentIntent ID for refund processing"
     )
