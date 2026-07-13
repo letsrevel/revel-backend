@@ -2,7 +2,8 @@
 
 from datetime import timedelta
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+from uuid import UUID
 
 import pytest
 from django.utils import timezone
@@ -67,7 +68,11 @@ class TestCreateBatch:
 
     @pytest.fixture
     def online_tier(self, event: Event) -> TicketTier:
-        """Create an online (Stripe) ticket tier."""
+        """Create an online (Stripe) ticket tier on a Stripe-connected organization."""
+        event.organization.stripe_account_id = "acct_test123"
+        event.organization.stripe_charges_enabled = True
+        event.organization.stripe_details_submitted = True
+        event.organization.save()
         return TicketTier.objects.create(
             event=event,
             name="Online Purchase",
@@ -144,21 +149,22 @@ class TestCreateBatch:
         assert result[0].guest_name == "Guest 1"
         assert result[1].guest_name == "Guest 2"
 
-    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_online_checkout_returns_stripe_url(
         self,
-        mock_stripe: MagicMock,
         event: Event,
         online_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """Should return Stripe checkout URL for online tier."""
-        mock_stripe.return_value = "https://checkout.stripe.com/test"
+        """Online checkout should reserve (PENDING tickets + reservation_id) without calling Stripe (#632)."""
         service = BatchTicketService(event, online_tier, member_user)
         items = [TicketPurchaseItem(guest_name="Guest 1")]
-        result = service.create_batch(items)
-        assert result == "https://checkout.stripe.com/test"
-        mock_stripe.assert_called_once()
+        with patch("stripe.checkout.Session.create") as mock_stripe:
+            result = service.create_batch(items)
+            mock_stripe.assert_not_called()
+        assert isinstance(result, tuple)
+        tickets, reservation_id = result
+        assert isinstance(reservation_id, UUID)
+        assert all(t.status == Ticket.TicketStatus.PENDING for t in tickets)
 
     def test_updates_quantity_sold(
         self,
@@ -536,7 +542,11 @@ class TestCreateBatchPWYC:
 
     @pytest.fixture
     def pwyc_online_tier(self, event: Event) -> TicketTier:
-        """Create a PWYC online ticket tier."""
+        """Create a PWYC online ticket tier on a Stripe-connected organization."""
+        event.organization.stripe_account_id = "acct_test123"
+        event.organization.stripe_charges_enabled = True
+        event.organization.stripe_details_submitted = True
+        event.organization.save()
         return TicketTier.objects.create(
             event=event,
             name="PWYC Online",
@@ -612,30 +622,28 @@ class TestCreateBatchPWYC:
         assert len(result) == 1
         assert result[0].price_paid is None
 
-    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_pwyc_online_does_not_store_price_paid(
         self,
-        mock_stripe: MagicMock,
         event: Event,
         pwyc_online_tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """PWYC online checkout should NOT store price_paid (handled by Stripe)."""
-        mock_stripe.return_value = "https://checkout.stripe.com/test"
+        """PWYC online checkout should reserve (not call Stripe) and NOT store price_paid on the PENDING ticket."""
         service = BatchTicketService(event, pwyc_online_tier, member_user)
         items = [TicketPurchaseItem(guest_name="Guest 1")]
         pwyc_amount = Decimal("30.00")
 
-        result = service.create_batch(items, price_override=pwyc_amount)
+        with patch("stripe.checkout.Session.create") as mock_stripe:
+            result = service.create_batch(items, price_override=pwyc_amount)
+            mock_stripe.assert_not_called()
 
-        assert result == "https://checkout.stripe.com/test"
-        # Verify price_override was passed to stripe
-        mock_stripe.assert_called_once()
-        call_kwargs = mock_stripe.call_args.kwargs
-        assert call_kwargs["price_override"] == pwyc_amount
+        assert isinstance(result, tuple)
+        tickets, reservation_id = result
+        assert isinstance(reservation_id, UUID)
         # Verify ticket was created without price_paid (online uses Payment.amount)
         ticket = Ticket.objects.get(event=event, user=member_user)
         assert ticket.price_paid is None
+        assert ticket.status == Ticket.TicketStatus.PENDING
 
     def test_pwyc_offline_price_persists_in_database(
         self,

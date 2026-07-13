@@ -70,6 +70,11 @@ class EventPublicGuestController(EventPublicBaseController):
         - `NONE`: No seat assigned (general admission)
         - `RANDOM`: System auto-assigns available seats
         - `USER_CHOICE`: User must provide seat_id for each ticket
+
+        **Online tiers:** returns `requires_payment=true` and a `reservation_id`. Call
+        `POST /events/reservations/{reservation_id}/checkout-session/public` next to
+        obtain the Stripe `checkout_url`. Free / offline / at-the-door tiers complete
+        here (`requires_payment=false`, email confirmation sent).
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
@@ -122,6 +127,11 @@ class EventPublicGuestController(EventPublicBaseController):
         - `NONE`: No seat assigned (general admission)
         - `RANDOM`: System auto-assigns available seats
         - `USER_CHOICE`: User must provide seat_id for each ticket
+
+        **Online tiers:** returns `requires_payment=true` and a `reservation_id`. Call
+        `POST /events/reservations/{reservation_id}/checkout-session/public` next to
+        obtain the Stripe `checkout_url`. Free / offline / at-the-door tiers complete
+        here (`requires_payment=false`, email confirmation sent).
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
@@ -141,4 +151,23 @@ class EventPublicGuestController(EventPublicBaseController):
             payload.tickets,
             pwyc_amount=payload.price_per_ticket,
             billing_info=payload.billing_info,
+        )
+
+    @route.post(
+        "/reservations/{uuid:reservation_id}/checkout-session/public",
+        url_name="guest_checkout_session",
+        response={200: schema.CheckoutSessionResponse, 404: ResponseMessage},
+        throttle=WriteThrottle(),
+    )
+    def guest_checkout_session(self, reservation_id: UUID) -> schema.CheckoutSessionResponse:
+        """Create the Stripe checkout session for a guest reservation (#632).
+
+        Second step of guest online checkout. The `reservation_id` is an
+        unguessable bearer handle returned by the guest checkout endpoints.
+        Idempotent; returns 404 if unknown/expired.
+        """
+        from events.service import stripe_service
+
+        return schema.CheckoutSessionResponse(
+            checkout_url=stripe_service.create_batch_session(reservation_id=reservation_id)
         )
