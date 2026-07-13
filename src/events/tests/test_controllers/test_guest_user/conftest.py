@@ -95,7 +95,11 @@ def offline_tier(guest_event_with_tickets: Event) -> TicketTier:
 
 @pytest.fixture
 def online_tier(guest_event_with_tickets: Event) -> TicketTier:
-    """An online payment tier (Stripe)."""
+    """An online payment tier (Stripe) on a Stripe-connected organization."""
+    guest_event_with_tickets.organization.stripe_account_id = "acct_test123"
+    guest_event_with_tickets.organization.stripe_charges_enabled = True
+    guest_event_with_tickets.organization.stripe_details_submitted = True
+    guest_event_with_tickets.organization.save()
     return TicketTier.objects.create(
         event=guest_event_with_tickets,
         name="Online Tier",
