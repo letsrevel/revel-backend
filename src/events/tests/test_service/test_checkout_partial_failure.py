@@ -1,0 +1,152 @@
+"""Partial-failure integration tests for the reserve/session checkout split (#632).
+
+Two dangerous windows in the split:
+
+- Window A: the reservation step (``BatchTicketService.create_batch`` for an online
+  tier) completes -- PENDING tickets + Payment rows exist and ``quantity_sold`` is
+  incremented -- but the buyer never calls ``create_batch_session`` (e.g. they close
+  the tab). The beat task ``cleanup_expired_payments`` must reclaim the reservation:
+  delete the stale Payment/Ticket rows and give the capacity back to the tier.
+- Window B: ``create_batch_session`` calls Stripe successfully but fails to persist
+  (stamp) the ``stripe_session_id`` onto the Payment rows before returning. Because
+  the Payment rows were created by ``reserve_batch_payments`` *before* any Stripe
+  call, a "paid session with zero Payment rows" is structurally unreachable -- the
+  webhook can always find rows to reconcile against. A retry (idempotent via
+  ``idempotency_key=reservation_id``) must recover and stamp successfully.
+"""
+
+from datetime import timedelta
+from decimal import Decimal
+from unittest import mock
+from uuid import UUID
+
+import pytest
+from django.utils import timezone
+
+from accounts.models import RevelUser
+from events.models import Event, Organization, Payment, Ticket, TicketTier
+from events.schema import TicketPurchaseItem
+from events.service import stripe_service
+from events.service.batch_ticket_service import BatchTicketService
+from events.tasks.payments import cleanup_expired_payments
+
+pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture
+def online_tier(event: Event, organization: Organization) -> TicketTier:
+    """An online (Stripe) ticket tier on a Stripe-connected organization."""
+    organization.stripe_account_id = "acct_test123"
+    organization.stripe_charges_enabled = True
+    organization.stripe_details_submitted = True
+    organization.platform_fee_percent = Decimal("3.00")
+    organization.platform_fee_fixed = Decimal("0.50")
+    organization.save()
+    return TicketTier.objects.create(
+        event=event,
+        name="Online Purchase",
+        price=Decimal("50.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+        total_quantity=100,
+    )
+
+
+def _reserve_online(event: Event, tier: TicketTier, user: RevelUser) -> tuple[list[Ticket], UUID]:
+    """Drive an online reserve through BatchTicketService so quantity_sold really increments."""
+    service = BatchTicketService(event, tier, user)
+    items = [TicketPurchaseItem(guest_name="Guest 1")]
+    with mock.patch("stripe.checkout.Session.create") as create:
+        result = service.create_batch(items)
+        create.assert_not_called()
+    assert isinstance(result, tuple)
+    tickets, reservation_id = result
+    return tickets, reservation_id
+
+
+class TestWindowBStampFailureThenRetry:
+    """Window B: Stripe succeeds but the stamp UPDATE fails; a retry must recover."""
+
+    def test_payment_rows_exist_before_stripe_and_retry_recovers_after_stamp_failure(
+        self, event: Event, online_tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        """Payment rows are created by reserve_batch_payments, before any Stripe call.
+
+        First create_batch_session attempt: Stripe.create succeeds, but the stamp
+        UPDATE (the actual call site in stripe_service.create_batch_session -- the
+        one and only ``QuerySet.update()`` invocation in that function) is made to
+        raise. No URL is returned, and the Payment rows survive untouched (still
+        un-sessioned) -- exactly what lets the Stripe webhook reconcile a paid
+        session even if the local stamp never happened. Retrying create_batch_session
+        (Stripe mocked to return the SAME fake session, proving the idempotency_key
+        would dedupe a real double-submit) then succeeds and stamps the rows.
+        """
+        tickets, rid = _reserve_online(event, online_tier, member_user)
+
+        # Invariant: Payment rows exist BEFORE any Stripe call is made.
+        payments_before = list(Payment.objects.filter(reservation_id=rid))
+        assert len(payments_before) == len(tickets) == 1
+        assert payments_before[0].stripe_session_id == ""
+        assert payments_before[0].status == Payment.PaymentStatus.PENDING
+
+        fake_session = mock.Mock(id="cs_window_b", url="https://checkout.stripe.com/c/cs_window_b")
+
+        # Attempt 1: Stripe succeeds, the stamp UPDATE fails.
+        with (
+            mock.patch("stripe.checkout.Session.create", return_value=fake_session) as create,
+            mock.patch("django.db.models.query.QuerySet.update", side_effect=RuntimeError("stamp boom")),
+        ):
+            with pytest.raises(RuntimeError, match="stamp boom"):
+                stripe_service.create_batch_session(reservation_id=rid)
+            create.assert_called_once()
+
+        # No URL was returned (implicit, since it raised) and the rows are untouched.
+        payments_after_failure = list(Payment.objects.filter(reservation_id=rid))
+        assert len(payments_after_failure) == 1
+        assert payments_after_failure[0].stripe_session_id == ""
+        assert payments_after_failure[0].status == Payment.PaymentStatus.PENDING
+
+        # Attempt 2 (retry): Stripe mocked to return the SAME session (idempotent),
+        # stamp UPDATE now runs for real and succeeds.
+        with mock.patch("stripe.checkout.Session.create", return_value=fake_session) as create_retry:
+            url = stripe_service.create_batch_session(reservation_id=rid)
+            assert create_retry.call_args.kwargs["idempotency_key"] == str(rid)
+
+        assert url == fake_session.url
+        stamped = Payment.objects.get(reservation_id=rid)
+        assert stamped.stripe_session_id == "cs_window_b"
+        assert stamped.status == Payment.PaymentStatus.PENDING
+
+
+class TestWindowAAbandonedReserveReclaimed:
+    """Window A: an online reserve is abandoned (no session ever created); the beat
+    task must reclaim the Payment/Ticket rows and give quantity_sold back."""
+
+    def test_expired_reservation_reclaimed_by_cleanup_task(
+        self, event: Event, online_tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        online_tier.refresh_from_db()
+        before_sold = online_tier.quantity_sold
+
+        tickets, rid = _reserve_online(event, online_tier, member_user)
+
+        online_tier.refresh_from_db()
+        # Driven through create_batch (not reserve_batch_payments alone), so the
+        # increment is real -- proving there is real capacity to reclaim.
+        assert online_tier.quantity_sold == before_sold + len(tickets)
+
+        ticket_ids = [t.id for t in tickets]
+        assert Payment.objects.filter(reservation_id=rid).exists()
+        assert Ticket.objects.filter(id__in=ticket_ids, status=Ticket.TicketStatus.PENDING).exists()
+
+        # Force-expire, as if the buyer abandoned the reserve before ever calling
+        # create_batch_session.
+        Payment.objects.filter(reservation_id=rid).update(expires_at=timezone.now() - timedelta(minutes=1))
+
+        reclaimed = cleanup_expired_payments()
+
+        assert reclaimed == len(tickets)
+        assert not Payment.objects.filter(reservation_id=rid).exists()
+        assert not Ticket.objects.filter(id__in=ticket_ids).exists()
+        online_tier.refresh_from_db()
+        assert online_tier.quantity_sold == before_sold
