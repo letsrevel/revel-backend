@@ -38,11 +38,15 @@ class OrganizationAdminCoreController(OrganizationAdminBaseController):
     @route.put(
         "",
         url_name="edit_organization",
-        response=schema.OrganizationRetrieveSchema,
+        response=schema.OrganizationAdminDetailSchema,
         permissions=[OrganizationPermission("edit_organization")],
     )
     def update_organization(self, slug: str, payload: schema.OrganizationEditSchema) -> models.Organization:
         """Update organization by slug.
+
+        Echoes the full admin representation (same schema as ``GET``) so callers get
+        every updated field back — including subscription policy and billing/VAT — and
+        don't have to re-fetch after a write (issue #697).
 
         Note: contact_email cannot be updated through this endpoint.
         Use the update-contact-email endpoint instead for email changes.

@@ -50,9 +50,30 @@ def test_update_membership_subscription_policy(organization_owner_client: Client
     response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
 
     assert response.status_code == 200
+    # The PUT echoes the full admin representation, so the written fields come back (issue #697).
+    data = response.json()
+    assert data["membership_grace_period_days"] == 14
+    assert data["membership_refund_policy"] == "Full refund within 7 days."
     organization.refresh_from_db()
     assert organization.membership_grace_period_days == 14
     assert organization.membership_refund_policy == "Full refund within 7 days."
+
+
+def test_update_response_uses_admin_detail_schema(
+    organization_owner_client: Client, organization: Organization
+) -> None:
+    """PUT echoes OrganizationAdminDetailSchema, not the leaner retrieve schema (issue #697)."""
+    url = reverse("api:edit_organization", kwargs={"slug": organization.slug})
+    payload = {"visibility": "public"}
+
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    data = response.json()
+    # Fields exclusive to the admin detail schema (absent from OrganizationRetrieveSchema).
+    assert "contact_email_verified" in data
+    assert "revenue_report_cadence" in data
+    assert "membership_grace_period_days" in data
 
 
 def test_update_membership_grace_period_rejects_negative(
