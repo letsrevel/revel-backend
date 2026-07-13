@@ -27,7 +27,7 @@ def cleanup_expired_payments() -> int:
     """
     # Imported here: events.tasks.__init__ imports this module while
     # series_pass_service itself imports events.tasks (materialization task).
-    from events.service.series_pass_service import expire_stranded_held_passes
+    from events.service.series_pass_service import expire_held_passes_for_tickets
 
     # Find payments for tickets that are still pending and whose Stripe session has expired.
     expired_payments_qs = Payment.objects.filter(
@@ -40,7 +40,6 @@ def cleanup_expired_payments() -> int:
     # Collect IDs and tier counts before the transaction to avoid holding locks for too long
     payment_ids_to_delete = list(expired_payments_qs.values_list("id", flat=True))
     ticket_ids_to_delete = list(expired_payments_qs.values_list("ticket_id", flat=True))
-    expired_session_ids = set(expired_payments_qs.values_list("stripe_session_id", flat=True))
     tickets_to_release_by_tier: Counter[UUID] = Counter(
         expired_payments_qs.filter(ticket__tier_id__isnull=False).values_list("ticket__tier_id", flat=True)
     )
@@ -55,8 +54,11 @@ def cleanup_expired_payments() -> int:
         # (releasing SeriesPass.quantity_sold so the buyer can purchase again),
         # THEN release tier capacity — pass row before tier rows, matching
         # SeriesPassPurchaseService.purchase's lock order to avoid deadlocking
-        # against a concurrent purchase on the same pass.
-        expire_stranded_held_passes(expired_session_ids)
+        # against a concurrent purchase on the same pass. Ticket-based (not
+        # session-based): a reserved-but-not-sessioned series pass's
+        # held_pass.stripe_session_id is "" and would be missed by a session
+        # lookup (#632).
+        expire_held_passes_for_tickets(ticket_ids_to_delete)
 
         # Atomically decrement the quantity_sold for each affected tier.
         for tier_id, count_to_release in tickets_to_release_by_tier.items():

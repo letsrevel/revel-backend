@@ -11,7 +11,7 @@ import stripe
 import structlog
 from django.conf import settings
 from django.db import transaction
-from django.db.models import F, Value
+from django.db.models import F, Q, Value
 from django.db.models.functions import Greatest
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
@@ -50,23 +50,36 @@ def _release_batch_tier_capacity(ticket_ids: list[UUID]) -> None:
         TicketTier.objects.filter(pk=tier_id).update(quantity_sold=Greatest(F("quantity_sold") - count, Value(0)))
 
 
+def _batch_filter(payment: Payment) -> "Q":
+    """Sibling-payment filter for a checkout batch.
+
+    Reserved-but-not-sessioned batches share reservation_id (stripe_session_id is
+    ""); once sessioned they also share the real stripe_session_id. Group by
+    reservation_id when present, else fall back to the session id (legacy rows).
+    """
+    if payment.reservation_id is not None:
+        return Q(reservation_id=payment.reservation_id)
+    return Q(stripe_session_id=payment.stripe_session_id)
+
+
 @transaction.atomic
 def _cleanup_expired_batch(payment: Payment) -> None:
-    """Clean up an expired payment batch (all tickets with same session_id)."""
+    """Clean up an expired payment batch (all sibling payments sharing payment's reservation/session)."""
     # Imported here to avoid a cycle (series_pass_service -> events.tasks -> services).
-    from events.service.series_pass_service import expire_stranded_held_passes
+    from events.service.series_pass_service import expire_held_passes_for_tickets
 
-    session_id = payment.stripe_session_id
     # PENDING only: another route (e.g. cancel_held_pass) may already have
-    # cancelled part of the session — its payments went FAILED and its tier
+    # cancelled part of the batch — its payments went FAILED and its tier
     # capacity was released there. Re-releasing (or hard-deleting the CANCELLED
     # audit tickets) here would double-decrement counters and destroy history.
     # Mirrors the cleanup_expired_payments beat task.
-    batch_payments = Payment.objects.filter(stripe_session_id=session_id, status=Payment.PaymentStatus.PENDING)
+    batch_payments = Payment.objects.filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
     ticket_ids = list(batch_payments.values_list("ticket_id", flat=True))
 
     # Pass row before tier rows (SeriesPassPurchaseService.purchase's lock order).
-    expire_stranded_held_passes([session_id])
+    # Ticket-based (not session-based): a reserved-but-not-sessioned series pass's
+    # held_pass.stripe_session_id is "" and would be missed by a session lookup (#632).
+    expire_held_passes_for_tickets(ticket_ids)
 
     # Release capacity per tier before the rows disappear.
     _release_batch_tier_capacity(ticket_ids)
@@ -139,7 +152,8 @@ def cancel_pending_checkout(
 ) -> int:
     """Cancel a pending Stripe checkout and delete associated tickets.
 
-    Deletes all payments and tickets in the same batch (same stripe_session_id).
+    Deletes all payments and tickets in the same batch (same reservation_id,
+    falling back to stripe_session_id for legacy rows).
 
     Args:
         payment_id: The UUID of the pending payment to cancel.
@@ -169,17 +183,15 @@ def cancel_pending_checkout(
         raise HttpError(400, str(_("Only pending payments can be cancelled.")))
 
     # Imported here to avoid a cycle (series_pass_service -> events.tasks -> services).
-    from events.service.series_pass_service import expire_stranded_held_passes
+    from events.service.series_pass_service import expire_held_passes_for_tickets
 
-    # Find the still-pending payments in this batch (same session_id). PENDING
-    # only: another route (e.g. cancel_held_pass) may already have cancelled part
-    # of the session — its payments went FAILED and its tier capacity was released
-    # there. Re-releasing (or hard-deleting the CANCELLED audit tickets) here
-    # would double-decrement counters and destroy history. Mirrors the
-    # cleanup_expired_payments beat task.
-    batch_payments = Payment.objects.filter(
-        stripe_session_id=payment.stripe_session_id, status=Payment.PaymentStatus.PENDING
-    )
+    # Find the still-pending sibling payments in this batch (same reservation_id,
+    # falling back to session_id for legacy rows). PENDING only: another route
+    # (e.g. cancel_held_pass) may already have cancelled part of the batch — its
+    # payments went FAILED and its tier capacity was released there. Re-releasing
+    # (or hard-deleting the CANCELLED audit tickets) here would double-decrement
+    # counters and destroy history. Mirrors the cleanup_expired_payments beat task.
+    batch_payments = Payment.objects.filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
     ticket_count = batch_payments.count()
     ticket_ids = list(batch_payments.values_list("ticket_id", flat=True))
 
@@ -188,7 +200,9 @@ def cancel_pending_checkout(
     event_ids = set(Ticket.objects.filter(id__in=ticket_ids).values_list("event_id", flat=True))
 
     # Pass row before tier rows (SeriesPassPurchaseService.purchase's lock order).
-    expire_stranded_held_passes([payment.stripe_session_id])
+    # Ticket-based (not session-based): a reserved-but-not-sessioned series pass's
+    # held_pass.stripe_session_id is "" and would be missed by a session lookup (#632).
+    expire_held_passes_for_tickets(ticket_ids)
 
     # Release capacity per tier before the rows disappear.
     _release_batch_tier_capacity(ticket_ids)

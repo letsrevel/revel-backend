@@ -386,3 +386,102 @@ class TestPaymentIntentCanceledWebhook:
             assert payment.status == Payment.PaymentStatus.FAILED
         for ticket in Ticket.objects.filter(held_pass=held_pass):
             assert ticket.status == Ticket.TicketStatus.CANCELLED
+
+
+def _reserve_unsessioned(series_pass: SeriesPass, user: RevelUser) -> HeldSeriesPass:
+    """Drive the real ONLINE purchase flow only through the reserve step (#632).
+
+    ``SeriesPassPurchaseService.purchase()`` calls ``reserve_series_pass_payments``,
+    which makes no Stripe call — the returned held pass and its Payment rows are
+    left un-sessioned (``stripe_session_id == ""``), reproducing an abandoned
+    pre-session reserve.
+    """
+    held_pass, _reservation_id = SeriesPassPurchaseService(series_pass, user).purchase()  # type: ignore[misc]
+    return HeldSeriesPass.objects.get(pk=held_pass.pk)
+
+
+class TestUnsessionedReserveReclaim:
+    """#632: a reserved-but-not-sessioned pass has held_pass.stripe_session_id=""
+    and its Payment rows' stripe_session_id="" too. expire_stranded_held_passes
+    (session-keyed) can't find it, which used to strand it PENDING and 409-lock the
+    buyer out of re-purchasing via _has_active_held_pass. Every pre-session reclaim
+    route must find and release it via its tickets instead.
+    """
+
+    def test_beat_task_reclaims_unsessioned_reserve_and_unblocks_repurchase(
+        self,
+        online_pass_two_tiers: tuple[SeriesPass, list[TicketTier]],
+        revel_user: RevelUser,
+    ) -> None:
+        series_pass, tiers = online_pass_two_tiers
+        held_pass = _reserve_unsessioned(series_pass, revel_user)
+        assert held_pass.stripe_session_id == ""
+        payments = Payment.objects.filter(ticket__held_pass=held_pass)
+        assert payments.count() == 2
+        assert all(p.stripe_session_id == "" for p in payments)
+
+        payments.update(expires_at=timezone.now() - timedelta(minutes=1))
+
+        cleaned = cleanup_expired_payments()
+        assert cleaned == 2
+
+        held_pass.refresh_from_db()
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
+        series_pass.refresh_from_db()
+        assert series_pass.quantity_sold == 0
+        for tier in tiers:
+            tier.refresh_from_db()
+            assert tier.quantity_sold == 0
+        assert not Ticket.objects.filter(held_pass=held_pass, status=Ticket.TicketStatus.PENDING).exists()
+
+        # The buyer is no longer blocked by the conditional unique constraint / _has_active_held_pass.
+        service = SeriesPassPurchaseService(series_pass, revel_user)
+        assert service._has_active_held_pass() is False
+        new_held_pass, _rid = service.purchase()  # type: ignore[misc]
+        assert new_held_pass.pk != held_pass.pk
+        assert new_held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
+
+    def test_cancel_pending_checkout_reclaims_unsessioned_reserve(
+        self,
+        online_pass_two_tiers: tuple[SeriesPass, list[TicketTier]],
+        revel_user: RevelUser,
+    ) -> None:
+        series_pass, tiers = online_pass_two_tiers
+        held_pass = _reserve_unsessioned(series_pass, revel_user)
+        payment = Payment.objects.filter(ticket__held_pass=held_pass).select_related("ticket__tier").first()
+        assert payment is not None
+        assert payment.stripe_session_id == ""
+
+        cancelled = stripe_service.cancel_pending_checkout(str(payment.id), revel_user)
+        assert cancelled == 2
+
+        held_pass.refresh_from_db()
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
+        series_pass.refresh_from_db()
+        assert series_pass.quantity_sold == 0
+        for tier in tiers:
+            tier.refresh_from_db()
+            assert tier.quantity_sold == 0
+        assert not Ticket.objects.filter(held_pass=held_pass).exists()
+
+        assert SeriesPassPurchaseService(series_pass, revel_user)._has_active_held_pass() is False
+
+    def test_cleanup_expired_batch_reclaims_unsessioned_reserve(
+        self,
+        online_pass_two_tiers: tuple[SeriesPass, list[TicketTier]],
+        revel_user: RevelUser,
+    ) -> None:
+        series_pass, tiers = online_pass_two_tiers
+        held_pass = _reserve_unsessioned(series_pass, revel_user)
+        payment = Payment.objects.filter(ticket__held_pass=held_pass).select_related("ticket__tier").first()
+        assert payment is not None
+
+        stripe_service._cleanup_expired_batch(payment)
+
+        held_pass.refresh_from_db()
+        assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
+        series_pass.refresh_from_db()
+        assert series_pass.quantity_sold == 0
+        for tier in tiers:
+            tier.refresh_from_db()
+            assert tier.quantity_sold == 0
