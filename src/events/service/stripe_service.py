@@ -698,6 +698,11 @@ def create_batch_session(*, reservation_id: UUID) -> str:
         raise HttpError(404, str(_("Reservation has expired. Please start a new purchase.")))
 
     tickets = [p.ticket for p in payments]
+    if any(tk.held_pass_id for tk in tickets):
+        # A series-pass reservation is not a valid batch reservation (#632 guard).
+        # 404 (not 400) and the same message as "not found" avoids leaking reservation
+        # existence/type to a client probing with someone else's reservation_id.
+        raise HttpError(404, str(_("No pending reservation found.")))
     tier = tickets[0].tier
     event = tickets[0].event
     user = payments[0].user
@@ -917,8 +922,14 @@ def create_series_pass_session(*, reservation_id: UUID) -> str:
         raise HttpError(404, str(_("Reservation has expired. Please start a new purchase.")))
 
     tickets = [p.ticket for p in payments]
+    if tickets[0].held_pass_id is None:
+        # A batch reservation is not a valid series-pass reservation (#632 guard).
+        # 404 (not 400/500) and the same message as "not found" avoids leaking
+        # reservation existence/type to a client probing with someone else's id.
+        raise HttpError(404, str(_("No pending reservation found.")))
     # A series-pass ticket always has held_pass set (materialize_tickets, the only
-    # place tickets are created for reserve_series_pass_payments to pick up).
+    # place tickets are created for reserve_series_pass_payments to pick up) --
+    # guaranteed by the guard above.
     held_pass = t.cast(HeldSeriesPass, tickets[0].held_pass)
     series_pass = held_pass.series_pass
     org = series_pass.event_series.organization

@@ -22,12 +22,24 @@ from uuid import UUID
 
 import pytest
 from django.utils import timezone
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
-from events.models import Event, Organization, Payment, Ticket, TicketTier
+from events.models import (
+    Event,
+    EventSeries,
+    HeldSeriesPass,
+    Organization,
+    Payment,
+    SeriesPass,
+    SeriesPassTierLink,
+    Ticket,
+    TicketTier,
+)
 from events.schema import TicketPurchaseItem
 from events.service import stripe_service
 from events.service.batch_ticket_service import BatchTicketService
+from events.service.series_pass_purchase import SeriesPassPurchaseService
 from events.tasks.payments import cleanup_expired_payments
 
 pytestmark = pytest.mark.django_db
@@ -62,6 +74,61 @@ def _reserve_online(event: Event, tier: TicketTier, user: RevelUser) -> tuple[li
     assert isinstance(result, tuple)
     tickets, reservation_id = result
     return tickets, reservation_id
+
+
+@pytest.fixture
+def online_series_pass(event_series: EventSeries) -> SeriesPass:
+    """An ONLINE series pass covering 2 future events (the minimum ``get_quote``
+    requires -- see ``series_pass_service.get_quote``'s ``remaining < 2`` check) on
+    a Stripe-connected organization."""
+    org = event_series.organization
+    org.stripe_account_id = "acct_series_window_b"
+    org.stripe_charges_enabled = True
+    org.stripe_details_submitted = True
+    org.platform_fee_percent = Decimal("3.00")
+    org.platform_fee_fixed = Decimal("0.50")
+    org.save()
+
+    series_pass = SeriesPass.objects.create(
+        event_series=event_series,
+        name="Window B Pass",
+        price=Decimal("30.00"),
+        pro_rata_discount=Decimal("0.00"),
+        currency="EUR",
+        payment_method=TicketTier.PaymentMethod.ONLINE,
+    )
+    for i in range(2):
+        pass_event = Event.objects.create(
+            organization=org,
+            name=f"Pass Event {i}",
+            slug=f"pass-event-window-b-{i}",
+            event_type=Event.EventType.PUBLIC,
+            visibility=Event.Visibility.PUBLIC,
+            event_series=event_series,
+            max_attendees=100,
+            start=timezone.now() + timedelta(days=i + 1),
+            status=Event.EventStatus.OPEN,
+            requires_ticket=True,
+        )
+        tier = TicketTier.objects.create(
+            event=pass_event,
+            name=f"Pass Tier {i}",
+            price=Decimal("10.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        SeriesPassTierLink.objects.create(series_pass=series_pass, event=pass_event, tier=tier)
+    return series_pass
+
+
+def _reserve_series_online(series_pass: SeriesPass, user: RevelUser) -> tuple[HeldSeriesPass, UUID]:
+    """Drive an online series-pass reserve so PENDING tickets + Payment rows exist, no Stripe call."""
+    with mock.patch("stripe.checkout.Session.create") as create:
+        result = SeriesPassPurchaseService(series_pass, user).purchase()
+        create.assert_not_called()
+    assert isinstance(result, tuple)
+    held_pass, reservation_id = result
+    return held_pass, reservation_id
 
 
 class TestWindowBStampFailureThenRetry:
@@ -150,3 +217,93 @@ class TestWindowAAbandonedReserveReclaimed:
         assert not Ticket.objects.filter(id__in=ticket_ids).exists()
         online_tier.refresh_from_db()
         assert online_tier.quantity_sold == before_sold
+
+
+class TestSeriesPassWindowBStampFailureThenRetry:
+    """Window B, mirrored for the series-pass session path: Stripe succeeds but the
+    stamp UPDATE fails; a retry (idempotent) must recover and stamp both the Payment
+    rows and the HeldSeriesPass."""
+
+    def test_payment_rows_exist_before_stripe_and_retry_recovers_after_stamp_failure(
+        self, online_series_pass: SeriesPass, member_user: RevelUser
+    ) -> None:
+        """Payment rows are created by reserve_series_pass_payments, before any Stripe call.
+
+        First create_series_pass_session attempt: Stripe.create succeeds, but the
+        stamp UPDATE is made to raise. The whole function is @transaction.atomic, so
+        both the Payment.stripe_session_id stamp AND the held_pass.stripe_session_id
+        stamp roll back together -- no URL is returned, and everything survives
+        untouched (still un-sessioned). Retrying (Stripe mocked to return the SAME
+        fake session, proving idempotency_key would dedupe a real double-submit)
+        then succeeds and stamps both the Payment rows and the held pass.
+        """
+        held_pass, rid = _reserve_series_online(online_series_pass, member_user)
+
+        # Invariant: Payment rows exist BEFORE any Stripe call is made.
+        payments_before = list(Payment.objects.filter(reservation_id=rid))
+        assert len(payments_before) == 2
+        assert all(p.stripe_session_id == "" for p in payments_before)
+        assert all(p.status == Payment.PaymentStatus.PENDING for p in payments_before)
+        assert held_pass.stripe_session_id == ""
+
+        fake_session = mock.Mock(id="cs_series_window_b", url="https://checkout.stripe.com/c/cs_series_window_b")
+
+        # Attempt 1: Stripe succeeds, the stamp UPDATE fails.
+        with (
+            mock.patch("stripe.checkout.Session.create", return_value=fake_session) as create,
+            mock.patch("django.db.models.query.QuerySet.update", side_effect=RuntimeError("stamp boom")),
+        ):
+            with pytest.raises(RuntimeError, match="stamp boom"):
+                stripe_service.create_series_pass_session(reservation_id=rid)
+            create.assert_called_once()
+
+        # No URL was returned (implicit, since it raised) and everything is untouched.
+        payments_after_failure = list(Payment.objects.filter(reservation_id=rid))
+        assert len(payments_after_failure) == 2
+        assert all(p.stripe_session_id == "" for p in payments_after_failure)
+        assert all(p.status == Payment.PaymentStatus.PENDING for p in payments_after_failure)
+        held_pass.refresh_from_db()
+        assert held_pass.stripe_session_id == ""
+
+        # Attempt 2 (retry): Stripe mocked to return the SAME session (idempotent),
+        # stamp UPDATE now runs for real and succeeds.
+        with mock.patch("stripe.checkout.Session.create", return_value=fake_session) as create_retry:
+            url = stripe_service.create_series_pass_session(reservation_id=rid)
+            assert create_retry.call_args.kwargs["idempotency_key"] == str(rid)
+
+        assert url == fake_session.url
+        stamped = list(Payment.objects.filter(reservation_id=rid))
+        assert all(p.stripe_session_id == "cs_series_window_b" for p in stamped)
+        assert all(p.status == Payment.PaymentStatus.PENDING for p in stamped)
+        held_pass.refresh_from_db()
+        assert held_pass.stripe_session_id == "cs_series_window_b"
+
+
+class TestCrossTypeReservationGuard:
+    """A reservation for one checkout type must be rejected by the other type's
+    session endpoint (#632): ownership alone isn't enough to guarantee the caller
+    hit the matching session function, and mixing the two would either strand a
+    HeldSeriesPass (batch session on a series reservation) or crash on a None
+    held_pass (series session on a batch reservation)."""
+
+    def test_series_reservation_rejected_by_batch_session(
+        self, online_series_pass: SeriesPass, member_user: RevelUser
+    ) -> None:
+        _, rid = _reserve_series_online(online_series_pass, member_user)
+
+        with mock.patch("stripe.checkout.Session.create") as create:
+            with pytest.raises(HttpError) as exc:
+                stripe_service.create_batch_session(reservation_id=rid)
+            create.assert_not_called()
+        assert exc.value.status_code == 404
+
+    def test_batch_reservation_rejected_by_series_session(
+        self, event: Event, online_tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        _, rid = _reserve_online(event, online_tier, member_user)
+
+        with mock.patch("stripe.checkout.Session.create") as create:
+            with pytest.raises(HttpError) as exc:
+                stripe_service.create_series_pass_session(reservation_id=rid)
+            create.assert_not_called()
+        assert exc.value.status_code == 404
