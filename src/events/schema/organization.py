@@ -57,7 +57,7 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     accept_membership_requests: bool = False
     contact_method: Organization.ContactMethod = Organization.ContactMethod.NONE
     revenue_report_cadence: Organization.RevenueReportCadence = Organization.RevenueReportCadence.NONE
-    membership_grace_period_days: int = Field(7, ge=0)
+    membership_grace_period_days: t.Annotated[int, Field(ge=0)] = 7
     membership_refund_policy: StrippedString = ""
 
 
