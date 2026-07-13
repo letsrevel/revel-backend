@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.70.0] - 2026-07-13
+
+### Added
+- Membership tiers now carry a persistable display order: a new `PATCH /organization-admin/{slug}/membership-tiers/reorder` endpoint sets the order, `display_order` is exposed on the tier schema, and newly created tiers append at the bottom — enabling drag-to-reorder in the org-admin UI. Existing tiers are backfilled in their current alphabetical order on deploy.
+- Organization subscription-policy fields `membership_grace_period_days` and `membership_refund_policy` are now exposed on the org-admin detail and edit schemas, so the org-admin UI can display and edit them. Changing them requires the `manage_subscriptions` permission (consistent with the rest of the subscription management surface); staff with only `edit_organization` cannot alter subscription policy.
+- The public organization schema (`OrganizationRetrieveSchema`) now includes `membership_refund_policy`, so prospective and active subscribers can read the refund policy before requesting or paying for a membership (the grace period stays admin-internal).
+- Public organization-token preview (`GET /organizations/tokens/{token_id}`) now includes the inviting organization's `organization_name`, `organization_slug`, `organization_logo_url`, and the granted `membership_tier_name`, so the pre-claim join page can show which organization (and tier) is inviting.
+- Public event-token preview (`GET /events/tokens/{token_id}`) now includes `event_name`, `event_slug`, `organization_slug`, `event_start`, and `event_cover_url`, so the pre-claim join page can render the event instead of "Join undefined".
+
+### Changed
+- Any organization staff member can now list members (`GET /organization-admin/{slug}/members`); this previously required the `manage_members` permission, so staff who could already create RSVPs on behalf of a user had no way to look them up.
+- Public token previews (`GET /events/tokens/{token_id}` and `GET /organizations/tokens/{token_id}`) now return **410 Gone** with a machine-readable `reason` (`expired` or `used_up`) plus minimal display fields for tokens that exist but are no longer servable, instead of a generic 404 — so the join pages can distinguish an expired invitation from a used-up one. A 404 is now returned only for genuinely unknown token ids.
+
+### Fixed
+- Search results no longer contain duplicates when the search term matches on a multiplying relation (e.g. tags): an event with 3 matching tags used to appear 3× in events, event-series, organization, dashboard, and questionnaire listings.
+- Membership request approval and rejection notifications are no longer silently dropped — approved and rejected applicants now receive their in-app/email notification (the notification context previously failed schema validation).
+- Organization staff granted the relevant permissions can now use org-admin routes that previously denied every non-owner staff member regardless of their grants: deleting organization resources (requires `edit_organization`) and managing discount codes (requires `manage_tickets`). Revenue & VAT report endpoints are now explicitly owner-only.
+- Attendees can now change or withdraw their RSVP on a full event: a `yes → no`/`maybe`, a `maybe → no`, or a new decline are no longer rejected with `event_is_full` — capacity is only enforced on seat-claiming (a new `yes`) writes. Freeing a seat this way triggers waitlist processing for the next person in line.
+- `PUT /organization-admin/{slug}` now echoes the full admin representation (the same schema as `GET`), so a successful edit returns every updated field — including the subscription-policy and billing/VAT fields it previously omitted — instead of forcing a follow-up `GET`.
+
+### Security
+- Upgraded Django 5.2.15 → 5.2.16 to patch three known vulnerabilities (`PYSEC-2026-2090`, `PYSEC-2026-2091`, `PYSEC-2026-2092`).
+- Upgraded click 8.2.1 → 8.4.2 to patch `PYSEC-2026-2132`.
+
 ## [1.69.0] - 2026-07-09
 
 ### Changed
