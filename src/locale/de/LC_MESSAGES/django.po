@@ -927,6 +927,9 @@ msgstr "Der PWYC-Betrag muss mindestens {min_amount} betragen"
 msgid "PWYC amount must be at most {max_amount}"
 msgstr "Der PWYC-Betrag darf höchstens {max_amount} betragen"
 
+msgid "No pending reservation found."
+msgstr "Keine ausstehende Reservierung gefunden."
+
 msgid "Only the ticket holder can view this preview."
 msgstr "Nur der Ticketinhaber kann diese Vorschau anzeigen."
 
@@ -1631,6 +1634,9 @@ msgstr "Du hast bereits ein Ticket"
 
 msgid "This ticket tier cannot be purchased online."
 msgstr "Diese Ticket-Kategorie kann nicht online gekauft werden."
+
+msgid "Reservation has expired. Please start a new purchase."
+msgstr "Die Reservierung ist abgelaufen. Bitte starte einen neuen Kauf."
 
 msgid "This pass cannot be purchased online."
 msgstr "Dieser Pass kann nicht online gekauft werden."

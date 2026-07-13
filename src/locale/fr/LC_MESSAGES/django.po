@@ -938,6 +938,9 @@ msgstr "Le montant du tarif libre doit être d'au moins {min_amount}"
 msgid "PWYC amount must be at most {max_amount}"
 msgstr "Le montant du tarif libre doit être d'au plus {max_amount}"
 
+msgid "No pending reservation found."
+msgstr "Aucune réservation en attente trouvée."
+
 msgid "Only the ticket holder can view this preview."
 msgstr "Seul·e le·la titulaire du ticket peut voir cet aperçu."
 
@@ -1643,6 +1646,9 @@ msgstr "Tu as déjà un ticket"
 
 msgid "This ticket tier cannot be purchased online."
 msgstr "Cette catégorie de ticket ne peut pas être achetée en ligne."
+
+msgid "Reservation has expired. Please start a new purchase."
+msgstr "La réservation a expiré. Commence un nouvel achat."
 
 msgid "This pass cannot be purchased online."
 msgstr "Ce pass ne peut pas être acheté en ligne."
