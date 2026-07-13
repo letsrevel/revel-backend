@@ -1,7 +1,7 @@
 import typing as t
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import stripe
 import structlog
@@ -726,99 +726,6 @@ def create_batch_session(*, reservation_id: UUID) -> str:
     return t.cast(str, session.url)
 
 
-@transaction.atomic
-def create_batch_checkout_session(
-    event: Event,
-    tier: TicketTier,
-    user: RevelUser,
-    tickets: list[Ticket],
-    price_override: Decimal | None = None,
-    billing_info: "BuyerBillingInfoSchema | None" = None,
-) -> str:
-    """Create a Stripe Checkout Session for a batch ticket purchase.
-
-    Args:
-        event: The event for which tickets are being purchased.
-        tier: The ticket tier being purchased.
-        user: The user purchasing the tickets.
-        tickets: List of PENDING tickets already created.
-        price_override: Price override for PWYC tiers.
-        billing_info: Optional buyer billing info for attendee invoicing.
-
-    Returns:
-        The Stripe checkout URL.
-
-    Raises:
-        HttpError: If Stripe API call fails or organization not configured.
-    """
-    if not event.organization.is_stripe_connected:
-        raise HttpError(400, str(_("This organization is not configured to accept payments.")))
-
-    # Use price_override for PWYC, otherwise use tier.price
-    base_price = price_override if price_override is not None else tier.price
-
-    if base_price <= 0:
-        raise HttpError(400, str(_("This ticket tier cannot be purchased online.")))
-
-    org = event.organization
-
-    # Determine VAT treatment based on buyer billing info
-    attendee_vat_result, buyer_vat_validated = _maybe_resolve_attendee_vat(billing_info, tier, org, base_price)
-
-    # The price the buyer actually pays (may be reduced for reverse charge / export)
-    effective_price = attendee_vat_result.effective_price if attendee_vat_result else base_price
-
-    # Calculate net fee and gross up with VAT
-    total_amount = effective_price * len(tickets)
-    net_fee = (total_amount * org.platform_fee_percent / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    # Fixed fee is stored in DEFAULT_CURRENCY; convert to payment currency if different.
-    # Exchange rates are always available (seeded by migration, refreshed daily).
-    # Unsupported currencies are rejected at tier creation (schema validation).
-    fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, tier.currency)
-    net_fee_total = net_fee + fixed_fee
-
-    site = SiteSettings.get_solo()
-    total_fee_vat = calculate_platform_fee_vat(net_fee_total, org, site.platform_vat_country, site.platform_vat_rate)
-    application_fee_amount = to_stripe_amount(total_fee_vat.fee_gross, tier.currency)
-
-    expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
-
-    session = _create_stripe_session(
-        event=event,
-        tier=tier,
-        user=user,
-        tickets=tickets,
-        effective_price=effective_price,
-        application_fee_amount=application_fee_amount,
-        expires_at=expires_at,
-        site=site,
-    )
-
-    _create_payment_records(
-        tickets=tickets,
-        user=user,
-        session_id=session.id,
-        tier=tier,
-        effective_price=effective_price,
-        total_fee_vat=total_fee_vat,
-        attendee_vat_result=attendee_vat_result,
-        billing_info=billing_info,
-        buyer_vat_validated=buyer_vat_validated,
-        expires_at=expires_at,
-        org=org,
-        # This path (superseded by reserve_batch_payments + create_batch_session,
-        # #632) has no reservation to group by; tag each call with a fresh one so
-        # every Payment row keeps a non-null reservation_id.
-        reservation_id=uuid4(),
-    )
-
-    # Save billing info to user profile if requested
-    if billing_info and billing_info.save_to_profile:
-        _save_billing_to_profile(user, billing_info)
-
-    return t.cast(str, session.url)
-
-
 def _create_series_pass_stripe_session(
     *,
     held_pass: HeldSeriesPass,
@@ -829,8 +736,13 @@ def _create_series_pass_stripe_session(
     application_fee_amount: int,
     expires_at: datetime,
     site: SiteSettings,
+    idempotency_key: str | None = None,
 ) -> Session:
     """Build session data and create a Stripe Checkout Session for a series pass.
+
+    ``idempotency_key`` (e.g. a reservation id) makes retries of an interrupted
+    session-create call reuse the same Stripe session instead of double-charging
+    (#632); callers with nothing to key on may omit it.
 
     Returns:
         The created Stripe Session object.
@@ -880,36 +792,38 @@ def _create_series_pass_stripe_session(
         session_data["payment_intent_data"].pop("application_fee_amount")  # type: ignore[union-attr, arg-type]
 
     try:
-        return Session.create(**session_data)  # type: ignore[arg-type]
+        return Session.create(**session_data, idempotency_key=idempotency_key)  # type: ignore[arg-type]
     except Exception as e:
         logger.error("stripe_series_pass_session_creation_failed", error=str(e), held_pass_id=str(held_pass.id))
         raise HttpError(500, str(_("Payment processing failed. Please try again later."))) from e
 
 
 @transaction.atomic
-def create_series_pass_checkout_session(
+def reserve_series_pass_payments(
     *,
     held_pass: HeldSeriesPass,
     tickets: list[Ticket],
+    reservation_id: UUID,
     billing_info: "BuyerBillingInfoSchema | None" = None,
-) -> str:
-    """Create a Stripe Checkout Session for a series pass purchase.
+) -> None:
+    """Create PENDING Payment rows for a reserved series pass — NO Stripe call (#632).
 
-    One Stripe session at the pass's total price; N Payment rows split the total
-    across tickets (per-ticket share, not per-ticket price — a series pass has a
-    single price covering all its tickets).
+    N Payment rows split the pass's total price across tickets (per-ticket
+    share, not per-ticket price — a series pass has a single price covering
+    all its tickets). The Stripe session is created later by
+    create_series_pass_session, which stamps stripe_session_id onto these rows
+    and onto held_pass. Because the Payment rows already exist, "paid session
+    with no Payment row" (Window B) is unreachable.
 
     Args:
         held_pass: The PENDING HeldSeriesPass being paid for.
         tickets: The PENDING tickets materialized for this pass.
+        reservation_id: Groups these Payment rows for the follow-up session step.
         billing_info: Optional buyer billing info for attendee invoicing.
 
-    Returns:
-        The Stripe checkout URL.
-
     Raises:
-        HttpError: If Stripe API call fails or organization not configured, or the
-            pass price is not purchasable online.
+        HttpError: If organization not configured, or the pass price is not
+            purchasable online.
     """
     series_pass = held_pass.series_pass
     org = series_pass.event_series.organization
@@ -928,20 +842,8 @@ def create_series_pass_checkout_session(
 
     site = SiteSettings.get_solo()
     total_fee_vat = calculate_platform_fee_vat(net_fee_total, org, site.platform_vat_country, site.platform_vat_rate)
-    application_fee_amount = to_stripe_amount(total_fee_vat.fee_gross, series_pass.currency)
 
-    expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
-
-    session = _create_series_pass_stripe_session(
-        held_pass=held_pass,
-        org=org,
-        user=user,
-        tickets=tickets,
-        total=total,
-        application_fee_amount=application_fee_amount,
-        expires_at=expires_at,
-        site=site,
-    )
+    expires_at = timezone.now() + timedelta(minutes=settings.RESERVATION_HOLD_MINUTES)
 
     shares = distribute_amount_across_items(total, len(tickets))
     fee_gross_shares = distribute_amount_across_items(total_fee_vat.fee_gross, len(tickets))
@@ -964,7 +866,8 @@ def create_series_pass_checkout_session(
             Payment(
                 ticket=ticket,
                 user=user,
-                stripe_session_id=session.id,
+                stripe_session_id="",
+                reservation_id=reservation_id,
                 amount=shares[i],
                 platform_fee=fee_gross_shares[i],
                 currency=series_pass.currency,
@@ -986,10 +889,64 @@ def create_series_pass_checkout_session(
         )
     Payment.objects.bulk_create(payments)
 
-    held_pass.stripe_session_id = session.id
-    held_pass.save(update_fields=["stripe_session_id"])
-
     if billing_info and billing_info.save_to_profile:
         _save_billing_to_profile(user, billing_info)
+
+
+@transaction.atomic
+def create_series_pass_session(*, reservation_id: UUID) -> str:
+    """Create the Stripe session for a reserved series pass and stamp it (#632).
+
+    Idempotent: reuses one Stripe session on retry/double-submit via
+    idempotency_key=reservation_id. Returns the checkout URL only after the
+    stamp commits, so a payable session never exists without a reconcilable
+    Payment row.
+    """
+    payments = list(
+        Payment.objects.select_related(
+            "ticket__held_pass__series_pass__event_series__organization", "ticket__tier"
+        ).filter(reservation_id=reservation_id, status=Payment.PaymentStatus.PENDING)
+    )
+    if not payments:
+        raise HttpError(404, str(_("No pending reservation found.")))
+    already = [p for p in payments if p.stripe_session_id]
+    if already:
+        # Already sessioned: return the existing URL instead of creating a duplicate.
+        return resume_pending_checkout(str(payments[0].id), payments[0].user)
+    if payments[0].has_expired():
+        raise HttpError(404, str(_("Reservation has expired. Please start a new purchase.")))
+
+    tickets = [p.ticket for p in payments]
+    # A series-pass ticket always has held_pass set (materialize_tickets, the only
+    # place tickets are created for reserve_series_pass_payments to pick up).
+    held_pass = t.cast(HeldSeriesPass, tickets[0].held_pass)
+    series_pass = held_pass.series_pass
+    org = series_pass.event_series.organization
+    user = payments[0].user
+    total = held_pass.price_paid
+
+    total_fee_gross = sum((p.platform_fee for p in payments), Decimal("0"))
+    application_fee_amount = to_stripe_amount(total_fee_gross, series_pass.currency)
+    site = SiteSettings.get_solo()
+    expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
+
+    session = _create_series_pass_stripe_session(
+        held_pass=held_pass,
+        org=org,
+        user=user,
+        tickets=tickets,
+        total=total,
+        application_fee_amount=application_fee_amount,
+        expires_at=expires_at,
+        site=site,
+        idempotency_key=str(reservation_id),
+    )
+
+    Payment.objects.filter(reservation_id=reservation_id, status=Payment.PaymentStatus.PENDING).update(
+        stripe_session_id=session.id,
+        expires_at=expires_at,
+    )
+    held_pass.stripe_session_id = session.id
+    held_pass.save(update_fields=["stripe_session_id"])
 
     return t.cast(str, session.url)

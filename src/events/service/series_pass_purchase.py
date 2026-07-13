@@ -2,6 +2,7 @@
 
 import typing as t
 from decimal import Decimal
+from uuid import UUID, uuid4
 
 import structlog
 from django.core.exceptions import ValidationError
@@ -82,8 +83,15 @@ class SeriesPassPurchaseService:
             raise SeriesPassNotPurchasableError(str(_("You already hold this pass."))) from exc
 
     @transaction.atomic
-    def purchase(self, billing_info: "BuyerBillingInfoSchema | None" = None) -> HeldSeriesPass | str:
-        """Purchase the pass. Returns checkout URL (online) or the HeldSeriesPass."""
+    def purchase(
+        self, billing_info: "BuyerBillingInfoSchema | None" = None
+    ) -> HeldSeriesPass | tuple[HeldSeriesPass, UUID]:
+        """Purchase the pass.
+
+        Returns the HeldSeriesPass (free/offline) or ``(held_pass, reservation_id)``
+        for ONLINE passes — the caller must POST the reservation_id to the
+        checkout-session endpoint to obtain the Stripe checkout URL (#632).
+        """
         self._assert_purchasable_by_user()
 
         quote = series_pass_service.get_quote(self.series_pass)
@@ -162,6 +170,8 @@ class SeriesPassPurchaseService:
         # ONLINE
         from events.service import stripe_service
 
-        return stripe_service.create_series_pass_checkout_session(
-            held_pass=held_pass, tickets=tickets, billing_info=billing_info
+        reservation_id = uuid4()
+        stripe_service.reserve_series_pass_payments(
+            held_pass=held_pass, tickets=tickets, reservation_id=reservation_id, billing_info=billing_info
         )
+        return held_pass, reservation_id

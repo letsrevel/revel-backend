@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.db.models import Prefetch, QuerySet
 from django.http import HttpResponse, HttpResponseRedirect
+from django.utils.translation import gettext_lazy as _
 from ninja import Body
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
@@ -13,6 +14,7 @@ from ninja_extra.pagination import PageNumberPaginationExtra, PaginatedResponseS
 
 from common.authentication import I18nJWTAuth, OptionalAuth
 from common.controllers import UserAwareController
+from common.schema import ResponseMessage
 from common.signing import get_file_url
 from common.throttling import WriteThrottle
 from events import models, schema
@@ -35,6 +37,8 @@ class _CheckoutResult(t.TypedDict):
 
     checkout_url: str | None
     held_pass: models.HeldSeriesPass | None
+    reservation_id: UUID | None
+    requires_payment: bool
 
 
 @api_controller("/series-passes", auth=OptionalAuth(), tags=["Series Passes"])
@@ -118,8 +122,12 @@ class SeriesPassController(UserAwareController):
         """Purchase a series pass.
 
         Free and offline passes create a `HeldSeriesPass` directly (PENDING for offline until the
-        organizer confirms payment, ACTIVE for free). Online passes return a Stripe checkout URL;
-        the held pass is created once payment succeeds (see the Stripe webhook).
+        organizer confirms payment, ACTIVE for free).
+
+        **Online passes:** returns `requires_payment=true` and a `reservation_id`. Call
+        `POST /series-passes/reservations/{reservation_id}/checkout-session` next to obtain the
+        Stripe `checkout_url`. The held pass is PENDING until payment succeeds (see the Stripe
+        webhook).
 
         **Error Cases:**
         - 403: Blacklisted, or ``purchasable_by`` is members-only and the user isn't a member
@@ -131,10 +139,42 @@ class SeriesPassController(UserAwareController):
         """
         series_pass = self._get_visible_pass(pass_id)
         result = SeriesPassPurchaseService(series_pass, self.user()).purchase(billing_info=billing_info)
-        if isinstance(result, str):
-            return {"checkout_url": result, "held_pass": None}
+        if isinstance(result, tuple):
+            held_pass, reservation_id = result
+            held_pass = self._held_pass_queryset().get(pk=held_pass.pk)
+            return {
+                "checkout_url": None,
+                "held_pass": held_pass,
+                "reservation_id": reservation_id,
+                "requires_payment": True,
+            }
         held_pass = self._held_pass_queryset().get(pk=result.pk)
-        return {"checkout_url": None, "held_pass": held_pass}
+        return {"checkout_url": None, "held_pass": held_pass, "reservation_id": None, "requires_payment": False}
+
+    @route.post(
+        "/reservations/{uuid:reservation_id}/checkout-session",
+        url_name="series_pass_checkout_session",
+        response={200: schema.CheckoutSessionResponse, 404: ResponseMessage},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def series_pass_checkout_session(self, reservation_id: UUID) -> schema.CheckoutSessionResponse:
+        """Create the Stripe checkout session for a reserved series-pass purchase and return its URL.
+
+        Second step of online checkout (#632): `checkout_series_pass` reserves the pass and
+        returns a `reservation_id`; this endpoint creates the Stripe session holding no
+        contended DB lock. Idempotent — repeat calls (retry or double-submit) reuse the same
+        Stripe session. Returns 404 if the reservation is unknown, expired, or not owned by
+        the caller.
+        """
+        from events.service import stripe_service
+
+        # Ownership: create_series_pass_session scopes by reservation_id; enforce the
+        # caller owns it to stop cross-user session creation.
+        if not models.Payment.objects.filter(reservation_id=reservation_id, user=self.user()).exists():
+            raise HttpError(404, str(_("No pending reservation found.")))
+        checkout_url = stripe_service.create_series_pass_session(reservation_id=reservation_id)
+        return schema.CheckoutSessionResponse(checkout_url=checkout_url)
 
     @route.get(
         "/me",

@@ -4,6 +4,7 @@ import typing as t
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
+from uuid import UUID
 
 import pytest
 from django.db import IntegrityError
@@ -262,20 +263,21 @@ class TestOfflineConfirmPriceDistribution:
 
 
 class TestOnlinePathPurchase:
-    def test_calls_stripe_checkout_and_returns_its_result(
+    def test_reserves_payments_and_returns_held_pass_with_reservation_id(
         self, purchasable_online_pass: SeriesPass, revel_user: RevelUser
     ) -> None:
-        with patch(
-            "events.service.stripe_service.create_series_pass_checkout_session",
-            return_value="https://checkout.stripe.com/session/xyz",
-        ) as mock_checkout:
+        """ONLINE purchase() now reserves (#632): no Stripe call, returns (held_pass, reservation_id)."""
+        with patch("events.service.stripe_service.reserve_series_pass_payments") as mock_reserve:
             result = SeriesPassPurchaseService(purchasable_online_pass, revel_user).purchase()
 
-        assert result == "https://checkout.stripe.com/session/xyz"
-        assert mock_checkout.called
-        _, kwargs = mock_checkout.call_args
-        held_pass = kwargs["held_pass"]
+        assert isinstance(result, tuple)
+        held_pass, reservation_id = result
         assert isinstance(held_pass, HeldSeriesPass)
+        assert isinstance(reservation_id, UUID)
+        assert mock_reserve.called
+        _, kwargs = mock_reserve.call_args
+        assert kwargs["held_pass"] == held_pass
+        assert kwargs["reservation_id"] == reservation_id
         tickets = kwargs["tickets"]
         assert len(tickets) == 3
         assert all(ticket.status == Ticket.TicketStatus.PENDING for ticket in tickets)

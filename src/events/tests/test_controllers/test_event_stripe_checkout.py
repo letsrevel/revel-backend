@@ -281,10 +281,8 @@ class TestEventStripeCheckout:
         response_data = response.json()
         assert "cannot be purchased" in response_data["detail"]
 
-    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_ticket_checkout_organization_not_connected(
         self,
-        mock_create_checkout: Mock,
         authenticated_client: Client,
         organization: Organization,  # Not Stripe-connected
         organization_owner_user: RevelUser,
@@ -308,8 +306,6 @@ class TestEventStripeCheckout:
             currency="EUR",
             payment_method=TicketTier.PaymentMethod.ONLINE,
         )
-
-        mock_create_checkout.side_effect = HttpError(400, "This organization is not configured to accept payments.")
 
         # Act
         url = reverse("api:ticket_checkout", kwargs={"event_id": event.pk, "tier_id": tier.pk})

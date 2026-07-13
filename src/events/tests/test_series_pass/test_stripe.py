@@ -1,7 +1,9 @@
-"""Tests for Stripe checkout session creation for series passes."""
+"""Tests for the series-pass reserve/session split (#632)."""
 
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
+from uuid import uuid4
 
 import pytest
 from django.conf import settings
@@ -42,9 +44,15 @@ def _make_tiered_tickets(
     organization: Organization,
     event_series: EventSeries,
     user: RevelUser,
+    held_pass: HeldSeriesPass,
     count: int = 5,
 ) -> list[Ticket]:
-    """Create `count` PENDING tickets, each on its own event/tier, split across two VAT rates."""
+    """Create `count` PENDING tickets, each on its own event/tier, split across two VAT rates.
+
+    Linked to ``held_pass`` — ``create_series_pass_session`` derives the held pass from
+    ``tickets[0].held_pass`` (mirrors production, where ``materialize_tickets`` always
+    sets it).
+    """
     tickets = []
     for i in range(count):
         event = Event.objects.create(
@@ -72,6 +80,7 @@ def _make_tiered_tickets(
             event=event,
             tier=tier,
             user=user,
+            held_pass=held_pass,
             status=Ticket.TicketStatus.PENDING,
             guest_name=user.get_display_name(),
         )
@@ -90,16 +99,18 @@ def held_pass(online_series_pass: SeriesPass, revel_user: RevelUser) -> HeldSeri
 
 
 @pytest.fixture
-def tickets(organization: Organization, event_series: EventSeries, revel_user: RevelUser) -> list[Ticket]:
-    return _make_tiered_tickets(organization, event_series, revel_user)
+def tickets(
+    organization: Organization, event_series: EventSeries, revel_user: RevelUser, held_pass: HeldSeriesPass
+) -> list[Ticket]:
+    return _make_tiered_tickets(organization, event_series, revel_user, held_pass)
 
 
-class TestCreateSeriesPassCheckoutSession:
+class TestReserveSeriesPassPayments:
     def test_raises_error_when_organization_not_connected(
         self, held_pass: HeldSeriesPass, tickets: list[Ticket]
     ) -> None:
         with pytest.raises(HttpError) as exc_info:
-            stripe_service.create_series_pass_checkout_session(held_pass=held_pass, tickets=tickets)
+            stripe_service.reserve_series_pass_payments(held_pass=held_pass, tickets=tickets, reservation_id=uuid4())
 
         assert exc_info.value.status_code == 400
         assert "not configured to accept payments" in exc_info.value.message
@@ -108,8 +119,9 @@ class TestCreateSeriesPassCheckoutSession:
         self,
         stripe_connected_organization: Organization,
         online_series_pass: SeriesPass,
+        organization: Organization,
+        event_series: EventSeries,
         revel_user: RevelUser,
-        tickets: list[Ticket],
     ) -> None:
         held_pass = HeldSeriesPass.objects.create(
             series_pass=online_series_pass,
@@ -117,50 +129,109 @@ class TestCreateSeriesPassCheckoutSession:
             price_paid=Decimal("0.00"),
             status=HeldSeriesPass.HeldSeriesPassStatus.PENDING,
         )
+        tickets = _make_tiered_tickets(organization, event_series, revel_user, held_pass)
 
         with pytest.raises(HttpError) as exc_info:
-            stripe_service.create_series_pass_checkout_session(held_pass=held_pass, tickets=tickets)
+            stripe_service.reserve_series_pass_payments(held_pass=held_pass, tickets=tickets, reservation_id=uuid4())
 
         assert exc_info.value.status_code == 400
         assert "cannot be purchased" in exc_info.value.message
 
+    def test_creates_n_pending_payment_rows_summing_penny_exact_no_stripe_call(
+        self,
+        stripe_connected_organization: Organization,
+        held_pass: HeldSeriesPass,
+        tickets: list[Ticket],
+    ) -> None:
+        reservation_id = uuid4()
+        with patch("stripe.checkout.Session.create") as mock_create:
+            stripe_service.reserve_series_pass_payments(
+                held_pass=held_pass, tickets=tickets, reservation_id=reservation_id
+            )
+            mock_create.assert_not_called()
+
+        payments = list(Payment.objects.filter(reservation_id=reservation_id))
+        assert len(payments) == 5
+        assert all(p.status == Payment.PaymentStatus.PENDING for p in payments)
+        assert all(p.stripe_session_id == "" for p in payments)
+        assert sum(p.amount for p in payments) == held_pass.price_paid
+
+    def test_per_row_vat_rate_matches_each_tickets_tier(
+        self,
+        stripe_connected_organization: Organization,
+        held_pass: HeldSeriesPass,
+        tickets: list[Ticket],
+    ) -> None:
+        stripe_service.reserve_series_pass_payments(held_pass=held_pass, tickets=tickets, reservation_id=uuid4())
+
+        for ticket in tickets:
+            payment = Payment.objects.get(ticket=ticket)
+            assert payment.vat_rate == ticket.tier.vat_rate
+
+
+class TestCreateSeriesPassSession:
+    def test_no_pending_reservation_raises_404(self) -> None:
+        with pytest.raises(HttpError) as exc_info:
+            stripe_service.create_series_pass_session(reservation_id=uuid4())
+
+        assert exc_info.value.status_code == 404
+
+    def test_expired_reservation_raises_404(
+        self,
+        stripe_connected_organization: Organization,
+        held_pass: HeldSeriesPass,
+        tickets: list[Ticket],
+    ) -> None:
+        reservation_id = uuid4()
+        stripe_service.reserve_series_pass_payments(held_pass=held_pass, tickets=tickets, reservation_id=reservation_id)
+        Payment.objects.filter(reservation_id=reservation_id).update(expires_at=timezone.now() - timedelta(minutes=1))
+
+        with pytest.raises(HttpError) as exc_info:
+            stripe_service.create_series_pass_session(reservation_id=reservation_id)
+
+        assert exc_info.value.status_code == 404
+
     @patch("stripe.checkout.Session.create")
-    def test_creates_n_payment_rows_summing_penny_exact(
+    def test_creates_session_and_stamps_payments_and_held_pass(
         self,
         mock_stripe_create: Mock,
         stripe_connected_organization: Organization,
         held_pass: HeldSeriesPass,
         tickets: list[Ticket],
     ) -> None:
+        reservation_id = uuid4()
+        stripe_service.reserve_series_pass_payments(held_pass=held_pass, tickets=tickets, reservation_id=reservation_id)
+
         mock_session = Mock()
         mock_session.id = "cs_series_test"
         mock_session.url = "https://checkout.stripe.com/pay/cs_series_test"
         mock_stripe_create.return_value = mock_session
 
-        stripe_service.create_series_pass_checkout_session(held_pass=held_pass, tickets=tickets)
+        url = stripe_service.create_series_pass_session(reservation_id=reservation_id)
 
-        payments = list(Payment.objects.filter(stripe_session_id="cs_series_test"))
+        assert url == mock_session.url
+        payments = list(Payment.objects.filter(reservation_id=reservation_id))
         assert len(payments) == 5
+        assert all(p.stripe_session_id == "cs_series_test" for p in payments)
         assert sum(p.amount for p in payments) == held_pass.price_paid
+        held_pass.refresh_from_db()
+        assert held_pass.stripe_session_id == "cs_series_test"
 
     @patch("stripe.checkout.Session.create")
-    def test_per_row_vat_rate_matches_each_tickets_tier(
+    def test_passes_reservation_id_as_idempotency_key(
         self,
         mock_stripe_create: Mock,
         stripe_connected_organization: Organization,
         held_pass: HeldSeriesPass,
         tickets: list[Ticket],
     ) -> None:
-        mock_session = Mock()
-        mock_session.id = "cs_series_vat"
-        mock_session.url = "https://checkout.stripe.com/pay/cs_series_vat"
-        mock_stripe_create.return_value = mock_session
+        reservation_id = uuid4()
+        stripe_service.reserve_series_pass_payments(held_pass=held_pass, tickets=tickets, reservation_id=reservation_id)
+        mock_stripe_create.return_value = Mock(id="cs_idem", url="https://checkout.stripe.com/pay/cs_idem")
 
-        stripe_service.create_series_pass_checkout_session(held_pass=held_pass, tickets=tickets)
+        stripe_service.create_series_pass_session(reservation_id=reservation_id)
 
-        for ticket in tickets:
-            payment = Payment.objects.get(ticket=ticket)
-            assert payment.vat_rate == ticket.tier.vat_rate
+        assert mock_stripe_create.call_args[1]["idempotency_key"] == str(reservation_id)
 
     @patch("stripe.checkout.Session.create")
     def test_session_metadata_and_line_item(
@@ -171,12 +242,14 @@ class TestCreateSeriesPassCheckoutSession:
         tickets: list[Ticket],
         online_series_pass: SeriesPass,
     ) -> None:
+        reservation_id = uuid4()
+        stripe_service.reserve_series_pass_payments(held_pass=held_pass, tickets=tickets, reservation_id=reservation_id)
         mock_session = Mock()
         mock_session.id = "cs_series_meta"
         mock_session.url = "https://checkout.stripe.com/pay/cs_series_meta"
         mock_stripe_create.return_value = mock_session
 
-        stripe_service.create_series_pass_checkout_session(held_pass=held_pass, tickets=tickets)
+        stripe_service.create_series_pass_session(reservation_id=reservation_id)
 
         call_args = mock_stripe_create.call_args
         assert call_args[1]["metadata"]["held_pass_id"] == str(held_pass.id)
@@ -194,36 +267,44 @@ class TestCreateSeriesPassCheckoutSession:
         assert call_args[1]["success_url"] == f"{series_base_url}?payment_success=true"
         assert call_args[1]["cancel_url"] == f"{series_base_url}?payment_cancelled=true"
 
+    @patch("stripe.checkout.Session.retrieve")
     @patch("stripe.checkout.Session.create")
-    def test_persists_stripe_session_id_on_held_pass(
+    def test_already_sessioned_returns_existing_url_without_recreating(
         self,
         mock_stripe_create: Mock,
+        mock_stripe_retrieve: Mock,
         stripe_connected_organization: Organization,
         held_pass: HeldSeriesPass,
         tickets: list[Ticket],
     ) -> None:
+        reservation_id = uuid4()
+        stripe_service.reserve_series_pass_payments(held_pass=held_pass, tickets=tickets, reservation_id=reservation_id)
         mock_session = Mock()
-        mock_session.id = "cs_series_persist"
-        mock_session.url = "https://checkout.stripe.com/pay/cs_series_persist"
+        mock_session.id = "cs_first"
+        mock_session.url = "https://checkout.stripe.com/pay/cs_first"
         mock_stripe_create.return_value = mock_session
 
-        stripe_service.create_series_pass_checkout_session(held_pass=held_pass, tickets=tickets)
+        first_url = stripe_service.create_series_pass_session(reservation_id=reservation_id)
+        assert first_url == mock_session.url
 
-        held_pass.refresh_from_db()
-        assert held_pass.stripe_session_id == "cs_series_persist"
+        mock_stripe_create.reset_mock()
+        mock_stripe_retrieve.return_value = Mock(url=mock_session.url)
+
+        second_url = stripe_service.create_series_pass_session(reservation_id=reservation_id)
+
+        mock_stripe_create.assert_not_called()
+        assert second_url == mock_session.url
 
 
 class TestSeriesPassPurchaseServiceOnlinePath:
     @patch("stripe.checkout.Session.create")
-    def test_purchase_returns_url_and_leaves_pending_state(
+    def test_purchase_reserves_then_session_returns_url_leaving_pending_state(
         self,
         mock_stripe_create: Mock,
         stripe_connected_organization: Organization,
         event_series: EventSeries,
         revel_user: RevelUser,
     ) -> None:
-        from datetime import timedelta
-
         from events.models import SeriesPassTierLink
 
         mock_session = Mock()
@@ -264,8 +345,9 @@ class TestSeriesPassPurchaseServiceOnlinePath:
 
         result = SeriesPassPurchaseService(series_pass, revel_user).purchase()
 
-        assert result == "https://checkout.stripe.com/pay/cs_e2e"
-        held_pass = HeldSeriesPass.objects.get(series_pass=series_pass, user=revel_user)
+        mock_stripe_create.assert_not_called()
+        assert isinstance(result, tuple)
+        held_pass, reservation_id = result
         assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
         tickets = list(Ticket.objects.filter(held_pass=held_pass))
         assert len(tickets) == 3
@@ -273,3 +355,15 @@ class TestSeriesPassPurchaseServiceOnlinePath:
         payments = list(Payment.objects.filter(ticket__in=tickets))
         assert len(payments) == 3
         assert all(p.status == Payment.PaymentStatus.PENDING for p in payments)
+        assert all(p.reservation_id == reservation_id for p in payments)
+        assert all(p.stripe_session_id == "" for p in payments)
+
+        url = stripe_service.create_series_pass_session(reservation_id=reservation_id)
+
+        assert url == mock_session.url
+        mock_stripe_create.assert_called_once()
+        held_pass.refresh_from_db()
+        assert held_pass.stripe_session_id == "cs_e2e"
+        for payment in payments:
+            payment.refresh_from_db()
+            assert payment.stripe_session_id == "cs_e2e"
