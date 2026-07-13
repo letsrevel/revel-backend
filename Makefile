@@ -132,11 +132,14 @@ run:
 # pooler up, then routes the server through it via DB_USE_PGBOUNCER/DB_PORT set inline
 # (os.environ wins over .env), leaving `make test` and `make run` on direct 5432.
 # Override concurrency with GUNICORN_WORKERS / GUNICORN_THREADS.
+# OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES: on macOS, gunicorn forking workers after an Apple
+# framework was initialized (WeasyPrint/Core Text, _scproxy) trips the ObjC fork-safety guard,
+# which SIGKILLs the workers. The var disables that guard; it's a no-op on Linux/CI.
 .PHONY: run-e2e
 run-e2e:
 	docker compose -f compose.yaml -f docker-compose-e2e.yml up -d --wait pgbouncer && \
 	uv run python src/manage.py generate_test_jwts && \
-	cd src && DB_USE_PGBOUNCER=True DB_PORT=6432 uv run gunicorn revel.wsgi:application \
+	cd src && DB_USE_PGBOUNCER=True DB_PORT=6432 OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES uv run gunicorn revel.wsgi:application \
 		--worker-class gthread \
 		--workers $${GUNICORN_WORKERS:-4} \
 		--threads $${GUNICORN_THREADS:-4} \
