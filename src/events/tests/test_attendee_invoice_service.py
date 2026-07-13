@@ -15,6 +15,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from ninja.errors import HttpError
 
@@ -579,15 +580,28 @@ class TestUpdateDraftInvoice:
         }
         update_draft_invoice(inv, data)  # Should not raise
 
-    def test_null_buyer_field_coerced_to_empty_string(
-        self, organization: Organization, event: Event, member_user: RevelUser
+    @pytest.mark.parametrize(
+        "field",
+        ["buyer_vat_id", "buyer_vat_country", "buyer_address", "buyer_email", "discount_code_text"],
+    )
+    def test_null_blankable_field_coerced_to_empty_string(
+        self, field: str, organization: Organization, event: Event, member_user: RevelUser
     ) -> None:
-        """Regression (#700): a null buyer field must be coerced to "" (NOT NULL column)."""
+        """Regression (#700): null on a blankable (blank=True) column is coerced to "" (NOT NULL)."""
         inv = _create_draft(organization, event, member_user)
-        updated = update_draft_invoice(inv, {"buyer_vat_id": None})
-        assert updated.buyer_vat_id == ""
+        updated = update_draft_invoice(inv, {field: None})
+        assert getattr(updated, field) == ""
         updated.refresh_from_db()
-        assert updated.buyer_vat_id == ""
+        assert getattr(updated, field) == ""
+
+    @pytest.mark.parametrize("field", ["buyer_name", "currency"])
+    def test_null_required_field_rejected(
+        self, field: str, organization: Organization, event: Event, member_user: RevelUser
+    ) -> None:
+        """Required columns lack blank=True, so a null is not coerced and full_clean rejects it."""
+        inv = _create_draft(organization, event, member_user)
+        with pytest.raises(ValidationError):
+            update_draft_invoice(inv, {field: None})
 
 
 # ---------------------------------------------------------------------------
