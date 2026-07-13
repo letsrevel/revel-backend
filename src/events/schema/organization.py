@@ -57,6 +57,8 @@ class OrganizationEditSchema(CityEditMixin, SocialMediaSchemaEditMixin):
     accept_membership_requests: bool = False
     contact_method: Organization.ContactMethod = Organization.ContactMethod.NONE
     revenue_report_cadence: Organization.RevenueReportCadence = Organization.RevenueReportCadence.NONE
+    membership_grace_period_days: t.Annotated[int, Field(ge=0)] = 7
+    membership_refund_policy: StrippedString = ""
 
 
 class OrganizationBillingInfoSchema(Schema):
@@ -196,6 +198,9 @@ class OrganizationAdminDetailSchema(
     billing_email: str
     invoicing_mode: OrganizationModel.InvoicingMode
     revenue_report_cadence: OrganizationModel.RevenueReportCadence
+    # Membership subscription policy
+    membership_grace_period_days: int
+    membership_refund_policy: str
 
 
 class OrganizationPermissionsSchema(Schema):

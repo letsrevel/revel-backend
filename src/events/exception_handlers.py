@@ -29,6 +29,7 @@ from events.exceptions import (
     InvalidPeriodError,
     InvalidResourceStateError,
     InvalidStripeWebhookSignatureError,
+    MembershipPolicyManageSubscriptionsOnlyError,
     OrganizationTokenGrantInvariantError,
     OrganizationTokenMembershipTierRequiredError,
     OrganizationTokenStaffGrantForbidden,
@@ -44,6 +45,7 @@ from events.exceptions import (
 from events.service.event_manager import UserIsIneligibleError
 from events.service.organization_service import (
     GRANT_INVARIANT_MESSAGE,
+    MEMBERSHIP_POLICY_MANAGE_SUBSCRIPTIONS_MESSAGE,
     MEMBERSHIP_TIER_REQUIRED_MESSAGE,
     REVENUE_CADENCE_OWNER_ONLY_MESSAGE,
     STAFF_GRANT_FORBIDDEN_MESSAGE,
@@ -90,6 +92,11 @@ HANDLERS: dict[type[Exception], ExceptionHandler] = {
     # revenue_report_cadence is owner-only (financially sensitive); staff-grantable
     # edit_organization must not reach it → 403.
     RevenueReportCadenceOwnerOnlyError: make_static_handler(403, REVENUE_CADENCE_OWNER_ONLY_MESSAGE),
+    # membership subscription-policy fields belong to the manage_subscriptions domain;
+    # staff with only edit_organization must not change them via the org-edit endpoint → 403.
+    MembershipPolicyManageSubscriptionsOnlyError: make_static_handler(
+        403, MEMBERSHIP_POLICY_MANAGE_SUBSCRIPTIONS_MESSAGE
+    ),
     # Ticket/tier guards (formerly mapped via try/except in the tickets controller).
     TicketAlreadyCancelledError: make_static_handler(409, TICKET_ALREADY_CANCELLED_MESSAGE),
     StripeNotConnectedError: make_static_handler(400, STRIPE_NOT_CONNECTED_MESSAGE),
