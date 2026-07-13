@@ -1,6 +1,7 @@
 import typing as t
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from uuid import UUID, uuid4
 
 import stripe
 import structlog
@@ -472,8 +473,13 @@ def _create_stripe_session(
     application_fee_amount: int,
     expires_at: datetime,
     site: SiteSettings,
+    idempotency_key: str | None = None,
 ) -> Session:
     """Build session data and create a Stripe Checkout Session.
+
+    ``idempotency_key`` (e.g. a reservation id) makes retries of an interrupted
+    session-create call reuse the same Stripe session instead of double-charging
+    (#632); callers with nothing to key on may omit it.
 
     Returns:
         The created Stripe Session object.
@@ -511,7 +517,7 @@ def _create_stripe_session(
         session_data["payment_intent_data"].pop("application_fee_amount")  # type: ignore[union-attr, arg-type]
 
     try:
-        return Session.create(**session_data)  # type: ignore[arg-type]
+        return Session.create(**session_data, idempotency_key=idempotency_key)  # type: ignore[arg-type]
     except Exception as e:
         logger.error("stripe_batch_session_creation_failed", error=str(e), event_id=str(event.id))
         raise HttpError(500, str(_("Payment processing failed. Please try again later."))) from e
@@ -530,6 +536,7 @@ def _create_payment_records(
     buyer_vat_validated: bool,
     expires_at: datetime,
     org: Organization,
+    reservation_id: UUID,
 ) -> None:
     """Build and bulk-create Payment records for a batch checkout."""
     # Distribute gross and vat independently; derive net = gross - vat.
@@ -562,6 +569,7 @@ def _create_payment_records(
             ticket=ticket,
             user=user,
             stripe_session_id=session_id,
+            reservation_id=reservation_id,
             amount=effective_price,
             platform_fee=per_ticket_gross[i],
             currency=tier.currency,
@@ -583,6 +591,139 @@ def _create_payment_records(
         for i, ticket in enumerate(tickets)
     ]
     Payment.objects.bulk_create(payments)
+
+
+def resolve_attendee_vat_for_reserve(
+    *,
+    tier: TicketTier,
+    org: Organization,
+    price_override: Decimal | None = None,
+    billing_info: "BuyerBillingInfoSchema | None" = None,
+) -> "tuple[AttendeeVATResult | None, bool]":
+    """Resolve attendee VAT (runs VIES) for a batch reserve.
+
+    Called by BatchTicketService.create_batch BEFORE it takes the TicketTier
+    select_for_update, so the contended row is never locked across the VIES
+    round-trip (#632). The result is threaded into reserve_batch_payments.
+    """
+    base_price = price_override if price_override is not None else tier.price
+    return _maybe_resolve_attendee_vat(billing_info, tier, org, base_price)
+
+
+@transaction.atomic
+def reserve_batch_payments(
+    *,
+    event: Event,
+    tier: TicketTier,
+    user: RevelUser,
+    tickets: list[Ticket],
+    reservation_id: UUID,
+    price_override: Decimal | None = None,
+    billing_info: "BuyerBillingInfoSchema | None" = None,
+    attendee_vat: "tuple[AttendeeVATResult | None, bool] | None" = None,
+) -> None:
+    """Create PENDING Payment rows for a reserved batch — NO Stripe call (#632).
+
+    VAT (incl. any VIES round-trip) is resolved here; callers must invoke this
+    BEFORE taking the TicketTier select_for_update so the row is never locked
+    during VIES. The Stripe session is created later by create_batch_session,
+    which stamps stripe_session_id onto these rows. Because the Payment rows
+    already exist, "paid session with no Payment row" (Window B) is unreachable.
+    """
+    if not event.organization.is_stripe_connected:
+        raise HttpError(400, str(_("This organization is not configured to accept payments.")))
+    base_price = price_override if price_override is not None else tier.price
+    if base_price <= 0:
+        raise HttpError(400, str(_("This ticket tier cannot be purchased online.")))
+
+    org = event.organization
+    # VIES runs pre-lock (Task 5) and is passed in; fall back to resolving here
+    # for any caller that hasn't (keeps this helper self-contained).
+    if attendee_vat is not None:
+        attendee_vat_result, buyer_vat_validated = attendee_vat
+    else:
+        attendee_vat_result, buyer_vat_validated = _maybe_resolve_attendee_vat(billing_info, tier, org, base_price)
+    effective_price = attendee_vat_result.effective_price if attendee_vat_result else base_price
+
+    total_amount = effective_price * len(tickets)
+    net_fee = (total_amount * org.platform_fee_percent / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    fixed_fee = convert_currency(org.platform_fee_fixed, settings.DEFAULT_CURRENCY, tier.currency)
+    net_fee_total = net_fee + fixed_fee
+
+    site = SiteSettings.get_solo()
+    total_fee_vat = calculate_platform_fee_vat(net_fee_total, org, site.platform_vat_country, site.platform_vat_rate)
+
+    expires_at = timezone.now() + timedelta(minutes=settings.RESERVATION_HOLD_MINUTES)
+
+    _create_payment_records(
+        tickets=tickets,
+        user=user,
+        session_id="",
+        tier=tier,
+        effective_price=effective_price,
+        total_fee_vat=total_fee_vat,
+        attendee_vat_result=attendee_vat_result,
+        billing_info=billing_info,
+        buyer_vat_validated=buyer_vat_validated,
+        expires_at=expires_at,
+        org=org,
+        reservation_id=reservation_id,
+    )
+
+    if billing_info and billing_info.save_to_profile:
+        _save_billing_to_profile(user, billing_info)
+
+
+@transaction.atomic
+def create_batch_session(*, reservation_id: UUID) -> str:
+    """Create the Stripe session for a reserved batch and stamp it (#632).
+
+    Idempotent: reuses one Stripe session on retry/double-submit via
+    idempotency_key=reservation_id. Returns the checkout URL only after the
+    stamp commits, so a payable session never exists without a reconcilable
+    Payment row.
+    """
+    payments = list(
+        Payment.objects.select_related("ticket__event__organization", "ticket__tier").filter(
+            reservation_id=reservation_id, status=Payment.PaymentStatus.PENDING
+        )
+    )
+    if not payments:
+        raise HttpError(404, str(_("No pending reservation found.")))
+    already = [p for p in payments if p.stripe_session_id]
+    if already:
+        # Already sessioned: return the existing URL instead of creating a duplicate.
+        return resume_pending_checkout(str(payments[0].id), payments[0].user)
+    if payments[0].has_expired():
+        raise HttpError(404, str(_("Reservation has expired. Please start a new purchase.")))
+
+    tickets = [p.ticket for p in payments]
+    tier = tickets[0].tier
+    event = tickets[0].event
+    user = payments[0].user
+    effective_price = payments[0].amount
+
+    total_fee_gross = sum((p.platform_fee for p in payments), Decimal("0"))
+    application_fee_amount = to_stripe_amount(total_fee_gross, tier.currency)
+    site = SiteSettings.get_solo()
+    expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
+
+    session = _create_stripe_session(
+        event=event,
+        tier=tier,
+        user=user,
+        tickets=tickets,
+        effective_price=effective_price,
+        application_fee_amount=application_fee_amount,
+        expires_at=expires_at,
+        site=site,
+        idempotency_key=str(reservation_id),
+    )
+    Payment.objects.filter(reservation_id=reservation_id, status=Payment.PaymentStatus.PENDING).update(
+        stripe_session_id=session.id,
+        expires_at=expires_at,
+    )
+    return t.cast(str, session.url)
 
 
 @transaction.atomic
@@ -665,6 +806,10 @@ def create_batch_checkout_session(
         buyer_vat_validated=buyer_vat_validated,
         expires_at=expires_at,
         org=org,
+        # This path (superseded by reserve_batch_payments + create_batch_session,
+        # #632) has no reservation to group by; tag each call with a fresh one so
+        # every Payment row keeps a non-null reservation_id.
+        reservation_id=uuid4(),
     )
 
     # Save billing info to user profile if requested
