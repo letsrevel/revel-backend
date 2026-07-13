@@ -2,7 +2,9 @@
 
 from datetime import datetime, timedelta
 from decimal import Decimal
+from unittest import mock
 from unittest.mock import Mock, patch
+from uuid import UUID
 
 import pytest
 from django.test.client import Client
@@ -13,6 +15,12 @@ from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
 from events.models import Event, Organization, Payment, TicketTier
+
+
+def _fake_session(session_id: str = "cs_test123") -> mock.Mock:
+    """A minimal stand-in for a ``stripe.checkout.Session``."""
+    return mock.Mock(id=session_id, url=f"https://checkout.stripe.com/c/{session_id}")
+
 
 pytestmark = pytest.mark.django_db
 
@@ -30,8 +38,10 @@ class TestEventStripeCheckout:
 
     @pytest.fixture
     def stripe_connected_organization(self, organization: Organization) -> Organization:
-        """Organization with Stripe account connected."""
+        """Organization with Stripe account fully connected."""
         organization.stripe_account_id = "acct_test123"
+        organization.stripe_charges_enabled = True
+        organization.stripe_details_submitted = True
         organization.save()
         return organization
 
@@ -60,32 +70,40 @@ class TestEventStripeCheckout:
         gat.save()
         return gat
 
-    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_ticket_checkout_success(
         self,
-        mock_create_checkout: Mock,
         authenticated_client: Client,
         public_event: Event,
         paid_ticket_tier: TicketTier,
         organization_owner_user: RevelUser,
     ) -> None:
-        """Test successful ticket checkout."""
-        # Arrange
-        checkout_url = "https://checkout.stripe.com/pay/cs_test123"
-        mock_create_checkout.return_value = checkout_url
-
-        # Act
+        """Test successful ticket checkout: reserve (no Stripe call), then create the session (#632)."""
+        # Act: reserve
         url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": paid_ticket_tier.pk})
         payload = {"tickets": [{"guest_name": "Test Guest"}]}
-        response = authenticated_client.post(url, data=payload, content_type="application/json")
+        with mock.patch("stripe.checkout.Session.create") as mock_create:
+            response = authenticated_client.post(url, data=payload, content_type="application/json")
+            mock_create.assert_not_called()
 
-        # Assert
+        # Assert: reserved, no Stripe call yet
         assert response.status_code == 200
         response_data = response.json()
-        assert response_data["checkout_url"] == checkout_url
+        assert response_data["checkout_url"] is None
+        assert response_data["requires_payment"] is True
         assert response_data["tickets"] == []  # Tickets returned empty for online checkout
+        reservation_id = response_data["reservation_id"]
+        assert UUID(reservation_id)
 
-        mock_create_checkout.assert_called_once()
+        # Act: create the Stripe session
+        fake = _fake_session()
+        session_url = reverse("api:checkout_session", kwargs={"reservation_id": reservation_id})
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as mock_create:
+            session_response = authenticated_client.post(session_url, content_type="application/json")
+            mock_create.assert_called_once()
+
+        # Assert: got the Stripe URL
+        assert session_response.status_code == 200
+        assert session_response.json()["checkout_url"] == fake.url
 
     def test_ticket_checkout_requires_authentication(
         self,
@@ -173,27 +191,32 @@ class TestEventStripeCheckout:
         # Assert
         assert response.status_code == 404  # get_object_or_404 filters by event
 
-    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_ticket_checkout_stripe_service_error(
         self,
-        mock_create_checkout: Mock,
         authenticated_client: Client,
         public_event: Event,
         paid_ticket_tier: TicketTier,
     ) -> None:
-        """Test checkout when stripe service raises an error."""
-        # Arrange
-        mock_create_checkout.side_effect = HttpError(400, "Organization not configured for payments")
-
-        # Act
+        """Test checkout when the Stripe API call fails. Reserve succeeds (no Stripe call);
+        the error now surfaces at the checkout-session step (#632).
+        """
+        # Arrange: reserve succeeds
         url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": paid_ticket_tier.pk})
         payload = {"tickets": [{"guest_name": "Test Guest"}]}
-        response = authenticated_client.post(url, data=payload, content_type="application/json")
+        with mock.patch("stripe.checkout.Session.create"):
+            response = authenticated_client.post(url, data=payload, content_type="application/json")
+        assert response.status_code == 200
+        reservation_id = response.json()["reservation_id"]
+
+        # Act: Stripe fails while creating the session
+        session_url = reverse("api:checkout_session", kwargs={"reservation_id": reservation_id})
+        with mock.patch("stripe.checkout.Session.create", side_effect=Exception("Stripe is down")):
+            session_response = authenticated_client.post(session_url, content_type="application/json")
 
         # Assert
-        assert response.status_code == 400
-        response_data = response.json()
-        assert "Organization not configured for payments" in response_data["detail"]
+        assert session_response.status_code == 500
+        response_data = session_response.json()
+        assert "Payment processing failed" in response_data["detail"]
 
     def test_ticket_checkout_private_event_access_denied(
         self,
@@ -233,14 +256,12 @@ class TestEventStripeCheckout:
         # Assert
         assert response.status_code == 404  # Event not in user's queryset
 
-    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_ticket_checkout_free_tier(
         self,
-        mock_create_checkout: Mock,
         authenticated_client: Client,
         public_event: Event,
     ) -> None:
-        """Test checkout with free ticket tier."""
+        """Test checkout with a zero-price ONLINE ticket tier is rejected at reserve time."""
         # Arrange
         free_tier = TicketTier.objects.create(
             event=public_event,
@@ -249,8 +270,6 @@ class TestEventStripeCheckout:
             currency="EUR",
             payment_method=TicketTier.PaymentMethod.ONLINE,
         )
-
-        mock_create_checkout.side_effect = HttpError(400, "This ticket tier cannot be purchased.")
 
         # Act
         url = reverse("api:ticket_checkout", kwargs={"event_id": public_event.pk, "tier_id": free_tier.pk})
@@ -316,8 +335,10 @@ class TestStripeCheckoutRateLimit:
 
     @pytest.fixture
     def stripe_connected_organization(self, organization: Organization) -> Organization:
-        """Organization with Stripe account connected."""
+        """Organization with Stripe account fully connected."""
         organization.stripe_account_id = "acct_test123"
+        organization.stripe_charges_enabled = True
+        organization.stripe_details_submitted = True
         organization.save()
         return organization
 
@@ -345,18 +366,14 @@ class TestStripeCheckoutRateLimit:
         gat.save()
         return gat
 
-    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_ticket_checkout_respects_write_throttle(
         self,
-        mock_create_checkout: Mock,
         authenticated_client: Client,
         public_event: Event,
         paid_ticket_tier: TicketTier,
     ) -> None:
-        """Test that checkout endpoint is throttled."""
+        """Test that checkout endpoint is throttled. Reserve doesn't call Stripe (#632)."""
         # Arrange
-        checkout_url = "https://checkout.stripe.com/pay/cs_test123"
-        mock_create_checkout.return_value = checkout_url
         # Set max_tickets_per_user to allow multiple purchases
         public_event.max_tickets_per_user = 10
         public_event.save()

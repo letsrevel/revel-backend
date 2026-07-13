@@ -7,7 +7,9 @@
 
 import re
 import typing as t
+from unittest import mock
 from unittest.mock import Mock, patch
+from uuid import UUID
 
 import pytest
 from django.test.client import Client
@@ -18,6 +20,11 @@ from events.models import Event, EventRSVP, Ticket, TicketTier
 from events.service import guest as guest_service
 
 pytestmark = pytest.mark.django_db
+
+
+def _fake_session(session_id: str = "cs_test123") -> mock.Mock:
+    """A minimal stand-in for a ``stripe.checkout.Session``."""
+    return mock.Mock(id=session_id, url=f"https://checkout.stripe.com/c/{session_id}")
 
 
 class TestGuestFlowIntegration:
@@ -106,16 +113,8 @@ class TestGuestFlowIntegration:
         assert ticket.status == Ticket.TicketStatus.ACTIVE
         assert ticket.guest_name == "Ticket Flow"
 
-    @patch("events.service.stripe_service.create_batch_checkout_session")
-    def test_complete_online_payment_flow(
-        self, mock_stripe: Mock, guest_event_with_tickets: Event, online_tier: TicketTier
-    ) -> None:
-        """Test complete online payment flow: initiate -> get Stripe URL -> verify ticket created."""
-        # Arrange
-        checkout_url = "https://checkout.stripe.com/test"
-        mock_stripe.return_value = checkout_url
-
-        # Act: Initiate online payment
+    def test_complete_online_payment_flow(self, guest_event_with_tickets: Event, online_tier: TicketTier) -> None:
+        """Test complete online payment flow: reserve -> create session -> get Stripe URL (#632)."""
         client = Client()
         url = reverse(
             "api:guest_ticket_checkout",
@@ -127,17 +126,34 @@ class TestGuestFlowIntegration:
             "last_name": "User",
             "tickets": [{"guest_name": "Stripe User"}],
         }
-        response = client.post(url, data=payload, content_type="application/json")
 
-        # Assert: Got Stripe URL immediately (no email confirmation needed)
+        # Act: Initiate online payment (reserve; no Stripe call yet)
+        with mock.patch("stripe.checkout.Session.create") as mock_create:
+            response = client.post(url, data=payload, content_type="application/json")
+            mock_create.assert_not_called()
+
+        # Assert: reserved, no email confirmation needed
         assert response.status_code == 200
         data = response.json()
-        assert "checkout_url" in data
-        assert data["checkout_url"] == checkout_url
+        assert data["checkout_url"] is None
+        assert data["requires_payment"] is True
+        reservation_id = data["reservation_id"]
+        assert UUID(reservation_id)
 
         # Verify user was created as guest
         user = RevelUser.objects.get(email="stripe@example.com")
         assert user.guest is True
+
+        # Act: create the Stripe session
+        fake = _fake_session()
+        session_url = reverse("api:guest_checkout_session", kwargs={"reservation_id": reservation_id})
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as mock_create:
+            session_response = client.post(session_url, content_type="application/json")
+            mock_create.assert_called_once()
+
+        # Assert: got the Stripe URL
+        assert session_response.status_code == 200
+        assert session_response.json()["checkout_url"] == fake.url
 
     def test_guest_creates_rsvp_then_converts_to_full_user(
         self, guest_event: Event, django_capture_on_commit_callbacks: t.Any
