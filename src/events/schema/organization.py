@@ -157,6 +157,11 @@ class OrganizationRetrieveSchema(
     accept_membership_requests: bool
     contact_method: Organization.ContactMethod
     contact_email: str | None = None
+    # Member-facing subscription policy: shown to prospective subscribers before
+    # they request/pay for a membership (grace period stays admin-internal). Given a
+    # default so it's non-required in the public schema — narrower org payloads
+    # (list/minimal) that don't carry it stay structurally assignable.
+    membership_refund_policy: str = ""
 
     @staticmethod
     def resolve_contact_email(obj: Organization, context: t.Any) -> str | None:
