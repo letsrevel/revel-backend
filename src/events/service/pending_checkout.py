@@ -70,6 +70,18 @@ def _release_batch_tier_capacity(ticket_ids: list[UUID]) -> None:
 _IN_FLIGHT_CLAIM_GRACE = timedelta(minutes=5)
 
 
+def reservation_owned_by(reservation_id: UUID, user: RevelUser | None) -> bool:
+    """Whether the reservation has Payment rows accessible to the caller (#632).
+
+    Ownership gate shared by the checkout-session endpoints. ``user=None`` is the
+    unauthenticated guest route: its bearer ``reservation_id`` must only unlock
+    guest-originated reservations, so an authenticated user's reservation is not
+    redeemable there (its own endpoint enforces ownership).
+    """
+    owner = Q(user=user) if user is not None else Q(user__guest=True)
+    return Payment.objects.filter(owner, reservation_id=reservation_id).exists()
+
+
 def claim_reservation_hold(reservation_id: UUID) -> None:
     """Atomically extend a reservation's hold before the lock-free Stripe call (#632).
 

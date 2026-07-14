@@ -49,6 +49,9 @@ from events.service.pending_checkout import (
     cancel_pending_checkout as cancel_pending_checkout,
 )
 from events.service.pending_checkout import (
+    reservation_owned_by as reservation_owned_by,
+)
+from events.service.pending_checkout import (
     resume_pending_checkout as resume_pending_checkout,
 )
 from events.service.vat_service import (

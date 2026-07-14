@@ -171,7 +171,7 @@ class SeriesPassController(UserAwareController):
 
         # Ownership: create_series_pass_session scopes by reservation_id; enforce the
         # caller owns it to stop cross-user session creation.
-        if not models.Payment.objects.filter(reservation_id=reservation_id, user=self.user()).exists():
+        if not stripe_service.reservation_owned_by(reservation_id, self.user()):
             raise HttpError(404, str(_("No pending reservation found.")))
         checkout_url = stripe_service.create_series_pass_session(reservation_id=reservation_id)
         return schema.CheckoutSessionResponse(checkout_url=checkout_url)
