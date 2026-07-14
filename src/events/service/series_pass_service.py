@@ -394,15 +394,44 @@ def backfill_missing_tickets(held_pass: HeldSeriesPass) -> list[Ticket]:
     return created
 
 
+def _claim_and_release_pending_pass(held_pass: HeldSeriesPass) -> bool:
+    """Atomically claim one PENDING held pass to CANCELLED and floor-release its SeriesPass counter.
+
+    Shared by ``expire_stranded_held_passes`` (session-keyed) and
+    ``expire_held_passes_for_tickets`` (ticket-keyed). Atomic claim: overlapping
+    expiry routes (beat sweep, ``payment_intent.canceled`` webhook, user
+    ``cancel_pending_checkout``) can each snapshot the same PENDING pass — only the
+    route that wins this conditional UPDATE may decrement the pass counter, or
+    concurrent claims would double-release it.
+
+    Returns:
+        True if this call won the claim (and released the counter).
+    """
+    claimed = HeldSeriesPass.objects.filter(pk=held_pass.pk, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING).update(
+        status=HeldSeriesPass.HeldSeriesPassStatus.CANCELLED
+    )
+    if claimed != 1:
+        return False
+    SeriesPass.objects.filter(pk=held_pass.series_pass_id, quantity_sold__gt=0).update(
+        quantity_sold=F("quantity_sold") - 1
+    )
+    logger.info(
+        "series_pass_stranded_checkout_expired",
+        held_pass_id=str(held_pass.id),
+        series_pass_id=str(held_pass.series_pass_id),
+        stripe_session_id=held_pass.stripe_session_id,
+    )
+    return True
+
+
 def expire_stranded_held_passes(session_ids: t.Collection[str]) -> int:
     """Cancel PENDING held passes whose Stripe checkout session is dead.
 
-    Shared by every online-payment expiry route (the ``cleanup_expired_payments``
-    beat task, the resume/cancel-checkout batch cleanup, and the
-    ``payment_intent.canceled`` webhook) so an abandoned or expired pass checkout
-    never strands the buyer: the pass flips to CANCELLED (freeing the conditional
-    unique constraint for a re-purchase) and ``SeriesPass.quantity_sold`` is
-    floor-decremented.
+    Shared by every online-payment expiry route that only has the Stripe session id
+    to key off of — currently the ``payment_intent.canceled`` webhook — so an
+    abandoned or expired pass checkout never strands the buyer: the pass flips to
+    CANCELLED (freeing the conditional unique constraint for a re-purchase) and
+    ``SeriesPass.quantity_sold`` is floor-decremented.
 
     Tier counters are intentionally NOT touched here — each expiry route already
     releases tier capacity per ticket.
@@ -419,28 +448,36 @@ def expire_stranded_held_passes(session_ids: t.Collection[str]) -> int:
     stranded = list(
         HeldSeriesPass.objects.filter(stripe_session_id__in=ids, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING)
     )
-    cancelled = 0
-    for held_pass in stranded:
-        # Atomic claim: overlapping expiry routes (beat sweep, payment_intent.canceled
-        # webhook, user cancel_pending_checkout) can each snapshot the same PENDING
-        # pass — only the route that wins this conditional UPDATE may decrement the
-        # pass counter, or concurrent claims would double-release it.
-        claimed = HeldSeriesPass.objects.filter(
-            pk=held_pass.pk, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING
-        ).update(status=HeldSeriesPass.HeldSeriesPassStatus.CANCELLED)
-        if claimed != 1:
-            continue
-        cancelled += 1
-        SeriesPass.objects.filter(pk=held_pass.series_pass_id, quantity_sold__gt=0).update(
-            quantity_sold=F("quantity_sold") - 1
-        )
-        logger.info(
-            "series_pass_stranded_checkout_expired",
-            held_pass_id=str(held_pass.id),
-            series_pass_id=str(held_pass.series_pass_id),
-            stripe_session_id=held_pass.stripe_session_id,
-        )
-    return cancelled
+    return sum(1 for held_pass in stranded if _claim_and_release_pending_pass(held_pass))
+
+
+def expire_held_passes_for_tickets(ticket_ids: t.Collection[UUID]) -> int:
+    """Cancel PENDING held passes reachable from the given (about-to-be-reclaimed) tickets.
+
+    Session-id-agnostic reclaim for #632: a reserved-but-not-sessioned series pass
+    has held_pass.stripe_session_id="" so expire_stranded_held_passes (session-keyed)
+    can't find it. The tickets always link to the held pass (materialize_tickets),
+    so we reclaim via them — works for sessioned AND un-sessioned reserves. Mirrors
+    expire_stranded_held_passes' atomic-claim + SeriesPass.quantity_sold
+    floor-decrement (both share ``_claim_and_release_pending_pass``).
+
+    Tier counters are intentionally NOT touched here — each expiry route already
+    releases tier capacity per ticket.
+
+    Args:
+        ticket_ids: Ids of tickets about to be reclaimed by an expiry route.
+
+    Returns:
+        The number of held passes cancelled.
+    """
+    if not ticket_ids:
+        return 0
+    stranded = list(
+        HeldSeriesPass.objects.filter(
+            tickets__id__in=ticket_ids, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING
+        ).distinct()
+    )
+    return sum(1 for held_pass in stranded if _claim_and_release_pending_pass(held_pass))
 
 
 def _expire_stripe_session(held_pass: HeldSeriesPass) -> None:

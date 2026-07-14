@@ -5,7 +5,9 @@
 """
 
 from decimal import Decimal
+from unittest import mock
 from unittest.mock import Mock, patch
+from uuid import UUID
 
 import pytest
 from django.test.client import Client
@@ -15,6 +17,11 @@ from accounts.models import RevelUser
 from events.models import Event, Ticket, TicketTier
 
 pytestmark = pytest.mark.django_db
+
+
+def _fake_session(session_id: str = "cs_test123") -> mock.Mock:
+    """A minimal stand-in for a ``stripe.checkout.Session``."""
+    return mock.Mock(id=session_id, url=f"https://checkout.stripe.com/c/{session_id}")
 
 
 @pytest.mark.django_db(transaction=True)
@@ -67,18 +74,12 @@ class TestGuestTicketCheckout:
         # Verify ticket was NOT created yet
         assert not Ticket.objects.filter(user=guest_user, event=guest_event_with_tickets).exists()
 
-    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_guest_checkout_online_payment_returns_stripe_url(
         self,
-        mock_stripe: Mock,
         guest_event_with_tickets: Event,
         online_tier: TicketTier,
     ) -> None:
-        """Test guest checkout for online payment returns Stripe URL immediately."""
-        # Arrange
-        checkout_url = "https://checkout.stripe.com/pay/cs_test123"
-        mock_stripe.return_value = checkout_url
-
+        """Test guest checkout for online payment: reserve (no Stripe call), then session (#632)."""
         client = Client()
         url = reverse(
             "api:guest_ticket_checkout",
@@ -91,21 +92,33 @@ class TestGuestTicketCheckout:
             "tickets": [{"guest_name": "Online Guest"}],
         }
 
-        # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        # Act: reserve
+        with mock.patch("stripe.checkout.Session.create") as mock_create:
+            response = client.post(url, data=payload, content_type="application/json")
+            mock_create.assert_not_called()
 
-        # Assert
+        # Assert: reserved, no Stripe call yet
         assert response.status_code == 200
         data = response.json()
-        assert "checkout_url" in data
-        assert data["checkout_url"] == checkout_url
+        assert data["checkout_url"] is None
+        assert data["requires_payment"] is True
+        reservation_id = data["reservation_id"]
+        assert UUID(reservation_id)
 
-        # Check guest user was created
+        # Check guest user was created at reserve time
         guest_user = RevelUser.objects.get(email="onlineguest@example.com")
         assert guest_user.guest is True
 
-        # Verify Stripe was called
-        mock_stripe.assert_called_once()
+        # Act: create the Stripe session
+        fake = _fake_session()
+        session_url = reverse("api:guest_checkout_session", kwargs={"reservation_id": reservation_id})
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as mock_create:
+            session_response = client.post(session_url, content_type="application/json")
+            mock_create.assert_called_once()
+
+        # Assert: got the Stripe URL
+        assert session_response.status_code == 200
+        assert session_response.json()["checkout_url"] == fake.url
 
     def test_guest_checkout_rejects_authenticated_user(
         self, member_client: Client, guest_event_with_tickets: Event, free_tier: TicketTier
@@ -250,18 +263,12 @@ class TestGuestPWYCCheckout:
 
         mock_send_email.assert_called_once()
 
-    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_guest_pwyc_checkout_online_success(
         self,
-        mock_stripe: Mock,
         guest_event_with_tickets: Event,
         pwyc_online_tier: TicketTier,
     ) -> None:
-        """Test successful guest PWYC checkout with online payment."""
-        # Arrange
-        checkout_url = "https://checkout.stripe.com/pay/cs_test123"
-        mock_stripe.return_value = checkout_url
-
+        """Test successful guest PWYC checkout with online payment: reserve, then session (#632)."""
         client = Client()
         url = reverse(
             "api:guest_ticket_pwyc_checkout",
@@ -275,14 +282,29 @@ class TestGuestPWYCCheckout:
             "price_per_ticket": "25.00",
         }
 
-        # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        # Act: reserve
+        with mock.patch("stripe.checkout.Session.create") as mock_create:
+            response = client.post(url, data=payload, content_type="application/json")
+            mock_create.assert_not_called()
 
-        # Assert
+        # Assert: reserved, no Stripe call yet
         assert response.status_code == 200
         data = response.json()
-        assert "checkout_url" in data
-        assert data["checkout_url"] == checkout_url
+        assert data["checkout_url"] is None
+        assert data["requires_payment"] is True
+        reservation_id = data["reservation_id"]
+        assert UUID(reservation_id)
+
+        # Act: create the Stripe session
+        fake = _fake_session()
+        session_url = reverse("api:guest_checkout_session", kwargs={"reservation_id": reservation_id})
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as mock_create:
+            session_response = client.post(session_url, content_type="application/json")
+            mock_create.assert_called_once()
+
+        # Assert: got the Stripe URL
+        assert session_response.status_code == 200
+        assert session_response.json()["checkout_url"] == fake.url
 
     def test_guest_pwyc_checkout_rejects_amount_below_min(
         self, guest_event_with_tickets: Event, pwyc_tier: TicketTier

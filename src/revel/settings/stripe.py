@@ -29,6 +29,13 @@ STRIPE_WEBHOOK_EVENT_RETENTION_DAYS = config("STRIPE_WEBHOOK_EVENT_RETENTION_DAY
 STRIPE_ACCOUNT = config("STRIPE_ACCOUNT", default="test_...")
 # Note: minimum 30 minutes
 PAYMENT_DEFAULT_EXPIRY_MINUTES = config("PAYMENT_DEFAULT_EXPIRY_MINUTES", cast=int, default=45)
+# Short hold for a checkout reservation that has not yet reached the Stripe
+# session-create step (#632). Reserve stamps Payment.expires_at = now + this;
+# the session endpoint bumps it to PAYMENT_DEFAULT_EXPIRY_MINUTES once Stripe
+# succeeds. Kept short so abandoned/never-sessioned reserves free tier capacity
+# quickly during a festival on-sale — the reserve->session gap is one machine
+# round-trip, so the buyer never waits this long.
+RESERVATION_HOLD_MINUTES = config("RESERVATION_HOLD_MINUTES", cast=int, default=15)
 # Test Stripe Connect account ID for bootstrap data
 CONNECTED_TEST_STRIPE_ID = config("CONNECTED_TEST_STRIPE_ID", default=None)
 DEFAULT_REFERRAL_SHARE_PERCENT = config("DEFAULT_REFERRAL_SHARE_PERCENT", cast=Decimal, default=Decimal("15.00"))

@@ -434,6 +434,43 @@ class TestStripeEventHandler:
         completed_payment.refresh_from_db()
         assert completed_payment.status == Payment.PaymentStatus.SUCCEEDED  # Unchanged
 
+    def test_handle_payment_intent_canceled_locks_payment_rows(
+        self,
+        handler: StripeEventHandler,
+        completed_payment: Payment,
+    ) -> None:
+        """handle_payment_intent_canceled must lock its Payment selection with
+        select_for_update(of=("self",)) -- mirroring handle_charge_refunded -- so an
+        overlapping reclaim (cleanup_expired_payments, cancel_pending_checkout) on the
+        same rows serializes instead of both decrementing the tier from the same
+        unlocked snapshot. No outbound Stripe call happens in this handler, so holding
+        the lock for its duration is safe (#632)."""
+        completed_payment.status = Payment.PaymentStatus.PENDING
+        completed_payment.stripe_payment_intent_id = "pi_test123"
+        completed_payment.save()
+
+        ticket = completed_payment.ticket
+        ticket.status = Ticket.TicketStatus.PENDING
+        ticket.save()
+
+        mock_payment_intent_data = {"id": "pi_test123", "status": "canceled"}
+        handler.event.data.object = mock_payment_intent_data
+
+        original_select_for_update = Payment.objects.select_for_update
+        calls: list[tuple[t.Any, t.Any]] = []
+
+        def record_select_for_update(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            calls.append((args, kwargs))
+            return original_select_for_update(*args, **kwargs)
+
+        with patch.object(Payment.objects, "select_for_update", side_effect=record_select_for_update):
+            handler.handle_payment_intent_canceled(handler.event)
+
+        assert calls
+        assert calls[0][1] == {"of": ("self",)}
+        completed_payment.refresh_from_db()
+        assert completed_payment.status == Payment.PaymentStatus.FAILED
+
     def test_handle_payment_intent_canceled_unknown_payment(
         self,
         handler: StripeEventHandler,

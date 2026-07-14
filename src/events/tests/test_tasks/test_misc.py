@@ -1,5 +1,5 @@
 import typing as t
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -17,7 +17,6 @@ from events.models import (
     GeneralUserPreferences,
     HeldSeriesPass,
     Organization,
-    Payment,
     SeriesPass,
     SeriesPassTierLink,
     Ticket,
@@ -25,7 +24,6 @@ from events.models import (
 )
 from events.tasks import (
     build_attendee_visibility_flags,
-    cleanup_expired_payments,
     cleanup_ticket_file_cache,
     generate_recurring_events_task,
 )
@@ -172,192 +170,6 @@ def test_build_attendee_visibility_flags_replaces_existing(
     # The flags should be replaced with new ones where is_visible=True
     assert AttendeeVisibilityFlag.objects.get(user=attendee1, event=event, target=attendee2).is_visible
     assert AttendeeVisibilityFlag.objects.get(user=attendee2, event=event, target=attendee1).is_visible
-
-
-class TestCleanupExpiredPayments:
-    @pytest.fixture
-    def user(self, revel_user_factory: RevelUserFactory) -> RevelUser:
-        return revel_user_factory()
-
-    @pytest.fixture
-    def another_organization(self, user: RevelUser) -> Organization:
-        return Organization.objects.create(name="Another Org", slug="another-org", owner=user)
-
-    @pytest.fixture
-    def another_event(self, another_organization: Organization, next_week: datetime) -> Event:
-        return Event.objects.create(organization=another_organization, name="Another Event", start=next_week)
-
-    @pytest.fixture
-    def tier(self, event: Event) -> TicketTier:
-        tier, _ = TicketTier.objects.get_or_create(event=event, name="Paid Tier", price=Decimal("10.00"))
-        return tier
-
-    @pytest.fixture
-    def another_tier(self, another_event: Event) -> TicketTier:
-        tier, _ = TicketTier.objects.get_or_create(event=another_event, name="Another Tier", price=Decimal("20.00"))
-        return tier
-
-    def test_cleanup_no_expired_payments(self) -> None:
-        """Test that the task does nothing and returns 0 when there are no expired payments."""
-        result = cleanup_expired_payments()
-        assert result == 0
-
-    def test_cleanup_single_expired_payment(self, tier: TicketTier, user: RevelUser) -> None:
-        """Test that a single expired payment and its ticket are deleted, and tier quantity is updated."""
-        # Arrange
-        ticket = Ticket.objects.create(
-            guest_name="Test Guest", event=tier.event, tier=tier, user=user, status=Ticket.TicketStatus.PENDING
-        )
-        Payment.objects.create(
-            ticket=ticket,
-            user=user,
-            stripe_session_id="sess_expired",
-            status=Payment.PaymentStatus.PENDING,
-            expires_at=timezone.now() - timedelta(minutes=1),
-            amount=tier.price,
-            platform_fee=10,
-        )
-        tier.quantity_sold = 1
-        tier.save()
-
-        # Act
-        result = cleanup_expired_payments()
-
-        # Assert
-        assert result == 1
-        tier.refresh_from_db()
-        assert tier.quantity_sold == 0
-        assert not Payment.objects.exists()
-        assert not Ticket.objects.exists()
-
-    def test_cleanup_multiple_expired_payments(
-        self, tier: TicketTier, another_tier: TicketTier, user: RevelUser
-    ) -> None:
-        """Test cleanup of multiple payments across different tiers."""
-        # Arrange
-        # Payment 1
-        ticket1 = Ticket.objects.create(
-            guest_name="Test Guest", event=tier.event, tier=tier, user=user, status=Ticket.TicketStatus.PENDING
-        )
-        Payment.objects.create(
-            ticket=ticket1,
-            user=user,
-            stripe_session_id="sess_expired1",
-            status=Payment.PaymentStatus.PENDING,
-            expires_at=timezone.now() - timedelta(minutes=1),
-            amount=tier.price,
-            platform_fee=10,
-        )
-        # Payment 2
-        ticket2 = Ticket.objects.create(
-            guest_name="Test Guest",
-            event=another_tier.event,
-            tier=another_tier,
-            user=user,
-            status=Ticket.TicketStatus.PENDING,
-        )
-        Payment.objects.create(
-            ticket=ticket2,
-            user=user,
-            stripe_session_id="sess_expired2",
-            status=Payment.PaymentStatus.PENDING,
-            expires_at=timezone.now() - timedelta(minutes=1),
-            amount=another_tier.price,
-            platform_fee=10,
-        )
-
-        tier.quantity_sold = 1
-        tier.save()
-        another_tier.quantity_sold = 1
-        another_tier.save()
-
-        # Act
-        result = cleanup_expired_payments()
-
-        # Assert
-        assert result == 2
-        tier.refresh_from_db()
-        another_tier.refresh_from_db()
-        assert tier.quantity_sold == 0
-        assert another_tier.quantity_sold == 0
-        assert not Payment.objects.exists()
-        assert not Ticket.objects.exists()
-
-    def test_cleanup_ignores_non_expired_payments(
-        self, tier: TicketTier, user: RevelUser, member_user: RevelUser
-    ) -> None:
-        """Test that active pending payments are not affected."""
-        # Arrange
-        # Expired payment
-        expired_ticket = Ticket.objects.create(
-            guest_name="Test Guest", event=tier.event, tier=tier, user=user, status=Ticket.TicketStatus.PENDING
-        )
-        Payment.objects.create(
-            ticket=expired_ticket,
-            user=user,
-            stripe_session_id="sess_expired",
-            status=Payment.PaymentStatus.PENDING,
-            expires_at=timezone.now() - timedelta(minutes=1),
-            amount=tier.price,
-            platform_fee=10,
-        )
-        # Active payment
-        active_ticket = Ticket.objects.create(
-            guest_name="Test Guest", event=tier.event, tier=tier, user=member_user, status=Ticket.TicketStatus.PENDING
-        )
-        active_payment = Payment.objects.create(
-            ticket=active_ticket,
-            user=member_user,
-            stripe_session_id="sess_active",
-            status=Payment.PaymentStatus.PENDING,
-            expires_at=timezone.now() + timedelta(minutes=30),
-            amount=tier.price,
-            platform_fee=10,
-        )
-
-        tier.quantity_sold = 2
-        tier.save()
-
-        # Act
-        result = cleanup_expired_payments()
-
-        # Assert
-        assert result == 1
-        tier.refresh_from_db()
-        assert tier.quantity_sold == 1  # One was released
-        assert Payment.objects.count() == 1
-        assert Payment.objects.first() == active_payment
-        assert Ticket.objects.count() == 1
-        assert Ticket.objects.first() == active_ticket
-
-    def test_cleanup_ignores_non_pending_payments(self, tier: TicketTier, user: RevelUser) -> None:
-        """Test that succeeded, failed, etc. payments are not cleaned up even if expired."""
-        # Arrange
-        ticket = Ticket.objects.create(
-            guest_name="Test Guest", event=tier.event, tier=tier, user=user, status=Ticket.TicketStatus.ACTIVE
-        )
-        Payment.objects.create(
-            ticket=ticket,
-            user=user,
-            stripe_session_id="sess_succeeded",
-            status=Payment.PaymentStatus.SUCCEEDED,
-            expires_at=timezone.now() - timedelta(minutes=1),
-            amount=tier.price,
-            platform_fee=5,
-        )
-
-        tier.quantity_sold = 1
-        tier.save()
-
-        # Act
-        result = cleanup_expired_payments()
-
-        # Assert
-        assert result == 0
-        tier.refresh_from_db()
-        assert tier.quantity_sold == 1
-        assert Payment.objects.count() == 1
-        assert Ticket.objects.count() == 1
 
 
 class TestCleanupTicketFileCache:

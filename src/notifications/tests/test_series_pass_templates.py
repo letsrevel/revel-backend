@@ -29,6 +29,7 @@ from events.models import (
     SeriesPassTierLink,
     TicketTier,
 )
+from events.service import stripe_service
 from events.service.series_pass_purchase import SeriesPassPurchaseService
 from events.service.stripe_webhooks import StripeEventHandler
 from notifications.enums import NotificationType
@@ -280,8 +281,14 @@ class TestWebhookActivationNotifications:
         mock_session = Mock()
         mock_session.id = session_id
         mock_session.url = f"https://checkout.stripe.com/pay/{session_id}"
+        # #632: online purchase now reserves (returns reservation_id) and the Stripe
+        # session — which stamps held_pass.stripe_session_id — is created in the
+        # separate session step. The webhook keys on that stamped session id.
         with patch("stripe.checkout.Session.create", return_value=mock_session):
-            SeriesPassPurchaseService(online_series_pass, holder).purchase()
+            result = SeriesPassPurchaseService(online_series_pass, holder).purchase()
+            assert isinstance(result, tuple)
+            _, reservation_id = result
+            stripe_service.create_series_pass_session(reservation_id=reservation_id)
 
         held_pass = HeldSeriesPass.objects.get(series_pass=online_series_pass, user=holder)
         assert held_pass.status == HeldSeriesPass.HeldSeriesPassStatus.PENDING
@@ -319,7 +326,10 @@ class TestWebhookActivationNotifications:
         mock_session.id = session_id
         mock_session.url = f"https://checkout.stripe.com/pay/{session_id}"
         with patch("stripe.checkout.Session.create", return_value=mock_session):
-            SeriesPassPurchaseService(online_series_pass, holder).purchase()
+            result = SeriesPassPurchaseService(online_series_pass, holder).purchase()
+            assert isinstance(result, tuple)
+            _, reservation_id = result
+            stripe_service.create_series_pass_session(reservation_id=reservation_id)
 
         with django_capture_on_commit_callbacks(execute=True):
             StripeEventHandler(_completed_checkout_event(session_id)).handle_checkout_session_completed(

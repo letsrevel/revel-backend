@@ -1,7 +1,9 @@
 """Tests for reserved seating functionality for guest ticket checkout endpoints."""
 
 from decimal import Decimal
+from unittest import mock
 from unittest.mock import Mock, patch
+from uuid import UUID
 
 import pytest
 from django.test.client import Client
@@ -13,6 +15,11 @@ from events.models import Event, Organization, Ticket, TicketTier, Venue, VenueS
 from events.service import guest as guest_service
 
 pytestmark = pytest.mark.django_db
+
+
+def _fake_session(session_id: str = "cs_test123") -> mock.Mock:
+    """A minimal stand-in for a ``stripe.checkout.Session``."""
+    return mock.Mock(id=session_id, url=f"https://checkout.stripe.com/c/{session_id}")
 
 
 @pytest.fixture
@@ -327,17 +334,22 @@ class TestGuestCheckoutReservedSeating:
         data = response.json()
         assert "seat" in data["detail"].lower()
 
-    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_guest_checkout_online_with_reserved_seating(
         self,
-        mock_stripe: Mock,
         guest_event_with_tickets: Event,
         venue: Venue,
         sector: VenueSector,
         seats: list[VenueSeat],
     ) -> None:
-        """Test guest online checkout with reserved seating creates pending tickets with seats."""
-        # Arrange - Create online tier with USER_CHOICE seating
+        """Test guest online checkout with reserved seating reserves pending tickets with seats,
+        then the checkout-session step returns the Stripe URL (#632).
+        """
+        # Arrange - Stripe-connect the organization, then create online tier with USER_CHOICE seating
+        org = guest_event_with_tickets.organization
+        org.stripe_account_id = "acct_test123"
+        org.stripe_charges_enabled = True
+        org.stripe_details_submitted = True
+        org.save()
         online_user_choice_tier = TicketTier.objects.create(
             event=guest_event_with_tickets,
             name="Online Reserved",
@@ -349,9 +361,6 @@ class TestGuestCheckoutReservedSeating:
             seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
             max_tickets_per_user=10,  # Allow multiple tickets per user
         )
-
-        checkout_url = "https://checkout.stripe.com/reserved"
-        mock_stripe.return_value = checkout_url
 
         client = Client()
         url = reverse(
@@ -368,19 +377,36 @@ class TestGuestCheckoutReservedSeating:
             ],
         }
 
-        # Act
-        response = client.post(url, data=payload, content_type="application/json")
+        # Act: reserve
+        with mock.patch("stripe.checkout.Session.create") as mock_create:
+            response = client.post(url, data=payload, content_type="application/json")
+            mock_create.assert_not_called()
 
-        # Assert
+        # Assert: reserved, no Stripe call yet
         assert response.status_code == 200
         data = response.json()
-        assert data["checkout_url"] == checkout_url
+        assert data["checkout_url"] is None
+        assert data["requires_payment"] is True
+        reservation_id = data["reservation_id"]
+        assert UUID(reservation_id)
 
-        # Verify tickets were created with seats (pending until Stripe confirms)
+        # Verify PENDING tickets were created with seats already (held until Stripe confirms)
         user = RevelUser.objects.get(email="onlinereserved@example.com")
         created_tickets = Ticket.objects.filter(user=user, event=guest_event_with_tickets)
         assert created_tickets.count() == 2
+        assert all(t.status == Ticket.TicketStatus.PENDING for t in created_tickets)
         # Check seats are assigned
         assigned_seats = {t.seat for t in created_tickets}
         assert seats[0] in assigned_seats
         assert seats[1] in assigned_seats
+
+        # Act: create the Stripe session
+        fake = _fake_session()
+        session_url = reverse("api:guest_checkout_session", kwargs={"reservation_id": reservation_id})
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as mock_create:
+            session_response = client.post(session_url, content_type="application/json")
+            mock_create.assert_called_once()
+
+        # Assert: got the Stripe URL
+        assert session_response.status_code == 200
+        assert session_response.json()["checkout_url"] == fake.url

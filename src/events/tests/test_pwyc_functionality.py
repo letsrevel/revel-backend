@@ -99,7 +99,10 @@ def test_pwyc_tier_with_no_max_limit(public_event: Event) -> None:
 
 
 def test_stripe_service_uses_effective_price(public_user: RevelUser, public_event: Event) -> None:
-    """Test that create_checkout_session uses effective_price correctly."""
+    """The PWYC price override (not the tier base price) reaches the Stripe line items."""
+    from uuid import uuid4
+
+    from events.models import Ticket
     from events.service import stripe_service
 
     # Set up organization with Stripe
@@ -118,19 +121,27 @@ def test_stripe_service_uses_effective_price(public_user: RevelUser, public_even
         pwyc_min=Decimal("5"),
         payment_method=TicketTier.PaymentMethod.ONLINE,
     )
+    ticket = Ticket.objects.create(
+        event=public_event, tier=tier, user=public_user, status=Ticket.TicketStatus.PENDING, guest_name="PWYC"
+    )
+    rid = uuid4()
+    stripe_service.reserve_batch_payments(
+        event=public_event,
+        tier=tier,
+        user=public_user,
+        tickets=[ticket],
+        reservation_id=rid,
+        price_override=Decimal("25.0"),
+    )
 
     # Mock the actual Stripe Session.create call
     with patch("events.service.stripe_service.Session.create") as mock_session_create:
         mock_session_create.return_value.id = "cs_test_session"
         mock_session_create.return_value.url = "https://checkout.stripe.com/pay/test"
 
-        # Call with price override
-        stripe_service.create_checkout_session(public_event, tier, public_user, price_override=Decimal("25.0"))
-
-        # Verify the Stripe session was created with the overridden price
-        mock_session_create.assert_called_once()
-        call_args = mock_session_create.call_args[1]
-        line_item = call_args["line_items"][0]
+        stripe_service.create_batch_session(reservation_id=rid)
 
         # Should use overridden price (25.00) instead of tier price (10.00)
+        mock_session_create.assert_called_once()
+        line_item = mock_session_create.call_args[1]["line_items"][0]
         assert line_item["price_data"]["unit_amount"] == 2500  # 25.00 * 100 cents

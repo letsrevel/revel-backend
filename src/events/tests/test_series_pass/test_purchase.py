@@ -4,6 +4,7 @@ import typing as t
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
+from uuid import UUID
 
 import pytest
 from django.db import IntegrityError
@@ -262,20 +263,21 @@ class TestOfflineConfirmPriceDistribution:
 
 
 class TestOnlinePathPurchase:
-    def test_calls_stripe_checkout_and_returns_its_result(
+    def test_reserves_payments_and_returns_held_pass_with_reservation_id(
         self, purchasable_online_pass: SeriesPass, revel_user: RevelUser
     ) -> None:
-        with patch(
-            "events.service.stripe_service.create_series_pass_checkout_session",
-            return_value="https://checkout.stripe.com/session/xyz",
-        ) as mock_checkout:
+        """ONLINE purchase() now reserves (#632): no Stripe call, returns (held_pass, reservation_id)."""
+        with patch("events.service.stripe_service.reserve_series_pass_payments") as mock_reserve:
             result = SeriesPassPurchaseService(purchasable_online_pass, revel_user).purchase()
 
-        assert result == "https://checkout.stripe.com/session/xyz"
-        assert mock_checkout.called
-        _, kwargs = mock_checkout.call_args
-        held_pass = kwargs["held_pass"]
+        assert isinstance(result, tuple)
+        held_pass, reservation_id = result
         assert isinstance(held_pass, HeldSeriesPass)
+        assert isinstance(reservation_id, UUID)
+        assert mock_reserve.called
+        _, kwargs = mock_reserve.call_args
+        assert kwargs["held_pass"] == held_pass
+        assert kwargs["reservation_id"] == reservation_id
         tickets = kwargs["tickets"]
         assert len(tickets) == 3
         assert all(ticket.status == Ticket.TicketStatus.PENDING for ticket in tickets)
@@ -355,6 +357,50 @@ class TestNotPurchasable:
         with pytest.raises(SeriesPassNotPurchasableError):
             SeriesPassPurchaseService(under_min_pass, revel_user).purchase()
 
+        assert not HeldSeriesPass.objects.exists()
+
+    def test_no_future_links_raises_and_does_not_increment(
+        self, organization: Organization, event_series: EventSeries, revel_user: RevelUser
+    ) -> None:
+        """Defense-in-depth (#632): get_quote's remaining<2 gate already blocks this in
+        the normal case, but it and purchase()'s own future_links query each take an
+        independent timezone.now() snapshot — a TOCTOU race between the two could in
+        theory let a stale-but-purchasable quote through after every covered event has
+        tipped into the past. If it did, the ONLINE path would increment quantity_sold
+        and create a PENDING held pass with no tickets and no Payment rows: an
+        unreclaimable stranded reserve, since the beat-task cleanup keys off Payment
+        rows. purchase() must re-assert on its own now()-derived future_links, not
+        just trust the quote."""
+        now = timezone.now()
+        p1 = _make_event(organization, event_series, "P1", "p1", now - timedelta(days=2))
+        p2 = _make_event(organization, event_series, "P2", "p2", now - timedelta(days=1))
+        tier1 = _make_tier(p1, "Tier P1")
+        tier2 = _make_tier(p2, "Tier P2")
+        series_pass = SeriesPass.objects.create(
+            event_series=event_series,
+            name="All Past Pass",
+            price=Decimal("30.00"),
+            pro_rata_discount=Decimal("5.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        SeriesPassTierLink.objects.create(series_pass=series_pass, event=p1, tier=tier1)
+        SeriesPassTierLink.objects.create(series_pass=series_pass, event=p2, tier=tier2)
+
+        stale_quote = series_pass_service.SeriesPassQuote(
+            price=Decimal("20.00"),
+            passed_events=0,
+            remaining_events=2,
+            currency="EUR",
+            purchasable=True,
+            reason=None,
+        )
+        with patch.object(series_pass_service, "get_quote", return_value=stale_quote):
+            with pytest.raises(SeriesPassNotPurchasableError):
+                SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+        series_pass.refresh_from_db()
+        assert series_pass.quantity_sold == 0
         assert not HeldSeriesPass.objects.exists()
 
 

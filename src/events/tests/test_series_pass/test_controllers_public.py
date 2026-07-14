@@ -329,20 +329,24 @@ class TestCheckout:
         assert data["held_pass"]["total_event_count"] == 4
         assert data["held_pass"]["remaining_event_count"] == 3
 
-    def test_online_pass_checkout_returns_checkout_url(
-        self, revel_user_client: Client, purchasable_online_pass: SeriesPass
+    def test_online_pass_checkout_reserves_without_stripe_call(
+        self,
+        revel_user_client: Client,
+        stripe_connected_organization: Organization,
+        purchasable_online_pass: SeriesPass,
     ) -> None:
+        """ONLINE checkout now reserves (#632): no Stripe call, requires_payment + reservation_id."""
         url = reverse("api:checkout_series_pass", kwargs={"pass_id": purchasable_online_pass.id})
-        with patch(
-            "events.service.stripe_service.create_series_pass_checkout_session",
-            return_value="https://checkout.stripe.com/session/xyz",
-        ):
+        with patch("stripe.checkout.Session.create") as mock_create:
             response = revel_user_client.post(url, data=b"", content_type="application/json")
+            mock_create.assert_not_called()
 
         assert response.status_code == 200
         data = response.json()
-        assert data["checkout_url"] == "https://checkout.stripe.com/session/xyz"
-        assert data["held_pass"] is None
+        assert data["checkout_url"] is None
+        assert data["requires_payment"] is True
+        assert data["reservation_id"]
+        assert data["held_pass"]["status"] == "pending"
 
     def test_not_purchasable_returns_409(self, revel_user_client: Client, under_min_pass: SeriesPass) -> None:
         url = reverse("api:checkout_series_pass", kwargs={"pass_id": under_min_pass.id})

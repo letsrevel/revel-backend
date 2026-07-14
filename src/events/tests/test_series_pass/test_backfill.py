@@ -30,7 +30,7 @@ from events.models import (
     Ticket,
     TicketTier,
 )
-from events.service import series_pass_service
+from events.service import series_pass_service, stripe_service
 from events.service.series_pass_purchase import SeriesPassPurchaseService
 from events.service.stripe_webhooks import StripeEventHandler
 from events.tasks.series_pass import materialize_series_pass_holders
@@ -101,12 +101,13 @@ def _make_pass(
 
 
 def _purchase_online(series_pass: SeriesPass, user: RevelUser, session_id: str) -> HeldSeriesPass:
-    """Drive the real ONLINE purchase flow (mocked Stripe) to a PENDING HeldSeriesPass."""
+    """Drive the real ONLINE purchase flow (reserve + session, mocked Stripe) to a PENDING HeldSeriesPass (#632)."""
     mock_session = Mock()
     mock_session.id = session_id
     mock_session.url = f"https://checkout.stripe.com/pay/{session_id}"
     with patch("stripe.checkout.Session.create", return_value=mock_session):
-        SeriesPassPurchaseService(series_pass, user).purchase()
+        _, reservation_id = SeriesPassPurchaseService(series_pass, user).purchase()  # type: ignore[misc]
+        stripe_service.create_series_pass_session(reservation_id=reservation_id)
     return HeldSeriesPass.objects.get(
         series_pass=series_pass, user=user, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING
     )

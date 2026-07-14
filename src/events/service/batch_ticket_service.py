@@ -3,6 +3,7 @@
 import copy
 import typing as t
 from decimal import Decimal
+from uuid import UUID
 
 import structlog
 from django.db import transaction
@@ -20,6 +21,7 @@ from notifications.signals.waitlist import remove_user_from_waitlist
 
 if t.TYPE_CHECKING:
     from events.schema.ticket import BuyerBillingInfoSchema
+    from events.service.attendee_vat_service import BuyerVATContext
 
 logger = structlog.get_logger(__name__)
 
@@ -53,6 +55,7 @@ class BatchTicketService:
         self.tier = tier
         self.user = user
         self.discount_code = discount_code
+        self._reserve_buyer_vat: "BuyerVATContext | None" = None
 
     def _assert_purchasable_by(self) -> None:
         """Assert the user is allowed to purchase from this tier.
@@ -225,6 +228,27 @@ class BatchTicketService:
                 400,
                 str(_("Not enough seats available. Only {available} seat(s) remaining.")).format(
                     available=len(available)
+                ),
+            )
+
+        # Post-lock re-check (#632): two RANDOM-assignment tiers on the same sector
+        # don't serialize on this tier's lock, and Postgres EvalPlanQual won't
+        # re-run the exclude(taken) subquery above against a ticket that committed
+        # on an already-locked seat row between our SELECT and our lock. Mirrors
+        # _resolve_seats_user_choice's re-check below, which exists for the same
+        # reason.
+        taken_ids = set(
+            Ticket.objects.filter(
+                event=self.event,
+                seat_id__in=[seat.id for seat in available],
+                status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
+            ).values_list("seat_id", flat=True)
+        )
+        if taken_ids:
+            raise HttpError(
+                400,
+                str(_("Not enough seats available. Only {available} seat(s) remaining.")).format(
+                    available=max(len(available) - len(taken_ids), 0)
                 ),
             )
         return available
@@ -447,11 +471,12 @@ class BatchTicketService:
         items: list[TicketPurchaseItem],
         price_override: Decimal | None = None,
         billing_info: "BuyerBillingInfoSchema | None" = None,
-    ) -> list[Ticket] | str:
+    ) -> list[Ticket] | tuple[list[Ticket], UUID]:
         """Create a batch of tickets.
 
-        For online payment tiers, returns a Stripe checkout URL.
-        For free/offline tiers, returns the created tickets.
+        For online payment tiers, reserves the batch (PENDING tickets + PENDING
+        Payment rows) and returns the tickets with a reservation_id.
+        For free/offline/at-the-door tiers, returns the created tickets.
 
         Args:
             items: List of ticket purchase items with guest_name and optional seat_id.
@@ -459,7 +484,8 @@ class BatchTicketService:
             billing_info: Optional buyer billing info for attendee invoicing.
 
         Returns:
-            Either a Stripe checkout URL (str) or list of created Tickets.
+            Either a `(tickets, reservation_id)` tuple for the ONLINE payment
+            method, or a list of created Tickets for free/offline/at-the-door.
 
         Raises:
             HttpError: If validation fails or ticket creation fails.
@@ -469,6 +495,20 @@ class BatchTicketService:
 
         # Validate batch size
         self.validate_batch_size(len(items))
+
+        # Resolve the buyer's VAT context (incl. the VIES round-trip) BEFORE
+        # locking the tier, so the contended row is never held across VIES
+        # (#632). Price-independent: the arithmetic runs post-lock against the
+        # locked tier's fresh price. Only the paid-online path creates Stripe
+        # Payment rows; other methods skip it.
+        buyer_vat = None
+        if self.tier.payment_method == TicketTier.PaymentMethod.ONLINE and not (
+            price_override is not None and price_override <= 0
+        ):
+            from events.service import stripe_service
+
+            buyer_vat = stripe_service.resolve_attendee_vat_for_reserve(billing_info=billing_info)
+        self._reserve_buyer_vat = buyer_vat  # consumed by _online_checkout
 
         # Lock the tier for capacity check
         locked_tier = TicketTier.objects.select_for_update().get(pk=self.tier.pk)
@@ -631,8 +671,14 @@ class BatchTicketService:
         locked_tier: TicketTier,
         price_override: Decimal | None,
         billing_info: "BuyerBillingInfoSchema | None" = None,
-    ) -> str:
-        """Handle online (Stripe) checkout for batch tickets.
+    ) -> tuple[list[Ticket], UUID]:
+        """Reserve an online batch: PENDING tickets + PENDING Payment rows (#632).
+
+        Does NOT call Stripe — the caller returns the reservation_id to the
+        client, which then calls the checkout-session endpoint. Keeping Stripe
+        out of this method is what lets the request commit and release the tier
+        lock before the ~2.5s Session.create round-trip. Attendee VAT (VIES) was
+        already resolved before the lock in create_batch and is passed through.
 
         Args:
             items: List of ticket purchase items.
@@ -642,9 +688,13 @@ class BatchTicketService:
             billing_info: Optional buyer billing info for attendee invoicing.
 
         Returns:
-            Stripe checkout URL.
+            Tuple of the created PENDING tickets and the reservation_id.
         """
+        from uuid import uuid4
+
         from events.service import stripe_service
+
+        reservation_id = uuid4()
 
         # Create PENDING tickets
         tickets = self._create_tickets(items, seats, Ticket.TicketStatus.PENDING)
@@ -652,17 +702,19 @@ class BatchTicketService:
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))
 
-        # Create Stripe checkout session
-        checkout_url = stripe_service.create_batch_checkout_session(
+        # Create PENDING Payment rows for the reservation (no Stripe call).
+        stripe_service.reserve_batch_payments(
             event=self.event,
             tier=locked_tier,
             user=self.user,
             tickets=tickets,
+            reservation_id=reservation_id,
             price_override=price_override,
             billing_info=billing_info,
+            buyer_vat_context=self._reserve_buyer_vat,
         )
 
-        return checkout_url
+        return tickets, reservation_id
 
     def _trigger_bulk_create_side_effects(self, tickets: list[Ticket]) -> None:
         """Trigger side effects that post_save signals would normally handle.

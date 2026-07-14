@@ -702,9 +702,17 @@ class StripeEventHandler:
             logger.warning("stripe_payment_intent_canceled_missing_id")
             return
 
-        # Find all payments by payment_intent_id (supports batch purchases)
+        # Find all payments by payment_intent_id (supports batch purchases). Locked
+        # with select_for_update(of=("self",)) — mirroring handle_charge_refunded —
+        # so a concurrent reclaim on the same rows (cleanup_expired_payments,
+        # cancel_pending_checkout) serializes instead of both reading PENDING and
+        # both decrementing the tier from the same unlocked snapshot. No outbound
+        # Stripe call happens in this handler, so holding the lock for its duration
+        # is safe (#632).
         payments = list(
-            Payment.objects.filter(stripe_payment_intent_id=payment_intent_id).select_related("ticket", "ticket__tier")
+            Payment.objects.select_for_update(of=("self",))
+            .filter(stripe_payment_intent_id=payment_intent_id)
+            .select_related("ticket", "ticket__tier")
         )
 
         if not payments:
@@ -743,13 +751,21 @@ class StripeEventHandler:
 
             # Cancel the ticket
             ticket = payment.ticket
+            already_cancelled = ticket.status == Ticket.TicketStatus.CANCELLED
             ticket.status = Ticket.TicketStatus.CANCELLED
             ticket.save(update_fields=["status"])
 
             # Restore ticket quantity (guard against underflow if row is already at 0).
-            TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
-                quantity_sold=F("quantity_sold") - 1
-            )
+            # Skip if already CANCELLED: a PENDING payment can be paired with an
+            # already-CANCELLED ticket (e.g. cancel_ticket_by_user already released
+            # the slot) whose capacity must not be released a second time. Safe by
+            # invariant today -- a PENDING payment has no payment_intent_id, so this
+            # handler can't match it -- but mirrors handle_charge_refunded's guard for
+            # consistency and defense-in-depth (#632).
+            if not already_cancelled:
+                TicketTier.objects.filter(pk=ticket.tier.pk, quantity_sold__gt=0).update(
+                    quantity_sold=F("quantity_sold") - 1
+                )
             affected_event_ids.add(ticket.event_id)
             canceled_tickets.append(ticket)
 

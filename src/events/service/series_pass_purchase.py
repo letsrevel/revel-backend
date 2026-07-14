@@ -2,6 +2,7 @@
 
 import typing as t
 from decimal import Decimal
+from uuid import UUID, uuid4
 
 import structlog
 from django.core.exceptions import ValidationError
@@ -82,8 +83,15 @@ class SeriesPassPurchaseService:
             raise SeriesPassNotPurchasableError(str(_("You already hold this pass."))) from exc
 
     @transaction.atomic
-    def purchase(self, billing_info: "BuyerBillingInfoSchema | None" = None) -> HeldSeriesPass | str:
-        """Purchase the pass. Returns checkout URL (online) or the HeldSeriesPass."""
+    def purchase(
+        self, billing_info: "BuyerBillingInfoSchema | None" = None
+    ) -> HeldSeriesPass | tuple[HeldSeriesPass, UUID]:
+        """Purchase the pass.
+
+        Returns the HeldSeriesPass (free/offline) or ``(held_pass, reservation_id)``
+        for ONLINE passes — the caller must POST the reservation_id to the
+        checkout-session endpoint to obtain the Stripe checkout URL (#632).
+        """
         self._assert_purchasable_by_user()
 
         quote = series_pass_service.get_quote(self.series_pass)
@@ -97,9 +105,11 @@ class SeriesPassPurchaseService:
         # order is pass row first, then tiers by pk (deadlock discipline) — every other
         # writer that touches both a SeriesPass and its tiers in one transaction must
         # match it: series_pass_service.cancel_held_pass, and every expiry route that
-        # calls series_pass_service.expire_stranded_held_passes alongside a tier
-        # release (the cleanup_expired_payments beat task, stripe_service's
-        # _cleanup_expired_batch and cancel_pending_checkout, and stripe_webhooks'
+        # cancels a held pass alongside a tier release — the ticket-keyed
+        # series_pass_service.expire_held_passes_for_tickets callers (the
+        # cleanup_expired_payments beat task, pending_checkout's
+        # _cleanup_expired_batch and cancel_pending_checkout) and the session-keyed
+        # series_pass_service.expire_stranded_held_passes caller (stripe_webhooks'
         # handle_payment_intent_canceled).
         locked_pass = SeriesPass.objects.select_for_update().get(pk=self.series_pass.pk)
         if locked_pass.total_quantity is not None and locked_pass.quantity_sold >= locked_pass.total_quantity:
@@ -109,6 +119,16 @@ class SeriesPassPurchaseService:
         future_links: list[SeriesPassTierLink] = list(
             self.series_pass.tier_links.filter(event__start__gte=now).select_related("event").order_by("tier_id")
         )
+        if not future_links:
+            # Defense-in-depth (#632): get_quote's remaining<2 gate above already
+            # blocks this in the normal case, but it and this future_links query each
+            # take an independent now() snapshot — a TOCTOU race between the two
+            # could in theory let a stale-but-purchasable quote through after every
+            # covered event has tipped into the past. Without this guard the ONLINE
+            # path would increment quantity_sold and create a PENDING held pass with
+            # no tickets and no Payment rows — unreclaimable, since the beat-task
+            # cleanup keys off Payment rows.
+            raise SeriesPassNotPurchasableError(str(_("This pass has no upcoming events to purchase.")))
         # Lock all mapped tiers in pk order (deadlock discipline, mirrors BatchTicketService).
         locked_tiers = {
             tier.pk: tier
@@ -162,6 +182,8 @@ class SeriesPassPurchaseService:
         # ONLINE
         from events.service import stripe_service
 
-        return stripe_service.create_series_pass_checkout_session(
-            held_pass=held_pass, tickets=tickets, billing_info=billing_info
+        reservation_id = uuid4()
+        stripe_service.reserve_series_pass_payments(
+            held_pass=held_pass, tickets=tickets, reservation_id=reservation_id, billing_info=billing_info
         )
+        return held_pass, reservation_id

@@ -145,6 +145,11 @@ class EventPublicTicketsController(EventPublicBaseController):
 
         On eligibility failure, returns 400 with eligibility details explaining what's blocking
         you and what next_step to take.
+
+        **Online tiers:** returns `requires_payment=true` and a `reservation_id`. Call
+        `POST /events/reservations/{reservation_id}/checkout-session` next to obtain the
+        Stripe `checkout_url`. Free / offline / at-the-door tiers complete here
+        (`requires_payment=false`, tickets returned).
         """
         event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
         user = self.user()
@@ -175,11 +180,18 @@ class EventPublicTicketsController(EventPublicBaseController):
         service = BatchTicketService(event, tier, user, discount_code=dc)
         result = service.create_batch(payload.tickets, price_override=price_override, billing_info=payload.billing_info)
 
-        if isinstance(result, str):
-            return schema.BatchCheckoutResponse(checkout_url=result, tickets=[])
+        if isinstance(result, tuple):
+            tickets, reservation_id = result
+            return schema.BatchCheckoutResponse(
+                checkout_url=None,
+                tickets=[],
+                reservation_id=reservation_id,
+                requires_payment=True,
+            )
         return schema.BatchCheckoutResponse(
             checkout_url=None,
             tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+            requires_payment=False,
         )
 
     @route.post(
@@ -211,6 +223,11 @@ class EventPublicTicketsController(EventPublicBaseController):
         Returns Stripe checkout URL for online payment, or creates tickets immediately for
         free/offline payment methods. Returns 400 for non-PWYC tiers, if amount is out of
         bounds, or on eligibility failure.
+
+        **Online tiers:** returns `requires_payment=true` and a `reservation_id`. Call
+        `POST /events/reservations/{reservation_id}/checkout-session` next to obtain the
+        Stripe `checkout_url`. Free / offline / at-the-door tiers complete here
+        (`requires_payment=false`, tickets returned).
         """
         event = get_object_or_404(self.get_queryset(include_past=True), pk=event_id)
         user = self.user()
@@ -247,12 +264,44 @@ class EventPublicTicketsController(EventPublicBaseController):
             payload.tickets, price_override=payload.price_per_ticket, billing_info=payload.billing_info
         )
 
-        if isinstance(result, str):
-            return schema.BatchCheckoutResponse(checkout_url=result, tickets=[])
+        if isinstance(result, tuple):
+            tickets, reservation_id = result
+            return schema.BatchCheckoutResponse(
+                checkout_url=None,
+                tickets=[],
+                reservation_id=reservation_id,
+                requires_payment=True,
+            )
         return schema.BatchCheckoutResponse(
             checkout_url=None,
             tickets=[schema.UserTicketSchema.from_orm(t) for t in result],
+            requires_payment=False,
         )
+
+    @route.post(
+        "/reservations/{uuid:reservation_id}/checkout-session",
+        url_name="checkout_session",
+        response={200: schema.CheckoutSessionResponse, 404: ResponseMessage},
+        auth=I18nJWTAuth(),
+        throttle=WriteThrottle(),
+    )
+    def checkout_session(self, reservation_id: UUID) -> schema.CheckoutSessionResponse:
+        """Create the Stripe checkout session for a reservation and return its URL.
+
+        Second step of online checkout (#632): the checkout/pwyc endpoints reserve
+        tickets and return a `reservation_id`; this endpoint creates the Stripe
+        session holding no contended DB lock. Idempotent — repeat calls (retry or
+        double-submit) reuse the same Stripe session. Returns 404 if the
+        reservation is unknown, expired, or not owned by the caller.
+        """
+        from events.service import stripe_service
+
+        # Ownership: create_batch_session scopes by reservation_id; enforce the
+        # caller owns it to stop cross-user session creation.
+        if not stripe_service.reservation_owned_by(reservation_id, self.user()):
+            raise HttpError(404, str(_("No pending reservation found.")))
+        checkout_url = stripe_service.create_batch_session(reservation_id=reservation_id)
+        return schema.CheckoutSessionResponse(checkout_url=checkout_url)
 
     @route.post(
         "/{uuid:event_id}/tickets/vat-preview",

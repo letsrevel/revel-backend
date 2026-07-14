@@ -99,3 +99,64 @@ documented requirement for that mode). Keep this in mind when iterating queryset
 - **`.iterator()` is still fine** for read-only streaming with no mid-loop DB commits
   (e.g. dispatching Celery tasks per row). Note that with `DISABLE_SERVER_SIDE_CURSORS`
   it degrades to a client-side fetch-all — for genuinely large streams, batch explicitly.
+
+## Online Checkout: Reserve/Session Split (`ATOMIC_REQUESTS` vs. `select_for_update`)
+
+Online checkout (`BatchTicketService.create_batch`, series-pass purchase) locks the
+`TicketTier`/`SeriesPass` row with `select_for_update()` to serialize capacity checks
+against concurrent buyers. Under `ATOMIC_REQUESTS = True` (see above), that lock is held
+for the *entire* request — it releases only when the wrapping transaction commits, i.e.
+when the view returns. A single-request flow that also calls `stripe.checkout.Session.create`
+(~2.5s round-trip, network-dependent) would therefore hold the row lock for the full
+Stripe latency, serializing every buyer of a tier behind one Stripe call at a time —
+unacceptable for popular tiers during a release rush. There is no way to drop the lock
+mid-request without dropping the whole transaction, so the fix is structural: split the
+single "buy" endpoint into **two requests**. The first (`reserve`) takes the lock, checks
+capacity, creates `PENDING` `Ticket`/`HeldSeriesPass` rows and `Payment` rows (with
+`stripe_session_id=""`), and returns — releasing the lock on commit. The second
+(`/checkout-session`) runs lock-free and only talks to Stripe, then stamps the
+Payment rows with the returned session id.
+
+**`reservation_id`** (`Payment.reservation_id`, nullable UUID) is the grouping key that ties
+a reserve step to its later session step: all Payment rows created by one reserve call share
+the same `reservation_id`, minted by the reserve step and echoed back in the response
+(`BatchCheckoutResponse`/`GuestCheckoutResponseSchema`/`SeriesPassCheckoutResponseSchema`).
+The session step (`create_batch_session`/`create_series_pass_session` in
+`events/service/stripe_service.py`) looks rows up by `reservation_id`, calls Stripe with
+`idempotency_key=str(reservation_id)` (so a client retry after a network blip can't create a
+second Stripe session for the same reservation), and `UPDATE`s those rows in place — it never
+creates new Payment rows. Interactive reclaim paths (`cancel_pending_checkout`,
+`_cleanup_expired_batch` in `events/service/pending_checkout.py`) group sibling payments the
+same way: by `reservation_id` when present, falling back to `stripe_session_id` only for
+legacy rows that predate the split.
+
+**Two abandonment windows, two guarantees:**
+- **Window B — client dies between reserve and session-stamp.** Structurally closed: a
+  `Payment` row (status `PENDING`, `stripe_session_id=""`) always exists *before* Stripe is
+  ever called, so "a paid Stripe session with zero matching Payment rows" is unreachable —
+  the webhook can always reconcile, and a retried `/checkout-session` call is idempotent
+  (same `reservation_id` → same Stripe idempotency key → safe to re-stamp). See the
+  `test_payment_rows_exist_before_stripe_and_retry_recovers_after_stamp_failure` test for the
+  real call-site injection proving this. Two guards keep the claim true against *concurrent
+  reclaim during the (lock-free) Stripe call itself*: before calling Stripe, the session step
+  atomically extends the reservation hold (a conditional `UPDATE` on `expires_at`, so the
+  expiry sweep can't reclaim rows mid-call), and the post-call stamp checks its rowcount — if
+  it matched zero rows (e.g. the buyer cancelled from a second tab while `Session.create` was
+  in flight), the just-created session is best-effort expired and a 404 is raised instead of
+  releasing the URL. An unreleased session is unpayable, so the invariant holds even if the
+  expire call fails. Symmetrically, `cancel_pending_checkout` best-effort expires the batch's
+  Stripe session after commit when it reclaims already-sessioned rows, closing the
+  cancel-then-pay-the-open-tab variant.
+- **Window A — client never returns to call `/checkout-session` at all** (abandons after
+  reserve). These are reclaimed on expiry by `cleanup_expired_payments` (the periodic beat
+  task in `events/tasks/payments.py`), which deletes the expired `PENDING` Payment/Ticket rows
+  and decrements `TicketTier.quantity_sold` back to baseline. For series passes, the reserve
+  step also creates a `PENDING` `HeldSeriesPass` with no Stripe session yet
+  (`stripe_session_id=""`), which the session-id-based expiry (`expire_stranded_held_passes`)
+  can't target — those are reclaimed instead via `expire_held_passes_for_tickets`, which walks
+  the *expiring tickets* back to their `held_pass` and cancels it (decrementing
+  `SeriesPass.quantity_sold`), used in the same three pre-session reclaim routes (beat task,
+  `cancel_pending_checkout`, `_cleanup_expired_batch`); the webhook's `payment_intent.canceled`
+  handler keeps the session-id-based expiry since by then a session always exists.
+
+See issue #632 for the full design (Option F) and the task-by-task implementation log.

@@ -246,7 +246,10 @@ def handle_guest_ticket_checkout(
         billing_info: Optional buyer billing info for attendee invoicing
 
     Returns:
-        GuestCheckoutResponseSchema with either message (non-online) or checkout_url (online)
+        GuestCheckoutResponseSchema. Non-online tiers: `message` (email confirmation sent).
+        Online tiers: `requires_payment=True` and a `reservation_id` (#632) — the caller
+        must then POST the guest `checkout-session` endpoint to obtain the Stripe
+        `checkout_url`.
 
     Raises:
         HttpError: If event doesn't allow guest access, tier issues, or eligibility checks fail
@@ -287,8 +290,15 @@ def handle_guest_ticket_checkout(
         service = BatchTicketService(event, tier, user, discount_code=dc)
         result = service.create_batch(tickets, price_override=price_override, billing_info=billing_info)
 
-        if isinstance(result, str):
-            return schema.GuestCheckoutResponseSchema(message=None, checkout_url=result, tickets=[])
+        if isinstance(result, tuple):
+            _tickets, reservation_id = result
+            return schema.GuestCheckoutResponseSchema(
+                message=None,
+                checkout_url=None,
+                tickets=[],
+                reservation_id=reservation_id,
+                requires_payment=True,
+            )
 
         # This shouldn't happen for ONLINE payment; log and raise an error
         logger.error(

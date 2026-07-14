@@ -3,6 +3,7 @@
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
+from uuid import UUID
 
 import jwt
 import pytest
@@ -290,25 +291,23 @@ class TestGuestServiceLayer:
         assert result.checkout_url is None
         mock_send_email.assert_called_once()
 
-    @patch("events.service.stripe_service.create_batch_checkout_session")
     def test_handle_guest_ticket_checkout_online(
-        self, mock_stripe: Mock, guest_event_with_tickets: Event, online_tier: TicketTier
+        self, guest_event_with_tickets: Event, online_tier: TicketTier
     ) -> None:
-        """Test handle_guest_ticket_checkout for online payment."""
-        # Arrange
-        checkout_url = "https://checkout.stripe.com/test"
-        mock_stripe.return_value = checkout_url
-
+        """Online guest checkout should reserve (reservation_id, no checkout_url) without calling Stripe (#632)."""
         # Act
         tickets = [schema.TicketPurchaseItem(guest_name="Stripe Test")]
-        result = guest_service.handle_guest_ticket_checkout(
-            guest_event_with_tickets, online_tier, "stripe@test.com", "Stripe", "Test", tickets
-        )
+        with patch("stripe.checkout.Session.create") as mock_stripe:
+            result = guest_service.handle_guest_ticket_checkout(
+                guest_event_with_tickets, online_tier, "stripe@test.com", "Stripe", "Test", tickets
+            )
+            mock_stripe.assert_not_called()
 
         # Assert
         assert isinstance(result, schema.GuestCheckoutResponseSchema)
-        assert result.checkout_url == checkout_url
-        assert result.message is None
+        assert result.requires_payment is True
+        assert isinstance(result.reservation_id, UUID)
+        assert result.checkout_url is None
 
     def test_handle_guest_ticket_checkout_validates_pwyc_min(
         self, guest_event_with_tickets: Event, pwyc_tier: TicketTier

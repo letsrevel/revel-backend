@@ -160,6 +160,13 @@ class SeriesPassCheckoutResponseSchema(Schema):
 
     checkout_url: str | None = None
     held_pass: HeldSeriesPassSchema | None = None
+    reservation_id: UUID | None = Field(
+        default=None, description="Reservation handle; POST it to the checkout-session endpoint to get the Stripe URL"
+    )
+    requires_payment: bool = Field(
+        default=False,
+        description="True for ONLINE passes: call the checkout-session endpoint next. False = already complete.",
+    )
 
 
 class SeriesPassTierLinkInputSchema(Schema):

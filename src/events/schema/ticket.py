@@ -647,6 +647,19 @@ class BatchCheckoutResponse(Schema):
     tickets: list[UserTicketSchema] = Field(
         default_factory=list, description="Created tickets (for free/offline payments)"
     )
+    reservation_id: UUID | None = Field(
+        default=None, description="Reservation handle; POST it to the checkout-session endpoint to get the Stripe URL"
+    )
+    requires_payment: bool = Field(
+        default=False,
+        description="True for online tiers: call the checkout-session endpoint next. False = already complete.",
+    )
+
+
+class CheckoutSessionResponse(Schema):
+    """Response of the checkout-session endpoint: the Stripe URL to redirect to."""
+
+    checkout_url: str = Field(..., description="Stripe checkout URL")
 
 
 # ---- Guest User Schemas ----
@@ -696,6 +709,13 @@ class GuestCheckoutResponseSchema(Schema):
     tickets: list[UserTicketSchema] = Field(
         default_factory=list,
         description="Created tickets (only present after guest email confirmation for free/offline payments)",
+    )
+    reservation_id: UUID | None = Field(
+        default=None, description="Reservation handle; POST it to the checkout-session endpoint to get the Stripe URL"
+    )
+    requires_payment: bool = Field(
+        default=False,
+        description="True for online tiers: call the checkout-session endpoint next. False = already complete.",
     )
 
 

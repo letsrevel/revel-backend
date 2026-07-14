@@ -10,7 +10,7 @@ runs and CI (see ``addopts`` in pyproject.toml). They verify the Phase 2
   on Charge — the premise behind ``_resolve_refunds``;
 - a pinned-shape ``charge.refunded`` event (no embedded refunds) is fully
   processed by fetching the refunds outbound via ``stripe.Refund.list``;
-- ``create_checkout_session`` works against the connected test account.
+- the reserve/session batch checkout works against the connected test account.
 
 Run manually with:
     pytest -m integration src/events/tests/test_service/test_stripe_integration.py -v
@@ -121,7 +121,7 @@ class TestChargeRefundedOutboundFetch:
     reason="needs CONNECTED_TEST_STRIPE_ID (a real connected test account) in .env",
 )
 class TestCheckoutSessionAtPinnedVersion:
-    def test_create_checkout_session_succeeds(
+    def test_create_batch_session_succeeds(
         self,
         event: Event,
         event_ticket_tier: TicketTier,
@@ -131,7 +131,7 @@ class TestCheckoutSessionAtPinnedVersion:
 
         Exercises line_items/price_data, payment_intent_data with an
         application fee, metadata, expires_at and the Stripe-Account header —
-        the heaviest outbound call we make.
+        the heaviest outbound call we make — via the reserve/session split.
         """
         org = event.organization
         org.stripe_account_id = settings.CONNECTED_TEST_STRIPE_ID
@@ -141,8 +141,24 @@ class TestCheckoutSessionAtPinnedVersion:
             update_fields=["stripe_account_id", "stripe_charges_enabled", "stripe_details_submitted", "updated_at"]
         )
 
-        url, payment = stripe_service.create_checkout_session(event, event_ticket_tier, member_user)
+        ticket = Ticket.objects.create(
+            event=event,
+            tier=event_ticket_tier,
+            user=member_user,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name=member_user.get_display_name(),
+        )
+        reservation_id = uuid.uuid4()
+        stripe_service.reserve_batch_payments(
+            event=event,
+            tier=event_ticket_tier,
+            user=member_user,
+            tickets=[ticket],
+            reservation_id=reservation_id,
+        )
+        url = stripe_service.create_batch_session(reservation_id=reservation_id)
 
         assert url.startswith("https://checkout.stripe.com/")
+        payment = Payment.objects.get(reservation_id=reservation_id)
         assert payment.status == Payment.PaymentStatus.PENDING
         assert payment.stripe_session_id.startswith("cs_test_")
