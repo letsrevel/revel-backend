@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.utils import timezone
@@ -161,6 +162,44 @@ class TestResolveSeatsRandomMode:
         items = [TicketPurchaseItem(guest_name=f"Guest {i}") for i in range(10)]
         with pytest.raises(HttpError) as exc_info:
             service.resolve_seats(items)
+        assert exc_info.value.status_code == 400
+        assert "Not enough seats" in str(exc_info.value.message)
+
+    def test_rechecks_taken_seats_after_lock(
+        self,
+        event: Event,
+        tier: TicketTier,
+        member_user: RevelUser,
+        organization_owner_user: RevelUser,
+        seats: list[VenueSeat],
+    ) -> None:
+        """A concurrent RANDOM-assignment tier on the same sector doesn't serialize on
+        this tier's lock, and Postgres EvalPlanQual won't re-run the exclude(taken)
+        subquery against a ticket that committed on an already-locked seat row between
+        the SELECT and the lock. Simulate the race by stubbing the initial seat query
+        to look stale (as if it ran before the competing ticket committed for real) —
+        the post-lock re-check must still catch it against the real, unmocked DB state.
+        Mirrors test_purchase.py's test_locked_recheck_catches_stale_quote pattern."""
+        seat = seats[0]
+        Ticket.objects.create(
+            event=event,
+            tier=tier,
+            user=organization_owner_user,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name="Winner",
+            seat=seat,
+            sector=seat.sector,
+            venue=seat.sector.venue,
+        )
+
+        stale_available_qs = MagicMock()
+        stale_available_qs.exclude.return_value.select_for_update.return_value.__getitem__.return_value = [seat]
+
+        service = BatchTicketService(event, tier, member_user)
+        items = [TicketPurchaseItem(guest_name="Guest 1")]
+        with patch.object(VenueSeat.objects, "filter", return_value=stale_available_qs):
+            with pytest.raises(HttpError) as exc_info:
+                service.resolve_seats(items)
         assert exc_info.value.status_code == 400
         assert "Not enough seats" in str(exc_info.value.message)
 

@@ -229,6 +229,27 @@ class BatchTicketService:
                     available=len(available)
                 ),
             )
+
+        # Post-lock re-check (#632): two RANDOM-assignment tiers on the same sector
+        # don't serialize on this tier's lock, and Postgres EvalPlanQual won't
+        # re-run the exclude(taken) subquery above against a ticket that committed
+        # on an already-locked seat row between our SELECT and our lock. Mirrors
+        # _resolve_seats_user_choice's re-check below, which exists for the same
+        # reason.
+        taken_ids = set(
+            Ticket.objects.filter(
+                event=self.event,
+                seat_id__in=[seat.id for seat in available],
+                status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
+            ).values_list("seat_id", flat=True)
+        )
+        if taken_ids:
+            raise HttpError(
+                400,
+                str(_("Not enough seats available. Only {available} seat(s) remaining.")).format(
+                    available=max(len(available) - len(taken_ids), 0)
+                ),
+            )
         return available
 
     def _resolve_seats_user_choice(self, items: list[TicketPurchaseItem]) -> list[VenueSeat]:
