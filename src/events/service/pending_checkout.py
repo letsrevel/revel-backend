@@ -51,9 +51,9 @@ def _release_batch_tier_capacity(ticket_ids: list[UUID]) -> None:
     by both callers of this function (#632).
     """
     tickets_per_tier: Counter[UUID] = Counter(
-        Ticket.objects.filter(
-            id__in=ticket_ids, tier_id__isnull=False, status=Ticket.TicketStatus.PENDING
-        ).values_list("tier_id", flat=True)
+        Ticket.objects.filter(id__in=ticket_ids, tier_id__isnull=False, status=Ticket.TicketStatus.PENDING).values_list(
+            "tier_id", flat=True
+        )
     )
     for tier_id, count in tickets_per_tier.items():
         TicketTier.objects.filter(pk=tier_id).update(quantity_sold=Greatest(F("quantity_sold") - count, Value(0)))

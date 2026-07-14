@@ -1544,6 +1544,9 @@ msgstr "Dieser Pass kann nicht gekauft werden."
 msgid "This pass is sold out."
 msgstr "Dieser Pass ist ausverkauft."
 
+msgid "This pass has no upcoming events to purchase."
+msgstr "Dieser Pass hat keine bevorstehenden Veranstaltungen zum Kauf."
+
 #, python-brace-format
 msgid "Event {name} is sold out."
 msgstr "Event {name} ist ausverkauft."
