@@ -9,7 +9,7 @@ stamps the payments and the held pass, is idempotent via `idempotency_key`, and
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from django.utils import timezone
@@ -157,3 +157,28 @@ def test_create_series_pass_session_expired_reservation_raises_404(
         stripe_service.create_series_pass_session(reservation_id=reservation_id)
 
     assert exc_info.value.status_code == 404
+
+
+def test_create_series_pass_session_resumes_when_stamped_while_claim_blocked(
+    online_pass: tuple[SeriesPass, list[TicketTier]], member_user: RevelUser
+) -> None:
+    """A double-submit loser (unblocked from the claim after the winner committed its
+    stamp) must resume the winner's session instead of re-calling Stripe (#632)."""
+    series_pass, _ = online_pass
+    with patch("stripe.checkout.Session.create"):
+        _, reservation_id = SeriesPassPurchaseService(series_pass, member_user).purchase()  # type: ignore[misc]
+
+    def winner_stamped(rid: UUID) -> None:
+        # Simulates the concurrent winner committing while our claim was blocked.
+        Payment.objects.filter(reservation_id=rid).update(stripe_session_id="cs_series_winner")
+
+    fake_resume_url = "https://checkout.stripe.com/pay/cs_series_winner"
+    with (
+        patch.object(stripe_service, "claim_reservation_hold", side_effect=winner_stamped),
+        patch("stripe.checkout.Session.create") as mock_create,
+        patch.object(stripe_service, "resume_pending_checkout", return_value=fake_resume_url) as mock_resume,
+    ):
+        url = stripe_service.create_series_pass_session(reservation_id=reservation_id)
+        mock_create.assert_not_called()
+        mock_resume.assert_called_once()
+    assert url == fake_resume_url

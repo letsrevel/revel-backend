@@ -168,6 +168,11 @@ class EventPublicGuestController(EventPublicBaseController):
         """
         from events.service import stripe_service
 
+        # The bearer handle only unlocks guest-originated reservations: an
+        # authenticated user's reservation must not be redeemable on this
+        # unauthenticated route (its own endpoint enforces ownership).
+        if not models.Payment.objects.filter(reservation_id=reservation_id, user__guest=True).exists():
+            raise HttpError(404, str(_("No pending reservation found.")))
         return schema.CheckoutSessionResponse(
             checkout_url=stripe_service.create_batch_session(reservation_id=reservation_id)
         )

@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 from unittest import mock
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from django.utils import timezone
@@ -11,7 +11,7 @@ from ninja.errors import HttpError
 from accounts.models import RevelUser
 from events.models import Event, Organization, Payment, Ticket, TicketTier
 from events.schema.ticket import BuyerBillingInfoSchema
-from events.service import stripe_service
+from events.service import pending_checkout, stripe_service
 from events.service.attendee_vat_service import BuyerVATContext
 from events.utils.currency import to_stripe_amount
 
@@ -282,3 +282,149 @@ class TestCreateBatchSession:
                 create.assert_not_called()
                 resume.assert_called_once()
         assert url == fake_resume_url
+
+
+class TestCreateBatchSessionExcludesCancelledTickets:
+    """A ticket user-cancelled between reserve and session-create must not be charged (#632).
+
+    cancel_ticket_by_user -> _finalize_cancellation flips the Ticket to CANCELLED and
+    releases its tier slot, but never touches the sibling Payment — which stays PENDING.
+    The session step must skip such rows: no Stripe line item, no stamp (the expiry
+    sweep reclaims the orphaned Payment instead).
+    """
+
+    def test_cancelled_ticket_excluded_from_line_items_and_stamp(
+        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
+    ) -> None:
+        tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user, guest_name=n) for n in ["A", "B"]]
+        rid = uuid4()
+        stripe_service.reserve_batch_payments(
+            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+        )
+        # The state cancel_ticket_by_user leaves behind: ticket CANCELLED, Payment PENDING.
+        Ticket.objects.filter(pk=tickets[0].pk).update(status=Ticket.TicketStatus.CANCELLED)
+        live_payment = Payment.objects.get(reservation_id=rid, ticket=tickets[1])
+
+        fake = mock.Mock(id="cs_live_only", url="https://checkout.stripe.com/c/cs_live_only")
+        with mock.patch("stripe.checkout.Session.create", return_value=fake) as create:
+            url = stripe_service.create_batch_session(reservation_id=rid)
+
+        assert url == fake.url
+        kwargs = create.call_args.kwargs
+        assert len(kwargs["line_items"]) == 1
+        assert kwargs["metadata"]["ticket_ids"] == str(tickets[1].id)
+        expected_fee = to_stripe_amount(live_payment.platform_fee, paid_ticket_tier.currency)
+        assert kwargs["payment_intent_data"]["application_fee_amount"] == expected_fee
+        # The cancelled ticket's orphaned Payment is not stamped — the sweep reclaims it.
+        assert Payment.objects.get(reservation_id=rid, ticket=tickets[0]).stripe_session_id == ""
+        assert Payment.objects.get(pk=live_payment.pk).stripe_session_id == "cs_live_only"
+
+    def test_all_tickets_cancelled_is_404_without_stripe_call(
+        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
+    ) -> None:
+        tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
+        rid = uuid4()
+        stripe_service.reserve_batch_payments(
+            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+        )
+        Ticket.objects.filter(pk=tickets[0].pk).update(status=Ticket.TicketStatus.CANCELLED)
+
+        with mock.patch("stripe.checkout.Session.create") as create:
+            with pytest.raises(HttpError) as exc:
+                stripe_service.create_batch_session(reservation_id=rid)
+            create.assert_not_called()
+        assert exc.value.status_code == 404
+
+
+class TestCreateBatchSessionDoubleSubmit:
+    """claim_reservation_hold's UPDATE serializes concurrent session-creates for one
+    reservation: the loser unblocks only after the winner committed its stamp, and
+    must resume the winner's session instead of re-calling Stripe (same idempotency
+    key with different params -> Stripe idempotency conflict -> 500)."""
+
+    def test_resumes_when_reservation_stamped_while_claim_blocked(
+        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
+    ) -> None:
+        tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
+        rid = uuid4()
+        stripe_service.reserve_batch_payments(
+            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+        )
+
+        def winner_stamped(reservation_id: UUID) -> None:
+            # Simulates the concurrent winner committing while our claim was blocked.
+            Payment.objects.filter(reservation_id=reservation_id).update(stripe_session_id="cs_winner")
+
+        fake_resume_url = "https://checkout.stripe.com/c/cs_winner"
+        with (
+            mock.patch.object(stripe_service, "claim_reservation_hold", side_effect=winner_stamped),
+            mock.patch("stripe.checkout.Session.create") as create,
+            mock.patch.object(stripe_service, "resume_pending_checkout", return_value=fake_resume_url) as resume,
+        ):
+            url = stripe_service.create_batch_session(reservation_id=rid)
+            create.assert_not_called()
+            resume.assert_called_once()
+        assert url == fake_resume_url
+
+    def test_partial_stamp_resumes_via_a_sessioned_payment(
+        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
+    ) -> None:
+        """When only part of the reservation carries a session id, the resume must be
+        keyed on a payment that actually has one — not an arbitrary sibling."""
+        tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user, guest_name=n) for n in ["A", "B"]]
+        rid = uuid4()
+        stripe_service.reserve_batch_payments(
+            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+        )
+        stamped = Payment.objects.get(reservation_id=rid, ticket=tickets[1])
+        Payment.objects.filter(pk=stamped.pk).update(stripe_session_id="cs_partial")
+
+        fake_resume_url = "https://checkout.stripe.com/c/cs_partial"
+        with mock.patch("stripe.checkout.Session.create") as create:
+            with mock.patch.object(stripe_service, "resume_pending_checkout", return_value=fake_resume_url) as resume:
+                url = stripe_service.create_batch_session(reservation_id=rid)
+                create.assert_not_called()
+        assert url == fake_resume_url
+        assert resume.call_args.args[0] == str(stamped.id)
+
+
+class TestClaimReservationHoldExtendOnly:
+    """The in-flight claim must only ever extend a hold, never shorten one (#632):
+    a double-submit's claim on already-stamped rows would otherwise cut the
+    45-minute payment window down to the 5-minute grace while the Stripe session
+    stays payable — letting the sweep reclaim rows the buyer can still pay."""
+
+    def test_claim_does_not_shorten_a_longer_existing_hold(
+        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
+    ) -> None:
+        from datetime import timedelta
+
+        tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
+        rid = uuid4()
+        stripe_service.reserve_batch_payments(
+            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+        )
+        long_expiry = timezone.now() + timedelta(minutes=45)
+        Payment.objects.filter(reservation_id=rid).update(expires_at=long_expiry)
+
+        pending_checkout.claim_reservation_hold(rid)
+
+        assert Payment.objects.get(reservation_id=rid).expires_at == long_expiry
+
+    def test_claim_extends_a_near_expiry_hold(
+        self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
+    ) -> None:
+        from datetime import timedelta
+
+        tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
+        rid = uuid4()
+        stripe_service.reserve_batch_payments(
+            event=event, tier=paid_ticket_tier, user=organization_owner_user, tickets=tickets, reservation_id=rid
+        )
+        Payment.objects.filter(reservation_id=rid).update(expires_at=timezone.now() + timedelta(minutes=1))
+
+        before = timezone.now()
+        pending_checkout.claim_reservation_hold(rid)
+
+        new_expiry = Payment.objects.get(reservation_id=rid).expires_at
+        assert new_expiry >= before + timedelta(minutes=4)

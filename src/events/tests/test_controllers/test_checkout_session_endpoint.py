@@ -6,7 +6,8 @@ Covers:
   scoping to ``Payment(reservation_id=..., user=...)``.
 - Guest: ``guest_ticket_checkout`` reserves, ``guest_checkout_session`` (the
   ``/public`` variant) creates the session with no user scoping - the
-  unguessable reservation_id UUID is the bearer capability.
+  unguessable reservation_id UUID is the bearer capability, but only for
+  guest-originated reservations (an authed reservation is not redeemable there).
 """
 
 import uuid
@@ -178,3 +179,23 @@ class TestGuestCheckoutSession:
 
         assert session_response.status_code == 200, session_response.content
         assert session_response.json()["checkout_url"] == fake.url
+
+    def test_authed_reservation_not_redeemable_on_public_endpoint(
+        self, member_client: Client, event: Event, online_tier: TicketTier
+    ) -> None:
+        """An authenticated user's reservation_id must not be sessioned anonymously:
+        the public endpoint is scoped to guest-originated reservations (the authed
+        sibling endpoint enforces ownership; this route must not bypass it)."""
+        reserve_url = reverse("api:ticket_checkout", kwargs={"event_id": event.id, "tier_id": online_tier.id})
+        with mock.patch("stripe.checkout.Session.create"):
+            reserve_response = member_client.post(
+                reserve_url, data={"tickets": [{"guest_name": "A"}]}, content_type="application/json"
+            )
+        reservation_id = reserve_response.json()["reservation_id"]
+
+        session_url = reverse("api:guest_checkout_session", kwargs={"reservation_id": reservation_id})
+        with mock.patch("stripe.checkout.Session.create") as mock_create:
+            response = Client().post(session_url, content_type="application/json")
+            mock_create.assert_not_called()
+
+        assert response.status_code == 404

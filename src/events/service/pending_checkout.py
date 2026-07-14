@@ -79,6 +79,10 @@ def claim_reservation_hold(reservation_id: UUID) -> None:
     claimed == the reservation already expired (or was concurrently reclaimed).
     The bump rolls back with the caller's transaction if the Stripe call fails.
 
+    Extend-only (Greatest): a double-submit's claim lands on rows the winner already
+    stamped with the 45-minute payment window — flattening them back to the 5-minute
+    grace would let the sweep reclaim rows whose Stripe session is still payable.
+
     Raises:
         HttpError: 404 if no still-valid PENDING rows exist for the reservation.
     """
@@ -86,7 +90,7 @@ def claim_reservation_hold(reservation_id: UUID) -> None:
         reservation_id=reservation_id,
         status=Payment.PaymentStatus.PENDING,
         expires_at__gt=timezone.now(),
-    ).update(expires_at=timezone.now() + _IN_FLIGHT_CLAIM_GRACE)
+    ).update(expires_at=Greatest(F("expires_at"), timezone.now() + _IN_FLIGHT_CLAIM_GRACE))
     if claimed == 0:
         raise HttpError(404, str(_("Reservation has expired. Please start a new purchase.")))
 
@@ -108,10 +112,19 @@ def stamp_session_or_expire(
     the expire fails, so a paid session with no reconcilable Payment rows stays
     unreachable.
 
+    Ticket must still be PENDING too: a user-cancelled ticket's orphaned PENDING
+    Payment (see _release_batch_tier_capacity) is excluded from the session's line
+    items, so stamping it would let the webhook mark it SUCCEEDED for money that
+    was never charged. Left un-stamped, the expiry sweep reclaims it.
+
     Raises:
         HttpError: 404 if the reservation vanished mid-flight.
     """
-    stamped = Payment.objects.filter(reservation_id=reservation_id, status=Payment.PaymentStatus.PENDING).update(
+    stamped = Payment.objects.filter(
+        reservation_id=reservation_id,
+        status=Payment.PaymentStatus.PENDING,
+        ticket__status=Ticket.TicketStatus.PENDING,
+    ).update(
         stripe_session_id=session.id,
         expires_at=expires_at,
     )
@@ -139,6 +152,31 @@ def expire_stripe_sessions_best_effort(session_ids: list[str], stripe_account_id
             Session.expire(session_id, **expire_kwargs)
         except stripe.error.StripeError as exc:
             logger.warning("pending_checkout_session_expire_failed", session_id=session_id, error=str(exc))
+
+
+def _live_reservation_payments(reservation_id: UUID, *related: str) -> list[Payment]:
+    """The reservation's still-chargeable rows: Payment AND its ticket both PENDING.
+
+    Payment status alone is not enough for the session-create step: a buyer can
+    cancel one ticket of the batch between reserve and session-create
+    (cancel_ticket_by_user flips the Ticket and releases its tier slot but never
+    touches the Payment — see _release_batch_tier_capacity). Charging such a row
+    would capture money for a void ticket, so it must reach neither the Stripe
+    line items nor the stamp; the expiry sweep reclaims it instead.
+
+    Raises:
+        HttpError: 404 when no live rows remain for the reservation.
+    """
+    payments = list(
+        Payment.objects.select_related(*related).filter(
+            reservation_id=reservation_id,
+            status=Payment.PaymentStatus.PENDING,
+            ticket__status=Ticket.TicketStatus.PENDING,
+        )
+    )
+    if not payments:
+        raise HttpError(404, str(_("No pending reservation found.")))
+    return payments
 
 
 def _batch_filter(payment: Payment) -> "Q":

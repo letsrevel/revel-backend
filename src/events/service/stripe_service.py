@@ -38,15 +38,16 @@ from events.service.pending_checkout import (
     _cleanup_expired_batch as _cleanup_expired_batch,
 )
 from events.service.pending_checkout import (
+    _live_reservation_payments,
+    claim_reservation_hold,
+    expire_stripe_sessions_best_effort,
+    stamp_session_or_expire,
+)
+from events.service.pending_checkout import (
     _release_batch_tier_capacity as _release_batch_tier_capacity,
 )
 from events.service.pending_checkout import (
     cancel_pending_checkout as cancel_pending_checkout,
-)
-from events.service.pending_checkout import (
-    claim_reservation_hold,
-    expire_stripe_sessions_best_effort,
-    stamp_session_or_expire,
 )
 from events.service.pending_checkout import (
     resume_pending_checkout as resume_pending_checkout,
@@ -621,11 +622,12 @@ def reserve_batch_payments(
 ) -> None:
     """Create PENDING Payment rows for a reserved batch — NO Stripe call (#632).
 
-    Runs under the caller's TicketTier select_for_update, so it must never do
-    network I/O: the VIES round-trip happens pre-lock in
-    resolve_attendee_vat_for_reserve and is threaded in via ``buyer_vat_context``;
-    only the price arithmetic runs here, against THIS (locked) tier's fresh
-    price. The Stripe session is created later by create_batch_session, which
+    Runs under the caller's TicketTier select_for_update, so callers should keep
+    network I/O out of it: pre-resolve the VIES round-trip via
+    resolve_attendee_vat_for_reserve and thread it in as ``buyer_vat_context``
+    (omitting it falls back to resolving here, paying the VIES cost under the
+    caller's lock); only the price arithmetic runs here, against THIS (locked)
+    tier's fresh price. The Stripe session is created later by create_batch_session, which
     stamps stripe_session_id onto these rows. Because the Payment rows already
     exist, "paid session with no Payment row" (Window B) is unreachable.
     """
@@ -689,18 +691,20 @@ def create_batch_session(*, reservation_id: UUID) -> str:
     session is best-effort expired and the URL is never released, so a payable
     session never exists without a reconcilable Payment row.
     """
-    payments = list(
-        Payment.objects.select_related("ticket__event__organization", "ticket__tier").filter(
-            reservation_id=reservation_id, status=Payment.PaymentStatus.PENDING
-        )
-    )
-    if not payments:
-        raise HttpError(404, str(_("No pending reservation found.")))
+    payments = _live_reservation_payments(reservation_id, "ticket__event__organization", "ticket__tier")
     already = [p for p in payments if p.stripe_session_id]
     if already:
         # Already sessioned: return the existing URL instead of creating a duplicate.
-        return resume_pending_checkout(str(payments[0].id), payments[0].user)
+        return resume_pending_checkout(str(already[0].id), already[0].user)
     claim_reservation_hold(reservation_id)
+    # Re-read after the claim: its UPDATE blocks behind a concurrent session-create
+    # for this reservation until that request commits, so a double-submit lands here
+    # after the winner stamped — resume the winner's session instead of re-calling
+    # Stripe (same idempotency key with different params -> conflict -> 500).
+    payments = _live_reservation_payments(reservation_id, "ticket__event__organization", "ticket__tier")
+    already = [p for p in payments if p.stripe_session_id]
+    if already:
+        return resume_pending_checkout(str(already[0].id), already[0].user)
 
     tickets = [p.ticket for p in payments]
     if any(tk.held_pass_id for tk in tickets):
@@ -918,18 +922,21 @@ def create_series_pass_session(*, reservation_id: UUID) -> str:
     session is best-effort expired and the URL is never released, so a payable
     session never exists without a reconcilable Payment row.
     """
-    payments = list(
-        Payment.objects.select_related(
-            "ticket__held_pass__series_pass__event_series__organization", "ticket__tier"
-        ).filter(reservation_id=reservation_id, status=Payment.PaymentStatus.PENDING)
-    )
-    if not payments:
-        raise HttpError(404, str(_("No pending reservation found.")))
+    related = ("ticket__held_pass__series_pass__event_series__organization", "ticket__tier")
+    payments = _live_reservation_payments(reservation_id, *related)
     already = [p for p in payments if p.stripe_session_id]
     if already:
         # Already sessioned: return the existing URL instead of creating a duplicate.
-        return resume_pending_checkout(str(payments[0].id), payments[0].user)
+        return resume_pending_checkout(str(already[0].id), already[0].user)
     claim_reservation_hold(reservation_id)
+    # Re-read after the claim: its UPDATE blocks behind a concurrent session-create
+    # for this reservation until that request commits, so a double-submit lands here
+    # after the winner stamped — resume the winner's session instead of re-calling
+    # Stripe (same idempotency key with different params -> conflict -> 500).
+    payments = _live_reservation_payments(reservation_id, *related)
+    already = [p for p in payments if p.stripe_session_id]
+    if already:
+        return resume_pending_checkout(str(already[0].id), already[0].user)
 
     tickets = [p.ticket for p in payments]
     if tickets[0].held_pass_id is None:
