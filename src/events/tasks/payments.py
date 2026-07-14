@@ -8,7 +8,8 @@ from uuid import UUID
 import structlog
 from celery import shared_task
 from django.db import transaction
-from django.db.models import F, Max, Q
+from django.db.models import F, Max, Q, Value
+from django.db.models.functions import Greatest
 from django.utils import timezone
 
 from events.models import HeldSeriesPass, Payment, Ticket, TicketTier
@@ -29,27 +30,47 @@ def cleanup_expired_payments() -> int:
     # series_pass_service itself imports events.tasks (materialization task).
     from events.service.series_pass_service import expire_held_passes_for_tickets
 
-    # Find payments for tickets that are still pending and whose Stripe session has expired.
-    expired_payments_qs = Payment.objects.filter(
-        status=Payment.PaymentStatus.PENDING, expires_at__lt=timezone.now()
-    ).select_related("ticket", "ticket__tier")
+    # Candidate payment IDs only — re-filtered by status=PENDING and locked inside
+    # the transaction below. Computing the release-set outside the transaction (the
+    # old approach) let a concurrent reclaim on the same rows (cancel_pending_checkout,
+    # the payment_intent.canceled webhook) double-decrement a tier: both routes would
+    # count the same still-outside-tx-computed payment, since neither re-checked
+    # PENDING against the other's already-committed change (#632).
+    candidate_payment_ids = list(
+        Payment.objects.filter(status=Payment.PaymentStatus.PENDING, expires_at__lt=timezone.now()).values_list(
+            "id", flat=True
+        )
+    )
 
-    if not expired_payments_qs.exists():
+    if not candidate_payment_ids:
         return 0
 
-    # Collect IDs and tier counts before the transaction to avoid holding locks for too long
-    payment_ids_to_delete = list(expired_payments_qs.values_list("id", flat=True))
-    ticket_ids_to_delete = list(expired_payments_qs.values_list("ticket_id", flat=True))
-    tickets_to_release_by_tier: Counter[UUID] = Counter(
-        expired_payments_qs.filter(ticket__tier_id__isnull=False).values_list("ticket__tier_id", flat=True)
-    )
-
-    logger.info(
-        f"Found {len(payment_ids_to_delete)} expired payments to clean up "
-        f"across {len(tickets_to_release_by_tier)} tiers."
-    )
-
     with transaction.atomic():
+        # Re-filter by status=PENDING *and* lock the rows: only payments still
+        # PENDING at this point are ours to reclaim, and select_for_update
+        # serializes a concurrent cancel_pending_checkout/webhook reclaim on the
+        # same rows instead of racing it. The decrement count, the payments
+        # deleted, and the tickets deleted all come from this same in-transaction,
+        # locked, still-PENDING set (#632).
+        locked_payments = list(
+            Payment.objects.select_for_update()
+            .filter(pk__in=candidate_payment_ids, status=Payment.PaymentStatus.PENDING)
+            .select_related("ticket", "ticket__tier")
+        )
+        if not locked_payments:
+            return 0
+
+        payment_ids_to_delete = [payment.id for payment in locked_payments]
+        ticket_ids_to_delete = [payment.ticket_id for payment in locked_payments]
+        tickets_to_release_by_tier: Counter[UUID] = Counter(
+            payment.ticket.tier_id for payment in locked_payments if payment.ticket.tier_id is not None
+        )
+
+        logger.info(
+            f"Found {len(payment_ids_to_delete)} expired payments to clean up "
+            f"across {len(tickets_to_release_by_tier)} tiers."
+        )
+
         # Cancel any series pass whose checkout these payments belonged to first
         # (releasing SeriesPass.quantity_sold so the buyer can purchase again),
         # THEN release tier capacity — pass row before tier rows, matching
@@ -60,10 +81,12 @@ def cleanup_expired_payments() -> int:
         # lookup (#632).
         expire_held_passes_for_tickets(ticket_ids_to_delete)
 
-        # Atomically decrement the quantity_sold for each affected tier.
+        # Atomically decrement the quantity_sold for each affected tier, floored at
+        # zero as defense-in-depth (mirrors pending_checkout._release_batch_tier_capacity) —
+        # the in-tx recompute above is what actually prevents the double-decrement.
         for tier_id, count_to_release in tickets_to_release_by_tier.items():
             TicketTier.objects.select_for_update().filter(pk=tier_id).update(
-                quantity_sold=F("quantity_sold") - count_to_release
+                quantity_sold=Greatest(F("quantity_sold") - count_to_release, Value(0))
             )
 
         # Delete payments first due to PROTECT constraint on Ticket

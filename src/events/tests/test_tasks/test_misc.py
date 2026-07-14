@@ -359,6 +359,84 @@ class TestCleanupExpiredPayments:
         assert Payment.objects.count() == 1
         assert Ticket.objects.count() == 1
 
+    def test_cleanup_floors_quantity_sold_at_zero(self, tier: TicketTier, user: RevelUser) -> None:
+        """quantity_sold must never go negative, even if it's already inconsistent
+        (e.g. a prior release already happened elsewhere). Defense-in-depth (#632),
+        mirrors pending_checkout._release_batch_tier_capacity's Greatest floor."""
+        ticket = Ticket.objects.create(
+            guest_name="Test Guest", event=tier.event, tier=tier, user=user, status=Ticket.TicketStatus.PENDING
+        )
+        Payment.objects.create(
+            ticket=ticket,
+            user=user,
+            stripe_session_id="sess_expired",
+            status=Payment.PaymentStatus.PENDING,
+            expires_at=timezone.now() - timedelta(minutes=1),
+            amount=tier.price,
+            platform_fee=10,
+        )
+        tier.quantity_sold = 0
+        tier.save()
+
+        result = cleanup_expired_payments()
+
+        assert result == 1
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 0
+        assert not Payment.objects.exists()
+        assert not Ticket.objects.exists()
+
+    def test_cleanup_only_releases_still_pending_payment_within_batch(
+        self, tier: TicketTier, user: RevelUser
+    ) -> None:
+        """If a payment in the expired set is no longer PENDING by the time the task
+        actually reclaims it (e.g. cancel_pending_checkout or the payment_intent.canceled
+        webhook already reclaimed it concurrently), it must not be double-counted in the
+        tier release. The concurrency guarantee itself comes from recomputing the
+        delete-set + release-count INSIDE the transaction from a fresh status=PENDING
+        filter, locked via select_for_update — so a concurrent reclaim on the same rows
+        serializes instead of racing (#632)."""
+        ticket1 = Ticket.objects.create(
+            guest_name="Guest 1", event=tier.event, tier=tier, user=user, status=Ticket.TicketStatus.PENDING
+        )
+        payment1 = Payment.objects.create(
+            ticket=ticket1,
+            user=user,
+            stripe_session_id="sess_expired1",
+            status=Payment.PaymentStatus.PENDING,
+            expires_at=timezone.now() - timedelta(minutes=1),
+            amount=tier.price,
+            platform_fee=10,
+        )
+        ticket2 = Ticket.objects.create(
+            guest_name="Guest 2", event=tier.event, tier=tier, user=user, status=Ticket.TicketStatus.PENDING
+        )
+        payment2 = Payment.objects.create(
+            ticket=ticket2,
+            user=user,
+            stripe_session_id="sess_expired2",
+            status=Payment.PaymentStatus.PENDING,
+            expires_at=timezone.now() - timedelta(minutes=1),
+            amount=tier.price,
+            platform_fee=10,
+        )
+        tier.quantity_sold = 2
+        tier.save()
+
+        # Simulate a concurrent reclaim (cancel_pending_checkout / the webhook) that
+        # already claimed payment2 before this task's transaction locks the rows.
+        Payment.objects.filter(pk=payment2.pk).update(status=Payment.PaymentStatus.SUCCEEDED)
+
+        result = cleanup_expired_payments()
+
+        assert result == 1
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 1  # Only payment1's unit released.
+        assert not Payment.objects.filter(pk=payment1.pk).exists()
+        assert not Ticket.objects.filter(pk=ticket1.pk).exists()
+        assert Payment.objects.filter(pk=payment2.pk).exists()  # Untouched.
+        assert Ticket.objects.filter(pk=ticket2.pk).exists()  # Untouched.
+
 
 class TestCleanupTicketFileCache:
     """Tests for the cleanup_ticket_file_cache Celery task.
