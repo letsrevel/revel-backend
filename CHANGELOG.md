@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.71.0] - 2026-07-14
+
+### Changed
+- Online checkout is now a two-step flow that no longer serializes concurrent buyers of the same ticket tier: the checkout call **reserves** (creates the PENDING tickets/`Payment` rows and returns `reservation_id` + `requires_payment: true`), and the client then POSTs `/reservations/{id}/checkout-session` to obtain the Stripe URL. The ticket-tier/series-pass lock is released before the ~2.5s Stripe call, unblocking same-tier purchases during an on-sale rush. Applies to batch tickets (authenticated and guest, fixed-price and pay-what-you-want) and series passes; session creation is idempotent per reservation, and abandoned reservations are reclaimed by the existing expired-payment cleanup.
+
+### Fixed
+- Clearing an optional buyer field (e.g. VAT ID), the currency, or the discount-code text on a draft invoice via `PATCH /organization-admin/{slug}/attendee-invoices/{invoice_id}` no longer fails with a 500 — a `null` value is now coerced to an empty string, so organizers can save the edit instead of seeing "Failed to update invoice".
+
+### Security
+- Upgraded httplib2 0.22.0 → 0.32.0 (transitive via `django-google-sso`) to patch `PYSEC-2026-3444`.
+
 ## [1.70.0] - 2026-07-13
 
 ### Added
