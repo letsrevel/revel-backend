@@ -44,6 +44,11 @@ from events.service.pending_checkout import (
     cancel_pending_checkout as cancel_pending_checkout,
 )
 from events.service.pending_checkout import (
+    claim_reservation_hold,
+    expire_stripe_sessions_best_effort,
+    stamp_session_or_expire,
+)
+from events.service.pending_checkout import (
     resume_pending_checkout as resume_pending_checkout,
 )
 from events.service.vat_service import (
@@ -624,11 +629,12 @@ def reserve_batch_payments(
 ) -> None:
     """Create PENDING Payment rows for a reserved batch — NO Stripe call (#632).
 
-    VAT (incl. any VIES round-trip) is resolved here; callers must invoke this
-    BEFORE taking the TicketTier select_for_update so the row is never locked
-    during VIES. The Stripe session is created later by create_batch_session,
-    which stamps stripe_session_id onto these rows. Because the Payment rows
-    already exist, "paid session with no Payment row" (Window B) is unreachable.
+    Runs under the caller's TicketTier select_for_update, so it must never do
+    network I/O: VAT (incl. any VIES round-trip) is resolved pre-lock by
+    resolve_attendee_vat_for_reserve and threaded in via ``attendee_vat``. The
+    Stripe session is created later by create_batch_session, which stamps
+    stripe_session_id onto these rows. Because the Payment rows already exist,
+    "paid session with no Payment row" (Window B) is unreachable.
     """
     if not event.organization.is_stripe_connected:
         raise HttpError(400, str(_("This organization is not configured to accept payments.")))
@@ -679,9 +685,11 @@ def create_batch_session(*, reservation_id: UUID) -> str:
     """Create the Stripe session for a reserved batch and stamp it (#632).
 
     Idempotent: reuses one Stripe session on retry/double-submit via
-    idempotency_key=reservation_id. Returns the checkout URL only after the
-    stamp commits, so a payable session never exists without a reconcilable
-    Payment row.
+    idempotency_key=reservation_id. Returns the checkout URL only if the stamp
+    matched still-PENDING rows — a mid-flight reclaim (user cancel, expiry
+    sweep) makes the stamp match zero rows, in which case the just-created
+    session is best-effort expired and the URL is never released, so a payable
+    session never exists without a reconcilable Payment row.
     """
     payments = list(
         Payment.objects.select_related("ticket__event__organization", "ticket__tier").filter(
@@ -694,8 +702,7 @@ def create_batch_session(*, reservation_id: UUID) -> str:
     if already:
         # Already sessioned: return the existing URL instead of creating a duplicate.
         return resume_pending_checkout(str(payments[0].id), payments[0].user)
-    if payments[0].has_expired():
-        raise HttpError(404, str(_("Reservation has expired. Please start a new purchase.")))
+    claim_reservation_hold(reservation_id)
 
     tickets = [p.ticket for p in payments]
     if any(tk.held_pass_id for tk in tickets):
@@ -724,9 +731,13 @@ def create_batch_session(*, reservation_id: UUID) -> str:
         site=site,
         idempotency_key=str(reservation_id),
     )
-    Payment.objects.filter(reservation_id=reservation_id, status=Payment.PaymentStatus.PENDING).update(
-        stripe_session_id=session.id,
+    stamp_session_or_expire(
+        reservation_id,
+        session,
+        expected=len(payments),
         expires_at=expires_at,
+        stripe_account_id=event.organization.stripe_account_id,
+        log_event="batch_session_partial_stamp",
     )
     return t.cast(str, session.url)
 
@@ -903,9 +914,11 @@ def create_series_pass_session(*, reservation_id: UUID) -> str:
     """Create the Stripe session for a reserved series pass and stamp it (#632).
 
     Idempotent: reuses one Stripe session on retry/double-submit via
-    idempotency_key=reservation_id. Returns the checkout URL only after the
-    stamp commits, so a payable session never exists without a reconcilable
-    Payment row.
+    idempotency_key=reservation_id. Returns the checkout URL only if the stamp
+    matched still-PENDING rows (and the held pass was still PENDING) — a
+    mid-flight reclaim makes either check fail, in which case the just-created
+    session is best-effort expired and the URL is never released, so a payable
+    session never exists without a reconcilable Payment row.
     """
     payments = list(
         Payment.objects.select_related(
@@ -918,8 +931,7 @@ def create_series_pass_session(*, reservation_id: UUID) -> str:
     if already:
         # Already sessioned: return the existing URL instead of creating a duplicate.
         return resume_pending_checkout(str(payments[0].id), payments[0].user)
-    if payments[0].has_expired():
-        raise HttpError(404, str(_("Reservation has expired. Please start a new purchase.")))
+    claim_reservation_hold(reservation_id)
 
     tickets = [p.ticket for p in payments]
     if tickets[0].held_pass_id is None:
@@ -953,11 +965,23 @@ def create_series_pass_session(*, reservation_id: UUID) -> str:
         idempotency_key=str(reservation_id),
     )
 
-    Payment.objects.filter(reservation_id=reservation_id, status=Payment.PaymentStatus.PENDING).update(
-        stripe_session_id=session.id,
+    stamp_session_or_expire(
+        reservation_id,
+        session,
+        expected=len(payments),
         expires_at=expires_at,
+        stripe_account_id=org.stripe_account_id,
+        log_event="series_pass_session_partial_stamp",
     )
-    held_pass.stripe_session_id = session.id
-    held_pass.save(update_fields=["stripe_session_id"])
+    # Conditional stamp, not a blind save: the pass may have been cancelled while
+    # Session.create was in flight even though the payments were not (defense in
+    # depth — organizer cancel marks payments FAILED, so the stamp above normally
+    # catches it first). Raising rolls the payment stamp back too.
+    pass_stamped = HeldSeriesPass.objects.filter(
+        pk=held_pass.pk, status=HeldSeriesPass.HeldSeriesPassStatus.PENDING
+    ).update(stripe_session_id=session.id)
+    if pass_stamped == 0:
+        expire_stripe_sessions_best_effort([session.id], org.stripe_account_id)
+        raise HttpError(404, str(_("Reservation has expired. Please start a new purchase.")))
 
     return t.cast(str, session.url)

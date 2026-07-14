@@ -4,7 +4,10 @@ Split out of ``stripe_service`` (1000-line file limit) and re-exported there,
 so callers keep using ``stripe_service.resume_pending_checkout`` etc.
 """
 
+import functools
+import typing as t
 from collections import Counter
+from datetime import datetime, timedelta
 from uuid import UUID
 
 import stripe
@@ -13,6 +16,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import F, Q, Value
 from django.db.models.functions import Greatest
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 from stripe.checkout import Session
@@ -57,6 +61,84 @@ def _release_batch_tier_capacity(ticket_ids: list[UUID]) -> None:
     )
     for tier_id, count in tickets_per_tier.items():
         TicketTier.objects.filter(pk=tier_id).update(quantity_sold=Greatest(F("quantity_sold") - count, Value(0)))
+
+
+# In-flight hold extension for the session-create step (#632): claimed before the
+# lock-free Stripe round-trip so the cleanup_expired_payments beat task can't
+# reclaim the reservation mid-call. Only needs to outlive one Stripe call; the
+# successful stamp replaces it with PAYMENT_DEFAULT_EXPIRY_MINUTES.
+_IN_FLIGHT_CLAIM_GRACE = timedelta(minutes=5)
+
+
+def claim_reservation_hold(reservation_id: UUID) -> None:
+    """Atomically extend a reservation's hold before the lock-free Stripe call (#632).
+
+    Replaces a read-only has_expired() check in the session-create step: bumping
+    expires_at under the same conditions the expiry sweep filters on means the
+    sweep cannot reclaim the rows while Session.create is in flight. Zero rows
+    claimed == the reservation already expired (or was concurrently reclaimed).
+    The bump rolls back with the caller's transaction if the Stripe call fails.
+
+    Raises:
+        HttpError: 404 if no still-valid PENDING rows exist for the reservation.
+    """
+    claimed = Payment.objects.filter(
+        reservation_id=reservation_id,
+        status=Payment.PaymentStatus.PENDING,
+        expires_at__gt=timezone.now(),
+    ).update(expires_at=timezone.now() + _IN_FLIGHT_CLAIM_GRACE)
+    if claimed == 0:
+        raise HttpError(404, str(_("Reservation has expired. Please start a new purchase.")))
+
+
+def stamp_session_or_expire(
+    reservation_id: UUID,
+    session: Session,
+    *,
+    expected: int,
+    expires_at: datetime,
+    stripe_account_id: str | None,
+    log_event: str,
+) -> None:
+    """Stamp a just-created Stripe session onto the reservation's PENDING rows (#632).
+
+    A zero-row stamp means the reservation was reclaimed (user cancel / expiry
+    sweep) while Session.create was in flight: best-effort expire the session and
+    404 WITHOUT releasing the URL — an unreleased session is unpayable even if
+    the expire fails, so a paid session with no reconcilable Payment rows stays
+    unreachable.
+
+    Raises:
+        HttpError: 404 if the reservation vanished mid-flight.
+    """
+    stamped = Payment.objects.filter(reservation_id=reservation_id, status=Payment.PaymentStatus.PENDING).update(
+        stripe_session_id=session.id,
+        expires_at=expires_at,
+    )
+    if stamped == 0:
+        expire_stripe_sessions_best_effort([session.id], stripe_account_id)
+        raise HttpError(404, str(_("Reservation has expired. Please start a new purchase.")))
+    if stamped != expected:
+        logger.warning(log_event, reservation_id=str(reservation_id), stamped=stamped, expected=expected)
+
+
+def expire_stripe_sessions_best_effort(session_ids: list[str], stripe_account_id: str | None) -> None:
+    """Best-effort expiry of Stripe Checkout sessions whose local rows are gone (#632).
+
+    A session left payable after its Payment rows were reclaimed is money the
+    webhook can never reconcile (handle_checkout_session_completed finds no rows
+    and returns). Failures are logged, not raised: callers either never released
+    the URL (session-create stamp miss) or run post-commit (cancel), so an
+    un-expired session is a bounded risk, not a correctness dependency.
+    """
+    expire_kwargs: dict[str, t.Any] = {}
+    if stripe_account_id and stripe_account_id != settings.STRIPE_ACCOUNT:
+        expire_kwargs["stripe_account"] = stripe_account_id
+    for session_id in session_ids:
+        try:
+            Session.expire(session_id, **expire_kwargs)
+        except stripe.error.StripeError as exc:
+            logger.warning("pending_checkout_session_expire_failed", session_id=session_id, error=str(exc))
 
 
 def _batch_filter(payment: Payment) -> "Q":
@@ -116,8 +198,10 @@ def resume_pending_checkout(
 ) -> str:
     """Resume a pending Stripe checkout session by payment ID.
 
-    Retrieves the existing Stripe checkout URL for a pending payment.
-    Cleans up expired sessions and all tickets in the same batch.
+    Retrieves the existing Stripe checkout URL for a sessioned pending payment;
+    for a reserved-but-not-sessioned batch (#632) it creates the Stripe session
+    on demand (idempotent, keyed on reservation_id). Cleans up expired sessions
+    and all tickets in the same batch.
 
     Args:
         payment_id: The UUID of the pending payment.
@@ -241,6 +325,16 @@ def cancel_pending_checkout(
     # Capture event ids before the ticket rows are deleted (a series-pass batch
     # spans multiple events; a plain batch has one).
     event_ids = set(Ticket.objects.filter(id__in=ticket_ids).values_list("event_id", flat=True))
+
+    # Already-sessioned batch: best-effort expire the Stripe session after commit,
+    # so the buyer's still-open checkout URL can't be paid once the Payment rows
+    # (the webhook's reconciliation target) are deleted below (#632). on_commit
+    # keeps the network call outside the select_for_update window.
+    session_ids = sorted({p.stripe_session_id for p in batch_payments if p.stripe_session_id})
+    if session_ids:
+        first_ticket = Ticket.objects.filter(id__in=ticket_ids).select_related("event__organization").first()
+        stripe_account_id = first_ticket.event.organization.stripe_account_id if first_ticket else None
+        transaction.on_commit(functools.partial(expire_stripe_sessions_best_effort, session_ids, stripe_account_id))
 
     # Pass row before tier rows (SeriesPassPurchaseService.purchase's lock order).
     # Ticket-based (not session-based): a reserved-but-not-sessioned series pass's

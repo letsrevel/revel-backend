@@ -137,7 +137,16 @@ legacy rows that predate the split.
   the webhook can always reconcile, and a retried `/checkout-session` call is idempotent
   (same `reservation_id` → same Stripe idempotency key → safe to re-stamp). See the
   `test_payment_rows_exist_before_stripe_and_retry_recovers_after_stamp_failure` test for the
-  real call-site injection proving this.
+  real call-site injection proving this. Two guards keep the claim true against *concurrent
+  reclaim during the (lock-free) Stripe call itself*: before calling Stripe, the session step
+  atomically extends the reservation hold (a conditional `UPDATE` on `expires_at`, so the
+  expiry sweep can't reclaim rows mid-call), and the post-call stamp checks its rowcount — if
+  it matched zero rows (e.g. the buyer cancelled from a second tab while `Session.create` was
+  in flight), the just-created session is best-effort expired and a 404 is raised instead of
+  releasing the URL. An unreleased session is unpayable, so the invariant holds even if the
+  expire call fails. Symmetrically, `cancel_pending_checkout` best-effort expires the batch's
+  Stripe session after commit when it reclaims already-sessioned rows, closing the
+  cancel-then-pay-the-open-tab variant.
 - **Window A — client never returns to call `/checkout-session` at all** (abandons after
   reserve). These are reclaimed on expiry by `cleanup_expired_payments` (the periodic beat
   task in `events/tasks/payments.py`), which deletes the expired `PENDING` Payment/Ticket rows

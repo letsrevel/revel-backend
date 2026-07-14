@@ -21,7 +21,9 @@ from unittest import mock
 from uuid import UUID
 
 import pytest
+from django.db.models.query import QuerySet
 from django.utils import timezone
+from freezegun import freeze_time
 from ninja.errors import HttpError
 
 from accounts.models import RevelUser
@@ -74,6 +76,21 @@ def _reserve_online(event: Event, tier: TicketTier, user: RevelUser) -> tuple[li
     assert isinstance(result, tuple)
     tickets, reservation_id = result
     return tickets, reservation_id
+
+
+_real_queryset_update = QuerySet.update
+
+
+def _fail_only_session_stamp(qs: QuerySet, **kwargs: object) -> int:  # type: ignore[type-arg]
+    """QuerySet.update stand-in that fails only the session-id stamp.
+
+    The session functions now run an in-flight hold-extension UPDATE before the
+    Stripe call (#632), so a blanket ``QuerySet.update`` patch would blow up
+    before Stripe is ever reached. Delegate everything except the stamp.
+    """
+    if "stripe_session_id" in kwargs:
+        raise RuntimeError("stamp boom")
+    return _real_queryset_update(qs, **kwargs)
 
 
 @pytest.fixture
@@ -140,9 +157,10 @@ class TestWindowBStampFailureThenRetry:
         """Payment rows are created by reserve_batch_payments, before any Stripe call.
 
         First create_batch_session attempt: Stripe.create succeeds, but the stamp
-        UPDATE (the actual call site in stripe_service.create_batch_session -- the
-        one and only ``QuerySet.update()`` invocation in that function) is made to
-        raise. No URL is returned, and the Payment rows survive untouched (still
+        UPDATE (the ``stripe_session_id``-writing call site in
+        stripe_service.create_batch_session; the pre-Stripe hold-extension UPDATE
+        is left working) is made to raise. No URL is returned, and the Payment
+        rows survive untouched (still
         un-sessioned) -- exactly what lets the Stripe webhook reconcile a paid
         session even if the local stamp never happened. Retrying create_batch_session
         (Stripe mocked to return the SAME fake session, proving the idempotency_key
@@ -158,10 +176,11 @@ class TestWindowBStampFailureThenRetry:
 
         fake_session = mock.Mock(id="cs_window_b", url="https://checkout.stripe.com/c/cs_window_b")
 
-        # Attempt 1: Stripe succeeds, the stamp UPDATE fails.
+        # Attempt 1: Stripe succeeds, the stamp UPDATE fails (the hold-extension
+        # UPDATE before Stripe is left working — see _fail_only_session_stamp).
         with (
             mock.patch("stripe.checkout.Session.create", return_value=fake_session) as create,
-            mock.patch("django.db.models.query.QuerySet.update", side_effect=RuntimeError("stamp boom")),
+            mock.patch("django.db.models.query.QuerySet.update", autospec=True, side_effect=_fail_only_session_stamp),
         ):
             with pytest.raises(RuntimeError, match="stamp boom"):
                 stripe_service.create_batch_session(reservation_id=rid)
@@ -248,10 +267,11 @@ class TestSeriesPassWindowBStampFailureThenRetry:
 
         fake_session = mock.Mock(id="cs_series_window_b", url="https://checkout.stripe.com/c/cs_series_window_b")
 
-        # Attempt 1: Stripe succeeds, the stamp UPDATE fails.
+        # Attempt 1: Stripe succeeds, the stamp UPDATE fails (the hold-extension
+        # UPDATE before Stripe is left working — see _fail_only_session_stamp).
         with (
             mock.patch("stripe.checkout.Session.create", return_value=fake_session) as create,
-            mock.patch("django.db.models.query.QuerySet.update", side_effect=RuntimeError("stamp boom")),
+            mock.patch("django.db.models.query.QuerySet.update", autospec=True, side_effect=_fail_only_session_stamp),
         ):
             with pytest.raises(RuntimeError, match="stamp boom"):
                 stripe_service.create_series_pass_session(reservation_id=rid)
@@ -277,6 +297,137 @@ class TestSeriesPassWindowBStampFailureThenRetry:
         assert all(p.status == Payment.PaymentStatus.PENDING for p in stamped)
         held_pass.refresh_from_db()
         assert held_pass.stripe_session_id == "cs_series_window_b"
+
+
+class TestMidFlightReclaimGuard:
+    """The reserve rows can be reclaimed while ``Session.create`` is in flight (a
+    user cancel from a second tab, or the expiry sweep) -- the stamp UPDATE then
+    matches zero rows. The session functions must detect that via the stamp's
+    rowcount, best-effort expire the just-created Stripe session, and 404 instead
+    of releasing a payable URL the webhook could never reconcile (#632)."""
+
+    def test_batch_session_404s_and_expires_session_when_reservation_cancelled_mid_flight(
+        self, event: Event, online_tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        """cancel_pending_checkout lands between Session.create and the stamp: the
+        stamp matches 0 rows, so no URL is released and the session is expired."""
+        _, rid = _reserve_online(event, online_tier, member_user)
+        payment = Payment.objects.get(reservation_id=rid)
+        fake_session = mock.Mock(id="cs_mid_flight", url="https://checkout.stripe.com/c/cs_mid_flight")
+
+        def cancel_then_return(*args: object, **kwargs: object) -> mock.Mock:
+            stripe_service.cancel_pending_checkout(str(payment.id), member_user)
+            return fake_session
+
+        with (
+            mock.patch("stripe.checkout.Session.create", side_effect=cancel_then_return) as create,
+            mock.patch("stripe.checkout.Session.expire") as expire,
+        ):
+            with pytest.raises(HttpError) as exc:
+                stripe_service.create_batch_session(reservation_id=rid)
+            create.assert_called_once()
+
+        assert exc.value.status_code == 404
+        expire.assert_called_once()
+        assert expire.call_args.args[0] == "cs_mid_flight"
+        assert expire.call_args.kwargs.get("stripe_account") == "acct_test123"
+        # No row ever carries the orphaned session id. (Single-connection caveat:
+        # the in-test cancel is nested inside the session function's atomic block,
+        # so the 404's savepoint rollback resurrects the deleted rows here — in
+        # production the cancel commits independently and the rows stay gone.)
+        assert not Payment.objects.filter(stripe_session_id="cs_mid_flight").exists()
+
+    def test_series_session_404s_and_expires_session_when_reservation_cancelled_mid_flight(
+        self, online_series_pass: SeriesPass, member_user: RevelUser
+    ) -> None:
+        """Series-pass variant: the held pass was already cancelled by the reclaim,
+        so it must not be stamped with the orphaned session id either."""
+        held_pass, rid = _reserve_series_online(online_series_pass, member_user)
+        a_payment = Payment.objects.filter(reservation_id=rid).first()
+        assert a_payment is not None
+        fake_session = mock.Mock(id="cs_series_mid_flight", url="https://checkout.stripe.com/c/cs_series_mid_flight")
+
+        def cancel_then_return(*args: object, **kwargs: object) -> mock.Mock:
+            stripe_service.cancel_pending_checkout(str(a_payment.id), member_user)
+            return fake_session
+
+        with (
+            mock.patch("stripe.checkout.Session.create", side_effect=cancel_then_return) as create,
+            mock.patch("stripe.checkout.Session.expire") as expire,
+        ):
+            with pytest.raises(HttpError) as exc:
+                stripe_service.create_series_pass_session(reservation_id=rid)
+            create.assert_called_once()
+
+        assert exc.value.status_code == 404
+        expire.assert_called_once()
+        assert expire.call_args.args[0] == "cs_series_mid_flight"
+        # Neither the payments nor the pass ever carry the orphaned session id.
+        # (Single-connection caveat: the in-test cancel is nested inside the
+        # session function's atomic block, so the 404's savepoint rollback
+        # resurrects the reclaimed rows here — in production the cancel commits
+        # independently and they stay gone/CANCELLED.)
+        assert not Payment.objects.filter(stripe_session_id="cs_series_mid_flight").exists()
+        held_pass.refresh_from_db()
+        assert held_pass.stripe_session_id == ""
+
+    def test_series_session_404s_when_pass_cancelled_mid_flight_but_payments_survive(
+        self, online_series_pass: SeriesPass, member_user: RevelUser
+    ) -> None:
+        """Defense-in-depth: the pass flips to CANCELLED mid-call while the Payment
+        rows are somehow still PENDING. The conditional pass stamp matches 0 rows;
+        the whole stamp (payments included) rolls back and no URL is released."""
+        held_pass, rid = _reserve_series_online(online_series_pass, member_user)
+        fake_session = mock.Mock(id="cs_pass_cancelled", url="https://checkout.stripe.com/c/cs_pass_cancelled")
+
+        def cancel_pass_then_return(*args: object, **kwargs: object) -> mock.Mock:
+            HeldSeriesPass.objects.filter(pk=held_pass.pk).update(status=HeldSeriesPass.HeldSeriesPassStatus.CANCELLED)
+            return fake_session
+
+        with (
+            mock.patch("stripe.checkout.Session.create", side_effect=cancel_pass_then_return),
+            mock.patch("stripe.checkout.Session.expire") as expire,
+        ):
+            with pytest.raises(HttpError) as exc:
+                stripe_service.create_series_pass_session(reservation_id=rid)
+
+        assert exc.value.status_code == 404
+        expire.assert_called_once()
+        assert expire.call_args.args[0] == "cs_pass_cancelled"
+        # The payment stamp rolled back with the raise: rows survive un-sessioned,
+        # so the reservation stays reclaimable by the expiry sweep.
+        payments = list(Payment.objects.filter(reservation_id=rid))
+        assert len(payments) == 2
+        assert all(p.stripe_session_id == "" for p in payments)
+        held_pass.refresh_from_db()
+        assert held_pass.stripe_session_id == ""
+
+    def test_in_flight_hold_extension_prevents_beat_reclaim_mid_call(
+        self, event: Event, online_tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        """The session step atomically extends the reservation hold before calling
+        Stripe, so a cleanup_expired_payments run during the (slow) call cannot
+        reclaim the rows out from under the stamp (#632)."""
+        with freeze_time("2026-07-14 12:00:00") as frozen:
+            _, rid = _reserve_online(event, online_tier, member_user)
+            # The buyer clicks through 1 minute before the reservation expires.
+            Payment.objects.filter(reservation_id=rid).update(expires_at=timezone.now() + timedelta(minutes=1))
+            fake_session = mock.Mock(id="cs_slow_stripe", url="https://checkout.stripe.com/c/cs_slow_stripe")
+
+            def slow_stripe_call(*args: object, **kwargs: object) -> mock.Mock:
+                # The Stripe round-trip straddles the original expiry, and the
+                # beat task fires right in that window.
+                frozen.move_to("2026-07-14 12:02:00")
+                cleanup_expired_payments()
+                return fake_session
+
+            with mock.patch("stripe.checkout.Session.create", side_effect=slow_stripe_call):
+                url = stripe_service.create_batch_session(reservation_id=rid)
+
+        assert url == fake_session.url
+        stamped = Payment.objects.get(reservation_id=rid)
+        assert stamped.stripe_session_id == "cs_slow_stripe"
+        assert stamped.status == Payment.PaymentStatus.PENDING
 
 
 class TestCrossTypeReservationGuard:

@@ -416,6 +416,73 @@ class TestCancelPendingCheckout:
         tier.refresh_from_db()
         assert tier.quantity_sold == 0
 
+    def test_cancel_expires_stripe_session_after_commit(
+        self,
+        pending_payment: Payment,
+        organization_owner_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """Cancelling a sessioned checkout must best-effort expire the Stripe
+        session after commit -- otherwise the buyer's still-open checkout URL stays
+        payable while the Payment rows (the webhook's reconciliation target) are
+        gone (#632)."""
+        org = pending_payment.ticket.event.organization
+        org.stripe_account_id = "acct_cancel_expire"
+        org.save(update_fields=["stripe_account_id"])
+
+        with (
+            patch("stripe.checkout.Session.expire") as mock_expire,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            stripe_service.cancel_pending_checkout(str(pending_payment.id), organization_owner_user)
+
+        mock_expire.assert_called_once()
+        assert mock_expire.call_args.args[0] == "cs_test_cancel"
+        assert mock_expire.call_args.kwargs.get("stripe_account") == "acct_cancel_expire"
+
+    def test_cancel_unsessioned_reservation_does_not_touch_stripe(
+        self,
+        event: Event,
+        organization_owner_user: RevelUser,
+        django_capture_on_commit_callbacks: t.Any,
+    ) -> None:
+        """A reserve-only batch (stripe_session_id == "") has nothing payable at
+        Stripe -- cancel must not make any Stripe call."""
+        tier = event.ticket_tiers.first()
+        assert tier is not None
+        ticket = Ticket.objects.create(
+            event=event,
+            tier=tier,
+            user=organization_owner_user,
+            status=Ticket.TicketStatus.PENDING,
+            guest_name="Unsessioned Guest",
+        )
+        # bulk_create mirrors reserve_batch_payments and skips full_clean, which
+        # would reject the intentionally-blank stripe_session_id.
+        [payment] = Payment.objects.bulk_create(
+            [
+                Payment(
+                    ticket=ticket,
+                    user=organization_owner_user,
+                    stripe_session_id="",
+                    reservation_id=uuid4(),
+                    amount=Decimal("25.00"),
+                    platform_fee=Decimal("1.25"),
+                    currency="EUR",
+                    status=Payment.PaymentStatus.PENDING,
+                    raw_response={},
+                )
+            ]
+        )
+
+        with (
+            patch("stripe.checkout.Session.expire") as mock_expire,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            stripe_service.cancel_pending_checkout(str(payment.id), organization_owner_user)
+
+        mock_expire.assert_not_called()
+
     def test_locks_batch_payments_for_update_before_reclaiming(
         self,
         pending_payment: Payment,
