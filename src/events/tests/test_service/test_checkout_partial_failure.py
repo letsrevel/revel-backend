@@ -203,6 +203,34 @@ class TestWindowBStampFailureThenRetry:
         assert stamped.stripe_session_id == "cs_window_b"
         assert stamped.status == Payment.PaymentStatus.PENDING
 
+    def test_retry_reuses_identical_stripe_params_for_idempotency(
+        self, event: Event, online_tier: TicketTier, member_user: RevelUser
+    ) -> None:
+        """Stripe replays an idempotency key only when the request params match
+        exactly: a now()-anchored ``expires_at`` would turn every retry after an
+        unstamped crash into a param-mismatch conflict (-> 500) until the hold
+        lapsed. The session expiry is anchored on the committed hold expiry —
+        which failed attempts roll back — so retries are byte-identical."""
+        with freeze_time("2026-07-14 12:00:00") as frozen:
+            _, rid = _reserve_online(event, online_tier, member_user)
+            fake_session = mock.Mock(id="cs_same_params", url="https://checkout.stripe.com/c/cs_same_params")
+
+            with (
+                mock.patch("stripe.checkout.Session.create", return_value=fake_session) as create_first,
+                mock.patch(
+                    "django.db.models.query.QuerySet.update", autospec=True, side_effect=_fail_only_session_stamp
+                ),
+            ):
+                with pytest.raises(RuntimeError, match="stamp boom"):
+                    stripe_service.create_batch_session(reservation_id=rid)
+
+            # The buyer retries 3 minutes later.
+            frozen.move_to("2026-07-14 12:03:00")
+            with mock.patch("stripe.checkout.Session.create", return_value=fake_session) as create_retry:
+                stripe_service.create_batch_session(reservation_id=rid)
+
+        assert create_retry.call_args.kwargs == create_first.call_args.kwargs
+
 
 class TestWindowAAbandonedReserveReclaimed:
     """Window A: an online reserve is abandoned (no session ever created); the beat
@@ -297,6 +325,31 @@ class TestSeriesPassWindowBStampFailureThenRetry:
         assert all(p.status == Payment.PaymentStatus.PENDING for p in stamped)
         held_pass.refresh_from_db()
         assert held_pass.stripe_session_id == "cs_series_window_b"
+
+    def test_retry_reuses_identical_stripe_params_for_idempotency(
+        self, online_series_pass: SeriesPass, member_user: RevelUser
+    ) -> None:
+        """Series-pass mirror of the batch determinism guarantee: a retry after an
+        unstamped crash must send byte-identical params under the same idempotency
+        key, or Stripe rejects it as a param-mismatch conflict."""
+        with freeze_time("2026-07-14 12:00:00") as frozen:
+            _, rid = _reserve_series_online(online_series_pass, member_user)
+            fake_session = mock.Mock(id="cs_series_same", url="https://checkout.stripe.com/c/cs_series_same")
+
+            with (
+                mock.patch("stripe.checkout.Session.create", return_value=fake_session) as create_first,
+                mock.patch(
+                    "django.db.models.query.QuerySet.update", autospec=True, side_effect=_fail_only_session_stamp
+                ),
+            ):
+                with pytest.raises(RuntimeError, match="stamp boom"):
+                    stripe_service.create_series_pass_session(reservation_id=rid)
+
+            frozen.move_to("2026-07-14 12:03:00")
+            with mock.patch("stripe.checkout.Session.create", return_value=fake_session) as create_retry:
+                stripe_service.create_series_pass_session(reservation_id=rid)
+
+        assert create_retry.call_args.kwargs == create_first.call_args.kwargs
 
 
 class TestMidFlightReclaimGuard:

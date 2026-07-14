@@ -696,6 +696,12 @@ def create_batch_session(*, reservation_id: UUID) -> str:
     if already:
         # Already sessioned: return the existing URL instead of creating a duplicate.
         return resume_pending_checkout(str(already[0].id), already[0].user)
+    # Anchor for the session expiry, read BEFORE the claim: Stripe replays an
+    # idempotency key only for byte-identical params, and a now()-based expires_at
+    # would turn every retry after an unstamped crash into a param-mismatch
+    # conflict (-> 500) until the hold lapsed. The committed hold expiry is stable
+    # across such retries (a failed attempt's claim bump rolls back with it).
+    hold_anchor = max(p.expires_at for p in payments)
     claim_reservation_hold(reservation_id)
     # Re-read after the claim: its UPDATE blocks behind a concurrent session-create
     # for this reservation until that request commits, so a double-submit lands here
@@ -720,7 +726,7 @@ def create_batch_session(*, reservation_id: UUID) -> str:
     total_fee_gross = sum((p.platform_fee for p in payments), Decimal("0"))
     application_fee_amount = to_stripe_amount(total_fee_gross, tier.currency)
     site = SiteSettings.get_solo()
-    expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
+    expires_at = hold_anchor + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
     session = _create_stripe_session(
         event=event,
@@ -928,6 +934,8 @@ def create_series_pass_session(*, reservation_id: UUID) -> str:
     if already:
         # Already sessioned: return the existing URL instead of creating a duplicate.
         return resume_pending_checkout(str(already[0].id), already[0].user)
+    # Pre-claim anchor for a retry-stable session expiry (see create_batch_session).
+    hold_anchor = max(p.expires_at for p in payments)
     claim_reservation_hold(reservation_id)
     # Re-read after the claim: its UPDATE blocks behind a concurrent session-create
     # for this reservation until that request commits, so a double-submit lands here
@@ -956,7 +964,7 @@ def create_series_pass_session(*, reservation_id: UUID) -> str:
     total_fee_gross = sum((p.platform_fee for p in payments), Decimal("0"))
     application_fee_amount = to_stripe_amount(total_fee_gross, series_pass.currency)
     site = SiteSettings.get_solo()
-    expires_at = timezone.now() + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
+    expires_at = hold_anchor + timedelta(minutes=settings.PAYMENT_DEFAULT_EXPIRY_MINUTES)
 
     session = _create_series_pass_stripe_session(
         held_pass=held_pass,
