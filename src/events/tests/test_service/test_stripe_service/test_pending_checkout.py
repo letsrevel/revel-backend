@@ -437,3 +437,80 @@ class TestCancelPendingCheckout:
 
         assert calls  # the reclaim locked the batch payments before deleting them
         assert result == 1
+
+    def test_does_not_double_release_a_cancelled_tickets_orphaned_pending_payment(
+        self,
+        event: Event,
+        organization_owner_user: RevelUser,
+        tier_online_with_cancellation_enabled: TicketTier,
+    ) -> None:
+        """A user who cancels a still-unpaid PENDING online ticket (POST /tickets/{id}/cancel)
+        leaves its Payment PENDING: cancel_ticket_by_user already released the tier slot at
+        cancel time (cancellation_service._finalize_cancellation). Reclaiming the same
+        "abandoned" checkout via cancel_pending_checkout must not release it again just
+        because the (now CANCELLED) ticket is still keyed to the tier via the payment -- it
+        must only count tickets that are still PENDING. Same class of bug as the beat task's
+        cleanup_expired_payments (test_cleanup_does_not_double_release_a_cancelled_tickets_orphaned_pending_payment
+        in test_tasks/test_misc.py), one call site over: _release_batch_tier_capacity (#632).
+
+        A second, unrelated ACTIVE ticket on the same tier keeps quantity_sold above the
+        Greatest(...,0) floor so a double-decrement is actually observable, not masked."""
+        from events.service.cancellation_service import cancel_ticket_by_user
+
+        tier = tier_online_with_cancellation_enabled
+        event.start = timezone.now() + timedelta(hours=72)
+        event.end = event.start + timedelta(hours=73)
+        event.save(update_fields=["start", "end"])
+
+        # Unrelated ACTIVE ticket: keeps the tier's true occupancy at 1 after the
+        # reserved ticket below is cancelled, so a double-decrement would show up
+        # as 0 instead of the correct 1 (not masked by the Greatest(...,0) floor).
+        Ticket.objects.create(
+            guest_name="Other Guest",
+            event=event,
+            tier=tier,
+            user=organization_owner_user,
+            status=Ticket.TicketStatus.ACTIVE,
+        )
+
+        reserved_ticket = Ticket.objects.create(
+            guest_name="Reserved Guest",
+            event=event,
+            tier=tier,
+            user=organization_owner_user,
+            status=Ticket.TicketStatus.PENDING,
+            refund_policy_snapshot=tier.refund_policy,
+        )
+        payment = Payment.objects.create(
+            ticket=reserved_ticket,
+            user=organization_owner_user,
+            stripe_session_id="sess_reserved",
+            stripe_payment_intent_id="",
+            status=Payment.PaymentStatus.PENDING,
+            amount=tier.price,
+            platform_fee=Decimal("10"),
+        )
+        tier.quantity_sold = 2
+        tier.save()
+
+        with patch("stripe.Refund.create") as mock_refund_create:
+            cancel_ticket_by_user(reserved_ticket, organization_owner_user, reason="", now=timezone.now())
+        mock_refund_create.assert_not_called()
+
+        reserved_ticket.refresh_from_db()
+        assert reserved_ticket.status == Ticket.TicketStatus.CANCELLED
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 1  # Released once, at cancel time.
+
+        payment.refresh_from_db()
+        assert payment.status == Payment.PaymentStatus.PENDING  # Still pending -- the bug's precondition.
+
+        # Act: reclaim the "abandoned" checkout via the user-facing cancel endpoint.
+        result = stripe_service.cancel_pending_checkout(str(payment.id), organization_owner_user)
+
+        # Assert
+        assert result == 1
+        tier.refresh_from_db()
+        assert tier.quantity_sold == 1  # Must NOT drop to 0 -- that would be a double-decrement.
+        assert not Payment.objects.filter(pk=payment.pk).exists()
+        assert Ticket.objects.filter(pk=reserved_ticket.pk, status=Ticket.TicketStatus.CANCELLED).exists()
