@@ -130,6 +130,19 @@ def resume_pending_checkout(
         _cleanup_expired_batch(payment)
         raise HttpError(404, str(_("Checkout session has expired. Please start a new purchase.")))
 
+    # Un-sessioned reservation (#632): reserve committed but the /checkout-session
+    # step never ran (stripe_session_id==""). Create the Stripe session now — it is
+    # idempotent (keyed on reservation_id) — so resume recovers the checkout instead
+    # of a misleading "not found" 404.
+    if not payment.stripe_session_id and payment.reservation_id is not None:
+        # Lazy import: stripe_service imports this module (re-exports), so a top-level
+        # import here would be circular.
+        from events.service.stripe_service import create_batch_session, create_series_pass_session
+
+        if payment.ticket.held_pass_id:
+            return create_series_pass_session(reservation_id=payment.reservation_id)
+        return create_batch_session(reservation_id=payment.reservation_id)
+
     # Retrieve and return the Stripe session URL
     try:
         session = Session.retrieve(
