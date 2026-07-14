@@ -73,8 +73,19 @@ def _cleanup_expired_batch(payment: Payment) -> None:
     # capacity was released there. Re-releasing (or hard-deleting the CANCELLED
     # audit tickets) here would double-decrement counters and destroy history.
     # Mirrors the cleanup_expired_payments beat task.
-    batch_payments = Payment.objects.filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
-    ticket_ids = list(batch_payments.values_list("ticket_id", flat=True))
+    #
+    # select_for_update + materialize once: a plain SELECT never blocks under READ
+    # COMMITTED, so a concurrent reclaim on the same rows (the cleanup_expired_payments
+    # beat task, an overlapping payment_intent.canceled webhook) could both read
+    # PENDING and both release tier capacity before either side deletes/updates. The
+    # lock serializes that instead of racing it; deriving ticket_ids from this same
+    # locked list (rather than re-querying) keeps everything downstream consistent
+    # with the snapshot the lock was taken against (#632).
+    batch_payments = list(
+        Payment.objects.select_for_update().filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
+    )
+    payment_ids = [p.id for p in batch_payments]
+    ticket_ids = [p.ticket_id for p in batch_payments]
 
     # Pass row before tier rows (SeriesPassPurchaseService.purchase's lock order).
     # Ticket-based (not session-based): a reserved-but-not-sessioned series pass's
@@ -86,7 +97,7 @@ def _cleanup_expired_batch(payment: Payment) -> None:
 
     # Clean up the pending tickets and payments in this batch. Non-PENDING
     # tickets (e.g. CANCELLED audit rows, past-event ACTIVE tickets) survive.
-    batch_payments.delete()
+    Payment.objects.filter(pk__in=payment_ids).delete()
     Ticket.objects.filter(id__in=ticket_ids, status=Ticket.TicketStatus.PENDING).delete()
 
 
@@ -204,9 +215,19 @@ def cancel_pending_checkout(
     # payments went FAILED and its tier capacity was released there. Re-releasing
     # (or hard-deleting the CANCELLED audit tickets) here would double-decrement
     # counters and destroy history. Mirrors the cleanup_expired_payments beat task.
-    batch_payments = Payment.objects.filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
-    ticket_count = batch_payments.count()
-    ticket_ids = list(batch_payments.values_list("ticket_id", flat=True))
+    #
+    # select_for_update + materialize once: a plain SELECT never blocks under READ
+    # COMMITTED, so a concurrent reclaim on the same rows (the cleanup_expired_payments
+    # beat task, an overlapping payment_intent.canceled webhook) could both read
+    # PENDING and both release tier capacity before either side deletes/updates. The
+    # lock serializes that instead of racing it; ticket_count/ticket_ids come from
+    # this same locked list rather than re-querying (#632).
+    batch_payments = list(
+        Payment.objects.select_for_update().filter(_batch_filter(payment), status=Payment.PaymentStatus.PENDING)
+    )
+    payment_ids = [p.id for p in batch_payments]
+    ticket_ids = [p.ticket_id for p in batch_payments]
+    ticket_count = len(ticket_ids)
 
     # Capture event ids before the ticket rows are deleted (a series-pass batch
     # spans multiple events; a plain batch has one).
@@ -222,7 +243,7 @@ def cancel_pending_checkout(
 
     # Delete the pending tickets and payments in this batch. Non-PENDING tickets
     # (e.g. CANCELLED audit rows, past-event ACTIVE tickets) survive.
-    batch_payments.delete()
+    Payment.objects.filter(pk__in=payment_ids).delete()
     Ticket.objects.filter(id__in=ticket_ids, status=Ticket.TicketStatus.PENDING).delete()
 
     for event_id in event_ids:

@@ -1,5 +1,6 @@
 """Tests for pending checkout resume and cancel functions."""
 
+import typing as t
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import Mock, patch
@@ -112,6 +113,33 @@ class TestResumePendingCheckout:
 
         assert result == "https://checkout.stripe.com/test"
         mock_session_retrieve.assert_called_once()
+
+    def test_expired_cleanup_locks_batch_payments_for_update(
+        self,
+        pending_payment: Payment,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """_cleanup_expired_batch (triggered by the expired branch) must select_for_update
+        the batch payments it reclaims. A plain SELECT never blocks under READ COMMITTED,
+        so a concurrent reclaim on the same rows (the cleanup_expired_payments beat task,
+        an overlapping payment_intent.canceled webhook) could both read PENDING and both
+        decrement the tier before either side deletes/updates (#632)."""
+        pending_payment.expires_at = timezone.now() - timedelta(hours=1)
+        pending_payment.save()
+
+        original_select_for_update = Payment.objects.select_for_update
+        calls: list[tuple[t.Any, t.Any]] = []
+
+        def record_select_for_update(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            calls.append((args, kwargs))
+            return original_select_for_update(*args, **kwargs)
+
+        with patch.object(Payment.objects, "select_for_update", side_effect=record_select_for_update):
+            with pytest.raises(HttpError):
+                stripe_service.resume_pending_checkout(str(pending_payment.id), organization_owner_user)
+
+        assert calls  # the reclaim locked the batch payments before deleting them
+        assert not Payment.objects.filter(id=pending_payment.id).exists()
 
 
 class TestResumeUnsessionedReservation:
@@ -387,3 +415,25 @@ class TestCancelPendingCheckout:
         # quantity_sold decremented by 3
         tier.refresh_from_db()
         assert tier.quantity_sold == 0
+
+    def test_locks_batch_payments_for_update_before_reclaiming(
+        self,
+        pending_payment: Payment,
+        organization_owner_user: RevelUser,
+    ) -> None:
+        """cancel_pending_checkout must select_for_update the batch payments before
+        reclaiming them, so a concurrent reclaim (the beat task, an overlapping
+        payment_intent.canceled webhook) on the same rows serializes instead of racing
+        and double-decrementing the tier (#632)."""
+        original_select_for_update = Payment.objects.select_for_update
+        calls: list[tuple[t.Any, t.Any]] = []
+
+        def record_select_for_update(*args: t.Any, **kwargs: t.Any) -> t.Any:
+            calls.append((args, kwargs))
+            return original_select_for_update(*args, **kwargs)
+
+        with patch.object(Payment.objects, "select_for_update", side_effect=record_select_for_update):
+            result = stripe_service.cancel_pending_checkout(str(pending_payment.id), organization_owner_user)
+
+        assert calls  # the reclaim locked the batch payments before deleting them
+        assert result == 1

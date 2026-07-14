@@ -702,9 +702,17 @@ class StripeEventHandler:
             logger.warning("stripe_payment_intent_canceled_missing_id")
             return
 
-        # Find all payments by payment_intent_id (supports batch purchases)
+        # Find all payments by payment_intent_id (supports batch purchases). Locked
+        # with select_for_update(of=("self",)) — mirroring handle_charge_refunded —
+        # so a concurrent reclaim on the same rows (cleanup_expired_payments,
+        # cancel_pending_checkout) serializes instead of both reading PENDING and
+        # both decrementing the tier from the same unlocked snapshot. No outbound
+        # Stripe call happens in this handler, so holding the lock for its duration
+        # is safe (#632).
         payments = list(
-            Payment.objects.filter(stripe_payment_intent_id=payment_intent_id).select_related("ticket", "ticket__tier")
+            Payment.objects.select_for_update(of=("self",))
+            .filter(stripe_payment_intent_id=payment_intent_id)
+            .select_related("ticket", "ticket__tier")
         )
 
         if not payments:
