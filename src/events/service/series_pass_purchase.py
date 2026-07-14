@@ -117,6 +117,16 @@ class SeriesPassPurchaseService:
         future_links: list[SeriesPassTierLink] = list(
             self.series_pass.tier_links.filter(event__start__gte=now).select_related("event").order_by("tier_id")
         )
+        if not future_links:
+            # Defense-in-depth (#632): get_quote's remaining<2 gate above already
+            # blocks this in the normal case, but it and this future_links query each
+            # take an independent now() snapshot — a TOCTOU race between the two
+            # could in theory let a stale-but-purchasable quote through after every
+            # covered event has tipped into the past. Without this guard the ONLINE
+            # path would increment quantity_sold and create a PENDING held pass with
+            # no tickets and no Payment rows — unreclaimable, since the beat-task
+            # cleanup keys off Payment rows.
+            raise SeriesPassNotPurchasableError(str(_("This pass has no upcoming events to purchase.")))
         # Lock all mapped tiers in pk order (deadlock discipline, mirrors BatchTicketService).
         locked_tiers = {
             tier.pk: tier

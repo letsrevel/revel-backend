@@ -359,6 +359,50 @@ class TestNotPurchasable:
 
         assert not HeldSeriesPass.objects.exists()
 
+    def test_no_future_links_raises_and_does_not_increment(
+        self, organization: Organization, event_series: EventSeries, revel_user: RevelUser
+    ) -> None:
+        """Defense-in-depth (#632): get_quote's remaining<2 gate already blocks this in
+        the normal case, but it and purchase()'s own future_links query each take an
+        independent timezone.now() snapshot — a TOCTOU race between the two could in
+        theory let a stale-but-purchasable quote through after every covered event has
+        tipped into the past. If it did, the ONLINE path would increment quantity_sold
+        and create a PENDING held pass with no tickets and no Payment rows: an
+        unreclaimable stranded reserve, since the beat-task cleanup keys off Payment
+        rows. purchase() must re-assert on its own now()-derived future_links, not
+        just trust the quote."""
+        now = timezone.now()
+        p1 = _make_event(organization, event_series, "P1", "p1", now - timedelta(days=2))
+        p2 = _make_event(organization, event_series, "P2", "p2", now - timedelta(days=1))
+        tier1 = _make_tier(p1, "Tier P1")
+        tier2 = _make_tier(p2, "Tier P2")
+        series_pass = SeriesPass.objects.create(
+            event_series=event_series,
+            name="All Past Pass",
+            price=Decimal("30.00"),
+            pro_rata_discount=Decimal("5.00"),
+            currency="EUR",
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+        )
+        SeriesPassTierLink.objects.create(series_pass=series_pass, event=p1, tier=tier1)
+        SeriesPassTierLink.objects.create(series_pass=series_pass, event=p2, tier=tier2)
+
+        stale_quote = series_pass_service.SeriesPassQuote(
+            price=Decimal("20.00"),
+            passed_events=0,
+            remaining_events=2,
+            currency="EUR",
+            purchasable=True,
+            reason=None,
+        )
+        with patch.object(series_pass_service, "get_quote", return_value=stale_quote):
+            with pytest.raises(SeriesPassNotPurchasableError):
+                SeriesPassPurchaseService(series_pass, revel_user).purchase()
+
+        series_pass.refresh_from_db()
+        assert series_pass.quantity_sold == 0
+        assert not HeldSeriesPass.objects.exists()
+
 
 class TestConcurrentPurchaseRace:
     """Regression tests: a losing concurrent purchase must map to 409, never a raw 500."""
