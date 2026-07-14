@@ -61,7 +61,7 @@ from events.utils.currency import to_stripe_amount
 
 if t.TYPE_CHECKING:
     from events.schema.ticket import BuyerBillingInfoSchema
-    from events.service.attendee_vat_service import AttendeeVATResult
+    from events.service.attendee_vat_service import AttendeeVATResult, BuyerVATContext
     from events.service.vat_service import PlatformFeeVATBreakdown as PlatformFeeVATResult
 
 logger = structlog.get_logger(__name__)
@@ -401,48 +401,31 @@ def _save_billing_to_profile(user: RevelUser, billing_info: "BuyerBillingInfoSch
     profile.save(update_fields=fields_to_update)
 
 
-def _maybe_resolve_attendee_vat(
-    billing_info: "BuyerBillingInfoSchema | None",
+def _attendee_vat_from_context(
+    context: "BuyerVATContext",
     tier: TicketTier,
     org: Organization,
     base_price: Decimal,
 ) -> "tuple[AttendeeVATResult | None, bool]":
-    """Resolve attendee VAT if billing info is provided with a buyer country.
+    """Price arithmetic for a pre-resolved buyer VAT context — no network I/O.
 
-    Uses the shared validate_and_resolve_buyer_country helper for VIES
-    validation and country derivation. Returns None (no VAT adjustment)
-    when no buyer country can be determined.
-
-    Returns:
-        Tuple of (AttendeeVATResult or None, buyer_vat_validated).
+    Safe under the TicketTier lock: the VIES round-trip already happened in
+    resolve_attendee_vat_for_reserve, so running this against the locked tier's
+    fresh price closes the stale-price window (#632).
     """
-    from events.service.attendee_vat_service import (
-        determine_attendee_vat,
-        validate_and_resolve_buyer_country,
-    )
+    from events.service.attendee_vat_service import determine_attendee_vat
     from events.service.attendee_vat_service import get_effective_vat_rate as get_vat_rate
 
-    if not billing_info:
+    if not context.buyer_country:
         return None, False
-
-    vat_id_valid, _, buyer_country = validate_and_resolve_buyer_country(
-        vat_id=billing_info.vat_id,
-        vat_country_code=billing_info.vat_country_code,
-    )
-    buyer_vat_validated = bool(vat_id_valid)
-
-    if not buyer_country:
-        return None, False
-
-    seller_vat_rate = get_vat_rate(tier, org)
     vat_result = determine_attendee_vat(
         gross_price=base_price,
-        seller_vat_rate=seller_vat_rate,
+        seller_vat_rate=get_vat_rate(tier, org),
         seller_country=org.vat_country_code,
-        buyer_country=buyer_country,
-        buyer_vat_id_valid=buyer_vat_validated,
+        buyer_country=context.buyer_country,
+        buyer_vat_id_valid=context.buyer_vat_validated,
     )
-    return vat_result, buyer_vat_validated
+    return vat_result, context.buyer_vat_validated
 
 
 def _build_line_items(
@@ -600,19 +583,28 @@ def _create_payment_records(
 
 def resolve_attendee_vat_for_reserve(
     *,
-    tier: TicketTier,
-    org: Organization,
-    price_override: Decimal | None = None,
     billing_info: "BuyerBillingInfoSchema | None" = None,
-) -> "tuple[AttendeeVATResult | None, bool]":
-    """Resolve attendee VAT (runs VIES) for a batch reserve.
+) -> "BuyerVATContext | None":
+    """Run the network half of attendee VAT resolution (VIES) for a batch reserve.
 
     Called by BatchTicketService.create_batch BEFORE it takes the TicketTier
     select_for_update, so the contended row is never locked across the VIES
-    round-trip (#632). The result is threaded into reserve_batch_payments.
+    round-trip (#632). Deliberately price-independent: the arithmetic runs later
+    in reserve_batch_payments against the locked tier's fresh price, so an
+    organizer repricing the tier mid-VIES can't strand a stale amount.
+
+    Returns:
+        The buyer's VAT context, or None when no billing info was provided.
     """
-    base_price = price_override if price_override is not None else tier.price
-    return _maybe_resolve_attendee_vat(billing_info, tier, org, base_price)
+    from events.service.attendee_vat_service import BuyerVATContext, validate_and_resolve_buyer_country
+
+    if not billing_info:
+        return None
+    vat_id_valid, _, buyer_country = validate_and_resolve_buyer_country(
+        vat_id=billing_info.vat_id,
+        vat_country_code=billing_info.vat_country_code,
+    )
+    return BuyerVATContext(buyer_country=buyer_country, buyer_vat_validated=bool(vat_id_valid))
 
 
 @transaction.atomic
@@ -625,16 +617,17 @@ def reserve_batch_payments(
     reservation_id: UUID,
     price_override: Decimal | None = None,
     billing_info: "BuyerBillingInfoSchema | None" = None,
-    attendee_vat: "tuple[AttendeeVATResult | None, bool] | None" = None,
+    buyer_vat_context: "BuyerVATContext | None" = None,
 ) -> None:
     """Create PENDING Payment rows for a reserved batch — NO Stripe call (#632).
 
     Runs under the caller's TicketTier select_for_update, so it must never do
-    network I/O: VAT (incl. any VIES round-trip) is resolved pre-lock by
-    resolve_attendee_vat_for_reserve and threaded in via ``attendee_vat``. The
-    Stripe session is created later by create_batch_session, which stamps
-    stripe_session_id onto these rows. Because the Payment rows already exist,
-    "paid session with no Payment row" (Window B) is unreachable.
+    network I/O: the VIES round-trip happens pre-lock in
+    resolve_attendee_vat_for_reserve and is threaded in via ``buyer_vat_context``;
+    only the price arithmetic runs here, against THIS (locked) tier's fresh
+    price. The Stripe session is created later by create_batch_session, which
+    stamps stripe_session_id onto these rows. Because the Payment rows already
+    exist, "paid session with no Payment row" (Window B) is unreachable.
     """
     if not event.organization.is_stripe_connected:
         raise HttpError(400, str(_("This organization is not configured to accept payments.")))
@@ -643,12 +636,17 @@ def reserve_batch_payments(
         raise HttpError(400, str(_("This ticket tier cannot be purchased online.")))
 
     org = event.organization
-    # VIES runs pre-lock (Task 5) and is passed in; fall back to resolving here
-    # for any caller that hasn't (keeps this helper self-contained).
-    if attendee_vat is not None:
-        attendee_vat_result, buyer_vat_validated = attendee_vat
+    # VIES runs pre-lock and is passed in as a price-independent context; fall
+    # back to resolving here for any caller that hasn't (keeps this helper
+    # self-contained, at the cost of VIES under that caller's lock).
+    if buyer_vat_context is None:
+        buyer_vat_context = resolve_attendee_vat_for_reserve(billing_info=billing_info)
+    if buyer_vat_context is not None:
+        # Arithmetic only — no network. Recomputed from the locked tier's price,
+        # so a repricing during the pre-lock VIES round-trip can't go stale.
+        attendee_vat_result, buyer_vat_validated = _attendee_vat_from_context(buyer_vat_context, tier, org, base_price)
     else:
-        attendee_vat_result, buyer_vat_validated = _maybe_resolve_attendee_vat(billing_info, tier, org, base_price)
+        attendee_vat_result, buyer_vat_validated = None, False
     effective_price = attendee_vat_result.effective_price if attendee_vat_result else base_price
 
     total_amount = effective_price * len(tickets)
@@ -868,7 +866,7 @@ def reserve_series_pass_payments(
     # billing_info is out of scope for pass v1: no attendee VAT re-resolution, just a
     # snapshot for attendee invoicing.
     # ponytail: attendee reverse-charge VAT for passes deferred; upgrade = mirror
-    # _maybe_resolve_attendee_vat per-tier
+    # the batch flow (resolve_attendee_vat_for_reserve + _attendee_vat_from_context) per-tier
     billing_snapshot: BuyerBillingSnapshot | None = None
     if billing_info:
         billing_snapshot = _build_billing_snapshot(billing_info, False, False)

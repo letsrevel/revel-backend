@@ -37,6 +37,20 @@ class AttendeeVATResult:
     reverse_charge: bool
 
 
+@dataclass(frozen=True)
+class BuyerVATContext:
+    """The network half of attendee VAT resolution, price-independent (#632).
+
+    Captures the VIES validation + buyer-country derivation done before the
+    TicketTier lock, so the price arithmetic (determine_attendee_vat) can be
+    re-run under the lock against the fresh locked price — an organizer
+    repricing the tier during the VIES round-trip can't strand a stale amount.
+    """
+
+    buyer_country: str | None
+    buyer_vat_validated: bool
+
+
 def _normalize_country(code: str) -> str:
     """Normalize country codes for VAT comparison.
 

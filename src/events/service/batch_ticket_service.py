@@ -21,6 +21,7 @@ from notifications.signals.waitlist import remove_user_from_waitlist
 
 if t.TYPE_CHECKING:
     from events.schema.ticket import BuyerBillingInfoSchema
+    from events.service.attendee_vat_service import BuyerVATContext
 
 logger = structlog.get_logger(__name__)
 
@@ -54,7 +55,7 @@ class BatchTicketService:
         self.tier = tier
         self.user = user
         self.discount_code = discount_code
-        self._reserve_attendee_vat: tuple[t.Any, bool] | None = None
+        self._reserve_buyer_vat: "BuyerVATContext | None" = None
 
     def _assert_purchasable_by(self) -> None:
         """Assert the user is allowed to purchase from this tier.
@@ -495,22 +496,19 @@ class BatchTicketService:
         # Validate batch size
         self.validate_batch_size(len(items))
 
-        # Resolve attendee VAT (incl. the VIES round-trip) BEFORE locking the
-        # tier, so the contended row is never held across VIES (#632). Only the
-        # paid-online path creates Stripe Payment rows; other methods skip it.
-        attendee_vat = None
+        # Resolve the buyer's VAT context (incl. the VIES round-trip) BEFORE
+        # locking the tier, so the contended row is never held across VIES
+        # (#632). Price-independent: the arithmetic runs post-lock against the
+        # locked tier's fresh price. Only the paid-online path creates Stripe
+        # Payment rows; other methods skip it.
+        buyer_vat = None
         if self.tier.payment_method == TicketTier.PaymentMethod.ONLINE and not (
             price_override is not None and price_override <= 0
         ):
             from events.service import stripe_service
 
-            attendee_vat = stripe_service.resolve_attendee_vat_for_reserve(
-                tier=self.tier,
-                org=self.event.organization,
-                price_override=price_override,
-                billing_info=billing_info,
-            )
-        self._reserve_attendee_vat = attendee_vat  # consumed by _online_checkout
+            buyer_vat = stripe_service.resolve_attendee_vat_for_reserve(billing_info=billing_info)
+        self._reserve_buyer_vat = buyer_vat  # consumed by _online_checkout
 
         # Lock the tier for capacity check
         locked_tier = TicketTier.objects.select_for_update().get(pk=self.tier.pk)
@@ -713,7 +711,7 @@ class BatchTicketService:
             reservation_id=reservation_id,
             price_override=price_override,
             billing_info=billing_info,
-            attendee_vat=self._reserve_attendee_vat,
+            buyer_vat_context=self._reserve_buyer_vat,
         )
 
         return tickets, reservation_id

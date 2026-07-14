@@ -54,6 +54,42 @@ def test_online_create_batch_returns_reservation_and_makes_pending(
     assert paid_ticket_tier.quantity_sold == len(tickets)
 
 
+def test_online_create_batch_charges_lock_time_price_when_price_changes_during_vies(
+    event: Event, paid_ticket_tier: TicketTier, member_user: t.Any
+) -> None:
+    """Payment.amount reflects the tier price at lock time (#632 follow-up).
+
+    Attendee VAT is resolved (VIES) before the tier lock; if an organizer changes
+    the price during that round-trip, the VAT arithmetic must be re-run against
+    the locked tier's fresh price — buyers with billing info must not be charged
+    the stale pre-lock price.
+    """
+
+    def vies_bumps_price(
+        vat_id: str | None, vat_country_code: str | None
+    ) -> tuple[bool | None, str | None, str | None]:
+        # Simulates an organizer repricing the tier while VIES is in flight.
+        TicketTier.objects.filter(pk=paid_ticket_tier.pk).update(price=Decimal("60.00"))
+        return None, None, "DE"  # EU B2C buyer -> effective price == gross price
+
+    billing_info = BuyerBillingInfoSchema(billing_name="Acme Corp", vat_country_code="DE")  # type: ignore[call-arg]
+    svc = BatchTicketService(event, paid_ticket_tier, member_user)
+    with (
+        mock.patch(
+            "events.service.attendee_vat_service.validate_and_resolve_buyer_country",
+            side_effect=vies_bumps_price,
+        ),
+        mock.patch("stripe.checkout.Session.create") as create,
+    ):
+        result = svc.create_batch([TicketPurchaseItem(guest_name="A")], billing_info=billing_info)
+        create.assert_not_called()
+
+    assert isinstance(result, tuple)
+    _, reservation_id = result
+    payment = Payment.objects.get(reservation_id=reservation_id)
+    assert payment.amount == Decimal("60.00")
+
+
 def test_online_create_batch_resolves_vat_before_locking_tier(
     event: Event, paid_ticket_tier: TicketTier, member_user: t.Any
 ) -> None:
@@ -63,9 +99,9 @@ def test_online_create_batch_resolves_vat_before_locking_tier(
     """
     call_order: list[str] = []
 
-    def record_vat_resolve(*args: t.Any, **kwargs: t.Any) -> tuple[None, bool]:
+    def record_vat_resolve(*args: t.Any, **kwargs: t.Any) -> None:
         call_order.append("resolve_attendee_vat_for_reserve")
-        return None, False
+        return None
 
     original_select_for_update = TicketTier.objects.select_for_update
 

@@ -105,9 +105,11 @@ class SeriesPassPurchaseService:
         # order is pass row first, then tiers by pk (deadlock discipline) — every other
         # writer that touches both a SeriesPass and its tiers in one transaction must
         # match it: series_pass_service.cancel_held_pass, and every expiry route that
-        # calls series_pass_service.expire_stranded_held_passes alongside a tier
-        # release (the cleanup_expired_payments beat task, stripe_service's
-        # _cleanup_expired_batch and cancel_pending_checkout, and stripe_webhooks'
+        # cancels a held pass alongside a tier release — the ticket-keyed
+        # series_pass_service.expire_held_passes_for_tickets callers (the
+        # cleanup_expired_payments beat task, pending_checkout's
+        # _cleanup_expired_batch and cancel_pending_checkout) and the session-keyed
+        # series_pass_service.expire_stranded_held_passes caller (stripe_webhooks'
         # handle_payment_intent_canceled).
         locked_pass = SeriesPass.objects.select_for_update().get(pk=self.series_pass.pk)
         if locked_pass.total_quantity is not None and locked_pass.quantity_sold >= locked_pass.total_quantity:

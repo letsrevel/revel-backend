@@ -10,7 +10,9 @@ from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events.models import Event, Organization, Payment, Ticket, TicketTier
+from events.schema.ticket import BuyerBillingInfoSchema
 from events.service import stripe_service
+from events.service.attendee_vat_service import BuyerVATContext
 from events.utils.currency import to_stripe_amount
 
 pytestmark = pytest.mark.django_db
@@ -140,48 +142,37 @@ class TestReserveBatchPayments:
         assert exc.value.status_code == 400
         assert not Payment.objects.filter(reservation_id=rid).exists()
 
-    def test_reserve_uses_precomputed_attendee_vat_without_reresolving(
+    def test_reserve_uses_precomputed_buyer_vat_context_without_reresolving(
         self, event: Event, paid_ticket_tier: TicketTier, organization_owner_user: RevelUser
     ) -> None:
-        """When attendee_vat is passed in, _maybe_resolve_attendee_vat is not called again."""
+        """When buyer_vat_context is passed in, VIES is not re-resolved (no network under the lock)."""
         tickets = [_make_ticket(event, paid_ticket_tier, organization_owner_user)]
         rid = uuid4()
-        with mock.patch.object(stripe_service, "_maybe_resolve_attendee_vat") as resolve:
+        with mock.patch.object(stripe_service, "resolve_attendee_vat_for_reserve") as resolve:
             stripe_service.reserve_batch_payments(
                 event=event,
                 tier=paid_ticket_tier,
                 user=organization_owner_user,
                 tickets=tickets,
                 reservation_id=rid,
-                attendee_vat=(None, False),
+                buyer_vat_context=BuyerVATContext(buyer_country=None, buyer_vat_validated=False),
             )
             resolve.assert_not_called()
         assert Payment.objects.filter(reservation_id=rid).exists()
 
 
 class TestResolveAttendeeVatForReserve:
-    """resolve_attendee_vat_for_reserve: thin pre-lock wrapper around _maybe_resolve_attendee_vat."""
+    """resolve_attendee_vat_for_reserve: pre-lock, price-independent VIES/country resolution."""
 
-    def test_delegates_to_maybe_resolve_attendee_vat(
-        self, event: Event, paid_ticket_tier: TicketTier, stripe_connected_organization: Organization
-    ) -> None:
-        """No billing info -> (None, False), matching _maybe_resolve_attendee_vat's contract."""
-        result = stripe_service.resolve_attendee_vat_for_reserve(
-            tier=paid_ticket_tier, org=stripe_connected_organization
-        )
-        assert result == (None, False)
+    def test_no_billing_info_returns_none(self) -> None:
+        """No billing info -> None (no VAT context to thread through)."""
+        assert stripe_service.resolve_attendee_vat_for_reserve(billing_info=None) is None
 
-    def test_uses_price_override_as_base_price(
-        self, event: Event, paid_ticket_tier: TicketTier, stripe_connected_organization: Organization
-    ) -> None:
-        """Passes price_override through to the underlying VAT resolution as base_price."""
-        with mock.patch.object(stripe_service, "_maybe_resolve_attendee_vat", return_value=(None, False)) as resolve:
-            stripe_service.resolve_attendee_vat_for_reserve(
-                tier=paid_ticket_tier,
-                org=stripe_connected_organization,
-                price_override=Decimal("10.00"),
-            )
-            resolve.assert_called_once_with(None, paid_ticket_tier, stripe_connected_organization, Decimal("10.00"))
+    def test_returns_price_independent_context(self) -> None:
+        """Billing info with an explicit country -> context with that country; no price involved."""
+        billing_info = BuyerBillingInfoSchema(billing_name="Acme Corp", vat_country_code="DE")  # type: ignore[call-arg]
+        context = stripe_service.resolve_attendee_vat_for_reserve(billing_info=billing_info)
+        assert context == BuyerVATContext(buyer_country="DE", buyer_vat_validated=False)
 
 
 class TestCreateBatchSession:
