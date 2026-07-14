@@ -925,6 +925,9 @@ msgstr ""
 "Ce point d'accès est réservé aux tickets avec tarif libre (paie ce que tu "
 "peux)"
 
+msgid "No pending reservation found."
+msgstr "Aucune réservation en attente trouvée."
+
 msgid "Use /checkout/pwyc endpoint for pay-what-you-can tickets"
 msgstr ""
 "Utilise le point d'accès /checkout/pwyc pour les tickets avec tarif libre "
@@ -937,9 +940,6 @@ msgstr "Le montant du tarif libre doit être d'au moins {min_amount}"
 #, python-brace-format
 msgid "PWYC amount must be at most {max_amount}"
 msgstr "Le montant du tarif libre doit être d'au plus {max_amount}"
-
-msgid "No pending reservation found."
-msgstr "Aucune réservation en attente trouvée."
 
 msgid "Only the ticket holder can view this preview."
 msgstr "Seul·e le·la titulaire du ticket peut voir cet aperçu."
@@ -1518,6 +1518,9 @@ msgstr ""
 msgid "membership_tier_id is required when grants_membership is True."
 msgstr "membership_tier_id est requis lorsque grants_membership est True."
 
+msgid "Reservation has expired. Please start a new purchase."
+msgstr "La réservation a expiré. Commence un nouvel achat."
+
 msgid "No pending payment found."
 msgstr "Aucun paiement en attente trouvé."
 
@@ -1641,17 +1644,8 @@ msgstr "Le traitement du paiement a échoué. Réessaie plus tard."
 msgid "This organization is not configured to accept payments."
 msgstr "Cette organisation n'est pas configurée pour accepter les paiements."
 
-msgid "This ticket tier cannot be purchased."
-msgstr "Cette catégorie de ticket ne peut pas être achetée."
-
-msgid "You already have a ticket"
-msgstr "Tu as déjà un ticket"
-
 msgid "This ticket tier cannot be purchased online."
 msgstr "Cette catégorie de ticket ne peut pas être achetée en ligne."
-
-msgid "Reservation has expired. Please start a new purchase."
-msgstr "La réservation a expiré. Commence un nouvel achat."
 
 msgid "This pass cannot be purchased online."
 msgstr "Ce pass ne peut pas être acheté en ligne."
