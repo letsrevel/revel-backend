@@ -62,8 +62,15 @@ def cleanup_expired_payments() -> int:
 
         payment_ids_to_delete = [payment.id for payment in locked_payments]
         ticket_ids_to_delete = [payment.ticket_id for payment in locked_payments]
+        # Only count payments whose ticket is still PENDING. A ticket cancelled via
+        # POST /tickets/{id}/cancel (cancellation_service._finalize_cancellation)
+        # already decremented quantity_sold at cancel time and may leave its Payment
+        # PENDING forever (no stripe_payment_intent_id -> no refund path ever touches
+        # it) — counting it here too would release the tier slot a second time (#632).
         tickets_to_release_by_tier: Counter[UUID] = Counter(
-            payment.ticket.tier_id for payment in locked_payments if payment.ticket.tier_id is not None
+            payment.ticket.tier_id
+            for payment in locked_payments
+            if payment.ticket.tier_id is not None and payment.ticket.status == Ticket.TicketStatus.PENDING
         )
 
         logger.info(
