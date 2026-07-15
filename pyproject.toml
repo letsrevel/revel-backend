@@ -133,8 +133,12 @@ sentinel = [
 # CVEs flagged by pip-audit (CVE-2026-54273..54280, CVE-2026-50269).
 # httplib2 is pulled in by django-google-sso via google-auth-httplib2;
 # 0.32.0 fixes PYSEC-2026-3444.
+# anyio is pulled in by httpx and openai; 4.14.2 fixes GHSA-82r6-8w77-94w6
+# (TLS cert spoofing via IDNA 2003 host matching) and GHSA-5p39-cfhj-2xmp
+# (process-pool stderr deadlock).
 constraint-dependencies = [
     "aiohttp>=3.14.1",
+    "anyio>=4.14.2",
     "httplib2>=0.32.0",
 ]
 
