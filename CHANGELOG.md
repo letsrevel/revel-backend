@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.71.1] - 2026-07-15
+
+### Security
+- Upgraded anyio 4.9.0 → 4.14.2 (transitive via `httpx`/`openai`) to patch `GHSA-82r6-8w77-94w6` (TLS certificate spoofing via IDNA 2003 host-name matching) and `GHSA-5p39-cfhj-2xmp` (process-pool workers blocking indefinitely on undrained stderr).
+
 ## [1.71.0] - 2026-07-14
 
 ### Changed
