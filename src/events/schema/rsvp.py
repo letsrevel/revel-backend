@@ -69,12 +69,14 @@ class RSVPCreateSchema(Schema):
 
     user_id: UUID
     status: EventRSVP.RsvpStatus
+    note: RSVPNoteField = ""
 
 
 class RSVPUpdateSchema(Schema):
     """Schema for updating an RSVP."""
 
     status: EventRSVP.RsvpStatus
+    note: RSVPNoteField = ""
 
 
 # Waitlist Admin Schemas

@@ -90,7 +90,7 @@ class EventAdminRSVPsController(EventAdminBaseController):
 
         # Create or update RSVP (due to unique constraint on event+user)
         rsvp, created = models.EventRSVP.objects.update_or_create(
-            event=event, user=user, defaults={"status": payload.status}
+            event=event, user=user, defaults={"status": payload.status, "note": payload.note}
         )
 
         if prior_status == models.EventRSVP.RsvpStatus.YES and payload.status != models.EventRSVP.RsvpStatus.YES:
