@@ -329,6 +329,7 @@ def _create_spring_potluck(state: BootstrapState, now: "datetime.datetime") -> N
         city=state.cities["vienna"],
         requires_ticket=False,
         potluck_open=True,
+        accept_rsvp_notes=True,
         start=now + timedelta(days=15),
         end=now + timedelta(days=15, hours=5),
         rsvp_before=now + timedelta(days=13),

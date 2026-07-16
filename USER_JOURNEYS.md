@@ -312,6 +312,7 @@ User sees one of:
 - Click MAYBE → recorded but doesn't count toward capacity
 - Click NO → recorded, frees spot if was YES
 - Already RSVP'd YES? Can always change to MAYBE/NO (even if eligibility changed — prevents trapping)
+- When the event has `accept_rsvp_notes` enabled, the RSVP dialog offers a clearly-marked optional note (max 500 chars); each new RSVP submission overrides the stored note (submitting without a note clears it); sending a note when the event doesn't accept notes → 400. The current note is returned by `GET /events/{id}/my-status` (`rsvp.note`) so the form can prefill.
 
 ### 5.4 View Attendee Experience
 After RSVP YES:
@@ -439,6 +440,7 @@ Opt-in per tier via `allow_user_cancellation`, `cancellation_deadline_hours`, an
 - Provide: name, email
 - RSVP recorded without account creation
 - Guest RevelUser created (guest=True)
+- Accepts the same optional note as a registered RSVP; it is applied when the RSVP is confirmed via the email link (dropped silently if the organizer disabled notes in the meantime)
 
 ### 7.2 Guest Ticket Checkout
 - View public event with ticket tiers
@@ -646,6 +648,8 @@ DRAFT → OPEN → CLOSED
 - Create RSVP on behalf of user
 - Update RSVP status
 - Search and filter (status filter accepts multiple values — `?status=yes&status=maybe`)
+- Staff see attendee notes in the RSVP list/detail (`note` on `RSVPDetailSchema`) and receive them in RSVP confirmation/update notifications; note changes alone trigger an update notification
+- Admins can record a note on behalf of a user regardless of the event's `accept_rsvp_notes` setting
 
 ### 10.7 Manage Invitations
 - Create direct invitations (to registered users)
