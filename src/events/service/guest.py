@@ -69,13 +69,16 @@ def get_or_create_guest_user(email: str, first_name: str = "", last_name: str = 
     return existing_user
 
 
-def create_guest_rsvp_token(user: RevelUser, event_id: UUID, answer: t.Literal["yes", "no", "maybe"]) -> str:
+def create_guest_rsvp_token(
+    user: RevelUser, event_id: UUID, answer: t.Literal["yes", "no", "maybe"], note: str = ""
+) -> str:
     """Create JWT token for guest RSVP confirmation.
 
     Args:
         user: The guest user
         event_id: Event ID to RSVP to
         answer: RSVP answer
+        note: Optional RSVP note to carry through to confirmation
 
     Returns:
         JWT token string
@@ -85,6 +88,7 @@ def create_guest_rsvp_token(user: RevelUser, event_id: UUID, answer: t.Literal["
         email=user.email,
         event_id=event_id,
         answer=answer,
+        note=note,
         exp=timezone.now() + timedelta(hours=1),
         jti=str(uuid4()),
     )
@@ -181,7 +185,12 @@ def validate_and_decode_guest_token(token: str) -> schema.GuestActionPayload:
 
 
 def handle_guest_rsvp(
-    event: models.Event, answer: models.EventRSVP.RsvpStatus, email: str, first_name: str, last_name: str
+    event: models.Event,
+    answer: models.EventRSVP.RsvpStatus,
+    email: str,
+    first_name: str,
+    last_name: str,
+    note: str = "",
 ) -> schema.GuestActionResponseSchema:
     """Handle guest RSVP request (business logic extracted from controller).
 
@@ -191,18 +200,23 @@ def handle_guest_rsvp(
         email: Guest email
         first_name: Guest first name
         last_name: Guest last name
+        note: Optional RSVP note (rejected if the event doesn't accept notes)
 
     Returns:
         Response with confirmation message
 
     Raises:
-        HttpError: If event doesn't allow guest access or eligibility checks fail
+        HttpError: If event doesn't allow guest access, doesn't accept notes but one was
+            provided, or eligibility checks fail
     """
     from events.tasks import send_guest_rsvp_confirmation
 
     # Check if event allows guest access
     if not event.can_attend_without_login:
         raise HttpError(400, str(_("This event requires login to RSVP.")))
+
+    if note and not event.accept_rsvp_notes:
+        raise HttpError(400, str(_("This event does not accept RSVP notes.")))
 
     # Create or update guest user
     user = get_or_create_guest_user(email, first_name, last_name)
@@ -213,7 +227,7 @@ def handle_guest_rsvp(
 
     # Create JWT token for confirmation (convert Status enum to string literal)
     answer_str = t.cast(t.Literal["yes", "no", "maybe"], answer.value)
-    token = create_guest_rsvp_token(user, event.id, answer_str)
+    token = create_guest_rsvp_token(user, event.id, answer_str, note=note)
 
     # Send confirmation email
     transaction.on_commit(lambda: send_guest_rsvp_confirmation.delay(user.email, token, event.name))
@@ -353,7 +367,11 @@ def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.BatchChe
 
         # Convert string literal back to Status enum
         answer_enum = models.EventRSVP.RsvpStatus(payload.answer)
-        rsvp = manager.rsvp(answer_enum)
+
+        # Drop the note (never fail the confirmation) if the organizer
+        # disabled notes between email-send and link-click.
+        note = payload.note if event.accept_rsvp_notes else ""
+        rsvp = manager.rsvp(answer_enum, note=note)
 
         # Blacklist token
         blacklist_token(token)

@@ -1347,6 +1347,9 @@ msgstr "Ta demande de vérification est en attente d'approbation."
 msgid "Your verification request was rejected."
 msgstr "Ta demande de vérification a été rejetée."
 
+msgid "This event does not accept RSVP notes."
+msgstr "Cet événement n'accepte pas les notes RSVP."
+
 msgid "You are not eligible."
 msgstr "Tu n'es pas éligible."
 
@@ -3099,6 +3102,9 @@ msgstr "Détails de la réponse"
 msgid "Response:"
 msgstr "Réponse :"
 
+msgid "Note:"
+msgstr "Note :"
+
 #, python-format
 msgid ""
 "Your RSVP (<strong>%(response)s</strong>) for <strong>%(event)s</strong> has "
@@ -3138,6 +3144,14 @@ msgstr ""
 "<strong>%(user)s</strong> a modifié sa réponse de <strong>%(old)s</strong> à "
 "<strong>%(new)s</strong> pour <strong>%(event)s</strong>."
 
+#, python-format
+msgid ""
+"<strong>%(user)s</strong> updated their RSVP note for <strong>%(event)s</"
+"strong>."
+msgstr ""
+"<strong>%(user)s</strong> a mis à jour sa note RSVP pour <strong>%(event)s</"
+"strong>."
+
 msgid "Updated RSVP Details"
 msgstr "Détails de la réponse mis à jour"
 
@@ -3161,6 +3175,10 @@ msgstr "Réponse mise à jour"
 #, python-format
 msgid "%(user)s has changed their RSVP from %(old)s to %(new)s for %(event)s."
 msgstr "%(user)s a modifié sa réponse de %(old)s à %(new)s pour %(event)s."
+
+#, python-format
+msgid "%(user)s updated their RSVP note for %(event)s."
+msgstr "%(user)s a mis à jour sa note RSVP pour %(event)s."
 
 msgid "Updated RSVP Details:"
 msgstr "Détails de la réponse mis à jour :"

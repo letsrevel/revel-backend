@@ -1,5 +1,6 @@
 """Tests for event RSVP management endpoints."""
 
+import orjson
 import pytest
 from django.test.client import Client
 from django.urls import reverse
@@ -79,3 +80,57 @@ def test_list_rsvps_membership_present_for_member(
     assert rsvp_data["membership"]["tier"]["name"] == tier.name
     # Also verify user ID is present
     assert rsvp_data["user"]["id"] == str(nonmember_user.id)
+
+
+# --- Tests for admin RSVP note CRUD ---
+
+
+def test_admin_create_rsvp_with_note_ignores_flag(
+    organization_owner_client: Client,
+    event: Event,
+    nonmember_user: RevelUser,
+) -> None:
+    """Admin can record a note even when accept_rsvp_notes is False."""
+    assert event.accept_rsvp_notes is False
+
+    url = reverse("api:create_rsvp", kwargs={"event_id": event.pk})
+    payload = {"user_id": str(nonmember_user.id), "status": EventRSVP.RsvpStatus.YES, "note": "phoned in"}
+    response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    rsvp = EventRSVP.objects.get(event=event, user=nonmember_user)
+    assert rsvp.note == "phoned in"
+
+
+def test_admin_update_rsvp_note(
+    organization_owner_client: Client,
+    event: Event,
+    nonmember_user: RevelUser,
+) -> None:
+    """PUT with note set replaces the existing note."""
+    rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES, note="old")
+
+    url = reverse("api:update_rsvp", kwargs={"event_id": event.pk, "rsvp_id": rsvp.pk})
+    payload = {"status": EventRSVP.RsvpStatus.YES, "note": "new"}
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    rsvp.refresh_from_db()
+    assert rsvp.note == "new"
+
+
+def test_admin_update_omitting_note_keeps_existing(
+    organization_owner_client: Client,
+    event: Event,
+    nonmember_user: RevelUser,
+) -> None:
+    """PUT without the note key leaves the stored note untouched (exclude_unset)."""
+    rsvp = EventRSVP.objects.create(event=event, user=nonmember_user, status=EventRSVP.RsvpStatus.YES, note="keep me")
+
+    url = reverse("api:update_rsvp", kwargs={"event_id": event.pk, "rsvp_id": rsvp.pk})
+    payload = {"status": EventRSVP.RsvpStatus.MAYBE}
+    response = organization_owner_client.put(url, data=orjson.dumps(payload), content_type="application/json")
+
+    assert response.status_code == 200
+    rsvp.refresh_from_db()
+    assert rsvp.note == "keep me"

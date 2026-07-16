@@ -4,6 +4,7 @@
 <b>{% trans "RSVP Details:" %}</b>
 • {% trans "User:" %} {{ context.user_name }}
 • {% trans "Response:" %} {{ context.response }}
+{% if context.rsvp_note %}• {% trans "Note:" %} {{ context.rsvp_note }}{% endif %}
 
 {% else %}
 ✅ {% blocktranslate with event=context.event_name response=context.response %}Your RSVP (<b>{{ response }}</b>) for <b>{{ event }}</b> confirmed!{% endblocktranslate %}

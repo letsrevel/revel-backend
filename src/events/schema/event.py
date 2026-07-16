@@ -49,6 +49,7 @@ class EventEditSchema(CityEditMixin):
     venue_id: UUID | None = None
     potluck_open: bool = False
     accept_invitation_requests: bool = False
+    accept_rsvp_notes: bool = False
     public_pronoun_distribution: bool = False
     apply_before: AwareDatetime | None = Field(
         None, description="Deadline for submitting invitation requests or questionnaires"
@@ -129,6 +130,7 @@ class EventBaseSchema(TaggableSchemaMixin, LogoCoverArtThumbnailMixin):
     potluck_open: bool
     attendee_count: int
     accept_invitation_requests: bool
+    accept_rsvp_notes: bool
     public_pronoun_distribution: bool
     apply_before: AwareDatetime | None = None
     can_attend_without_login: bool

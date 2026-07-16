@@ -1,9 +1,10 @@
 """RSVP and waitlist schemas."""
 
+import typing as t
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field, StringConstraints
 
 from accounts.schema import MinimalRevelUserSchema
 from events import models
@@ -11,8 +12,22 @@ from events.models import EventRSVP, WaitlistOffer
 
 from .event import MinimalEventSchema
 from .organization import MinimalOrganizationMemberSchema
-from .ticket import UserTicketSchema
+from .ticket import GuestUserDataSchema, UserTicketSchema
 from .waitlist import WaitlistOfferSchema
+
+RSVPNoteField = t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
+
+
+class RSVPNoteSchema(Schema):
+    """Optional JSON body for the RSVP endpoint."""
+
+    note: RSVPNoteField = ""
+
+
+class GuestRSVPRequestSchema(GuestUserDataSchema):
+    """Guest RSVP payload: guest identity plus optional note."""
+
+    note: RSVPNoteField = ""
 
 
 class EventRSVPSchema(ModelSchema):
@@ -21,7 +36,7 @@ class EventRSVPSchema(ModelSchema):
 
     class Meta:
         model = EventRSVP
-        fields = ["status"]
+        fields = ["status", "note"]
 
 
 # RSVP Admin Schemas
@@ -40,7 +55,7 @@ class RSVPDetailSchema(ModelSchema):
 
     class Meta:
         model = EventRSVP
-        fields = ["id", "status", "created_at", "updated_at"]
+        fields = ["id", "status", "note", "created_at", "updated_at"]
 
     @staticmethod
     def resolve_membership(obj: EventRSVP) -> models.OrganizationMember | None:
@@ -54,12 +69,14 @@ class RSVPCreateSchema(Schema):
 
     user_id: UUID
     status: EventRSVP.RsvpStatus
+    note: RSVPNoteField = ""
 
 
 class RSVPUpdateSchema(Schema):
     """Schema for updating an RSVP."""
 
     status: EventRSVP.RsvpStatus
+    note: RSVPNoteField = ""
 
 
 # Waitlist Admin Schemas
@@ -114,7 +131,7 @@ class UserRSVPSchema(ModelSchema):
 
     class Meta:
         model = EventRSVP
-        fields = ["id", "status", "created_at", "updated_at"]
+        fields = ["id", "status", "note", "created_at", "updated_at"]
 
 
 class TierRemainingTicketsSchema(Schema):

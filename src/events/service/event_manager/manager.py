@@ -3,6 +3,7 @@
 from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext as _
+from ninja.errors import HttpError
 
 from accounts.models import RevelUser
 from events import models
@@ -32,7 +33,7 @@ class EventManager:
         self.eligibility_service = EligibilityService(user, event)
 
     @transaction.atomic
-    def rsvp(self, answer: EventRSVP.RsvpStatus, bypass_eligibility_checks: bool = False) -> EventRSVP:
+    def rsvp(self, answer: EventRSVP.RsvpStatus, bypass_eligibility_checks: bool = False, note: str = "") -> EventRSVP:
         """RSVP to an event.
 
         A user can RSVP if an Event DOES not require a ticket, AND:
@@ -43,12 +44,30 @@ class EventManager:
         Users who have already RSVP'd YES can always change their status to MAYBE or NO,
         even if eligibility requirements have changed since their initial RSVP.
 
+        Args:
+            answer: The RSVP status.
+            bypass_eligibility_checks: Whether to bypass eligibility checks.
+            note: Optional attendee note; requires event.accept_rsvp_notes. Every call
+                overrides the stored note wholesale.
+
         Returns:
             EventRSVP
 
         Raises:
             UserIsIneligibleError
+            HttpError: 400 when setting or changing a note while the event does not
+                accept RSVP notes.
         """
+        if note and not self.event.accept_rsvp_notes:
+            stored_note = (
+                EventRSVP.objects.filter(user=self.user, event=self.event).values_list("note", flat=True).first()
+            )
+            # A note echoed back unchanged (e.g. a form prefilled before the organizer
+            # turned notes off) must never block a status change — YES-holders must
+            # always be able to downgrade (#691). Only setting/changing a note is rejected.
+            if note != stored_note:
+                raise HttpError(400, _("This event does not accept RSVP notes."))
+
         if self.event.requires_ticket:
             raise UserIsIneligibleError(
                 message="You must get a ticket for this event.",
@@ -85,7 +104,7 @@ class EventManager:
         rsvp, _created = EventRSVP.objects.update_or_create(
             user=self.user,
             event=self.event,
-            defaults={"status": answer},
+            defaults={"status": answer, "note": note},
         )
         if answer == EventRSVP.RsvpStatus.YES:
             self._claim_active_offer()

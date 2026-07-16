@@ -18,7 +18,7 @@ pytestmark = pytest.mark.django_db
 def test_rsvp_to_event_success(nonmember_client: Client, rsvp_only_public_event: Event) -> None:
     """Test that an authenticated user can successfully RSVP to an eligible event."""
     url = reverse("api:rsvp_event", kwargs={"event_id": rsvp_only_public_event.pk, "answer": "yes"})
-    response = nonmember_client.post(url)
+    response = nonmember_client.post(url, content_type="application/json")
 
     assert response.status_code == 200
     data = response.json()
@@ -40,7 +40,7 @@ def test_rsvp_to_event_requires_ticket_fails(nonmember_client: Client, public_ev
     )
     org_questionnaire.events.add(public_event)
     url = reverse("api:rsvp_event", kwargs={"event_id": public_event.pk, "answer": "yes"})
-    response = nonmember_client.post(url)
+    response = nonmember_client.post(url, content_type="application/json")
 
     assert response.status_code == 400
     data = response.json()
@@ -62,7 +62,7 @@ def test_rsvp_to_event_ineligible_fails(member_client: Client, members_only_even
     org_questionnaire.save()
 
     url = reverse("api:rsvp_event", kwargs={"event_id": members_only_event.pk, "answer": "yes"})
-    response = member_client.post(url)
+    response = member_client.post(url, content_type="application/json")
 
     assert response.status_code == 400
     data = response.json()

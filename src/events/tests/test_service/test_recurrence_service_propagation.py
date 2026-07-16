@@ -112,6 +112,29 @@ class TestPropagateTemplateChanges:
             event.refresh_from_db()
         assert any(e.is_open_ended for e in created)
 
+    @freeze_time("2026-04-06 10:00:00")
+    @patch("notifications.service.notification_helpers.notify_series_events_generated")
+    def test_propagates_accept_rsvp_notes_to_future_unmodified_events(
+        self,
+        mock_notify: t.Any,
+        active_series: EventSeries,
+    ) -> None:
+        """accept_rsvp_notes is in PROPAGATABLE_FIELDS, so template changes reach future occurrences."""
+        created = recurrence_service.generate_series_events(active_series)
+        assert len(created) >= 1
+        assert all(not e.accept_rsvp_notes for e in created)
+
+        count = recurrence_service.propagate_template_changes(
+            series=active_series,
+            changed_fields={"accept_rsvp_notes": True},
+            scope=PropagateScope.FUTURE_UNMODIFIED,
+        )
+
+        assert count >= 1
+        for event in created:
+            event.refresh_from_db()
+        assert any(e.accept_rsvp_notes for e in created)
+
     def test_none_scope_is_a_noop(
         self,
         active_series: EventSeries,

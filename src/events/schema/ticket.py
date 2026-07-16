@@ -734,6 +734,7 @@ class GuestRSVPJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     type: t.Literal["guest_rsvp"] = "guest_rsvp"
     event_id: UUID4
     answer: t.Literal["yes", "no", "maybe"]
+    note: str = Field(default="", max_length=500)
 
 
 class GuestTicketItemPayload(Schema):

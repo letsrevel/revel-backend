@@ -4,13 +4,18 @@
 <p>{% trans "Hello" %} {{ user.display_name }},</p>
 
 {% if context.user_name %}
+    {% if context.old_response != context.new_response %}
     <p>{% blocktranslate with user=context.user_name event=context.event_name old=context.old_response new=context.new_response %}<strong>{{ user }}</strong> has changed their RSVP from <strong>{{ old }}</strong> to <strong>{{ new }}</strong> for <strong>{{ event }}</strong>.{% endblocktranslate %}</p>
+    {% else %}
+    <p>{% blocktranslate with user=context.user_name event=context.event_name %}<strong>{{ user }}</strong> updated their RSVP note for <strong>{{ event }}</strong>.{% endblocktranslate %}</p>
+    {% endif %}
 
     <div class="card card--warning">
         <h3 style="margin-top: 0;">{% trans "Updated RSVP Details" %}</h3>
         <div class="info-row"><span class="label">{% trans "User:" %}</span> {{ context.user_name }}</div>
         <div class="info-row"><span class="label">{% trans "Previous Response:" %}</span> {{ context.old_response }}</div>
         <div class="info-row"><span class="label">{% trans "New Response:" %}</span> <strong>{{ context.new_response }}</strong></div>
+        {% if context.rsvp_note %}<div class="info-row"><span class="label">{% trans "Note:" %}</span> {{ context.rsvp_note }}</div>{% endif %}
     </div>
 {% else %}
     <p style="font-size: 18px;">{% blocktranslate with event=context.event_name old=context.old_response new=context.new_response %}Your RSVP for <strong>{{ event }}</strong> has been updated from <strong>{{ old }}</strong> to <strong>{{ new }}</strong>.{% endblocktranslate %}</p>

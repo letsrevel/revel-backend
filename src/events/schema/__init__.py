@@ -234,8 +234,10 @@ from .revenue_report import RevenueReportRequestSchema
 from .rsvp import (
     EventRSVPSchema,
     EventUserStatusResponse,
+    GuestRSVPRequestSchema,
     RSVPCreateSchema,
     RSVPDetailSchema,
+    RSVPNoteSchema,
     RSVPUpdateSchema,
     TierRemainingTicketsSchema,
     UserRSVPSchema,
@@ -504,8 +506,10 @@ __all__ = [
     # RSVP
     "EventRSVPSchema",
     "EventUserStatusResponse",
+    "GuestRSVPRequestSchema",
     "RSVPCreateSchema",
     "RSVPDetailSchema",
+    "RSVPNoteSchema",
     "RSVPUpdateSchema",
     "TierRemainingTicketsSchema",
     "UserRSVPSchema",
