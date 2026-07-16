@@ -325,6 +325,10 @@ class Event(
         default=False, help_text="Whether this event requires full profile information (profile pic, name, pronouns)"
     )
     potluck_open = models.BooleanField(default=False)
+    accept_rsvp_notes = models.BooleanField(
+        default=False,
+        help_text="Allow attendees to attach a short plain-text note to their RSVP.",
+    )
     accept_invitation_requests = models.BooleanField(default=False)
     public_pronoun_distribution = models.BooleanField(
         default=False, help_text="Whether pronoun distribution is visible to non-staff users"
