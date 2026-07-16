@@ -84,10 +84,9 @@ def _attach_cover(instance: models.Model, asset: str) -> None:
 
 def attach_cover_art(state: BootstrapState) -> None:
     """Attach bundled cover art to organizations and events."""
+    # Index directly so a key mismatch raises instead of silently skipping (see #663).
     for org_key, asset in ORG_COVERS.items():
-        if org := state.orgs.get(org_key):
-            _attach_cover(org, asset)
+        _attach_cover(state.orgs[org_key], asset)
     for event_key, asset in EVENT_COVERS.items():
-        if event := state.events.get(event_key):
-            _attach_cover(event, asset)
+        _attach_cover(state.events[event_key], asset)
     logger.info("Attached cover art", orgs=len(ORG_COVERS), events=len(EVENT_COVERS))
