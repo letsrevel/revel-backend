@@ -202,7 +202,10 @@ class ExifStripMixin(models.Model):
 
         for field_name in self.IMAGE_FIELDS:
             file = getattr(self, field_name, None)
-            if file:
+            # Only strip files not yet committed to storage (fresh uploads).
+            # Committed files were already stripped on upload; re-stripping marks
+            # the field dirty, so every save() would write a re-encoded duplicate.
+            if file and not getattr(file, "_committed", True):
                 try:
                     setattr(self, field_name, strip_exif(file))
                 except (UnidentifiedImageError, OSError) as e:

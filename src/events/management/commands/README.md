@@ -35,6 +35,11 @@ The bootstrap command creates:
 - **12 Potluck Items** for community events
 - **Comprehensive User Relationships** (invitations, tickets, RSVPs, waitlists, payments)
 - **3 Questionnaires** with different evaluation modes
+- **Cover art** for both organizations and most events (bundled brand-palette images in
+  `bootstrap_helpers/assets/covers/`, generated for the demo plus a few free-license
+  [Lorem Picsum](https://picsum.photos) photos). Attached directly at the model layer —
+  no malware scan or Celery tasks — and cached in storage under `cover-art/bootstrap/`,
+  so repeated bootstraps just re-link the existing files instead of re-uploading them.
 
 ---
 
