@@ -22,6 +22,7 @@ from django_google_sso.admin import GoogleSSOInlineAdmin, get_current_user_and_a
 from unfold.admin import ModelAdmin, TabularInline
 
 from accounts.admin import formatters
+from accounts.admin.user_extras import GlobalBanInline, IsOrganizationOwnerFilter, ReferralCodeInline
 from accounts.models import (
     DietaryPreference,
     DietaryRestriction,
@@ -29,7 +30,6 @@ from accounts.models import (
     FoodItem,
     GlobalBan,
     ImpersonationLog,
-    ReferralCode,
     RevelUser,
     UserBillingProfile,
     UserDataExport,
@@ -100,34 +100,6 @@ class EmailVerificationReminderTrackingInline(TabularInline):  # type: ignore[mi
     fields = ["last_reminder_sent_at", "final_warning_sent_at", "deactivation_email_sent_at"]
 
 
-class ReferralCodeInline(TabularInline):  # type: ignore[misc]
-    """Read-only inline showing the user's referral code."""
-
-    model = ReferralCode
-    extra = 0
-    can_delete = False
-    readonly_fields = ["code", "is_active", "created_at"]
-    fields = readonly_fields
-
-    def has_add_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
-        return False
-
-
-class GlobalBanInline(TabularInline):  # type: ignore[misc]
-    """Read-only inline showing global bans linked to the user."""
-
-    model = GlobalBan
-    fk_name = "user"
-    extra = 0
-    can_delete = False
-    readonly_fields = ["ban_type", "value", "reason", "created_by", "created_at"]
-    fields = readonly_fields
-    verbose_name_plural = "Global bans"
-
-    def has_add_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
-        return False
-
-
 class UserBillingProfileInline(TabularInline):  # type: ignore[misc]
     """Inline for user billing profile."""
 
@@ -146,26 +118,6 @@ class UserBillingProfileInline(TabularInline):  # type: ignore[misc]
         "self_billing_agreed",
     ]
     fields = readonly_fields
-
-
-class IsOrganizationOwnerFilter(admin.SimpleListFilter):
-    """Filter users by whether they own at least one organization."""
-
-    title = _("organization owner")
-    parameter_name = "is_owner"
-
-    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:  # type: ignore[type-arg]
-        return [("yes", str(_("Yes"))), ("no", str(_("No")))]
-
-    def queryset(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> QuerySet[RevelUser]:
-        from events.models import Organization
-
-        owns_org = Exists(Organization.objects.filter(owner=OuterRef("pk")))
-        if self.value() == "yes":
-            return queryset.filter(owns_org)
-        if self.value() == "no":
-            return queryset.filter(~owns_org)
-        return queryset
 
 
 @admin.register(RevelUser)

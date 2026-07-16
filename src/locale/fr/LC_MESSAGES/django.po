@@ -92,6 +92,15 @@ msgstr "Utilisé"
 msgid "Pending"
 msgstr "En attente"
 
+msgid "organization owner"
+msgstr "propriétaire de l'organisation"
+
+msgid "Yes"
+msgstr "Oui"
+
+msgid "No"
+msgstr "Non"
+
 msgid "Your data export has been initiated."
 msgstr "L'exportation de tes données a été lancée."
 
@@ -724,12 +733,6 @@ msgstr "Nom d'affichage"
 
 msgid "Active"
 msgstr "Actif·ve"
-
-msgid "Yes"
-msgstr "Oui"
-
-msgid "No"
-msgstr "Non"
 
 msgid "Email Verified"
 msgstr "E-mail vérifié"
