@@ -65,6 +65,16 @@ def test_organization_count_and_participation_for_owned_org(user: RevelUser) -> 
     assert str(org.id) in html
 
 
+def test_organization_participation_escapes_org_name(user: RevelUser) -> None:
+    from events.models import Organization
+
+    Organization.objects.create(name="<script>alert(1)</script>", slug="xss-org", owner=user)
+
+    html = formatters.organization_participation(user)
+    assert "<script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+
+
 def test_event_participation_empty(user: RevelUser) -> None:
     html = formatters.event_participation(user)
     assert "Event Participation:" in html

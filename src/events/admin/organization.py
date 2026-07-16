@@ -44,6 +44,9 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         readonly = tuple(super().get_readonly_fields(request, obj))
         if not request.user.is_superuser:
             readonly = readonly + self.SUPERUSER_ONLY_FIELDS
+            if obj is not None:
+                # Ownership transfer is superuser-only; owner stays settable on create.
+                readonly = readonly + ("owner",)
         return readonly
 
     list_display = [
