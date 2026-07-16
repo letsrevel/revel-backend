@@ -11,6 +11,9 @@ from accounts.admin.referral import (
     ReferralPayoutAdmin as ReferralPayoutAdmin,
     ReferralPayoutStatementAdmin as ReferralPayoutStatementAdmin,
 )
+from accounts.admin.tracking import (
+    EmailVerificationReminderTrackingAdmin as EmailVerificationReminderTrackingAdmin,
+)
 from accounts.admin.user import (
     DietaryPreferenceAdmin as DietaryPreferenceAdmin,
     DietaryRestrictionAdmin as DietaryRestrictionAdmin,

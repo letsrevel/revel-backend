@@ -1,8 +1,11 @@
 import typing as t
 
 from django.contrib import admin
+from django.db.models import F, OuterRef, Subquery
 from django.urls import reverse
 from django.utils.html import format_html
+from simple_history.admin import SimpleHistoryAdmin
+from solo.admin import SingletonModelAdmin
 from unfold.admin import ModelAdmin
 
 from . import models
@@ -10,30 +13,46 @@ from .signing import get_file_url
 
 
 class UploaderLinkMixin:
-    """Mixin to add a link to an uploader."""
+    """Mixin to add a link to an uploader.
 
-    def uploader_link(self, obj: t.Any) -> str:
+    ``uploader`` is an email string (not an FK), so the matching user id is
+    annotated onto the changelist queryset instead of looked up per row.
+    Must precede ``ModelAdmin`` in the bases so its ``get_queryset`` runs.
+    """
+
+    uploader_field = "uploader"  # lookup path to the uploader email
+
+    def get_queryset(self, request: t.Any) -> t.Any:
         from accounts.models import RevelUser
 
-        try:
-            user = RevelUser.objects.get(email=obj.uploader)
-            url = reverse("admin:accounts_reveluser_change", args=[user.id])
-            return format_html('<a href="{}">{}</a>', url, obj.uploader)
-        except RevelUser.DoesNotExist:
-            return obj.uploader  # type: ignore[no-any-return]
+        qs = super().get_queryset(request)  # type: ignore[misc]
+        return qs.annotate(
+            uploader_email=F(self.uploader_field),
+            uploader_user_id=Subquery(RevelUser.objects.filter(email=OuterRef(self.uploader_field)).values("id")[:1]),
+        )
+
+    def uploader_link(self, obj: t.Any) -> str:
+        email = getattr(obj, "uploader_email", "")
+        if user_id := getattr(obj, "uploader_user_id", None):
+            url = reverse("admin:accounts_reveluser_change", args=[user_id])
+            return format_html('<a href="{}">{}</a>', url, email)
+        return t.cast(str, email)
 
     uploader_link.short_description = "Uploader"  # type: ignore[attr-defined]
 
 
 @admin.register(models.Legal)
-class LegalAdmin(ModelAdmin):  # type: ignore[misc]
+class LegalAdmin(SingletonModelAdmin, SimpleHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+    # Solo's template would shadow simple_history's; restore the browsable history view.
+    object_history_template = "simple_history/object_history.html"
     list_display = ["__str__", "updated_at"]
     readonly_fields = ["updated_at"]
     search_fields = ["terms_and_conditions", "privacy_policy"]
 
 
 @admin.register(models.SiteSettings)
-class SiteSettingsAdmin(ModelAdmin):  # type: ignore[misc]
+class SiteSettingsAdmin(SingletonModelAdmin, SimpleHistoryAdmin, ModelAdmin):  # type: ignore[misc]
+    object_history_template = "simple_history/object_history.html"
     list_display = [
         "__str__",
         "notify_user_joined",
@@ -84,6 +103,8 @@ class EmailLogAdmin(ModelAdmin):  # type: ignore[misc]
     readonly_fields = ["id", "created_at", "updated_at", "sent_at", "body", "html"]
     date_hierarchy = "sent_at"
     ordering = ["-sent_at"]
+    list_per_page = 50
+    show_full_result_count = False
 
     def has_add_permission(self, request: t.Any) -> bool:
         return False
@@ -105,6 +126,7 @@ class TagAdmin(ModelAdmin):  # type: ignore[misc]
 @admin.register(models.TagAssignment)
 class TagAssignmentAdmin(ModelAdmin):  # type: ignore[misc]
     list_display = ["tag", "content_type", "object_id", "assigned_by", "created_at"]
+    list_select_related = ["tag", "content_type"]
     list_filter = ["content_type", "created_at"]
     search_fields = ["tag__name"]
     readonly_fields = ["id", "created_at", "updated_at"]
@@ -114,12 +136,19 @@ class TagAssignmentAdmin(ModelAdmin):  # type: ignore[misc]
 
 @admin.register(models.FileExport)
 class FileExportAdmin(ModelAdmin):  # type: ignore[misc]
-    list_display = ["id", "requested_by", "export_type", "status", "completed_at", "created_at"]
+    list_display = ["id", "requested_by", "export_type", "status", "error_preview", "completed_at", "created_at"]
+    list_select_related = ["requested_by"]
     list_filter = ["export_type", "status", "created_at"]
     search_fields = ["requested_by__email"]
     readonly_fields = ["id", "created_at", "updated_at", "completed_at", "parameters"]
     date_hierarchy = "created_at"
     ordering = ["-created_at"]
+
+    @admin.display(description="Error")
+    def error_preview(self, obj: models.FileExport) -> str:
+        if obj.error_message:
+            return obj.error_message[:80] + ("…" if len(obj.error_message) > 80 else "")
+        return "—"
 
     def has_add_permission(self, request: t.Any) -> bool:
         return False
@@ -129,7 +158,7 @@ class FileExportAdmin(ModelAdmin):  # type: ignore[misc]
 
 
 @admin.register(models.FileUploadAudit)
-class FileUploadAuditAdmin(ModelAdmin, UploaderLinkMixin):  # type: ignore[misc]
+class FileUploadAuditAdmin(UploaderLinkMixin, ModelAdmin):  # type: ignore[misc]
     list_display = [
         "uploader_link",
         "app",
@@ -144,6 +173,8 @@ class FileUploadAuditAdmin(ModelAdmin, UploaderLinkMixin):  # type: ignore[misc]
     readonly_fields = ["id", "created_at", "updated_at"]
     date_hierarchy = "created_at"
     ordering = ["-created_at"]
+    list_per_page = 50
+    show_full_result_count = False
 
     def has_add_permission(self, request: t.Any) -> bool:
         return False
@@ -153,7 +184,7 @@ class FileUploadAuditAdmin(ModelAdmin, UploaderLinkMixin):  # type: ignore[misc]
 
 
 @admin.register(models.QuarantinedFile)
-class QuarantinedFileAdmin(ModelAdmin, UploaderLinkMixin):  # type: ignore[misc]
+class QuarantinedFileAdmin(UploaderLinkMixin, ModelAdmin):  # type: ignore[misc]
     list_display = [
         "audit_link",
         "uploader_link",
@@ -169,6 +200,7 @@ class QuarantinedFileAdmin(ModelAdmin, UploaderLinkMixin):  # type: ignore[misc]
     exclude = ["file"]
     date_hierarchy = "created_at"
     ordering = ["-created_at"]
+    uploader_field = "audit__uploader"
 
     def get_queryset(self, request: t.Any) -> t.Any:
         return super().get_queryset(request).select_related("audit")
@@ -199,18 +231,6 @@ class QuarantinedFileAdmin(ModelAdmin, UploaderLinkMixin):  # type: ignore[misc]
         )
 
     audit_link.short_description = "Audit"  # type: ignore[attr-defined]
-
-    def uploader_link(self, obj: models.QuarantinedFile) -> str:
-        from accounts.models import RevelUser
-
-        try:
-            user = RevelUser.objects.get(email=obj.audit.uploader)
-            url = reverse("admin:accounts_reveluser_change", args=[user.id])
-            return format_html('<a href="{}">{}</a>', url, obj.audit.uploader)
-        except RevelUser.DoesNotExist:
-            return obj.audit.uploader
-
-    uploader_link.short_description = "Uploader"  # type: ignore[attr-defined]
 
     def findings_summary(self, obj: t.Any) -> str:
         findings = obj.findings or {}

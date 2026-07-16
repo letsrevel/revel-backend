@@ -8,7 +8,8 @@ import typing as t
 
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
-from django.db.models import Count, QuerySet
+from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.template.response import TemplateResponse
@@ -28,6 +29,7 @@ from accounts.models import (
     FoodItem,
     GlobalBan,
     ImpersonationLog,
+    ReferralCode,
     RevelUser,
     UserBillingProfile,
     UserDataExport,
@@ -98,6 +100,34 @@ class EmailVerificationReminderTrackingInline(TabularInline):  # type: ignore[mi
     fields = ["last_reminder_sent_at", "final_warning_sent_at", "deactivation_email_sent_at"]
 
 
+class ReferralCodeInline(TabularInline):  # type: ignore[misc]
+    """Read-only inline showing the user's referral code."""
+
+    model = ReferralCode
+    extra = 0
+    can_delete = False
+    readonly_fields = ["code", "is_active", "created_at"]
+    fields = readonly_fields
+
+    def has_add_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
+        return False
+
+
+class GlobalBanInline(TabularInline):  # type: ignore[misc]
+    """Read-only inline showing global bans linked to the user."""
+
+    model = GlobalBan
+    fk_name = "user"
+    extra = 0
+    can_delete = False
+    readonly_fields = ["ban_type", "value", "reason", "created_by", "created_at"]
+    fields = readonly_fields
+    verbose_name_plural = "Global bans"
+
+    def has_add_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
+        return False
+
+
 class UserBillingProfileInline(TabularInline):  # type: ignore[misc]
     """Inline for user billing profile."""
 
@@ -160,8 +190,6 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "date_joined",
         "last_login",
         "display_name_display",
-        "profile_picture_thumbnail",
-        "profile_picture_preview",
         "profile_image_preview_display",
         "event_participation_display",
         "organization_participation_display",
@@ -244,6 +272,8 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     inlines = [
         GeneralUserPreferencesInline,
         UserBillingProfileInline,
+        ReferralCodeInline,
+        GlobalBanInline,
         DietaryRestrictionInline,
         UserDietaryPreferenceInline,
         UserDataExportInline,
@@ -396,13 +426,47 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     def totp_active_display(self, obj: RevelUser) -> bool:
         return obj.totp_active
 
-    @admin.display(description="Events")
-    def event_count(self, obj: RevelUser) -> int:
-        return formatters.event_count(obj)
+    def get_queryset(self, request: HttpRequest) -> QuerySet[RevelUser]:
+        """Annotate event/organization counts to avoid per-row queries on the changelist."""
+        from events.models import EventRSVP, Organization, OrganizationMember, OrganizationStaff, Ticket
 
-    @admin.display(description="Organizations")
+        def sub(qs: QuerySet[t.Any]) -> Coalesce:
+            return Coalesce(Subquery(qs.values("c"), output_field=IntegerField()), 0)
+
+        ticket_events = (
+            Ticket.objects.filter(user=OuterRef("pk"))
+            .order_by()
+            .values("user")
+            .annotate(c=Count("event", distinct=True))
+        )
+        rsvp_events = (
+            EventRSVP.objects.filter(user=OuterRef("pk"))
+            .order_by()
+            .values("user")
+            .annotate(c=Count("event", distinct=True))
+        )
+        owned = Organization.objects.filter(owner=OuterRef("pk")).order_by().values("owner").annotate(c=Count("pk"))
+        member = (
+            OrganizationMember.objects.filter(user=OuterRef("pk")).order_by().values("user").annotate(c=Count("pk"))
+        )
+        staff = OrganizationStaff.objects.filter(user=OuterRef("pk")).order_by().values("user").annotate(c=Count("pk"))
+
+        qs: QuerySet[RevelUser] = super().get_queryset(request)
+        return t.cast(
+            QuerySet[RevelUser],
+            qs.annotate(
+                _event_count=sub(ticket_events) + sub(rsvp_events),
+                _organization_count=sub(owned) + sub(member) + sub(staff),
+            ),
+        )
+
+    @admin.display(description="Events", ordering="_event_count")
+    def event_count(self, obj: RevelUser) -> int:
+        return int(getattr(obj, "_event_count", 0))
+
+    @admin.display(description="Organizations", ordering="_organization_count")
     def organization_count(self, obj: RevelUser) -> int:
-        return formatters.organization_count(obj)
+        return int(getattr(obj, "_organization_count", 0))
 
     @admin.display(description="Event Participation")
     def event_participation_display(self, obj: RevelUser) -> str:
@@ -482,6 +546,7 @@ class UserDataExportAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for user data exports with GDPR compliance features."""
 
     list_display = ["user_link", "status", "status_display", "completed_at", "file_size", "created_at"]
+    list_select_related = ["user"]
     list_filter = ["status", "created_at", "completed_at"]
     search_fields = ["user__username", "user__email"]
     readonly_fields = [
@@ -573,6 +638,7 @@ class DietaryRestrictionAdmin(ModelAdmin):  # type: ignore[misc]
         "is_public",
         "created_at",
     ]
+    list_select_related = ["user", "food_item"]
     list_filter = ["restriction_type", "is_public", "created_at"]
     search_fields = ["user__username", "user__email", "food_item__name", "notes"]
     autocomplete_fields = ["user", "food_item"]
@@ -675,6 +741,7 @@ class UserDietaryPreferenceAdmin(ModelAdmin):  # type: ignore[misc]
         "is_public",
         "created_at",
     ]
+    list_select_related = ["user", "preference"]
     list_filter = ["preference__name", "is_public", "created_at"]
     search_fields = ["user__username", "user__email", "preference__name", "comment"]
     autocomplete_fields = ["user", "preference"]
@@ -746,6 +813,7 @@ class ImpersonationLogAdmin(ModelAdmin):  # type: ignore[misc]
         "redeemed_at",
         "ip_address",
     ]
+    list_select_related = ["admin_user", "target_user"]
     list_filter = ["created_at", "redeemed_at"]
     search_fields = [
         "admin_user__username",

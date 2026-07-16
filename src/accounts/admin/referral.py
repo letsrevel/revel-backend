@@ -15,6 +15,7 @@ class ReferralCodeAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for ReferralCode model (admin-managed, codes are immutable)."""
 
     list_display = ["user", "code", "is_active", "created_at"]
+    list_select_related = ["user"]
     list_filter = ["is_active", "created_at"]
     search_fields = ["user__username", "user__email", "code"]
     autocomplete_fields = ["user"]
@@ -60,6 +61,7 @@ class ReferralAdmin(ModelAdmin):  # type: ignore[misc]
     """
 
     list_display = ["referrer", "referred_user", "revenue_share_percent", "created_at"]
+    list_select_related = ["referrer", "referred_user"]
     list_filter = ["created_at"]
     search_fields = [
         "referrer__username",
@@ -74,6 +76,7 @@ class ReferralAdmin(ModelAdmin):  # type: ignore[misc]
         "created_at",
         "updated_at",
     ]
+    date_hierarchy = "created_at"
     ordering = ["-created_at"]
 
     fieldsets = [
@@ -114,6 +117,7 @@ class ReferralPayoutAdmin(ModelAdmin):  # type: ignore[misc]
         "stripe_transfer_id",
         "created_at",
     ]
+    list_select_related = ["referral__referrer", "referral__referred_user"]
     list_filter = ["status", "currency", "period_start"]
     search_fields = [
         "referral__referrer__username",
@@ -127,6 +131,7 @@ class ReferralPayoutAdmin(ModelAdmin):  # type: ignore[misc]
         "period_start",
         "period_end",
         "net_platform_fees",
+        "rolled_over_amount",
         "payout_amount",
         "currency",
         "status",
@@ -134,6 +139,7 @@ class ReferralPayoutAdmin(ModelAdmin):  # type: ignore[misc]
         "created_at",
         "updated_at",
     ]
+    date_hierarchy = "period_start"
     ordering = ["-period_start"]
 
     fieldsets = [
@@ -145,6 +151,7 @@ class ReferralPayoutAdmin(ModelAdmin):  # type: ignore[misc]
                     "period_start",
                     "period_end",
                     "net_platform_fees",
+                    "rolled_over_amount",
                     "payout_amount",
                     "currency",
                     "status",

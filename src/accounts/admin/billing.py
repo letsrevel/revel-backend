@@ -20,6 +20,7 @@ class UserBillingProfileAdmin(ModelAdmin):  # type: ignore[misc]
         "vat_id_validated",
         "self_billing_agreed",
     ]
+    list_select_related = ["user"]
     list_filter = ["vat_id_validated", "self_billing_agreed", "vat_country_code"]
     search_fields = ["user__username", "user__email", "billing_name", "vat_id"]
     readonly_fields = [

@@ -4,10 +4,13 @@
 import typing as t
 
 from django.contrib import admin
+from django.db.models import Count, IntegerField, OuterRef, Subquery
+from django.db.models.functions import Coalesce
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import (
@@ -38,14 +41,18 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
         "requires_ticket",
         "is_template",
     ]
+    list_select_related = ["organization"]
     list_filter = [
+        "status",
+        "visibility",
         "event_type",
-        "organization",
+        ("organization", AutocompleteSelectFilter),
         "start",
         "requires_ticket",
         "waitlist_open",
         "is_template",
     ]
+    list_filter_submit = True
     search_fields = ["name", "slug", "organization__name"]
     autocomplete_fields = ["organization", "event_series", "city", "venue"]
     prepopulated_fields = {"slug": ("name",)}
@@ -78,6 +85,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
             {
                 "fields": (
                     ("event_type", "visibility", "status"),
+                    "cancellation_reason",
                     ("start", "end", "is_open_ended"),
                     "event_series",
                     ("max_attendees", "max_tickets_per_user"),
@@ -121,6 +129,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
 @admin.register(models.EventSeries)
 class EventSeriesAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     list_display = ["name", "slug", "organization_link", "is_active", "auto_publish"]
+    list_select_related = ["organization"]
     list_filter = ["is_active", "auto_publish"]
     search_fields = ["name", "slug", "organization__name"]
     autocomplete_fields = ["organization", "template_event", "recurrence_rule"]
@@ -139,7 +148,9 @@ class RecurrenceRuleAdmin(ModelAdmin):  # type: ignore[misc]
 @admin.register(models.EventInvitation)
 class EventInvitationAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
     list_display = ["__str__", "user_link", "event_link", "tier_names", "waives_questionnaire", "waives_purchase"]
-    list_filter = ["event__name"]
+    list_select_related = ["user", "event"]
+    list_filter = [("event", AutocompleteSelectFilter)]
+    list_filter_submit = True
     search_fields = ["user__username", "event__name"]
     autocomplete_fields = ["user", "event"]
     filter_horizontal = ["tiers"]
@@ -157,7 +168,9 @@ class EventInvitationAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: 
 @admin.register(models.EventRSVP)
 class EventRSVPAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
     list_display = ["__str__", "user_link", "event_link", "status", "note"]
-    list_filter = ["status", "event__name"]
+    list_select_related = ["user", "event"]
+    list_filter = ["status", ("event", AutocompleteSelectFilter)]
+    list_filter_submit = True
     search_fields = ["user__username", "event__name"]
     autocomplete_fields = ["user", "event"]
 
@@ -167,7 +180,15 @@ class PendingEventInvitationAdmin(ModelAdmin, EventLinkMixin):  # type: ignore[m
     """Admin for PendingEventInvitation model."""
 
     list_display = ["email", "event_link", "tier_names", "waives_questionnaire", "waives_purchase", "created_at"]
-    list_filter = ["event__organization", "waives_questionnaire", "waives_purchase", "created_at"]
+    list_select_related = ["event"]
+    list_filter = [
+        ("event", AutocompleteSelectFilter),
+        ("event__organization", AutocompleteSelectFilter),
+        "waives_questionnaire",
+        "waives_purchase",
+        "created_at",
+    ]
+    list_filter_submit = True
     search_fields = ["email", "event__name"]
     autocomplete_fields = ["event"]
     filter_horizontal = ["tiers"]
@@ -189,7 +210,14 @@ class EventTokenAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignor
     """Admin for EventToken model."""
 
     list_display = ["__str__", "name", "event_link", "issuer_link", "uses_display", "expires_at", "created_at"]
-    list_filter = ["event__organization", "expires_at", "created_at"]
+    list_select_related = ["event", "issuer"]
+    list_filter = [
+        ("event", AutocompleteSelectFilter),
+        ("event__organization", AutocompleteSelectFilter),
+        "expires_at",
+        "created_at",
+    ]
+    list_filter_submit = True
     search_fields = ["name", "event__name", "issuer__username"]
     autocomplete_fields = ["event", "issuer"]
     filter_horizontal = ["ticket_tiers"]
@@ -213,7 +241,14 @@ class EventInvitationRequestAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  #
     """Admin for EventInvitationRequest model."""
 
     list_display = ["__str__", "user_link", "event_link", "status_display", "decided_by_link", "created_at"]
-    list_filter = ["status", "event__organization", "created_at"]
+    list_select_related = ["user", "event", "decided_by"]
+    list_filter = [
+        "status",
+        ("event", AutocompleteSelectFilter),
+        ("event__organization", AutocompleteSelectFilter),
+        "created_at",
+    ]
+    list_filter_submit = True
     search_fields = ["user__username", "user__email", "event__name", "message"]
     autocomplete_fields = ["user", "event", "decided_by"]
     readonly_fields = ["created_at", "updated_at"]
@@ -242,17 +277,32 @@ class EventWaitListAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ig
     """Admin for EventWaitList model."""
 
     list_display = ["__str__", "user_link", "event_link", "position_display", "created_at"]
-    list_filter = ["event__organization", "event__name", "created_at"]
+    list_select_related = ["user", "event"]
+    list_filter = [("event", AutocompleteSelectFilter), ("event__organization", AutocompleteSelectFilter), "created_at"]
+    list_filter_submit = True
     search_fields = ["user__username", "user__email", "event__name"]
     autocomplete_fields = ["user", "event"]
     readonly_fields = ["created_at", "updated_at", "position_display"]
     date_hierarchy = "created_at"
     ordering = ["event", "created_at"]
 
+    def get_queryset(self, request: t.Any) -> t.Any:
+        """Annotate the waitlist position to avoid a COUNT query per row."""
+        earlier = (
+            models.EventWaitList.objects.filter(event=OuterRef("event"), created_at__lt=OuterRef("created_at"))
+            .order_by()
+            .values("event")
+            .annotate(c=Count("pk"))
+            .values("c")
+        )
+        return (
+            super()
+            .get_queryset(request)
+            .annotate(_position=Coalesce(Subquery(earlier, output_field=IntegerField()), 0) + 1)
+        )
+
     def position_display(self, obj: models.EventWaitList) -> int:
-        # Calculate position in waitlist
-        earlier_entries = models.EventWaitList.objects.filter(event=obj.event, created_at__lt=obj.created_at).count()
-        return earlier_entries + 1
+        return int(getattr(obj, "_position", 0))
 
     position_display.short_description = "Position"  # type: ignore[attr-defined]
 
@@ -267,7 +317,9 @@ class PotluckItemAdmin(ModelAdmin, EventLinkMixin):  # type: ignore[misc]
         "assignee_link",
         "created_at",
     ]
-    list_filter = ["event__organization", "event__name", "created_at"]
+    list_select_related = ["event", "assignee"]
+    list_filter = [("event", AutocompleteSelectFilter), ("event__organization", AutocompleteSelectFilter), "created_at"]
+    list_filter_submit = True
     search_fields = ["name", "event__name", "assignee__username"]
     autocomplete_fields = ["event", "assignee"]
     readonly_fields = ["created_at", "updated_at"]

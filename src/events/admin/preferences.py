@@ -5,6 +5,7 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 
@@ -19,6 +20,7 @@ class GeneralUserPreferencesAdmin(ModelAdmin):  # type: ignore[misc]
         "city_link",
         "show_me_on_attendee_list",
     ]
+    list_select_related = ["user", "city"]
     list_filter = ["show_me_on_attendee_list", "city__country"]
     search_fields = ["user__username", "user__email", "city__name"]
     autocomplete_fields = ["user", "city"]
@@ -41,7 +43,9 @@ class AttendeeVisibilityFlagAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for AttendeeVisibilityFlag model."""
 
     list_display = ["__str__", "user_link", "target_link", "event_link", "is_visible"]
-    list_filter = ["is_visible", "event__organization__name"]
+    list_select_related = ["user", "target", "event"]
+    list_filter = ["is_visible", ("event", AutocompleteSelectFilter)]
+    list_filter_submit = True
     search_fields = ["user__username", "target__username", "event__name"]
     autocomplete_fields = ["user", "target", "event"]
 

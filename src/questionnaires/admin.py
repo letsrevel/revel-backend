@@ -4,12 +4,13 @@ import json
 import typing as t
 
 from django.contrib import admin
-from django.db.models import QuerySet
+from django.db.models import Count, QuerySet
 from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from common.signing import get_file_url
 
@@ -39,11 +40,14 @@ class MultipleChoiceOptionInline(TabularInline):  # type: ignore[misc]
 
 
 class MultipleChoiceQuestionInline(StackedInline):  # type: ignore[misc]
-    """Inline for Multiple Choice Questions within a Questionnaire."""
+    """Inline for Multiple Choice Questions within a Questionnaire.
+
+    Options are not editable here — nested inlines aren't supported by the admin;
+    manage options via the MultipleChoiceQuestion admin.
+    """
 
     model = models.MultipleChoiceQuestion
     extra = 1
-    inlines = [MultipleChoiceOptionInline]
     ordering = ["order"]
     classes = ["collapse"]
     fieldsets = (
@@ -112,6 +116,46 @@ class FreeTextQuestionInline(StackedInline):  # type: ignore[misc]
     )
 
 
+class FileUploadQuestionInline(StackedInline):  # type: ignore[misc]
+    """Inline for File Upload Questions within a Questionnaire."""
+
+    model = models.FileUploadQuestion
+    extra = 1
+    ordering = ["order"]
+    classes = ["collapse"]
+    fieldsets = (
+        (None, {"fields": ("question", "hint", "section")}),
+        (
+            "Configuration",
+            {
+                "fields": ("is_mandatory", "order", "depends_on_option"),
+                "classes": ["collapse"],
+            },
+        ),
+        (
+            "File Settings",
+            {
+                "fields": ("max_files", "max_file_size", "allowed_mime_types"),
+                "classes": ["collapse"],
+            },
+        ),
+        (
+            "Scoring",
+            {
+                "fields": ("positive_weight", "negative_weight"),
+                "classes": ["collapse"],
+            },
+        ),
+        (
+            "Reviewer Notes",
+            {
+                "fields": ("reviewer_notes",),
+                "classes": ["collapse"],
+            },
+        ),
+    )
+
+
 class QuestionnaireSectionInline(StackedInline):  # type: ignore[misc]
     """Inline for Sections within a Questionnaire."""
 
@@ -167,6 +211,7 @@ class QuestionnaireAdmin(ModelAdmin):  # type: ignore[misc]
         QuestionnaireSectionInline,
         MultipleChoiceQuestionInline,
         FreeTextQuestionInline,
+        FileUploadQuestionInline,
     ]
 
 
@@ -219,6 +264,10 @@ class MultipleChoiceAnswerInline(TabularInline):  # type: ignore[misc]
     readonly_fields = ["question", "option"]
     can_delete = False
 
+    def get_queryset(self, request: HttpRequest) -> QuerySet[models.MultipleChoiceAnswer]:
+        qs: QuerySet[models.MultipleChoiceAnswer] = super().get_queryset(request)
+        return qs.select_related("question", "option")
+
 
 class FreeTextAnswerInline(TabularInline):  # type: ignore[misc]
     """Inline for Free Text Answers within a Submission."""
@@ -227,6 +276,10 @@ class FreeTextAnswerInline(TabularInline):  # type: ignore[misc]
     extra = 0
     readonly_fields = ["question", "answer"]
     can_delete = False
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[models.FreeTextAnswer]:
+        qs: QuerySet[models.FreeTextAnswer] = super().get_queryset(request)
+        return qs.select_related("question")
 
 
 class FileUploadAnswerInline(TabularInline):  # type: ignore[misc]
@@ -237,6 +290,10 @@ class FileUploadAnswerInline(TabularInline):  # type: ignore[misc]
     readonly_fields = ["question", "files_display"]
     can_delete = False
     fields = ["question", "files_display"]
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[models.FileUploadAnswer]:
+        qs: QuerySet[models.FileUploadAnswer] = super().get_queryset(request)
+        return qs.select_related("question").prefetch_related("files")
 
     @admin.display(description="Files")
     def files_display(self, obj: models.FileUploadAnswer) -> str:
@@ -256,8 +313,15 @@ class QuestionnaireSubmissionAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[m
     """Admin model for Questionnaire Submissions."""
 
     list_display = ["__str__", "user_link", "questionnaire_link", "status", "evaluation_status", "submitted_at"]
-    list_filter = ["status", "evaluation__status", "questionnaire__name", "created_at", "submitted_at"]
-    search_fields = ["user__username", "questionnaire__name"]
+    list_filter = [
+        "status",
+        "evaluation__status",
+        ("questionnaire", AutocompleteSelectFilter),
+        "created_at",
+        "submitted_at",
+    ]
+    list_filter_submit = True
+    search_fields = ["user__username", "user__email", "questionnaire__name"]
     autocomplete_fields = ["user", "questionnaire"]
     readonly_fields = ["submitted_at", "metadata_display"]
     date_hierarchy = "submitted_at"
@@ -325,11 +389,17 @@ class QuestionnaireEvaluationAdmin(ModelAdmin):  # type: ignore[misc]
         "status",
         "proposed_status",
         "automatically_evaluated",
-        "submission__questionnaire__name",
+        ("submission__questionnaire", AutocompleteSelectFilter),
         "submission__questionnaire__evaluation_mode",
         "created_at",
     ]
-    search_fields = ["submission__user__username", "submission__questionnaire__name", "comments"]
+    list_filter_submit = True
+    search_fields = [
+        "submission__user__username",
+        "submission__user__email",
+        "submission__questionnaire__name",
+        "comments",
+    ]
     autocomplete_fields = ["submission", "evaluator"]
     readonly_fields = [
         "score",
@@ -470,7 +540,9 @@ class MultipleChoiceOptionAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for Multiple Choice Options."""
 
     list_display = ["option", "question_link", "is_correct", "order"]
-    list_filter = ["is_correct", "question__questionnaire__name"]
+    list_select_related = ["question"]
+    list_filter = ["is_correct", ("question__questionnaire", AutocompleteSelectFilter)]
+    list_filter_submit = True
     search_fields = ["option", "question__question", "question__questionnaire__name"]
     autocomplete_fields = ["question"]
     ordering = ["question", "order"]
@@ -496,7 +568,15 @@ class MultipleChoiceQuestionAdmin(ModelAdmin):  # type: ignore[misc]
         "allow_multiple_answers",
         "order",
     ]
-    list_filter = ["questionnaire__name", "section__name", "is_mandatory", "is_fatal", "allow_multiple_answers"]
+    list_select_related = ["questionnaire", "section"]
+    list_filter = [
+        ("questionnaire", AutocompleteSelectFilter),
+        ("section", AutocompleteSelectFilter),
+        "is_mandatory",
+        "is_fatal",
+        "allow_multiple_answers",
+    ]
+    list_filter_submit = True
     search_fields = ["question", "hint", "reviewer_notes", "questionnaire__name", "section__name"]
     autocomplete_fields = ["questionnaire", "section", "depends_on_option"]
     ordering = ["questionnaire", "section", "order"]
@@ -552,7 +632,14 @@ class FreeTextQuestionAdmin(ModelAdmin):  # type: ignore[misc]
         "has_llm_guidelines",
         "order",
     ]
-    list_filter = ["questionnaire__name", "section__name", "is_mandatory", "is_fatal"]
+    list_select_related = ["questionnaire", "section"]
+    list_filter = [
+        ("questionnaire", AutocompleteSelectFilter),
+        ("section", AutocompleteSelectFilter),
+        "is_mandatory",
+        "is_fatal",
+    ]
+    list_filter_submit = True
     search_fields = ["question", "hint", "reviewer_notes", "questionnaire__name", "section__name", "llm_guidelines"]
     autocomplete_fields = ["questionnaire", "section", "depends_on_option"]
     ordering = ["questionnaire", "section", "order"]
@@ -603,7 +690,9 @@ class FileUploadQuestionAdmin(ModelAdmin):  # type: ignore[misc]
         "max_file_size_display",
         "order",
     ]
-    list_filter = ["questionnaire__name", "section__name", "is_mandatory"]
+    list_select_related = ["questionnaire", "section"]
+    list_filter = [("questionnaire", AutocompleteSelectFilter), ("section", AutocompleteSelectFilter), "is_mandatory"]
+    list_filter_submit = True
     search_fields = ["question", "hint", "reviewer_notes", "questionnaire__name", "section__name"]
     autocomplete_fields = ["questionnaire", "section", "depends_on_option"]
     ordering = ["questionnaire", "section", "order"]
@@ -654,11 +743,21 @@ class QuestionnaireSectionAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for Questionnaire Sections."""
 
     list_display = ["name", "questionnaire_link", "order", "question_count", "created_at"]
-    list_filter = ["questionnaire__name", "created_at"]
+    list_select_related = ["questionnaire"]
+    list_filter = [("questionnaire", AutocompleteSelectFilter), "created_at"]
+    list_filter_submit = True
     search_fields = ["name", "description", "questionnaire__name"]
     autocomplete_fields = ["questionnaire", "depends_on_option"]
     ordering = ["questionnaire", "order"]
     fields = ["questionnaire", "name", "description", "order", "depends_on_option"]
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[models.QuestionnaireSection]:
+        qs: QuerySet[models.QuestionnaireSection] = super().get_queryset(request)
+        return qs.annotate(
+            mc_count=Count("multiplechoicequestion_questions", distinct=True),
+            ft_count=Count("freetextquestion_questions", distinct=True),
+            fu_count=Count("fileuploadquestion_questions", distinct=True),
+        )
 
     @admin.display(description="Questionnaire")
     def questionnaire_link(self, obj: models.QuestionnaireSection) -> str:
@@ -667,10 +766,7 @@ class QuestionnaireSectionAdmin(ModelAdmin):  # type: ignore[misc]
 
     @admin.display(description="Questions")
     def question_count(self, obj: models.QuestionnaireSection) -> int:
-        mc_count = obj.multiplechoicequestion_questions.count()
-        ft_count = obj.freetextquestion_questions.count()
-        fu_count = obj.fileuploadquestion_questions.count()
-        return mc_count + ft_count + fu_count
+        return int(getattr(obj, "mc_count", 0) + getattr(obj, "ft_count", 0) + getattr(obj, "fu_count", 0))
 
 
 @admin.register(models.QuestionnaireFile)

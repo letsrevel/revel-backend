@@ -48,25 +48,6 @@ def profile_image_preview(obj: "RevelUser") -> str:
     return "No profile picture"
 
 
-def event_count(obj: "RevelUser") -> int:
-    """Count the events the user has tickets for or has RSVP'd to."""
-    from events.models import EventRSVP, Ticket
-
-    ticket_events = Ticket.objects.filter(user=obj).values("event").distinct().count()
-    rsvp_events = EventRSVP.objects.filter(user=obj).values("event").distinct().count()
-    return ticket_events + rsvp_events
-
-
-def organization_count(obj: "RevelUser") -> int:
-    """Count the organizations the user owns, is staff of, or is a member of."""
-    from events.models import Organization, OrganizationMember, OrganizationStaff
-
-    owned = Organization.objects.filter(owner=obj).count()
-    member = OrganizationMember.objects.filter(user=obj).count()
-    staff = OrganizationStaff.objects.filter(user=obj).count()
-    return owned + member + staff
-
-
 def event_participation(obj: "RevelUser") -> str:
     """Render the user's recent event participation (tickets + RSVPs) as an HTML list."""
     from events.models import EventRSVP, Ticket

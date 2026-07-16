@@ -3,6 +3,7 @@
 
 from django.contrib import admin
 from unfold.admin import ModelAdmin
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import OrganizationLinkMixin
@@ -22,7 +23,9 @@ class DiscountCodeAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc
         "valid_from",
         "valid_until",
     ]
-    list_filter = ["discount_type", "is_active", "organization__name"]
+    list_select_related = ["organization"]
+    list_filter = ["discount_type", "is_active", ("organization", AutocompleteSelectFilter)]
+    list_filter_submit = True
     search_fields = ["code", "organization__name"]
     autocomplete_fields = ["organization"]
     filter_horizontal = ["series", "events", "tiers"]
