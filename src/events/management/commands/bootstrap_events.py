@@ -13,6 +13,7 @@ from django.core.management.base import BaseCommand
 
 from .bootstrap_helpers import (
     BootstrapState,
+    attach_cover_art,
     configure_organization_billing,
     configure_platform_billing,
     create_dietary_data,
@@ -74,6 +75,9 @@ class Command(BaseCommand):
 
         # Create events
         create_events(state)
+
+        # Attach bundled cover art to orgs and events (cached in storage, no upload pipeline)
+        attach_cover_art(state)
 
         # Create ticket tiers
         create_ticket_tiers(state)

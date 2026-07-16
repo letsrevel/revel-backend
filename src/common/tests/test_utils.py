@@ -86,6 +86,25 @@ def test_strip_exif_removes_data(image_with_exif: InMemoryUploadedFile) -> None:
     assert not dict(exif), "EXIF should be stripped from image"
 
 
+@pytest.mark.django_db
+def test_exif_strip_mixin_skips_committed_files(organization: t.Any, image_with_exif: InMemoryUploadedFile) -> None:
+    """Saving a model with an already-stored image must not rewrite the file.
+
+    ExifStripMixin only strips fresh (uncommitted) uploads; re-stripping a
+    committed file would mark the field dirty and write a re-encoded duplicate
+    to storage on every save().
+    """
+    organization.cover_art = image_with_exif
+    organization.save()
+    stored_name = organization.cover_art.name
+
+    organization.refresh_from_db()
+    organization.save()  # full save with a committed file
+    organization.refresh_from_db()
+
+    assert organization.cover_art.name == stored_name, "Committed image was rewritten on save"
+
+
 class TestGetOrCreateWithRaceProtection:
     """Tests for get_or_create_with_race_protection, focusing on the race paths.
 

@@ -8,6 +8,7 @@ from .billing import (
     create_payments_and_invoice,
     create_referral_payouts,
 )
+from .cover_art import attach_cover_art
 from .dietary import create_dietary_data
 from .events import create_event_series, create_events
 from .organizations import create_organizations
@@ -21,6 +22,7 @@ from .venues import create_venues
 
 __all__ = [
     "BootstrapState",
+    "attach_cover_art",
     "configure_organization_billing",
     "configure_platform_billing",
     "create_dietary_data",

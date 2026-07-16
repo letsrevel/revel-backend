@@ -108,35 +108,65 @@ Revel combines the ticketing power of platforms like Eventbrite with the communi
 <p align="center">
   <img src="docs/screenshots/event-detail-page.png" alt="Event Detail Page" width="800"/>
   <br/>
-  <em>Event detail page with eligibility status, invitation requests, and rich event information</em>
+  <em>Event detail page — cover art, live availability, and one-click ticketing</em>
 </p>
 
 <table>
   <tr>
     <td align="center" width="50%">
-      <img src="docs/screenshots/questionnaire-eligibility.png" alt="Questionnaire Eligibility" width="280"/>
+      <img src="docs/screenshots/event-discovery.png" alt="Event Discovery" width="400"/>
       <br/>
-      <em>Questionnaire-based screening</em>
+      <em>Event discovery with filters, tags & calendar view</em>
     </td>
     <td align="center" width="50%">
-      <img src="docs/screenshots/seat-selection.png" alt="Seat Selection" width="340"/>
+      <img src="docs/screenshots/ticket-tiers.png" alt="Ticket Tiers" width="400"/>
       <br/>
-      <em>Interactive seat selection</em>
+      <em>Ticket tiers — free, fixed, PWYC, at-the-door & offline</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/seat-selection.png" alt="Seat Selection" width="400"/>
+      <br/>
+      <em>Interactive seat selection with accessible-seat markers</em>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/ticket-qr.png" alt="QR Ticket" width="400"/>
+      <br/>
+      <em>QR tickets with PDF download & Apple Wallet</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="docs/screenshots/questionnaire-screening.png" alt="Attendee Screening Questionnaire" width="400"/>
+      <br/>
+      <em>Questionnaire-based attendee screening</em>
+    </td>
+    <td align="center">
+      <img src="docs/screenshots/submissions-review.png" alt="Submission Review" width="400"/>
+      <br/>
+      <em>Organizer review workflow with scoring & approval stats</em>
     </td>
   </tr>
   <tr>
     <td align="center">
       <img src="docs/screenshots/potluck-coordination.png" alt="Potluck Coordination" width="400"/>
       <br/>
-      <em>Potluck coordination</em>
+      <em>Potluck coordination with item claiming</em>
     </td>
     <td align="center">
-      <img src="docs/screenshots/dietary-information.png" alt="Dietary Information" width="400"/>
+      <img src="docs/screenshots/financials.png" alt="Organization Financials" width="400"/>
       <br/>
-      <em>Dietary preferences & restrictions</em>
+      <em>Revenue & VAT reporting, per event and org-wide</em>
     </td>
   </tr>
 </table>
+
+<p align="center">
+  <img src="docs/screenshots/org-admin-dashboard.png" alt="Organization Admin" width="800"/>
+  <br/>
+  <em>Organization admin — events, tickets, members, questionnaires, venues, billing & more</em>
+</p>
 
 ---
 
