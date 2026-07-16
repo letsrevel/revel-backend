@@ -28,18 +28,22 @@ class EventPublicGuestController(EventPublicBaseController):
         throttle=WriteThrottle(),
     )
     def guest_rsvp(
-        self, event_id: UUID, answer: models.EventRSVP.RsvpStatus, payload: schema.GuestUserDataSchema
+        self, event_id: UUID, answer: models.EventRSVP.RsvpStatus, payload: schema.GuestRSVPRequestSchema
     ) -> schema.GuestActionResponseSchema:
         """RSVP to an event without authentication (guest user).
 
         Creates or updates a guest user and sends a confirmation email. The RSVP is created only
         after the user confirms via the email link. Requires event.can_attend_without_login=True.
         Returns 400 if event doesn't allow guest access or if a non-guest account exists with
-        the provided email.
+        the provided email. Accepts an optional plain-text ``note`` (max 500 chars) when the event
+        has ``accept_rsvp_notes`` enabled; the note is applied when the RSVP is confirmed via the
+        email link.
         """
         self.ensure_not_authenticated()
         event = self.get_one(event_id)
-        return guest_service.handle_guest_rsvp(event, answer, payload.email, payload.first_name, payload.last_name)
+        return guest_service.handle_guest_rsvp(
+            event, answer, payload.email, payload.first_name, payload.last_name, note=payload.note
+        )
 
     @route.post(
         "/{uuid:event_id}/tickets/{tier_id}/checkout/public",

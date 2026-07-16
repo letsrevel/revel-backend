@@ -12,7 +12,7 @@ from events.models import EventRSVP, WaitlistOffer
 
 from .event import MinimalEventSchema
 from .organization import MinimalOrganizationMemberSchema
-from .ticket import UserTicketSchema
+from .ticket import GuestUserDataSchema, UserTicketSchema
 from .waitlist import WaitlistOfferSchema
 
 RSVPNoteField = t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
@@ -20,6 +20,12 @@ RSVPNoteField = t.Annotated[str, StringConstraints(strip_whitespace=True, max_le
 
 class RSVPNoteSchema(Schema):
     """Optional JSON body for the RSVP endpoint."""
+
+    note: RSVPNoteField = ""
+
+
+class GuestRSVPRequestSchema(GuestUserDataSchema):
+    """Guest RSVP payload: guest identity plus optional note."""
 
     note: RSVPNoteField = ""
 
