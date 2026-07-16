@@ -55,9 +55,18 @@ class EventManager:
 
         Raises:
             UserIsIneligibleError
+            HttpError: 400 when setting or changing a note while the event does not
+                accept RSVP notes.
         """
         if note and not self.event.accept_rsvp_notes:
-            raise HttpError(400, _("This event does not accept RSVP notes."))
+            stored_note = (
+                EventRSVP.objects.filter(user=self.user, event=self.event).values_list("note", flat=True).first()
+            )
+            # A note echoed back unchanged (e.g. a form prefilled before the organizer
+            # turned notes off) must never block a status change — YES-holders must
+            # always be able to downgrade (#691). Only setting/changing a note is rejected.
+            if note != stored_note:
+                raise HttpError(400, _("This event does not accept RSVP notes."))
 
         if self.event.requires_ticket:
             raise UserIsIneligibleError(

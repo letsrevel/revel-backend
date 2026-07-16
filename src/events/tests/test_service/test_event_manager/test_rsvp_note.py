@@ -63,6 +63,30 @@ def test_new_rsvp_overrides_note(public_user: RevelUser, rsvp_event: Event) -> N
     assert rsvp.note == "second note"
 
 
+def test_stale_note_does_not_block_downgrade(public_user: RevelUser, rsvp_event: Event) -> None:
+    """Echoing the stored note back after notes were disabled must not block YES -> NO (#691)."""
+    EventManager(user=public_user, event=rsvp_event).rsvp(EventRSVP.RsvpStatus.YES, note="I am vegetarian")
+    rsvp_event.accept_rsvp_notes = False
+    rsvp_event.save()
+
+    rsvp = EventManager(user=public_user, event=rsvp_event).rsvp(EventRSVP.RsvpStatus.NO, note="I am vegetarian")
+
+    assert rsvp.status == EventRSVP.RsvpStatus.NO
+    assert rsvp.note == "I am vegetarian"
+
+
+def test_changed_note_rejected_after_flag_turned_off(public_user: RevelUser, rsvp_event: Event) -> None:
+    """Changing the note after notes were disabled is still rejected."""
+    EventManager(user=public_user, event=rsvp_event).rsvp(EventRSVP.RsvpStatus.YES, note="old note")
+    rsvp_event.accept_rsvp_notes = False
+    rsvp_event.save()
+
+    with pytest.raises(HttpError) as exc_info:
+        EventManager(user=public_user, event=rsvp_event).rsvp(EventRSVP.RsvpStatus.NO, note="new note")
+
+    assert exc_info.value.status_code == 400
+
+
 def test_rsvp_without_note_clears_existing(public_user: RevelUser, rsvp_event: Event) -> None:
     """An RSVP call without a note clears any stored note (override semantics)."""
     manager = EventManager(user=public_user, event=rsvp_event)
