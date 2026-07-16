@@ -84,6 +84,7 @@ class EventAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
                     (
                         "potluck_open",
                         "accept_invitation_requests",
+                        "accept_rsvp_notes",
                         "can_attend_without_login",
                         "requires_full_profile",
                     ),
@@ -155,7 +156,7 @@ class EventInvitationAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: 
 
 @admin.register(models.EventRSVP)
 class EventRSVPAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[misc]
-    list_display = ["__str__", "user_link", "event_link", "status"]
+    list_display = ["__str__", "user_link", "event_link", "status", "note"]
     list_filter = ["status", "event__name"]
     search_fields = ["user__username", "event__name"]
     autocomplete_fields = ["user", "event"]
