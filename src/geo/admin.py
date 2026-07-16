@@ -12,8 +12,11 @@ class CityAdmin(ModelAdmin):  # type: ignore[misc]
         "name",
         "admin_name",
         "country",
+        "iso2",
+        "timezone",
         "population",
-        "location",
     ]
-    search_fields = ["name", "ascii_name", "country"]
+    search_fields = ["name", "ascii_name", "country", "iso2"]
     list_filter = ["country", "capital"]
+    list_per_page = 50
+    show_full_result_count = False

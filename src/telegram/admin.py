@@ -55,3 +55,35 @@ class TelegramUserAdmin(ModelAdmin):  # type: ignore[misc]
             return mark_safe('<span style="color: red;">User Inactive</span>')
         else:
             return mark_safe('<span style="color: green;">Active</span>')
+
+
+@admin.register(models.AccountOTP)
+class AccountOTPAdmin(ModelAdmin):  # type: ignore[misc]
+    """Read-only admin for telegram account-linking OTPs.
+
+    The raw ``otp`` is a live secret and is never shown; ``used_at``/``expires_at``
+    are what support needs to debug a failed linking flow.
+    """
+
+    list_display = ["tg_user", "used_display", "expired_display", "used_at", "expires_at", "created_at"]
+    list_select_related = ["tg_user", "tg_user__user"]
+    list_filter = [("used_at", admin.EmptyFieldListFilter), "expires_at", "created_at"]
+    search_fields = ["tg_user__telegram_username", "tg_user__telegram_id", "tg_user__user__email"]
+    readonly_fields = ["tg_user", "used_at", "expires_at", "created_at", "updated_at"]
+    exclude = ["otp"]
+    date_hierarchy = "created_at"
+    ordering = ["-created_at"]
+
+    @admin.display(description="Used", boolean=True)
+    def used_display(self, obj: models.AccountOTP) -> bool:
+        return obj.used_at is not None
+
+    @admin.display(description="Expired", boolean=True)
+    def expired_display(self, obj: models.AccountOTP) -> bool:
+        return obj.is_expired()
+
+    def has_add_permission(self, request: object) -> bool:
+        return False
+
+    def has_change_permission(self, request: object, obj: models.AccountOTP | None = None) -> bool:
+        return False

@@ -4,10 +4,12 @@
 import typing as t
 
 from django.contrib import admin
+from django.db.models import Count
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import (
@@ -30,7 +32,9 @@ class BlacklistAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
         "created_by_link",
         "created_at",
     ]
-    list_filter = ["organization__name", "created_at"]
+    list_select_related = ["organization", "user", "created_by"]
+    list_filter = [("organization", AutocompleteSelectFilter), "created_at"]
+    list_filter_submit = True
     search_fields = [
         "email",
         "telegram_username",
@@ -87,7 +91,9 @@ class WhitelistRequestAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  
         "decided_by_link",
         "created_at",
     ]
-    list_filter = ["status", "organization__name", "created_at"]
+    list_select_related = ["user", "organization", "decided_by"]
+    list_filter = ["status", ("organization", AutocompleteSelectFilter), "created_at"]
+    list_filter_submit = True
     search_fields = ["user__username", "user__email", "organization__name", "message"]
     autocomplete_fields = ["organization", "user", "decided_by"]
     readonly_fields = ["created_at", "updated_at", "decided_at"]
@@ -110,9 +116,12 @@ class WhitelistRequestAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):  
         color = colors.get(obj.status, "gray")
         return mark_safe(f'<span style="color: {color};">{obj.get_status_display()}</span>')
 
-    @admin.display(description="Matched")
+    def get_queryset(self, request: t.Any) -> t.Any:
+        return super().get_queryset(request).annotate(_matched_count=Count("matched_blacklist_entries"))
+
+    @admin.display(description="Matched", ordering="_matched_count")
     def matched_count(self, obj: models.WhitelistRequest) -> int:
-        return obj.matched_blacklist_entries.count()
+        return t.cast(int, getattr(obj, "_matched_count", 0))
 
     @admin.display(description="Decided By")
     def decided_by_link(self, obj: models.WhitelistRequest) -> str | None:

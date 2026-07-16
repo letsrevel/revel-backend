@@ -6,6 +6,7 @@ import typing as t
 from django.contrib import admin
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import (
@@ -33,7 +34,8 @@ class AnnouncementAdmin(ModelAdmin, OrganizationLinkMixin, EventLinkMixin):  # t
         "sent_at",
         "created_at",
     ]
-    list_filter = ["status", "organization__name", "created_at", "sent_at"]
+    list_filter = ["status", ("organization", AutocompleteSelectFilter), "created_at", "sent_at"]
+    list_filter_submit = True
     search_fields = ["title", "body", "organization__name", "event__name"]
     autocomplete_fields = ["organization", "event", "created_by"]
     readonly_fields = ["status", "sent_at", "recipient_count", "created_at", "updated_at"]

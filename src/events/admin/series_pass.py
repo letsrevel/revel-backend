@@ -27,6 +27,7 @@ class SeriesPassAdmin(ModelAdmin):  # type: ignore[misc]
         "is_active",
         "quantity_sold",
     ]
+    list_select_related = ["event_series"]
     list_filter = ["payment_method", "visibility", "is_active"]
     search_fields = ["name", "event_series__name"]
     autocomplete_fields = ["event_series"]
@@ -38,6 +39,7 @@ class SeriesPassTierLinkAdmin(ModelAdmin, EventLinkMixin):  # type: ignore[misc]
     """Standalone admin for the SeriesPass<->tier mapping, also managed inline on SeriesPass."""
 
     list_display = ["series_pass", "event_link", "tier"]
+    list_select_related = ["series_pass", "event", "tier"]
     search_fields = ["series_pass__name", "event__name", "tier__name"]
     autocomplete_fields = ["series_pass", "event", "tier"]
 
@@ -56,6 +58,7 @@ class HeldSeriesPassAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
     """
 
     list_display = ["id", "series_pass", "user_link", "status", "price_paid", "created_at"]
+    list_select_related = ["series_pass", "user"]
     list_filter = ["status"]
     search_fields = ["user__email", "series_pass__name"]
     autocomplete_fields = ["series_pass", "user"]

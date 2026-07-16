@@ -5,6 +5,7 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import (
@@ -20,7 +21,9 @@ class VenueAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     """Admin for Venue model."""
 
     list_display = ["name", "slug", "organization_link", "capacity", "city_name"]
-    list_filter = ["organization__name", "city__country"]
+    list_select_related = ["organization", "city"]
+    list_filter = [("organization", AutocompleteSelectFilter), "city__country"]
+    list_filter_submit = True
     search_fields = ["name", "slug", "organization__name", "address"]
     autocomplete_fields = ["organization", "city"]
     prepopulated_fields = {"slug": ("name",)}
@@ -66,7 +69,9 @@ class VenueSectorAdmin(ModelAdmin, VenueLinkMixin):  # type: ignore[misc]
     """Admin for VenueSector model."""
 
     list_display = ["name", "venue_link", "code", "capacity", "display_order"]
-    list_filter = ["venue__organization__name"]
+    list_select_related = ["venue"]
+    list_filter = [("venue", AutocompleteSelectFilter)]
+    list_filter_submit = True
     search_fields = ["name", "code", "venue__name"]
     autocomplete_fields = ["venue"]
     readonly_fields = ["created_at", "updated_at"]
@@ -107,7 +112,9 @@ class VenueSeatAdmin(ModelAdmin):  # type: ignore[misc]
     """Admin for VenueSeat model."""
 
     list_display = ["label", "sector_link", "row", "number", "is_accessible", "is_obstructed_view", "is_active"]
-    list_filter = ["sector__venue__organization__name", "is_accessible", "is_obstructed_view", "is_active"]
+    list_select_related = ["sector", "sector__venue"]
+    list_filter = [("sector", AutocompleteSelectFilter), "is_accessible", "is_obstructed_view", "is_active"]
+    list_filter_submit = True
     search_fields = ["label", "row", "sector__name", "sector__venue__name"]
     autocomplete_fields = ["sector"]
     readonly_fields = ["created_at", "updated_at"]

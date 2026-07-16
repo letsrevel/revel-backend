@@ -26,22 +26,53 @@ def test_profile_image_preview_without_picture(user: RevelUser) -> None:
     assert formatters.profile_image_preview(user) == "No profile picture"
 
 
+def _admin_row(user: RevelUser) -> RevelUser:
+    """Fetch the user through the admin queryset so count annotations are present."""
+    from django.contrib import admin as dj_admin
+    from django.test import RequestFactory
+
+    from accounts.admin.user import RevelUserAdmin
+
+    model_admin = RevelUserAdmin(RevelUser, dj_admin.site)
+    return model_admin.get_queryset(RequestFactory().get("/admin/")).get(pk=user.pk)
+
+
 def test_counts_zero_for_fresh_user(user: RevelUser) -> None:
-    assert formatters.event_count(user) == 0
-    assert formatters.organization_count(user) == 0
+    from django.contrib import admin as dj_admin
+
+    from accounts.admin.user import RevelUserAdmin
+
+    model_admin = RevelUserAdmin(RevelUser, dj_admin.site)
+    row = _admin_row(user)
+    assert model_admin.event_count(row) == 0
+    assert model_admin.organization_count(row) == 0
 
 
 def test_organization_count_and_participation_for_owned_org(user: RevelUser) -> None:
+    from django.contrib import admin as dj_admin
+
+    from accounts.admin.user import RevelUserAdmin
     from events.models import Organization
 
     org = Organization.objects.create(name="Owned Org", slug="owned-org", owner=user)
 
-    assert formatters.organization_count(user) == 1
+    model_admin = RevelUserAdmin(RevelUser, dj_admin.site)
+    assert model_admin.organization_count(_admin_row(user)) == 1
     html = formatters.organization_participation(user)
     assert "Organization Roles:" in html
     assert org.name in html
     assert "Owner" in html
     assert str(org.id) in html
+
+
+def test_organization_participation_escapes_org_name(user: RevelUser) -> None:
+    from events.models import Organization
+
+    Organization.objects.create(name="<script>alert(1)</script>", slug="xss-org", owner=user)
+
+    html = formatters.organization_participation(user)
+    assert "<script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
 
 
 def test_event_participation_empty(user: RevelUser) -> None:

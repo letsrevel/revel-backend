@@ -8,6 +8,7 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import (
@@ -21,16 +22,40 @@ from events.admin.base import (
 class TicketTierAdmin(ModelAdmin, EventLinkMixin, VenueLinkMixin):  # type: ignore[misc]
     """Admin view for TicketTier."""
 
-    list_display = ["__str__", "name", "event_link", "venue_link", "sector_name", "short_description"]
-    list_filter = ["event", "venue", "sector"]
+    list_display = [
+        "__str__",
+        "name",
+        "event_link",
+        "price_display",
+        "price_type",
+        "visibility",
+        "payment_method",
+        "quantity_display",
+        "venue_link",
+        "sector_name",
+    ]
+    list_select_related = ["event", "venue", "sector"]
+    list_filter = [
+        "visibility",
+        "payment_method",
+        "price_type",
+        ("event", AutocompleteSelectFilter),
+        ("venue", AutocompleteSelectFilter),
+        ("sector", AutocompleteSelectFilter),
+    ]
+    list_filter_submit = True
     search_fields = ["name", "event__name", "description"]
     autocomplete_fields = ["event", "venue", "sector"]
     filter_horizontal = ["restricted_to_membership_tiers"]
 
-    def short_description(self, obj: models.TicketTier) -> str:
-        return obj.description[:100] if obj.description else "-"
+    @admin.display(description="Price", ordering="price")
+    def price_display(self, obj: models.TicketTier) -> str:
+        return f"{obj.price} {obj.currency}"
 
-    short_description.short_description = "Description"  # type: ignore[attr-defined]
+    @admin.display(description="Sold", ordering="quantity_sold")
+    def quantity_display(self, obj: models.TicketTier) -> str:
+        total = obj.total_quantity if obj.total_quantity is not None else "∞"
+        return f"{obj.quantity_sold} / {total}"
 
     @admin.display(description="Sector")
     def sector_name(self, obj: models.TicketTier) -> str:
@@ -48,13 +73,65 @@ class TicketAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin, VenueLinkMixin):  #
         "sector_name",
         "seat_label",
         "status",
+        "price_paid",
         "checked_in_at",
+        "created_at",
     ]
-    list_filter = ["status", "event__name", "tier__name", "venue", "sector"]
-    search_fields = ["event__name", "user__username", "seat__label"]
+    list_select_related = ["event", "user", "tier", "venue", "sector", "seat"]
+    list_per_page = 50
+    show_full_result_count = False
+    list_filter = [
+        "status",
+        ("event", AutocompleteSelectFilter),
+        ("tier", AutocompleteSelectFilter),
+        ("venue", AutocompleteSelectFilter),
+        ("sector", AutocompleteSelectFilter),
+    ]
+    list_filter_submit = True
+    search_fields = ["event__name", "user__username", "user__email", "guest_name", "seat__label"]
     autocomplete_fields = ["event", "user", "tier", "checked_in_by", "venue", "sector", "seat"]
-    readonly_fields = ["id", "checked_in_at", "checked_in_by"]
+    readonly_fields = [
+        "id",
+        "checked_in_at",
+        "checked_in_by",
+        "price_paid",
+        "discount_code",
+        "discount_amount",
+        "offline_refund_amount",
+        "held_pass",
+        "refund_policy_snapshot",
+        "cancelled_at",
+        "cancelled_by",
+        "cancellation_source",
+        "file_content_hash",
+        "created_at",
+        "updated_at",
+    ]
     date_hierarchy = "created_at"
+
+    fieldsets = [
+        (None, {"fields": ["id", "event", "user", "guest_name", "status", "tier"]}),
+        ("Seating", {"fields": ["venue", "sector", "seat"]}),
+        (
+            "Payment & Discounts",
+            {
+                "fields": [
+                    "price_paid",
+                    "discount_code",
+                    "discount_amount",
+                    "offline_refund_amount",
+                    "refund_policy_snapshot",
+                    "held_pass",
+                ]
+            },
+        ),
+        ("Check-in", {"fields": ["checked_in_at", "checked_in_by"]}),
+        (
+            "Cancellation",
+            {"fields": ["cancelled_at", "cancelled_by", "cancellation_source", "cancellation_reason"]},
+        ),
+        ("Metadata", {"fields": ["file_content_hash", "created_at", "updated_at"], "classes": ["collapse"]}),
+    ]
 
     @admin.display(description="Tier")
     def tier_name(self, obj: models.Ticket) -> str | None:
@@ -84,13 +161,21 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
         "stripe_session_id_short",
         "created_at",
     ]
-    list_filter = ["status", "currency", "created_at", "expires_at"]
+    list_select_related = ["user", "ticket"]
+    list_per_page = 50
+    show_full_result_count = False
+    list_filter = ["status", "refund_status", "currency", "created_at", "expires_at"]
     search_fields = ["user__username", "user__email", "ticket__event__name", "stripe_session_id"]
     readonly_fields = [
         "id",
         "user",
         "ticket",
+        "amount",
+        "currency",
+        "platform_fee",
         "stripe_session_id",
+        "stripe_payment_intent_id",
+        "reservation_id",
         "raw_response",
         "net_amount",
         "vat_amount",
@@ -98,6 +183,14 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
         "platform_fee_net",
         "platform_fee_vat",
         "platform_fee_vat_rate",
+        "platform_fee_reverse_charge",
+        "buyer_billing_snapshot",
+        "refund_amount",
+        "refund_status",
+        "stripe_refund_id",
+        "refund_failure_reason",
+        "refunded_at",
+        "expires_at",
         "created_at",
         "updated_at",
     ]
@@ -109,9 +202,22 @@ class PaymentAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ignore[m
         ("Amounts", {"fields": ["amount", "currency", "net_amount", "vat_amount", "vat_rate"]}),
         (
             "Platform Fee",
-            {"fields": ["platform_fee", "platform_fee_net", "platform_fee_vat", "platform_fee_vat_rate"]},
+            {
+                "fields": [
+                    "platform_fee",
+                    "platform_fee_net",
+                    "platform_fee_vat",
+                    "platform_fee_vat_rate",
+                    "platform_fee_reverse_charge",
+                ]
+            },
         ),
-        ("Stripe", {"fields": ["raw_response"]}),
+        (
+            "Refund",
+            {"fields": ["refund_status", "refund_amount", "stripe_refund_id", "refund_failure_reason", "refunded_at"]},
+        ),
+        ("Billing Snapshot", {"fields": ["buyer_billing_snapshot"], "classes": ["collapse"]}),
+        ("Stripe", {"fields": ["stripe_payment_intent_id", "reservation_id", "raw_response"]}),
         ("Dates", {"fields": ["expires_at", "created_at", "updated_at"]}),
     ]
 

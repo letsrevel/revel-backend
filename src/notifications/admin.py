@@ -48,9 +48,24 @@ class SystemAnnouncementForm(forms.Form):
     )
 
 
+class NotificationDeliveryInline(admin.TabularInline):  # type: ignore[type-arg]
+    """Read-only inline of per-channel deliveries for a notification."""
+
+    model = NotificationDelivery
+    extra = 0
+    can_delete = False
+    readonly_fields = ["channel", "status", "retry_count", "delivered_at", "error_message"]
+    fields = ["channel", "status", "retry_count", "delivered_at", "error_message"]
+
+    def has_add_permission(self, request: HttpRequest, obj: t.Any = None) -> bool:
+        return False
+
+
 @admin.register(Notification)
 class NotificationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
     """Admin for Notification model."""
+
+    inlines = [NotificationDeliveryInline]
 
     list_display = [
         "id",
@@ -60,9 +75,13 @@ class NotificationAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "is_read",
         "created_at",
     ]
+    list_select_related = ["user"]
+    list_per_page = 50
+    show_full_result_count = False
+    autocomplete_fields = ["user"]
     list_filter = [
         "notification_type",
-        "read_at",
+        ("read_at", admin.EmptyFieldListFilter),
         "created_at",
     ]
     search_fields = [
@@ -247,6 +266,9 @@ class NotificationDeliveryAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "delivered_at",
         "created_at",
     ]
+    list_select_related = ["notification", "notification__user"]
+    list_per_page = 50
+    show_full_result_count = False
     list_filter = [
         "channel",
         "status",
@@ -261,6 +283,9 @@ class NotificationDeliveryAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "id",
         "notification",
         "channel",
+        "status",
+        "retry_count",
+        "error_message",
         "attempted_at",
         "delivered_at",
         "created_at",
@@ -350,6 +375,8 @@ class NotificationPreferenceAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
         "event_reminders_enabled",
         "channels_display",
     ]
+    list_select_related = ["user"]
+    autocomplete_fields = ["user"]
     list_filter = [
         "silence_all_notifications",
         "digest_frequency",

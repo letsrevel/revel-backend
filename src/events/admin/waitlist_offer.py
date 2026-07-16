@@ -22,6 +22,7 @@ class WaitlistOfferAdmin(ModelAdmin, UserLinkMixin, EventLinkMixin):  # type: ig
         "batch_id",
         "created_at",
     ]
+    list_select_related = ["event", "user"]
     list_filter = ["status", "is_cutoff_batch"]
     search_fields = ["user__email", "event__name", "batch_id"]
     readonly_fields = ["created_at", "updated_at", "notified_at", "claimed_at", "batch_id"]

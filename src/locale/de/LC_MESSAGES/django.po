@@ -87,6 +87,15 @@ msgstr "Eingelöst"
 msgid "Pending"
 msgstr "Ausstehend"
 
+msgid "organization owner"
+msgstr "Organisationsinhaber:in"
+
+msgid "Yes"
+msgstr "Ja"
+
+msgid "No"
+msgstr "Nein"
+
 msgid "Your data export has been initiated."
 msgstr "Dein Datenexport wurde gestartet."
 
@@ -717,12 +726,6 @@ msgstr "Anzeigename"
 
 msgid "Active"
 msgstr "Aktiv"
-
-msgid "Yes"
-msgstr "Ja"
-
-msgid "No"
-msgstr "Nein"
 
 msgid "Email Verified"
 msgstr "E-Mail verifiziert"
@@ -3137,8 +3140,8 @@ msgid ""
 "<strong>%(user)s</strong> updated their RSVP note for <strong>%(event)s</"
 "strong>."
 msgstr ""
-"<strong>%(user)s</strong> hat die RSVP-Notiz für <strong>%(event)s</"
-"strong> aktualisiert."
+"<strong>%(user)s</strong> hat die RSVP-Notiz für <strong>%(event)s</strong> "
+"aktualisiert."
 
 msgid "Updated RSVP Details"
 msgstr "Zusagedetails (RSVP) aktualisiert"

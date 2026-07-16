@@ -11,6 +11,7 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from events import models
 from events.admin.base import (
@@ -43,6 +44,9 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         readonly = tuple(super().get_readonly_fields(request, obj))
         if not request.user.is_superuser:
             readonly = readonly + self.SUPERUSER_ONLY_FIELDS
+            if obj is not None:
+                # Ownership transfer is superuser-only; owner stays settable on create.
+                readonly = readonly + ("owner",)
         return readonly
 
     list_display = [
@@ -56,6 +60,7 @@ class OrganizationAdmin(ModelAdmin, UserLinkMixin):  # type: ignore[misc]
         "visibility",
         "created_at",
     ]
+    list_select_related = ["owner"]
     search_fields = ["name", "slug", "owner__username"]
     autocomplete_fields = ["owner", "city", "staff_members", "members"]
     prepopulated_fields = {"slug": ("name",)}
@@ -244,7 +249,8 @@ class OrganizationContactMessageAdmin(ModelAdmin, OrganizationLinkMixin):  # typ
     """
 
     list_display = ["__str__", "organization_link", "sender_link", "sender_email_snapshot", "subject", "created_at"]
-    list_filter = ["created_at", "organization__name"]
+    list_filter = ["created_at", ("organization", AutocompleteSelectFilter)]
+    list_filter_submit = True
     list_select_related = ["organization", "sender"]
     search_fields = ["organization__name", "sender_email_snapshot", "subject", "message", "sender__username"]
     readonly_fields = [
@@ -273,6 +279,7 @@ class OrganizationContactMessageAdmin(ModelAdmin, OrganizationLinkMixin):  # typ
 @admin.register(models.OrganizationQuestionnaire)
 class OrganizationQuestionnaireAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[misc]
     list_display = ["__str__", "organization_link", "questionnaire_link"]
+    list_select_related = ["organization", "questionnaire"]
     autocomplete_fields = ["organization", "questionnaire"]
     filter_horizontal = ["event_series", "events"]
 
@@ -288,15 +295,21 @@ class MembershipTierAdmin(ModelAdmin, OrganizationLinkMixin):  # type: ignore[mi
     """Admin for MembershipTier model."""
 
     list_display = ["__str__", "name", "organization_link", "member_count", "created_at"]
-    list_filter = ["organization__name", "created_at"]
+    list_select_related = ["organization"]
+    list_filter = [("organization", AutocompleteSelectFilter), "created_at"]
+    list_filter_submit = True
     search_fields = ["name", "organization__name"]
     autocomplete_fields = ["organization"]
     readonly_fields = ["created_at", "updated_at"]
     date_hierarchy = "created_at"
 
-    @admin.display(description="Members")
+    def get_queryset(self, request: HttpRequest) -> QuerySet[models.MembershipTier]:
+        qs: QuerySet[models.MembershipTier] = super().get_queryset(request)
+        return qs.annotate(_member_count=Count("members"))
+
+    @admin.display(description="Members", ordering="_member_count")
     def member_count(self, obj: models.MembershipTier) -> int:
-        return obj.members.count()
+        return t.cast(int, getattr(obj, "_member_count", 0))
 
 
 @admin.register(models.OrganizationStaff)
@@ -304,7 +317,9 @@ class OrganizationStaffAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin): 
     """Admin for OrganizationStaff model."""
 
     list_display = ["__str__", "user_link", "organization_link", "permissions_summary", "created_at"]
-    list_filter = ["organization__name", "created_at"]
+    list_select_related = ["user", "organization"]
+    list_filter = [("organization", AutocompleteSelectFilter), "created_at"]
+    list_filter_submit = True
     search_fields = ["user__username", "user__email", "organization__name"]
     autocomplete_fields = ["user", "organization"]
     readonly_fields = ["created_at", "updated_at"]
@@ -324,7 +339,14 @@ class OrganizationMemberAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin):
     """Admin for OrganizationMember model."""
 
     list_display = ["__str__", "user_link", "organization_link", "status", "tier_name", "created_at"]
-    list_filter = ["status", "organization__name", "tier__name", "created_at"]
+    list_select_related = ["user", "organization", "tier"]
+    list_filter = [
+        "status",
+        ("organization", AutocompleteSelectFilter),
+        ("tier", AutocompleteSelectFilter),
+        "created_at",
+    ]
+    list_filter_submit = True
     search_fields = ["user__username", "user__email", "organization__name"]
     autocomplete_fields = ["user", "organization", "tier"]
     readonly_fields = ["created_at", "updated_at"]
@@ -340,7 +362,9 @@ class OrganizationMembershipRequestAdmin(ModelAdmin, UserLinkMixin, Organization
     """Admin for OrganizationMembershipRequest model."""
 
     list_display = ["__str__", "user_link", "organization_link", "status_display", "decided_by_link", "created_at"]
-    list_filter = ["status", "organization__name", "created_at"]
+    list_select_related = ["user", "organization", "decided_by"]
+    list_filter = ["status", ("organization", AutocompleteSelectFilter), "created_at"]
+    list_filter_submit = True
     search_fields = ["user__username", "user__email", "organization__name", "message"]
     autocomplete_fields = ["user", "organization", "decided_by"]
     readonly_fields = ["created_at", "updated_at"]
@@ -379,7 +403,15 @@ class OrganizationTokenAdmin(ModelAdmin, UserLinkMixin, OrganizationLinkMixin): 
         "expires_at",
         "created_at",
     ]
-    list_filter = ["organization__name", "grants_membership", "grants_staff_status", "expires_at", "created_at"]
+    list_select_related = ["organization", "issuer", "membership_tier"]
+    list_filter = [
+        ("organization", AutocompleteSelectFilter),
+        "grants_membership",
+        "grants_staff_status",
+        "expires_at",
+        "created_at",
+    ]
+    list_filter_submit = True
     search_fields = ["name", "organization__name", "issuer__username"]
     autocomplete_fields = ["organization", "issuer", "membership_tier"]
     readonly_fields = ["id", "created_at", "updated_at"]

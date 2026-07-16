@@ -85,6 +85,15 @@ msgstr "Riscattato"
 msgid "Pending"
 msgstr "In sospeso"
 
+msgid "organization owner"
+msgstr "proprietario dell'organizzazione"
+
+msgid "Yes"
+msgstr "Sì"
+
+msgid "No"
+msgstr "No"
+
 msgid "Your data export has been initiated."
 msgstr "L'esportazione dei tuoi dati è stata avviata."
 
@@ -707,12 +716,6 @@ msgstr "Nome visualizzato"
 
 msgid "Active"
 msgstr "Attivo"
-
-msgid "Yes"
-msgstr "Sì"
-
-msgid "No"
-msgstr "No"
 
 msgid "Email Verified"
 msgstr "Email verificata"
