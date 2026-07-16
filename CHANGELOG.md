@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.72.0] - 2026-07-16
+
+### Added
+- **RSVP Notes**: organizers can opt in per event (`accept_rsvp_notes`, off by default) to accepting a short plain-text note (≤500 chars) with RSVPs — e.g. dietary info or "arriving late"
+  - `POST /events/{id}/rsvp/{answer}` accepts an optional `{note}` body; each submission overrides the stored note (omitted/empty clears it), and the note is returned in the RSVP response, `GET /my-status`, and the user's RSVP list
+  - Guest RSVPs carry the note through the confirmation email; if the organizer disables notes before the guest confirms, the note is dropped without failing the confirmation
+  - Staff `RSVP_CONFIRMATION`/`RSVP_UPDATED` notifications include the note, and note-only changes now trigger `RSVP_UPDATED` (previously only status changes did)
+  - Event-admin RSVP create/update accept `note` regardless of the flag, for offline/phone RSVPs
+  - `accept_rsvp_notes` propagates from a series template to future unmodified occurrences
+
 ## [1.71.2] - 2026-07-16
 
 ### Added
