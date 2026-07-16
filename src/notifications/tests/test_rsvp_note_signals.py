@@ -70,6 +70,36 @@ def test_note_only_change_fires_rsvp_updated(
     assert notification.context["old_response"] == notification.context["new_response"]
 
 
+def test_cleared_note_fires_rsvp_updated_without_note(
+    public_event: Event,
+    member_user: RevelUser,
+    regular_user: RevelUser,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """Clearing the note (same status) fires RSVP_UPDATED, but rsvp_note is absent from the context."""
+    _make_rsvp(
+        public_event,
+        member_user,
+        django_capture_on_commit_callbacks,
+        status=EventRSVP.RsvpStatus.YES,
+        note="something",
+    )
+
+    _make_rsvp(
+        public_event,
+        member_user,
+        django_capture_on_commit_callbacks,
+        status=EventRSVP.RsvpStatus.YES,
+        note="",
+    )
+
+    notification = Notification.objects.filter(
+        user=regular_user, notification_type=NotificationType.RSVP_UPDATED
+    ).latest("created_at")
+    assert "rsvp_note" not in notification.context
+    assert notification.context["old_response"] == notification.context["new_response"]
+
+
 def test_unchanged_resave_fires_nothing(
     public_event: Event,
     member_user: RevelUser,
