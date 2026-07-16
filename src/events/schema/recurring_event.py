@@ -104,6 +104,7 @@ class TemplateEditSchema(Schema):
     requires_full_profile: bool | None = None
     potluck_open: bool | None = None
     accept_invitation_requests: bool | None = None
+    accept_rsvp_notes: bool | None = None
     public_pronoun_distribution: bool | None = None
     can_attend_without_login: bool | None = None
     requires_ticket: bool | None = None

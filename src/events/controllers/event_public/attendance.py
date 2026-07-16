@@ -1,8 +1,10 @@
+import typing as t
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from ninja import Body
 from ninja.errors import HttpError
 from ninja_extra import (
     api_controller,
@@ -119,18 +121,26 @@ class EventPublicAttendanceController(EventPublicBaseController):
         auth=I18nJWTAuth(),
         throttle=WriteThrottle(),
     )
-    def rsvp_event(self, event_id: UUID, answer: models.EventRSVP.RsvpStatus) -> models.EventRSVP:
+    def rsvp_event(
+        self,
+        event_id: UUID,
+        answer: models.EventRSVP.RsvpStatus,
+        payload: t.Annotated[schema.RSVPNoteSchema | None, Body(None)] = None,
+    ) -> models.EventRSVP:
         """RSVP to a non-ticketed event (answer: 'yes', 'no', or 'maybe').
 
         Only works for events where requires_ticket=false. Runs full eligibility check including
         event status, RSVP deadline, invitations, membership requirements, required questionnaires,
         and capacity limits. Returns RSVP record on success. On failure, returns eligibility details
         explaining what's blocking you and what next_step to take (e.g., complete questionnaire,
-        request invitation).
+        request invitation). Accepts an optional JSON body with a plain-text ``note`` (max 500
+        chars) when the event has ``accept_rsvp_notes`` enabled; each submission overrides the
+        stored note (omitted/empty = cleared). Returns 400 if a note is sent while the event does
+        not accept notes.
         """
         event = self.get_one(event_id)
         manager = EventManager(self.user(), event)
-        return manager.rsvp(answer)
+        return manager.rsvp(answer, note=payload.note if payload else "")
 
     @route.post(
         "/{uuid:event_id}/bookmark",

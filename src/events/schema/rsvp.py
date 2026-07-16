@@ -1,9 +1,10 @@
 """RSVP and waitlist schemas."""
 
+import typing as t
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field, StringConstraints
 
 from accounts.schema import MinimalRevelUserSchema
 from events import models
@@ -14,6 +15,14 @@ from .organization import MinimalOrganizationMemberSchema
 from .ticket import UserTicketSchema
 from .waitlist import WaitlistOfferSchema
 
+RSVPNoteField = t.Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
+
+
+class RSVPNoteSchema(Schema):
+    """Optional JSON body for the RSVP endpoint."""
+
+    note: RSVPNoteField = ""
+
 
 class EventRSVPSchema(ModelSchema):
     event_id: UUID
@@ -21,7 +30,7 @@ class EventRSVPSchema(ModelSchema):
 
     class Meta:
         model = EventRSVP
-        fields = ["status"]
+        fields = ["status", "note"]
 
 
 # RSVP Admin Schemas
@@ -40,7 +49,7 @@ class RSVPDetailSchema(ModelSchema):
 
     class Meta:
         model = EventRSVP
-        fields = ["id", "status", "created_at", "updated_at"]
+        fields = ["id", "status", "note", "created_at", "updated_at"]
 
     @staticmethod
     def resolve_membership(obj: EventRSVP) -> models.OrganizationMember | None:
@@ -114,7 +123,7 @@ class UserRSVPSchema(ModelSchema):
 
     class Meta:
         model = EventRSVP
-        fields = ["id", "status", "created_at", "updated_at"]
+        fields = ["id", "status", "note", "created_at", "updated_at"]
 
 
 class TierRemainingTicketsSchema(Schema):
