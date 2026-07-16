@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.71.2] - 2026-07-16
+
+### Added
+- Demo bootstrap data now ships with cover art: `bootstrap_events` attaches bundled, metadata-stripped images to both demo organizations and 11 events, generating thumbnails (150×150 and 1200×630 social) synchronously so demo data is complete without a Celery worker. Files are stored under deterministic `cover-art/bootstrap/` paths, so repeated bootstraps (e.g. the nightly demo reset) reuse the existing files instead of re-uploading.
+
+### Fixed
+- Saving a model with an already-stored image (e.g. editing an organization or event with a logo/cover) no longer writes a re-encoded duplicate of the image to storage on every save — EXIF stripping now runs only for fresh uploads.
+
 ## [1.71.1] - 2026-07-15
 
 ### Security
