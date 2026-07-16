@@ -100,6 +100,24 @@ def test_cleared_note_fires_rsvp_updated_without_note(
     assert notification.context["old_response"] == notification.context["new_response"]
 
 
+def test_null_status_change_fires_rsvp_updated(
+    public_event: Event,
+    member_user: RevelUser,
+    regular_user: RevelUser,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """A status change from NULL (status is nullable) to a real answer fires RSVP_UPDATED."""
+    EventRSVP.objects.create(event=public_event, user=member_user)  # status defaults to None
+
+    _make_rsvp(public_event, member_user, django_capture_on_commit_callbacks, status=EventRSVP.RsvpStatus.YES)
+
+    notification = Notification.objects.filter(
+        user=regular_user, notification_type=NotificationType.RSVP_UPDATED
+    ).latest("created_at")
+    assert notification.context["old_response"] is None
+    assert notification.context["new_response"] == EventRSVP.RsvpStatus.YES
+
+
 def test_unchanged_resave_fires_nothing(
     public_event: Event,
     member_user: RevelUser,

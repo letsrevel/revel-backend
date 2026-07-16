@@ -79,12 +79,13 @@ def _send_rsvp_updated_notifications(rsvp: EventRSVP) -> None:
     """Send notifications when RSVP is updated."""
     from common.models import SiteSettings
 
-    old_status = getattr(rsvp, "_old_status", None)
+    # EventRSVP.status is nullable, so a captured _old_status of None is still a real
+    # change — only the *absence* of the attribute means the status didn't change.
+    status_changed = hasattr(rsvp, "_old_status")
     note_changed = hasattr(rsvp, "_old_note")
-    if old_status is None and not note_changed:
+    if not status_changed and not note_changed:
         return  # Nothing observable changed
-    if old_status is None:
-        old_status = rsvp.status  # Note-only change: old == new response
+    old_status = getattr(rsvp, "_old_status", rsvp.status)  # Note-only change: old == new response
 
     event = rsvp.event
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
