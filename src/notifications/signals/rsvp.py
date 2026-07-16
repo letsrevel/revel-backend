@@ -145,6 +145,14 @@ def handle_event_rsvp_save(sender: type[EventRSVP], instance: EventRSVP, created
             _send_rsvp_confirmation_notifications(instance)
         else:
             _send_rsvp_updated_notifications(instance)
+        # Clear the pre_save change markers after dispatch: a later save of this
+        # same in-memory instance registers its own on_commit callback, which
+        # would otherwise re-read the stale markers and emit a duplicate.
+        # (Clearing must happen here, not in pre_save — callbacks only run at
+        # commit, so clearing earlier would drop the legitimate notification.)
+        for attr in ("_old_status", "_old_note"):
+            if hasattr(instance, attr):
+                delattr(instance, attr)
 
     transaction.on_commit(send_notifications)
 

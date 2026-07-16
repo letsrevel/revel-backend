@@ -8,7 +8,7 @@ from django.urls import reverse
 from ninja_jwt.tokens import RefreshToken
 
 from accounts.models import RevelUser
-from events.models import Event, EventRSVP, Organization
+from events.models import Event, EventRSVP
 
 pytestmark = pytest.mark.django_db
 
@@ -23,7 +23,7 @@ def user_client(revel_user_factory: t.Any) -> tuple[Client, RevelUser]:
 
 
 @pytest.fixture
-def notes_event(organization: Organization, public_event: Event) -> Event:
+def notes_event(public_event: Event) -> Event:
     """Public non-ticketed event with RSVP notes enabled."""
     public_event.requires_ticket = False
     public_event.accept_rsvp_notes = True

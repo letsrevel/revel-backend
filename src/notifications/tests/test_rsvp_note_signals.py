@@ -118,6 +118,34 @@ def test_null_status_change_fires_rsvp_updated(
     assert notification.context["new_response"] == EventRSVP.RsvpStatus.YES
 
 
+def test_double_save_in_one_transaction_fires_single_update(
+    public_event: Event,
+    member_user: RevelUser,
+    regular_user: RevelUser,
+    django_capture_on_commit_callbacks: t.Any,
+) -> None:
+    """A changed save followed by an unchanged re-save of the same instance sends one notification.
+
+    The pre_save hook stamps ``_old_status``/``_old_note`` on the in-memory
+    instance; without post-dispatch cleanup the second save's on_commit
+    callback would re-read the stale attributes and emit a duplicate.
+    """
+    rsvp = _make_rsvp(
+        public_event,
+        member_user,
+        django_capture_on_commit_callbacks,
+        status=EventRSVP.RsvpStatus.YES,
+        note="",
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        rsvp.status = EventRSVP.RsvpStatus.MAYBE
+        rsvp.save()
+        rsvp.save()  # unchanged re-save of the same in-memory instance
+
+    assert Notification.objects.filter(user=regular_user, notification_type=NotificationType.RSVP_UPDATED).count() == 1
+
+
 def test_unchanged_resave_fires_nothing(
     public_event: Event,
     member_user: RevelUser,
