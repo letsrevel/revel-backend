@@ -8,7 +8,7 @@ import typing as t
 
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin
-from django.db.models import Count, IntegerField, OuterRef, QuerySet, Subquery
+from django.db.models import Count, Exists, IntegerField, OuterRef, QuerySet, Subquery
 from django.db.models.functions import Coalesce
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
@@ -148,6 +148,26 @@ class UserBillingProfileInline(TabularInline):  # type: ignore[misc]
     fields = readonly_fields
 
 
+class IsOrganizationOwnerFilter(admin.SimpleListFilter):
+    """Filter users by whether they own at least one organization."""
+
+    title = _("organization owner")
+    parameter_name = "is_owner"
+
+    def lookups(self, request: HttpRequest, model_admin: admin.ModelAdmin) -> list[tuple[str, str]]:  # type: ignore[type-arg]
+        return [("yes", str(_("Yes"))), ("no", str(_("No")))]
+
+    def queryset(self, request: HttpRequest, queryset: QuerySet[RevelUser]) -> QuerySet[RevelUser]:
+        from events.models import Organization
+
+        owns_org = Exists(Organization.objects.filter(owner=OuterRef("pk")))
+        if self.value() == "yes":
+            return queryset.filter(owns_org)
+        if self.value() == "no":
+            return queryset.filter(~owns_org)
+        return queryset
+
+
 @admin.register(RevelUser)
 class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     """Enhanced admin for RevelUser with comprehensive user management."""
@@ -155,9 +175,8 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
     # List view configuration
     list_display = [
         "profile_thumbnail_display",
-        "username",
-        "email",
         "display_name_display",
+        "email_link",
         "pronouns",
         "email_verified_display",
         "totp_active_display",
@@ -169,7 +188,9 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         "organization_count",
         "impersonate_link",
     ]
+    list_display_links = ["profile_thumbnail_display", "display_name_display"]
     list_filter = [
+        IsOrganizationOwnerFilter,
         "is_staff",
         "is_superuser",
         "is_active",
@@ -414,9 +435,17 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
         """Display profile picture preview in detail view."""
         return formatters.profile_image_preview(obj)
 
-    @admin.display(description="Display Name", ordering="preferred_name")
+    @admin.display(description="Name", ordering="preferred_name")
     def display_name_display(self, obj: RevelUser) -> str:
-        return obj.get_display_name()
+        name = obj.get_display_name()
+        # Crown marks organization owners (see _is_owner annotation in get_queryset).
+        if getattr(obj, "_is_owner", False):
+            return f"👑 {name}"
+        return name
+
+    @admin.display(description="Email", ordering="email")
+    def email_link(self, obj: RevelUser) -> str:
+        return format_html('<a href="mailto:{}">{}</a>', obj.email, obj.email)
 
     @admin.display(description="Email Verified", boolean=True)
     def email_verified_display(self, obj: RevelUser) -> bool:
@@ -457,6 +486,7 @@ class RevelUserAdmin(UserAdmin, ModelAdmin):  # type: ignore[type-arg,misc]
             qs.annotate(
                 _event_count=sub(ticket_events) + sub(rsvp_events),
                 _organization_count=sub(owned) + sub(member) + sub(staff),
+                _is_owner=Exists(Organization.objects.filter(owner=OuterRef("pk"))),
             ),
         )
 
