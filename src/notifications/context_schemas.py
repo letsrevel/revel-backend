@@ -201,6 +201,7 @@ class RSVPConfirmationContext(BaseNotificationContext):
     response: str  # YES, NO, MAYBE
     user_name: str  # Name of person who RSVP'd (for staff notifications)
     user_email: str  # Email of person who RSVP'd (for staff notifications)
+    rsvp_note: t.NotRequired[str]  # Attendee note (only when event accepts notes and one was sent)
 
 
 class RSVPUpdatedContext(BaseNotificationContext):
@@ -213,6 +214,7 @@ class RSVPUpdatedContext(BaseNotificationContext):
     new_response: str
     user_name: str  # Name of person who updated RSVP (for staff notifications)
     user_email: str  # Email of person who updated RSVP (for staff notifications)
+    rsvp_note: t.NotRequired[str]  # Attendee note (only when event accepts notes and one was sent)
 
 
 class RSVPCancelledContext(BaseNotificationContext):

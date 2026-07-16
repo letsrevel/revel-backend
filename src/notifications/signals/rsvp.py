@@ -45,6 +45,8 @@ def _build_rsvp_context(rsvp: EventRSVP) -> dict[str, t.Any]:
         context["guest_count"] = rsvp.guest_count
     if hasattr(rsvp, "dietary_restrictions") and rsvp.dietary_restrictions:
         context["dietary_restrictions"] = rsvp.dietary_restrictions
+    if rsvp.note:
+        context["rsvp_note"] = rsvp.note
 
     return context
 
@@ -77,15 +79,12 @@ def _send_rsvp_updated_notifications(rsvp: EventRSVP) -> None:
     """Send notifications when RSVP is updated."""
     from common.models import SiteSettings
 
-    # Check if old status was captured in pre_save
-    if not hasattr(rsvp, "_old_status"):
-        return  # No status change
-
-    old_status = rsvp._old_status
-
-    # Skip if old and new status are the same
-    if old_status == rsvp.status:
-        return
+    old_status = getattr(rsvp, "_old_status", None)
+    note_changed = hasattr(rsvp, "_old_note")
+    if old_status is None and not note_changed:
+        return  # Nothing observable changed
+    if old_status is None:
+        old_status = rsvp.status  # Note-only change: old == new response
 
     event = rsvp.event
     frontend_base_url = SiteSettings.get_solo().frontend_base_url
@@ -105,6 +104,8 @@ def _send_rsvp_updated_notifications(rsvp: EventRSVP) -> None:
         "user_name": rsvp.user.get_display_name(),
         "user_email": rsvp.user.email,
     }
+    if rsvp.note:
+        context["rsvp_note"] = rsvp.note
 
     # Add optional fields if available
     if hasattr(rsvp, "guest_count"):
@@ -115,14 +116,18 @@ def _send_rsvp_updated_notifications(rsvp: EventRSVP) -> None:
 
 @receiver(pre_save, sender=EventRSVP)
 def capture_rsvp_old_status(sender: type[EventRSVP], instance: EventRSVP, **kwargs: t.Any) -> None:
-    """Capture the old status value before save for change detection in post_save."""
-    if instance.pk:
-        try:
-            old_instance = EventRSVP.objects.get(pk=instance.pk)
-            if old_instance.status != instance.status:
-                instance._old_status = old_instance.status  # type: ignore[attr-defined]
-        except EventRSVP.DoesNotExist:
-            logger.debug("rsvp_not_found_for_old_status", pk=instance.pk)
+    """Capture old status/note before save for change detection in post_save."""
+    if not instance.pk:
+        return
+    try:
+        old_instance = EventRSVP.objects.get(pk=instance.pk)
+    except EventRSVP.DoesNotExist:
+        logger.debug("rsvp_not_found_for_old_status", pk=instance.pk)
+        return
+    if old_instance.status != instance.status:
+        instance._old_status = old_instance.status  # type: ignore[attr-defined]
+    if old_instance.note != instance.note:
+        instance._old_note = old_instance.note  # type: ignore[attr-defined]
 
 
 @receiver(post_save, sender=EventRSVP)

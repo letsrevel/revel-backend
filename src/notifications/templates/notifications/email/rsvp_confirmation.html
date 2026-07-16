@@ -10,6 +10,7 @@
         <h3 style="margin-top: 0;">{% trans "RSVP Details" %}</h3>
         <div class="info-row"><span class="label">{% trans "User:" %}</span> {{ context.user_name }} ({{ context.user_email }})</div>
         <div class="info-row"><span class="label">{% trans "Response:" %}</span> {{ context.response }}</div>
+        {% if context.rsvp_note %}<div class="info-row"><span class="label">{% trans "Note:" %}</span> {{ context.rsvp_note }}</div>{% endif %}
     </div>
 {% else %}
     <p style="font-size: 18px;">{% blocktranslate with event=context.event_name response=context.response %}Your RSVP (<strong>{{ response }}</strong>) for <strong>{{ event }}</strong> has been confirmed! ✅{% endblocktranslate %}</p>
