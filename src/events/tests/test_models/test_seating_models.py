@@ -1,10 +1,26 @@
 """Tests for Phase-1 seating models (PriceCategory, sector kind, seat columns)."""
 
+from datetime import timedelta
+
 import pytest
 from django.core.exceptions import ValidationError
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError
+from django.db.models import Q
+from django.utils import timezone
 
-from events.models import Event, Organization, PriceCategory, TicketTier, Venue, VenueSeat, VenueSector
+from accounts.models import RevelUser
+from events.models import (
+    Event,
+    EventSeatOverride,
+    Organization,
+    PriceCategory,
+    SeatHold,
+    TicketTier,
+    Venue,
+    VenueSeat,
+    VenueSector,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -94,3 +110,106 @@ def test_two_tiers_may_share_one_category(event: Event, venue: Venue) -> None:
     a = TicketTier.objects.create(event=event, name="Adult", price_category=cat)
     b = TicketTier.objects.create(event=event, name="Student", price_category=cat)
     assert a.price_category_id == b.price_category_id
+
+
+@pytest.fixture
+def revel_user(django_user_model: type[RevelUser]) -> RevelUser:
+    return django_user_model.objects.create_user(username="seat_holder", email="seat_holder@example.com", password="pw")
+
+
+# --- EventSeatOverride ------------------------------------------------------
+
+
+def test_override_unique_per_event_seat(event: Event, sector: VenueSector) -> None:
+    """(event, seat) is unique. Proven at the DB level via bulk_create (bypasses full_clean)."""
+    seat = VenueSeat.objects.create(sector=sector, label="B1", row_label="B", number=1)
+    EventSeatOverride.objects.create(
+        event=event, seat=seat, status=EventSeatOverride.OverrideStatus.HELD, reason="house"
+    )
+    # bulk_create skips TimeStampedModel.save/full_clean, so the duplicate hits the
+    # DB UniqueConstraint directly and raises IntegrityError (not ValidationError).
+    with pytest.raises(IntegrityError):
+        EventSeatOverride.objects.bulk_create(
+            [EventSeatOverride(event=event, seat=seat, status=EventSeatOverride.OverrideStatus.KILLED)]
+        )
+
+
+# --- SeatHold ---------------------------------------------------------------
+
+
+def test_seathold_exactly_one_owner_check(event: Event, sector: VenueSector) -> None:
+    """The exactly-one-owner CHECK fires at the DB level when neither owner is set.
+
+    bulk_create bypasses full_clean so this proves the raw-SQL path (which also
+    bypasses full_clean) is guarded by a real DB CheckConstraint.
+    """
+    seat = VenueSeat.objects.create(sector=sector, label="B2", row_label="B", number=2)
+    now = timezone.now()
+    with pytest.raises(IntegrityError):
+        SeatHold.objects.bulk_create(
+            [SeatHold(event=event, seat=seat, acquired_at=now, expires_at=now + timedelta(minutes=10))]
+        )
+
+
+def test_seathold_both_owners_violate_check(event: Event, sector: VenueSector, revel_user: RevelUser) -> None:
+    """Setting BOTH user and guest_session also violates the exactly-one-owner CHECK."""
+    seat = VenueSeat.objects.create(sector=sector, label="B2b", row_label="B", number=22)
+    now = timezone.now()
+    with pytest.raises(IntegrityError):
+        SeatHold.objects.bulk_create(
+            [
+                SeatHold(
+                    event=event,
+                    seat=seat,
+                    user=revel_user,
+                    guest_session="gs-both",
+                    acquired_at=now,
+                    expires_at=now + timedelta(minutes=10),
+                )
+            ]
+        )
+
+
+def test_seathold_unconditional_unique(event: Event, sector: VenueSector, revel_user: RevelUser) -> None:
+    """(event, seat) is unconditionally unique across ALL rows (no time predicate)."""
+    seat = VenueSeat.objects.create(sector=sector, label="B3", row_label="B", number=3)
+    now = timezone.now()
+    SeatHold.objects.create(
+        event=event, seat=seat, user=revel_user, acquired_at=now, expires_at=now + timedelta(minutes=10)
+    )
+    with pytest.raises(IntegrityError):
+        SeatHold.objects.bulk_create(
+            [
+                SeatHold(
+                    event=event,
+                    seat=seat,
+                    guest_session="gs-x",
+                    acquired_at=now,
+                    expires_at=now + timedelta(minutes=10),
+                )
+            ]
+        )
+
+
+def test_seathold_active_manager(event: Event, sector: VenueSector, revel_user: RevelUser) -> None:
+    """active() excludes expired holds."""
+    seat = VenueSeat.objects.create(sector=sector, label="B4", row_label="B", number=4)
+    now = timezone.now()
+    SeatHold.objects.create(
+        event=event, seat=seat, user=revel_user, acquired_at=now, expires_at=now - timedelta(seconds=1)
+    )
+    assert SeatHold.objects.active().count() == 0
+
+    seat2 = VenueSeat.objects.create(sector=sector, label="B5", row_label="B", number=5)
+    SeatHold.objects.create(
+        event=event, seat=seat2, guest_session="gs-live", acquired_at=now, expires_at=now + timedelta(minutes=10)
+    )
+    assert SeatHold.objects.active().count() == 1
+
+
+def test_seathold_owner_q(revel_user: RevelUser) -> None:
+    """owner_q maps an authenticated user to Q(user=...) and a guest to Q(guest_session=...)."""
+    assert SeatHold.owner_q(revel_user, None) == Q(user=revel_user)
+    assert SeatHold.owner_q(None, "gs-1") == Q(guest_session="gs-1")
+    # An unauthenticated/None identity with no guest session must never match a real guest session.
+    assert SeatHold.owner_q(None, None) == Q(guest_session="__none__")

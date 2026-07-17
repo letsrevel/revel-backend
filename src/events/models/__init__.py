@@ -43,6 +43,7 @@ from .questionnaire import EventQuestionnaireSubmission, OrganizationQuestionnai
 from .recurrence_rule import RecurrenceRule
 from .reserved_slug_token import ReservedSlugToken
 from .rsvp import EventRSVP
+from .seating import EventSeatOverride, SeatHold
 from .series_pass import HeldSeriesPass, SeriesPass, SeriesPassTierLink
 from .stripe_webhook_event import StripeWebhookEvent
 from .subscription import (
@@ -118,6 +119,9 @@ __all__ = [
     "Venue",
     "VenueSeat",
     "VenueSector",
+    # Seating (per-event)
+    "EventSeatOverride",
+    "SeatHold",
     # Blacklist
     "Blacklist",
     "WhitelistRequest",
