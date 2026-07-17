@@ -1,0 +1,92 @@
+"""Public seating controller: chart, availability, holds (POST/DELETE)."""
+
+import pytest
+from django.test.client import Client
+
+from accounts.models import RevelUser
+from events.models import Event, VenueSeat
+from events.service.guest_hold_session import GUEST_HOLD_COOKIE
+from events.service.seating import holds as holds_service
+
+pytestmark = pytest.mark.django_db
+
+
+def test_chart_returns_sectors_and_seats(client: Client, seated_event: tuple[Event, list[VenueSeat]]) -> None:
+    event, seats = seated_event
+    resp = client.get(f"/api/events/{event.id}/seating/chart")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["venue_name"] == "Hall"
+    assert len(body["sectors"]) == 1
+    assert len(body["sectors"][0]["seats"]) == len(seats)
+
+
+def test_chart_404_when_event_has_no_venue(client: Client, event: Event) -> None:
+    resp = client.get(f"/api/events/{event.id}/seating/chart")
+    assert resp.status_code == 404
+
+
+def test_availability_reports_sparse_statuses(
+    member_client: Client, seated_event: tuple[Event, list[VenueSeat]], public_user: RevelUser
+) -> None:
+    event, seats = seated_event
+    holds_service.acquire_seats(event, [seats[0].id], user=public_user, guest_session=None)
+    resp = member_client.get(f"/api/events/{event.id}/seating/availability")
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["seats"][str(seats[0].id)] == "held"
+
+
+def test_anonymous_hold_sets_guest_cookie_and_holds(
+    client: Client, seated_event: tuple[Event, list[VenueSeat]]
+) -> None:
+    event, seats = seated_event
+    resp = client.post(
+        f"/api/events/{event.id}/seating/holds",
+        data={"seat_ids": [str(seats[0].id)]},
+        content_type="application/json",
+    )
+    assert resp.status_code == 200, resp.content
+    assert GUEST_HOLD_COOKIE in resp.cookies
+    assert resp.cookies[GUEST_HOLD_COOKIE]["httponly"]
+    assert resp.json()["held_seat_ids"] == [str(seats[0].id)]
+
+
+def test_authenticated_hold(member_client: Client, seated_event: tuple[Event, list[VenueSeat]]) -> None:
+    event, seats = seated_event
+    resp = member_client.post(
+        f"/api/events/{event.id}/seating/holds",
+        data={"seat_ids": [str(seats[1].id)]},
+        content_type="application/json",
+    )
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["held_seat_ids"] == [str(seats[1].id)]
+    assert GUEST_HOLD_COOKIE not in resp.cookies  # no guest cookie for authenticated user
+
+
+def test_conflicting_hold_returns_409(
+    member_client: Client, seated_event: tuple[Event, list[VenueSeat]], public_user: RevelUser
+) -> None:
+    event, seats = seated_event
+    holds_service.acquire_seats(event, [seats[0].id], user=public_user, guest_session=None)
+    resp = member_client.post(
+        f"/api/events/{event.id}/seating/holds",
+        data={"seat_ids": [str(seats[0].id)]},
+        content_type="application/json",
+    )
+    assert resp.status_code == 409, resp.content
+    assert resp.json()["conflicts"] == [str(seats[0].id)]
+
+
+def test_release_seats(
+    member_client: Client, member_user: RevelUser, seated_event: tuple[Event, list[VenueSeat]]
+) -> None:
+    event, seats = seated_event
+    holds_service.acquire_seats(event, [seats[0].id], user=member_user, guest_session=None)
+    resp = member_client.delete(
+        f"/api/events/{event.id}/seating/holds",
+        data={"seat_ids": [str(seats[0].id)]},
+        content_type="application/json",
+    )
+    assert resp.status_code == 200, resp.content
+    avail = member_client.get(f"/api/events/{event.id}/seating/availability")
+    assert str(seats[0].id) not in avail.json()["seats"]

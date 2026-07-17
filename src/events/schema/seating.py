@@ -4,7 +4,7 @@ import typing as t
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import AwareDatetime, Field
+from pydantic import AwareDatetime, Field, field_serializer
 
 from events.models import EventSeatOverride
 
@@ -55,6 +55,17 @@ class SeatingAvailabilitySchema(Schema):
     standing: dict[UUID, StandingAvailabilitySchema] = Field(default_factory=dict)
     my_holds: list[UUID] = Field(default_factory=list)
     my_holds_expire_at: AwareDatetime | None = None
+
+    # UUID dict keys aren't JSON-serializable (json.dumps rejects non-str keys) and Ninja
+    # dumps responses in python mode, so stringify the keys at serialization time. The stored
+    # attributes keep UUID keys for in-process callers.
+    @field_serializer("seats")
+    def _serialize_seats(self, value: dict[UUID, str]) -> dict[str, str]:
+        return {str(k): v for k, v in value.items()}
+
+    @field_serializer("standing")
+    def _serialize_standing(self, value: dict[UUID, StandingAvailabilitySchema]) -> dict[str, dict[str, t.Any]]:
+        return {str(k): v.model_dump() for k, v in value.items()}
 
 
 class HoldSeatsRequest(Schema):
