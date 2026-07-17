@@ -16,7 +16,7 @@ from events.utils.refund_policy import RefundPolicy, RefundPolicyTier
 
 from .event import MinimalEventSchema
 from .organization import MembershipTierSchema, MinimalOrganizationMemberSchema
-from .venue import MinimalSeatSchema, VenueSchema, VenueSectorSchema
+from .venue import MinimalSeatSchema, PriceCategorySchema, VenueSchema, VenueSectorSchema
 
 # RefundPolicy + RefundPolicyTier (with the monotonic-tiers validator) live in
 # events.utils.refund_policy so services, models, and schemas share one source
@@ -70,6 +70,7 @@ class TicketTierSchema(ModelSchema):
     max_tickets_per_user: int | None = None
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
+    price_category: PriceCategorySchema | None = None
     can_purchase: bool = True
     invoicing_available: bool = False
     refund_policy: RefundPolicySchema | None = None
@@ -393,6 +394,7 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
     max_tickets_per_user: int | None = None
     venue_id: UUID | None = None
     sector_id: UUID | None = None
+    price_category_id: UUID | None = Field(default=None)
 
     # None (or omitted) means "append at the bottom"; an explicit value pins the position (#514).
     display_order: int | None = None
@@ -411,9 +413,13 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
 
     @model_validator(mode="after")
     def validate_seat_assignment_requires_sector(self) -> t.Self:
-        """Validate that seat assignment modes require a sector."""
-        if self.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE and self.sector_id is None:
-            raise ValueError("Sector is required when seat assignment mode is not NONE.")
+        """Validate that seat assignment modes require a sector or price category."""
+        if (
+            self.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE
+            and self.sector_id is None
+            and self.price_category_id is None
+        ):
+            raise ValueError("A sector or price category is required when seat assignment mode is not NONE.")
         return self
 
 
@@ -440,6 +446,7 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
     max_tickets_per_user: int | None = None
     venue_id: UUID | None = None
     sector_id: UUID | None = None
+    price_category_id: UUID | None = Field(default=None)
 
     display_order: int | None = None
 
@@ -457,14 +464,15 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
 
     @model_validator(mode="after")
     def validate_seat_assignment_requires_sector(self) -> t.Self:
-        """Validate that seat assignment modes require a sector when being set."""
+        """Validate that seat assignment modes require a sector or price category when being set."""
         # Only validate if seat_assignment_mode is being explicitly set to a non-NONE value
         if (
             self.seat_assignment_mode is not None
             and self.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE
             and self.sector_id is None
+            and self.price_category_id is None
         ):
-            raise ValueError("Sector is required when seat assignment mode is not NONE.")
+            raise ValueError("A sector or price category is required when seat assignment mode is not NONE.")
         return self
 
 
@@ -476,6 +484,7 @@ class TicketTierDetailSchema(ModelSchema):
     max_tickets_per_user: int | None = None
     venue: VenueSchema | None = None
     sector: VenueSectorSchema | None = None
+    price_category: PriceCategorySchema | None = None
     vat_rate: Decimal | None = None
     invoicing_available: bool = False
     refund_policy: RefundPolicySchema | None = None

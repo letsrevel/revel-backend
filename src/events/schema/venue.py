@@ -7,7 +7,7 @@ from ninja import ModelSchema, Schema
 from pydantic import Field, StringConstraints, model_validator
 
 from common.schema import OneToOneFiftyString, StrippedString
-from events.models import Venue, VenueSeat, VenueSector
+from events.models import PriceCategory, Venue, VenueSeat, VenueSector
 
 from .mixins import CityEditMixin, CityRetrieveMixin
 
@@ -47,6 +47,14 @@ def point_in_polygon(point: Coordinate2D, polygon: list[Coordinate2D]) -> bool:
         p1x, p1y = p2x, p2y
 
     return inside
+
+
+class PriceCategorySchema(ModelSchema):
+    """Venue price category (map color + name)."""
+
+    class Meta:
+        model = PriceCategory
+        fields = ["id", "name", "color", "display_order"]
 
 
 class VenueSeatSchema(ModelSchema):
