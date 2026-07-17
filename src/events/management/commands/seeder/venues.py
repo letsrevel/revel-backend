@@ -142,7 +142,7 @@ class VenueSeeder(BaseSeeder):
                 seat = VenueSeat(
                     sector=sector,
                     label=f"{row}{num}",
-                    row=row,
+                    row_label=row,
                     number=num,
                     position={"x": (num - 1) * 30, "y": rows.index(row) * 30} if self.random_bool(0.8) else None,
                     is_accessible=self.random_bool(0.05),

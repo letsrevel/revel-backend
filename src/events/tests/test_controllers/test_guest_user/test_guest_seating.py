@@ -51,7 +51,7 @@ def seats(sector: VenueSector) -> list[VenueSeat]:
             VenueSeat.objects.create(
                 sector=sector,
                 label=f"A{i + 1}",
-                row="A",
+                row_label="A",
                 number=str(i + 1),
             )
         )

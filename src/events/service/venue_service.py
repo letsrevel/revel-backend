@@ -1,5 +1,7 @@
 """Service layer for venue management operations."""
 
+import typing as t
+
 from django.db import transaction
 from django.db.models import Case, Exists, OuterRef, Value, When
 from django.utils import timezone
@@ -7,6 +9,17 @@ from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
 from events import models, schema
+
+
+def _seat_model_kwargs(data: dict[str, t.Any]) -> dict[str, t.Any]:
+    """Map the transitional API field ``row`` onto the model field ``row_label``.
+
+    The deployed FE still sends/reads ``row``; the model column is ``row_label``.
+    Rename is conditional so ``exclude_unset`` update payloads stay untouched.
+    """
+    if "row" in data:
+        data["row_label"] = data.pop("row")
+    return data
 
 
 def _convert_shape_to_coordinates(shape: list[dict[str, float]]) -> list[schema.Coordinate2D]:
@@ -88,7 +101,9 @@ def create_sector(
 
     # Create seats if provided
     if payload.seats:
-        seats_to_create = [models.VenueSeat(sector=sector, **seat.model_dump()) for seat in payload.seats]
+        seats_to_create = [
+            models.VenueSeat(sector=sector, **_seat_model_kwargs(seat.model_dump())) for seat in payload.seats
+        ]
         models.VenueSeat.objects.bulk_create(seats_to_create)
 
     return sector
@@ -169,7 +184,7 @@ def bulk_create_seats(
         shape_coords = _convert_shape_to_coordinates(sector.shape)
         _validate_seats_in_shape(seats, shape_coords)
 
-    seats_to_create = [models.VenueSeat(sector=sector, **seat.model_dump()) for seat in seats]
+    seats_to_create = [models.VenueSeat(sector=sector, **_seat_model_kwargs(seat.model_dump())) for seat in seats]
     return list(models.VenueSeat.objects.bulk_create(seats_to_create))
 
 
@@ -207,7 +222,7 @@ def update_seat(
     Returns:
         The updated seat
     """
-    update_data = payload.model_dump(exclude_unset=True)
+    update_data = _seat_model_kwargs(payload.model_dump(exclude_unset=True))
     if not update_data:
         return seat
 
@@ -358,7 +373,7 @@ def bulk_update_seats(
 
     for update in updates:
         seat = seats_by_label[update.label]
-        update_data = update.model_dump(exclude={"label"}, exclude_unset=True)
+        update_data = _seat_model_kwargs(update.model_dump(exclude={"label"}, exclude_unset=True))
 
         if not update_data:
             updated_seats.append(seat)
@@ -430,7 +445,7 @@ def get_tier_seat_availability(
                 default=Value(True),
             )
         )
-        .order_by("row", "number", "label")
+        .order_by("row_label", "number", "label")
     )
 
     # Build response with availability counts

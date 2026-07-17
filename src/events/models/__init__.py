@@ -57,7 +57,7 @@ from .ticket import (
     Ticket,
     TicketTier,
 )
-from .venue import Venue, VenueSeat, VenueSector
+from .venue import PriceCategory, Venue, VenueSeat, VenueSector
 
 __all__ = [
     # Events
@@ -114,6 +114,7 @@ __all__ = [
     # Mixins / Enums
     "ResourceVisibility",
     # Venues
+    "PriceCategory",
     "Venue",
     "VenueSeat",
     "VenueSector",

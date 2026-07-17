@@ -519,9 +519,9 @@ class TestVenueSeatManagement:
         """Test bulk updating seats via API."""
         venue = Venue.objects.create(organization=organization, name="Theater")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
-        VenueSeat.objects.create(sector=sector, label="A1", row="A", number=1, is_accessible=False)
-        VenueSeat.objects.create(sector=sector, label="A2", row="A", number=2, is_accessible=False)
-        VenueSeat.objects.create(sector=sector, label="A3", row="A", number=3, is_accessible=False)
+        VenueSeat.objects.create(sector=sector, label="A1", row_label="A", number=1, is_accessible=False)
+        VenueSeat.objects.create(sector=sector, label="A2", row_label="A", number=2, is_accessible=False)
+        VenueSeat.objects.create(sector=sector, label="A3", row_label="A", number=3, is_accessible=False)
 
         url = reverse(
             "api:bulk_update_venue_seats",
@@ -545,13 +545,13 @@ class TestVenueSeatManagement:
         assert a1.is_accessible is True
 
         a2 = sector.seats.get(label="A2")
-        assert a2.row == "B"
+        assert a2.row_label == "B"
         assert a2.number == 1
 
         # A3 should be unchanged
         a3 = sector.seats.get(label="A3")
         assert a3.is_accessible is False
-        assert a3.row == "A"
+        assert a3.row_label == "A"
 
     def test_bulk_update_seats_not_found(self, organization_owner_client: Client, organization: Organization) -> None:
         """Test bulk update with non-existent seats fails."""

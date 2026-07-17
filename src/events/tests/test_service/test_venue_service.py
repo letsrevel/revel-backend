@@ -286,12 +286,12 @@ class TestUpdateSeat:
         """Test update with no changes returns seat unchanged."""
         venue = Venue.objects.create(organization=organization, name="Venue")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
-        seat = VenueSeat.objects.create(sector=sector, label="A1", row="A")
+        seat = VenueSeat.objects.create(sector=sector, label="A1", row_label="A")
 
         payload = schema.VenueSeatUpdateSchema()  # type: ignore[call-arg]
         updated = venue_service.update_seat(seat, payload)
 
-        assert updated.row == "A"
+        assert updated.row_label == "A"
 
 
 class TestDeleteSeat:
@@ -655,9 +655,9 @@ class TestBulkUpdateSeats:
         """Test bulk updating seats successfully."""
         venue = Venue.objects.create(organization=organization, name="Venue")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
-        VenueSeat.objects.create(sector=sector, label="A1", row="A", number=1, is_accessible=False)
-        VenueSeat.objects.create(sector=sector, label="A2", row="A", number=2, is_accessible=False)
-        VenueSeat.objects.create(sector=sector, label="A3", row="A", number=3, is_accessible=False)
+        VenueSeat.objects.create(sector=sector, label="A1", row_label="A", number=1, is_accessible=False)
+        VenueSeat.objects.create(sector=sector, label="A2", row_label="A", number=2, is_accessible=False)
+        VenueSeat.objects.create(sector=sector, label="A3", row_label="A", number=3, is_accessible=False)
 
         updates = [
             schema.VenueSeatBulkUpdateItemSchema(label="A1", is_accessible=True),  # type: ignore[call-arg]
@@ -673,13 +673,13 @@ class TestBulkUpdateSeats:
         assert a1.is_accessible is True
 
         a2 = sector.seats.get(label="A2")
-        assert a2.row == "B"
+        assert a2.row_label == "B"
         assert a2.number == 1
 
         # A3 should be unchanged
         a3 = sector.seats.get(label="A3")
         assert a3.is_accessible is False
-        assert a3.row == "A"
+        assert a3.row_label == "A"
 
     def test_bulk_update_seats_empty_list(self, organization: Organization) -> None:
         """Test bulk update with empty list returns empty."""
@@ -755,7 +755,7 @@ class TestBulkUpdateSeats:
         """Test bulk update with no actual changes still returns seats."""
         venue = Venue.objects.create(organization=organization, name="Venue")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
-        VenueSeat.objects.create(sector=sector, label="A1", row="A")
+        VenueSeat.objects.create(sector=sector, label="A1", row_label="A")
 
         # Update with only label (identifier), no changes
         updates = [
@@ -766,7 +766,7 @@ class TestBulkUpdateSeats:
 
         assert len(updated_seats) == 1
         a1 = sector.seats.get(label="A1")
-        assert a1.row == "A"
+        assert a1.row_label == "A"
 
 
 class TestSectorMetadata:

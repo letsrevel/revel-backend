@@ -58,13 +58,15 @@ class VenueSeatSchema(ModelSchema):
 
     position: Coordinate2D | None = None
     available: bool = True  # For availability endpoints: False if taken by PENDING/ACTIVE ticket
+    row_label: str | None = None
+    # Transitional alias so the deployed FE (reads `row`) keeps working until Phase 2 regen.
+    row: str | None = None
 
     class Meta:
         model = VenueSeat
         fields = [
             "id",
             "label",
-            "row",
             "number",
             "position",
             "is_accessible",
@@ -72,13 +74,27 @@ class VenueSeatSchema(ModelSchema):
             "is_active",
         ]
 
+    @staticmethod
+    def resolve_row(obj: VenueSeat) -> str | None:
+        """Transitional alias exposing `row_label` under the legacy `row` key."""
+        return obj.row_label
+
 
 class MinimalSeatSchema(ModelSchema):
     """Minimal seat schema for ticket responses."""
 
+    row_label: str | None = None
+    # Transitional alias so the deployed FE (reads `row`) keeps working until Phase 2 regen.
+    row: str | None = None
+
     class Meta:
         model = VenueSeat
-        fields = ["id", "label", "row", "number", "is_accessible", "is_obstructed_view"]
+        fields = ["id", "label", "number", "is_accessible", "is_obstructed_view"]
+
+    @staticmethod
+    def resolve_row(obj: VenueSeat) -> str | None:
+        """Transitional alias exposing `row_label` under the legacy `row` key."""
+        return obj.row_label
 
 
 class VenueSectorSchema(ModelSchema):
