@@ -31,10 +31,12 @@ def _contiguous_runs(seats: list[CandidateSeat]) -> list[list[CandidateSeat]]:
 def _placement_score(run: list[CandidateSeat], start: int, quantity: int, row_len_hint: int) -> tuple[float, ...]:
     """Score a candidate placement: lower is better.
 
-    Order: fragmentation penalty (avoid stranding a single leftover seat on either
-    side of the run — an exact-fit run elsewhere always beats a partial one that
-    strands a single seat) > row_order (front rows first) > centrality (closer to
-    the row's midpoint) > sector_display_order (stable tiebreak before randomization).
+    Order (spec §3): row_order (front rows first) > centrality (closer to the row's
+    midpoint) > fragmentation penalty > sector_display_order. Row rank dominates:
+    fragmentation is a *within-row* tiebreak that never demotes a party across rows,
+    so a front-row run that strands a single always beats a back-row exact-fit run.
+    Among same-row equally-central placements it avoids stranding a single leftover
+    seat on either side of the run (keeps the hall sellable late in the on-sale).
     """
     seats = run[start : start + quantity]
     row_order = seats[0].row_order
@@ -43,7 +45,7 @@ def _placement_score(run: list[CandidateSeat], start: int, quantity: int, row_le
     leftover_left = start
     leftover_right = len(run) - (start + quantity)
     fragmentation = (1 if leftover_left == 1 else 0) + (1 if leftover_right == 1 else 0)
-    return (fragmentation, row_order, centrality, seats[0].sector_display_order)
+    return (row_order, centrality, fragmentation, seats[0].sector_display_order)
 
 
 def _pick_general(pool: list[CandidateSeat], quantity: int, seed: int | None) -> list[uuid.UUID]:
@@ -64,10 +66,18 @@ def _pick_general(pool: list[CandidateSeat], quantity: int, seed: int | None) ->
 
     placements.sort(key=lambda p: p[0])
     best_score = placements[0][0]
-    # Near-equal placements (same row + fragmentation, centrality within half a seat)
-    # are shuffled by the seeded RNG so the "best" pick isn't always identical when
-    # several seats are equally good.
-    near_equal = [p for p in placements if p[0][:2] == best_score[:2] and abs(p[0][2] - best_score[2]) <= 0.5]
+    # Only genuinely-equivalent placements are shuffled by the seeded RNG: same row,
+    # same fragmentation, same sector, centrality within half a seat. The randomizer
+    # must never pick a worse row or a stranded-single option over a non-stranding
+    # equally-central one — those differ on a dominant key and are excluded here.
+    near_equal = [
+        p
+        for p in placements
+        if p[0][0] == best_score[0]  # same row_order
+        and abs(p[0][1] - best_score[1]) <= 0.5  # centrality within half a seat
+        and p[0][2] == best_score[2]  # equal fragmentation
+        and p[0][3] == best_score[3]  # equal sector_display_order
+    ]
     rng = random.Random(seed)
     chosen = rng.choice(near_equal)
     return [s.id for s in chosen[1]]
@@ -89,6 +99,8 @@ def pick_best_available(
     seed: int | None = None,
 ) -> list[uuid.UUID]:
     """Return the best contiguous block of `quantity` seat ids, or [] if none exists."""
+    if quantity <= 0:
+        return []
     if accessible_required:
         return _pick_accessible([s for s in candidates if s.is_accessible], quantity)
     return _pick_general([s for s in candidates if not s.is_accessible], quantity, seed)

@@ -33,13 +33,29 @@ def test_prefers_front_row_center() -> None:
 
 
 def test_no_stranded_single() -> None:
-    # Row with a free run of exactly 3: picking 2 must not leave a stranded single
-    # when an alternative run of 2 exists elsewhere.
-    row0 = _row(0, 5, taken={0, 4})  # free: 1,2,3  (run of 3)
-    row1 = _row(1, 4, taken={0, 3})  # free: 1,2    (run of 2)
-    picked = pick_best_available(row0 + row1, 2, seed=1)
-    by_id = {s.id: s for s in row0 + row1}
-    assert all(by_id[p].row_order == 1 for p in picked)  # takes the exact-fit run
+    # WITHIN one row, fragmentation breaks a centrality tie: an exact-fit pair and a
+    # stranding placement are equally central (mirror positions about the row center),
+    # so the non-stranding same-row pair must win. Row of 7, free {1,2} (run of 2)
+    # and {4,5,6} (run of 3); center is index 3.0. The pair (1,2) [mid 1.5] and the
+    # run-of-3 placement (4,5) [mid 4.5] both sit 1.5 from center — the pair strands
+    # nothing (frag 0), (4,5) strands seat 6 (frag 1), so (1,2) is chosen.
+    row = _row(0, 7, taken={0, 3})
+    picked = pick_best_available(row, 2, seed=1)
+    by_id = {s.id: s for s in row}
+    assert all(by_id[p].row_order == 0 for p in picked)  # same row throughout
+    assert sorted(by_id[p].adjacency_index for p in picked) == [1, 2]  # the non-stranding pair
+
+
+def test_row_rank_beats_fragmentation() -> None:
+    # Row rank dominates fragmentation: a front-row (row_order 0) run of 3 forces a
+    # stranded single when picking 2, while the back row (row_order 1) offers an
+    # exact-fit pair. Row-first scoring must still pick the front row — fragmentation
+    # never demotes a party across rows.
+    front = _row(0, 5, taken={0, 4})  # free: 1,2,3  (run of 3 → any pair strands a single)
+    back = _row(1, 4, taken={0, 3})  # free: 1,2    (exact-fit pair, frag 0)
+    picked = pick_best_available(front + back, 2, seed=1)
+    by_id = {s.id: s for s in front + back}
+    assert all(by_id[p].row_order == 0 for p in picked)  # front row wins despite stranding
 
 
 def test_returns_empty_when_no_contiguous_block() -> None:
@@ -77,3 +93,9 @@ def test_quantity_one_picks_centered_front_row() -> None:
 def test_party_larger_than_any_row_returns_empty() -> None:
     row = _row(0, 4)
     assert pick_best_available(row, 5, seed=1) == []
+
+
+def test_quantity_zero_returns_empty() -> None:
+    row = _row(0, 5, accessible={0, 1})
+    assert pick_best_available(row, 0, seed=1) == []
+    assert pick_best_available(row, 0, accessible_required=True, seed=1) == []
