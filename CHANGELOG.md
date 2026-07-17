@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.72.1] - 2026-07-17
+
+### Added
+- **Admin panel overhaul** (staff-facing): richer list views, filters, and field coverage across all apps
+  - Missing enum filters added (event status/visibility, ticket-tier price type/visibility/payment method, payment refund status, poll result timing, notification read/unread); unbounded dropdown filters replaced with autocomplete filters
+  - Payment refund lifecycle (`refund_status`, refund amount, Stripe refund id, failure reason) now visible read-only; ticket money/audit fields organized into read-only fieldsets; ticket-tier lists show price, availability, and sales configuration
+  - `Legal` and `SiteSettings` now use singleton admin pages with a browsable, revertable change history
+  - Telegram `AccountOTP` (secret hidden) and `EmailVerificationReminderTracking` registered read-only for support triage
+  - User page gains read-only referral-code and global-ban inlines; notifications show per-channel delivery status inline; file-upload questions manageable from the questionnaire page
+  - User list: organization owners marked with 👑 plus an owner filter, name-first columns, `mailto:` email links
+
+### Changed
+- Admin changelists no longer issue per-row queries (~30 admins optimized with `select_related`/annotations); high-volume tables paginate at 50 rows without full-table counts
+
+### Fixed
+- Payment admin change page no longer returns a 500 (`expires_at` was rendered as editable despite being a non-editable field)
+
+### Security
+- Admin participation summaries now escape organizer-controlled event/organization names (admin-only stored XSS)
+- Organization ownership transfer in the admin restricted to superusers; payment base amounts (`amount`, `currency`, `platform_fee`) made read-only
+
 ## [1.72.0] - 2026-07-16
 
 ### Added
