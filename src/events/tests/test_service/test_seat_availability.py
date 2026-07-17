@@ -91,6 +91,27 @@ def test_guest_own_holds_listed(seated_event: tuple[Event, list[VenueSeat]]) -> 
     assert payload.my_holds == [seats[0].id]
 
 
+def test_sold_wins_over_held_on_same_seat(
+    seated_event: tuple[Event, list[VenueSeat]],
+    revel_user: RevelUser,
+    other_user: RevelUser,
+    ticket_tier: TicketTier,
+) -> None:
+    event, seats = seated_event
+    now = timezone.now()
+    # Create a sold ticket on seats[0]
+    Ticket.objects.create(
+        event=event, tier=ticket_tier, user=other_user, seat=seats[0], sector=seats[0].sector, guest_name="Someone"
+    )
+    # Create a held seat on the same seat
+    SeatHold.objects.create(
+        event=event, seat=seats[0], user=revel_user, acquired_at=now, expires_at=now + timedelta(minutes=5)
+    )
+    # Verify sold takes precedence over held
+    payload = availability.build_availability(event, user=revel_user, guest_session=None)
+    assert payload.seats[seats[0].id] == "sold"
+
+
 def test_standing_counts(
     seated_event: tuple[Event, list[VenueSeat]], other_user: RevelUser, ticket_tier: TicketTier
 ) -> None:
