@@ -1,6 +1,5 @@
 """Tests for seat hold acquisition/release and guest hold sessions."""
 
-
 from events.service.guest_hold_session import issue_guest_hold_token, resolve_guest_session
 
 
