@@ -4,6 +4,8 @@ import typing as t
 from uuid import UUID
 
 from django.conf import settings
+from django.shortcuts import get_object_or_404
+from django.utils.translation import gettext_lazy as _
 from ninja import Body
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
@@ -20,6 +22,7 @@ from events.service.guest_hold_session import (
 from events.service.seating import availability as availability_service
 from events.service.seating import chart as chart_service
 from events.service.seating import holds as holds_service
+from events.service.seating import pick as pick_service
 
 from .base import EventPublicBaseController
 
@@ -105,6 +108,41 @@ class EventPublicSeatingController(EventPublicBaseController):
         user = self._optional_user()
         guest = self._ensure_guest_session_if_anonymous(user)
         result = holds_service.acquire_seats(event, payload.seat_ids, user=user, guest_session=guest)
+        status = 409 if result.conflicts else 200
+        return status, schema.HoldResponseSchema(
+            held_seat_ids=[h.seat_id for h in result.held],
+            conflicts=result.conflicts,
+            expires_at=result.expires_at,
+        )
+
+    @route.post(
+        "/{uuid:event_id}/seating/holds/best-available",
+        url_name="event_seating_hold_best",
+        response={200: schema.HoldResponseSchema, 409: schema.HoldResponseSchema},
+        throttle=WriteThrottle(),
+    )
+    def hold_best_available(
+        self, event_id: UUID, payload: schema.BestAvailableHoldRequest
+    ) -> tuple[int, schema.HoldResponseSchema]:
+        """Optimistically hold the best adjacent block for the tier's category; 409 if none fits.
+
+        Same griefing surface as the plain hold route — WriteThrottle is the real ceiling
+        (see the ponytail note on ``hold_seats``).
+        """
+        event = self.get_one(event_id)
+        tier = get_object_or_404(models.TicketTier, pk=payload.tier_id, event=event)
+        user = self._optional_user()
+        guest = self._ensure_guest_session_if_anonymous(user)
+        result = pick_service.hold_best_available(
+            event,
+            tier,
+            payload.quantity,
+            user=user,
+            guest_session=guest,
+            accessible_required=payload.accessible_required,
+        )
+        if not result.held and not result.conflicts:
+            raise HttpError(409, str(_("Not enough adjacent seats — pick manually or reduce quantity.")))
         status = 409 if result.conflicts else 200
         return status, schema.HoldResponseSchema(
             held_seat_ids=[h.seat_id for h in result.held],
