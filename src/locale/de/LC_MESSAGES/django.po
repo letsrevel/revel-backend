@@ -921,11 +921,6 @@ msgstr "Dieser Endpunkt ist nur für \"Zahl-was-du-kannst\"-Tickets"
 msgid "No pending reservation found."
 msgstr "Keine ausstehende Reservierung gefunden."
 
-msgid "Not enough adjacent seats — pick manually or reduce quantity."
-msgstr ""
-"Nicht genügend zusammenhängende Sitzplätze — bitte manuell auswählen oder "
-"Anzahl reduzieren."
-
 msgid "Use /checkout/pwyc endpoint for pay-what-you-can tickets"
 msgstr ""
 "Verwende den Endpunkt /checkout/pwyc für \"Zahl-was-du-kannst\"-Tickets"

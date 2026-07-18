@@ -909,11 +909,6 @@ msgstr "Questo endpoint è solo per biglietti a offerta libera"
 msgid "No pending reservation found."
 msgstr "Nessuna prenotazione in sospeso trovata."
 
-msgid "Not enough adjacent seats — pick manually or reduce quantity."
-msgstr ""
-"Non ci sono abbastanza posti adiacenti — scegli manualmente o riduci la "
-"quantità."
-
 msgid "Use /checkout/pwyc endpoint for pay-what-you-can tickets"
 msgstr "Usa l'endpoint /checkout/pwyc per i biglietti a offerta libera"
 
