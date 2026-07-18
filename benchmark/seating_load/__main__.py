@@ -20,7 +20,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Seating engine HTTP load tests")
     parser.add_argument(
         "--scenario",
-        choices=["storm", "herd", "poll", "purchase", "sweep", "all"],
+        choices=["storm", "herd", "poll", "purchase", "probes", "sweep", "all"],
         default="all",
         help="Which scenario to run (default: all, in order)",
     )
@@ -37,6 +37,7 @@ def main() -> int:
         scenario_availability_polling,
         scenario_best_available_herd,
         scenario_hold_storm,
+        scenario_probes,
         scenario_purchase_race,
     )
 
@@ -50,8 +51,9 @@ def main() -> int:
         "herd": lambda: scenario_best_available_herd(client, fixtures, args.seed),
         "poll": lambda: scenario_availability_polling(client, fixtures, args.seed),
         "purchase": lambda: scenario_purchase_race(client, fixtures, args.seed),
+        "probes": lambda: scenario_probes(client, fixtures, args.seed),
     }
-    order = ["storm", "herd", "poll", "purchase"] if args.scenario in ("all", "sweep") else [args.scenario]
+    order = ["storm", "herd", "poll", "purchase", "probes"] if args.scenario in ("all", "sweep") else [args.scenario]
     if args.scenario == "sweep":
         order = []
 

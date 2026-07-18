@@ -36,6 +36,8 @@ USERS_MUTATORS = (210, 8)
 USERS_BUYERS = (218, 30)
 USERS_ATTACKERS = (400, 10)  # past the buyer scan window (218..338)
 USERS_OBSERVER = (420, 1)
+USERS_PROBE_CAP = (430, 2)
+USERS_PROBE_LEGACY = (440, 1)  # scan window 440..443 via _eligible_users
 
 # Disjoint Platea seat ranges (sorted by row_label, adjacency_index, id).
 SEATS_CONTESTED = (0, 10)
@@ -57,22 +59,21 @@ class Fixtures:
 
 
 def prepare_fixtures() -> Fixtures:
-    """Resolve fixtures and apply the two documented seed mutations (idempotent).
+    """Resolve fixtures and apply the documented seed mutations (idempotent).
 
     Mutations, all printed loudly:
     1. Flip the Symphony "Platea" tier to a FREE tier (scenario 4 needs a free
        user_choice tier on Teatro Grande; the seed only ships offline ones).
-    2. Raise ``max_tickets_per_user`` 1 -> 4 on the two target events: the hold cap
-       (``acquire_seats``) is ``event.max_tickets_per_user or 10``, so the seeded cap
-       of 1 would 409 every multi-seat hold and every best-available party before any
-       contention is exercised.
-    3. WORKAROUND for a real bug this harness surfaced: seeded sector shapes are
-       ``[[x, y], ...]`` (the VenueSector.shape documented format) but the response
-       schemas require ``[{"x": .., "y": ..}, ...]`` (Coordinate2D), which 500s the
-       chart endpoint and checkout serialization. Normalize shapes so load numbers
-       are measurable. The schema/model mismatch still needs a product fix.
+    2. Raise ``max_tickets_per_user`` -> 4 on the two target events if needed: the
+       hold cap (``acquire_seats``) is ``event.max_tickets_per_user or 10``, so a
+       cap of 1 would 409 every multi-seat hold and every best-available party
+       before any contention is exercised. (Current seeder ships 4 — no-op.)
+
+    Legacy ``[[x, y], ...]`` sector shapes are deliberately left in place: they are
+    the regression probe for the tolerant Coordinate2D coercion (chart + checkout
+    serialization must handle them without normalization).
     """
-    from events.models import Event, TicketTier, VenueSeat, VenueSector
+    from events.models import Event, TicketTier, VenueSeat
 
     symphony = Event.objects.get(name=SYMPHONY_EVENT)
     chuckle = Event.objects.get(name=CHUCKLE_EVENT)
@@ -91,15 +92,6 @@ def prepare_fixtures() -> Fixtures:
             event.max_tickets_per_user = 4
             event.save(update_fields=["max_tickets_per_user"])
             print(f"  [prep] Raised max_tickets_per_user 1 -> 4 on '{event.name}' (hold cap gates multi-seat holds)")
-
-    fixed = 0
-    for sector in VenueSector.objects.exclude(shape=None):
-        if sector.shape and isinstance(sector.shape[0], list):
-            sector.shape = [{"x": p[0], "y": p[1]} for p in sector.shape]
-            sector.save(update_fields=["shape"])
-            fixed += 1
-    if fixed:
-        print(f"  [prep] WORKAROUND: normalized {fixed} sector shapes [[x,y],...] -> Coordinate2D dicts")
 
     platea_seats = list(
         VenueSeat.objects.filter(sector_id=platea.sector_id, is_active=True)
@@ -543,6 +535,78 @@ def scenario_purchase_race(client: LoadClient, fx: Fixtures, seed: int) -> Scena
         0, f"buyers 200={sum(1 for c in buy_calls if c.status == 200)}/30, attacker statuses={attack_statuses}"
     )
     return ScenarioResult("purchase_race", ok, notes)
+
+
+# --------------------------------------------------------------------------- #
+# Scenario 5: targeted probes (conflict_reason + legacy-shape checkout)       #
+# --------------------------------------------------------------------------- #
+
+
+def scenario_probes(client: LoadClient, fx: Fixtures, seed: int) -> ScenarioResult:
+    """Two sequential regression probes.
+
+    A. ``conflict_reason`` discrimination: a 6-seat hold on a cap-4 event must 409
+       with ``conflict_reason == "capacity"``; a hold on a seat already held by
+       another user must 409 with ``conflict_reason == "unavailable"``.
+    B. Legacy-shape checkout: a FREE-tier purchase on a tier whose sector has the
+       legacy ``[[x, y], ...]`` shape in the DB must return 2xx with valid JSON and
+       the nested sector shape coerced to ``{"x": .., "y": ..}`` objects.
+    """
+    print("\n=== Scenario 5: probes (conflict_reason discrimination + legacy-shape checkout) ===")
+    notes: list[str] = []
+    path = _hold_path(fx.symphony_event_id)
+    cap_tokens = _tokens_for(USERS_PROBE_CAP)
+    free = [s for pair in _free_platea_seat_pairs(fx, 4) for s in pair]  # 8 free seats
+
+    # A1: 6 requested seats vs max_tickets_per_user=4 -> 409 "capacity".
+    call = client.request("POST", path, cap_tokens[0], {"seat_ids": [str(s) for s in free[:6]]}, label="cap_hold")
+    reason = call.body.get("conflict_reason") if isinstance(call.body, dict) else None
+    ok = check(
+        call.status == 409 and reason == "capacity",
+        '6-seat hold on cap-4 event -> 409 conflict_reason="capacity"',
+        f"cap probe: status={call.status} conflict_reason={reason!r}",
+        notes,
+    )
+
+    # A2: genuine contention -> 409 "unavailable".
+    contested = free[6]
+    first = client.request("POST", path, cap_tokens[0], {"seat_ids": [str(contested)]}, label="probe_hold")
+    second = client.request("POST", path, cap_tokens[1], {"seat_ids": [str(contested)]}, label="probe_conflict")
+    reason2 = second.body.get("conflict_reason") if isinstance(second.body, dict) else None
+    ok &= check(
+        first.status == 200 and second.status == 409 and reason2 == "unavailable",
+        'contended seat -> 409 conflict_reason="unavailable"',
+        f"contention probe: first={first.status} second={second.status} conflict_reason={reason2!r}",
+        notes,
+    )
+    client.request("DELETE", path, cap_tokens[0], None, label="probe_release")
+    client.take_calls()
+
+    # B: free checkout on the (legacy-shape) Platea sector tier.
+    buyer = _eligible_users(fx.symphony_event_id, USERS_PROBE_LEGACY[0], USERS_PROBE_LEGACY[1])[0]
+    buyer_token = mint_tokens([buyer])[0]
+    pair = _free_platea_seat_pairs(fx, 1)[0]
+    hold = client.request("POST", path, buyer_token, {"seat_ids": [str(s) for s in pair]}, label="legacy_hold")
+    tickets = [{"guest_name": f"Legacy Probe {n}", "seat_id": str(s)} for n, s in enumerate(pair)]
+    checkout_path = f"/api/events/{fx.symphony_event_id}/tickets/{fx.platea_tier_id}/checkout"
+    buy = client.request("POST", checkout_path, buyer_token, {"tickets": tickets}, label="legacy_buy")
+    body_ok = isinstance(buy.body, dict) and not buy.body.get("requires_payment")
+    shapes_ok = False
+    if body_ok:
+        shapes = [t_["tier"]["sector"]["shape"] for t_ in buy.body.get("tickets", [])]
+        shapes_ok = len(shapes) == 2 and all(
+            isinstance(sh, list) and sh and all(isinstance(p, dict) and set(p) == {"x", "y"} for p in sh)
+            for sh in shapes
+        )
+    ok &= check(
+        hold.status == 200 and buy.status == 200 and body_ok and shapes_ok,
+        f"legacy-shape checkout: 200, valid JSON, sector shape coerced to {{x,y}} ({buy.elapsed_ms:.0f}ms)",
+        f"legacy checkout: hold={hold.status} buy={buy.status} body_ok={body_ok} shapes_ok={shapes_ok}",
+        notes,
+    )
+    client.take_calls()
+    notes.insert(0, "cap/unavailable discrimination + legacy-shape free checkout")
+    return ScenarioResult("probes", ok, notes)
 
 
 # --------------------------------------------------------------------------- #
