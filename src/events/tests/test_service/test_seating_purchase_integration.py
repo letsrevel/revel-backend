@@ -4,6 +4,8 @@ Also covers EventSeatOverride enforcement on the direct purchase paths and the
 BEST_AVAILABLE seat-assignment mode (Task 11).
 """
 
+import typing as t
+
 import pytest
 from ninja.errors import HttpError
 
@@ -207,3 +209,95 @@ def test_best_available_409_when_no_block_fits(seated_event: SeatedEvent, revel_
         BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
     assert exc.value.status_code == 409
     assert not Ticket.objects.filter(event=event).exists()
+
+
+def test_best_available_never_assigns_killed_seat(seated_event: SeatedEvent, revel_user: RevelUser) -> None:
+    """A KILLED override seat is never ticketed by BEST_AVAILABLE."""
+    event, seats = seated_event
+    tier = _best_available_tier(event, seats)
+    EventSeatOverride.objects.create(event=event, seat=seats[0], status=EventSeatOverride.OverrideStatus.KILLED)
+    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
+    assert seats[0].id not in assigned
+    assert len(assigned) == 2
+
+
+def test_best_available_post_lock_recheck_retries_on_stale_pick(
+    seated_event: SeatedEvent, revel_user: RevelUser, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale pick containing a now-overridden seat is caught by the post-lock
+    re-check; the per-attempt savepoint rolls back (releasing that attempt's
+    locks) and the retry succeeds on clean seats.
+    """
+    from events.service.seating import pick as pick_module
+    from events.service.seating.best_available import CandidateSeat
+
+    event, seats = seated_event
+    tier = _best_available_tier(event, seats)
+    EventSeatOverride.objects.create(event=event, seat=seats[0], status=EventSeatOverride.OverrideStatus.KILLED)
+
+    real_load = pick_module.load_candidates
+    calls: list[int] = []
+
+    def stale_then_real(event_arg: Event, tier_arg: TicketTier, exclude: set[t.Any]) -> list[CandidateSeat]:
+        calls.append(1)
+        if len(calls) == 1:
+            # Simulate a read taken before the kill: the killed seat looks free.
+            return [
+                CandidateSeat(
+                    id=s.id,
+                    row_order=s.row_order,
+                    adjacency_index=s.adjacency_index,
+                    is_accessible=s.is_accessible,
+                    sector_display_order=s.sector.display_order,
+                )
+                for s in seats[:2]
+            ]
+        return real_load(event_arg, tier_arg, exclude)
+
+    monkeypatch.setattr(pick_module, "load_candidates", stale_then_real)
+    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
+    assert seats[0].id not in assigned
+    assert len(assigned) == 2
+    assert len(calls) >= 2  # first attempt conflicted post-lock, retry re-picked
+
+
+def test_best_available_deactivated_seat_conflicts_post_lock(
+    seated_event: SeatedEvent, revel_user: RevelUser, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A seat deactivated after the unlocked pick is caught by the is_active
+    re-check under the lock (length mismatch) and the retry re-picks without it.
+    """
+    from events.service.seating import pick as pick_module
+    from events.service.seating.best_available import CandidateSeat
+
+    event, seats = seated_event
+    tier = _best_available_tier(event, seats)
+    VenueSeat.objects.filter(pk=seats[0].pk).update(is_active=False)
+
+    real_load = pick_module.load_candidates
+    calls: list[int] = []
+
+    def stale_then_real(event_arg: Event, tier_arg: TicketTier, exclude: set[t.Any]) -> list[CandidateSeat]:
+        calls.append(1)
+        if len(calls) == 1:
+            # Simulate a read taken before the deactivation.
+            return [
+                CandidateSeat(
+                    id=s.id,
+                    row_order=s.row_order,
+                    adjacency_index=s.adjacency_index,
+                    is_accessible=s.is_accessible,
+                    sector_display_order=s.sector.display_order,
+                )
+                for s in seats[:2]
+            ]
+        return real_load(event_arg, tier_arg, exclude)
+
+    monkeypatch.setattr(pick_module, "load_candidates", stale_then_real)
+    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
+    assert seats[0].id not in assigned
+    assert len(assigned) == 2
+    assert len(calls) >= 2

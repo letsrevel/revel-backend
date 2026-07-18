@@ -36,6 +36,15 @@ if t.TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+class _SeatConflictError(Exception):
+    """Internal retry signal: an optimistically picked seat block was invalidated after locking.
+
+    Raised inside the per-attempt savepoint in ``_resolve_seats_best_available`` so the
+    savepoint rollback releases that attempt's row locks; never escapes the retry loop.
+    Deliberately not an HttpError — it must be caught locally, not rendered.
+    """
+
+
 class BatchTicketService:
     """Service for creating multiple tickets in a single transaction.
 
@@ -255,12 +264,19 @@ class BatchTicketService:
         # on an already-locked seat row between our SELECT and our lock. Mirrors
         # _resolve_seats_user_choice's re-check below, which exists for the same
         # reason.
+        locked_ids = [seat.id for seat in available]
         taken_ids = set(
             Ticket.objects.filter(
                 event=self.event,
-                seat_id__in=[seat.id for seat in available],
+                seat_id__in=locked_ids,
                 status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
             ).values_list("seat_id", flat=True)
+        )
+        # Same EvalPlanQual gap for overrides: the exclude(overrides) subquery
+        # above ran against the snapshot, so a seat killed/held by box office
+        # between our read and our lock must be re-checked here.
+        taken_ids |= set(
+            EventSeatOverride.objects.filter(event=self.event, seat_id__in=locked_ids).values_list("seat_id", flat=True)
         )
         if taken_ids:
             raise HttpError(
@@ -354,8 +370,17 @@ class BatchTicketService:
     def _resolve_seats_best_available(self, count: int) -> list[VenueSeat]:
         """Adjacency-aware assignment: optimistic pick, then lock + verify the chosen seats only.
 
-        Retries with a fresh read when a picked seat got ticketed or foreign-held
-        between the unlocked pick and the lock (load_candidates re-excludes them).
+        Retries with a fresh read when a picked seat got ticketed, overridden,
+        deactivated, or foreign-held between the unlocked pick and the lock.
+        Each attempt's lock + re-check runs inside its own savepoint (a nested
+        ``transaction.atomic()`` under the request transaction): a conflicted
+        attempt raises ``_SeatConflictError`` inside the block, and the savepoint
+        rollback releases that attempt's seat locks before the next attempt locks
+        a possibly different block. Without this, locks from a failed attempt
+        persist to end of transaction, breaking the global PK lock-ordering
+        protocol and deadlocking against concurrent purchases. A successful
+        attempt exits the block normally (savepoint released, not rolled back),
+        so the outer create_batch transaction keeps the locks and consumed holds.
 
         Args:
             count: Number of seats to assign.
@@ -374,23 +399,37 @@ class BatchTicketService:
             picked_ids = pick_best_available(candidates, count)
             if not picked_ids:
                 raise HttpError(409, str(_("Not enough adjacent seats available for this tier.")))
-            # Locked in PK order per the global seat-lock protocol (holds/overrides).
-            seats = list(VenueSeat.objects.filter(id__in=picked_ids).order_by("pk").select_for_update())
-            if len(seats) != len(picked_ids):  # a picked seat vanished/deactivated — re-pick
-                continue
-            taken = Ticket.objects.filter(
-                event=self.event,
-                seat_id__in=picked_ids,
-                status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-            ).exists()
-            if taken:
-                continue
             try:
-                self._verify_and_consume_holds(picked_ids)
-            except holds_service.SeatHoldConflictError:
+                with transaction.atomic():  # savepoint per attempt (see docstring)
+                    # Locked in PK order per the global seat-lock protocol
+                    # (holds/overrides). is_active is re-evaluated against the
+                    # locked row version (EvalPlanQual), so a just-deactivated
+                    # seat drops out here as a length mismatch.
+                    seats = list(
+                        VenueSeat.objects.filter(id__in=picked_ids, is_active=True).order_by("pk").select_for_update()
+                    )
+                    if len(seats) != len(picked_ids):  # a picked seat vanished/deactivated — re-pick
+                        raise _SeatConflictError
+                    taken = Ticket.objects.filter(
+                        event=self.event,
+                        seat_id__in=picked_ids,
+                        status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
+                    ).exists()
+                    if taken:
+                        raise _SeatConflictError
+                    # Post-lock override re-check: load_candidates read overrides
+                    # unlocked, so a seat killed/held by box office in between must
+                    # be caught here (mirrors _resolve_seats_user_choice).
+                    if EventSeatOverride.objects.filter(event=self.event, seat_id__in=picked_ids).exists():
+                        raise _SeatConflictError
+                    try:
+                        self._verify_and_consume_holds(picked_ids)
+                    except holds_service.SeatHoldConflictError:
+                        raise _SeatConflictError from None
+                    id_order = {sid: i for i, sid in enumerate(picked_ids)}
+                    return sorted(seats, key=lambda s: id_order[s.id])
+            except _SeatConflictError:
                 continue
-            id_order = {sid: i for i, sid in enumerate(picked_ids)}
-            return sorted(seats, key=lambda s: id_order[s.id])
         raise HttpError(409, str(_("Could not secure adjacent seats — please try again.")))
 
     def resolve_seats(self, items: list[TicketPurchaseItem]) -> list[VenueSeat | None]:
