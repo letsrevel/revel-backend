@@ -147,7 +147,7 @@ class BatchTicketService:
         2. Event capacity remaining (if provided)
 
         Note: Tier capacity (total_quantity - quantity_sold) is NOT included here
-        because it's checked separately by _assert_tier_capacity with proper
+        because it's checked separately by assert_tier_capacity with proper
         "sold out" error handling (429 status code).
 
         Args:
@@ -455,7 +455,7 @@ class BatchTicketService:
 
         raise HttpError(400, str(_("Unknown seat assignment mode.")))
 
-    def _assert_tier_capacity(self, locked_tier: TicketTier, count: int) -> None:
+    def assert_tier_capacity(self, locked_tier: TicketTier, count: int) -> None:
         """Assert that the tier has capacity for the requested tickets.
 
         Args:
@@ -477,7 +477,7 @@ class BatchTicketService:
                 str(_("Only {available} ticket(s) remaining for this tier.")).format(available=available),
             )
 
-    def _assert_event_capacity(self, count: int) -> None:
+    def assert_event_capacity(self, count: int) -> None:
         """Assert that the event has capacity for the requested tickets.
 
         Uses effective_capacity (min of max_attendees and venue.capacity) as the soft limit.
@@ -634,10 +634,10 @@ class BatchTicketService:
         locked_tier = TicketTier.objects.select_for_update().get(pk=self.tier.pk)
 
         # Check tier capacity
-        self._assert_tier_capacity(locked_tier, len(items))
+        self.assert_tier_capacity(locked_tier, len(items))
 
         # Check event capacity (effective_capacity - soft limit)
-        self._assert_event_capacity(len(items))
+        self.assert_event_capacity(len(items))
 
         # Check sector capacity for GA tiers (hard limit - cannot be overridden)
         self._assert_sector_capacity(len(items))
@@ -678,7 +678,7 @@ class BatchTicketService:
             case _:
                 raise HttpError(400, str(_("Unknown payment method.")))
 
-    def _create_tickets(
+    def create_tickets(
         self,
         items: list[TicketPurchaseItem],
         seats: list[VenueSeat | None],
@@ -817,7 +817,7 @@ class BatchTicketService:
         reservation_id = uuid4()
 
         # Create PENDING tickets
-        tickets = self._create_tickets(items, seats, Ticket.TicketStatus.PENDING)
+        tickets = self.create_tickets(items, seats, Ticket.TicketStatus.PENDING)
 
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))
@@ -836,7 +836,7 @@ class BatchTicketService:
 
         return tickets, reservation_id
 
-    def _trigger_bulk_create_side_effects(self, tickets: list[Ticket]) -> None:
+    def trigger_bulk_create_side_effects(self, tickets: list[Ticket]) -> None:
         """Trigger side effects that post_save signals would normally handle.
 
         Django's bulk_create does NOT trigger post_save signals, so we must
@@ -881,13 +881,13 @@ class BatchTicketService:
         Returns:
             List of created PENDING tickets.
         """
-        tickets = self._create_tickets(items, seats, Ticket.TicketStatus.PENDING, price_paid=price_override)
+        tickets = self.create_tickets(items, seats, Ticket.TicketStatus.PENDING, price_paid=price_override)
 
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))
 
         # Trigger side effects that bulk_create doesn't handle
-        self._trigger_bulk_create_side_effects(tickets)
+        self.trigger_bulk_create_side_effects(tickets)
 
         return tickets
 
@@ -912,13 +912,13 @@ class BatchTicketService:
         Returns:
             List of created ACTIVE tickets.
         """
-        tickets = self._create_tickets(items, seats, Ticket.TicketStatus.ACTIVE, price_paid=price_override)
+        tickets = self.create_tickets(items, seats, Ticket.TicketStatus.ACTIVE, price_paid=price_override)
 
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))
 
         # Trigger side effects that bulk_create doesn't handle
-        self._trigger_bulk_create_side_effects(tickets)
+        self.trigger_bulk_create_side_effects(tickets)
 
         return tickets
 
@@ -940,12 +940,12 @@ class BatchTicketService:
         Returns:
             List of created ACTIVE tickets.
         """
-        tickets = self._create_tickets(items, seats, Ticket.TicketStatus.ACTIVE)
+        tickets = self.create_tickets(items, seats, Ticket.TicketStatus.ACTIVE)
 
         # Update quantity sold
         TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + len(items))
 
         # Trigger side effects that bulk_create doesn't handle
-        self._trigger_bulk_create_side_effects(tickets)
+        self.trigger_bulk_create_side_effects(tickets)
 
         return tickets

@@ -115,16 +115,16 @@ def sell(
     service = BatchTicketService(event, tier, recipient)
     # Coarse locks first (tier → event), matching create_batch's order.
     locked_tier = TicketTier.objects.select_for_update().get(pk=tier.pk)
-    service._assert_tier_capacity(locked_tier, 1)
-    service._assert_event_capacity(1)
+    service.assert_tier_capacity(locked_tier, 1)
+    service.assert_event_capacity(1)
 
     seat = _lock_seat_for_sale(event, seat_id, recipient)
 
     item = TicketPurchaseItem(guest_name=guest_name or recipient.get_display_name())
     price_paid = Decimal("0.00") if payment_method == TicketTier.PaymentMethod.FREE else None
-    tickets = service._create_tickets([item], [seat], Ticket.TicketStatus.ACTIVE, price_paid=price_paid)
+    tickets = service.create_tickets([item], [seat], Ticket.TicketStatus.ACTIVE, price_paid=price_paid)
     TicketTier.objects.filter(pk=locked_tier.pk).update(quantity_sold=F("quantity_sold") + 1)
-    service._trigger_bulk_create_side_effects(tickets)
+    service.trigger_bulk_create_side_effects(tickets)
     return tickets[0]
 
 

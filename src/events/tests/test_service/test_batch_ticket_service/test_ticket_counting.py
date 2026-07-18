@@ -288,7 +288,7 @@ class TestGetRemainingTickets:
         tier: TicketTier,
         member_user: RevelUser,
     ) -> None:
-        """Should NOT include tier capacity - that's handled by _assert_tier_capacity.
+        """Should NOT include tier capacity - that's handled by assert_tier_capacity.
 
         Tier capacity check returns 429 "sold out" error which is different from
         user limit check's 400 error. Keeping them separate preserves correct semantics.
