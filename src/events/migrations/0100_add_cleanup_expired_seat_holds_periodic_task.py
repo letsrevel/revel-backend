@@ -37,7 +37,7 @@ def delete_cleanup_expired_seat_holds_task(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("events", "0100_eventseatoverride_seathold"),
+        ("events", "0099_map_legacy_random_seat_assignment_mode"),
         ("django_celery_beat", "0019_alter_periodictasks_options"),
     ]
 
