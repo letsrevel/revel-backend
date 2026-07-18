@@ -1524,6 +1524,42 @@ msgstr "Solo i pagamenti in sospeso possono essere annullati."
 msgid "A file must be provided when resource_type is 'file'."
 msgstr "È necessario fornire un file quando resource_type è 'file'."
 
+msgid "This seat is not available for this event."
+msgstr "Questo posto non è disponibile per questo evento."
+
+msgid "This seat already has a ticket."
+msgstr "Questo posto ha già un biglietto."
+
+msgid "This seat is blocked for this event."
+msgstr "Questo posto è bloccato per questo evento."
+
+msgid "This seat is currently held by another buyer."
+msgstr "Questo posto è attualmente riservato da un altro acquirente."
+
+msgid "Only pending or active tickets can be reseated."
+msgstr "Solo i biglietti in sospeso o attivi possono essere spostati."
+
+msgid "This ticket has no seat assigned."
+msgstr "Questo biglietto non ha un posto assegnato."
+
+msgid "The ticket is already on this seat."
+msgstr "Il biglietto è già su questo posto."
+
+msgid "The target seat is not available for this event."
+msgstr "Il posto di destinazione non è disponibile per questo evento."
+
+msgid "Reseat is limited to seats in the same price category."
+msgstr "Lo spostamento è limitato ai posti della stessa categoria di prezzo."
+
+msgid "The target seat already has a ticket."
+msgstr "Il posto di destinazione ha già un biglietto."
+
+msgid "The target seat is blocked for this event."
+msgstr "Il posto di destinazione è bloccato per questo evento."
+
+msgid "The target seat is currently held by another buyer."
+msgstr "Il posto di destinazione è attualmente riservato da un altro acquirente."
+
 msgid "You cannot purchase from this organization."
 msgstr "Non puoi acquistare da questa organizzazione."
 
