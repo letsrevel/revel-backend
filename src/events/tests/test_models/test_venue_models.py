@@ -412,24 +412,30 @@ def test_venue_seat_position_json_field(organization: Organization) -> None:
 
 @pytest.mark.django_db
 def test_venue_seat_ordering(organization: Organization) -> None:
-    """Test that seats are ordered by row, number, and label."""
+    """Test that seats are ordered by row_order then adjacency_index (Meta.ordering)."""
     venue = Venue.objects.create(organization=organization, name="Theater")
     sector = VenueSector.objects.create(venue=venue, name="Orchestra")
 
-    # Create seats in random order
-    seat_b2 = VenueSeat.objects.create(sector=sector, label="B2", row_label="B", number=2)
-    seat_a1 = VenueSeat.objects.create(sector=sector, label="A1", row_label="A", number=1)
-    seat_a2 = VenueSeat.objects.create(sector=sector, label="A2", row_label="A", number=2)
-    seat_b1 = VenueSeat.objects.create(sector=sector, label="B1", row_label="B", number=1)
+    # row_order/adjacency_index deliberately INVERT the lexical label order, so a
+    # regression to label (or row_label/number) sorting flips the result.
+    seat_b2 = VenueSeat.objects.create(
+        sector=sector, label="B2", row_label="B", number=2, row_order=0, adjacency_index=0
+    )
+    seat_a1 = VenueSeat.objects.create(
+        sector=sector, label="A1", row_label="A", number=1, row_order=1, adjacency_index=1
+    )
+    seat_a2 = VenueSeat.objects.create(
+        sector=sector, label="A2", row_label="A", number=2, row_order=1, adjacency_index=0
+    )
+    seat_b1 = VenueSeat.objects.create(
+        sector=sector, label="B1", row_label="B", number=1, row_order=0, adjacency_index=1
+    )
 
     # Query seats
     seats = list(VenueSeat.objects.filter(sector=sector))
 
-    # Should be ordered by row, then number, then label
-    assert seats[0] == seat_a1
-    assert seats[1] == seat_a2
-    assert seats[2] == seat_b1
-    assert seats[3] == seat_b2
+    # Physical order (row_order, adjacency_index) — the reverse of lexical label order.
+    assert seats == [seat_b2, seat_b1, seat_a2, seat_a1]
 
 
 @pytest.mark.django_db

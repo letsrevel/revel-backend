@@ -304,6 +304,7 @@ def test_best_available_post_lock_recheck_retries_on_stale_pick(
                     adjacency_index=s.adjacency_index,
                     is_accessible=s.is_accessible,
                     sector_display_order=s.sector.display_order,
+                    row_length=max(x.adjacency_index for x in seats) + 1,
                 )
                 for s in seats[:2]
             ]
@@ -346,6 +347,7 @@ def test_best_available_deactivated_seat_conflicts_post_lock(
                     adjacency_index=s.adjacency_index,
                     is_accessible=s.is_accessible,
                     sector_display_order=s.sector.display_order,
+                    row_length=max(x.adjacency_index for x in seats) + 1,
                 )
                 for s in seats[:2]
             ]

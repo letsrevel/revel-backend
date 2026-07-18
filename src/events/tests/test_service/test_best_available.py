@@ -16,6 +16,7 @@ def _row(
             adjacency_index=i,
             is_accessible=i in accessible,
             sector_display_order=0,
+            row_length=count,
         )
         for i in range(count)
         if i not in taken
@@ -58,6 +59,16 @@ def test_row_rank_beats_fragmentation() -> None:
     assert all(by_id[p].row_order == 0 for p in picked)  # front row wins despite stranding
 
 
+def test_centrality_uses_full_row_not_available_pool() -> None:
+    # Row of 10 with the high half (6-9) sold: the real midpoint is 4.5, so the pair
+    # (4, 5) must win. Deriving row length from the available pool (max free index 5
+    # -> fake midpoint 2.5) would pick the off-center pair (2, 3) instead.
+    row = _row(0, 10, taken={6, 7, 8, 9})
+    picked = pick_best_available(row, 2, seed=1)
+    by_id = {s.id: s for s in row}
+    assert sorted(by_id[p].adjacency_index for p in picked) == [4, 5]
+
+
 def test_returns_empty_when_no_contiguous_block() -> None:
     row = _row(0, 6, taken={1, 3, 5})  # singles only
     assert pick_best_available(row, 2, seed=1) == []
@@ -73,7 +84,9 @@ def test_accessible_seats_protected_from_general_sale() -> None:
 def test_accessible_required_relaxed_contiguity() -> None:
     row = _row(0, 6, taken={1}, accessible={0, 2})
     picked = pick_best_available(row, 2, accessible_required=True, seed=1)
-    assert len(picked) == 2  # 0 and 2 despite the gap
+    by_id = {s.id: s for s in row}
+    # Exactly the accessible seats, despite the gap — never ordinary fillers.
+    assert sorted(by_id[p].adjacency_index for p in picked) == [0, 2]
 
 
 def test_deterministic_for_fixed_seed() -> None:
