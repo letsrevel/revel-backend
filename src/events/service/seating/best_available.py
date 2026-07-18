@@ -17,6 +17,10 @@ class CandidateSeat:
     adjacency_index: int
     is_accessible: bool
     sector_display_order: int
+    # Full physical row length (max adjacency_index over ALL active seats in the row,
+    # + 1) — NOT the available pool's extent. Centrality is scored against the real
+    # row midpoint, so sold/held high-index seats don't shift the perceived center.
+    row_length: int
 
 
 def _contiguous_runs(seats: list[CandidateSeat]) -> list[list[CandidateSeat]]:
@@ -52,7 +56,9 @@ def _pick_general(pool: list[CandidateSeat], quantity: int, seed: int | None) ->
     rows: dict[tuple[int, int], list[CandidateSeat]] = {}
     for s in pool:
         rows.setdefault((s.sector_display_order, s.row_order), []).append(s)
-    row_len = {key: max(s.adjacency_index for s in seats) + 1 for key, seats in rows.items()}
+    # Full-row bounds carried by the candidates themselves — never derived from the
+    # (already filtered) pool, which would move the midpoint when edge seats are taken.
+    row_len = {key: max(s.row_length for s in seats) for key, seats in rows.items()}
 
     placements: list[tuple[tuple[float, ...], list[CandidateSeat]]] = []
     for key, seats in rows.items():
