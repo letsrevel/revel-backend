@@ -4,7 +4,6 @@ import typing as t
 
 from django.db import transaction
 from django.db.models import Case, Exists, OuterRef, Value, When
-from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from ninja.errors import HttpError
 
@@ -246,22 +245,21 @@ def delete_seat(seat: models.VenueSeat) -> None:
         seat: The seat to delete
 
     Raises:
-        HttpError: If the seat has active or pending tickets for future events
+        HttpError: If the seat is referenced by any ticket (any status/event, ever)
+            or has an unexpired hold
     """
-    # Check for active/pending tickets on future events
-    blocking_ticket_exists = models.Ticket.objects.filter(
-        seat=seat,
-        status__in=[models.Ticket.TicketStatus.ACTIVE, models.Ticket.TicketStatus.PENDING],
-        event__end__gt=timezone.now(),
-    ).exists()
+    # A seat referenced by any ticket, ever, or held right now, is never hard-deleted.
+    blocking_ticket_exists = models.Ticket.objects.filter(seat=seat).exists()
+    blocking_hold_exists = models.SeatHold.objects.active().filter(seat=seat).exists()
 
-    if blocking_ticket_exists:
+    if blocking_ticket_exists or blocking_hold_exists:
         raise HttpError(
             400,
             str(
-                _("Cannot delete seat '{}' because it has active or pending tickets for future events.").format(
-                    seat.label
-                )
+                _(
+                    "Seat '{}' is referenced by tickets or an active hold and cannot be deleted. "
+                    "Decommission it instead (set inactive)."
+                ).format(seat.label)
             ),
         )
 
@@ -272,8 +270,8 @@ def delete_seat(seat: models.VenueSeat) -> None:
 def bulk_delete_seats(sector: models.VenueSector, labels: list[str]) -> int:
     """Bulk delete seats by their labels.
 
-    This operation is atomic - if any seat cannot be deleted (due to having
-    active/pending tickets for future events), no seats will be deleted.
+    This operation is atomic - if any seat cannot be deleted (because it is
+    referenced by any ticket, ever, or has an unexpired hold), no seats will be deleted.
 
     Args:
         sector: The sector containing the seats
@@ -283,7 +281,7 @@ def bulk_delete_seats(sector: models.VenueSector, labels: list[str]) -> int:
         The number of seats deleted
 
     Raises:
-        HttpError: If any seat is not found or has blocking tickets
+        HttpError: If any seat is not found or is referenced by tickets/holds
     """
     if not labels:
         return 0
@@ -299,25 +297,23 @@ def bulk_delete_seats(sector: models.VenueSector, labels: list[str]) -> int:
             str(_("Seats not found in this sector: {}").format(", ".join(sorted(missing_labels)))),
         )
 
-    # Check for blocking tickets on any of the seats
-    blocking_seats = (
-        models.Ticket.objects.filter(
-            seat__in=seats,
-            status__in=[models.Ticket.TicketStatus.ACTIVE, models.Ticket.TicketStatus.PENDING],
-            event__end__gt=timezone.now(),
-        )
-        .values_list("seat__label", flat=True)
-        .distinct()
+    # A seat referenced by any ticket, ever, or held right now, is never hard-deleted.
+    blocking_ticket_labels = set(
+        models.Ticket.objects.filter(seat__in=seats).values_list("seat__label", flat=True).distinct()
     )
-    blocking_labels = list(blocking_seats)
+    blocking_hold_labels = set(
+        models.SeatHold.objects.active().filter(seat__in=seats).values_list("seat__label", flat=True).distinct()
+    )
+    blocking_labels = blocking_ticket_labels | blocking_hold_labels
 
     if blocking_labels:
         raise HttpError(
             400,
             str(
-                _("Cannot delete seats with active or pending tickets for future events: {}").format(
-                    ", ".join(sorted(blocking_labels))
-                )
+                _(
+                    "Seats referenced by tickets or active holds cannot be deleted: {}. "
+                    "Decommission them instead (set inactive)."
+                ).format(", ".join(sorted(blocking_labels)))
             ),
         )
 

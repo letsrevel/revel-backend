@@ -236,7 +236,7 @@ class TestVenueSeatManagement:
         response = organization_owner_client.delete(url)
 
         assert response.status_code == 400
-        assert "active or pending tickets" in response.json()["detail"]
+        assert "decommission" in response.json()["detail"].lower()
         # Seat should still exist
         assert VenueSeat.objects.filter(id=seat.id).exists()
 
@@ -274,12 +274,12 @@ class TestVenueSeatManagement:
         response = organization_owner_client.delete(url)
 
         assert response.status_code == 400
-        assert "active or pending tickets" in response.json()["detail"]
+        assert "decommission" in response.json()["detail"].lower()
 
-    def test_delete_seat_allowed_with_cancelled_ticket(
+    def test_delete_seat_blocked_by_cancelled_ticket(
         self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
     ) -> None:
-        """Test that seat with cancelled ticket can be deleted."""
+        """A cancelled ticket still references the seat historically, so deletion is blocked."""
         venue = Venue.objects.create(organization=organization, name="Theater")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
         seat = VenueSeat.objects.create(sector=sector, label="A1")
@@ -309,13 +309,14 @@ class TestVenueSeatManagement:
         )
         response = organization_owner_client.delete(url)
 
-        assert response.status_code == 204
-        assert not VenueSeat.objects.filter(id=seat.id).exists()
+        assert response.status_code == 400
+        assert "decommission" in response.json()["detail"].lower()
+        assert VenueSeat.objects.filter(id=seat.id).exists()
 
-    def test_delete_seat_allowed_with_past_event_ticket(
+    def test_delete_seat_blocked_by_past_event_ticket(
         self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
     ) -> None:
-        """Test that seat with ticket for past event can be deleted."""
+        """A ticket for a past event still references the seat, so deletion is blocked."""
         venue = Venue.objects.create(organization=organization, name="Theater")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
         seat = VenueSeat.objects.create(sector=sector, label="A1")
@@ -345,13 +346,14 @@ class TestVenueSeatManagement:
         )
         response = organization_owner_client.delete(url)
 
-        assert response.status_code == 204
-        assert not VenueSeat.objects.filter(id=seat.id).exists()
+        assert response.status_code == 400
+        assert "decommission" in response.json()["detail"].lower()
+        assert VenueSeat.objects.filter(id=seat.id).exists()
 
-    def test_delete_seat_allowed_with_checked_in_ticket(
+    def test_delete_seat_blocked_by_checked_in_ticket(
         self, organization_owner_client: Client, organization: Organization, organization_owner_user: RevelUser
     ) -> None:
-        """Test that seat with checked_in ticket for future event can be deleted."""
+        """A checked-in ticket still references the seat historically, so deletion is blocked."""
         venue = Venue.objects.create(organization=organization, name="Theater")
         sector = VenueSector.objects.create(venue=venue, name="Orchestra")
         seat = VenueSeat.objects.create(sector=sector, label="A1")
@@ -383,8 +385,9 @@ class TestVenueSeatManagement:
         )
         response = organization_owner_client.delete(url)
 
-        assert response.status_code == 204
-        assert not VenueSeat.objects.filter(id=seat.id).exists()
+        assert response.status_code == 400
+        assert "decommission" in response.json()["detail"].lower()
+        assert VenueSeat.objects.filter(id=seat.id).exists()
 
     def test_seat_operations_by_staff_without_permission(
         self, organization_staff_client: Client, organization: Organization, staff_member: OrganizationStaff
