@@ -404,6 +404,8 @@ def get_tier_seat_availability(
 
     Returns sector info with all seats and their availability status.
     Seats taken by PENDING or ACTIVE tickets are marked as available=False.
+    Serves any seat-assigned mode (RANDOM, USER_CHOICE, or BEST_AVAILABLE),
+    provided the tier has a sector assigned.
 
     Args:
         event: The event to check availability for

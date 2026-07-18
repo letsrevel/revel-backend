@@ -78,6 +78,7 @@ class EventPublicGuestController(EventPublicBaseController):
         **Seat Assignment Modes:**
         - `NONE`: No seat assigned (general admission)
         - `RANDOM`: System auto-assigns available seats
+        - `BEST_AVAILABLE`: System auto-assigns the best adjacent block of seats
         - `USER_CHOICE`: User must provide seat_id for each ticket
 
         **Online tiers:** returns `requires_payment=true` and a `reservation_id`. Call
@@ -136,6 +137,7 @@ class EventPublicGuestController(EventPublicBaseController):
         **Seat Assignment Modes:**
         - `NONE`: No seat assigned (general admission)
         - `RANDOM`: System auto-assigns available seats
+        - `BEST_AVAILABLE`: System auto-assigns the best adjacent block of seats
         - `USER_CHOICE`: User must provide seat_id for each ticket
 
         **Online tiers:** returns `requires_payment=true` and a `reservation_id`. Call

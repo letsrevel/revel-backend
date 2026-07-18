@@ -395,7 +395,15 @@ class BatchTicketService:
         from events.service.seating.pick import load_candidates
 
         for _attempt in range(3):
-            candidates = load_candidates(self.event, self.tier, exclude=set())
+            # Same identity rule as _verify_and_consume_holds: a guest session, when
+            # present, IS the hold identity — the buyer's own holds stay candidates.
+            candidates = load_candidates(
+                self.event,
+                self.tier,
+                exclude=set(),
+                hold_owner_user=None if self.guest_session else self.user,
+                hold_owner_guest_session=self.guest_session,
+            )
             picked_ids = pick_best_available(candidates, count)
             if not picked_ids:
                 raise HttpError(409, str(_("Not enough adjacent seats available for this tier.")))

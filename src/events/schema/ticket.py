@@ -413,13 +413,15 @@ class TicketTierCreateSchema(TicketTierPriceValidationMixin):
 
     @model_validator(mode="after")
     def validate_seat_assignment_requires_sector(self) -> t.Self:
-        """Validate that seat assignment modes require a sector or price category."""
+        """Validate that each seat assignment mode comes with the field it reads."""
+        if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE and self.price_category_id is None:
+            raise ValueError("A price category is required when seat assignment mode is BEST_AVAILABLE.")
         if (
-            self.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE
+            self.seat_assignment_mode
+            in (TicketTier.SeatAssignmentMode.RANDOM, TicketTier.SeatAssignmentMode.USER_CHOICE)
             and self.sector_id is None
-            and self.price_category_id is None
         ):
-            raise ValueError("A sector or price category is required when seat assignment mode is not NONE.")
+            raise ValueError("A sector is required when seat assignment mode is RANDOM or USER_CHOICE.")
         return self
 
 
@@ -464,15 +466,15 @@ class TicketTierUpdateSchema(TicketTierPriceValidationMixin):
 
     @model_validator(mode="after")
     def validate_seat_assignment_requires_sector(self) -> t.Self:
-        """Validate that seat assignment modes require a sector or price category when being set."""
-        # Only validate if seat_assignment_mode is being explicitly set to a non-NONE value
+        """Validate that a mode being explicitly set comes with the field it reads."""
+        if self.seat_assignment_mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE and self.price_category_id is None:
+            raise ValueError("A price category is required when seat assignment mode is BEST_AVAILABLE.")
         if (
-            self.seat_assignment_mode is not None
-            and self.seat_assignment_mode != TicketTier.SeatAssignmentMode.NONE
+            self.seat_assignment_mode
+            in (TicketTier.SeatAssignmentMode.RANDOM, TicketTier.SeatAssignmentMode.USER_CHOICE)
             and self.sector_id is None
-            and self.price_category_id is None
         ):
-            raise ValueError("A sector or price category is required when seat assignment mode is not NONE.")
+            raise ValueError("A sector is required when seat assignment mode is RANDOM or USER_CHOICE.")
         return self
 
 

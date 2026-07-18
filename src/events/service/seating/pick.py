@@ -10,8 +10,20 @@ from events.service.seating.holds import HoldResult, acquire_seats
 _MAX_ATTEMPTS = 3
 
 
-def load_candidates(event: Event, tier: TicketTier, exclude: set[t.Any]) -> list[CandidateSeat]:
+def load_candidates(
+    event: Event,
+    tier: TicketTier,
+    exclude: set[t.Any],
+    *,
+    hold_owner_user: RevelUser | None = None,
+    hold_owner_guest_session: str | None = None,
+) -> list[CandidateSeat]:
     """Load holdable seats in the tier's price category, excluding sold/held/blocked/inactive/lost.
+
+    When a hold-owner identity is given (purchase path), only FOREIGN active holds are
+    excluded — the owner's own held seats remain candidates, to be consumed post-lock by
+    ``verify_and_consume_holds``. With no identity (hold-acquisition path), ALL active
+    holds are excluded.
 
     Returned in stable PK order so the seeded tiebreak in ``pick_best_available`` is
     reproducible across requests (and the re-pick after a conflict is deterministic).
@@ -25,7 +37,10 @@ def load_candidates(event: Event, tier: TicketTier, exclude: set[t.Any]) -> list
             status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
         ).values_list("seat_id", flat=True)
     )
-    taken |= set(SeatHold.objects.active().filter(event=event).values_list("seat_id", flat=True))
+    holds_qs = SeatHold.objects.active().filter(event=event)
+    if hold_owner_user is not None or hold_owner_guest_session is not None:
+        holds_qs = holds_qs.exclude(SeatHold.owner_q(hold_owner_user, hold_owner_guest_session))
+    taken |= set(holds_qs.values_list("seat_id", flat=True))
     taken |= set(EventSeatOverride.objects.filter(event=event).values_list("seat_id", flat=True))
     taken |= exclude
     qs = (

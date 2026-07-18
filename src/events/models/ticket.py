@@ -460,9 +460,18 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         if self.venue_id and self.event.venue_id and self.venue_id != self.event.venue_id:
             raise DjangoValidationError({"venue": "Tier venue must match the event venue."})
 
-        if self.seat_assignment_mode != self.SeatAssignmentMode.NONE and not (self.sector_id or self.price_category_id):
+        # Each seat-assigned mode reads a specific field: BEST_AVAILABLE picks from the
+        # price category's seat pool; RANDOM/USER_CHOICE assign within the sector.
+        if self.seat_assignment_mode == self.SeatAssignmentMode.BEST_AVAILABLE and not self.price_category_id:
             raise DjangoValidationError(
-                {"seat_assignment_mode": "A sector or price category is required for seat-assigned tiers."}
+                {"seat_assignment_mode": "A price category is required for best-available tiers."}
+            )
+        if (
+            self.seat_assignment_mode in (self.SeatAssignmentMode.RANDOM, self.SeatAssignmentMode.USER_CHOICE)
+            and not self.sector_id
+        ):
+            raise DjangoValidationError(
+                {"seat_assignment_mode": "A sector is required for random or user-choice seat assignment."}
             )
 
     def _validate_invitation_restrictions(self) -> None:
