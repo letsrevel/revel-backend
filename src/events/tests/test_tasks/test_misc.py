@@ -1,10 +1,13 @@
 import typing as t
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
 from django.core.files.base import ContentFile
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from accounts.models import RevelUser
@@ -27,6 +30,7 @@ from events.tasks import (
     cleanup_ticket_file_cache,
     generate_recurring_events_task,
 )
+from events.tasks.attendees import visibility_rebuild_lock_key
 
 pytestmark = pytest.mark.django_db
 
@@ -170,6 +174,63 @@ def test_build_attendee_visibility_flags_replaces_existing(
     # The flags should be replaced with new ones where is_visible=True
     assert AttendeeVisibilityFlag.objects.get(user=attendee1, event=event, target=attendee2).is_visible
     assert AttendeeVisibilityFlag.objects.get(user=attendee2, event=event, target=attendee1).is_visible
+
+
+def test_visibility_rebuild_lock_key_is_stable_and_64_bit() -> None:
+    """The advisory-lock key is deterministic, event-specific, and fits Postgres's signed bigint.
+
+    A true two-thread deadlock reproduction is deliberately not attempted:
+    ``pg_advisory_xact_lock`` serializes concurrent rebuilds by construction, so the
+    regression contract is (a) the key derivation is stable per event and (b) the task
+    actually takes the lock (see test below).
+    """
+    event_id = str(uuid.uuid4())
+
+    key = visibility_rebuild_lock_key(event_id)
+
+    # Deterministic for the same event.
+    assert visibility_rebuild_lock_key(event_id) == key
+    # Fits a signed 64-bit bigint (pg_advisory_xact_lock's argument type).
+    assert -(2**63) <= key < 2**63
+    # Distinct events get distinct keys.
+    assert visibility_rebuild_lock_key(str(uuid.uuid4())) != key
+
+
+def test_build_attendee_visibility_flags_takes_per_event_advisory_lock(
+    event: Event,
+    revel_user_factory: RevelUserFactory,
+) -> None:
+    """The rebuild transaction acquires the per-event advisory xact lock, and repeated
+    sequential runs still produce a complete, correct matrix.
+
+    This is the deadlock regression guard: concurrent rebuilds of the same event's
+    matrix deadlocked in production because delete + bulk_create interleaved row locks
+    across workers. The advisory lock serializes them by construction, so we assert the
+    lock is taken with the derived key rather than reproducing a two-thread deadlock.
+    """
+    attendee1 = revel_user_factory()
+    attendee2 = revel_user_factory()
+    tier = event.ticket_tiers.first()
+    assert tier is not None
+    Ticket.objects.create(
+        guest_name="Test Guest", event=event, user=attendee1, tier=tier, status=Ticket.TicketStatus.ACTIVE
+    )
+    EventRSVP.objects.create(event=event, user=attendee2, status=EventRSVP.RsvpStatus.YES)
+
+    with CaptureQueriesContext(connection) as ctx:
+        build_attendee_visibility_flags(str(event.id))
+
+    lock_queries = [q["sql"] for q in ctx.captured_queries if "pg_advisory_xact_lock" in q["sql"]]
+    assert len(lock_queries) == 1
+    assert str(visibility_rebuild_lock_key(str(event.id))) in lock_queries[0]
+
+    # A second sequential run (what the lock enforces for concurrent dispatches)
+    # still yields a complete matrix: every viewer/target pair has exactly one flag.
+    build_attendee_visibility_flags(str(event.id))
+    assert AttendeeVisibilityFlag.objects.filter(event=event).count() == 4
+    for viewer in (attendee1, attendee2):
+        for target in (attendee1, attendee2):
+            assert AttendeeVisibilityFlag.objects.filter(user=viewer, event=event, target=target).count() == 1
 
 
 class TestCleanupTicketFileCache:
