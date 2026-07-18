@@ -203,6 +203,7 @@ unfixable = []
 "**/admin.py" = ["D102"]
 "**/admin/*.py" = ["D102"]
 "conftest.py" = ["D"]
+"benchmark/**" = ["T201"]  # load-test scripts report to the console by design
 
 [tool.ruff.lint.mccabe]
 # Unlike Flake8, default to a complexity level of 10.
