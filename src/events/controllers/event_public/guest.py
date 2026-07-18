@@ -104,6 +104,7 @@ class EventPublicGuestController(EventPublicBaseController):
             discount_code=payload.discount_code,
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
+            accessible_required=payload.accessible_required,
         )
 
     @route.post(
@@ -162,6 +163,7 @@ class EventPublicGuestController(EventPublicBaseController):
             pwyc_amount=payload.price_per_ticket,
             billing_info=payload.billing_info,
             guest_session=self._resolve_guest_session(),
+            accessible_required=payload.accessible_required,
         )
 
     @route.post(

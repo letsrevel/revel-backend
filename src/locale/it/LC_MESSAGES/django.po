@@ -1154,6 +1154,11 @@ msgstr "Uno o più posti selezionati non sono più disponibili."
 msgid "One or more selected seats are held by another buyer."
 msgstr "Uno o più posti selezionati sono riservati da un altro acquirente."
 
+msgid "Not enough accessible seats available — please contact the organizer."
+msgstr ""
+"Non ci sono abbastanza posti accessibili disponibili — contatta "
+"l'organizzatore."
+
 msgid "Not enough adjacent seats available for this tier."
 msgstr ""
 "Non ci sono abbastanza posti adiacenti disponibili per questo livello di "
