@@ -17,8 +17,8 @@ class TestVenueSectorManagement:
         """Test that listing sectors includes nested seats."""
         venue = Venue.objects.create(organization=organization, name="Theater")
         sector = VenueSector.objects.create(venue=venue, name="Balcony")
-        VenueSeat.objects.create(sector=sector, label="A1", row="A", number=1)
-        VenueSeat.objects.create(sector=sector, label="A2", row="A", number=2)
+        VenueSeat.objects.create(sector=sector, label="A1", row_label="A", number=1)
+        VenueSeat.objects.create(sector=sector, label="A2", row_label="A", number=2)
 
         url = reverse("api:list_venue_sectors", kwargs={"slug": organization.slug, "venue_id": venue.id})
         response = organization_owner_client.get(url)

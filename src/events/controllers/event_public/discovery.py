@@ -255,7 +255,12 @@ class EventPublicDiscoveryController(EventPublicBaseController):
         to prevent reuse. Returns the created RSVP or BatchCheckoutResponse with tickets on success.
         Returns 400 if token is invalid, expired, already used, or if eligibility checks fail (e.g., event became full).
         """
-        return guest_service.confirm_guest_action(payload.token)
+        from events.service.guest_hold_session import GUEST_HOLD_COOKIE, resolve_guest_session
+
+        # The confirming browser's guest-hold session: lets ticket confirmation consume
+        # the guest's own seat holds instead of being blocked by them.
+        guest_session = resolve_guest_session(self.context.request.COOKIES.get(GUEST_HOLD_COOKIE))  # type: ignore[union-attr]
+        return guest_service.confirm_guest_action(payload.token, guest_session=guest_session)
 
     # ---- Checkout Management Endpoints ----
     # These must be defined BEFORE /{uuid:event_id} routes to avoid path conflicts

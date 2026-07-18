@@ -23,6 +23,7 @@ from events.models import (
     CancellationSource,
     Event,
     Organization,
+    PriceCategory,
     Ticket,
     TicketTier,
     Venue,
@@ -36,6 +37,7 @@ from events.models import (
 PLATEA_ROWS = [chr(c) for c in range(ord("A"), ord("V") + 1)]  # A-V, 22 rows
 PLATEA_SEATS_PER_ROW = 34
 PLATEA_AISLES = [17]  # Center aisle
+PLATEA_PREMIUM_ROWS = PLATEA_ROWS[:8]  # A-H: premium price category
 
 GALLERIA_ROWS = [chr(c) for c in range(ord("A"), ord("K") + 1)]  # A-K, 11 rows
 GALLERIA_SEATS_PER_ROW = 52
@@ -83,10 +85,14 @@ class ShowcaseVenueSeeder(BaseSeeder):
             }
         }
 
-    def _grid_shape(self, num_rows: int, seats_per_row: int, num_aisles: int) -> list[list[int]]:
-        """Build a rectangular polygon roughly bounding the seat grid."""
+    def _grid_shape(self, num_rows: int, seats_per_row: int, num_aisles: int) -> list[dict[str, int]]:
+        """Build a rectangular polygon roughly bounding the seat grid (canonical {x, y} points)."""
         width = seats_per_row + num_aisles
-        return [[0, 0], [width, 0], [width, num_rows], [0, num_rows]]
+        return self._rect_shape(width, num_rows)
+
+    def _rect_shape(self, width: int, height: int) -> list[dict[str, int]]:
+        """Build a rectangular polygon in the canonical [{"x": .., "y": ..}, ...] format."""
+        return [{"x": 0, "y": 0}, {"x": width, "y": 0}, {"x": width, "y": height}, {"x": 0, "y": height}]
 
     def _build_grid_seats(
         self,
@@ -98,8 +104,13 @@ class ShowcaseVenueSeeder(BaseSeeder):
         obstructed: set[str] | None = None,
         inactive: set[str] | None = None,
         label_separator: str = "",
+        price_category: PriceCategory | None = None,
     ) -> list[VenueSeat]:
-        """Build seat instances for a rectangular grid with aisle gaps."""
+        """Build seat instances for a rectangular grid with aisle gaps.
+
+        Rows are generated front-to-back and seats left-to-right, so row_order
+        and adjacency_index are simply the generation indices.
+        """
         accessible = accessible or set()
         obstructed = obstructed or set()
         inactive = inactive or set()
@@ -113,8 +124,11 @@ class ShowcaseVenueSeeder(BaseSeeder):
                     VenueSeat(
                         sector=sector,
                         label=label,
-                        row=row,
+                        row_label=row,
                         number=col + 1,
+                        row_order=row_idx,
+                        adjacency_index=col,
+                        default_price_category=price_category,
                         position={"x": x, "y": row_idx},
                         is_accessible=label in accessible,
                         is_obstructed_view=label in obstructed,
@@ -131,6 +145,10 @@ class ShowcaseVenueSeeder(BaseSeeder):
                 labels.add(f"{row}{separator}{i}")
                 labels.add(f"{row}{separator}{seats_per_row - i + 1}")
         return labels
+
+    def _price_category(self, venue: Venue, name: str, color: str, display_order: int) -> PriceCategory:
+        """Create a venue-scoped price category for painting onto seats."""
+        return PriceCategory.objects.create(venue=venue, name=name, color=color, display_order=display_order)
 
     # -- Venue builders ----------------------------------------------------
 
@@ -169,25 +187,34 @@ class ShowcaseVenueSeeder(BaseSeeder):
                 name=f"Palco {i}",
                 code=f"P{i}",
                 display_order=1 + i,
-                shape=[[0, 0], [4, 0], [4, 2], [0, 2]],
+                shape=self._rect_shape(4, 2),
             )
             for i in range(1, 5)
         ]
 
+        cat_platea_premium = self._price_category(venue, "Platea Premium", "#dc2626", 0)
+        cat_platea = self._price_category(venue, "Platea", "#f59e0b", 1)
+        cat_galleria = self._price_category(venue, "Galleria", "#7c3aed", 2)
+        cat_palco = self._price_category(venue, "Palco", "#0ea5e9", 3)
+
         seats: list[VenueSeat] = []
 
         # Platea: accessible seats at the ends of the front and back rows,
-        # a couple of decommissioned seats in the back row.
-        seats.extend(
-            self._build_grid_seats(
-                platea,
-                PLATEA_ROWS,
-                PLATEA_SEATS_PER_ROW,
-                PLATEA_AISLES,
-                accessible=self._row_end_labels(["A", "B", "U", "V"], PLATEA_SEATS_PER_ROW),
-                inactive={"V17", "V18"},
-            )
+        # a couple of decommissioned seats in the back row. Front rows are
+        # painted with the premium category, the rest with the standard one.
+        platea_seats = self._build_grid_seats(
+            platea,
+            PLATEA_ROWS,
+            PLATEA_SEATS_PER_ROW,
+            PLATEA_AISLES,
+            accessible=self._row_end_labels(["A", "B", "U", "V"], PLATEA_SEATS_PER_ROW),
+            inactive={"V17", "V18"},
+            price_category=cat_platea,
         )
+        for seat in platea_seats:
+            if seat.row_label in PLATEA_PREMIUM_ROWS:
+                seat.default_price_category = cat_platea_premium
+        seats.extend(platea_seats)
 
         # Galleria: accessible ends on the front row, obstructed views at the
         # extreme ends of the rear rows, one broken seat.
@@ -200,6 +227,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
                 accessible=self._row_end_labels(["A"], GALLERIA_SEATS_PER_ROW),
                 obstructed=self._row_end_labels(["J", "K"], GALLERIA_SEATS_PER_ROW),
                 inactive={"F26"},
+                price_category=cat_galleria,
             )
         )
 
@@ -214,6 +242,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
                     [],
                     obstructed={"1-4", "2-4"},
                     label_separator="-",
+                    price_category=cat_palco,
                 )
             )
 
@@ -231,7 +260,14 @@ class ShowcaseVenueSeeder(BaseSeeder):
         for event in events:
             tiers = [
                 self._create_tier(event, "Platea", platea, TicketTier.SeatAssignmentMode.USER_CHOICE, Decimal("45")),
-                self._create_tier(event, "Galleria", galleria, TicketTier.SeatAssignmentMode.RANDOM, Decimal("25")),
+                self._create_tier(
+                    event,
+                    "Galleria",
+                    galleria,
+                    TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+                    Decimal("25"),
+                    price_category=cat_galleria,
+                ),
                 self._create_tier(
                     event, "Palco 1", palchi[0], TicketTier.SeatAssignmentMode.USER_CHOICE, Decimal("80")
                 ),
@@ -269,15 +305,19 @@ class ShowcaseVenueSeeder(BaseSeeder):
             shape=self._grid_shape(len(CHUCKLE_RISER_ROWS), CHUCKLE_RISER_SEATS_PER_ROW, 0),
             metadata=self._aisle_metadata([]),
         )
-        # GA works as a seatless sector with a hard capacity.
+        # GA works as a seatless standing sector with a hard capacity.
         standing = VenueSector.objects.create(
             venue=venue,
             name="Standing Room",
             code="STD",
+            kind=VenueSector.Kind.STANDING,
             display_order=2,
             capacity=40,
-            shape=[[0, 0], [12, 0], [12, 4], [0, 4]],
+            shape=self._rect_shape(12, 4),
         )
+
+        cat_tables = self._price_category(venue, "Front Tables", "#ea580c", 0)
+        cat_riser = self._price_category(venue, "Riser", "#0d9488", 1)
 
         seats: list[VenueSeat] = []
         seats.extend(
@@ -288,6 +328,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
                 [],
                 accessible={"T1-1", "T1-8"},
                 label_separator="-",
+                price_category=cat_tables,
             )
         )
         # Riser: a support pillar obstructs two seats in the back row.
@@ -300,6 +341,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
                 accessible={"D1", "D12"},
                 obstructed={"D6", "D7"},
                 inactive={"C12"},
+                price_category=cat_riser,
             )
         )
 
@@ -319,7 +361,14 @@ class ShowcaseVenueSeeder(BaseSeeder):
                 self._create_tier(
                     event, "Front Table", tables, TicketTier.SeatAssignmentMode.USER_CHOICE, Decimal("20")
                 ),
-                self._create_tier(event, "Riser", riser, TicketTier.SeatAssignmentMode.RANDOM, Decimal("15")),
+                self._create_tier(
+                    event,
+                    "Riser",
+                    riser,
+                    TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+                    Decimal("15"),
+                    price_category=cat_riser,
+                ),
                 self._create_tier(event, "Standing", standing, TicketTier.SeatAssignmentMode.NONE, Decimal("0")),
             ]
             if event is events[0]:
@@ -344,9 +393,10 @@ class ShowcaseVenueSeeder(BaseSeeder):
             venue=venue,
             name="Floor",
             code="FLR",
+            kind=VenueSector.Kind.STANDING,
             display_order=0,
             capacity=600,
-            shape=[[0, 0], [40, 0], [40, 25], [0, 25]],
+            shape=self._rect_shape(40, 25),
         )
         balcony = VenueSector.objects.create(
             venue=venue,
@@ -357,6 +407,8 @@ class ShowcaseVenueSeeder(BaseSeeder):
             metadata=self._aisle_metadata(MITTELFEST_BALCONY_AISLES),
         )
 
+        cat_balcony = self._price_category(venue, "Balcony", "#2563eb", 0)
+
         seats = self._build_grid_seats(
             balcony,
             MITTELFEST_BALCONY_ROWS,
@@ -365,6 +417,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
             accessible=self._row_end_labels(["A"], MITTELFEST_BALCONY_SEATS_PER_ROW),
             obstructed={"F1", "F20"},
             inactive={"E11"},
+            price_category=cat_balcony,
         )
 
         self.batch_create(VenueSeat, seats, desc="Creating Mittelfest Halle seats")
@@ -378,10 +431,18 @@ class ShowcaseVenueSeeder(BaseSeeder):
             ],
         )
 
+        modes = TicketTier.SeatAssignmentMode
         for i, event in enumerate(events):
-            balcony_mode = TicketTier.SeatAssignmentMode.USER_CHOICE if i == 0 else TicketTier.SeatAssignmentMode.RANDOM
+            balcony_mode = modes.USER_CHOICE if i == 0 else modes.BEST_AVAILABLE
             tiers = [
-                self._create_tier(event, "Balcony Seated", balcony, balcony_mode, Decimal("35")),
+                self._create_tier(
+                    event,
+                    "Balcony Seated",
+                    balcony,
+                    balcony_mode,
+                    Decimal("35"),
+                    price_category=cat_balcony if balcony_mode == modes.BEST_AVAILABLE else None,
+                ),
                 self._create_tier(event, "GA Floor", floor, TicketTier.SeatAssignmentMode.NONE, Decimal("0")),
             ]
             if event is events[0]:
@@ -413,6 +474,9 @@ class ShowcaseVenueSeeder(BaseSeeder):
                 start=now + timedelta(days=days),
                 end=now + timedelta(days=days, hours=3),
                 max_attendees=0,
+                # Model default (1) would make every multi-seat hold impossible;
+                # 4 is a realistic party cap for showcase/load-test flows.
+                max_tickets_per_user=4,
                 requires_ticket=True,
                 venue=venue,
                 address=venue.address,
@@ -428,11 +492,13 @@ class ShowcaseVenueSeeder(BaseSeeder):
         sector: VenueSector,
         mode: "TicketTier.SeatAssignmentMode",
         price: Decimal,
+        price_category: PriceCategory | None = None,
     ) -> TicketTier:
         """Create a ticket tier bound to a venue sector.
 
         Free tiers use the FREE payment method; priced tiers use OFFLINE so no
-        Stripe involvement is needed.
+        Stripe involvement is needed. Best-available tiers must pass the price
+        category whose seat pool they draw from.
         """
         is_free = price == 0
         return TicketTier.objects.create(
@@ -445,6 +511,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
             manual_payment_instructions=None if is_free else "Please transfer to IBAN: XX1234567890",
             venue=sector.venue,
             sector=sector,
+            price_category=price_category,
             seat_assignment_mode=mode,
         )
 
@@ -462,7 +529,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
         quantity_sold reflects non-cancelled tickets.
         """
         active_seats = list(
-            VenueSeat.objects.filter(sector_id=tier.sector_id, is_active=True).order_by("row", "number")
+            VenueSeat.objects.filter(sector_id=tier.sector_id, is_active=True).order_by("row_order", "adjacency_index")
         )
         num_active = max(1, int(len(active_seats) * SEATED_OCCUPANCY))
         num_pending = min(PENDING_TICKETS_PER_SECTOR, len(active_seats) - num_active)

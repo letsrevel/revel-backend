@@ -101,6 +101,26 @@ class Venue(SlugFromNameMixin, TimeStampedModel, LocationMixin):
         return f"{self.name} ({self.organization.name})"
 
 
+class PriceCategory(TimeStampedModel):
+    """A venue-scoped price category painted onto seats.
+
+    Category lives on the map; price lives on the event via TicketTier.
+    Multiple tiers MAY reference the same category (shared seat pool).
+    """
+
+    venue = models.ForeignKey(Venue, on_delete=models.CASCADE, related_name="price_categories", db_index=True)
+    name = models.CharField(max_length=100)
+    color = models.CharField(max_length=7, help_text="Hex color for map rendering, e.g. #aa0000.")
+    display_order = models.PositiveIntegerField(default=0, db_index=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["venue", "name"], name="unique_venue_price_category_name")]
+        ordering = ["venue", "display_order", "name"]
+
+    def __str__(self) -> str:
+        return f"{self.venue.name}: {self.name}"
+
+
 class VenueSector(TimeStampedModel):
     """A logical area inside a venue (e.g. Balcony, Floor Left).
 
@@ -111,6 +131,10 @@ class VenueSector(TimeStampedModel):
         the number of materialized VenueSeat objects in this sector.
     """
 
+    class Kind(models.TextChoices):
+        SEATED = "seated", "Seated"
+        STANDING = "standing", "Standing"
+
     venue = models.ForeignKey(
         Venue,
         on_delete=models.CASCADE,
@@ -118,13 +142,18 @@ class VenueSector(TimeStampedModel):
         db_index=True,
     )
 
+    kind = models.CharField(choices=Kind.choices, default=Kind.SEATED, max_length=10, db_index=True)
+
     name = models.CharField(max_length=100, db_index=True)
     code = models.CharField(max_length=30, blank=True, null=True)
 
     shape = models.JSONField(
         null=True,
         blank=True,
-        help_text="Arbitrary polygon for FE rendering (list of points: [[x,y],...]).",
+        help_text=(
+            'Arbitrary polygon for FE rendering. Canonical format: [{"x": .., "y": ..}, ...]. '
+            "Legacy [x, y] pairs are coerced on read."
+        ),
     )
 
     capacity = models.PositiveIntegerField(
@@ -180,8 +209,18 @@ class VenueSeat(TimeStampedModel):
     label = models.CharField(max_length=50, db_index=True)
 
     # Optional structured labeling
-    row = models.CharField(max_length=20, blank=True, null=True, db_index=True)
+    row_label = models.CharField(max_length=20, blank=True, null=True, db_index=True)
     number = models.PositiveIntegerField(null=True, blank=True, db_index=True)
+
+    row_order = models.PositiveIntegerField(
+        default=0, db_index=True, help_text="Deterministic front-to-back row rank within the sector."
+    )
+    adjacency_index = models.PositiveIntegerField(
+        default=0, help_text="Physical left-to-right position in the row. Never derived from printed number."
+    )
+    default_price_category = models.ForeignKey(
+        "events.PriceCategory", on_delete=models.SET_NULL, null=True, blank=True, related_name="seats"
+    )
 
     position = models.JSONField(
         null=True,
@@ -200,9 +239,9 @@ class VenueSeat(TimeStampedModel):
                 name="unique_sector_seat_label",
             )
         ]
-        ordering = ["sector", "row", "number", "label"]
+        ordering = ["sector", "row_order", "adjacency_index", "label"]
         indexes = [
-            models.Index(fields=["sector", "row", "number"]),
+            models.Index(fields=["sector", "row_label", "number"]),
             models.Index(fields=["sector", "label"]),
             models.Index(fields=["sector", "is_active"]),
         ]

@@ -245,6 +245,7 @@ def handle_guest_ticket_checkout(
     pwyc_amount: Decimal | None = None,
     discount_code: str | None = None,
     billing_info: "schema.BuyerBillingInfoSchema | None" = None,
+    guest_session: str | None = None,
 ) -> schema.GuestCheckoutResponseSchema:
     """Handle guest ticket checkout request (business logic extracted from controller).
 
@@ -258,6 +259,7 @@ def handle_guest_ticket_checkout(
         pwyc_amount: Optional PWYC amount (must be the same for all tickets)
         discount_code: Optional discount code string
         billing_info: Optional buyer billing info for attendee invoicing
+        guest_session: Resolved guest-hold session id (seat holds are owned by it)
 
     Returns:
         GuestCheckoutResponseSchema. Non-online tiers: `message` (email confirmation sent).
@@ -301,7 +303,7 @@ def handle_guest_ticket_checkout(
     # Branch by payment method
     if tier.payment_method == models.TicketTier.PaymentMethod.ONLINE:
         # Online payment: use BatchTicketService (Stripe provides security)
-        service = BatchTicketService(event, tier, user, discount_code=dc)
+        service = BatchTicketService(event, tier, user, discount_code=dc, guest_session=guest_session)
         result = service.create_batch(tickets, price_override=price_override, billing_info=billing_info)
 
         if isinstance(result, tuple):
@@ -336,13 +338,17 @@ def handle_guest_ticket_checkout(
 
 
 @transaction.atomic
-def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.BatchCheckoutResponse:
+def confirm_guest_action(
+    token: str, guest_session: str | None = None
+) -> schema.EventRSVPSchema | schema.BatchCheckoutResponse:
     """Confirm a guest action (RSVP or ticket purchase) via JWT token.
 
     Uses Pydantic's discriminated union to properly decode the token type.
 
     Args:
         token: JWT token string
+        guest_session: Resolved guest-hold session id of the confirming browser,
+            so the guest's own seat holds are consumed rather than blocking them
 
     Returns:
         Created RSVP or BatchCheckoutResponse with ticket(s)
@@ -409,7 +415,7 @@ def confirm_guest_action(token: str) -> schema.EventRSVPSchema | schema.BatchChe
             price_override = discount_code_service.calculate_discounted_price(tier, dc)
 
         # Use BatchTicketService for proper seat handling
-        service = BatchTicketService(event, tier, user, discount_code=dc)
+        service = BatchTicketService(event, tier, user, discount_code=dc, guest_session=guest_session)
         result = service.create_batch(ticket_items, price_override=price_override)
 
         # Blacklist token after successful creation
