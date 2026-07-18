@@ -21,16 +21,17 @@ def _seat_model_kwargs(data: dict[str, t.Any]) -> dict[str, t.Any]:
     return data
 
 
-def _convert_shape_to_coordinates(shape: list[dict[str, float]]) -> list[schema.Coordinate2D]:
+def _convert_shape_to_coordinates(shape: list[t.Any]) -> list[schema.Coordinate2D]:
     """Convert a JSON shape from DB to list of Coordinate2D objects.
 
     Args:
-        shape: Shape data from database (list of dicts with x,y keys)
+        shape: Shape data from database — canonical ``{"x": .., "y": ..}`` dicts,
+            or legacy ``[x, y]`` pairs (coerced by Coordinate2D validation).
 
     Returns:
         List of Coordinate2D objects
     """
-    return [schema.Coordinate2D(x=point["x"], y=point["y"]) for point in shape]
+    return [schema.Coordinate2D.model_validate(point) for point in shape]
 
 
 def create_venue(

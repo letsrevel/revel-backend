@@ -150,7 +150,10 @@ class VenueSector(TimeStampedModel):
     shape = models.JSONField(
         null=True,
         blank=True,
-        help_text="Arbitrary polygon for FE rendering (list of points: [[x,y],...]).",
+        help_text=(
+            'Arbitrary polygon for FE rendering. Canonical format: [{"x": .., "y": ..}, ...]. '
+            "Legacy [x, y] pairs are coerced on read."
+        ),
     )
 
     capacity = models.PositiveIntegerField(

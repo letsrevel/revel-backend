@@ -150,6 +150,11 @@ class Migration(migrations.Migration):
             model_name='seathold',
             constraint=models.UniqueConstraint(fields=('event', 'seat'), name='unique_seathold_event_seat'),
         ),
+        migrations.AlterField(
+            model_name='venuesector',
+            name='shape',
+            field=models.JSONField(blank=True, help_text='Arbitrary polygon for FE rendering. Canonical format: [{"x": .., "y": ..}, ...]. Legacy [x, y] pairs are coerced on read.', null=True),
+        ),
         migrations.AddConstraint(
             model_name='seathold',
             constraint=models.CheckConstraint(condition=models.Q(models.Q(('user__isnull', False), ('guest_session', '')), models.Q(('user__isnull', True), models.Q(('guest_session', ''), _negated=True)), _connector='OR'), name='seathold_exactly_one_owner'),

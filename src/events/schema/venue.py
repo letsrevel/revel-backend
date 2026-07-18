@@ -4,6 +4,7 @@ import typing as t
 from uuid import UUID
 
 from ninja import ModelSchema, Schema
+from ninja.schema import DjangoGetter
 from pydantic import Field, StringConstraints, model_validator
 
 from common.schema import OneToOneFiftyString, StrippedString
@@ -13,10 +14,26 @@ from .mixins import CityEditMixin, CityRetrieveMixin
 
 
 class Coordinate2D(Schema):
-    """A 2D coordinate point with x and y values."""
+    """A 2D coordinate point with x and y values.
+
+    Canonical form is an ``{"x": .., "y": ..}`` mapping; legacy 2-element
+    ``[x, y]`` pairs (older DB rows) are coerced on validation.
+    """
 
     x: float
     y: float
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_pair(cls, value: t.Any) -> t.Any:
+        """Coerce a legacy 2-element ``[x, y]`` sequence into an ``{x, y}`` mapping."""
+        # Ninja's Schema wrap-validator hands nested values to us as DjangoGetter.
+        raw = value._obj if isinstance(value, DjangoGetter) else value
+        if isinstance(raw, (list, tuple)):
+            if len(raw) != 2:
+                raise ValueError("Coordinate must be an {'x': .., 'y': ..} mapping or a 2-element [x, y] pair.")
+            return {"x": raw[0], "y": raw[1]}
+        return value
 
 
 # A polygon is a list of at least 3 coordinate points

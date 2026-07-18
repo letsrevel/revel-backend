@@ -38,6 +38,22 @@ def test_chart_returns_sectors_and_seats(client: Client, seated_event: tuple[Eve
     assert len(body["sectors"][0]["seats"]) == len(seats)
 
 
+def test_chart_serializes_legacy_pair_shape(client: Client, seated_event: tuple[Event, list[VenueSeat]]) -> None:
+    """Sector shapes stored in the legacy ``[[x, y], ...]`` format must serialize as ``{x, y}`` dicts."""
+    event, seats = seated_event
+    sector = seats[0].sector
+    sector.shape = [[0, 0], [4, 0], [4, 2], [0, 2]]
+    sector.save(update_fields=["shape"])
+    resp = client.get(f"/api/events/{event.id}/seating/chart")
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["sectors"][0]["shape"] == [
+        {"x": 0.0, "y": 0.0},
+        {"x": 4.0, "y": 0.0},
+        {"x": 4.0, "y": 2.0},
+        {"x": 0.0, "y": 2.0},
+    ]
+
+
 def test_chart_404_when_event_has_no_venue(client: Client, event: Event) -> None:
     resp = client.get(f"/api/events/{event.id}/seating/chart")
     assert resp.status_code == 404

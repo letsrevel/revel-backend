@@ -814,6 +814,30 @@ class TestBulkUpdateSeats:
         assert "A2" in str(exc_info.value.message)
         assert "outside the sector shape" in str(exc_info.value.message)
 
+    def test_bulk_update_seats_validates_positions_against_legacy_shape(self, organization: Organization) -> None:
+        """point_in_polygon must tolerate shapes stored in the legacy ``[[x, y], ...]`` format."""
+        venue = Venue.objects.create(organization=organization, name="Venue")
+        sector = VenueSector.objects.create(
+            venue=venue,
+            name="Floor",
+            shape=[[0, 0], [100, 0], [100, 100], [0, 100]],
+        )
+        VenueSeat.objects.create(sector=sector, label="A1")
+
+        inside = [
+            schema.VenueSeatBulkUpdateItemSchema(label="A1", position=schema.Coordinate2D(x=50, y=50)),  # type: ignore[call-arg]
+        ]
+        venue_service.bulk_update_seats(sector, inside)
+        assert sector.seats.get(label="A1").position == {"x": 50.0, "y": 50.0}
+
+        outside = [
+            schema.VenueSeatBulkUpdateItemSchema(label="A1", position=schema.Coordinate2D(x=150, y=50)),  # type: ignore[call-arg]
+        ]
+        with pytest.raises(HttpError) as exc_info:
+            venue_service.bulk_update_seats(sector, outside)
+        assert exc_info.value.status_code == 400
+        assert "outside the sector shape" in str(exc_info.value.message)
+
     def test_bulk_update_seats_no_shape_skips_validation(self, organization: Organization) -> None:
         """Test that positions are not validated when sector has no shape."""
         venue = Venue.objects.create(organization=organization, name="Venue")

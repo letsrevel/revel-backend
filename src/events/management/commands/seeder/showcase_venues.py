@@ -85,10 +85,14 @@ class ShowcaseVenueSeeder(BaseSeeder):
             }
         }
 
-    def _grid_shape(self, num_rows: int, seats_per_row: int, num_aisles: int) -> list[list[int]]:
-        """Build a rectangular polygon roughly bounding the seat grid."""
+    def _grid_shape(self, num_rows: int, seats_per_row: int, num_aisles: int) -> list[dict[str, int]]:
+        """Build a rectangular polygon roughly bounding the seat grid (canonical {x, y} points)."""
         width = seats_per_row + num_aisles
-        return [[0, 0], [width, 0], [width, num_rows], [0, num_rows]]
+        return self._rect_shape(width, num_rows)
+
+    def _rect_shape(self, width: int, height: int) -> list[dict[str, int]]:
+        """Build a rectangular polygon in the canonical [{"x": .., "y": ..}, ...] format."""
+        return [{"x": 0, "y": 0}, {"x": width, "y": 0}, {"x": width, "y": height}, {"x": 0, "y": height}]
 
     def _build_grid_seats(
         self,
@@ -183,7 +187,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
                 name=f"Palco {i}",
                 code=f"P{i}",
                 display_order=1 + i,
-                shape=[[0, 0], [4, 0], [4, 2], [0, 2]],
+                shape=self._rect_shape(4, 2),
             )
             for i in range(1, 5)
         ]
@@ -309,7 +313,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
             kind=VenueSector.Kind.STANDING,
             display_order=2,
             capacity=40,
-            shape=[[0, 0], [12, 0], [12, 4], [0, 4]],
+            shape=self._rect_shape(12, 4),
         )
 
         cat_tables = self._price_category(venue, "Front Tables", "#ea580c", 0)
@@ -392,7 +396,7 @@ class ShowcaseVenueSeeder(BaseSeeder):
             kind=VenueSector.Kind.STANDING,
             display_order=0,
             capacity=600,
-            shape=[[0, 0], [40, 0], [40, 25], [0, 25]],
+            shape=self._rect_shape(40, 25),
         )
         balcony = VenueSector.objects.create(
             venue=venue,
