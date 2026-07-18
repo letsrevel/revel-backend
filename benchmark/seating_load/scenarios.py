@@ -181,6 +181,13 @@ def scenario_hold_storm(client: LoadClient, fx: Fixtures, seed: int) -> Scenario
     counts = status_counts(calls)
     ok = check(counts["5xx"] == 0 and counts["transport"] == 0, "zero 5xx", f"5xx/transport: {counts}", notes)
 
+    # A misconfigured run must not pass green: only 200/409 are legitimate hold
+    # outcomes, and at least one hold must actually succeed.
+    unexpected = sorted({c.status for c in calls if c.status not in (200, 409)})
+    ok &= check(not unexpected, "all hold responses in {200, 409}", f"unexpected statuses: {unexpected}", notes)
+    wins = sum(1 for _, call in results if call.status == 200)
+    ok &= check(wins >= 1, f"{wins} holds succeeded (>=1 required)", "zero successful holds", notes)
+
     # Response-level: for each contested seat at most one 200 claims it.
     claims: dict[str, int] = {}
     for _, call in results:
@@ -282,6 +289,11 @@ def _herd_wave(
         f"{wave}: {dupes} overlapping seats",
         notes,
     )
+    # Hard floor: a wave that fulfills nobody (or returns non-hold statuses) is a
+    # misconfigured run, not a pass.
+    unexpected = sorted({c.status for c in calls if c.status not in (200, 409)})
+    ok &= check(not unexpected, f"{wave}: all responses in {{200, 409}}", f"{wave}: unexpected: {unexpected}", notes)
+    ok &= check(fulfilled >= 1, f"{wave}: >=1 party fulfilled", f"{wave}: zero parties fulfilled", notes)
     print(f"    parties fulfilled: {fulfilled}/{len(tokens)} (seats granted: {len(assigned)})")
     notes.append(
         f"{wave}: {fulfilled}/{len(tokens)} parties fulfilled, {counts['409']}x409, "
@@ -358,6 +370,21 @@ def scenario_availability_polling(client: LoadClient, fx: Fixtures, seed: int) -
 
     counts = status_counts(calls)
     ok = check(counts["5xx"] == 0 and counts["transport"] == 0, "zero 5xx", f"5xx/transport: {counts}", notes)
+    # Hard floor: every expected poll/chart call must have happened and returned 200 —
+    # a run where pollers silently error or skip iterations must not pass green.
+    expected_avail = len(poll_tokens) * 20
+    ok &= check(
+        len(avail_calls) == expected_avail and all(c.status == 200 for c in avail_calls),
+        f"all {expected_avail} availability calls made, all 200",
+        f"availability: {len(avail_calls)}/{expected_avail} calls, statuses={sorted({c.status for c in avail_calls})}",
+        notes,
+    )
+    ok &= check(
+        len(chart_calls) == len(poll_tokens) and all(c.status == 200 for c in chart_calls),
+        f"all {len(poll_tokens)} chart calls made, all 200",
+        f"chart: {len(chart_calls)}/{len(poll_tokens)} calls, statuses={sorted({c.status for c in chart_calls})}",
+        notes,
+    )
     avail_p95 = percentile([c.elapsed_ms for c in avail_calls], 95)
     chart_p95 = percentile([c.elapsed_ms for c in chart_calls], 95)
     # Soft targets: report actuals either way.

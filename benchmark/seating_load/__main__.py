@@ -11,6 +11,7 @@ Exits non-zero if any hard assertion fails (soft latency targets never fail the 
 
 import argparse
 import sys
+import typing as t
 
 from .harness import DEFAULT_BASE_URL, LoadClient, LogWatcher, ScenarioResult, setup_django
 
@@ -44,18 +45,24 @@ def main() -> int:
     watcher = LogWatcher(args.log_path) if args.log_path else None
     client = LoadClient(args.base_url)
     print(f"Target: {args.base_url}  seed={args.seed}")
-    fixtures = prepare_fixtures()
 
-    runners = {
-        "storm": lambda: scenario_hold_storm(client, fixtures, args.seed),
-        "herd": lambda: scenario_best_available_herd(client, fixtures, args.seed),
-        "poll": lambda: scenario_availability_polling(client, fixtures, args.seed),
-        "purchase": lambda: scenario_purchase_race(client, fixtures, args.seed),
-        "probes": lambda: scenario_probes(client, fixtures, args.seed),
-    }
-    order = ["storm", "herd", "poll", "purchase", "probes"] if args.scenario in ("all", "sweep") else [args.scenario]
-    if args.scenario == "sweep":
-        order = []
+    if args.scenario == "all":
+        order = ["storm", "herd", "poll", "purchase", "probes"]
+    elif args.scenario == "sweep":
+        order = []  # read-only ORM sweep: no HTTP scenarios, no fixture mutations
+    else:
+        order = [args.scenario]
+
+    runners: dict[str, t.Callable[[], ScenarioResult]] = {}
+    if order:
+        fixtures = prepare_fixtures()
+        runners = {
+            "storm": lambda: scenario_hold_storm(client, fixtures, args.seed),
+            "herd": lambda: scenario_best_available_herd(client, fixtures, args.seed),
+            "poll": lambda: scenario_availability_polling(client, fixtures, args.seed),
+            "purchase": lambda: scenario_purchase_race(client, fixtures, args.seed),
+            "probes": lambda: scenario_probes(client, fixtures, args.seed),
+        }
 
     results: list[ScenarioResult] = []
     log_errors: dict[str, list[str]] = {}

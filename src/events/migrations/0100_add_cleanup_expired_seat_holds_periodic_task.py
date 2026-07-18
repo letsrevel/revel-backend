@@ -1,7 +1,9 @@
+import typing as t
+
 from django.db import migrations
 
 
-def create_cleanup_expired_seat_holds_task(apps, schema_editor):
+def create_cleanup_expired_seat_holds_task(apps: t.Any, schema_editor: t.Any) -> None:
     CrontabSchedule = apps.get_model("django_celery_beat", "CrontabSchedule")
     PeriodicTask = apps.get_model("django_celery_beat", "PeriodicTask")
 
@@ -24,14 +26,9 @@ def create_cleanup_expired_seat_holds_task(apps, schema_editor):
     )
 
 
-def delete_cleanup_expired_seat_holds_task(apps, schema_editor):
+def delete_cleanup_expired_seat_holds_task(apps: t.Any, schema_editor: t.Any) -> None:
     PeriodicTask = apps.get_model("django_celery_beat", "PeriodicTask")
-
-    try:
-        task = PeriodicTask.objects.get(name="Cleanup expired seat holds")
-        task.delete()
-    except PeriodicTask.DoesNotExist:
-        pass  # Task already gone, nothing to do
+    PeriodicTask.objects.filter(name="Cleanup expired seat holds").delete()
 
 
 class Migration(migrations.Migration):

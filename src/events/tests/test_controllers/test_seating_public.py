@@ -171,6 +171,12 @@ def test_best_available_hold_409_when_no_block_fits(
         content_type="application/json",
     )
     assert resp.status_code == 409, resp.content
+    # Same HoldResponseSchema shape as every other hold 409, not an HttpError {detail}.
+    body = resp.json()
+    assert body["conflict_reason"] == "no_block"
+    assert body["held_seat_ids"] == []
+    assert body["conflicts"] == []
+    assert body["expires_at"] is None
 
 
 def test_anonymous_best_available_hold_sets_guest_cookie(

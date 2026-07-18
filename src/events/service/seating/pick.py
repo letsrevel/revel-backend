@@ -2,6 +2,8 @@
 
 import typing as t
 
+from django.db.models import Max
+
 from accounts.models import RevelUser
 from events.models import Event, EventSeatOverride, SeatHold, Ticket, TicketTier, VenueSeat, VenueSector
 from events.service.seating.best_available import CandidateSeat, pick_best_available
@@ -42,6 +44,18 @@ def load_candidates(
     taken |= set(holds_qs.values_list("seat_id", flat=True))
     taken |= set(EventSeatOverride.objects.filter(event=event).values_list("seat_id", flat=True))
     taken |= exclude
+    # Full-row bounds over ALL active seats (sold/held included) so centrality is
+    # scored against the real row midpoint, not the shrinking available pool.
+    row_bounds = {
+        (r["sector__display_order"], r["row_order"]): r["max_adjacency"] + 1
+        for r in VenueSeat.objects.filter(
+            is_active=True,
+            sector__kind=VenueSector.Kind.SEATED,
+            sector__venue_id=event.venue_id,
+        )
+        .values("sector__display_order", "row_order")
+        .annotate(max_adjacency=Max("adjacency_index"))
+    }
     qs = (
         VenueSeat.objects.filter(
             default_price_category_id=tier.price_category_id,
@@ -54,7 +68,14 @@ def load_candidates(
         .values_list("id", "row_order", "adjacency_index", "is_accessible", "sector__display_order")
     )
     return [
-        CandidateSeat(id=r[0], row_order=r[1], adjacency_index=r[2], is_accessible=r[3], sector_display_order=r[4])
+        CandidateSeat(
+            id=r[0],
+            row_order=r[1],
+            adjacency_index=r[2],
+            is_accessible=r[3],
+            sector_display_order=r[4],
+            row_length=row_bounds[(r[4], r[1])],
+        )
         for r in qs
     ]
 
