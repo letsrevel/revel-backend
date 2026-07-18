@@ -5,7 +5,8 @@ import pytest
 from django.test.client import Client
 from django.urls import reverse
 
-from events.models import Event, OrganizationStaff, Ticket
+from accounts.models import RevelUser
+from events.models import Event, OrganizationStaff, Ticket, TicketTier, VenueSeat
 
 pytestmark = pytest.mark.django_db
 
@@ -168,3 +169,62 @@ def test_check_in_requires_authentication(event: Event, active_online_ticket: Ti
     response = client.post(url, content_type="application/json")
 
     assert response.status_code == 401
+
+
+def test_check_in_response_includes_seat(
+    organization_owner_client: Client,
+    seated_event: tuple[Event, list[VenueSeat]],
+    event_ticket_tier: TicketTier,
+    public_user: RevelUser,
+) -> None:
+    """Door staff scanning a QR see the ticket's seat (row/number/label) and sector."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    event, seats = seated_event
+    ticket = Ticket.objects.create(
+        guest_name="Seated Guest",
+        user=public_user,
+        event=event,
+        tier=event_ticket_tier,
+        seat=seats[2],
+        sector=seats[2].sector,
+        status=Ticket.TicketStatus.ACTIVE,
+    )
+    now = timezone.now()
+    event.check_in_starts_at = now - timedelta(hours=1)
+    event.check_in_ends_at = now + timedelta(hours=1)
+    event.save(update_fields=["check_in_starts_at", "check_in_ends_at"])
+
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": ticket.pk})
+    response = organization_owner_client.post(url, content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    assert data["seat"]["label"] == "A3"
+    assert data["seat"]["row_label"] == "A"
+    assert data["seat"]["number"] == 3
+    assert data["sector_name"] == "Stalls"
+
+
+def test_check_in_response_without_seat_is_null(
+    organization_owner_client: Client, event: Event, active_online_ticket: Ticket
+) -> None:
+    """GA tickets (no seat) keep a null seat/sector in the check-in payload."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    now = timezone.now()
+    event.check_in_starts_at = now - timedelta(hours=1)
+    event.check_in_ends_at = now + timedelta(hours=1)
+    event.save(update_fields=["check_in_starts_at", "check_in_ends_at"])
+
+    url = reverse("api:check_in_ticket", kwargs={"event_id": event.pk, "code": active_online_ticket.pk})
+    response = organization_owner_client.post(url, content_type="application/json")
+
+    assert response.status_code == 200, response.content
+    data = response.json()
+    assert data["seat"] is None
+    assert data["sector_name"] is None

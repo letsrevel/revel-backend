@@ -277,10 +277,17 @@ class CheckInResponseSchema(ModelSchema):
     user: MinimalRevelUserSchema
     tier: TicketTierSchema | None = None
     price_paid: Decimal | None = None
+    seat: MinimalSeatSchema | None = None
+    sector_name: str | None = None
 
     class Meta:
         model = Ticket
-        fields = ["id", "status", "checked_in_at", "tier", "price_paid"]
+        fields = ["id", "status", "checked_in_at", "tier", "price_paid", "seat"]
+
+    @staticmethod
+    def resolve_sector_name(obj: Ticket) -> str | None:
+        """Sector name for door staff redirecting attendees ("Stalls, Row C seat 12")."""
+        return obj.sector.name if obj.sector is not None else None
 
 
 class ConfirmPaymentSchema(Schema):

@@ -247,6 +247,8 @@ from .rsvp import (
 # Seating schemas
 from .seating import (
     BestAvailableHoldRequest,
+    BoxOfficeReseatRequest,
+    BoxOfficeSellRequest,
     ChartSeatSchema,
     ChartSectorSchema,
     HoldResponseSchema,
@@ -540,6 +542,8 @@ __all__ = [
     "WaitlistEntrySchema",
     # Seating
     "BestAvailableHoldRequest",
+    "BoxOfficeReseatRequest",
+    "BoxOfficeSellRequest",
     "ChartSeatSchema",
     "ChartSectorSchema",
     "HoldResponseSchema",

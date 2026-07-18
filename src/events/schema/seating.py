@@ -4,9 +4,9 @@ import typing as t
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import AwareDatetime, Field, field_serializer
+from pydantic import AwareDatetime, EmailStr, Field, field_serializer, field_validator, model_validator
 
-from events.models import EventSeatOverride
+from events.models import EventSeatOverride, TicketTier
 
 from .venue import Coordinate2D, PriceCategorySchema
 
@@ -101,6 +101,41 @@ class SeatOverrideItemSchema(Schema):
 class SeatOverridesRequest(Schema):
     set: list[SeatOverrideItemSchema] = Field(default_factory=list)
     release_seat_ids: list[UUID] = Field(default_factory=list)
+
+
+class BoxOfficeSellRequest(Schema):
+    """Door sale / comp: staff issues a ticket directly on a seat (spec §2)."""
+
+    seat_id: UUID
+    tier_id: UUID
+    payment_method: TicketTier.PaymentMethod
+    # Recipient: exactly one of email (guest get-or-create) or user_id (existing account).
+    email: EmailStr | None = None
+    user_id: UUID | None = None
+    guest_name: str | None = Field(default=None, max_length=255)
+    # Used only when a new guest user is created for the email.
+    first_name: str = Field(default="", max_length=150)
+    last_name: str = Field(default="", max_length=150)
+
+    @field_validator("payment_method")
+    @classmethod
+    def _door_methods_only(cls, v: TicketTier.PaymentMethod) -> TicketTier.PaymentMethod:
+        if v not in (TicketTier.PaymentMethod.AT_THE_DOOR, TicketTier.PaymentMethod.FREE):
+            raise ValueError("payment_method must be 'at_the_door' or 'free'")
+        return v
+
+    @model_validator(mode="after")
+    def _exactly_one_recipient(self) -> "BoxOfficeSellRequest":
+        if (self.email is None) == (self.user_id is None):
+            raise ValueError("Provide exactly one of 'email' or 'user_id'")
+        return self
+
+
+class BoxOfficeReseatRequest(Schema):
+    """Move a ticket to another free seat in the same price category (spec §2)."""
+
+    ticket_id: UUID
+    target_seat_id: UUID
 
 
 class SeatOverridesResponse(Schema):
