@@ -1177,6 +1177,11 @@ msgstr ""
 "Ein oder mehrere ausgewählte Sitzplätze sind von einem anderen Käufer "
 "reserviert."
 
+msgid "Not enough accessible seats available — please contact the organizer."
+msgstr ""
+"Nicht genügend barrierefreie Sitzplätze verfügbar — bitte kontaktiere "
+"den:die Veranstalter:in."
+
 msgid "Not enough adjacent seats available for this tier."
 msgstr ""
 "Nicht genügend zusammenhängende Sitzplätze für diese Ticketkategorie "

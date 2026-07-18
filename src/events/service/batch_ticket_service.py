@@ -63,6 +63,7 @@ class BatchTicketService:
         discount_code: DiscountCode | None = None,
         *,
         guest_session: str | None = None,
+        accessible_required: bool = False,
     ) -> None:
         """Initialize the batch ticket service.
 
@@ -73,12 +74,15 @@ class BatchTicketService:
             discount_code: Optional validated discount code to apply.
             guest_session: Guest-hold session id for guest checkout — the browser
                 held seats under this identity, not under the guest RevelUser.
+            accessible_required: BEST_AVAILABLE assignment must use the accessible
+                seat pool (relaxed contiguity) for the whole batch (#726).
         """
         self.event = event
         self.tier = tier
         self.user = user
         self.discount_code = discount_code
         self.guest_session = guest_session
+        self.accessible_required = accessible_required
         self._reserve_buyer_vat: "BuyerVATContext | None" = None
 
     def _assert_purchasable_by(self) -> None:
@@ -316,8 +320,12 @@ class BatchTicketService:
                 hold_owner_user=None if self.guest_session else self.user,
                 hold_owner_guest_session=self.guest_session,
             )
-            picked_ids = pick_best_available(candidates, count)
+            picked_ids = pick_best_available(candidates, count, accessible_required=self.accessible_required)
             if not picked_ids:
+                if self.accessible_required:
+                    raise HttpError(
+                        409, str(_("Not enough accessible seats available — please contact the organizer."))
+                    )
                 raise HttpError(409, str(_("Not enough adjacent seats available for this tier.")))
             try:
                 with transaction.atomic():  # savepoint per attempt (see docstring)

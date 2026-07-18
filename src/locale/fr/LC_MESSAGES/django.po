@@ -1184,6 +1184,11 @@ msgid "One or more selected seats are held by another buyer."
 msgstr ""
 "Un ou plusieurs sièges sélectionnés sont réservés par un autre acheteur."
 
+msgid "Not enough accessible seats available — please contact the organizer."
+msgstr ""
+"Pas assez de sièges accessibles disponibles — contacte "
+"l'organisateur·rice."
+
 msgid "Not enough adjacent seats available for this tier."
 msgstr ""
 "Pas assez de sièges adjacents disponibles pour cette catégorie de tickets."
