@@ -1,8 +1,10 @@
 """Celery tasks for attendee visibility flags and guest confirmation emails."""
 
+import hashlib
+
 import structlog
 from celery import shared_task
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
 from django.template.loader import render_to_string
 from django.utils.translation import gettext as _
@@ -13,6 +15,17 @@ from common.tasks import send_email
 from events.models import AttendeeVisibilityFlag, Event, EventRSVP, Ticket
 
 logger = structlog.get_logger(__name__)
+
+
+def visibility_rebuild_lock_key(event_id: str) -> int:
+    """Derive a stable signed 64-bit Postgres advisory-lock key for a per-event visibility rebuild.
+
+    The key is namespaced so it can't collide with other advisory-lock users, and is
+    derived deterministically from the event UUID so every worker rebuilding the same
+    event's matrix contends on the same lock.
+    """
+    digest = hashlib.sha256(f"events.attendee_visibility:{event_id}".encode()).digest()
+    return int.from_bytes(digest[:8], byteorder="big", signed=True)
 
 
 @shared_task(name="events.tasks.build_attendee_visibility_flags")
@@ -62,6 +75,15 @@ def build_attendee_visibility_flags(event_id: str) -> None:
     flags = []
 
     with transaction.atomic():
+        # Serialize concurrent rebuilds of the same event's matrix. Every confirmed
+        # ticket/RSVP dispatches this task, so a checkout rush runs several rebuilds
+        # at once and the delete + bulk_create below interleave row locks across
+        # workers and deadlock. A transaction-scoped advisory lock keyed on the event
+        # serializes the rebuild without touching the Event row that checkout paths
+        # select_for_update (so it adds no checkout latency). Released automatically
+        # at commit/rollback.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(%s)", [visibility_rebuild_lock_key(event_id)])
         AttendeeVisibilityFlag.objects.filter(event=event).delete()
         for viewer in viewers:
             for target in attendees:
