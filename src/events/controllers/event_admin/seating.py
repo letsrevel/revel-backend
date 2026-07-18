@@ -14,7 +14,7 @@ from .base import EventAdminBaseController
 @api_controller(
     "/event-admin/{event_id}",
     auth=I18nJWTAuth(),
-    permissions=[EventPermission("edit_event")],
+    permissions=[EventPermission("manage_tickets")],
     tags=["Event Admin"],
     throttle=WriteThrottle(),
 )

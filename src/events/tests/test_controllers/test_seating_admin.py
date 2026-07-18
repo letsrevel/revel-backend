@@ -6,7 +6,7 @@ from django.test.client import Client
 from django.urls import reverse
 
 from accounts.models import RevelUser
-from events.models import Event, EventSeatOverride, Ticket, TicketTier, VenueSeat
+from events.models import Event, EventSeatOverride, OrganizationStaff, Ticket, TicketTier, VenueSeat
 
 pytestmark = pytest.mark.django_db
 
@@ -48,6 +48,41 @@ def test_nonmember_gets_403(nonmember_client: Client, seated_event: tuple[Event,
     event, seats = seated_event
     payload = {"set": [{"seat_id": str(seats[0].id), "status": "held", "reason": ""}], "release_seat_ids": []}
     resp = nonmember_client.put(_url(event), data=orjson.dumps(payload), content_type="application/json")
+    assert resp.status_code == 403
+
+
+def test_staff_with_manage_tickets_can_apply_overrides(
+    organization_staff_client: Client,
+    staff_member: OrganizationStaff,
+    seated_event: tuple[Event, list[VenueSeat]],
+) -> None:
+    """Staff with the manage_tickets permission can apply seat overrides."""
+    perms = staff_member.permissions
+    perms["default"]["manage_tickets"] = True
+    staff_member.permissions = perms
+    staff_member.save()
+
+    event, seats = seated_event
+    payload = {"set": [{"seat_id": str(seats[0].id), "status": "held", "reason": "house"}], "release_seat_ids": []}
+    resp = organization_staff_client.put(_url(event), data=orjson.dumps(payload), content_type="application/json")
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["applied"] == 1
+
+
+def test_staff_without_manage_tickets_gets_403(
+    organization_staff_client: Client,
+    staff_member: OrganizationStaff,
+    seated_event: tuple[Event, list[VenueSeat]],
+) -> None:
+    """Staff with manage_tickets revoked cannot apply seat overrides."""
+    perms = staff_member.permissions
+    perms["default"]["manage_tickets"] = False
+    staff_member.permissions = perms
+    staff_member.save()
+
+    event, seats = seated_event
+    payload = {"set": [{"seat_id": str(seats[0].id), "status": "held", "reason": "house"}], "release_seat_ids": []}
+    resp = organization_staff_client.put(_url(event), data=orjson.dumps(payload), content_type="application/json")
     assert resp.status_code == 403
 
 

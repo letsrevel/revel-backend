@@ -16,8 +16,11 @@ def apply_overrides(
 ) -> SeatOverridesResponse:
     """Applies/updates/releases overrides. Ticketed seats are rejected per-seat, never the whole batch.
 
-    Lock protocol: the affected seat rows are locked sorted by PK BEFORE checking tickets, so an
-    in-flight purchase (which locks the same seats in the same order) serializes with this write.
+    Lock protocol: locks the affected seat rows (ordered by PK) before checking tickets, so this
+    write serializes against any concurrent transaction that locks the same seat rows.
+
+    If a seat id appears in both ``set_items`` and ``release_seat_ids``, the release wins: the
+    override is applied then immediately deleted, so the seat ends up with no override row.
 
     Args:
         event: The event whose seat overrides are being mutated.
