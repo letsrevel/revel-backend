@@ -50,7 +50,7 @@ class BatchTicketService:
 
     Handles:
     - Batch size validation against max_tickets_per_user limits
-    - Seat resolution (NONE, RANDOM, USER_CHOICE modes)
+    - Seat resolution (NONE, BEST_AVAILABLE, USER_CHOICE modes)
     - Atomic ticket creation
     - Payment flow delegation (online, offline, free)
     """
@@ -193,99 +193,9 @@ class BatchTicketService:
                 str(_("You can only purchase {remaining} more ticket(s) for this tier.")).format(remaining=remaining),
             )
 
-    def _get_available_seats(self) -> list[VenueSeat]:
-        """Get available seats in the tier's sector.
-
-        Returns:
-            List of available VenueSeat objects.
-        """
-        if not self.tier.sector_id:
-            return []
-
-        taken_ids = Ticket.objects.filter(
-            event=self.event,
-            seat__isnull=False,
-            status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-        ).values_list("seat_id", flat=True)
-
-        return list(
-            VenueSeat.objects.filter(
-                sector_id=self.tier.sector_id,
-                is_active=True,
-            ).exclude(id__in=taken_ids)
-        )
-
     def _resolve_seats_none(self, count: int) -> list[VenueSeat | None]:
         """No seat assignment (GA/standing)."""
         return [None] * count
-
-    def _resolve_seats_random(self, count: int) -> list[VenueSeat]:
-        """Auto-assign random available seats.
-
-        Args:
-            count: Number of seats to assign.
-
-        Returns:
-            List of assigned VenueSeat objects.
-
-        Raises:
-            HttpError: If not enough seats are available.
-        """
-        # Lock seats to prevent race conditions. Locked in PK order to match the
-        # global seat-lock protocol (holds/overrides), avoiding cross-path deadlocks.
-        available = list(
-            VenueSeat.objects.filter(
-                sector_id=self.tier.sector_id,
-                is_active=True,
-            )
-            .exclude(
-                id__in=Ticket.objects.filter(
-                    event=self.event,
-                    seat__isnull=False,
-                    status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-                ).values_list("seat_id", flat=True)
-            )
-            .exclude(id__in=EventSeatOverride.objects.filter(event=self.event).values_list("seat_id", flat=True))
-            .order_by("pk")
-            .select_for_update()[:count]
-        )
-
-        if len(available) < count:
-            raise HttpError(
-                400,
-                str(_("Not enough seats available. Only {available} seat(s) remaining.")).format(
-                    available=len(available)
-                ),
-            )
-
-        # Post-lock re-check (#632): two RANDOM-assignment tiers on the same sector
-        # don't serialize on this tier's lock, and Postgres EvalPlanQual won't
-        # re-run the exclude(taken) subquery above against a ticket that committed
-        # on an already-locked seat row between our SELECT and our lock. Mirrors
-        # _resolve_seats_user_choice's re-check below, which exists for the same
-        # reason.
-        locked_ids = [seat.id for seat in available]
-        taken_ids = set(
-            Ticket.objects.filter(
-                event=self.event,
-                seat_id__in=locked_ids,
-                status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-            ).values_list("seat_id", flat=True)
-        )
-        # Same EvalPlanQual gap for overrides: the exclude(overrides) subquery
-        # above ran against the snapshot, so a seat killed/held by box office
-        # between our read and our lock must be re-checked here.
-        taken_ids |= set(
-            EventSeatOverride.objects.filter(event=self.event, seat_id__in=locked_ids).values_list("seat_id", flat=True)
-        )
-        if taken_ids:
-            raise HttpError(
-                400,
-                str(_("Not enough seats available. Only {available} seat(s) remaining.")).format(
-                    available=max(len(available) - len(taken_ids), 0)
-                ),
-            )
-        return available
 
     def _resolve_seats_user_choice(self, items: list[TicketPurchaseItem]) -> list[VenueSeat]:
         """Validate and resolve user-selected seats.
@@ -326,12 +236,14 @@ class BatchTicketService:
                 str(_("One or more selected seats are invalid or not in the correct sector.")),
             )
 
-        # Check none are already taken or under a box-office override (held/killed)
-        taken = Ticket.objects.filter(
-            event=self.event,
-            seat_id__in=seat_ids,
-            status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-        ).exists()
+        # Check none are already taken or under a box-office override (held/killed).
+        # Occupancy matches the unique_ticket_event_seat constraint predicate:
+        # any non-cancelled ticket (incl. CHECKED_IN) occupies the seat.
+        taken = (
+            Ticket.objects.filter(event=self.event, seat_id__in=seat_ids)
+            .exclude(status=Ticket.TicketStatus.CANCELLED)
+            .exists()
+        )
         overridden = EventSeatOverride.objects.filter(event=self.event, seat_id__in=seat_ids).exists()
 
         if taken or overridden:
@@ -418,11 +330,12 @@ class BatchTicketService:
                     )
                     if len(seats) != len(picked_ids):  # a picked seat vanished/deactivated — re-pick
                         raise _SeatConflictError
-                    taken = Ticket.objects.filter(
-                        event=self.event,
-                        seat_id__in=picked_ids,
-                        status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-                    ).exists()
+                    # Non-cancelled = occupied, matching unique_ticket_event_seat.
+                    taken = (
+                        Ticket.objects.filter(event=self.event, seat_id__in=picked_ids)
+                        .exclude(status=Ticket.TicketStatus.CANCELLED)
+                        .exists()
+                    )
                     if taken:
                         raise _SeatConflictError
                     # Post-lock override re-check: load_candidates read overrides
@@ -456,11 +369,6 @@ class BatchTicketService:
 
         if mode == TicketTier.SeatAssignmentMode.NONE:
             return self._resolve_seats_none(len(items))
-
-        if mode == TicketTier.SeatAssignmentMode.RANDOM:
-            # Cast to satisfy mypy - RANDOM returns list[VenueSeat], which is a subtype
-            seats: list[VenueSeat | None] = list(self._resolve_seats_random(len(items)))
-            return seats
 
         if mode == TicketTier.SeatAssignmentMode.BEST_AVAILABLE:
             best: list[VenueSeat | None] = list(self._resolve_seats_best_available(len(items)))

@@ -77,7 +77,7 @@ class TestSeriesPassModels:
             price=Decimal("10.00"),
             currency="EUR",
             payment_method=TicketTier.PaymentMethod.ONLINE,
-            seat_assignment_mode=TicketTier.SeatAssignmentMode.RANDOM,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
         )
         TicketTier.objects.bulk_create([seated_tier])
 

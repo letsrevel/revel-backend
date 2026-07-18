@@ -30,12 +30,11 @@ def load_candidates(
     """
     if not tier.price_category_id or event.venue_id is None:
         return []
+    # Non-cancelled = occupied, matching the unique_ticket_event_seat constraint.
     taken = set(
-        Ticket.objects.filter(
-            event=event,
-            seat__isnull=False,
-            status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-        ).values_list("seat_id", flat=True)
+        Ticket.objects.filter(event=event, seat__isnull=False)
+        .exclude(status=Ticket.TicketStatus.CANCELLED)
+        .values_list("seat_id", flat=True)
     )
     holds_qs = SeatHold.objects.active().filter(event=event)
     if hold_owner_user is not None or hold_owner_guest_session is not None:

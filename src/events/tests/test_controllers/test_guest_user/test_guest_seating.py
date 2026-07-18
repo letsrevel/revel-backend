@@ -11,7 +11,7 @@ from django.urls import reverse
 
 from accounts.models import RevelUser
 from events import schema
-from events.models import Event, Organization, Ticket, TicketTier, Venue, VenueSeat, VenueSector
+from events.models import Event, Organization, PriceCategory, Ticket, TicketTier, Venue, VenueSeat, VenueSector
 from events.service import guest as guest_service
 
 pytestmark = pytest.mark.django_db
@@ -53,6 +53,7 @@ def seats(sector: VenueSector) -> list[VenueSeat]:
                 label=f"A{i + 1}",
                 row_label="A",
                 number=str(i + 1),
+                adjacency_index=i,
             )
         )
     return seats_list
@@ -80,23 +81,27 @@ def user_choice_tier(
 
 
 @pytest.fixture
-def random_seat_tier(
+def best_available_tier(
     guest_event_with_tickets: Event,
     venue: Venue,
     sector: VenueSector,
+    seats: list[VenueSeat],
 ) -> TicketTier:
-    """A tier with RANDOM seat assignment mode."""
-    tier = TicketTier.objects.create(
+    """A tier with BEST_AVAILABLE seat assignment mode (system auto-assigns seats)."""
+    guest_event_with_tickets.venue = venue
+    guest_event_with_tickets.save(update_fields=["venue"])
+    category = PriceCategory.objects.create(venue=venue, name="Standard", color="#00aa00")
+    VenueSeat.objects.filter(id__in=[s.id for s in seats]).update(default_price_category=category)
+    return TicketTier.objects.create(
         event=guest_event_with_tickets,
-        name="Random Seating",
+        name="Auto Seating",
         price=Decimal("20.00"),
         payment_method=TicketTier.PaymentMethod.FREE,  # Free for easier testing
         price_type=TicketTier.PriceType.FIXED,
         venue=venue,
-        sector=sector,
-        seat_assignment_mode=TicketTier.SeatAssignmentMode.RANDOM,
+        price_category=category,
+        seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
     )
-    return tier
 
 
 @pytest.mark.django_db(transaction=True)
@@ -175,25 +180,25 @@ class TestGuestCheckoutReservedSeating:
         assert ticket.guest_name == "Seat Test"
 
     @patch("events.tasks.send_guest_ticket_confirmation.delay")
-    def test_guest_checkout_random_seating_success(
+    def test_guest_checkout_best_available_seating_success(
         self,
         mock_send_email: Mock,
         guest_event_with_tickets: Event,
-        random_seat_tier: TicketTier,
+        best_available_tier: TicketTier,
         seats: list[VenueSeat],
     ) -> None:
-        """Test guest checkout with RANDOM seating mode (no seat_id needed)."""
+        """Test guest checkout with BEST_AVAILABLE seating mode (no seat_id needed)."""
         # Arrange
         client = Client()
         url = reverse(
             "api:guest_ticket_checkout",
-            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": random_seat_tier.pk},
+            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": best_available_tier.pk},
         )
         payload = {
-            "email": "randomseat@example.com",
-            "first_name": "Random",
+            "email": "autoseat@example.com",
+            "first_name": "Auto",
             "last_name": "Seat",
-            "tickets": [{"guest_name": "Random Seat"}],  # No seat_id for RANDOM mode
+            "tickets": [{"guest_name": "Auto Seat"}],  # No seat_id for BEST_AVAILABLE mode
         }
 
         # Act
@@ -203,18 +208,18 @@ class TestGuestCheckoutReservedSeating:
         assert response.status_code == 200
         mock_send_email.assert_called_once()
 
-    def test_guest_checkout_confirm_random_seating(
+    def test_guest_checkout_confirm_best_available_seating(
         self,
         guest_event_with_tickets: Event,
-        random_seat_tier: TicketTier,
+        best_available_tier: TicketTier,
         seats: list[VenueSeat],
         existing_guest_user: RevelUser,
     ) -> None:
-        """Test confirming guest ticket with RANDOM seating assigns seat automatically."""
-        # Arrange: Create token without seat_id (RANDOM mode)
-        tickets = [schema.TicketPurchaseItem(guest_name="Random Test")]
+        """Test confirming guest ticket with BEST_AVAILABLE seating assigns seat automatically."""
+        # Arrange: Create token without seat_id (BEST_AVAILABLE mode)
+        tickets = [schema.TicketPurchaseItem(guest_name="Auto Test")]
         token = guest_service.create_guest_ticket_token(
-            existing_guest_user, guest_event_with_tickets.id, random_seat_tier.id, tickets
+            existing_guest_user, guest_event_with_tickets.id, best_available_tier.id, tickets
         )
 
         # Act: Confirm the token
@@ -227,7 +232,7 @@ class TestGuestCheckoutReservedSeating:
         data = response.json()
         assert "tickets" in data
         assert len(data["tickets"]) == 1
-        # Seat should be assigned randomly
+        # Seat should be auto-assigned
         assert data["tickets"][0]["seat"] is not None
         assert "label" in data["tickets"][0]["seat"]
 

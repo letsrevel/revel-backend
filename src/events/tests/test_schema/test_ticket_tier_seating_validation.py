@@ -1,6 +1,6 @@
 """Per-mode seating field validation on tier create/update schemas.
 
-BEST_AVAILABLE reads the tier's price category; RANDOM/USER_CHOICE read the
+BEST_AVAILABLE reads the tier's price category; USER_CHOICE reads the
 sector — each mode must arrive with the field it reads, or the tier would pass
 validation yet be silently unsellable.
 
@@ -26,10 +26,13 @@ def test_create_best_available_with_only_sector_rejected() -> None:
         )
 
 
-@pytest.mark.parametrize("mode", [TicketTier.SeatAssignmentMode.USER_CHOICE, TicketTier.SeatAssignmentMode.RANDOM])
-def test_create_sector_modes_with_only_price_category_rejected(mode: TicketTier.SeatAssignmentMode) -> None:
+def test_create_user_choice_with_only_price_category_rejected() -> None:
     with pytest.raises(ValidationError, match="sector is required"):
-        TicketTierCreateSchema(name="Seated", seat_assignment_mode=mode, price_category_id=uuid.uuid4())  # type: ignore[call-arg]
+        TicketTierCreateSchema(  # type: ignore[call-arg]
+            name="Seated",
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE,
+            price_category_id=uuid.uuid4(),
+        )
 
 
 def test_create_best_available_with_price_category_valid() -> None:
@@ -41,9 +44,10 @@ def test_create_best_available_with_price_category_valid() -> None:
     assert schema.price_category_id is not None
 
 
-@pytest.mark.parametrize("mode", [TicketTier.SeatAssignmentMode.USER_CHOICE, TicketTier.SeatAssignmentMode.RANDOM])
-def test_create_sector_modes_with_sector_valid(mode: TicketTier.SeatAssignmentMode) -> None:
-    schema = TicketTierCreateSchema(name="Seated", seat_assignment_mode=mode, sector_id=uuid.uuid4())  # type: ignore[call-arg]
+def test_create_user_choice_with_sector_valid() -> None:
+    schema = TicketTierCreateSchema(  # type: ignore[call-arg]
+        name="Seated", seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE, sector_id=uuid.uuid4()
+    )
     assert schema.sector_id is not None
 
 
@@ -60,10 +64,11 @@ def test_update_best_available_with_only_sector_rejected() -> None:
         )
 
 
-@pytest.mark.parametrize("mode", [TicketTier.SeatAssignmentMode.USER_CHOICE, TicketTier.SeatAssignmentMode.RANDOM])
-def test_update_sector_modes_with_only_price_category_rejected(mode: TicketTier.SeatAssignmentMode) -> None:
+def test_update_user_choice_with_only_price_category_rejected() -> None:
     with pytest.raises(ValidationError, match="sector is required"):
-        TicketTierUpdateSchema(seat_assignment_mode=mode, price_category_id=uuid.uuid4())  # type: ignore[call-arg]
+        TicketTierUpdateSchema(  # type: ignore[call-arg]
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE, price_category_id=uuid.uuid4()
+        )
 
 
 def test_update_without_mode_skips_seating_validation() -> None:

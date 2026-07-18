@@ -84,12 +84,11 @@ def _validate_holdable(event: Event, seat_ids: list[uuid.UUID]) -> list[uuid.UUI
     )
     bad = [sid for sid in seat_ids if sid not in valid_ids]
     blocked = set(EventSeatOverride.objects.filter(event=event, seat_id__in=seat_ids).values_list("seat_id", flat=True))
+    # Non-cancelled = occupied, matching the unique_ticket_event_seat constraint.
     sold = set(
-        Ticket.objects.filter(
-            event=event,
-            seat_id__in=seat_ids,
-            status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-        ).values_list("seat_id", flat=True)
+        Ticket.objects.filter(event=event, seat_id__in=seat_ids)
+        .exclude(status=Ticket.TicketStatus.CANCELLED)
+        .values_list("seat_id", flat=True)
     )
     return bad + [sid for sid in seat_ids if sid in blocked or sid in sold]
 

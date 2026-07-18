@@ -201,6 +201,29 @@ def test_ticketed_seat_conflicts(
     assert result.conflicts == [seats[0].id]
 
 
+def test_checked_in_seat_conflicts(
+    seated_event: tuple[Event, list[VenueSeat]],
+    revel_user: RevelUser,
+    other_user: RevelUser,
+    event_ticket_tier: TicketTier,
+) -> None:
+    """A CHECKED_IN ticket occupies the seat (unique_ticket_event_seat covers all
+    non-cancelled statuses) — the seat must not be holdable."""
+    event, seats = seated_event
+    Ticket.objects.create(
+        event=event,
+        tier=event_ticket_tier,
+        user=other_user,
+        seat=seats[0],
+        sector=seats[0].sector,
+        status=Ticket.TicketStatus.CHECKED_IN,
+        checked_in_at=timezone.now(),
+        guest_name=other_user.get_display_name(),
+    )
+    result = holds_service.acquire_seats(event, [seats[0].id], user=revel_user, guest_session=None)
+    assert result.conflicts == [seats[0].id]
+
+
 def test_cancelled_ticket_frees_seat(
     seated_event: tuple[Event, list[VenueSeat]],
     revel_user: RevelUser,

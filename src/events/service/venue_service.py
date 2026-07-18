@@ -403,8 +403,8 @@ def get_tier_seat_availability(
     """Get seat availability for a ticket tier with seat assignment.
 
     Returns sector info with all seats and their availability status.
-    Seats taken by PENDING or ACTIVE tickets are marked as available=False.
-    Serves any seat-assigned mode (RANDOM, USER_CHOICE, or BEST_AVAILABLE),
+    Seats taken by any non-cancelled ticket are marked as available=False.
+    Serves any seat-assigned mode (USER_CHOICE or BEST_AVAILABLE),
     provided the tier has a sector assigned.
 
     Args:
@@ -427,12 +427,13 @@ def get_tier_seat_availability(
     # Get sector
     sector = models.VenueSector.objects.get(pk=tier.sector_id)
 
-    # Subquery to check if a seat is taken
+    # Subquery to check if a seat is taken. Occupancy matches the
+    # unique_ticket_event_seat constraint: any non-cancelled ticket
+    # (incl. CHECKED_IN) occupies the seat.
     taken_ticket_exists = models.Ticket.objects.filter(
         event=event,
         seat_id=OuterRef("pk"),
-        status__in=[models.Ticket.TicketStatus.PENDING, models.Ticket.TicketStatus.ACTIVE],
-    )
+    ).exclude(status=models.Ticket.TicketStatus.CANCELLED)
 
     # Annotate seats with availability status
     seats_with_availability = (

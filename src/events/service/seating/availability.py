@@ -17,11 +17,13 @@ def build_availability(event: Event, *, user: RevelUser | None, guest_session: s
     """Build the sparse availability payload for one event's seated + standing sectors."""
     seats: dict[uuid.UUID, str] = {}
 
-    sold = Ticket.objects.filter(
-        event=event,
-        seat__isnull=False,
-        status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-    ).values_list("seat_id", flat=True)
+    # Non-cancelled = occupied, matching the unique_ticket_event_seat constraint
+    # (a CHECKED_IN seat is just as taken as an ACTIVE one).
+    sold = (
+        Ticket.objects.filter(event=event, seat__isnull=False)
+        .exclude(status=Ticket.TicketStatus.CANCELLED)
+        .values_list("seat_id", flat=True)
+    )
     for sid in sold:
         seats[sid] = "sold"
 

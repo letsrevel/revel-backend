@@ -49,16 +49,6 @@ def _user_choice_tier(event: Event, sector_seat: VenueSeat) -> TicketTier:
     )
 
 
-def _random_tier(event: Event, sector_seat: VenueSeat) -> TicketTier:
-    return TicketTier.objects.create(
-        event=event,
-        name="RND",
-        sector=sector_seat.sector,
-        seat_assignment_mode=TicketTier.SeatAssignmentMode.RANDOM,
-        payment_method=TicketTier.PaymentMethod.FREE,
-    )
-
-
 def _best_available_tier(event: Event, seats: list[VenueSeat]) -> TicketTier:
     category = PriceCategory.objects.create(venue=seats[0].sector.venue, name="Std", color="#00aa00")
     VenueSeat.objects.filter(id__in=[s.id for s in seats]).update(default_price_category=category)
@@ -153,25 +143,27 @@ def test_user_choice_rejects_held_override_seat(seated_event: SeatedEvent, revel
     assert exc.value.status_code == 400
 
 
-def test_random_skips_overridden_seats(seated_event: SeatedEvent, revel_user: RevelUser) -> None:
+def test_user_choice_rejects_checked_in_seat(seated_event: SeatedEvent, revel_user: RevelUser) -> None:
+    """A CHECKED_IN ticket occupies its seat (unique_ticket_event_seat covers all
+    non-cancelled statuses) — a USER_CHOICE purchase of that seat must be rejected,
+    not die on the DB constraint."""
     event, seats = seated_event
-    tier = _random_tier(event, seats[0])
-    for seat in seats[:5]:
-        EventSeatOverride.objects.create(event=event, seat=seat, status=EventSeatOverride.OverrideStatus.KILLED)
-    BatchTicketService(event, tier, revel_user).create_batch(items=[_item()])
-    ticket = Ticket.objects.get(event=event)
-    assert ticket.seat_id == seats[5].id
-
-
-def test_random_rejects_when_only_overridden_seats_left(seated_event: SeatedEvent, revel_user: RevelUser) -> None:
-    event, seats = seated_event
-    tier = _random_tier(event, seats[0])
-    for seat in seats:
-        EventSeatOverride.objects.create(event=event, seat=seat, status=EventSeatOverride.OverrideStatus.HELD)
+    tier = _user_choice_tier(event, seats[0])
+    Ticket.objects.create(
+        event=event,
+        tier=tier,
+        user=revel_user,
+        status=Ticket.TicketStatus.CHECKED_IN,
+        guest_name="Already In",
+        seat=seats[0],
+        sector=seats[0].sector,
+        venue=seats[0].sector.venue,
+    )
+    other = RevelUser.objects.create_user(username="late@example.com", email="late@example.com", password="pass")
     with pytest.raises(HttpError) as exc:
-        BatchTicketService(event, tier, revel_user).create_batch(items=[_item()])
+        BatchTicketService(event, tier, other).create_batch(items=[_item(seats[0])])
     assert exc.value.status_code == 400
-    assert not Ticket.objects.filter(event=event).exists()
+    assert Ticket.objects.filter(event=event).count() == 1
 
 
 # --- BEST_AVAILABLE mode ----------------------------------------------------

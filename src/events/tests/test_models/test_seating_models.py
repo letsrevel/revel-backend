@@ -110,23 +110,21 @@ def test_best_available_with_only_sector_rejected(event: Event, sector: VenueSec
         )
 
 
-@pytest.mark.parametrize("mode", [TicketTier.SeatAssignmentMode.USER_CHOICE, TicketTier.SeatAssignmentMode.RANDOM])
-def test_sector_modes_with_only_price_category_rejected(
-    event: Event, venue: Venue, mode: TicketTier.SeatAssignmentMode
-) -> None:
-    """RANDOM/USER_CHOICE assign within a sector — a price category alone is unsellable."""
+def test_user_choice_with_only_price_category_rejected(event: Event, venue: Venue) -> None:
+    """USER_CHOICE assigns within a sector — a price category alone is unsellable."""
     cat = PriceCategory.objects.create(venue=venue, name="Gold", color="#ffaa00")
     with pytest.raises(DjangoValidationError):
-        TicketTier.objects.create(event=event, name="Bad", price_category=cat, seat_assignment_mode=mode)
+        TicketTier.objects.create(
+            event=event, name="Bad", price_category=cat, seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE
+        )
 
 
-@pytest.mark.parametrize("mode", [TicketTier.SeatAssignmentMode.USER_CHOICE, TicketTier.SeatAssignmentMode.RANDOM])
-def test_sector_modes_with_sector_still_valid(
-    event: Event, venue: Venue, sector: VenueSector, mode: TicketTier.SeatAssignmentMode
-) -> None:
+def test_user_choice_with_sector_still_valid(event: Event, venue: Venue, sector: VenueSector) -> None:
     event.venue = venue
     event.save(update_fields=["venue"])
-    tier = TicketTier.objects.create(event=event, name="OK", sector=sector, seat_assignment_mode=mode)
+    tier = TicketTier.objects.create(
+        event=event, name="OK", sector=sector, seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE
+    )
     assert tier.sector_id == sector.id
 
 

@@ -57,6 +57,29 @@ def test_sparse_statuses(
     assert seats[4].id not in payload.seats  # absent = available
 
 
+def test_checked_in_seat_reported_sold(
+    seated_event: tuple[Event, list[VenueSeat]],
+    revel_user: RevelUser,
+    other_user: RevelUser,
+    ticket_tier: TicketTier,
+) -> None:
+    """A CHECKED_IN ticket occupies its seat exactly like an ACTIVE one — the
+    unique_ticket_event_seat constraint covers all non-cancelled statuses."""
+    event, seats = seated_event
+    Ticket.objects.create(
+        event=event,
+        tier=ticket_tier,
+        user=other_user,
+        seat=seats[0],
+        sector=seats[0].sector,
+        guest_name="Someone",
+        status=Ticket.TicketStatus.CHECKED_IN,
+        checked_in_at=timezone.now(),
+    )
+    payload = availability.build_availability(event, user=revel_user, guest_session=None)
+    assert payload.seats[seats[0].id] == "sold"
+
+
 def test_expired_hold_not_reported(
     seated_event: tuple[Event, list[VenueSeat]], revel_user: RevelUser, other_user: RevelUser
 ) -> None:
