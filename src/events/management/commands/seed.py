@@ -33,6 +33,7 @@ from events.management.commands.seeder.notifications import NotificationSeeder
 from events.management.commands.seeder.organizations import OrganizationSeeder
 from events.management.commands.seeder.preferences import PreferencesSeeder
 from events.management.commands.seeder.questionnaires import QuestionnaireSeeder
+from events.management.commands.seeder.showcase_venues import ShowcaseVenueSeeder
 from events.management.commands.seeder.social import SocialSeeder
 from events.management.commands.seeder.state import SeederState
 from events.management.commands.seeder.telegram import TelegramSeeder
@@ -324,6 +325,11 @@ class Command(BaseCommand):
         # Phase 7: Tickets (depends on events, questionnaires)
         self.stdout.write(self.style.HTTP_INFO("\nPhase 7: Creating tickets"))
         TicketSeeder(seeder_config, state, self.stdout).seed()
+        gc.collect()
+
+        # Phase 7b: Showcase venues with realistic seat maps and sold tickets
+        self.stdout.write(self.style.HTTP_INFO("\nPhase 7b: Creating showcase venues"))
+        ShowcaseVenueSeeder(seeder_config, state, self.stdout).seed()
         gc.collect()
 
         # Phase 8: Interactions (invitations, RSVPs, etc.)
