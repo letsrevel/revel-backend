@@ -921,6 +921,9 @@ msgstr "Dieser Endpunkt ist nur für \"Zahl-was-du-kannst\"-Tickets"
 msgid "No pending reservation found."
 msgstr "Keine ausstehende Reservierung gefunden."
 
+msgid "Not enough adjacent seats — pick manually or reduce quantity."
+msgstr "Nicht genügend zusammenhängende Sitzplätze — bitte manuell auswählen oder Anzahl reduzieren."
+
 msgid "Use /checkout/pwyc endpoint for pay-what-you-can tickets"
 msgstr ""
 "Verwende den Endpunkt /checkout/pwyc für \"Zahl-was-du-kannst\"-Tickets"
@@ -1172,6 +1175,15 @@ msgstr ""
 
 msgid "One or more selected seats are no longer available."
 msgstr "Ein oder mehrere ausgewählte Sitzplätze sind nicht mehr verfügbar."
+
+msgid "One or more selected seats are held by another buyer."
+msgstr "Ein oder mehrere ausgewählte Sitzplätze sind von einem anderen Käufer reserviert."
+
+msgid "Not enough adjacent seats available for this tier."
+msgstr "Nicht genügend zusammenhängende Sitzplätze für diese Ticketkategorie verfügbar."
+
+msgid "Could not secure adjacent seats — please try again."
+msgstr "Zusammenhängende Sitzplätze konnten nicht gesichert werden — bitte erneut versuchen."
 
 msgid "Unknown seat assignment mode."
 msgstr "Unbekannter Sitzplatzzuweisungsmodus."

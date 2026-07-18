@@ -909,6 +909,9 @@ msgstr "Questo endpoint è solo per biglietti a offerta libera"
 msgid "No pending reservation found."
 msgstr "Nessuna prenotazione in sospeso trovata."
 
+msgid "Not enough adjacent seats — pick manually or reduce quantity."
+msgstr "Non ci sono abbastanza posti adiacenti — scegli manualmente o riduci la quantità."
+
 msgid "Use /checkout/pwyc endpoint for pay-what-you-can tickets"
 msgstr "Usa l'endpoint /checkout/pwyc per i biglietti a offerta libera"
 
@@ -1149,6 +1152,15 @@ msgstr ""
 
 msgid "One or more selected seats are no longer available."
 msgstr "Uno o più posti selezionati non sono più disponibili."
+
+msgid "One or more selected seats are held by another buyer."
+msgstr "Uno o più posti selezionati sono riservati da un altro acquirente."
+
+msgid "Not enough adjacent seats available for this tier."
+msgstr "Non ci sono abbastanza posti adiacenti disponibili per questo livello di biglietto."
+
+msgid "Could not secure adjacent seats — please try again."
+msgstr "Impossibile assicurare posti adiacenti — riprova."
 
 msgid "Unknown seat assignment mode."
 msgstr "Modalità di assegnazione posti sconosciuta."
