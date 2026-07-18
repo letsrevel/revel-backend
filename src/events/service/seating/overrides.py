@@ -33,9 +33,15 @@ def apply_overrides(
         holding a non-cancelled ticket on this event).
     """
     all_ids = sorted({sid for sid, _, _ in set_items} | set(release_seat_ids))
-    locked_ids = set(
-        VenueSeat.objects.filter(id__in=all_ids).order_by("pk").select_for_update().values_list("id", flat=True)
-    )
+    if event.venue_id is None:
+        locked_ids: set[uuid.UUID] = set()
+    else:
+        locked_ids = set(
+            VenueSeat.objects.filter(id__in=all_ids, sector__venue_id=event.venue_id)
+            .order_by("pk")
+            .select_for_update()
+            .values_list("id", flat=True)
+        )
     rejected: dict[uuid.UUID, str] = {sid: "unknown_seat" for sid in all_ids if sid not in locked_ids}
 
     ticketed = set(
