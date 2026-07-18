@@ -112,6 +112,7 @@ class EventPublicSeatingController(EventPublicBaseController):
         return status, schema.HoldResponseSchema(
             held_seat_ids=[h.seat_id for h in result.held],
             conflicts=result.conflicts,
+            conflict_reason=result.conflict_reason,
             expires_at=result.expires_at,
         )
 
@@ -147,6 +148,7 @@ class EventPublicSeatingController(EventPublicBaseController):
         return status, schema.HoldResponseSchema(
             held_seat_ids=[h.seat_id for h in result.held],
             conflicts=result.conflicts,
+            conflict_reason=result.conflict_reason,
             expires_at=result.expires_at,
         )
 

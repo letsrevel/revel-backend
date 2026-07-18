@@ -93,6 +93,7 @@ def test_authenticated_hold(member_client: Client, seated_event: tuple[Event, li
     )
     assert resp.status_code == 200, resp.content
     assert resp.json()["held_seat_ids"] == [str(seats[1].id)]
+    assert resp.json()["conflict_reason"] is None
     assert GUEST_HOLD_COOKIE not in resp.cookies  # no guest cookie for authenticated user
 
 
@@ -108,6 +109,22 @@ def test_conflicting_hold_returns_409(
     )
     assert resp.status_code == 409, resp.content
     assert resp.json()["conflicts"] == [str(seats[0].id)]
+    assert resp.json()["conflict_reason"] == "unavailable"
+
+
+def test_over_cap_hold_returns_capacity_reason(
+    member_client: Client, seated_event: tuple[Event, list[VenueSeat]]
+) -> None:
+    event, seats = seated_event
+    event.max_tickets_per_user = 2
+    event.save(update_fields=["max_tickets_per_user"])
+    resp = member_client.post(
+        f"/api/events/{event.id}/seating/holds",
+        data={"seat_ids": [str(s.id) for s in seats[:3]]},
+        content_type="application/json",
+    )
+    assert resp.status_code == 409, resp.content
+    assert resp.json()["conflict_reason"] == "capacity"
 
 
 def test_release_seats(

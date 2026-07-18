@@ -474,6 +474,9 @@ class ShowcaseVenueSeeder(BaseSeeder):
                 start=now + timedelta(days=days),
                 end=now + timedelta(days=days, hours=3),
                 max_attendees=0,
+                # Model default (1) would make every multi-seat hold impossible;
+                # 4 is a realistic party cap for showcase/load-test flows.
+                max_tickets_per_user=4,
                 requires_ticket=True,
                 venue=venue,
                 address=venue.address,

@@ -60,6 +60,9 @@ class HoldResult:
     held: list[SeatHold]
     conflicts: list[uuid.UUID]
     expires_at: datetime | None
+    # Why the conflicts exist: "capacity" (caller holds too many seats) or
+    # "unavailable" (seats invalid/blocked/sold/held by someone else). None on success.
+    conflict_reason: str | None = None
 
 
 def _identity_params(user: RevelUser | None, guest_session: str | None) -> dict[str, t.Any]:
@@ -100,12 +103,17 @@ def _clamp_lifetime(owner_q: Q, event: Event, seat_ids: list[uuid.UUID]) -> None
 
 
 def _current_result(
-    event: Event, user: RevelUser | None, guest_session: str | None, *, conflicts: list[uuid.UUID]
+    event: Event,
+    user: RevelUser | None,
+    guest_session: str | None,
+    *,
+    conflicts: list[uuid.UUID],
+    conflict_reason: str | None = None,
 ) -> HoldResult:
     owner_q = SeatHold.owner_q(user, guest_session)
     held = list(SeatHold.objects.active().filter(owner_q, event=event).select_related("seat"))
     expires = min((h.expires_at for h in held), default=None)
-    return HoldResult(held=held, conflicts=conflicts, expires_at=expires)
+    return HoldResult(held=held, conflicts=conflicts, expires_at=expires, conflict_reason=conflict_reason)
 
 
 def acquire_seats(
@@ -123,18 +131,18 @@ def acquire_seats(
     cap = event.max_tickets_per_user or DEFAULT_MAX_HELD_SEATS
     already_held = set(SeatHold.objects.active().filter(owner_q, event=event).values_list("seat_id", flat=True))
     if len(already_held | set(ordered)) > cap:
-        return _current_result(event, user, guest_session, conflicts=list(ordered))
+        return _current_result(event, user, guest_session, conflicts=list(ordered), conflict_reason="capacity")
 
     conflicts = _validate_holdable(event, ordered)
     if conflicts:
-        return _current_result(event, user, guest_session, conflicts=conflicts)
+        return _current_result(event, user, guest_session, conflicts=conflicts, conflict_reason="unavailable")
 
     try:
         with transaction.atomic():
             _upsert_holds(event, ordered, identity)
             _clamp_lifetime(owner_q, event, ordered)
     except SeatHoldConflictError as exc:
-        return _current_result(event, user, guest_session, conflicts=exc.seat_ids)
+        return _current_result(event, user, guest_session, conflicts=exc.seat_ids, conflict_reason="unavailable")
 
     return _current_result(event, user, guest_session, conflicts=[])
 

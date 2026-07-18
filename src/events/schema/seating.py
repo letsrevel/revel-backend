@@ -85,6 +85,8 @@ class ReleaseSeatsRequest(Schema):
 class HoldResponseSchema(Schema):
     held_seat_ids: list[UUID] = Field(default_factory=list)
     conflicts: list[UUID] = Field(default_factory=list)
+    # "capacity" (caller holds too many seats) vs "unavailable" (seats taken/blocked); None on success.
+    conflict_reason: str | None = None
     expires_at: AwareDatetime | None = None
 
 

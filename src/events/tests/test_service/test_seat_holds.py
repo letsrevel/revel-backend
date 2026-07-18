@@ -53,6 +53,7 @@ def test_acquire_free_seats(seated_event: tuple[Event, list[VenueSeat]], revel_u
     event, seats = seated_event
     result = holds_service.acquire_seats(event, [seats[0].id, seats[1].id], user=revel_user, guest_session=None)
     assert result.conflicts == []
+    assert result.conflict_reason is None
     assert {h.seat_id for h in result.held} == {seats[0].id, seats[1].id}
     assert result.expires_at is not None
 
@@ -120,6 +121,7 @@ def test_live_foreign_hold_is_not_taken_over(
     result = holds_service.acquire_seats(event, [seats[0].id], user=revel_user, guest_session=None)
 
     assert result.conflicts == [seats[0].id]
+    assert result.conflict_reason == "unavailable"
     after = SeatHold.objects.get(event=event, seat=seats[0])
     assert after.user_id == other_user.id
     assert after.expires_at == before.expires_at
@@ -164,6 +166,7 @@ def test_cap_enforced(seated_event: tuple[Event, list[VenueSeat]], revel_user: R
     event.save(update_fields=["max_tickets_per_user"])
     result = holds_service.acquire_seats(event, [s.id for s in seats[:3]], user=revel_user, guest_session=None)
     assert result.conflicts  # over-cap rejected as a whole
+    assert result.conflict_reason == "capacity"
     assert SeatHold.objects.active().filter(event=event).count() == 0
 
 
@@ -267,6 +270,7 @@ def test_unholdable_seats_conflict(
     for seat in (inactive, standing_seat, overridden, foreign_seat):
         result = holds_service.acquire_seats(event, [seat.id], user=revel_user, guest_session=None)
         assert result.conflicts == [seat.id]
+        assert result.conflict_reason == "unavailable"
     assert SeatHold.objects.count() == 0
 
 
