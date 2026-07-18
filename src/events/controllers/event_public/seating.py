@@ -5,7 +5,6 @@ from uuid import UUID
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404
-from django.utils.translation import gettext_lazy as _
 from ninja import Body
 from ninja.errors import HttpError
 from ninja_extra import api_controller, route
@@ -143,7 +142,11 @@ class EventPublicSeatingController(EventPublicBaseController):
             accessible_required=payload.accessible_required,
         )
         if not result.held and not result.conflicts:
-            raise HttpError(409, str(_("Not enough adjacent seats — pick manually or reduce quantity.")))
+            # Same HoldResponseSchema shape as every other hold 409 (not an HttpError
+            # {detail} body): no block of the requested size fits.
+            return 409, schema.HoldResponseSchema(
+                held_seat_ids=[], conflicts=[], expires_at=None, conflict_reason="no_block"
+            )
         status = 409 if result.conflicts else 200
         return status, schema.HoldResponseSchema(
             held_seat_ids=[h.seat_id for h in result.held],
