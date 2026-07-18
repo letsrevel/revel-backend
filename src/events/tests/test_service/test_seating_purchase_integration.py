@@ -274,6 +274,93 @@ def test_best_available_foreign_hold_on_last_pair_still_409(
     assert SeatHold.objects.filter(event=event).count() == 2  # foreign holds untouched
 
 
+def test_best_available_checkout_consumes_exact_held_block_over_better_pick(
+    seated_event: SeatedEvent, revel_user: RevelUser
+) -> None:
+    """Checkout must consume the buyer's exact held block, not re-run the picker.
+
+    The buyer holds A1/A2 while A3/A4 is strictly better-scored (centrality 0
+    vs 2.0): a re-pick would prefer A3/A4 and strand the original holds until
+    TTL. The held-block fast path must return exactly the held seats.
+    """
+    event, seats = seated_event
+    tier = _best_available_tier(event, seats)
+    holds_service.acquire_seats(event, [seats[0].id, seats[1].id], user=revel_user, guest_session=None)
+    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
+    assert assigned == {seats[0].id, seats[1].id}
+    assert not SeatHold.objects.filter(event=event).exists()
+
+
+def test_best_available_checkout_consumes_accessible_held_block_without_flag(
+    seated_event: SeatedEvent, revel_user: RevelUser
+) -> None:
+    """An accessible held block is consumed even when checkout omits accessible_required.
+
+    The buyer held accessible seats (accessible_required hold); the general
+    picker pool excludes accessible seats, so a re-pick would assign different
+    (non-accessible) seats — the shown block would be unpurchasable.
+    """
+    from events.service.seating.pick import hold_best_available
+
+    event, seats = seated_event
+    tier = _best_available_tier(event, seats)
+    VenueSeat.objects.filter(id__in=[seats[4].id, seats[5].id]).update(is_accessible=True)
+    result = hold_best_available(event, tier, 2, user=revel_user, guest_session=None, accessible_required=True)
+    assert {h.seat_id for h in result.held} == {seats[4].id, seats[5].id}
+    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])  # no accessible_required
+    assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
+    assert assigned == {seats[4].id, seats[5].id}
+    assert not SeatHold.objects.filter(event=event).exists()
+
+
+def test_best_available_partial_hold_falls_through_to_picker(seated_event: SeatedEvent, revel_user: RevelUser) -> None:
+    """Fewer held seats than requested → normal picker path, own hold still a candidate.
+
+    Holding only A3 and buying two seats picks the best pair (A3/A4, centrality
+    0), which includes the held seat — the hold is consumed, none linger.
+    """
+    event, seats = seated_event
+    tier = _best_available_tier(event, seats)
+    holds_service.acquire_seats(event, [seats[2].id], user=revel_user, guest_session=None)
+    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event)}
+    assert assigned == {seats[2].id, seats[3].id}
+    assert not SeatHold.objects.filter(event=event).exists()
+
+
+def test_best_available_sniped_held_seat_falls_through_to_picker(
+    seated_event: SeatedEvent, revel_user: RevelUser, other_user: RevelUser
+) -> None:
+    """A held seat ticketed post-hold (holds are advisory) → clean fall-through.
+
+    The fast path's post-lock re-check conflicts on the sniped seat; the
+    savepoint rollback restores the buyer's holds untouched and the picker
+    assigns a clean block instead. No partial state.
+    """
+    event, seats = seated_event
+    tier = _best_available_tier(event, seats)
+    holds_service.acquire_seats(event, [seats[0].id, seats[1].id], user=revel_user, guest_session=None)
+    Ticket.objects.create(
+        event=event,
+        tier=tier,
+        user=other_user,
+        status=Ticket.TicketStatus.ACTIVE,
+        guest_name="Sniper",
+        seat=seats[0],
+        sector=seats[0].sector,
+        venue=seats[0].sector.venue,
+    )
+    BatchTicketService(event, tier, revel_user).create_batch(items=[_item(), _item()])
+    assigned = {ticket.seat_id for ticket in Ticket.objects.filter(event=event, user=revel_user)}
+    assert assigned == {seats[2].id, seats[3].id}  # picker's best clean pair
+    # Fast-path savepoint rolled back: the buyer's holds survive untouched (until TTL).
+    assert set(SeatHold.objects.filter(event=event).values_list("seat_id", flat=True)) == {
+        seats[0].id,
+        seats[1].id,
+    }
+
+
 def test_best_available_post_lock_recheck_retries_on_stale_pick(
     seated_event: SeatedEvent, revel_user: RevelUser, monkeypatch: pytest.MonkeyPatch
 ) -> None:
