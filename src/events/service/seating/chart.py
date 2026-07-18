@@ -4,7 +4,7 @@ Self-sufficient prefetch (sectors, seats, price categories) keeps this at a cons
 query count regardless of how the caller fetched the venue.
 """
 
-from events.models import Venue
+from events.models import Venue, VenueSector
 from events.schema.seating import ChartSeatSchema, ChartSectorSchema, VenueChartSchema
 from events.schema.venue import PriceCategorySchema
 
@@ -40,7 +40,7 @@ def build_chart(venue: Venue) -> VenueChartSchema:
                 id=sector.id,
                 name=sector.name,
                 code=sector.code,
-                kind=sector.kind,
+                kind=VenueSector.Kind(sector.kind),
                 shape=sector.shape,
                 capacity=sector.capacity,
                 display_order=sector.display_order,

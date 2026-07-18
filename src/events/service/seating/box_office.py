@@ -1,8 +1,11 @@
 """Box-office door sales, comps, and reseat (spec §2, Phase 4).
 
-Both writers follow the global seat-lock protocol: coarse rows (tier → event)
-first, then the affected ``VenueSeat`` rows PK-ordered under ``select_for_update``,
-then re-check tickets + overrides + live holds before writing.
+Both writers lock the affected ``VenueSeat`` rows PK-ordered under
+``select_for_update`` and re-check tickets + overrides + live holds before
+writing. ``sell()`` additionally takes the coarse rows first (tier → event)
+because it increments ``quantity_sold`` against tier/event capacity; ``reseat()``
+changes no aggregate — it only rewrites the ticket's seat/sector, so locking the
+two seat rows is sufficient.
 """
 
 import uuid

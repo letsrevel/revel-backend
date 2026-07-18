@@ -106,6 +106,7 @@ def create_guest_ticket_token(
     discount_code: str | None = None,
     *,
     accessible_required: bool = False,
+    guest_session: str | None = None,
 ) -> str:
     """Create JWT token for guest ticket purchase confirmation.
 
@@ -121,6 +122,9 @@ def create_guest_ticket_token(
         discount_code: Optional discount code string
         accessible_required: Whether best-available assignment at confirm time must
             use the accessible seat pool (applies to the whole block)
+        guest_session: Hold-owner session id captured at checkout, embedded in the
+            token so confirm-time assignment consumes the buyer's own holds even
+            when the confirmation link is opened on a different device.
 
     Returns:
         JWT token string
@@ -137,6 +141,7 @@ def create_guest_ticket_token(
         discount_code=discount_code,
         tickets=ticket_payloads,
         accessible_required=accessible_required,
+        guest_session=guest_session,
         exp=timezone.now() + timedelta(hours=1),
         jti=str(uuid4()),
     )
@@ -339,7 +344,14 @@ def handle_guest_ticket_checkout(
         # Non-online payment: require email confirmation
         # Store ticket info in JWT token for later creation
         token = create_guest_ticket_token(
-            user, event.id, tier.id, tickets, pwyc_amount, discount_code, accessible_required=accessible_required
+            user,
+            event.id,
+            tier.id,
+            tickets,
+            pwyc_amount,
+            discount_code,
+            accessible_required=accessible_required,
+            guest_session=guest_session,
         )
         transaction.on_commit(lambda: send_guest_ticket_confirmation.delay(user.email, token, event.name, tier.name))
         return schema.GuestCheckoutResponseSchema(
@@ -432,7 +444,10 @@ def confirm_guest_action(
             tier,
             user,
             discount_code=dc,
-            guest_session=guest_session,
+            # Prefer the hold-owner session captured in the token so the buyer's own
+            # holds are consumed even when confirming from a different device; fall
+            # back to the confirming request's cookie for legacy tokens (None).
+            guest_session=payload.guest_session or guest_session,
             accessible_required=payload.accessible_required,
         )
         result = service.create_batch(ticket_items, price_override=price_override)

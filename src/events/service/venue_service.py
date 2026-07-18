@@ -1,5 +1,6 @@
 """Service layer for venue management operations."""
 
+import re
 import typing as t
 from uuid import UUID
 
@@ -50,17 +51,39 @@ def _validate_seat_categories(venue_id: UUID, category_ids: set[UUID]) -> None:
         raise HttpError(400, str(_("Price category must belong to the same venue as the seats.")))
 
 
+def natural_row_key(label: str) -> list[tuple[int, int] | tuple[int, int, str]]:
+    """Natural sort key for row labels so front-to-back order is physically correct.
+
+    Splits the label into alternating alpha/digit chunks and orders each chunk so:
+    numeric chunks compare as integers (``"2"`` before ``"10"``), and alpha chunks
+    compare length-first then lexicographically (``"Z"`` before ``"AA"`` — the theatre
+    continuation scheme). Handles pure-numeric, pure-alpha, and mixed (``"A2"`` before
+    ``"A10"``) labels. A plain string ``sorted()`` mis-orders all three.
+    """
+    key: list[tuple[int, int] | tuple[int, int, str]] = []
+    for chunk in re.split(r"(\d+)", label):
+        if not chunk:
+            continue
+        if chunk.isdigit():
+            key.append((0, int(chunk)))
+        else:
+            key.append((1, len(chunk), chunk))
+    return key
+
+
 def derive_sector_seat_ranks(sector: models.VenueSector) -> None:
     """Re-rank the whole sector's seats (same semantics as migration 0098).
 
-    ``row_order`` = dense rank of ``row_label`` (alphabetical, null rows in the
+    ``row_order`` = dense rank of ``row_label`` (natural order, null rows in the
     0-bucket) per sector; ``adjacency_index`` = dense rank within the row —
     numbered seats first by ``(number, label)``, then null-numbered seats by
-    ``label``. Re-ranking the whole sector keeps ranks consistent as seats are
-    added or removed; it is cheap at realistic sector sizes (≤2,500 seats).
+    ``label``. Row labels are ordered with :func:`natural_row_key` so numeric
+    (``2`` before ``10``) and multi-letter (``Z`` before ``AA``) schemes rank
+    front-to-back correctly. Re-ranking the whole sector keeps ranks consistent as
+    seats are added or removed; it is cheap at realistic sector sizes (≤2,500 seats).
     """
     seats = list(sector.seats.all())
-    row_labels = sorted({s.row_label for s in seats if s.row_label is not None})
+    row_labels = sorted({s.row_label for s in seats if s.row_label is not None}, key=natural_row_key)
     row_rank = {label: i for i, label in enumerate(row_labels)}
     by_row: dict[str | None, list[models.VenueSeat]] = {}
     for seat in seats:
