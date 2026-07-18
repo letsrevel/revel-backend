@@ -103,3 +103,10 @@ class SeatOverridesResponse(Schema):
     applied: int = 0
     released: int = 0
     rejected: dict[UUID, str] = Field(default_factory=dict)  # seat_id -> reason (e.g. "ticketed")
+
+    # UUID dict keys aren't JSON-serializable (json.dumps rejects non-str keys) and Ninja
+    # dumps responses in python mode, so stringify the keys at serialization time. The stored
+    # attribute keeps UUID keys for in-process callers.
+    @field_serializer("rejected")
+    def _serialize_rejected(self, value: dict[UUID, str]) -> dict[str, str]:
+        return {str(k): v for k, v in value.items()}
