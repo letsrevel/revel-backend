@@ -80,6 +80,24 @@ def test_pending_ticket_also_rejected(
     assert resp.rejected[seats[0].id] == "ticketed"
 
 
+def test_checked_in_ticket_also_rejected(
+    seated_event: tuple[Event, list[VenueSeat]], other_user: RevelUser, ticket_tier: TicketTier
+) -> None:
+    event, seats = seated_event
+    Ticket.objects.create(
+        event=event,
+        tier=ticket_tier,
+        user=other_user,
+        seat=seats[0],
+        sector=seats[0].sector,
+        status=Ticket.TicketStatus.CHECKED_IN,
+        guest_name="Someone",
+    )
+    resp = overrides_service.apply_overrides(event, set_items=[(seats[0].id, "killed", "")], release_seat_ids=[])
+    assert resp.applied == 0
+    assert resp.rejected[seats[0].id] == "ticketed"
+
+
 def test_cancelled_ticket_does_not_block(
     seated_event: tuple[Event, list[VenueSeat]], other_user: RevelUser, ticket_tier: TicketTier
 ) -> None:

@@ -65,7 +65,7 @@ class VenueSeatSchema(ModelSchema):
     """
 
     position: Coordinate2D | None = None
-    available: bool = True  # For availability endpoints: False if taken by PENDING/ACTIVE ticket
+    available: bool = True  # For availability endpoints: False if taken by any non-cancelled ticket
     row_label: str | None = None
     # Transitional alias so the deployed FE (reads `row`) keeps working until Phase 2 regen.
     row: str | None = None

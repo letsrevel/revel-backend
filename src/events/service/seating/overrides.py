@@ -30,7 +30,7 @@ def apply_overrides(
     Returns:
         A ``SeatOverridesResponse`` with counts and a per-seat ``rejected`` map
         (``"unknown_seat"`` for ids not on this venue, ``"ticketed"`` for seats
-        holding a PENDING/ACTIVE ticket on this event).
+        holding a non-cancelled ticket on this event).
     """
     all_ids = sorted({sid for sid, _, _ in set_items} | set(release_seat_ids))
     locked_ids = set(
@@ -39,11 +39,9 @@ def apply_overrides(
     rejected: dict[uuid.UUID, str] = {sid: "unknown_seat" for sid in all_ids if sid not in locked_ids}
 
     ticketed = set(
-        Ticket.objects.filter(
-            event=event,
-            seat_id__in=locked_ids,
-            status__in=[Ticket.TicketStatus.PENDING, Ticket.TicketStatus.ACTIVE],
-        ).values_list("seat_id", flat=True)
+        Ticket.objects.filter(event=event, seat_id__in=locked_ids)
+        .exclude(status=Ticket.TicketStatus.CANCELLED)
+        .values_list("seat_id", flat=True)
     )
 
     applied = 0
