@@ -6,7 +6,7 @@ from uuid import UUID
 from ninja import Schema
 from pydantic import AwareDatetime, EmailStr, Field, field_serializer, field_validator, model_validator
 
-from events.models import EventSeatOverride, TicketTier
+from events.models import EventSeatOverride, TicketTier, VenueSector
 
 from .venue import Coordinate2D, PriceCategorySchema
 
@@ -29,7 +29,7 @@ class ChartSectorSchema(Schema):
     id: UUID
     name: str
     code: str | None = None
-    kind: str = "seated"
+    kind: VenueSector.Kind = VenueSector.Kind.SEATED
     shape: list[Coordinate2D] | None = None
     capacity: int | None = None
     display_order: int = 0

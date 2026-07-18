@@ -1,6 +1,17 @@
+import re
 import typing as t
 
 from django.db import migrations
+
+
+def _natural_row_key(label: str) -> list[tuple[int, int] | tuple[int, int, str]]:
+    """Natural sort key: numeric chunks as ints, alpha chunks length-first (Z before AA)."""
+    key: list[tuple[int, int] | tuple[int, int, str]] = []
+    for chunk in re.split(r"(\d+)", label):
+        if not chunk:
+            continue
+        key.append((0, int(chunk)) if chunk.isdigit() else (1, len(chunk), chunk))
+    return key
 
 
 def backfill_row_order_and_adjacency(apps: t.Any, schema_editor: t.Any) -> None:
@@ -9,7 +20,7 @@ def backfill_row_order_and_adjacency(apps: t.Any, schema_editor: t.Any) -> None:
     VenueSector = apps.get_model("events", "VenueSector")
     for sector in VenueSector.objects.all().iterator():
         seats = list(VenueSeat.objects.filter(sector=sector))
-        row_labels = sorted({s.row_label for s in seats if s.row_label is not None})
+        row_labels = sorted({s.row_label for s in seats if s.row_label is not None}, key=_natural_row_key)
         row_rank = {label: i for i, label in enumerate(row_labels)}
         by_row: dict[object, list[t.Any]] = {}
         for s in seats:

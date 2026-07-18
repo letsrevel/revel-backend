@@ -774,6 +774,9 @@ class GuestTicketJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     tickets: list[GuestTicketItemPayload] = Field(default_factory=list)
     # Optional with default so legacy tokens minted before #726 keep validating.
     accessible_required: bool = False
+    # Hold-owner session captured at checkout; legacy/no-hold tokens carry None
+    # and the confirm-time request cookie is used as a fallback.
+    guest_session: str | None = None
 
 
 # Discriminated union for guest action payloads

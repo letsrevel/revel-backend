@@ -5,14 +5,28 @@ from unittest import mock
 from unittest.mock import Mock, patch
 from uuid import UUID
 
+import jwt
 import pytest
+from django.conf import settings
 from django.test.client import Client
 from django.urls import reverse
 
+from accounts.jwt import create_token
 from accounts.models import RevelUser
 from events import schema
-from events.models import Event, Organization, PriceCategory, Ticket, TicketTier, Venue, VenueSeat, VenueSector
+from events.models import (
+    Event,
+    Organization,
+    PriceCategory,
+    SeatHold,
+    Ticket,
+    TicketTier,
+    Venue,
+    VenueSeat,
+    VenueSector,
+)
 from events.service import guest as guest_service
+from events.service.seating import holds as holds_service
 
 pytestmark = pytest.mark.django_db
 
@@ -611,3 +625,74 @@ class TestGuestAccessibleSeating:
         ticket = Ticket.objects.get(user=user, event=guest_event_with_tickets)
         assert ticket.status == Ticket.TicketStatus.PENDING
         assert ticket.seat_id in {s.id for s in accessible_seats}
+
+
+class TestGuestConfirmSessionBinding:
+    """Fix B: the confirmation token binds the hold-owner guest_session so the buyer's
+    own holds are consumed even when the email is opened on a different device."""
+
+    def test_confirm_prefers_token_session_over_request_cookie(
+        self,
+        guest_event_with_tickets: Event,
+        user_choice_tier: TicketTier,
+        seats: list[VenueSeat],
+        existing_guest_user: RevelUser,
+    ) -> None:
+        """A live hold owned by the checkout session is consumed even when confirming
+        with a different/absent guest cookie — because the token carries the session."""
+        original_session = "gs_original_device"
+        held = seats[0]
+        # Seat holds key off the event's venue; a seated event has it set.
+        guest_event_with_tickets.venue = held.sector.venue
+        guest_event_with_tickets.save(update_fields=["venue"])
+        result = holds_service.acquire_seats(
+            guest_event_with_tickets, [held.id], user=None, guest_session=original_session
+        )
+        assert result.conflicts == []
+
+        tickets = [schema.TicketPurchaseItem(guest_name="Cross Device", seat_id=held.id)]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user,
+            guest_event_with_tickets.id,
+            user_choice_tier.id,
+            tickets,
+            guest_session=original_session,
+        )
+
+        # Confirm from a "different device": no guest-hold cookie on this request.
+        response = Client().post(
+            reverse("api:confirm_guest_action"), data={"token": token}, content_type="application/json"
+        )
+
+        assert response.status_code == 200, response.content
+        ticket = Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets)
+        assert ticket.seat == held
+        # The buyer's own hold was consumed, not left dangling.
+        assert not SeatHold.objects.filter(event=guest_event_with_tickets, seat=held).exists()
+
+    def test_legacy_token_without_guest_session_still_confirms(
+        self,
+        guest_event_with_tickets: Event,
+        user_choice_tier: TicketTier,
+        seats: list[VenueSeat],
+        existing_guest_user: RevelUser,
+    ) -> None:
+        """A pre-fix token whose JSON lacks guest_session decodes (default None) and confirms."""
+        tickets = [schema.TicketPurchaseItem(guest_name="Legacy", seat_id=seats[1].id)]
+        # Mint a real (post-fix) token, then strip the new key to emulate a legacy one.
+        valid_token = guest_service.create_guest_ticket_token(
+            existing_guest_user, guest_event_with_tickets.id, user_choice_tier.id, tickets
+        )
+        raw = jwt.decode(
+            valid_token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], options={"verify_aud": False}
+        )
+        raw.pop("guest_session")  # simulate a token minted before this field existed
+        token = create_token(raw, settings.SECRET_KEY, settings.JWT_ALGORITHM)
+
+        response = Client().post(
+            reverse("api:confirm_guest_action"), data={"token": token}, content_type="application/json"
+        )
+
+        assert response.status_code == 200, response.content
+        ticket = Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets)
+        assert ticket.seat == seats[1]

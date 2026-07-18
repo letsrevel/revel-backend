@@ -88,6 +88,52 @@ class TestDeriveOnBulkCreate:
         ranks = dict(sector.seats.values_list("label", "row_order"))
         assert ranks == {"A1": 0, "A2": 0, "B1": 1, "B2": 1}
 
+    def test_numeric_rows_rank_naturally_not_lexically(self, sector: VenueSector) -> None:
+        """Numeric row labels order 1<2<...<10<...<12 (not lexical '10'<'2')."""
+        rows = [str(n) for n in range(1, 13)]
+        venue_service.bulk_create_seats(
+            sector,
+            [
+                schema.VenueSeatInputSchema(label=f"R{row}S1", row=row, number=1)  # type: ignore[call-arg]
+                for row in rows
+            ],
+        )
+        ranks = dict(sector.seats.values_list("row_label", "row_order"))
+        # Row "2" is physically in front of row "10" — its row_order must be lower.
+        assert ranks["2"] < ranks["10"]
+        # Ranks follow numeric order exactly: row "N" -> row_order N-1.
+        assert [ranks[str(n)] for n in range(1, 13)] == list(range(12))
+
+    def test_multi_letter_rows_rank_after_single_letters(self, sector: VenueSector) -> None:
+        """Theatre continuation scheme: Z (front of AA) ranks before AA/AB."""
+        rows = ["Y", "Z", "AA", "AB"]
+        venue_service.bulk_create_seats(
+            sector,
+            [
+                schema.VenueSeatInputSchema(label=f"{row}1", row=row, number=1)  # type: ignore[call-arg]
+                for row in rows
+            ],
+        )
+        ranks = dict(sector.seats.values_list("row_label", "row_order"))
+        assert [ranks[r] for r in ("Y", "Z", "AA", "AB")] == [0, 1, 2, 3]
+
+
+class TestNaturalRowKey:
+    """Unit tests for the natural-sort key used to order row labels front-to-back."""
+
+    def test_pure_numeric_orders_by_integer_value(self) -> None:
+        assert sorted(["10", "2", "1", "20", "3"], key=venue_service.natural_row_key) == ["1", "2", "3", "10", "20"]
+
+    def test_single_letters_order_alphabetically(self) -> None:
+        assert sorted(["C", "A", "B"], key=venue_service.natural_row_key) == ["A", "B", "C"]
+
+    def test_multi_letter_orders_length_first(self) -> None:
+        # Z (len 1) before AA (len 2); AA before AB within the same length.
+        assert sorted(["AA", "Z", "AB", "A"], key=venue_service.natural_row_key) == ["A", "Z", "AA", "AB"]
+
+    def test_mixed_alpha_numeric(self) -> None:
+        assert sorted(["A10", "A2", "A1"], key=venue_service.natural_row_key) == ["A1", "A2", "A10"]
+
 
 class TestDeriveOnCreateSector:
     def test_create_sector_with_seats_derives_ranks(self, venue: Venue) -> None:
