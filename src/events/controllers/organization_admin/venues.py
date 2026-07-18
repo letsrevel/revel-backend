@@ -122,6 +122,74 @@ class OrganizationAdminVenuesController(OrganizationAdminBaseController):
         venue.delete()
         return 204, None
 
+    # ---- Venue Price Category Management ----
+
+    @route.get(
+        "/venues/{venue_id}/price-categories",
+        url_name="list_venue_price_categories",
+        response=list[schema.PriceCategorySchema],
+        permissions=[IsOrganizationStaff()],
+        throttle=UserDefaultThrottle(),
+    )
+    def list_price_categories(self, slug: str, venue_id: UUID) -> QuerySet[models.PriceCategory]:
+        """List all price categories for a venue.
+
+        Categories are ordered by display_order, then name.
+        """
+        organization = self.get_one(slug)
+        venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
+        return models.PriceCategory.objects.filter(venue=venue)
+
+    @route.post(
+        "/venues/{venue_id}/price-categories",
+        url_name="create_venue_price_category",
+        response={201: schema.PriceCategorySchema},
+    )
+    def create_price_category(
+        self, slug: str, venue_id: UUID, payload: schema.PriceCategoryCreateSchema
+    ) -> tuple[int, models.PriceCategory]:
+        """Create a price category for a venue.
+
+        A category with a name already used by this venue is rejected with 400.
+        """
+        organization = self.get_one(slug)
+        venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
+        category = venue_service.create_price_category(venue, payload)
+        return 201, category
+
+    @route.put(
+        "/venues/{venue_id}/price-categories/{category_id}",
+        url_name="update_venue_price_category",
+        response=schema.PriceCategorySchema,
+    )
+    def update_price_category(
+        self, slug: str, venue_id: UUID, category_id: UUID, payload: schema.PriceCategoryUpdateSchema
+    ) -> models.PriceCategory:
+        """Update a price category's name, color, or display order."""
+        organization = self.get_one(slug)
+        venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
+        category = get_object_or_404(models.PriceCategory, pk=category_id, venue=venue)
+        return venue_service.update_price_category(category, payload)
+
+    @route.delete(
+        "/venues/{venue_id}/price-categories/{category_id}",
+        url_name="delete_venue_price_category",
+        response={204: None},
+    )
+    def delete_price_category(self, slug: str, venue_id: UUID, category_id: UUID) -> tuple[int, None]:
+        """Delete a price category.
+
+        Refused (400) when any ticket tier references the category, because the
+        FK is SET_NULL and a silent removal would leave best-available tiers
+        unsellable. Seats painted with the category are unaffected by the guard:
+        on delete their default_price_category becomes NULL (repaintable).
+        """
+        organization = self.get_one(slug)
+        venue = get_object_or_404(models.Venue, pk=venue_id, organization=organization)
+        category = get_object_or_404(models.PriceCategory, pk=category_id, venue=venue)
+        venue_service.delete_price_category(category)
+        return 204, None
+
     # ---- Venue Sector Management ----
 
     @route.get(

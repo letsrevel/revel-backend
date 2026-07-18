@@ -74,6 +74,26 @@ class PriceCategorySchema(ModelSchema):
         fields = ["id", "name", "color", "display_order"]
 
 
+# Hex color for map rendering, e.g. ``#aa0000``.
+HexColor = t.Annotated[str, StringConstraints(pattern=r"^#[0-9a-fA-F]{6}$")]
+
+
+class PriceCategoryCreateSchema(Schema):
+    """Schema for creating a venue price category."""
+
+    name: t.Annotated[str, StringConstraints(min_length=1, max_length=100, strip_whitespace=True)]
+    color: HexColor
+    display_order: int = Field(0, ge=0)
+
+
+class PriceCategoryUpdateSchema(Schema):
+    """Schema for updating a venue price category."""
+
+    name: t.Annotated[str, StringConstraints(min_length=1, max_length=100, strip_whitespace=True)] | None = None
+    color: HexColor | None = None
+    display_order: int | None = Field(None, ge=0)
+
+
 class VenueSeatSchema(ModelSchema):
     """Schema for venue seat response.
 

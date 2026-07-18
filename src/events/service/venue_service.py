@@ -79,6 +79,80 @@ def update_venue(
     return venue
 
 
+def create_price_category(
+    venue: models.Venue,
+    payload: schema.PriceCategoryCreateSchema,
+) -> models.PriceCategory:
+    """Create a price category for a venue.
+
+    A duplicate ``(venue, name)`` surfaces as a Django ``ValidationError``
+    (the model's ``save()`` runs ``full_clean()``), which the global handler
+    renders as a 400 — same contract as venue creation.
+
+    Args:
+        venue: The venue to create the category for
+        payload: The category creation data
+
+    Returns:
+        The created price category
+    """
+    return models.PriceCategory.objects.create(venue=venue, **payload.model_dump())
+
+
+@transaction.atomic
+def update_price_category(
+    category: models.PriceCategory,
+    payload: schema.PriceCategoryUpdateSchema,
+) -> models.PriceCategory:
+    """Update a price category.
+
+    Args:
+        category: The price category to update
+        payload: The category update data (partial)
+
+    Returns:
+        The updated price category
+    """
+    update_data = payload.model_dump(exclude_unset=True)
+    if not update_data:
+        return category
+
+    for field, value in update_data.items():
+        setattr(category, field, value)
+
+    category.save(update_fields=list(update_data.keys()))
+    return category
+
+
+def delete_price_category(category: models.PriceCategory) -> None:
+    """Delete a price category.
+
+    Refuses deletion when any ticket tier references the category: the FK is
+    ``SET_NULL``, so a delete would silently strip the category from
+    BEST_AVAILABLE tiers and leave them unsellable. Seats painted with the
+    category are fine — their ``default_price_category`` becomes NULL and can
+    simply be repainted.
+
+    Args:
+        category: The price category to delete
+
+    Raises:
+        HttpError: If any ticket tier references the category
+    """
+    if models.TicketTier.objects.filter(price_category=category).exists():
+        raise HttpError(
+            400,
+            str(
+                _(
+                    "This price category is used by one or more ticket tiers and cannot be deleted. "
+                    "Reassign or remove those tiers first."
+                )
+            ),
+        )
+
+    category.delete()
+
+
 @transaction.atomic
 def create_sector(
     venue: models.Venue,

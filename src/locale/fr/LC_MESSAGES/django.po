@@ -1809,6 +1809,14 @@ msgstr ""
 "Le montant du remboursement doit être compris entre 0 et le montant payé "
 "(%(amount)s)."
 
+msgid ""
+"This price category is used by one or more ticket tiers and cannot be "
+"deleted. Reassign or remove those tiers first."
+msgstr ""
+"Cette catégorie de prix est utilisée par un ou plusieurs types de billets et "
+"ne peut pas être supprimée. Réattribuez ou supprimez d'abord ces types de "
+"billets."
+
 msgid "Seat '{}' position is outside the sector shape."
 msgstr "La position du siège « {} » est en dehors de la forme du secteur."
 
