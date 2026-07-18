@@ -688,6 +688,11 @@ class GuestBatchCheckoutPayload(GuestUserDataSchema):
     tickets: list[TicketPurchaseItem] = Field(..., min_length=1, description="List of tickets to purchase")
     discount_code: str | None = Field(None, max_length=64, description="Optional discount code")
     billing_info: BuyerBillingInfoSchema | None = Field(None, description="Optional billing info for invoicing")
+    accessible_required: bool = Field(
+        default=False,
+        description="Request accessible seating for the whole checkout (BEST_AVAILABLE assignment "
+        "picks from the accessible pool)",
+    )
 
 
 class GuestBatchCheckoutPWYCPayload(GuestBatchCheckoutPayload):
@@ -760,6 +765,8 @@ class GuestTicketJWTPayloadSchema(BaseEmailJWTPayloadSchema):
     pwyc_amount: Decimal | None = None
     discount_code: str | None = None
     tickets: list[GuestTicketItemPayload] = Field(default_factory=list)
+    # Optional with default so legacy tokens minted before #726 keep validating.
+    accessible_required: bool = False
 
 
 # Discriminated union for guest action payloads

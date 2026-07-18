@@ -415,3 +415,199 @@ class TestGuestCheckoutReservedSeating:
         # Assert: got the Stripe URL
         assert session_response.status_code == 200
         assert session_response.json()["checkout_url"] == fake.url
+
+
+ACCESSIBLE_EXHAUSTED_MSG = "Not enough accessible seats available — please contact the organizer."
+
+
+@pytest.fixture
+def accessible_seats(seats: list[VenueSeat]) -> list[VenueSeat]:
+    """Mark the last two seats accessible; returns them."""
+    marked = seats[3:]
+    VenueSeat.objects.filter(id__in=[s.id for s in marked]).update(is_accessible=True)
+    for s in marked:
+        s.refresh_from_db()
+    return marked
+
+
+@pytest.mark.django_db(transaction=True)
+class TestGuestAccessibleSeating:
+    """Accessible seating for guest email-confirm flows (#726).
+
+    Uses ``transaction=True`` because guest checkout schedules the confirmation
+    email via ``transaction.on_commit`` (see TestGuestCheckoutReservedSeating).
+    """
+
+    @patch("events.tasks.send_guest_ticket_confirmation.delay")
+    def test_guest_checkout_embeds_accessible_required_in_token(
+        self,
+        mock_send_email: Mock,
+        guest_event_with_tickets: Event,
+        best_available_tier: TicketTier,
+        accessible_seats: list[VenueSeat],
+    ) -> None:
+        """Checkout payload flag is embedded in the signed email token."""
+        # Arrange
+        client = Client()
+        url = reverse(
+            "api:guest_ticket_checkout",
+            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": best_available_tier.pk},
+        )
+        payload = {
+            "email": "accessible@example.com",
+            "first_name": "Access",
+            "last_name": "Ible",
+            "accessible_required": True,
+            "tickets": [{"guest_name": "Access Ible"}],
+        }
+
+        # Act
+        response = client.post(url, data=payload, content_type="application/json")
+
+        # Assert: the token sent by email carries the flag
+        assert response.status_code == 200
+        mock_send_email.assert_called_once()
+        token = mock_send_email.call_args[0][1]
+        decoded = guest_service.validate_and_decode_guest_token(token)
+        assert isinstance(decoded, schema.GuestTicketJWTPayloadSchema)
+        assert decoded.accessible_required is True
+
+    def test_confirm_assigns_accessible_seats_when_flag_set(
+        self,
+        guest_event_with_tickets: Event,
+        best_available_tier: TicketTier,
+        accessible_seats: list[VenueSeat],
+        existing_guest_user: RevelUser,
+    ) -> None:
+        """Confirm-time best-available assignment uses the accessible pool when the flag is set."""
+        # Arrange
+        best_available_tier.max_tickets_per_user = 10
+        best_available_tier.save(update_fields=["max_tickets_per_user"])
+        tickets = [
+            schema.TicketPurchaseItem(guest_name="Guest 1"),
+            schema.TicketPurchaseItem(guest_name="Guest 2"),
+        ]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user,
+            guest_event_with_tickets.id,
+            best_available_tier.id,
+            tickets,
+            accessible_required=True,
+        )
+
+        # Act
+        client = Client()
+        response = client.post(
+            reverse("api:confirm_guest_action"), data={"token": token}, content_type="application/json"
+        )
+
+        # Assert: both tickets landed on accessible seats (general pool untouched)
+        assert response.status_code == 200
+        created = Ticket.objects.filter(user=existing_guest_user, event=guest_event_with_tickets)
+        assert created.count() == 2
+        assert {t.seat_id for t in created} == {s.id for s in accessible_seats}
+
+    def test_confirm_accessible_exhaustion_returns_409_with_distinct_message(
+        self,
+        guest_event_with_tickets: Event,
+        best_available_tier: TicketTier,
+        accessible_seats: list[VenueSeat],
+        existing_guest_user: RevelUser,
+    ) -> None:
+        """When the accessible pool can't fit the block, 409 with the distinct message (no general fallback)."""
+        # Arrange: 3 tickets but only 2 accessible seats (3 general seats remain free)
+        best_available_tier.max_tickets_per_user = 10
+        best_available_tier.save(update_fields=["max_tickets_per_user"])
+        tickets = [schema.TicketPurchaseItem(guest_name=f"Guest {i}") for i in range(3)]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user,
+            guest_event_with_tickets.id,
+            best_available_tier.id,
+            tickets,
+            accessible_required=True,
+        )
+
+        # Act
+        client = Client()
+        response = client.post(
+            reverse("api:confirm_guest_action"), data={"token": token}, content_type="application/json"
+        )
+
+        # Assert: distinct 409, and no tickets were created from the general pool
+        assert response.status_code == 409
+        assert response.json()["detail"] == ACCESSIBLE_EXHAUSTED_MSG
+        assert not Ticket.objects.filter(user=existing_guest_user, event=guest_event_with_tickets).exists()
+
+    def test_confirm_without_flag_keeps_general_pool_behavior(
+        self,
+        guest_event_with_tickets: Event,
+        best_available_tier: TicketTier,
+        accessible_seats: list[VenueSeat],
+        existing_guest_user: RevelUser,
+    ) -> None:
+        """Regression: tokens without the flag keep assigning from the general (non-accessible) pool."""
+        # Arrange
+        tickets = [schema.TicketPurchaseItem(guest_name="General Guest")]
+        token = guest_service.create_guest_ticket_token(
+            existing_guest_user, guest_event_with_tickets.id, best_available_tier.id, tickets
+        )
+
+        # Act
+        client = Client()
+        response = client.post(
+            reverse("api:confirm_guest_action"), data={"token": token}, content_type="application/json"
+        )
+
+        # Assert
+        assert response.status_code == 200
+        ticket = Ticket.objects.get(user=existing_guest_user, event=guest_event_with_tickets)
+        assert ticket.seat is not None
+        assert ticket.seat.is_accessible is False
+
+    def test_guest_online_checkout_assigns_accessible_seats_directly(
+        self,
+        guest_event_with_tickets: Event,
+        venue: Venue,
+        best_available_tier: TicketTier,
+        accessible_seats: list[VenueSeat],
+    ) -> None:
+        """Online tiers assign at direct checkout (no email confirm) — the flag applies there too."""
+        # Arrange: Stripe-connected org + online BEST_AVAILABLE tier on the same price category
+        org = guest_event_with_tickets.organization
+        org.stripe_account_id = "acct_test123"
+        org.stripe_charges_enabled = True
+        org.stripe_details_submitted = True
+        org.save()
+        online_tier = TicketTier.objects.create(
+            event=guest_event_with_tickets,
+            name="Online Auto Seating",
+            price=Decimal("20.00"),
+            payment_method=TicketTier.PaymentMethod.ONLINE,
+            price_type=TicketTier.PriceType.FIXED,
+            venue=venue,
+            price_category=best_available_tier.price_category,
+            seat_assignment_mode=TicketTier.SeatAssignmentMode.BEST_AVAILABLE,
+        )
+        client = Client()
+        url = reverse(
+            "api:guest_ticket_checkout",
+            kwargs={"event_id": guest_event_with_tickets.pk, "tier_id": online_tier.pk},
+        )
+        payload = {
+            "email": "onlineaccessible@example.com",
+            "first_name": "Online",
+            "last_name": "Accessible",
+            "accessible_required": True,
+            "tickets": [{"guest_name": "Online Accessible"}],
+        }
+
+        # Act
+        response = client.post(url, data=payload, content_type="application/json")
+
+        # Assert: PENDING ticket reserved on an accessible seat
+        assert response.status_code == 200
+        assert response.json()["requires_payment"] is True
+        user = RevelUser.objects.get(email="onlineaccessible@example.com")
+        ticket = Ticket.objects.get(user=user, event=guest_event_with_tickets)
+        assert ticket.status == Ticket.TicketStatus.PENDING
+        assert ticket.seat_id in {s.id for s in accessible_seats}

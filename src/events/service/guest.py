@@ -104,6 +104,8 @@ def create_guest_ticket_token(
     tickets: list[schema.TicketPurchaseItem],
     pwyc_amount: Decimal | None = None,
     discount_code: str | None = None,
+    *,
+    accessible_required: bool = False,
 ) -> str:
     """Create JWT token for guest ticket purchase confirmation.
 
@@ -117,6 +119,8 @@ def create_guest_ticket_token(
         tickets: List of ticket purchase items with guest_name and optional seat_id
         pwyc_amount: Optional PWYC amount
         discount_code: Optional discount code string
+        accessible_required: Whether best-available assignment at confirm time must
+            use the accessible seat pool (applies to the whole block)
 
     Returns:
         JWT token string
@@ -132,6 +136,7 @@ def create_guest_ticket_token(
         pwyc_amount=pwyc_amount,
         discount_code=discount_code,
         tickets=ticket_payloads,
+        accessible_required=accessible_required,
         exp=timezone.now() + timedelta(hours=1),
         jti=str(uuid4()),
     )
@@ -246,6 +251,7 @@ def handle_guest_ticket_checkout(
     discount_code: str | None = None,
     billing_info: "schema.BuyerBillingInfoSchema | None" = None,
     guest_session: str | None = None,
+    accessible_required: bool = False,
 ) -> schema.GuestCheckoutResponseSchema:
     """Handle guest ticket checkout request (business logic extracted from controller).
 
@@ -260,6 +266,8 @@ def handle_guest_ticket_checkout(
         discount_code: Optional discount code string
         billing_info: Optional buyer billing info for attendee invoicing
         guest_session: Resolved guest-hold session id (seat holds are owned by it)
+        accessible_required: Whether best-available seat assignment must use the
+            accessible pool (applies to the whole checkout block)
 
     Returns:
         GuestCheckoutResponseSchema. Non-online tiers: `message` (email confirmation sent).
@@ -303,7 +311,9 @@ def handle_guest_ticket_checkout(
     # Branch by payment method
     if tier.payment_method == models.TicketTier.PaymentMethod.ONLINE:
         # Online payment: use BatchTicketService (Stripe provides security)
-        service = BatchTicketService(event, tier, user, discount_code=dc, guest_session=guest_session)
+        service = BatchTicketService(
+            event, tier, user, discount_code=dc, guest_session=guest_session, accessible_required=accessible_required
+        )
         result = service.create_batch(tickets, price_override=price_override, billing_info=billing_info)
 
         if isinstance(result, tuple):
@@ -328,7 +338,9 @@ def handle_guest_ticket_checkout(
     else:
         # Non-online payment: require email confirmation
         # Store ticket info in JWT token for later creation
-        token = create_guest_ticket_token(user, event.id, tier.id, tickets, pwyc_amount, discount_code)
+        token = create_guest_ticket_token(
+            user, event.id, tier.id, tickets, pwyc_amount, discount_code, accessible_required=accessible_required
+        )
         transaction.on_commit(lambda: send_guest_ticket_confirmation.delay(user.email, token, event.name, tier.name))
         return schema.GuestCheckoutResponseSchema(
             message=str(_("Please check your email to confirm your ticket purchase")),
@@ -415,7 +427,14 @@ def confirm_guest_action(
             price_override = discount_code_service.calculate_discounted_price(tier, dc)
 
         # Use BatchTicketService for proper seat handling
-        service = BatchTicketService(event, tier, user, discount_code=dc, guest_session=guest_session)
+        service = BatchTicketService(
+            event,
+            tier,
+            user,
+            discount_code=dc,
+            guest_session=guest_session,
+            accessible_required=payload.accessible_required,
+        )
         result = service.create_batch(ticket_items, price_override=price_override)
 
         # Blacklist token after successful creation
