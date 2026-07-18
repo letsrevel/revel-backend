@@ -459,8 +459,14 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         if self.venue_id and self.event.venue_id and self.venue_id != self.event.venue_id:
             raise DjangoValidationError({"venue": "Tier venue must match the event venue."})
 
-        # Each seat-assigned mode reads a specific field: BEST_AVAILABLE picks from the
-        # price category's seat pool; USER_CHOICE assigns within the sector.
+        self._validate_seat_assignment_mode(sector)
+
+    def _validate_seat_assignment_mode(self, sector: "VenueSector | None") -> None:
+        """Validate that each seat-assigned mode comes with the field it reads.
+
+        BEST_AVAILABLE picks from the price category's seat pool; USER_CHOICE
+        assigns within the sector.
+        """
         if self.seat_assignment_mode == self.SeatAssignmentMode.BEST_AVAILABLE and not self.price_category_id:
             raise DjangoValidationError(
                 {"seat_assignment_mode": "A price category is required for best-available tiers."}
@@ -468,6 +474,17 @@ class TicketTier(TimeStampedModel, VisibilityMixin):
         if self.seat_assignment_mode == self.SeatAssignmentMode.USER_CHOICE and not self.sector_id:
             raise DjangoValidationError(
                 {"seat_assignment_mode": "A sector is required for user-choice seat assignment."}
+            )
+        # A standing sector has no seats to choose from — every hold would 409.
+        # The create/update schemas only see sector_id (no DB access), so this
+        # model-level check is the single source of truth for the rule.
+        if (
+            self.seat_assignment_mode == self.SeatAssignmentMode.USER_CHOICE
+            and sector is not None
+            and sector.kind == VenueSector.Kind.STANDING
+        ):
+            raise DjangoValidationError(
+                {"seat_assignment_mode": "User-choice seat assignment requires a seated sector, not a standing one."}
             )
 
     def _validate_invitation_restrictions(self) -> None:

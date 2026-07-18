@@ -237,3 +237,67 @@ class TestVenueSectorManagement:
 
         sector.refresh_from_db()
         assert sector.metadata == new_metadata
+
+
+class TestSectorKind:
+    """Tests for the sector kind field on create/update endpoints."""
+
+    def test_create_sector_defaults_to_seated(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        venue = Venue.objects.create(organization=organization, name="Theater")
+        url = reverse("api:create_venue_sector", kwargs={"slug": organization.slug, "venue_id": venue.id})
+
+        response = organization_owner_client.post(
+            url, data=orjson.dumps({"name": "Floor"}), content_type="application/json"
+        )
+
+        assert response.status_code == 201
+        sector = VenueSector.objects.get(venue=venue, name="Floor")
+        assert sector.kind == VenueSector.Kind.SEATED
+
+    def test_create_standing_sector(self, organization_owner_client: Client, organization: Organization) -> None:
+        venue = Venue.objects.create(organization=organization, name="Theater")
+        url = reverse("api:create_venue_sector", kwargs={"slug": organization.slug, "venue_id": venue.id})
+        payload = {"name": "Pit", "kind": "standing", "capacity": 300}
+
+        response = organization_owner_client.post(url, data=orjson.dumps(payload), content_type="application/json")
+
+        assert response.status_code == 201
+        sector = VenueSector.objects.get(venue=venue, name="Pit")
+        assert sector.kind == VenueSector.Kind.STANDING
+
+    def test_update_kind_on_empty_sector(self, organization_owner_client: Client, organization: Organization) -> None:
+        venue = Venue.objects.create(organization=organization, name="Theater")
+        sector = VenueSector.objects.create(venue=venue, name="Pit")
+        url = reverse(
+            "api:update_venue_sector",
+            kwargs={"slug": organization.slug, "venue_id": venue.id, "sector_id": sector.id},
+        )
+
+        response = organization_owner_client.put(
+            url, data=orjson.dumps({"kind": "standing"}), content_type="application/json"
+        )
+
+        assert response.status_code == 200
+        sector.refresh_from_db()
+        assert sector.kind == VenueSector.Kind.STANDING
+
+    def test_update_kind_rejected_when_sector_has_seats(
+        self, organization_owner_client: Client, organization: Organization
+    ) -> None:
+        venue = Venue.objects.create(organization=organization, name="Theater")
+        sector = VenueSector.objects.create(venue=venue, name="Stalls")
+        VenueSeat.objects.create(sector=sector, label="A1")
+        url = reverse(
+            "api:update_venue_sector",
+            kwargs={"slug": organization.slug, "venue_id": venue.id, "sector_id": sector.id},
+        )
+
+        response = organization_owner_client.put(
+            url, data=orjson.dumps({"kind": "standing"}), content_type="application/json"
+        )
+
+        assert response.status_code == 400
+        sector.refresh_from_db()
+        assert sector.kind == VenueSector.Kind.SEATED

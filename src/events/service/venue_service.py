@@ -1,6 +1,7 @@
 """Service layer for venue management operations."""
 
 import typing as t
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Case, Exists, OuterRef, Value, When
@@ -11,14 +12,77 @@ from events import models, schema
 
 
 def _seat_model_kwargs(data: dict[str, t.Any]) -> dict[str, t.Any]:
-    """Map the transitional API field ``row`` onto the model field ``row_label``.
+    """Map API seat fields onto model fields.
 
-    The deployed FE still sends/reads ``row``; the model column is ``row_label``.
-    Rename is conditional so ``exclude_unset`` update payloads stay untouched.
+    - ``row`` → ``row_label`` (the deployed FE still sends/reads ``row``).
+    - ``price_category_id`` → ``default_price_category_id``.
+    - ``row_order`` / ``adjacency_index``: ``None`` means "derive server-side", so the
+      keys are dropped (the model columns are non-nullable).
+
+    Renames are conditional so ``exclude_unset`` update payloads stay untouched.
     """
     if "row" in data:
         data["row_label"] = data.pop("row")
+    if "price_category_id" in data:
+        data["default_price_category_id"] = data.pop("price_category_id")
+    for rank_field in ("row_order", "adjacency_index"):
+        if rank_field in data and data[rank_field] is None:
+            del data[rank_field]
     return data
+
+
+def _validate_seat_categories(venue_id: UUID, category_ids: set[UUID]) -> None:
+    """Validate that every referenced price category belongs to the given venue.
+
+    Args:
+        venue_id: The venue the seats' sector belongs to
+        category_ids: Price category ids referenced by the seat payloads (non-null)
+
+    Raises:
+        HttpError: 400 if any category does not belong to the venue
+    """
+    if not category_ids:
+        return
+    valid_ids = set(
+        models.PriceCategory.objects.filter(venue_id=venue_id, id__in=category_ids).values_list("id", flat=True)
+    )
+    if category_ids - valid_ids:
+        raise HttpError(400, str(_("Price category must belong to the same venue as the seats.")))
+
+
+def derive_sector_seat_ranks(sector: models.VenueSector) -> None:
+    """Re-rank the whole sector's seats (same semantics as migration 0098).
+
+    ``row_order`` = dense rank of ``row_label`` (alphabetical, null rows in the
+    0-bucket) per sector; ``adjacency_index`` = dense rank within the row —
+    numbered seats first by ``(number, label)``, then null-numbered seats by
+    ``label``. Re-ranking the whole sector keeps ranks consistent as seats are
+    added or removed; it is cheap at realistic sector sizes (≤2,500 seats).
+    """
+    seats = list(sector.seats.all())
+    row_labels = sorted({s.row_label for s in seats if s.row_label is not None})
+    row_rank = {label: i for i, label in enumerate(row_labels)}
+    by_row: dict[str | None, list[models.VenueSeat]] = {}
+    for seat in seats:
+        by_row.setdefault(seat.row_label, []).append(seat)
+    to_update: list[models.VenueSeat] = []
+    for label, row_seats in by_row.items():
+        # numbered seats first (dense rank fixes 1,3,5… gaps), then null-numbered by label
+        numbered = sorted((s for s in row_seats if s.number is not None), key=lambda s: (s.number, s.label))
+        unnumbered = sorted((s for s in row_seats if s.number is None), key=lambda s: s.label)
+        for idx, seat in enumerate(numbered + unnumbered):
+            new_row_order = row_rank.get(label, 0) if label is not None else 0
+            if seat.adjacency_index != idx or seat.row_order != new_row_order:
+                seat.adjacency_index = idx
+                seat.row_order = new_row_order
+                to_update.append(seat)
+    if to_update:
+        models.VenueSeat.objects.bulk_update(to_update, ["adjacency_index", "row_order"], batch_size=500)
+
+
+def _has_explicit_ranks(seats: t.Sequence[t.Any]) -> bool:
+    """Whether any seat payload carries an explicit rank (explicit wins wholesale)."""
+    return any(seat.row_order is not None or seat.adjacency_index is not None for seat in seats)
 
 
 def _convert_shape_to_coordinates(shape: list[t.Any]) -> list[schema.Coordinate2D]:
@@ -167,18 +231,28 @@ def create_sector(
     Returns:
         The created sector with its seats
 
+    Raises:
+        HttpError: If any seat references a price category of another venue
+
     Note:
         Seat position validation is handled by VenueSectorCreateSchema.
+        Unless any seat carries an explicit ``row_order``/``adjacency_index``
+        (explicit wins wholesale), both ranks are derived for the sector.
     """
     sector_data = payload.model_dump(exclude={"seats"})
     sector = models.VenueSector.objects.create(venue=venue, **sector_data)
 
     # Create seats if provided
     if payload.seats:
+        _validate_seat_categories(
+            venue.id, {s.price_category_id for s in payload.seats if s.price_category_id is not None}
+        )
         seats_to_create = [
             models.VenueSeat(sector=sector, **_seat_model_kwargs(seat.model_dump())) for seat in payload.seats
         ]
         models.VenueSeat.objects.bulk_create(seats_to_create)
+        if not _has_explicit_ranks(payload.seats):
+            derive_sector_seat_ranks(sector)
 
     return sector
 
@@ -221,10 +295,21 @@ def update_sector(
 
     Returns:
         The updated sector
+
+    Raises:
+        HttpError: If ``kind`` would change while the sector has seats
     """
     update_data = payload.model_dump(exclude_unset=True)
+    if update_data.get("kind") is None:
+        update_data.pop("kind", None)
     if not update_data:
         return sector
+
+    if "kind" in update_data and update_data["kind"] != sector.kind and sector.seats.exists():
+        raise HttpError(
+            400,
+            str(_("Sector kind can only be changed while the sector has no seats. Delete its seats first.")),
+        )
 
     for field, value in update_data.items():
         setattr(sector, field, value)
@@ -248,7 +333,12 @@ def bulk_create_seats(
         The created seats
 
     Raises:
-        HttpError: If any seat position is outside the sector shape
+        HttpError: If any seat position is outside the sector shape, or any seat
+            references a price category of another venue
+
+    Note:
+        Unless any seat carries an explicit ``row_order``/``adjacency_index``
+        (explicit wins wholesale), both ranks are re-derived for the whole sector.
     """
     if not seats:
         return []
@@ -258,8 +348,15 @@ def bulk_create_seats(
         shape_coords = _convert_shape_to_coordinates(sector.shape)
         _validate_seats_in_shape(seats, shape_coords)
 
+    _validate_seat_categories(sector.venue_id, {s.price_category_id for s in seats if s.price_category_id is not None})
+
     seats_to_create = [models.VenueSeat(sector=sector, **_seat_model_kwargs(seat.model_dump())) for seat in seats]
-    return list(models.VenueSeat.objects.bulk_create(seats_to_create))
+    created = list(models.VenueSeat.objects.bulk_create(seats_to_create))
+    if not _has_explicit_ranks(seats):
+        derive_sector_seat_ranks(sector)
+        ranked = {s.id: s for s in models.VenueSeat.objects.filter(id__in=[s.id for s in created])}
+        created = [ranked[s.id] for s in created]
+    return created
 
 
 def get_seat_by_label(sector: models.VenueSector, label: str) -> models.VenueSeat:
@@ -281,6 +378,7 @@ def get_seat_by_label(sector: models.VenueSector, label: str) -> models.VenueSea
         raise HttpError(404, str(_("Seat with label '{}' not found in this sector.").format(label)))
 
 
+@transaction.atomic
 def update_seat(
     seat: models.VenueSeat,
     payload: schema.VenueSeatUpdateSchema,
@@ -295,6 +393,11 @@ def update_seat(
 
     Returns:
         The updated seat
+
+    Note:
+        When the update touches ``row``/``number`` without explicit
+        ``row_order``/``adjacency_index`` (explicit wins wholesale), both ranks
+        are re-derived for the whole sector.
     """
     update_data = _seat_model_kwargs(payload.model_dump(exclude_unset=True))
     if not update_data:
@@ -306,10 +409,18 @@ def update_seat(
         if not schema.point_in_polygon(payload.position, shape_coords):
             raise HttpError(400, str(_("Seat position is outside the sector shape.")))
 
+    if payload.price_category_id is not None:
+        _validate_seat_categories(seat.sector.venue_id, {payload.price_category_id})
+
     for field, value in update_data.items():
         setattr(seat, field, value)
 
     seat.save(update_fields=list(update_data.keys()))
+
+    if not _has_explicit_ranks([payload]) and ({"row_label", "number"} & set(update_data)):
+        derive_sector_seat_ranks(seat.sector)
+        seat.refresh_from_db(fields=["row_order", "adjacency_index"])
+
     return seat
 
 
@@ -397,6 +508,30 @@ def bulk_delete_seats(sector: models.VenueSector, labels: list[str]) -> int:
     return deleted_count
 
 
+def _apply_seat_update(
+    seat: models.VenueSeat,
+    update: schema.VenueSeatBulkUpdateItemSchema,
+    shape_coords: list[schema.Coordinate2D] | None,
+    update_fields: set[str],
+) -> None:
+    """Apply one bulk-update item to a seat in memory, tracking the touched fields."""
+    update_data = _seat_model_kwargs(update.model_dump(exclude={"label"}, exclude_unset=True))
+    if not update_data:
+        return
+
+    # Validate position against sector shape if both are present
+    if update.position is not None and shape_coords is not None:
+        if not schema.point_in_polygon(update.position, shape_coords):
+            raise HttpError(
+                400,
+                str(_("Seat '{}' position is outside the sector shape.").format(update.label)),
+            )
+
+    for field, value in update_data.items():
+        setattr(seat, field, value)
+        update_fields.add(field)
+
+
 @transaction.atomic
 def bulk_update_seats(
     sector: models.VenueSector,
@@ -414,10 +549,20 @@ def bulk_update_seats(
         The list of updated seats
 
     Raises:
-        HttpError: If any seat is not found or position is outside sector shape
+        HttpError: If any seat is not found, a position is outside the sector
+            shape, or a price category belongs to another venue
+
+    Note:
+        When any update touches ``row``/``number`` and no seat in the request
+        carries an explicit ``row_order``/``adjacency_index`` (explicit wins
+        wholesale), both ranks are re-derived for the whole sector.
     """
     if not updates:
         return []
+
+    _validate_seat_categories(
+        sector.venue_id, {u.price_category_id for u in updates if u.price_category_id is not None}
+    )
 
     # Extract labels and verify all seats exist
     labels = [update.label for update in updates]
@@ -444,31 +589,45 @@ def bulk_update_seats(
 
     for update in updates:
         seat = seats_by_label[update.label]
-        update_data = _seat_model_kwargs(update.model_dump(exclude={"label"}, exclude_unset=True))
-
-        if not update_data:
-            updated_seats.append(seat)
-            continue
-
-        # Validate position against sector shape if both are present
-        if update.position is not None and shape_coords is not None:
-            if not schema.point_in_polygon(update.position, shape_coords):
-                raise HttpError(
-                    400,
-                    str(_("Seat '{}' position is outside the sector shape.").format(update.label)),
-                )
-
-        for field, value in update_data.items():
-            setattr(seat, field, value)
-            update_fields.add(field)
-
+        _apply_seat_update(seat, update, shape_coords, update_fields)
         updated_seats.append(seat)
 
     # Bulk update if there are fields to update
     if update_fields:
         models.VenueSeat.objects.bulk_update(updated_seats, list(update_fields))
 
+    if not _has_explicit_ranks(updates) and ({"row_label", "number"} & update_fields):
+        derive_sector_seat_ranks(sector)
+        ranked = {s.id: s for s in models.VenueSeat.objects.filter(id__in=[s.id for s in updated_seats])}
+        updated_seats = [ranked[s.id] for s in updated_seats]
+
     return updated_seats
+
+
+@transaction.atomic
+def paint_seats(venue: models.Venue, payload: schema.VenueSeatPaintSchema) -> int:
+    """Bulk paint (or unpaint) seats with a price category in a single UPDATE.
+
+    Args:
+        venue: The venue the seats and the category must belong to
+        payload: Seat ids and the category to paint (null = unpaint)
+
+    Returns:
+        The number of seats painted
+
+    Raises:
+        HttpError: 400 if the category belongs to another venue, 404 if any seat
+            does not belong to this venue
+    """
+    if payload.price_category_id is not None:
+        _validate_seat_categories(venue.id, {payload.price_category_id})
+
+    seat_ids = set(payload.seat_ids)
+    seats = models.VenueSeat.objects.filter(id__in=seat_ids, sector__venue=venue)
+    if seats.count() != len(seat_ids):
+        raise HttpError(404, str(_("Some seats were not found in this venue.")))
+
+    return seats.update(default_price_category_id=payload.price_category_id)
 
 
 def get_tier_seat_availability(

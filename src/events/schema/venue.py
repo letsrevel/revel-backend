@@ -257,6 +257,20 @@ class VenueSeatInputSchema(Schema):
     is_accessible: bool = False
     is_obstructed_view: bool = False
     is_active: bool = True
+    price_category_id: UUID | None = Field(
+        default=None,
+        description="Price category to paint the seat with. Must belong to the sector's venue. Null = unpainted.",
+    )
+    row_order: int | None = Field(
+        default=None,
+        ge=0,
+        description="Explicit front-to-back row rank. Omit to have it derived from row labels.",
+    )
+    adjacency_index: int | None = Field(
+        default=None,
+        ge=0,
+        description="Explicit left-to-right position in the row. Omit to have it derived from seat numbers.",
+    )
 
 
 class VenueSectorCreateSchema(Schema):
@@ -264,6 +278,7 @@ class VenueSectorCreateSchema(Schema):
 
     name: t.Annotated[str, StringConstraints(min_length=1, max_length=100, strip_whitespace=True)]
     code: t.Annotated[str, StringConstraints(max_length=30, strip_whitespace=True)] | None = None
+    kind: VenueSector.Kind = VenueSector.Kind.SEATED
     shape: PolygonShape | None = Field(
         None,
         description="Polygon vertices [{x, y}, ...] for FE rendering. Minimum 3 points.",
@@ -295,6 +310,10 @@ class VenueSectorUpdateSchema(Schema):
 
     name: t.Annotated[str, StringConstraints(min_length=1, max_length=100, strip_whitespace=True)] | None = None
     code: t.Annotated[str, StringConstraints(max_length=30, strip_whitespace=True)] | None = None
+    kind: VenueSector.Kind | None = Field(
+        default=None,
+        description="Sector kind. May only change while the sector has zero seats.",
+    )
     shape: PolygonShape | None = Field(
         None,
         description="Polygon vertices [{x, y}, ...] for FE rendering. Minimum 3 points.",
@@ -339,6 +358,20 @@ class VenueSeatUpdateSchema(Schema):
     is_accessible: bool | None = None
     is_obstructed_view: bool | None = None
     is_active: bool | None = None
+    price_category_id: UUID | None = Field(
+        default=None,
+        description="Price category to paint the seat with. Must belong to the sector's venue. Null = unpaint.",
+    )
+    row_order: int | None = Field(
+        default=None,
+        ge=0,
+        description="Explicit front-to-back row rank. Omit to have it derived from row labels.",
+    )
+    adjacency_index: int | None = Field(
+        default=None,
+        ge=0,
+        description="Explicit left-to-right position in the row. Omit to have it derived from seat numbers.",
+    )
 
 
 class VenueSeatBulkUpdateItemSchema(Schema):
@@ -360,6 +393,20 @@ class VenueSeatBulkUpdateItemSchema(Schema):
     is_accessible: bool | None = None
     is_obstructed_view: bool | None = None
     is_active: bool | None = None
+    price_category_id: UUID | None = Field(
+        default=None,
+        description="Price category to paint the seat with. Must belong to the sector's venue. Null = unpaint.",
+    )
+    row_order: int | None = Field(
+        default=None,
+        ge=0,
+        description="Explicit front-to-back row rank. Omit to have it derived from row labels.",
+    )
+    adjacency_index: int | None = Field(
+        default=None,
+        ge=0,
+        description="Explicit left-to-right position in the row. Omit to have it derived from seat numbers.",
+    )
 
 
 class VenueSeatBulkUpdateSchema(Schema):
@@ -369,4 +416,18 @@ class VenueSeatBulkUpdateSchema(Schema):
         ...,
         min_length=1,
         description="List of seats to update with their new values.",
+    )
+
+
+class VenueSeatPaintSchema(Schema):
+    """Schema for bulk painting seats with a price category (or unpainting with null)."""
+
+    seat_ids: list[UUID] = Field(
+        ...,
+        min_length=1,
+        description="Seats to paint. All must belong to the venue.",
+    )
+    price_category_id: UUID | None = Field(
+        ...,
+        description="Price category to paint the seats with (must belong to the venue). Null = unpaint.",
     )

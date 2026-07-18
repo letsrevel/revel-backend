@@ -119,6 +119,28 @@ def test_user_choice_with_only_price_category_rejected(event: Event, venue: Venu
         )
 
 
+def test_user_choice_on_standing_sector_rejected(event: Event, venue: Venue) -> None:
+    """A standing sector has no seats to choose — every USER_CHOICE hold would 409."""
+    event.venue = venue
+    event.save(update_fields=["venue"])
+    standing = VenueSector.objects.create(venue=venue, name="Pit", kind=VenueSector.Kind.STANDING)
+    with pytest.raises(DjangoValidationError, match="seated sector"):
+        TicketTier.objects.create(
+            event=event, name="Bad", sector=standing, seat_assignment_mode=TicketTier.SeatAssignmentMode.USER_CHOICE
+        )
+
+
+def test_none_mode_on_standing_sector_still_valid(event: Event, venue: Venue) -> None:
+    """GA tiers may point at a standing sector (that is their whole purpose)."""
+    event.venue = venue
+    event.save(update_fields=["venue"])
+    standing = VenueSector.objects.create(venue=venue, name="Pit", kind=VenueSector.Kind.STANDING)
+    tier = TicketTier.objects.create(
+        event=event, name="GA", sector=standing, seat_assignment_mode=TicketTier.SeatAssignmentMode.NONE
+    )
+    assert tier.sector_id == standing.id
+
+
 def test_user_choice_with_sector_still_valid(event: Event, venue: Venue, sector: VenueSector) -> None:
     event.venue = venue
     event.save(update_fields=["venue"])
